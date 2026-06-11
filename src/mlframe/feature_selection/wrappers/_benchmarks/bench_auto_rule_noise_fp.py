@@ -166,7 +166,7 @@ def _report(tag, rule):
     return noise, strong, weak
 
 
-def main():
+def main() -> tuple[dict, dict, dict]:
     print("=== RFECV auto-rule noise-FP biz_value harness (seeds=[0,1,2], majority=median) ===\n")
     # 'one_se_max' is what pre-fix 'auto' resolved to uniformly; running it gives the pre-fix baseline.
     _report("PRE-FIX baseline", "one_se_max")

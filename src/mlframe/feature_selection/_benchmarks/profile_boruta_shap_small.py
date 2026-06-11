@@ -60,9 +60,14 @@ import time
 import warnings
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.boruta_shap import BorutaShap
 
 warnings.filterwarnings("ignore")
 
@@ -77,7 +82,7 @@ def build_scene(n: int, p: int, informative: int, seed: int = 42) -> tuple[pd.Da
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
-def make_selector(n_estimators: int, n_trials: int):
+def make_selector(n_estimators: int, n_trials: int) -> BorutaShap:
     """SHAP-driven BorutaShap (the path that actually calls TreeExplainer) at a modest booster size."""
     import lightgbm as lgb
     from mlframe.feature_selection.boruta_shap import BorutaShap
@@ -89,7 +94,7 @@ def make_selector(n_estimators: int, n_trials: int):
     )
 
 
-def extract_golden(bs) -> dict:
+def extract_golden(bs: BorutaShap) -> dict:
     """Bit-identity golden: accept/reject/tentative sets + per-feature hit vector + trials run + selection."""
     return {
         "accepted": sorted(bs.accepted),

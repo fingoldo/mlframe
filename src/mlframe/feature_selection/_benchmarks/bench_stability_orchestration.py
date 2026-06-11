@@ -59,8 +59,13 @@ import os
 import pstats
 import time
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.filters.stability import StabilityMRMR
 
 
 def make_frame(n: int = 800, p: int = 15, seed: int = 0) -> tuple[pd.DataFrame, pd.Series]:
@@ -77,7 +82,7 @@ def make_frame(n: int = 800, p: int = 15, seed: int = 0) -> tuple[pd.DataFrame, 
     return X, y
 
 
-def build_selector(n_bootstraps: int = 5, sample_fraction: float = 0.7, random_state: int = 0):
+def build_selector(n_bootstraps: int = 5, sample_fraction: float = 0.7, random_state: int = 0) -> StabilityMRMR:
     from mlframe.feature_selection.filters.mrmr import MRMR
     from mlframe.feature_selection.filters.stability import StabilityMRMR
 

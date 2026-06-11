@@ -47,13 +47,18 @@ import pstats
 import time
 import warnings
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
 warnings.filterwarnings("ignore")
 
 
-def make_data(n=800, n_inf=8, n_noise=12, n_corr=5, seed=0):
+def make_data(n: int = 800, n_inf: int = 8, n_noise: int = 12, n_corr: int = 5, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, n_inf))
     noise = rng.normal(size=(n, n_noise))
@@ -85,7 +90,7 @@ def _small_model():
     return HistGradientBoostingClassifier(max_iter=60, max_depth=4, random_state=0)
 
 
-def profile_fit(X, y, label):
+def profile_fit(X: pd.DataFrame, y: np.ndarray, label: str) -> ShapProxiedFS:
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS  # noqa: F401
 
     sel = _make_selector()

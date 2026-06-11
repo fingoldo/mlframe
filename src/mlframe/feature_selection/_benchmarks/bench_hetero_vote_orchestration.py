@@ -58,7 +58,7 @@ import pandas as pd
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
 
-def make_reg(seed: int, n: int = 2000, p_sig: int = 5, p_noise: int = 15):
+def make_reg(seed: int, n: int = 2000, p_sig: int = 5, p_noise: int = 15) -> tuple[pd.DataFrame, pd.Series]:
     rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, p_sig))
     beta = np.array([1.5, -1.2, 1.0, 0.9, -0.7])[:p_sig]
@@ -73,7 +73,7 @@ def _run(X, y, n_trials=3):
     return heterogeneous_relevance_vote(X, y, classification=False, n_shadow_trials=n_trials, random_state=0)
 
 
-def profile_shape(name, X, y, n_trials=3):
+def profile_shape(name: str, X: pd.DataFrame, y: pd.Series, n_trials: int = 3) -> None:
     pr = cProfile.Profile()
     pr.enable()
     _run(X, y, n_trials)
@@ -88,7 +88,7 @@ def profile_shape(name, X, y, n_trials=3):
     print(s.getvalue())
 
 
-def microbench():
+def microbench() -> None:
     """Isolated warm wall-time of the shadow-build loop-invariant vs the current per-model rebuild."""
     print(f"\n{'='*90}\nMICROBENCH: shadow construction (line 122), n_models=3\n{'='*90}")
     for n, p in [(2000, 20), (500, 10), (5000, 40)]:

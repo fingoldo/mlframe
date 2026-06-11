@@ -45,6 +45,8 @@ import pstats
 import io
 import time
 
+from typing import Any, Callable
+
 import numpy as np
 
 import polars as pl
@@ -53,7 +55,7 @@ import pandas as pd
 from mlframe.feature_selection.pre_screen import compute_unsupervised_drops
 
 
-def make_fixture(n=5000, p=200, seed=0):
+def make_fixture(n: int = 5000, p: int = 200, seed: int = 0) -> dict[str, np.ndarray]:
     """Wide frame: most random-normal, plus constant / high-null / exact-dup columns."""
     rng = np.random.default_rng(seed)
     data = {}
@@ -79,15 +81,15 @@ def make_fixture(n=5000, p=200, seed=0):
     return data
 
 
-def build_pandas(data):
+def build_pandas(data: dict[str, np.ndarray]) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-def build_polars(data):
+def build_polars(data: dict[str, np.ndarray]) -> pl.DataFrame:
     return pl.DataFrame(data)
 
 
-def microbench(fn, df, n_runs=30):
+def microbench(fn: Callable, df: Any, n_runs: int = 30) -> tuple[float, Any]:
     # warm
     for _ in range(3):
         fn(df)
@@ -98,7 +100,7 @@ def microbench(fn, df, n_runs=30):
     return (t1 - t0) / n_runs * 1e3, out  # ms/call
 
 
-def profile(fn, df, n_runs=200, label=""):
+def profile(fn: Callable, df: Any, n_runs: int = 200, label: str = "") -> None:
     pr = cProfile.Profile()
     pr.enable()
     for _ in range(n_runs):

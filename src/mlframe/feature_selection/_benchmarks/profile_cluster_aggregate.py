@@ -170,7 +170,7 @@ def _bitident_check(seeds=(0, 1, 7)):
     return ok
 
 
-def main():
+def main() -> None:
     print("=== bit-identity: direct-bin fast path == apply_recipe replay ===")
     _bitident_check()
 

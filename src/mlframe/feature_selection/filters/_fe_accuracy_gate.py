@@ -41,7 +41,7 @@ def measure_feature_uplift(
     classification: bool,
     n_splits: int = 10,
     seed: int = 0,
-):
+) -> float | None:
     """Held-out uplift of a linear probe fitted on ``[X_base | X_eng]`` versus
     ``X_base`` alone. Positive => the engineered set adds generalisable signal.
     Returns the mean held-out score delta (AUC binary / accuracy multiclass /
