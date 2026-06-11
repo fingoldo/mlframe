@@ -976,7 +976,19 @@ def test_biz_val_mrmr_quantization_nbins_range_parametrize(nbins):
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, quantization_nbins=nbins)
     sel.fit(df, ys)
-    assert 1 <= len(sel.support_) <= df.shape[1]
+    # Full-mode honest invariant: assert on the TOTAL selection (raw +
+    # engineered), not the RAW ``support_`` alone. At some bin counts (e.g.
+    # nbins=5 on this fixture) the FE step engineers a single additive child
+    # ``add(add(x0,x2),x1)`` that conditionally SUBSUMES all three raw signal
+    # operands; the raw-redundancy sweep then legitimately drops every raw
+    # (``_redundancy_emptied_raw_`` is set) leaving an ENGINEERED-ONLY
+    # selection -- a complete, intended outcome, not an empty one. The raw
+    # ``support_`` can therefore be empty while ``get_feature_names_out()`` is
+    # non-empty, so count the full selected set (mirrors the sibling property
+    # test below). The upper bound stays the raw column count: FE here only
+    # COMPRESSES signal into fewer columns, never explodes it.
+    n_selected = len(sel.get_feature_names_out())
+    assert 1 <= n_selected <= df.shape[1]
 
 
 @pytest.mark.parametrize("dtype", [np.int32, np.int64])
