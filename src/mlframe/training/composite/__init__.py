@@ -266,6 +266,10 @@ from .conformal import conformal_quantile  # noqa: E402,F401
 # GLM-family composite (log-link Poisson / Gamma / Tweedie residual over a base mean).
 from .glm import CompositeGLMEstimator  # noqa: E402,F401
 
+# Native pinball-quantile composite: one inner per quantile fit on the transform
+# T, inverted to y-scale, non-crossing enforced per row.
+from .quantile import CompositeQuantileEstimator  # noqa: E402,F401
+
 # Multi-output composite: one CompositeTargetEstimator per column of a vector
 # target (n, K), each with its own transform + base; predict returns (n, K).
 from .multi_output import (  # noqa: E402,F401
@@ -285,7 +289,7 @@ from .sklearn_compat import (  # noqa: E402,F401
 __all__ = [
     # estimators / discovery / ensemble
     "CompositeTargetEstimator", "CompositeClassificationEstimator",
-    "CompositeGLMEstimator",
+    "CompositeGLMEstimator", "CompositeQuantileEstimator",
     "CompositeMultiOutputEstimator", "make_per_column_specs",
     "make_composite_regressor", "CompositeTargetTransformer",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
