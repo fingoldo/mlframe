@@ -817,6 +817,52 @@ def _render_shap_interactions() -> Tuple[str, List[str]]:
         return _placeholder_png("shap_interactions", "shap_int_error", "SHAP interaction render raised; see _errors.log.")
 
 
+def _render_shap_per_instance() -> Tuple[str, List[str]]:
+    """Per-instance SHAP attribution for the top-K worst (most-confident-wrong) predictions.
+
+    Planted f2-outlier rows are mislabelled positive at train time so the forest learns 'big f2 -> positive';
+    at score time they become confident-wrong positives whose attribution must blame f2 -- the gallery shows
+    K such worst-error explanations as signed-SHAP bars per instance.
+    """
+    out_dir = GALLERY / "shap_per_instance"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import shap  # noqa: F401
+    except Exception as e:
+        return _placeholder_png("shap_per_instance", "shap_unavailable", f"SHAP not installed ({type(e).__name__}); per-instance attribution skipped.")
+    try:
+        import pandas as pd
+        from sklearn.ensemble import RandomForestClassifier
+        from mlframe.reporting.charts.shap_per_instance import shap_worst_errors_explanation
+        n, K = 1500, 5
+        names = [f"f{i}" for i in range(K)]
+        X = pd.DataFrame(RNG.normal(size=(n, K)), columns=names)
+        y = (X["f0"].to_numpy() > 0).astype(int)
+        cand = np.where(X["f0"].to_numpy() < -0.3)[0]
+        plant = RNG.choice(cand, size=60, replace=False)
+        X.iloc[plant, X.columns.get_loc("f2")] = RNG.uniform(6.0, 9.0, size=plant.size)
+        y_train = y.copy()
+        y_train[plant] = 1
+        model = RandomForestClassifier(n_estimators=60, max_depth=6, random_state=0, n_jobs=1).fit(X, y_train)
+        score = model.predict_proba(X)[:, 1]
+        base = out_dir / "shap_per_instance"
+        res = shap_worst_errors_explanation(
+            model, X, y, score, feature_names=names, k=4, plot_file=str(base) + ".png", plot_outputs="matplotlib[png]",
+        )
+        import matplotlib.pyplot as plt
+        if res.figure is not None:
+            plt.close(res.figure)
+        if not res.paths:
+            return _placeholder_png("shap_per_instance", "shap_pi_skipped", f"per-instance SHAP produced no figure: {res.skipped}")
+        return "ok", [str(Path(p).relative_to(GALLERY)).replace(os.sep, "/") for p in res.paths]
+    except Exception:
+        ERRORS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with ERRORS_LOG.open("a", encoding="ascii", errors="ignore") as f:
+            f.write("=== shap_per_instance/shap_per_instance ===\n")
+            f.write(traceback.format_exc() + "\n")
+        return _placeholder_png("shap_per_instance", "shap_pi_error", "Per-instance SHAP render raised; see _errors.log.")
+
+
 def _placeholder_png(category: str, name: str, message: str) -> Tuple[str, List[str]]:
     """Write a simple text-note PNG so the gallery slot is never empty."""
     import matplotlib.pyplot as plt
@@ -917,6 +963,14 @@ def main() -> int:
         nm = Path(rel).stem
         rendered.append(("shap_interactions", nm, si_desc, rel))
     print(f"[{si_status.upper()}] shap_interactions ({len(si_rels)} file(s))")
+
+    heartbeat(f"render {total}/{total}: shap_per_instance")
+    spi_status, spi_rels = _render_shap_per_instance()
+    spi_desc = "Per-instance SHAP attribution for the top-K most-confident-wrong predictions (signed-SHAP bar per costly error)."
+    for rel in spi_rels:
+        nm = Path(rel).stem
+        rendered.append(("shap_per_instance", nm, spi_desc, rel))
+    print(f"[{spi_status.upper()}] shap_per_instance ({len(spi_rels)} file(s))")
 
     _write_index(rendered)
     heartbeat(f"done: rendered={len(rendered)} failed={len(failed)}")

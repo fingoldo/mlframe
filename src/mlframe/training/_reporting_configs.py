@@ -240,6 +240,9 @@ class ReportingConfig(BaseConfig):
     shap_max_rows: int = 20000
     shap_top_k: int = 6
     shap_allow_kernel: bool = False
+    # Per-instance SHAP attribution for the top-K most-confident-wrong predictions (tree models only). Niche +
+    # adds render cost beyond the global beeswarm, so OPT-IN; explains WHY a specific costly error happened.
+    shap_per_instance: bool = False
     # Combined single-page HTML index per (model, split) stitching the rendered chart artifacts (PNG refs + plotly
     # fragments); assembly-only, default-on when charts are saved.
     combined_html: bool = True

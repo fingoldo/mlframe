@@ -52,6 +52,9 @@ from mlframe.reporting.charts.pdp_ice import (
 from mlframe.reporting.charts.shap_panels import (
     ShapPanelsResult, is_tree_model, shap_summary_and_dependence,
 )
+from mlframe.reporting.charts.shap_per_instance import (
+    ShapPerInstanceResult, shap_worst_errors_explanation,
+)
 from mlframe.reporting.charts.slice_finder import (
     SliceFinderResult, find_weak_slices,
 )
@@ -122,6 +125,8 @@ __all__ = [
     "find_weak_slices",
     "SliceFinderResult",
     "shap_summary_and_dependence",
+    "ShapPerInstanceResult",
+    "shap_worst_errors_explanation",
     "is_tree_model",
     "ShapPanelsResult",
     "calibration_drift",
