@@ -383,3 +383,17 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
                 if n is not None:
                     return int(n)
         return None
+
+
+# Per-output split-conformal intervals live in the conformal-free sibling
+# multi_output_conformal (no import cycle: it pulls nothing from this module).
+# calibrate_conformal(X_cal, y_cal, alpha) fits one radius PER output column on
+# its own held-out residuals; predict_interval(X, alpha) returns (lower, upper)
+# arrays of shape (n, K) with marginal coverage >= 1-alpha per column.
+from .multi_output_conformal import (  # noqa: E402
+    calibrate_conformal as _calibrate_conformal,
+    predict_interval as _predict_interval,
+)
+
+CompositeMultiOutputEstimator.calibrate_conformal = _calibrate_conformal
+CompositeMultiOutputEstimator.predict_interval = _predict_interval
