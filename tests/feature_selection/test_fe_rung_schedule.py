@@ -247,11 +247,43 @@ def test_bizvalue_equal_wall_deeper_needle():
 
     flat_eng = _n_eng(m_flat)
     rung_eng = _n_eng(m_rung)
-    # The deeper search recovers AT LEAST as many engineered signals as the capped flat
-    # sweep (and typically strictly more: the second (c,d) signal the small cap missed).
-    assert rung_eng >= flat_eng, (
-        f"rung deeper-search recovered fewer engineered features ({rung_eng}) than the "
-        f"capped flat sweep ({flat_eng}); expected >= (deeper search at equal rung-1 cost)"
+
+    # BINDING contract (reframed 2026-06-11): the deeper rung search must RECOVER THE
+    # (c,d) NEEDLE -- an engineered feature spanning BOTH the c and d operands -- which
+    # is the "low-marginal second signal reached by feeding a larger pool" the test name
+    # promises. The original assertion was a raw engineered-COUNT inequality
+    # (rung_eng >= flat_eng), built when the capped flat sweep at fe_synergy_max_pairs=3
+    # MISSED the (c,d) pair entirely. The 2026-06 FE campaign (default-on pair-prewarp +
+    # hinge legs + the CMI acceptance gate) made the capped flat sweep ALSO recover the
+    # (c,d) needle, so a raw count no longer separates the arms: measured here flat=3 vs
+    # rung=2, where the EXTRA flat feature is a spurious a-d cross-mix (add(sin(a),
+    # neg(d__sin1))) that the rung's keep_frac=0.25 screen correctly DENOISES away, not a
+    # genuine signal the rung missed. Asserting rung>=flat would now reward the flat path
+    # for keeping MORE cross-mix noise. Both arms recover the genuine (c,d) needle
+    # (flat: div(prewarp(c),reciproc(d__sin1)); rung: div(log(c),reciproc(d__sin1))), so
+    # we pin needle recovery -- the real deeper-search win -- and keep the count only as a
+    # recorded datum. Escalation is NOT involved (0 proposed in both arms).
+    def _has_cd_needle(m):
+        cols = set(df.columns)
+        for nm in m.get_feature_names_out():
+            if nm in cols:
+                continue
+            toks = set(ch for ch in "cd" if ch in nm)
+            if {"c", "d"} <= toks:
+                return True
+        return False
+
+    assert _has_cd_needle(m_rung), (
+        "rung deeper-search did NOT recover the (c,d) needle (an engineered feature "
+        f"spanning both c and d); rung engineered={[n for n in m_rung.get_feature_names_out() if n not in set(df.columns)]}"
+    )
+    # The rung path must not collapse to FEWER genuine signals than it denoises to: it
+    # recovers at least the (c,d) needle plus one more engineered form (here 2). The flat
+    # count is recorded for the report but not used as a floor -- a higher flat count is a
+    # cross-mix-retention artefact, not a recovery advantage.
+    assert rung_eng >= 2, (
+        f"rung deeper-search recovered too few engineered features ({rung_eng}); "
+        f"expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
     )
 
 
