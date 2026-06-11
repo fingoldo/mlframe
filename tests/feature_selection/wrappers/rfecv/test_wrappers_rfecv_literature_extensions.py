@@ -108,6 +108,18 @@ class TestMultiOutputGuard:
         with pytest.raises(NotImplementedError, match="multi-output"):
             rfecv.fit(X, y)
 
+    def test_2d_y_message_pins_shape_and_per_target_guidance(self):
+        # The early guard at RFECV.fit entry must raise BEFORE the deep sklearn NotImplementedError, with an actionable
+        # message: the offending y shape AND the per-target-loop + union(OR) recipe. Pins both so a future refactor
+        # cannot regress to the opaque sklearn error.
+        X, y = make_regression(n_samples=80, n_features=5, n_targets=2, random_state=1)
+        rfecv = RFECV(estimator=Ridge(), cv=2, max_refits=2)
+        with pytest.raises(NotImplementedError) as ei:
+            rfecv.fit(X, y)
+        msg = str(ei.value)
+        assert "(80, 2)" in msg, f"message must report the offending y shape; got: {msg}"
+        assert "per target" in msg and "support_" in msg, f"message must give per-target/union guidance; got: {msg}"
+
 
 # ----------------------------------------------------------------------- L1 / L2
 
