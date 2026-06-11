@@ -34,6 +34,7 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
     },
     "multiclass_classification": {
         "CONFUSION": "Row-normalised confusion-matrix heatmap (P(pred | true)).",
+        "CONFUSION_MARGINS": "Confusion heatmap with per-true-class support (right bar) + per-predicted-class volume (top bar) margins.",
         "CONFUSED_PAIRS": "Top-N most-confused (true -> pred) class pairs as horizontal bars.",
         "PR_F1": "Per-class precision / recall / F1 grouped bar.",
         "ROC": "Per-class one-vs-rest ROC curves overlaid.",

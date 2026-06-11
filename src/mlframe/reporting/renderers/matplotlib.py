@@ -14,9 +14,9 @@ from typing import Any
 import numpy as np
 
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
-    HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec,
-    ViolinPanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, ConfusionMarginsPanelSpec, FigureSpec,
+    HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec,
+    ScatterPanelSpec, ViolinPanelSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,6 +175,8 @@ class MatplotlibRenderer:
             self._histogram(ax, panel)
         elif isinstance(panel, HeatmapPanelSpec):
             self._heatmap(ax, panel, fig)
+        elif isinstance(panel, ConfusionMarginsPanelSpec):
+            self._confusion_margins(ax, panel, fig)
         elif isinstance(panel, BarPanelSpec):
             self._bar(ax, panel)
         elif isinstance(panel, LinePanelSpec):
@@ -397,6 +399,61 @@ class MatplotlibRenderer:
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
+
+    def _confusion_margins(self, ax, p: ConfusionMarginsPanelSpec, fig) -> None:
+        import matplotlib
+        from mlframe.reporting.colors import resolve_heatmap_cmap
+        # The single panel cell hosts a 2x2 small-multiple: top bar (predicted volume), heatmap + right bar (true
+        # support). Subdividing the cell's own subplotspec keeps the layout grid-driven and aligned with siblings;
+        # the passed ``ax`` is the placeholder we replace with the sub-axes.
+        cmap_name = resolve_heatmap_cmap(p.colormap)
+        cm = matplotlib.colormaps[cmap_name]
+        K = p.matrix.shape[0]
+        ax.set_axis_off()
+        gs = ax.get_subplotspec().subgridspec(
+            2, 2, width_ratios=[5, 1], height_ratios=[1, 5], wspace=0.05, hspace=0.05)
+        ax_top = fig.add_subplot(gs[0, 0])
+        ax_hm = fig.add_subplot(gs[1, 0])
+        ax_right = fig.add_subplot(gs[1, 1])
+
+        im = ax_hm.imshow(p.matrix, cmap=cm, aspect="auto")
+        ax_hm.set_xticks(range(len(p.col_labels)))
+        ax_hm.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
+        ax_hm.set_yticks(range(len(p.row_labels)))
+        ax_hm.set_yticklabels(p.row_labels, fontsize=8)
+        ax_hm.set_xlabel(p.xlabel)
+        ax_hm.set_ylabel(p.ylabel)
+        rng = _finite_range(p.matrix)
+        if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
+            from mlframe.reporting.colors import auto_text_color
+            vmin, vmax = rng
+            for i in range(K):
+                for j in range(p.matrix.shape[1]):
+                    cell = float(p.matrix[i, j])
+                    tc = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
+                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format),
+                               ha="center", va="center", fontsize=7, color=tc)
+
+        pos = np.arange(K)
+        # Top bar: predicted-class volume, aligned to the heatmap columns (shared x, ticks hidden -- the heatmap owns them).
+        ax_top.bar(pos, np.asarray(p.col_margin, dtype=float), color="#4c72b0", width=0.8)
+        ax_top.set_xlim(-0.5, K - 0.5)
+        ax_top.set_xticks([])
+        ax_top.tick_params(axis="y", labelsize=7)
+        ax_top.set_ylabel(p.col_margin_label, fontsize=7)
+        # Right bar: per-true-class support, aligned to the heatmap rows (imshow y runs top->bottom, so invert).
+        ax_right.barh(pos, np.asarray(p.row_margin, dtype=float), color="#55a868", height=0.8)
+        ax_right.set_ylim(-0.5, K - 0.5)
+        ax_right.invert_yaxis()
+        ax_right.set_yticks([])
+        ax_right.tick_params(axis="x", labelsize=7, rotation=45)
+        ax_right.set_xlabel(p.row_margin_label, fontsize=7)
+
+        cbar = fig.colorbar(im, ax=ax_right, fraction=0.25, pad=0.35)
+        if p.colorbar_label:
+            cbar.set_label(p.colorbar_label, fontsize=8)
+        title = p.title if not p.note else f"{p.title}\n{p.note}"
+        ax_top.set_title(title, fontsize=10)
 
     def _bar(self, ax, p: BarPanelSpec) -> None:
         horizontal = p.orientation == "horizontal"

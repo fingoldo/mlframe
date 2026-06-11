@@ -226,6 +226,28 @@ def _b():
     )
 
 
+@entry("multiclass", "confusion_margins",
+       "Confusion heatmap flanked by class-support margins: right bar = per-true-class support, top bar = per-predicted-class volume. "
+       "On an imbalanced + majority-biased synthetic the dominant class's support bar towers over the minorities and its predicted-volume "
+       "bar exceeds its support, revealing imbalance + over-prediction at a glance.")
+def _b():
+    from mlframe.reporting.charts.multiclass import compose_multiclass_figure
+    n, K = 6000, 4
+    prevalence = np.array([0.6, 0.2, 0.13, 0.07])  # class 0 dominant
+    y = RNG.choice(K, size=n, p=prevalence)
+    proba = RNG.dirichlet([1.0] * K, size=n)
+    for i, t in enumerate(y):
+        proba[i, t] += 0.5      # genuine signal on the true class
+        proba[i, 0] += 1.0      # majority-class bias so the model over-predicts class 0
+    proba /= proba.sum(axis=1, keepdims=True)
+    return compose_multiclass_figure(
+        y, proba, list(range(K)),
+        panels_template="CONFUSION_MARGINS",
+        suptitle="Confusion + class-support margins (imbalanced 60/20/13/7, majority-biased model)",
+        max_cols=1, cell_width=8.0, cell_height=6.0,
+    )
+
+
 @entry("multiclass", "multiclass_largeK",
        "Large-K (K=40): per-class ROC / PR / reliability overlays auto-switch to the 8 worst-by-AUC classes + a macro-average instead of 40 spaghetti curves.")
 def _b():

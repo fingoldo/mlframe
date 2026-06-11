@@ -5,8 +5,10 @@ a single ``PanelSpec`` instance. ``compose_multiclass_figure`` parses
 the panel template (DSL from ``ReportingConfig.multiclass_panels``) and
 packs the selected panels into a row-major grid.
 
-Token catalogue (all 8):
+Token catalogue (all 9):
 - ``CONFUSION``  — row-normalised confusion matrix heatmap
+- ``CONFUSION_MARGINS`` — confusion heatmap flanked by per-true-class support (right bar) and
+                   per-predicted-class volume (top bar), so imbalance + over/under-prediction read at a glance
 - ``CONFUSED_PAIRS`` — top-N most-confused (true -> pred) class pairs as a horizontal bar
 - ``PR_F1``      — per-class precision/recall/F1 grouped bar
 - ``ROC``        — per-class ROC curves overlaid
@@ -30,8 +32,8 @@ from mlframe.reporting.charts._layout import (
 )
 from mlframe.reporting.colors import HEATMAP_CMAP
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
-    LinePanelSpec, PanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, ConfusionMarginsPanelSpec, FigureSpec,
+    HeatmapPanelSpec, LinePanelSpec, PanelSpec, ScatterPanelSpec, ViolinPanelSpec,
 )
 
 # Curves drawn on a 200-pt display grid cannot resolve more than this many
@@ -214,6 +216,56 @@ def _confusion_panel(y_true, y_proba, classes, *, y_pred=None, normalize: bool =
         cell_text=display if K <= _CONFUSION_TEXT_MAX_K else None,
         text_format=fmt,
         colorbar_label=cbar,
+    )
+
+
+def _confusion_margins_panel(y_true, y_proba, classes, *, y_pred=None, normalize: bool = True) -> PanelSpec:
+    """Confusion heatmap flanked by class-support marginal bars.
+
+    The heatmap is identical to ``CONFUSION``; the right bar is per-true-class support (``matrix.sum(axis=1)`` --
+    how many samples actually belong to each class) and the top bar is per-predicted-class volume
+    (``matrix.sum(axis=0)`` -- how many the model routed there). The two margins are pure row/column sums of the
+    already-computed confusion matrix (O(K^2) on the small matrix, no extra full-n pass), and equal
+    ``bincount(y_true)`` / ``bincount(y_pred)`` over the in-range pairs. A dominant right-bar reveals imbalance; a
+    top-bar exceeding the matching right-bar reveals the model over-predicting that class.
+    """
+    K = len(classes)
+    matrix = _confusion_counts(y_true, _resolve_pred(y_pred, y_proba), K)
+    row_margin = matrix.sum(axis=1)   # true-class support
+    col_margin = matrix.sum(axis=0)   # predicted-class volume
+    total = float(matrix.sum())
+    note: Optional[str] = None
+    if K <= 1:
+        note = "single-class problem"
+    elif total == 0:
+        note = "no in-range samples"
+    elif total < 10:
+        note = f"tiny n ({int(total)}) -- margins noisy"
+    if normalize and total > 0:
+        row_sums = matrix.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        display = matrix / row_sums
+        title = "Confusion + class-support margins (row-normalised)"
+        cbar = "P(pred | true)"
+        fmt = ".2f"
+    else:
+        display = matrix
+        title = "Confusion + class-support margins (counts)"
+        cbar = "count"
+        fmt = ".0f"
+    labels = tuple(str(c) for c in classes)
+    return ConfusionMarginsPanelSpec(
+        matrix=display,
+        row_margin=row_margin,
+        col_margin=col_margin,
+        row_labels=labels,
+        col_labels=labels,
+        title=title,
+        colormap=HEATMAP_CMAP,
+        cell_text=display if K <= _CONFUSION_TEXT_MAX_K else None,
+        text_format=fmt,
+        colorbar_label=cbar,
+        note=note,
     )
 
 
@@ -629,6 +681,7 @@ def _top_k_acc_panel(y_true, y_proba, classes, *, y_pred=None) -> LinePanelSpec:
 
 _TOKEN_BUILDERS: Dict[str, Callable] = {
     "CONFUSION": _confusion_panel,
+    "CONFUSION_MARGINS": _confusion_margins_panel,
     "CONFUSED_PAIRS": _confused_pairs_panel,
     "PR_F1": _pr_f1_panel,
     "ROC": _roc_panel,

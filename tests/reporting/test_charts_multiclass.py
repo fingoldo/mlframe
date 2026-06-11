@@ -70,8 +70,8 @@ def synth_4class():
 class TestAllowedTokens:
     def test_allowed_set_matches_documented(self):
         assert ALLOWED_MULTICLASS_PANEL_TOKENS == frozenset({
-            "CONFUSION", "CONFUSED_PAIRS", "PR_F1", "ROC", "PR_CURVES",
-            "CALIB_GRID", "PROB_DIST", "TOP_K_ACC",
+            "CONFUSION", "CONFUSION_MARGINS", "CONFUSED_PAIRS", "PR_F1", "ROC",
+            "PR_CURVES", "CALIB_GRID", "PROB_DIST", "TOP_K_ACC",
         })
 
 

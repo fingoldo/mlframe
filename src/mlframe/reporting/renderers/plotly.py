@@ -20,9 +20,9 @@ from typing import Any, List
 import numpy as np
 
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
-    HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec,
-    ViolinPanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, ConfusionMarginsPanelSpec, FigureSpec,
+    HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec,
+    ScatterPanelSpec, ViolinPanelSpec,
 )
 
 # Kaleido lifecycle + static-image write plumbing lives in the sibling module; re-exported here so
@@ -233,6 +233,8 @@ class PlotlyRenderer:
             self._histogram(fig, panel, row, col)
         elif isinstance(panel, HeatmapPanelSpec):
             self._heatmap(fig, panel, row, col)
+        elif isinstance(panel, ConfusionMarginsPanelSpec):
+            self._confusion_margins(fig, panel, row, col)
         elif isinstance(panel, BarPanelSpec):
             self._bar(fig, panel, row, col)
         elif isinstance(panel, LinePanelSpec):
@@ -454,6 +456,20 @@ class PlotlyRenderer:
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid,
                          type="log" if p.yscale == "log" else "linear")
+
+    def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: int) -> None:
+        # Plotly subplot cells cannot host nested marginal axes the way the matplotlib subgridspec does, so the
+        # margins are folded into the axis tick labels: each predicted-class column header carries its volume and
+        # each true-class row header its support. The heatmap itself reuses the HeatmapPanelSpec renderer.
+        col_labels = tuple(f"{lab}<br>(vol={int(v)})" for lab, v in zip(p.col_labels, np.asarray(p.col_margin)))
+        row_labels = tuple(f"{lab} (n={int(v)})" for lab, v in zip(p.row_labels, np.asarray(p.row_margin)))
+        title = p.title if not p.note else f"{p.title} -- {p.note}"
+        heat = HeatmapPanelSpec(
+            matrix=p.matrix, row_labels=row_labels, col_labels=col_labels,
+            title=title, xlabel=p.xlabel, ylabel=p.ylabel, colormap=p.colormap,
+            cell_text=p.cell_text, text_format=p.text_format, colorbar_label=p.colorbar_label,
+        )
+        self._heatmap(fig, heat, row, col)
 
     def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go

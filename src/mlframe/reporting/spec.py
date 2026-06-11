@@ -127,6 +127,36 @@ class HeatmapPanelSpec:
 
 
 @dataclass(frozen=True)
+class ConfusionMarginsPanelSpec:
+    """Confusion heatmap flanked by class-support marginal bars.
+
+    The central heatmap is the confusion matrix (counts or row-normalised); a right-side horizontal bar shows
+    per-true-class support (``row_margin`` = how many samples actually belong to each class) and a top bar shows
+    per-predicted-class volume (``col_margin`` = how many samples the model routed to each class). Comparing the two
+    margins surfaces class imbalance (a dominant ``row_margin`` bar) and over/under-prediction (``col_margin`` >>
+    ``row_margin`` for a class the model over-emits). The renderer subdivides the panel cell into a small multi-axes
+    grid; ``cell_text`` is suppressed (None) past the large-K cap, exactly like ``HeatmapPanelSpec``.
+    """
+
+    matrix: np.ndarray               # K x K display matrix (counts or row-rates)
+    row_margin: np.ndarray           # length-K true-class support (counts)
+    col_margin: np.ndarray           # length-K predicted-class volume (counts)
+    row_labels: Tuple[str, ...]
+    col_labels: Tuple[str, ...]
+    title: str = ""
+    xlabel: str = "Predicted"
+    ylabel: str = "True"
+    colormap: str = _colors.HEATMAP_GENERIC
+    cell_text: Optional[np.ndarray] = None
+    text_format: str = ".2f"
+    colorbar_label: Optional[str] = None
+    row_margin_label: str = "true support (n)"
+    col_margin_label: str = "predicted volume (n)"
+    # Free-text note (degenerate / tiny-n annotation) drawn under the title; None when the inputs are well-formed.
+    note: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class BarPanelSpec:
     """Single-series or grouped bar chart.
 
@@ -276,6 +306,7 @@ PanelSpec = Union[
     ScatterPanelSpec,
     HistogramPanelSpec,
     HeatmapPanelSpec,
+    ConfusionMarginsPanelSpec,
     BarPanelSpec,
     LinePanelSpec,
     ViolinPanelSpec,
@@ -328,6 +359,7 @@ __all__ = [
     "ScatterPanelSpec",
     "HistogramPanelSpec",
     "HeatmapPanelSpec",
+    "ConfusionMarginsPanelSpec",
     "BarPanelSpec",
     "LinePanelSpec",
     "ViolinPanelSpec",
