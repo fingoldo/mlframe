@@ -356,6 +356,72 @@ models, X_aligned = read_trained_models(
 preds = get_models_raw_predictions(models, X_aligned, Y=None)
 ```
 
+## Visualization & Diagnostics
+
+`train_mlframe_models_suite` emits a task-appropriate set of diagnostic charts
+whenever `output_config.data_dir` is set (charts land under
+`<data_dir>/charts/...`; a run with no `data_dir` computes metrics but saves no
+figures and logs a one-line hint so the absence is never silent). Everything
+below is **default-ON** — you remove tokens / flip flags to opt *out*. All of it
+is configured through `ReportingConfig`. Full reference:
+[docs/visualization.md](docs/visualization.md).
+
+**What renders per task type** (the default panel templates):
+
+| Task type | Default panels (`ReportingConfig` knob) |
+| --- | --- |
+| Binary | `ROC PR SCORE_DIST KS THRESHOLD GAIN PIT` (`binary_panels`) |
+| Multiclass | `CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC` (`multiclass_panels`) |
+| Multilabel | `PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST` (`multilabel_panels`) |
+| LTR | `NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL` (`ltr_panels`) |
+| Quantile | `RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING` (`quantile_panels`) |
+| Regression | `SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE` (`regression_panels`) |
+
+**New diagnostics this brings.** Binary classification gained the full curve set
+it previously lacked (ROC / PR / score-distribution / KS / threshold-sweep /
+cumulative-gain / PIT). Beyond the per-task panels the suite also renders, when
+charts are being saved: a target/prediction **distribution overlay** per split
+(incl. OOF-vs-test), a tree-guided **weak-segment error heatmap**,
+**error-bias-per-feature** (OVER/UNDER/MAJORITY tails), a **worst-K errors**
+table with the same points red-highlighted on the scatter, a **PSI drift
+heatmap** (feature × time, 0.10/0.25 triage), **adversarial validation**
+(train-vs-test/val LightGBM AUC + drifting-feature bars — "will my CV
+transfer?"), **residual / metric over time**, per-model **training curves**
+(train vs val metric per boosting iteration with the early-stop point marked),
+and the quantile **reliability / coverage / pinball-by-alpha / PIT / crossing**
+diagnostics including a CORP pinball decomposition.
+
+**Large-n behavior.** The charts stay cheap on multi-million-row frames with no
+pre-subsampling: the regression scatter switches to a log-density hexbin/hist2d
+above 50k points (raw scatter with an extremes-preserving subsample below it, so
+the MaxError point is always drawn); plotly scatters use `Scattergl` (WebGL)
+above 10k and decimate above 50k; histograms are numpy-prebinned at ≥50k
+(2M raw values → ~37MB HTML drops to ~14KB); curves are vertex-decimated to
+~2000 points; violins/KDE subsample to 5000; PSI / overlays / over-time panels
+are aggregate-first (one O(n) pass per feature).
+
+**Output DSL.** `ReportingConfig.plot_outputs` is a backend×format DSL, default
+`"plotly[html] + matplotlib[png]"` — interactive HTML for sharing plus a static
+PNG from matplotlib (plotly PNG via kaleido spends ~12-15s/figure on a Chromium
+reload, so the fast matplotlib path is the default; use `"plotly[html,png]"` to
+force kaleido). Grammar: `<backend>[<fmt>,...] + <backend>[<fmt>,...]`.
+
+**Panel templates** are space-separated token strings validated at config
+construction against each chart module's allowed-token set, so a typo fails
+before training starts. Set any subset (or `""` to skip a task's panels).
+
+**Key knobs:** `binary_panels` / `multiclass_panels` / `multilabel_panels` /
+`ltr_panels` / `quantile_panels` / `regression_panels` (panel templates),
+`regression_scatter_sample_size` (5000), `calibration_binning`
+(`auto`/`uniform`/`quantile`), `reliability_show_ci` (Wilson CI band, on),
+`training_curves` (on), `keep_figure_handles` (retain pure-data `FigureSpec`s
+in `metrics["figure_specs"]` for programmatic re-render; chart paths are always
+in `metrics["charts"]`).
+
+**Discovery.** `from mlframe.reporting import describe_available_panels;
+describe_available_panels()` prints every token per task type with a one-line
+description (and returns the same mapping for programmatic use).
+
 ## Caching strategy
 
 The training suite runs two caching layers with different key strategies, because
