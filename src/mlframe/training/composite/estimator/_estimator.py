@@ -944,9 +944,15 @@ CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
 from ..conformal import (  # noqa: E402
     calibrate_conformal as _calibrate_conformal,
     predict_interval as _predict_interval,
+    calibrate_conformal_cqr as _calibrate_conformal_cqr,
+    predict_interval_cqr as _predict_interval_cqr,
 )
 CompositeTargetEstimator.calibrate_conformal = _calibrate_conformal
 CompositeTargetEstimator.predict_interval = _predict_interval
+# CQR (Conformalized Quantile Regression): adaptive-width intervals over the
+# wrapper's quantile predictions, for heteroscedastic targets.
+CompositeTargetEstimator.calibrate_conformal_cqr = _calibrate_conformal_cqr
+CompositeTargetEstimator.predict_interval_cqr = _predict_interval_cqr
 
 # The public methods (``predict`` / ``predict_quantile`` / ``predict_pre_clip``
 # / ``update`` / ``get_buffer_state`` / ``get_booster``) and the sklearn-convention

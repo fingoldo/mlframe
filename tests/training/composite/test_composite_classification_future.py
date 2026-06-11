@@ -78,13 +78,24 @@ class TestM7Contract:
         auc = roc_auc_score(y, est.predict_proba(X)[:, 1])
         assert auc > 0.85
 
-    def test_non_binary_raises(self) -> None:
-        X, _ = _xor_residual_data(n=600)
+    def test_multiclass_is_supported(self) -> None:
+        # Multiclass is now first-class (softmax over (n, K) base + residual
+        # margins); a 3-class target fits and predicts in-range.
+        X, _ = _xor_residual_data(n=900)
         y3 = np.tile([0, 1, 2], len(X) // 3 + 1)[: len(X)]
-        with pytest.raises(ValueError, match="binary"):
+        est = CompositeClassificationEstimator(
+            base_estimator=lgb.LGBMClassifier(n_estimators=20, verbose=-1),
+        ).fit(X, y3)
+        proba = est.predict_proba(X)
+        assert proba.shape == (len(X), 3)
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-9)
+
+    def test_single_class_raises(self) -> None:
+        X, _ = _xor_residual_data(n=300)
+        with pytest.raises(ValueError, match=">= 2 classes"):
             CompositeClassificationEstimator(
                 base_estimator=lgb.LGBMClassifier(n_estimators=10, verbose=-1),
-            ).fit(X, y3)
+            ).fit(X, np.zeros(len(X), dtype=int))
 
     def test_inner_without_margin_path_rejected(self) -> None:
         X, y = _xor_residual_data(n=600)

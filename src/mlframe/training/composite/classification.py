@@ -45,47 +45,65 @@ def _sigmoid(z: np.ndarray) -> np.ndarray:
     return out
 
 
+def _softmax(z: np.ndarray) -> np.ndarray:
+    # Row-wise stable softmax for the multiclass (n, K) margin.
+    z = z - z.max(axis=1, keepdims=True)
+    e = np.exp(z)
+    return e / e.sum(axis=1, keepdims=True)
+
+
 def _inner_raw_margin(model: Any, X: Any) -> np.ndarray:
-    """Raw (logit) margin from a fitted booster, family-dispatched."""
-    # LightGBM
+    """Raw (logit) margin from a fitted booster, family-dispatched.
+
+    Returns ``(n,)`` for binary and ``(n, K)`` for multiclass -- shape preserved
+    so the softmax/sigmoid caller can add the matching base margin.
+    """
+    out = None
     try:
         import lightgbm as lgb
         if isinstance(model, lgb.LGBMClassifier):
-            return np.asarray(model.predict(X, raw_score=True), dtype=np.float64).reshape(-1)
+            out = model.predict(X, raw_score=True)
     except Exception:
         pass
-    # XGBoost
-    try:
-        import xgboost as xgb
-        if isinstance(model, xgb.XGBClassifier):
-            return np.asarray(model.predict(X, output_margin=True), dtype=np.float64).reshape(-1)
-    except Exception:
-        pass
-    # CatBoost
-    try:
-        import catboost as cb
-        if isinstance(model, cb.CatBoostClassifier):
-            return np.asarray(
-                model.predict(X, prediction_type="RawFormulaVal"), dtype=np.float64,
-            ).reshape(-1)
-    except Exception:
-        pass
-    raise NotImplementedError(
-        f"CompositeClassificationEstimator: inner {type(model).__name__!r} has no "
-        "raw-margin path (LightGBM raw_score / XGBoost output_margin / CatBoost "
-        "RawFormulaVal). The base-margin residual contract is undefined without "
-        "one -- use a gradient-boosting inner or a plain classifier instead."
-    )
+    if out is None:
+        try:
+            import xgboost as xgb
+            if isinstance(model, xgb.XGBClassifier):
+                out = model.predict(X, output_margin=True)
+        except Exception:
+            pass
+    if out is None:
+        try:
+            import catboost as cb
+            if isinstance(model, cb.CatBoostClassifier):
+                out = model.predict(X, prediction_type="RawFormulaVal")
+        except Exception:
+            pass
+    if out is None:
+        raise NotImplementedError(
+            f"CompositeClassificationEstimator: inner {type(model).__name__!r} has no "
+            "raw-margin path (LightGBM raw_score / XGBoost output_margin / CatBoost "
+            "RawFormulaVal). The base-margin residual contract is undefined without "
+            "one -- use a gradient-boosting inner or a plain classifier instead."
+        )
+    arr = np.asarray(out, dtype=np.float64)
+    return arr.reshape(-1) if arr.ndim == 1 or arr.shape[1] == 1 else arr
 
 
-def _fit_inner_with_init_score(model: Any, X: Any, y: np.ndarray, init_score: np.ndarray, sample_weight=None) -> None:
-    """Fit a booster with a per-row base margin, family-dispatched kwarg name."""
+def _fit_inner_with_init_score(model: Any, X: Any, y: np.ndarray, init_score: np.ndarray, n_classes: int, sample_weight=None) -> None:
+    """Fit a booster with a per-row base margin, family-dispatched.
+
+    For multiclass ``init_score`` is ``(n, K)``. LightGBM wants it flattened
+    class-major ``(n*K,)`` (``ravel(order="F")``); XGBoost and CatBoost accept
+    the ``(n, K)`` matrix directly.
+    """
     kw: dict[str, Any] = {}
     if sample_weight is not None:
         kw["sample_weight"] = sample_weight
     cls = type(model).__name__
     if "LGBM" in cls:
-        model.fit(X, y, init_score=init_score, **kw)
+        score = init_score if n_classes <= 2 else np.asarray(init_score, dtype=np.float64).ravel(order="F")
+        model.fit(X, y, init_score=score, **kw)
     elif "XGB" in cls:
         model.fit(X, y, base_margin=init_score, **kw)
     elif "CatBoost" in cls:
@@ -128,12 +146,25 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
 
     # -- base margin extraction -------------------------------------------------
     def _margin_from_estimator(self, est: Any, X: Any) -> np.ndarray:
+        """Base log-odds margin: ``(n,)`` for binary, ``(n, K)`` for multiclass.
+
+        Softmax is shift-invariant so ``log(proba)`` is a valid multiclass margin
+        when ``decision_function`` is absent.
+        """
+        n_classes = int(getattr(self, "n_classes_", 2))
+        if n_classes <= 2:
+            if hasattr(est, "decision_function"):
+                return np.asarray(est.decision_function(X), dtype=np.float64).reshape(-1)
+            proba = np.asarray(est.predict_proba(X), dtype=np.float64)
+            p1 = proba[:, 1] if proba.ndim == 2 else proba.reshape(-1)
+            p1 = np.clip(p1, 1e-6, 1.0 - 1e-6)
+            return np.log(p1 / (1.0 - p1))
         if hasattr(est, "decision_function"):
-            return np.asarray(est.decision_function(X), dtype=np.float64).reshape(-1)
-        proba = np.asarray(est.predict_proba(X), dtype=np.float64)
-        p1 = proba[:, 1] if proba.ndim == 2 else proba.reshape(-1)
-        p1 = np.clip(p1, 1e-6, 1.0 - 1e-6)
-        return np.log(p1 / (1.0 - p1))
+            df = np.asarray(est.decision_function(X), dtype=np.float64)
+            if df.ndim == 2 and df.shape[1] == n_classes:
+                return df
+        proba = np.clip(np.asarray(est.predict_proba(X), dtype=np.float64), 1e-12, 1.0)
+        return np.log(proba)
 
     def _extract_margin_column(self, X: Any) -> np.ndarray:
         col = self.base_margin_column
@@ -153,14 +184,22 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
     def fit(self, X: Any, y: Any, sample_weight=None) -> "CompositeClassificationEstimator":
         y_arr = np.asarray(y).reshape(-1)
         self.classes_ = np.unique(y_arr)
-        if self.classes_.size != 2:
+        self.n_classes_ = int(self.classes_.size)
+        if self.n_classes_ < 2:
             raise ValueError(
-                "CompositeClassificationEstimator supports binary targets only; "
-                f"got {self.classes_.size} classes."
+                "CompositeClassificationEstimator needs >= 2 classes; got "
+                f"{self.n_classes_}."
             )
-        y01 = (y_arr == self.classes_[1]).astype(np.float64)
+        # Label-encode to 0..K-1 in classes_ order (the order the inner booster
+        # + the LogisticRegression base both emit margins in).
+        y_enc = np.searchsorted(self.classes_, y_arr).astype(np.int64 if self.n_classes_ > 2 else np.float64)
 
         if self.base_margin_column is not None:
+            if self.n_classes_ > 2:
+                raise ValueError(
+                    "base_margin_column is a single column and cannot carry the "
+                    "K-class base margin; use a base_margin_estimator for multiclass."
+                )
             base_margin = self._extract_margin_column(X)
             X_inner = self._drop_margin_column(X)
             self.base_margin_estimator_ = None
@@ -171,15 +210,19 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
                 if self.base_margin_estimator is not None
                 else LogisticRegression(max_iter=1000)
             )
-            self.base_margin_estimator_.fit(X, y01, sample_weight=sample_weight) \
-                if sample_weight is not None else self.base_margin_estimator_.fit(X, y01)
+            if sample_weight is not None:
+                self.base_margin_estimator_.fit(X, y_enc, sample_weight=sample_weight)
+            else:
+                self.base_margin_estimator_.fit(X, y_enc)
             base_margin = self._margin_from_estimator(self.base_margin_estimator_, X)
             X_inner = X
 
         if self.base_estimator is None:
             raise ValueError("CompositeClassificationEstimator requires base_estimator (a GBDT classifier).")
         self.estimator_ = clone(self.base_estimator)
-        _fit_inner_with_init_score(self.estimator_, X_inner, y01, base_margin, sample_weight)
+        _fit_inner_with_init_score(
+            self.estimator_, X_inner, y_enc, base_margin, self.n_classes_, sample_weight,
+        )
         self.n_features_in_ = X_inner.shape[1]
         return self
 
@@ -196,9 +239,47 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         return base_margin + _inner_raw_margin(self.estimator_, X_inner)
 
     def predict_proba(self, X: Any) -> np.ndarray:
-        p1 = _sigmoid(self.decision_function(X))
-        return np.column_stack([1.0 - p1, p1])
+        margin = self.decision_function(X)
+        if self.n_classes_ <= 2:
+            p1 = _sigmoid(np.asarray(margin, dtype=np.float64).reshape(-1))
+            return np.column_stack([1.0 - p1, p1])
+        return _softmax(np.asarray(margin, dtype=np.float64))
 
     def predict(self, X: Any) -> np.ndarray:
-        idx = (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
-        return self.classes_[idx]
+        proba = self.predict_proba(X)
+        return self.classes_[np.argmax(proba, axis=1)]
+
+    def calibration_report(self, X: Any, y: Any, n_bins: int = 10) -> dict:
+        """Top-label reliability diagram + Expected Calibration Error (ECE).
+
+        Bins the predicted CONFIDENCE (max class probability) into ``n_bins``
+        equal-width bins and compares mean confidence vs observed accuracy in
+        each -- the standard reliability curve, valid for binary and multiclass.
+        ECE is the count-weighted mean ``|confidence - accuracy|``; lower is
+        better-calibrated. Returns the per-bin arrays + the scalar ECE so the
+        caller can plot or gate on it.
+        """
+        proba = self.predict_proba(X)
+        conf = proba.max(axis=1)
+        pred = self.classes_[np.argmax(proba, axis=1)]
+        y_true = np.asarray(y).reshape(-1)
+        correct = (pred == y_true).astype(np.float64)
+        edges = np.linspace(0.0, 1.0, int(n_bins) + 1)
+        idx = np.clip(np.digitize(conf, edges[1:-1]), 0, int(n_bins) - 1)
+        bin_conf = np.full(int(n_bins), np.nan)
+        bin_acc = np.full(int(n_bins), np.nan)
+        bin_cnt = np.zeros(int(n_bins), dtype=np.int64)
+        ece = 0.0
+        n = conf.size
+        for b in range(int(n_bins)):
+            m = idx == b
+            c = int(m.sum())
+            bin_cnt[b] = c
+            if c:
+                bin_conf[b] = float(conf[m].mean())
+                bin_acc[b] = float(correct[m].mean())
+                ece += (c / n) * abs(bin_conf[b] - bin_acc[b])
+        return {
+            "bin_confidence": bin_conf, "bin_accuracy": bin_acc,
+            "bin_count": bin_cnt, "ece": float(ece),
+        }
