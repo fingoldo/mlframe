@@ -3730,6 +3730,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _y_for_gq = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
+                # Scope auto-detection to the RAW pre-FE columns: by this point X
+                # is already augmented with engineered intermediates from prior FE
+                # stages, and a grouped_quantile recipe built on an engineered group
+                # / num source cannot be replayed at transform() (the engineered
+                # parent is regenerated independently, not present in the apply X)
+                # -> KeyError. Mirrors the cat_pair / cat_triple guard.
                 _gq_groups = tuple(
                     getattr(self, "fe_grouped_quantile_group_cols", ()) or ()
                 )
@@ -3738,6 +3744,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     getattr(self, "fe_grouped_quantile_num_cols", ()) or ()
                 )
                 _gq_nums = [c for c in _gq_nums if c in X.columns] or None
+                _gq_raw = set(_raw_input_cols_pre_fe)
+                if _gq_groups is None or _gq_nums is None:
+                    from .._grouped_quantile_fe import (
+                        _auto_detect_group_cols as _gq_detect_groups,
+                        _auto_detect_num_cols as _gq_detect_nums,
+                    )
+                    _gq_raw_view = X[[c for c in X.columns if c in _gq_raw]]
+                    if _gq_groups is None:
+                        _gq_groups = _gq_detect_groups(_gq_raw_view) or None
+                    if _gq_nums is None:
+                        _gq_det_groups = _gq_groups or []
+                        _gq_nums = _gq_detect_nums(_gq_raw_view, _gq_det_groups) or None
                 _gq_quantiles = tuple(
                     getattr(self, "fe_grouped_quantile_quantiles", ())
                     or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
@@ -4194,6 +4212,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     getattr(self, "fe_conditional_residual_cols", ()) or ()
                 )
                 _cr_cols = [c for c in _cr_cols if c in X.columns] or None
+                # RAW columns only (mirrors conditional_dispersion / wavelet): X is
+                # already augmented with engineered intermediates here, and a
+                # conditional-residual recipe built on an engineered x_i / x_j source
+                # cannot be replayed at transform() (the engineered parent is not
+                # present in the apply X) -> KeyError. Scope auto-detect to raw cols.
+                if _cr_cols is None:
+                    _cr_raw = set(_raw_input_cols_pre_fe)
+                    _cr_cols = [c for c in X.columns if c in _cr_raw] or None
                 _X_before_cr_cols = list(X.columns)
                 X_cr, _cr_appended, _cr_recipes, _ = hybrid_conditional_residual_fe(
                     X, _y_for_cr,
@@ -4264,11 +4290,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # the 1-deep replay cannot order at transform() time (KeyError on the
                 # engineered parent when it is not selected). Raw scope keeps every
                 # conditional-dispersion recipe replayable.
-                # ``feature_names_in_`` is not yet assigned here; exclude via the
-                # ``hybrid_orth_features_`` ledger (hinge-stage pattern).
+                # ``feature_names_in_`` is not yet assigned here; scope to the raw
+                # pre-FE column snapshot (the cat_pair / cat_triple guard's ledger),
+                # which is strictly safer than the ``hybrid_orth_features_`` exclusion
+                # -- that ledger only tracks orth / hinge / wavelet columns and misses
+                # ratio / grouped-agg / numeric-decompose engineered intermediates a
+                # dispersion recipe would otherwise build on and fail to replay.
                 if _cd_cols is None:
-                    _cd_already = set(getattr(self, "hybrid_orth_features_", None) or [])
-                    _cd_cols = [c for c in X.columns if c not in _cd_already] or None
+                    _cd_raw = set(_raw_input_cols_pre_fe)
+                    _cd_cols = [c for c in X.columns if c in _cd_raw] or None
                 _X_before_cd_cols = list(X.columns)
                 X_cd, _cd_appended, _cd_recipes, _ = hybrid_conditional_dispersion_fe(
                     X, _y_for_cd,
