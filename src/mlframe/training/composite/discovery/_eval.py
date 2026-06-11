@@ -4,16 +4,220 @@
 """
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any
 
 import numpy as np
 
 from ..spec import CompositeSpec
-from .screening import _mi_to_target, _mi_to_target_prebinned
+from .screening import (
+    _aggregate_mi_per_feature,
+    _mi_to_target,
+    _mi_to_target_prebinned,
+)
 from ..transforms import compose_target_name
 
 logger = logging.getLogger(__name__)
+
+
+def build_unary_base_context(
+    *,
+    full_x_matrix: np.ndarray,
+    full_x_prebinned: np.ndarray | None,
+    per_feat_y_full: np.ndarray | None,
+    y_screen: np.ndarray,
+    n_train: int,
+    sample_idx: np.ndarray,
+    mi_aggregation: str,
+    mi_nbins: int,
+    mi_n_neighbors: int,
+    random_state: int,
+    mi_estimator: str,
+) -> dict[str, Any] | None:
+    """Build the dedicated UNARY (``requires_base=False``) evaluation context (D13).
+
+    Unary transforms ignore the base column entirely, so they are scored ONCE
+    against the FULL feature matrix (NO base column dropped -- a unary drops no
+    signal-carrying base, unlike a residual whose base IS removed from
+    ``x_remaining`` to isolate the transform effect). Computing this context
+    once makes a unary spec's ``mi_gain`` invariant to auto-base ranking order
+    (the bug: pre-fix a unary was bound to the first base and scored against
+    that base's ``x_remaining``, so its gain shifted with irrelevant base
+    reordering).
+
+    ``base_train`` / ``base_screen`` are a zeros placeholder of the right length
+    -- ``requires_base=False`` transforms never read ``base`` in
+    fit/forward/domain_check, so the values are immaterial; a real array (not
+    ``None``) keeps the shared :func:`eval_one_transform` body's
+    ``base_train[valid]`` gathers from needing a special case. ``mi_y_for_base``
+    over the full matrix is the honest baseline: ``MI(T_unary, X)`` vs
+    ``MI(y, X)`` on the SAME full feature set.
+
+    Returns the context dict, or ``None`` when ``full_x_matrix`` has zero
+    columns (degenerate -- the caller falls back to the per-base path so the
+    unary still gets evaluated).
+    """
+    if full_x_matrix.shape[1] == 0:
+        return None
+    mi_kwargs: dict[str, Any] = dict(nbins=int(mi_nbins), aggregation=mi_aggregation)
+    base_train = np.zeros(n_train, dtype=np.float32)
+    base_screen = base_train[sample_idx]
+    if full_x_prebinned is not None:
+        if per_feat_y_full is not None:
+            mi_y = _aggregate_mi_per_feature(per_feat_y_full, mi_aggregation)
+        else:
+            mi_y = _mi_to_target_prebinned(full_x_prebinned, y_screen, **mi_kwargs)
+    else:
+        mi_y = _mi_to_target(
+            full_x_matrix, y_screen,
+            n_neighbors=mi_n_neighbors,
+            random_state=random_state,
+            estimator=mi_estimator,
+            **mi_kwargs,
+        )
+    return dict(
+        base_train=base_train,
+        base_screen=base_screen,
+        x_remaining_matrix=full_x_matrix,
+        _x_prebinned=full_x_prebinned,
+        mi_y_for_base=mi_y,
+        _mi_kwargs=mi_kwargs,
+    )
+
+
+def _fit_accepts_groups(fit_fn) -> bool:
+    """True when ``transform.fit`` declares a ``groups`` parameter or ``**kwargs``.
+
+    A local signature gate (mirrors ``estimator._callable_accepts_param`` but
+    kept self-contained to avoid the ``estimator -> discovery`` import cycle).
+    Used so the per-fold refit only threads ``groups`` into a fit that actually
+    accepts it (``requires_groups=True`` transforms); permissive on builtins.
+    """
+    try:
+        sig = inspect.signature(fit_fn)
+    except (ValueError, TypeError):
+        return True
+    params = sig.parameters
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return "groups" in params
+
+
+def refit_transform_on_fold(
+    transform,
+    y_fold: np.ndarray,
+    base_fold: np.ndarray,
+    *,
+    groups_fold: np.ndarray | None = None,
+    min_valid_rows: int = 2,
+) -> tuple[dict[str, Any], np.ndarray] | None:
+    """Re-fit a transform's params on ONE CV fold's TRAIN rows only.
+
+    This is the ``_eval``-side contract for **per-fold transform refit**, the
+    cure for the in-fold leakage flagged as M2: in :func:`eval_one_transform`
+    the transform is fit ONCE on every valid train row (line ~71) and those
+    GLOBAL ``fitted_params`` (e.g. ``linear_residual``'s alpha/beta) are then
+    reused for every inner tiny-CV fold downstream
+    (``_screening_tiny._tiny_cv_rmse_y_scale``). Because the global fit saw the
+    rows that later become each fold's HELD-OUT validation set, the recovered
+    ``T = forward(y, base, params)`` on the held-out fold is partly explained by
+    parameters that already peeked at those very rows -> the held-out RMSE the
+    tiny-CV reports is optimistic (the alpha/beta absorbed val-fold structure).
+
+    The honest path is to re-fit the transform params on each fold's TRAIN rows
+    ONLY, then ``forward``/``inverse`` the held-out fold with those fold-local
+    params. This helper performs exactly that single-fold refit, reusing the
+    SAME fit + fitted-domain-refinement logic ``eval_one_transform`` runs on the
+    global sample, so the per-fold params are produced identically to how the
+    shipped spec's params are produced -- just on a row subset.
+
+    Parameters
+    ----------
+    transform
+        A registry ``Transform`` (reads ``.fit``, ``.domain_check``,
+        ``.domain_check_fitted``).
+    y_fold, base_fold
+        Raw (un-transformed) target / base columns for THIS fold's train rows.
+        These are the exact arrays the caller must expose per fold -- the raw
+        ``y`` and ``base``, NOT the globally-computed ``T``.
+    groups_fold
+        Group labels for the fold's train rows (grouped transforms only). Passed
+        through to ``transform.fit`` only when the fit signature accepts it.
+    min_valid_rows
+        Minimum surviving (domain-valid) fold rows required to attempt a refit.
+        Below this the fold is too small to re-estimate params reliably and the
+        caller should keep the global params for this fold (we return ``None``).
+
+    Returns
+    -------
+    ``(fold_params, valid_fold_mask)`` on success, where ``fold_params`` is the
+    transform's fitted-params dict for THIS fold's train rows and
+    ``valid_fold_mask`` is the boolean mask (aligned to ``y_fold``) of rows that
+    survived the (fitted-)domain filter; or ``None`` when the fold is degenerate
+    (too few valid rows, an empty mask, or a fit that flags
+    ``is_degenerate`` / non-dict params) -- in which case the caller falls back
+    to the global params so the fold still scores rather than dropping out.
+
+    Notes
+    -----
+    * **No leakage by construction**: only ``y_fold`` / ``base_fold`` rows enter
+      the fit, so a held-out fold scored with these params is honest.
+    * **Bit-stable fallback**: returning ``None`` (not raising) lets the caller
+      preserve today's global-fit numerics on degenerate folds, so enabling the
+      per-fold path never crashes a previously-scoring spec.
+    * The caller (``_screening_tiny._one_fold``) still owns the fold split and
+      the ``forward``/``inverse`` calls; this helper only produces the params.
+    """
+    y_fold = np.asarray(y_fold)
+    base_fold = np.asarray(base_fold)
+    # Pre-fit domain filter (same gate eval_one_transform applies before fit).
+    valid = np.asarray(transform.domain_check(y_fold, base_fold), dtype=bool)
+    if valid.shape != y_fold.shape:
+        # Defensive: a domain_check that returns a mis-shaped mask cannot be
+        # trusted to subset rows; signal the caller to keep global params.
+        return None
+    if int(valid.sum()) < min_valid_rows:
+        return None
+    y_v = y_fold[valid]
+    base_v = base_fold[valid]
+    fit_kwargs: dict[str, Any] = {}
+    if groups_fold is not None and _fit_accepts_groups(transform.fit):
+        g_arr = np.asarray(groups_fold)
+        if g_arr.shape[0] == y_fold.shape[0]:
+            fit_kwargs["groups"] = g_arr[valid]
+    try:
+        fold_params = transform.fit(y_v, base_v, **fit_kwargs)
+    except Exception as _fit_err:  # noqa: BLE001 -- degenerate fold, keep global
+        logger.debug(
+            "refit_transform_on_fold: per-fold fit failed (%s); caller should "
+            "fall back to global params for this fold.", _fit_err,
+        )
+        return None
+    if not isinstance(fold_params, dict):
+        return None
+    # A fold whose fit collapses to a near-identity / degenerate function is no
+    # better than the global params (and downstream forward on it can NaN); let
+    # the caller keep global params rather than score on a degenerate refit.
+    if fold_params.get("is_degenerate"):
+        return None
+    # Fitted-params-aware domain refinement (T15 parity): drop rows that are
+    # only out-of-domain once the fold's params exist, so the mask the caller
+    # uses to subset the fold matches the params it was fit on.
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None:
+        try:
+            valid_fitted = np.asarray(
+                _dcf(y_fold, base_fold, fold_params), dtype=bool,
+            )
+        except Exception:  # noqa: BLE001 -- treat as no refinement
+            valid_fitted = None
+        if valid_fitted is not None and valid_fitted.shape == valid.shape:
+            refined = valid & valid_fitted
+            if int(refined.sum()) < min_valid_rows:
+                return None
+            valid = refined
+    return fold_params, valid
 
 
 def eval_one_transform(
@@ -395,26 +599,32 @@ def eval_one_transform(
         if boot_finite.size >= bootstrap_n // 2:
             mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
 
-    # T21/D13 (2026-06-11) -- KNOWN naming defect for unary specs, deferred.
-    # When ``transform.requires_base`` is False (cbrt_y / log_y / yeo_johnson_y
-    # / quantile_normal_y / y_quantile_clip), the transform ignores ``base``
-    # entirely, yet the spec is still stamped with ``base_column=base`` and
-    # named ``y-cbrtY-<base>`` where ``<base>`` is whichever base the dispatch
-    # loop happened to pair this unary with first (``_fit.py`` dedups unary
-    # transforms to the first base in ``base_candidates`` order). The value is
-    # DETERMINISTIC (always the first base) but semantically MISLEADING: the
-    # name implies a base dependence that does not exist, and any report label
-    # or dedup key derived from it is base-order-coupled. The correct fix is a
-    # 2-segment unary name (``y-cbrtY``) + a sentinel ``base_column`` -- but
-    # that changes the emitted spec name, which is load-bearing for dedup keys,
-    # report headings, the wrapper's base-column extraction, AND v1 suite
-    # pickles, so it must be a coordinated cross-file change (name/spec/wrapper/
-    # report) with its own back-compat handling, not a local edit here.
+    # D13 (2026-06-11) -- unary specs are base-free. When
+    # ``transform.requires_base`` is False (cbrt_y / log_y / yeo_johnson_y /
+    # quantile_normal_y / y_quantile_clip), the transform ignores ``base``
+    # entirely. ``_fit.py`` routes these through the dedicated full-X sentinel
+    # context (``base`` == ``""``), so their ``mi_gain`` no longer depends on
+    # auto-base ranking order. The spec must NOT claim a base dependence: we
+    # stamp an empty ``base_column`` and the base-free 2-segment name
+    # ``y-cbrtY`` (``compose_target_name`` renders the 2-segment form when the
+    # base is empty). Keying off ``transform.requires_base`` -- not the incoming
+    # ``base`` string -- makes this authoritative even if a caller passes a
+    # real base for a unary (the fallback path in ``_fit.py`` when the sentinel
+    # context is unavailable). ``CompositeTargetEstimator`` already tolerates an
+    # empty ``base_column`` for unary specs (it skips base extraction when
+    # ``requires_base`` is False), and ``is_composite_target_name`` recognises
+    # the 2-segment unary form so downstream metric labels stay MTRESID.
+    if not transform.requires_base:
+        _spec_base_column = ""
+        _spec_name = compose_target_name(target_col, transform_name, "")
+    else:
+        _spec_base_column = base
+        _spec_name = compose_target_name(target_col, transform_name, base)
     spec = CompositeSpec(
-        name=compose_target_name(target_col, transform_name, base),
+        name=_spec_name,
         target_col=target_col,
         transform_name=transform_name,
-        base_column=base,
+        base_column=_spec_base_column,
         fitted_params=dict(fitted_params),
         mi_gain=mi_gain,
         mi_y=mi_y_compare,

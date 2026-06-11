@@ -17,8 +17,10 @@ import numpy as np
 import pytest
 
 from mlframe.training._cv_aggregation import (
+    AUTO_INFLATION,
     aggregate_fold_scores,
     compute_pareto_frontier,
+    nadeau_bengio_inflation,
     select_from_pareto,
 )
 
@@ -167,3 +169,106 @@ def test_select_from_pareto_risk_quantile_monotone() -> None:
 def test_select_from_pareto_empty_raises() -> None:
     with pytest.raises(ValueError, match="empty frontier"):
         select_from_pareto([], [], [], [], risk_quantile=0.9)
+
+
+def test_nadeau_bengio_factor_matches_closed_form() -> None:
+    # Standard K-fold: test_frac = 1/K, train_frac = (K-1)/K -> factor = sqrt(1 + K/(K-1)).
+    for k in (2, 3, 5, 10, 20):
+        got = nadeau_bengio_inflation(k, 1.0 / k)
+        expected = math.sqrt(1.0 + k / (k - 1.0))
+        assert got == pytest.approx(expected, rel=1e-12), f"K={k}"
+    # K=5 standard-fold default is ~1.5 (the historical hardcoded SliceStableES value).
+    assert nadeau_bengio_inflation(5, 0.2) == pytest.approx(1.5, abs=0.02)
+    # Always >= 1.0 (it is an INFLATION; never deflates the interval).
+    assert nadeau_bengio_inflation(10, 0.1) > 1.0
+
+
+def test_nadeau_bengio_explicit_train_frac_overlap() -> None:
+    # Overlapping resamples: train_frac can exceed 1 - test_frac (e.g. repeated 80/20 holdouts).
+    # More train overlap relative to test -> SMALLER test_frac/train_frac -> SMALLER inflation.
+    low_overlap = nadeau_bengio_inflation(5, test_frac=0.2, train_frac=0.8)
+    high_overlap = nadeau_bengio_inflation(5, test_frac=0.2, train_frac=2.0)
+    assert high_overlap < low_overlap
+    assert high_overlap > 1.0
+
+
+def test_nadeau_bengio_degenerate_returns_one() -> None:
+    # K<2 has no dispersion; zero/negative fractions are degenerate. Never inflate.
+    assert nadeau_bengio_inflation(1, 0.5) == 1.0
+    assert nadeau_bengio_inflation(5, 0.0) == 1.0
+    assert nadeau_bengio_inflation(5, 0.2, train_frac=0.0) == 1.0
+
+
+def test_auto_inflation_without_geometry_is_naive() -> None:
+    # The AUTO sentinel with NO split_geometry must be bit-identical to the explicit naive 1.0,
+    # so the composite callers that pass neither stay unchanged.
+    scores = [0.5, 0.6, 0.7, 0.8, 0.9]
+    auto = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9)
+    naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
+    assert auto == pytest.approx(naive, rel=0, abs=0)
+    # And the public default of correlation_inflation IS the sentinel.
+    assert AUTO_INFLATION == "auto"
+
+
+def test_auto_inflation_with_geometry_applies_nadeau_bengio() -> None:
+    # With split_geometry supplied, AUTO resolves to the NB factor and widens the interval vs naive.
+    scores = [0.5, 0.6, 0.7, 0.8, 0.9]
+    k = len(scores)
+    naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
+    auto_geo = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
+                                     split_geometry=(k, 1.0 / k))
+    explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
+                                     correlation_inflation=nadeau_bengio_inflation(k, 1.0 / k))
+    mean = float(np.mean(scores))
+    # AUTO+geometry must equal the explicit NB-factor call (proves the resolution path).
+    assert auto_geo == pytest.approx(explicit, rel=1e-12)
+    # And it must be a strictly WIDER (less over-confident) one-sided interval than naive for direction='min'.
+    assert (auto_geo - mean) > (naive - mean) > 0.0
+
+
+def test_biz_val_cv_aggregation_nb_inflation_widens_interval_by_factor() -> None:
+    """biz_value: the Nadeau-Bengio default must widen the t-LCB half-width by EXACTLY the NB factor.
+
+    The whole point of M5 is that the CV-RMSE confidence intervals the cv_selector reads are over-confident when the
+    folds share training rows. This pins the quantitative win: the half-width (penalty above the mean) of the
+    NB-defaulted interval is the naive half-width times ``sqrt(1 + K * test_frac/train_frac)`` -- a ~1.5x widening at
+    K=5. A regression that drops the factor back to 1.0 (the pre-M5 behaviour) fails this by ~33%."""
+    scores = [1.0, 1.2, 0.9, 1.1, 1.05]  # K=5 RMSE-like fold scores
+    k = len(scores)
+    mean = float(np.mean(scores))
+    naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
+    nb = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, split_geometry=(k, 1.0 / k))
+    naive_halfwidth = naive - mean
+    nb_halfwidth = nb - mean
+    factor = nadeau_bengio_inflation(k, 1.0 / k)
+    assert factor == pytest.approx(1.5, abs=0.02)
+    # The widening is EXACTLY the NB factor (the t-quantile and SE are shared; only the inflation differs).
+    assert nb_halfwidth == pytest.approx(naive_halfwidth * factor, rel=1e-12)
+    # And it is a meaningful (>=30%) widening, not noise -- catches a silent revert to no-correction.
+    assert nb_halfwidth >= naive_halfwidth * 1.30
+
+
+def test_auto_inflation_mean_minus_std_with_geometry() -> None:
+    # The geometry path also drives mean_minus_std (it multiplies the std spread, not the SE).
+    scores = [1.0, 1.2, 0.9, 1.1, 1.05]
+    k = len(scores)
+    naive = aggregate_fold_scores(scores, mode="mean_minus_std", direction="min", alpha=1.0, correlation_inflation=1.0)
+    nb = aggregate_fold_scores(scores, mode="mean_minus_std", direction="min", alpha=1.0, split_geometry=(k, 1.0 / k))
+    mean = float(np.mean(scores))
+    factor = nadeau_bengio_inflation(k, 1.0 / k)
+    assert (nb - mean) == pytest.approx((naive - mean) * factor, rel=1e-12)
+
+
+def test_explicit_float_overrides_geometry() -> None:
+    # An explicit numeric factor is applied verbatim and IGNORES split_geometry (caller knows best).
+    scores = [0.5, 0.6, 0.7, 0.8, 0.9]
+    explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
+                                     correlation_inflation=2.0, split_geometry=(5, 0.2))
+    expected = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
+                                     correlation_inflation=2.0)
+    assert explicit == pytest.approx(expected, rel=1e-12)
+
+
+def test_bad_inflation_string_raises() -> None:
+    with pytest.raises(ValueError, match="must be a float"):
+        aggregate_fold_scores([1.0, 2.0, 3.0], mode="t_lcb", correlation_inflation="bogus")  # type: ignore[arg-type]

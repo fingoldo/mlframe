@@ -181,20 +181,29 @@ class CompositeTargetDiscovery:
             # 1-D pull of base_column alone would raise "base has 1 columns but
             # fitted alphas has K entries" -- the other consumers (ensemble)
             # already stack; this public generator was the one that did not.
+            transform = get_transform(spec.transform_name)
             extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
-            if extra:
+            if not transform.requires_base:
+                # D13: unary specs carry an empty ``base_column`` sentinel and
+                # ignore base entirely. ``_extract_column_array(df, "")`` would
+                # crash; the adapter's domain_check/forward never read base, so
+                # pass None (domain_check gates on y, forward ignores base).
+                base_full = None
+            elif extra:
                 base_full = np.column_stack(
                     [_extract_column_array(df, c)
                      for c in (spec.base_column, *extra)]
                 )
             else:
                 base_full = _extract_column_array(df, spec.base_column)
-            transform = get_transform(spec.transform_name)
             valid = transform.domain_check(y_full, base_full)
             t = np.full(y_full.shape[0], np.nan, dtype=np.float64)
             if valid.any():
+                # D13: unary specs have ``base_full is None`` (the transform
+                # ignores base); pass None straight through rather than slicing.
+                _base_valid = None if base_full is None else base_full[valid]
                 t[valid] = transform.forward(
-                    y_full[valid], base_full[valid], spec.fitted_params,
+                    y_full[valid], _base_valid, spec.fitted_params,
                 )
             yield spec.name, t
 

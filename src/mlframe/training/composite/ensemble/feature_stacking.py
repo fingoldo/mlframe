@@ -109,6 +109,7 @@ def composite_oof_predictions(
     fit_kwargs: dict[str, Any] | None = None,
     time_aware: bool = False,
     cv_splitter: Any = None,
+    groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Out-of-fold composite predictions via K-fold CV.
 
@@ -127,19 +128,35 @@ def composite_oof_predictions(
     random_state
         Shuffle seed for the KFold splitter.
     fit_kwargs
-        Optional dict passed as keyword args to the wrapper's ``fit`` call.
+        Optional dict passed as keyword args to the wrapper's ``fit`` call. A per-row ``sample_weight`` of length ``len(X)`` is sliced PER FOLD to the fold-train rows so the wrapper never sees a length-mismatched weight vector (forwarding it verbatim would mis-align weights to rows or raise). Any other ``fit_kwargs`` entry is passed through unchanged.
+    groups
+        Optional ``(n,)`` group labels for group-aware OOF. When supplied (and no explicit ``cv_splitter`` is given), the splitter defaults to ``GroupKFold`` and the labels are forwarded to ``split(...)`` so a row's fold-train wrappers never see another row from the same group. ``groups`` is also forwarded to any caller-supplied ``cv_splitter`` -- required by ``GroupKFold`` / ``StratifiedGroupKFold`` / ``GroupShuffleSplit`` (their ``split`` raises when ``groups`` is ``None``), ignored by ``KFold`` / ``TimeSeriesSplit``.
 
     Returns
     -------
     ``(n,)`` ndarray of OOF predictions on the y-scale. NaN entries indicate a fold that failed to train (caller decides whether to drop / impute).
     """
-    from sklearn.model_selection import KFold, TimeSeriesSplit  # lazy
+    from sklearn.model_selection import GroupKFold, KFold, TimeSeriesSplit  # lazy
     fit_kwargs = fit_kwargs or {}
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
     n = y_arr.size
     out = np.full(n, np.nan, dtype=np.float64)
+    groups_arr = None if groups is None else np.asarray(groups).reshape(-1)
+    if groups_arr is not None and groups_arr.size != n:
+        raise ValueError(
+            f"composite_oof_predictions: groups length {groups_arr.size} != n {n}."
+        )
+    # A full-length per-row sample_weight must be sliced to each fold's train rows; mark it so the per-fold loop slices it (and leave any wrapper-already-fold-scoped fit_kwargs untouched).
+    _sw_full = None
+    _sw = fit_kwargs.get("sample_weight", None)
+    if _sw is not None:
+        _sw_arr = np.asarray(_sw)
+        if _sw_arr.reshape(-1).shape[0] == n:
+            _sw_full = _sw_arr.reshape(-1)
     if cv_splitter is not None:
         kf = cv_splitter
+    elif groups_arr is not None:
+        kf = GroupKFold(n_splits=int(n_splits))
     elif time_aware:
         kf = TimeSeriesSplit(n_splits=int(n_splits))
     else:
@@ -151,7 +168,7 @@ def composite_oof_predictions(
     except ImportError:
         pl = None  # type: ignore
         _HAS_POLARS = False
-    for train_idx, val_idx in kf.split(indices):
+    for train_idx, val_idx in kf.split(indices, y_arr, groups_arr):
         # Subset X for the fold. Polars / pandas handled separately to avoid silent materialisation.
         if _HAS_POLARS and isinstance(X, pl.DataFrame):
             # Build boolean masks once per fold: np.isin avoids the O(n^2)
@@ -167,9 +184,15 @@ def composite_oof_predictions(
             raise TypeError(
                 f"composite_oof_predictions: unsupported X type {type(X).__name__}"
             )
+        # Slice a full-length per-row sample_weight to THIS fold's train rows; a verbatim length-n vector would mis-align to the len(train_idx) rows the wrapper fits on (or raise).
+        if _sw_full is None:
+            fold_fit_kwargs = fit_kwargs
+        else:
+            fold_fit_kwargs = dict(fit_kwargs)
+            fold_fit_kwargs["sample_weight"] = _sw_full[train_idx]
         try:
             w = wrapper_factory()
-            w.fit(X_train, y_arr[train_idx], **fit_kwargs)
+            w.fit(X_train, y_arr[train_idx], **fold_fit_kwargs)
             fold_preds = np.asarray(w.predict(X_val), dtype=np.float64).reshape(-1)
             out[val_idx] = fold_preds
         except Exception as fold_err:

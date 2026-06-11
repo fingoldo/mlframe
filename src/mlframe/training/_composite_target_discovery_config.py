@@ -34,21 +34,10 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     enabled: bool = False
 
-    # Optional name of a chronological-order column (timestamp / monotone index)
-    # in the training frame. When set, discovery SORTS the MI-screening sample
-    # by this column so the tiny-model CV is a forward-walk (TimeSeriesSplit)
-    # instead of a shuffled K-fold -- the canonical ``lag(y)`` base is
-    # non-monotone, so the legacy base-monotonicity heuristic never detected
-    # temporal data and the screen leaked future->past. None keeps the legacy
-    # auto-detection. Auto-detection of a likely time column (when this is None)
-    # is wired separately via ``time_series_transforms_enabled``.
+    # Optional chronological-order column (timestamp / monotone index). When set, discovery SORTS the MI-screening sample by it so the tiny-model CV is a forward-walk (TimeSeriesSplit) not a shuffled K-fold -- the canonical non-monotone ``lag(y)`` base defeated the legacy base-monotonicity heuristic, so the screen leaked future->past. None keeps the legacy auto-detection.
     time_column: Optional[str] = None
 
-    # Opt-in: add the 3 chronological-order transforms (ewma_residual,
-    # rolling_quantile_ratio, frac_diff) to the discovery candidate set. They
-    # need the screening sample in time order, so set ``time_column`` too (the
-    # screen is then sorted by it; M6). Default OFF because on a shuffled /
-    # non-temporal frame these transforms model a meaningless row sequence.
+    # Opt-in: add the 3 chronological-order transforms (ewma_residual / rolling_quantile_ratio / frac_diff) to the candidate set. They need the screen in time order, so set ``time_column`` too (M6). Default OFF -- on a shuffled frame they model a meaningless row sequence.
     time_series_transforms_enabled: bool = False
 
     # Base candidate selection.
@@ -62,26 +51,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     base_candidates: Union[List[str], str] = "auto"
     auto_base_top_k: int = 3
 
-    # Priority-base hint -- features that should be treated as base
-    # candidates regardless of pairwise ``MI(y, x)`` ranking. When
-    # populated, ``_auto_base`` puts these first (in given order) and
-    # fills remaining slots up to ``auto_base_top_k`` with the top
-    # MI-ranked features.
-    #
-    # The hint exists because pairwise MI is fooled by features that
-    # have global trend with y but no structural residual signal
-    # (e.g. spatial coordinates on geographically-trended targets).
-    # ``BaselineDiagnostics``'s ablation (drop feature -> measure RMSE
-    # delta) is a much more reliable signal for "which feature
-    # actually drives prediction": a feature whose removal hurts RMSE
-    # by 500% is unambiguously dominant, regardless of MI estimation
-    # noise. ``train_mlframe_models_suite`` populates the hint from
-    # the ablation output automatically; users can also pass it
-    # explicitly.
-    #
-    # Hint features still go through the standard filters
-    # (forbidden_pattern / non_numeric / constant / corr_threshold);
-    # any that fail are logged and dropped.
+    # Priority-base hint: features treated as base candidates regardless of pairwise ``MI(y, x)`` ranking. ``_auto_base`` puts these first (given order) and fills the rest up to ``auto_base_top_k`` with the top MI-ranked features. Exists because pairwise MI is fooled by features with global trend but no structural residual (e.g. spatial coords on geo-trended targets); ``BaselineDiagnostics`` ablation (drop-feature RMSE delta) is far more reliable for "what drives prediction" and ``train_mlframe_models_suite`` populates the hint from it automatically. Hint features still pass the standard filters (forbidden_pattern / non_numeric / constant / corr_threshold); failures are logged + dropped.
     dominant_features_hint: Optional[List[str]] = None
 
     # Transform names from the registry (mlframe.training.composite).
@@ -91,11 +61,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #   - ``monotonic_residual`` -- monotone PCHIP spline residual.
     # These accept the standard ``(y, base)`` signature and need no special orchestration -- discovery evaluates them like ``linear_residual``.
     #
-    # NOT in default list (require orchestration the discovery loop does not yet provide):
-    #   - ``linear_residual_multi`` -- needs multi-column base selection (forward stepwise); single-base mode is identical to ``linear_residual``.
-    #   - ``linear_residual_grouped`` -- needs ``group_column`` extraction + groups kwarg through fit/forward/inverse.
-    #   - ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` -- require chronological row order which most datasets lack at the discovery stage.
-    # All four are accessible via explicit user configuration (``CompositeTargetEstimator(...)`` directly) and ship with their own tests; auto-discovery integration is the open item beyond this PR.
+    # NOT in default list (need orchestration): ``linear_residual_multi`` (multi-column base selection via forward stepwise; single-base mode == linear_residual), ``linear_residual_grouped`` (group_column extraction + groups kwarg), and the three chronological-order transforms ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` (now reachable via ``time_series_transforms_enabled`` + ``time_column``; M9). All accessible via explicit ``CompositeTargetEstimator(...)`` and ship their own tests.
     transforms: List[str] = Field(
         default_factory=lambda: [
             "diff", "additive_residual", "median_residual",
@@ -126,20 +92,12 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         ]
     )
 
-    # OPEN-1 integration (2026-05-12): multi-base forward-stepwise auto-promotion of kept ``linear_residual`` specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, Discovery picks each kept linear_residual spec and tries greedily ADDING bases from the auto-base candidate pool. When the marginal CV-RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 2%), the spec is upgraded to ``linear_residual_multi`` with the expanded base list.
-    #
-    # Default ON: measure-first benchmark (``benchmarks/composite_multi_base_benchmark.py``) confirms geo-mean gain 83% on positive scenarios (S2: y = b1+b2+eps, S3: y = b1+b2+b3+eps) AND no-harm on negative scenarios (S1: single dominant b1 + noise candidates; S4: collinear b1+b1_dup pool). Decision rule met. Opt-out by setting ``multi_base_enabled=False`` if production data violates the benchmark's assumptions (highly correlated candidate pool, very small n_train, etc.).
+    # Multi-base forward-stepwise auto-promotion: after single-base discovery + raw-y gate + rerank, each kept linear_residual spec greedily ADDS bases from the auto-base pool, upgrading to ``linear_residual_multi`` when the marginal CV-RMSE gain clears ``multi_base_min_marginal_rmse_gain`` (2%). Default ON (benchmark: +83% geo-mean on additive DGPs, no-harm on single-dominant / collinear pools; ``benchmarks/composite_multi_base_benchmark.py``); set ``multi_base_enabled=False`` for highly-correlated pools / very small n_train.
     multi_base_enabled: bool = True
     multi_base_max_k: int = 3
     multi_base_min_marginal_rmse_gain: float = 0.02
 
-    # Robust CV-selector knobs (2026-05-28). The composite discovery / forward-stepwise paths
-    # historically pick winners by argmin(mean(fold_rmses)) -- which silently rewards lucky
-    # candidates whose mean wins by less than the per-fold std. With ``cv_selector_mode`` set
-    # to anything other than ``"mean"`` the per-fold scores are augmented with a dispersion
-    # penalty before the argmin: stable mediocre candidates can now beat unstable lucky ones.
-    # See ``mlframe.training._cv_aggregation.aggregate_fold_scores`` for the math.
-    # Default ``"mean"`` keeps current behaviour bit-identical.
+    # Robust CV-selector: argmin(mean(fold_rmses)) silently rewards lucky candidates whose mean wins by less than the per-fold std. ``cv_selector_mode`` != "mean" augments the per-fold scores with a dispersion penalty before the argmin (stable mediocre beats unstable lucky); see ``_cv_aggregation.aggregate_fold_scores``. Default "mean" is bit-identical.
     cv_selector_mode: Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"] = "mean"
     cv_selector_alpha: float = 1.0          # used by mean_minus_std / median_minus_mad
     cv_selector_confidence: float = 0.9     # one-sided Student-t confidence for t_lcb

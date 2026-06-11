@@ -182,6 +182,16 @@ def _tiny_model_rerank(
     for spec in kept_specs:
         if spec.base_column in _per_base_cache:
             continue
+        # D13: unary (``requires_base=False``) specs carry an empty
+        # ``base_column`` sentinel -- they ignore the base entirely. Extracting
+        # a column named "" would crash, so synthesise a zeros ``base_screen``
+        # placeholder (never read by a unary transform's forward) and score
+        # against the FULL feature matrix (no base column dropped), mirroring
+        # the dedicated unary context built in ``discovery/_fit.py``.
+        if spec.base_column == "":
+            base_screen = np.zeros(train_idx_screen.size, dtype=np.float32)
+            _per_base_cache[spec.base_column] = (base_screen, _x_full)
+            continue
         base_screen = _extract_column_array(
             df, spec.base_column, rows=train_idx_screen,
         )

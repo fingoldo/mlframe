@@ -445,10 +445,12 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     # ------------------------------------------------------------------
     # Pack J: unary y-only transforms. ``requires_base=False`` tells the
-    # wrapper to skip base-column extraction. The composite-target name
-    # still carries the current-loop base segment (e.g. ``y-cbrtY-<base>``)
-    # because discovery names every spec via compose_target_name(...); the
-    # base is unused by forward/inverse here.
+    # wrapper to skip base-column extraction, and the base is unused by
+    # forward/inverse here. D13 (2026-06-11): discovery now scores these
+    # against the full feature matrix via a dedicated sentinel context and
+    # emits a BASE-FREE 2-segment composite name (``y-cbrtY``), with an empty
+    # ``base_column`` -- no spurious base segment, and the spec's mi_gain no
+    # longer depends on auto-base ranking order.
     # ------------------------------------------------------------------
     "cbrt_y": Transform(
         name="cbrt_y",

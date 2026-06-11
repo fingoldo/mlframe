@@ -34,38 +34,23 @@ from ..transforms import (
 from ..._ram_helpers import (
     get_process_rss_mb as _rss_mb,
 )
-from ._eval import eval_one_transform
+from ._eval import build_unary_base_context, eval_one_transform
 
 logger = logging.getLogger(__name__)
+
+# D13: sentinel base key for the dedicated UNARY (``requires_base=False``)
+# evaluation context. Unary transforms ignore the base column entirely, so they
+# are scored ONCE against the FULL feature matrix (no base dropped) rather than
+# bound to an arbitrary first base. The empty string is also the
+# ``CompositeTargetEstimator`` default ``base_column`` for base-less specs, and
+# ``compose_target_name(..., base="")`` renders the base-free 2-segment name.
+_UNARY_BASE_SENTINEL = ""
 
 
 def _process_mem_mb() -> tuple[float, float, float]:
     """Return ``(rss_mb, uss_mb, commit_mb)`` for the current process.
 
-    Three signals tell a complete Windows memory story:
-
-    * **RSS** (working set): pages currently in physical RAM. Plummets to
-      near-zero right after ``pyutilz.clean_ram()`` which invokes
-      ``EmptyWorkingSet`` to evict pages to the page file -- the eviction is
-      cosmetic; pages page back in on first touch. RSS alone reads as
-      misleading "reclaimed 57 GB" lines that don't reflect real frees.
-    * **USS** (Unique Set Size): pages this process uniquely owns,
-      regardless of working-set residency. Immune to EmptyWorkingSet, so USS
-      is the honest "what this process actually allocated" number.
-    * **commit / private bytes**: the ``CommitCharge`` Windows uses to gate
-      ``OutOfMemory`` decisions. The Windows commit limit is
-      ``physical_RAM + pagefile_size``; when total committed memory across
-      all processes hits the limit, new allocations fail and OOM-killer
-      fires. USS<commit because USS excludes shared mappings and uncommitted
-      reserved address space. On the user's 128 GB host with 35 GB system
-      baseline, an mlframe process at USS=60 GB / commit=90 GB has only
-      ``128 - 35 - 90 = 3 GB`` of commit-limit headroom -- the next 5 GB
-      LightGBM Dataset triggers kernel-kill. Showing commit alongside USS
-      makes the page-file pressure observable in the prod log.
-
-    All three are floats in MB. When ``memory_full_info()`` is unavailable
-    (psutil too old / sandboxed) we fall back through RSS for both USS and
-    commit -- the call still doesn't raise.
+    Three Windows memory signals: RSS (working set -- misleading post-EmptyWorkingSet since pages page back in on touch); USS (uniquely-owned pages, immune to EmptyWorkingSet -- the honest "what this process allocated"); commit/private bytes (the CommitCharge Windows gates OutOfMemory on -- commit-limit = physical_RAM + pagefile, so a process at commit near the limit triggers kernel-kill on the next big alloc even when USS fits physical RAM). All floats in MB; falls back through RSS when ``memory_full_info()`` is unavailable (never raises).
     """
     rss = _rss_mb()
     uss = rss
@@ -89,20 +74,9 @@ def _process_mem_mb() -> tuple[float, float, float]:
 
 
 def _phase_ram_report(state: dict, phase_name: str) -> None:
-    """Emit one INFO log line per discovery sub-phase boundary with delta-vs-prev
-    and cumulative delta vs the fit() entry baseline.
+    """Emit one INFO log line per discovery sub-phase boundary with delta-vs-prev + cumulative delta vs the fit() baseline.
 
-    Reports BOTH RSS (working set) and USS (unique set size, immune to
-    EmptyWorkingSet eviction on Windows). When RSS << USS the process is
-    page-thrashing -- a critical signal the prior version masked. State is a
-    ``{'baseline_uss_mb': float, 'prev_uss_mb': float}`` dict the caller
-    threads through the discovery fit.
-
-    No GC is forced from inside the profiler. ``pyutilz.clean_ram()`` on
-    Windows is harmful here (it evicts the working set without freeing real
-    memory) and the discovery callers run gc collection at suite-level
-    boundaries instead. Removing the call also removes the bogus post-GC
-    log line that read "reclaimed 57 GB" right after each phase.
+    Reports RSS and USS (RSS << USS flags page-thrashing the prior version masked); ``state`` is a ``{'baseline_uss_mb', 'prev_uss_mb'}`` dict the caller threads through. No GC is forced here -- ``pyutilz.clean_ram()`` on Windows evicts the working set without freeing real memory (and emits a bogus "reclaimed 57 GB" line); the suite runs gc at its own boundaries.
     """
     try:
         rss_mb, uss_mb, commit_mb = _process_mem_mb()
@@ -391,10 +365,7 @@ def fit(
     self._auto_base_pool: dict[str, np.ndarray] = {}
 
     # Score each (base, transform).
-    # Pack J: unary y-transforms (``requires_base=False``) ignore the base column;
-    # tracking which unary names we've already evaluated lets us skip the redundant
-    # re-fit on the second / third / ... base loop iteration. Bivariate + chain
-    # transforms still iterate per base normally.
+    # D13: unary y-transforms (``requires_base=False``) ignore the base column, so each routes through ONE dedicated context (``_UNARY_BASE_SENTINEL``) scored against the FULL feature matrix (no base dropped) with an empty-string, base-free spec name -- not bound to / scored against / named after an arbitrary "first" base as before (which made the unary's mi_gain shift with irrelevant auto-base ranking and claim a nonexistent base dependence). The set tracks which unary names are already evaluated so later base-loop iterations skip the redundant re-fit; bivariate + chain transforms still iterate per base.
     _unary_evaluated: set[str] = set()
 
     candidates: list[dict[str, Any]] = []
@@ -502,12 +473,35 @@ def fit(
             _mi_kwargs=_mi_kwargs,
         )
 
-    # Build flat (base, transform_name, transform) work list with
-    # unary-dedup. Unary transforms ignore base, so a single
-    # evaluation against the first base they appear under is
-    # sufficient. Keeping dedup serial outside the parallel
-    # dispatch preserves bit-for-bit identical behaviour vs the
-    # serial path on the same input.
+    # D13: dedicated UNARY context (full feature matrix, sentinel base) so unary
+    # (``requires_base=False``) transforms are scored ONCE against full X and
+    # their mi_gain is invariant to auto-base ranking order. Built in the
+    # ``_eval`` sibling to keep this module under the LOC threshold; see
+    # ``build_unary_base_context`` for the full rationale.
+    _unary_ctx = build_unary_base_context(
+        full_x_matrix=_full_x_matrix,
+        full_x_prebinned=_full_x_prebinned,
+        per_feat_y_full=_per_feat_y_full,
+        y_screen=y_screen,
+        n_train=train_idx.size,
+        sample_idx=sample_idx,
+        mi_aggregation=_mi_aggregation,
+        mi_nbins=int(self.config.mi_nbins),
+        mi_n_neighbors=self.config.mi_n_neighbors,
+        random_state=self.config.random_state,
+        mi_estimator=self.config.mi_estimator,
+    )
+    if _unary_ctx is not None:
+        _base_contexts[_UNARY_BASE_SENTINEL] = _unary_ctx
+
+    # Build flat (base, transform_name, transform) work list. Base-dependent
+    # transforms iterate per base normally. D13: unary (``requires_base=False``)
+    # transforms route to the dedicated ``_UNARY_BASE_SENTINEL`` context exactly
+    # ONCE (full-X scoring, base-free name) instead of being bound to whichever
+    # real base they happened to pair with first. ``_unary_evaluated`` still
+    # dedups so each unary appears once. Keeping the build serial outside the
+    # parallel dispatch preserves deterministic (base, transform) ordering.
+    _unary_context_available = _UNARY_BASE_SENTINEL in _base_contexts
     _work_items: list[tuple[str, str, Any]] = []
     for base in base_candidates:
         if base not in _base_contexts:
@@ -524,6 +518,15 @@ def fit(
                 if transform_name in _unary_evaluated:
                     continue
                 _unary_evaluated.add(transform_name)
+                # Score the unary against the FULL-X sentinel context, not the
+                # current loop's ``base``. Fall back to the real base only if
+                # the sentinel context could not be built (degenerate empty
+                # feature matrix) so the unary still gets evaluated.
+                _unary_base = (
+                    _UNARY_BASE_SENTINEL if _unary_context_available else base
+                )
+                _work_items.append((_unary_base, transform_name, transform))
+                continue
             _work_items.append((base, transform_name, transform))
 
     # 2026-05-20 #2: single parallel dispatch over the flat

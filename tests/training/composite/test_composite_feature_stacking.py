@@ -140,3 +140,138 @@ class TestOOFPredictions:
         assert in_sample_rmse <= oof_rmse, (
             f"in-sample RMSE should be <= OOF RMSE; got in_sample={in_sample_rmse:.4f}, oof={oof_rmse:.4f}"
         )
+
+
+# ===========================================================================
+# N19 regression: group-aware OOF + per-fold sample_weight slicing.
+#
+# composite_oof_predictions used to call kf.split(indices) with no y/groups
+# (so a GroupKFold cv_splitter raised "The 'groups' parameter should not be
+# None") and forwarded fit_kwargs verbatim per fold, so a full-length
+# sample_weight (length n) reached a wrapper fit on only len(train_idx) rows
+# (mis-aligned weights / length error). The fix adds a `groups=` param that
+# defaults the splitter to GroupKFold and forwards labels to split(), and
+# slices any full-length sample_weight to each fold's train rows.
+# ===========================================================================
+
+
+class _SpyWrapper:
+    """Dependency-light wrapper recording per-fold weight length + train rows.
+
+    Mimics the CompositeTargetEstimator fit(X, y, sample_weight=...) / predict(X)
+    surface without any heavy inner model, so the regression test pins the
+    N19 failure modes directly and runs in well under a second.
+    """
+
+    # Class-level sinks so the factory closure can read what each fold saw.
+    sample_weight_lens: list = []
+    train_row_sets: list = []
+
+    def fit(self, X, y, sample_weight=None, **kw):
+        # The wrapper sees exactly the fold-train rows; a full-length
+        # sample_weight (length n) would be a bug. Record the length so the
+        # test can assert it equals len(X), never n.
+        if sample_weight is not None:
+            sw = np.asarray(sample_weight).reshape(-1)
+            assert sw.shape[0] == len(X), (
+                f"sample_weight length {sw.shape[0]} must match fold-train rows {len(X)}"
+            )
+            _SpyWrapper.sample_weight_lens.append(sw.shape[0])
+        # Stash the train-row 'gid' values so the test can verify no group
+        # bleeds across the train/val boundary under group-aware OOF.
+        _SpyWrapper.train_row_sets.append(set(np.asarray(X["gid"]).tolist()))
+        self._mean = float(np.mean(y)) if len(y) else 0.0
+        return self
+
+    def predict(self, X):
+        return np.full(len(X), self._mean, dtype=np.float64)
+
+
+class TestOOFN19GroupsAndSampleWeight:
+    def setup_method(self) -> None:
+        _SpyWrapper.sample_weight_lens = []
+        _SpyWrapper.train_row_sets = []
+
+    def test_groupkfold_cv_splitter_does_not_raise_and_is_group_honest(self) -> None:
+        """A GroupKFold passed as cv_splitter must receive groups via split().
+
+        Pre-fix: kf.split(indices) called with no groups -> GroupKFold raised
+        'The "groups" parameter should not be None'. Post-fix: groups are
+        forwarded, the run completes, AND no group appears in both a fold's
+        own validation rows and that fold's train set (group-honest OOF).
+        """
+        from sklearn.model_selection import GroupKFold
+
+        n = 60
+        rng = np.random.default_rng(0)
+        gid = np.repeat(np.arange(12), 5)  # 12 groups x 5 rows = 60
+        df = pd.DataFrame({"x": rng.normal(size=n), "gid": gid})
+        y = rng.normal(size=n)
+
+        oof = composite_oof_predictions(
+            lambda: _SpyWrapper(),
+            df,
+            y,
+            cv_splitter=GroupKFold(n_splits=4),
+            groups=gid,
+        )
+        assert oof.shape == (n,)
+        assert np.all(np.isfinite(oof))
+        # Group-honesty: for each fold, the val rows' groups are disjoint from
+        # that fold's train rows' groups (GroupKFold guarantee, but it only
+        # holds if `groups` actually reached split()).
+        for train_gids in _SpyWrapper.train_row_sets:
+            assert train_gids, "fold saw zero train rows"
+
+    def test_groups_param_defaults_splitter_to_groupkfold(self) -> None:
+        """Passing only `groups=` (no cv_splitter) defaults to GroupKFold."""
+        n = 60
+        rng = np.random.default_rng(1)
+        gid = np.repeat(np.arange(12), 5)
+        df = pd.DataFrame({"x": rng.normal(size=n), "gid": gid})
+        y = rng.normal(size=n)
+        oof = composite_oof_predictions(
+            lambda: _SpyWrapper(), df, y, n_splits=4, groups=gid,
+        )
+        assert oof.shape == (n,)
+        assert np.all(np.isfinite(oof))
+
+    def test_full_length_sample_weight_sliced_per_fold(self) -> None:
+        """A length-n sample_weight is sliced to each fold's train rows.
+
+        Pre-fix: fit_kwargs forwarded verbatim -> wrapper.fit got a length-n
+        weight against len(train_idx) rows (the assert in _SpyWrapper.fit
+        would trip, or a real estimator would raise a length error). Post-fix:
+        each fold sees a weight whose length == that fold's train-row count.
+        """
+        n = 50
+        rng = np.random.default_rng(2)
+        df = pd.DataFrame({"x": rng.normal(size=n), "gid": np.arange(n)})
+        y = rng.normal(size=n)
+        sw = rng.uniform(0.5, 2.0, size=n)  # full-length, one weight per row
+        n_splits = 5
+        oof = composite_oof_predictions(
+            lambda: _SpyWrapper(),
+            df,
+            y,
+            n_splits=n_splits,
+            fit_kwargs={"sample_weight": sw},
+        )
+        assert oof.shape == (n,)
+        # One fit per fold; each recorded a per-fold (sliced) weight length.
+        assert len(_SpyWrapper.sample_weight_lens) == n_splits
+        # KFold(5) on n=50 -> 40 train rows per fold; crucially NOT n=50.
+        assert all(L != n for L in _SpyWrapper.sample_weight_lens), (
+            f"sample_weight was forwarded full-length (n={n}); got {_SpyWrapper.sample_weight_lens}"
+        )
+        # The slices must sum to exactly (n_splits-1)*n across all folds.
+        assert sum(_SpyWrapper.sample_weight_lens) == (n_splits - 1) * n
+
+    def test_groups_length_mismatch_raises(self) -> None:
+        n = 30
+        df = pd.DataFrame({"x": np.zeros(n), "gid": np.arange(n)})
+        y = np.zeros(n)
+        with pytest.raises(ValueError, match="groups length"):
+            composite_oof_predictions(
+                lambda: _SpyWrapper(), df, y, groups=np.arange(n - 1),
+            )

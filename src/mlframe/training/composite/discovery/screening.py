@@ -273,12 +273,32 @@ def _mi_pair_bin(
     return max(0.0, mi)
 
 
+# P15: bin codes only ever hold 0..nbins-1 (plus the -1 non-finite sentinel),
+# so int16 (range -32768..32767) suffices for nbins up to int16-max and halves
+# the (n_rows, n_cols) prebin buffer + improves gather/bincount cache locality
+# vs the prior int64. BUT the codes feed ``_mi_from_binned_pair``'s
+# ``combo = x_idx*nbins + y_idx`` whose max value is ``nbins**2 - 1``; that
+# overflows int16 once ``nbins**2 - 1 > 32767`` i.e. ``nbins >= 182``. We gate
+# the storage dtype on that boundary (int16 below, int32 from 182 up so the
+# code values themselves always fit), and ``_mi_from_binned_pair`` upcasts the
+# combo to int64 internally so the joint-count index never overflows regardless
+# of the input code dtype -- keeping MI bit-identical to the int64 path.
+_PREBIN_INT16_MAX_NBINS = 182  # nbins**2 - 1 must stay <= np.iinfo(np.int16).max (32767)
+
+
+def _prebin_code_dtype(nbins: int) -> np.dtype:
+    """Narrowest signed int dtype that holds bin codes 0..nbins-1 (and the -1
+    sentinel) AND keeps ``nbins**2 - 1`` representable in int16 for the
+    downstream combo. int16 for ``nbins < 182``, else int32. See P15."""
+    return np.dtype(np.int16) if nbins < _PREBIN_INT16_MAX_NBINS else np.dtype(np.int32)
+
+
 def _prebin_feature_columns(
     feature_matrix: np.ndarray, *, nbins: int,
 ) -> np.ndarray:
     """Pre-compute quantile edges and bin indices for every feature column.
 
-    Returns an (n_samples, n_features) int64 array of bin indices
+    Returns an (n_samples, n_features) integer array of bin indices
     (0..nbins-1, with -1 marking non-finite rows).  Call once per
     screening pass; reuse across all candidate targets via
     ``_mi_to_target_prebinned``.  This saves the ``np.quantile`` +
@@ -286,22 +306,22 @@ def _prebin_feature_columns(
     typical 8-candidate × 25-feature sweep, roughly half the MI wall
     time.
 
+    Dtype (P15): int16 when ``nbins < 182`` else int32 (see
+    ``_prebin_code_dtype``). int16 quarters the prebin buffer vs the prior
+    int64 and improves gather/bincount cache locality; the downstream
+    ``_mi_from_binned_pair`` upcasts its ``combo`` internally so MI stays
+    bit-identical to the int64 path.
+
     Uses ``np.nanquantile`` so NaN values don't corrupt the cut
     points; non-finite rows get sentinel -1 and are skipped by the
     downstream ``_mi_to_target_prebinned``.
     """
-    # bench-attempt-deferred (P15): int16 bin codes (vs int64) would halve the
-    # (n_rows, n_cols) prebin buffer + improve gather/bincount cache locality,
-    # but the codes feed ``_mi_from_binned_pair``'s ``combo = x_idx*nbins + y_idx``
-    # which overflows int16 once ``nbins >= ~182`` and the change must be applied
-    # COHERENTLY across this site, ``_auto_base.py`` (403-422), and the combo
-    # widening -- a cross-file dtype contract. Kept int64 (always safe); the win
-    # is measurement-gated and not benchable on this contended host. See audit P15.
+    code_dtype = _prebin_code_dtype(nbins)
     n_rows, n_cols = feature_matrix.shape
     if n_rows < 5 * nbins:
-        return np.full((n_rows, n_cols), -1, dtype=np.int64)
+        return np.full((n_rows, n_cols), -1, dtype=code_dtype)
     q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-    binned = np.empty((n_rows, n_cols), dtype=np.int64)
+    binned = np.empty((n_rows, n_cols), dtype=code_dtype)
     for j in range(n_cols):
         col = feature_matrix[:, j]
         col_finite = np.isfinite(col)
@@ -310,10 +330,10 @@ def _prebin_feature_columns(
             continue
         # nanquantile drops NaN but not inf; on an all-finite column np.quantile is bit-identical and faster, so take it in the common case.
         cut = np.quantile(col, q_edges) if col_finite.all() else np.nanquantile(col, q_edges)
-        col_idx = np.full(n_rows, -1, dtype=np.int64)
+        col_idx = np.full(n_rows, -1, dtype=code_dtype)
         col_idx[col_finite] = np.searchsorted(
             cut, col[col_finite], side="right",
-        ).astype(np.int64)
+        ).astype(code_dtype)
         np.clip(col_idx, 0, nbins - 1, out=col_idx, where=col_idx >= 0)
         binned[:, j] = col_idx
     return binned
@@ -405,8 +425,16 @@ def _mi_to_target_prebinned(
 def _mi_from_binned_pair(
     x_idx: np.ndarray, y_idx: np.ndarray, *, nbins: int,
 ) -> float:
-    """MI from two already-binned integer arrays (0..nbins-1)."""
-    combo = x_idx * nbins + y_idx
+    """MI from two already-binned integer arrays (0..nbins-1).
+
+    P15: ``x_idx`` / ``y_idx`` may arrive as int16 (the narrowed prebin code
+    dtype). The flattened index ``x_idx*nbins + y_idx`` reaches ``nbins**2 - 1``,
+    which overflows int16 at ``nbins >= 182`` (and even int16*python-scalar can
+    wrap on intermediate products), so the combo is computed in int64 explicitly.
+    This is purely a width promotion -- the index values are unchanged, so MI is
+    bit-identical to the legacy int64-code path. ``np.bincount`` requires int.
+    """
+    combo = x_idx.astype(np.int64) * nbins + y_idx
     joint_counts = np.bincount(combo, minlength=nbins * nbins).reshape(nbins, nbins)
     n_total = float(joint_counts.sum())
     if n_total <= 0:
