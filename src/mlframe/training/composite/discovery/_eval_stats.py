@@ -96,6 +96,29 @@ def near_collinear_keep_mask(
 
     Returns a length-``n_cols`` boolean array; an empty / 1-column / degenerate
     matrix returns an all-True mask (nothing to dedup).
+
+    The ``O(B^2)`` pair walk dispatches to a numba kernel for large inputs (see
+    ``_collinear_numba.near_collinear_keep_mask_fast``); tiny inputs stay on the
+    numpy reference below. The dispatcher is bit-identical to this reference
+    (borderline pairs are re-decided with the exact numpy primitives), so the
+    public contract is unchanged.
+    """
+    from ._collinear_numba import near_collinear_keep_mask_fast
+
+    return near_collinear_keep_mask_fast(
+        feature_matrix,
+        corr_threshold=corr_threshold,
+        reference_fn=_near_collinear_keep_mask_numpy,
+    )
+
+
+def _near_collinear_keep_mask_numpy(
+    feature_matrix: np.ndarray, *, corr_threshold: float,
+) -> np.ndarray:
+    """Pure-numpy reference walk for :func:`near_collinear_keep_mask`.
+
+    Kept as the correctness baseline AND the small-input / no-numba fast path;
+    the numba dispatcher must stay bit-identical to this implementation.
     """
     if feature_matrix.ndim != 2:
         raise ValueError("near_collinear_keep_mask expects a 2-D matrix")
