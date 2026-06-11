@@ -160,6 +160,98 @@ class TestDispatcherEmphasis:
 
 
 # ---------------------------------------------------------------------------
+# Suite threading: ReportingConfig.panel_emphasis reaches the dispatcher via
+# report_model_perf (the boundary where binary_panels_is_default is computed).
+# ---------------------------------------------------------------------------
+
+
+class TestReportModelPerfThreading:
+    """report_model_perf reads panel_emphasis / emphasis_imbalance_* off the
+    ReportingConfig and computes binary_panels_is_default by comparing the
+    threaded binary_panels to the field default, so data_aware takes effect in
+    a real suite run (the dispatcher is otherwise never told to emphasize)."""
+
+    def _run(self, monkeypatch, tmp_path, reporting_config, binary_panels):
+        from mlframe.training.configs import ReportingConfig  # noqa: F401  (ensures model_fields cache primes)
+        import mlframe.reporting.charts.binary as bin_mod
+        from mlframe.training.reporting import _reporting as rep
+
+        captured = {}
+
+        def _spy(yt, ys, *, panels_template, **kw):
+            captured["template"] = panels_template
+            raise RuntimeError("stop before render")
+
+        monkeypatch.setattr(bin_mod, "compose_binary_figure", _spy)
+
+        y = _imbalanced_y(rate=0.03)
+        proba = _binary_inputs(y)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rep.report_model_perf(
+                targets=y, columns=["f0"], model_name="m", model=None,
+                preds=(proba[:, 1] >= 0.5).astype(int), probs=proba,
+                classes=[0, 1], print_report=False, show_perf_chart=False,
+                show_fi=False, plot_file=str(tmp_path / "bin"),
+                plot_outputs="matplotlib[png]", target_type="binary_classification",
+                binary_panels=binary_panels, reporting_config=reporting_config,
+            )
+        return captured.get("template")
+
+    def test_data_aware_default_template_reorders_pr_led(self, monkeypatch, tmp_path):
+        from mlframe.training.configs import ReportingConfig
+
+        cfg = ReportingConfig(panel_emphasis="data_aware")
+        tmpl = self._run(monkeypatch, tmp_path, cfg, cfg.binary_panels).split()
+        assert tmpl[0] == "PR"
+        assert "ROC" not in tmpl
+
+    def test_all_mode_passes_default_through_unchanged(self, monkeypatch, tmp_path):
+        from mlframe.training.configs import ReportingConfig
+
+        cfg = ReportingConfig()  # panel_emphasis defaults to "all"
+        assert cfg.panel_emphasis == "all"
+        tmpl = self._run(monkeypatch, tmp_path, cfg, cfg.binary_panels)
+        assert tmpl == _DEFAULT
+
+    def test_custom_template_not_reordered_even_in_data_aware(self, monkeypatch, tmp_path):
+        from mlframe.training.configs import ReportingConfig
+
+        custom = "ROC GAIN"
+        cfg = ReportingConfig(panel_emphasis="data_aware", binary_panels=custom)
+        # binary_panels_is_default is False (custom != field default) -> untouched.
+        tmpl = self._run(monkeypatch, tmp_path, cfg, cfg.binary_panels)
+        assert tmpl == custom
+
+    def test_single_class_falls_back_to_all(self, monkeypatch, tmp_path):
+        from mlframe.training.configs import ReportingConfig
+        import mlframe.reporting.charts.binary as bin_mod
+        from mlframe.training.reporting import _reporting as rep
+
+        captured = {}
+
+        def _spy(yt, ys, *, panels_template, **kw):
+            captured["template"] = panels_template
+            raise RuntimeError("stop")
+
+        monkeypatch.setattr(bin_mod, "compose_binary_figure", _spy)
+        cfg = ReportingConfig(panel_emphasis="data_aware")
+        y = np.ones(5000, dtype=int)
+        proba = _binary_inputs(y)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rep.report_model_perf(
+                targets=y, columns=["f0"], model_name="m", model=None,
+                preds=np.ones(len(y), dtype=int), probs=proba, classes=[0, 1],
+                print_report=False, show_perf_chart=False, show_fi=False,
+                plot_file=str(tmp_path / "bin"), plot_outputs="matplotlib[png]",
+                target_type="binary_classification", binary_panels=cfg.binary_panels,
+                reporting_config=cfg,
+            )
+        assert captured["template"] == _DEFAULT
+
+
+# ---------------------------------------------------------------------------
 # biz_value: adaptive order surfaces the right diagnostic for the skew
 # ---------------------------------------------------------------------------
 

@@ -53,6 +53,19 @@ DEFAULT_RANDOM_SEED = 42
 
 logger = logging.getLogger(__name__)
 
+
+def _reporting_field_default(field_name: str):
+    """Field default of ReportingConfig, used to detect a left-at-default value the operator never customized. Cached on first call; None if the config is unavailable."""
+    cache = _reporting_field_default.__dict__
+    if field_name not in cache:
+        try:
+            from ..configs import ReportingConfig
+            cache[field_name] = ReportingConfig.model_fields[field_name].default
+        except Exception:
+            cache[field_name] = None
+    return cache[field_name]
+
+
 try:
     from IPython.display import display as _ipython_display
 except ImportError:  # pragma: no cover
@@ -752,6 +765,12 @@ def report_model_perf(
         _nfeatures_hdr = f"{_n_cols_hdr:_}F/" if _n_cols_hdr > 0 else ""
         _n_rows_hdr = len(preds) if (preds is not None and hasattr(preds, "__len__")) else (len(targets) if hasattr(targets, "__len__") else 0)
         _shape_hdr = f" [{_nfeatures_hdr}{get_human_readable_set_size(_n_rows_hdr)} rows]" if _n_rows_hdr else ""
+        # Data-aware binary panel emphasis is opt-in via ReportingConfig and applies only when the operator left binary_panels at its field default; a custom
+        # template is never reordered/dropped. The dispatcher derives the base rate from the y_true it already holds (no extra full-n pass).
+        _panel_emphasis = getattr(reporting_config, "panel_emphasis", "all")
+        _emph_lo = getattr(reporting_config, "emphasis_imbalance_lo", 0.2)
+        _emph_hi = getattr(reporting_config, "emphasis_imbalance_hi", 0.8)
+        _binary_panels_is_default = (binary_panels == _reporting_field_default("binary_panels"))
         with phase("render_multi_target_panels"):
             _rendered_tag = render_multi_target_panels(
                 targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
@@ -765,6 +784,10 @@ def report_model_perf(
                 multilabel_panels=multilabel_panels,
                 ltr_panels=ltr_panels,
                 quantile_panels=quantile_panels,
+                panel_emphasis=_panel_emphasis,
+                binary_panels_is_default=_binary_panels_is_default,
+                emphasis_imbalance_lo=_emph_lo,
+                emphasis_imbalance_hi=_emph_hi,
                 base_path=plot_file,
                 suptitle=(report_title + " " + model_name).strip() + _shape_hdr,
                 # Authoritative target_type gate — prevents regression
