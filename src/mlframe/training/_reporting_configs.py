@@ -182,7 +182,8 @@ class ReportingConfig(BaseConfig):
     # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against the chart modules' ALLOWED_*_PANEL_TOKENS frozensets, no duplicates). All-by-default; operator removes tokens to skip individual panels.
     # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/KS/THRESHOLD/GAIN by default.
     binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
-    multiclass_panels: str = "CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
+    # CONFUSION_MARGINS flanks the confusion heatmap with per-true-class support + per-pred-class precision bars, so a class imbalance that explains a confusion block is visible in one panel.
+    multiclass_panels: str = "CONFUSION CONFUSION_MARGINS CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     # THRESHOLD_SWEEP adds the per-label argmax-F1 cutoff heatmap (per-label, not a global threshold) -- the operating-point picker for multilabel.
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST THRESHOLD_SWEEP"
     ltr_panels: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL"
@@ -238,6 +239,16 @@ class ReportingConfig(BaseConfig):
     # Combined single-page HTML index per (model, split) stitching the rendered chart artifacts (PNG refs + plotly
     # fragments); assembly-only, default-on when charts are saved.
     combined_html: bool = True
+    # Decile gain/lift/KS table figure for binary targets (the tabular complement to the GAIN curve). Default-ON; reuses the already-computed score, single O(n log n) sort.
+    decile_table: bool = True
+    # One-glance per-(model, split) model card: header metrics + traffic-light verdict + mini sparklines. Default-ON when charts saved; reuses the split's y_true + scores/preds.
+    model_card: bool = True
+    # Cross-split overfit panel per model (grouped headline-metric bars + delta table + verdict), rendered once all splits exist. Default-ON when >=2 usable splits.
+    split_comparison_charts: bool = True
+    # CUSUM change-point on standardized regression residuals; catches a sustained mean shift per-bucket residual_vs_time misses. Default-ON for regression when timestamps cover the split.
+    cusum_drift: bool = True
+    # Ensemble member-disagreement panels (spread histogram + spread-vs-mean + uncertainty calibration). Default-ON when an ensemble exposes >=2 member predictions, else skipped.
+    prediction_stability: bool = True
     # Opt-in learning curve (holdout score vs train size). ``None`` / ``enabled=False`` skips it: it is K full refits
     # by construction, the documented cost-gated exception to "cheap diagnostics default on". Set
     # ``LearningCurveConfig(enabled=True)`` (optionally ``warm_start=True`` / ``time_budget_s=...``) to turn it on.
