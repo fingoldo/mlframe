@@ -447,6 +447,12 @@ def _compute_split_metrics(
     if preds is None and probs is None and (df is None or model is None):
         return preds, probs, columns
 
+    # Feature selection (MRMR / RFECV) can remove every feature, leaving a 0-column frame. Calling model.predict on it
+    # crashes deep in the backend (xgboost data.py "list index out of range" building a DMatrix from 0 columns). There is
+    # nothing to predict from; skip exactly like the model-None case (the trainer already logged the empty-FS warning).
+    if preds is None and probs is None and df is not None and hasattr(df, "shape") and len(getattr(df, "shape", ())) > 1 and df.shape[1] == 0:
+        return preds, probs, columns
+
     # Historical 0-row split skip removed. The
     # original empty-split window came from outlier detection (val-side)
     # or splitter edge cases; both are now guarded at the source. If a
