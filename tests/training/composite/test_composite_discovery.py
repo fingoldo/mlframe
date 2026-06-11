@@ -701,6 +701,12 @@ class TestPolarsAndEdgeCases:
             tiny_model_sample_n=400,
             top_m_after_tiny=2,
             tiny_screening_models="single_lgbm",
+            # Isolate the tiny-rerank trim mechanic: the now-default-ON auto-chain
+            # step appends extra chain specs AFTER the trim, a separate concern
+            # from the top_m_after_tiny assertion under test here.
+            region_adaptive_enabled=False,
+            interaction_base_discovery_enabled=False,
+            auto_chain_discovery_enabled=False,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
             df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"],

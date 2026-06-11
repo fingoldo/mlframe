@@ -55,6 +55,11 @@ def _base_config(**overrides):
         multi_base_enabled=False,  # isolate the opt-in hook from multi-base upgrades
         mi_sample_n=None,
         random_state=0,
+        # Controlled all-off baseline: the package now defaults these ON, so pin
+        # them False here and let each "flag ON" test flip its one flag.
+        region_adaptive_enabled=False,
+        interaction_base_discovery_enabled=False,
+        auto_chain_discovery_enabled=False,
     )
     cfg.update(overrides)
     return CompositeTargetDiscoveryConfig(**cfg)
