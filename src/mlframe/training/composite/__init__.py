@@ -284,6 +284,11 @@ from .survival import CompositeSurvivalEstimator  # noqa: E402,F401
 # Dependency-light serving export of a fitted composite.
 from .serving import export_serving_spec, load_serving_spec  # noqa: E402,F401
 
+# Champion-challenger comparison, double-ML orthogonalized composite, ranking.
+from .compare import compare_models, should_promote  # noqa: E402,F401
+from .orthogonal import OrthogonalizedCompositeEstimator  # noqa: E402,F401
+from .ranking import CompositeRankEstimator  # noqa: E402,F401
+
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
 from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
@@ -327,6 +332,8 @@ __all__ = [
     "CompositeDistributionEstimator", "optimize_composite", "composite_model_card",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
+    "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
+    "CompositeRankEstimator",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
