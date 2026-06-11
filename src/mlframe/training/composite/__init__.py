@@ -256,3 +256,8 @@ from .discovery import CompositeTargetDiscovery  # noqa: E402,F401
 # Re-export the config alongside the discovery class so a single import
 # location serves both; same module path the lazy dict-config path uses.
 from ..configs import CompositeTargetDiscoveryConfig  # noqa: E402,F401
+
+# Classification composite (base-margin residual modelling) + split-conformal
+# prediction interval helper -- the two FUTURE extensions.
+from .classification import CompositeClassificationEstimator  # noqa: E402,F401
+from .conformal import conformal_quantile  # noqa: E402,F401
