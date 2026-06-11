@@ -1,8 +1,8 @@
-"""Unary y-only composite transforms + chain meta-transform (Packs J + K).
+"""Unary y-only composite transforms + chain meta-transform.
 
-The existing ``composite_transforms.py`` registry contains 11 BIVARIATE transforms - every one takes ``(y, base) -> T`` where ``base`` is a dominant feature column (e.g. a lag feature). For heavy-tailed targets where the dominant feature has been already absorbed by a bivariate composite (e.g. ``y-linres-lag1``) the remaining residual T is still skewed / leptokurtic; a unary y-only transform on T (or on raw y) can compress the tails further.
+The bivariate registry transforms each take ``(y, base) -> T`` where ``base`` is a dominant feature column (e.g. a lag feature). For heavy-tailed targets where the dominant feature has been already absorbed by a bivariate composite (e.g. ``y-linres-lag1``) the remaining residual T is still skewed / leptokurtic; a unary y-only transform on T (or on raw y) can compress the tails further.
 
-Production motivator: composite-CB on ``y-linres-lag1`` reported ``excess_kurt=+2.40`` on the residual; ``Pack H`` recommends MAE for the inner loss, but a unary ``cbrt`` / ``yeo_johnson`` applied to the residual would compress tails further and let RMSE-trained inners produce stable predictions.
+Production motivator: composite-CB on ``y-linres-lag1`` reported ``excess_kurt=+2.40`` on the residual; the recommended inner loss is MAE, but a unary ``cbrt`` / ``yeo_johnson`` applied to the residual would compress tails further and let RMSE-trained inners produce stable predictions.
 
 This module ships:
 
@@ -33,11 +33,11 @@ except Exception:  # pragma: no cover - numba is a hard dep but allow graceful s
     _numba = None  # type: ignore
     _HAS_NUMBA = False
 
-# Iter-47 threshold: numba JIT'd YJ forward/inverse beats numpy fancy-indexing
-# from n>=~10k upward (bench at tests/perf/bench_yj_forward.py). Below this
-# threshold the numpy path's lower per-call overhead wins, and the JIT
-# compile cost (one-shot, but still ~100ms) doesn't amortise over a single
-# Brent step on tiny data.
+# numba JIT'd YJ forward/inverse beats numpy fancy-indexing from n>=~10k
+# upward (bench at tests/perf/bench_yj_forward.py). Below this threshold the
+# numpy path's lower per-call overhead wins, and the JIT compile cost
+# (one-shot, but still ~100ms) doesn't amortise over a single Brent step on
+# tiny data.
 _YJ_NUMBA_MIN_N: int = 10_000
 
 # Yeo-Johnson inverse has a lambda-dependent asymptote: for lam<0 the nonneg branch base ``t*lam+1`` reaches 0 at t=-1/lam (y->+inf) and goes negative beyond it; for lam>2 the neg branch base does the same. ``base**(1/lam)`` on a non-positive base is NaN, which ``np.clip`` cannot repair, so an out-of-range inner T-prediction silently poisoned predict()/predict_pre_clip. We floor the base to a tiny positive value so the inverse SATURATES at the asymptote (large finite y, then bounded by the post-inverse y-clip) instead of returning NaN. Floor only bites within ~1e-12 of the asymptote, so the forward/inverse round-trip stays value-identical on every realistic y.
@@ -71,7 +71,7 @@ if _HAS_NUMBA:
     # fastmath=False on the inverse kernel: predict-time correctness needs
     # bit-exact match vs the numpy reference (the Brent fit hotspot is on
     # the forward path only, so dropping fastmath here costs nothing the
-    # iter-47 5-10x speedup target cares about).
+    # 5-10x speedup target cares about).
     @_numba.njit(cache=True, fastmath=False, parallel=True)
     def _yj_inverse_numba_kernel(t, lam):  # type: ignore[no-untyped-def]
         n = t.shape[0]
@@ -338,7 +338,7 @@ def quantile_normal_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None
 # ----------------------------------------------------------------------
 # chain_bivariate_then_unary -- compose a (y, base) -> T1 bivariate with a T1 -> T2 unary.
 # ----------------------------------------------------------------------
-# This is Pack K's atom: take a SURVIVING bivariate composite spec (e.g. ``linear_residual`` on a lag base) and stack one of the unary transforms above on top. The model learns the doubly-transformed target; at predict time the inverse runs unary first, then bivariate.
+# Take a SURVIVING bivariate composite spec (e.g. ``linear_residual`` on a lag base) and stack one of the unary transforms above on top. The model learns the doubly-transformed target; at predict time the inverse runs unary first, then bivariate.
 
 UnaryFns = Tuple[
     Callable[[np.ndarray], Dict[str, Any]],
@@ -386,11 +386,11 @@ def chain_bivariate_then_unary_inverse(
 
 
 # ----------------------------------------------------------------------
-# Multi-stage chains (Pack K extension): bivariate + 2+ unary stages.
-# E.g. chain([linres, cbrt, quantile_normal]) for very heavy-tail
-# residuals where a single unary does not bring the distribution close
-# to Gaussian. The composer applies stages in order at forward time
-# and in reverse order at inverse time.
+# Multi-stage chains: bivariate + 2+ unary stages. E.g.
+# chain([linres, cbrt, quantile_normal]) for very heavy-tail residuals
+# where a single unary does not bring the distribution close to Gaussian.
+# The composer applies stages in order at forward time and in reverse order
+# at inverse time.
 # ----------------------------------------------------------------------
 
 

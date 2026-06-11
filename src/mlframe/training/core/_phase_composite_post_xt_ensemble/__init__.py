@@ -324,11 +324,10 @@ def _build_cross_target_ensemble_for_target(
                     _b_val = _b_primary[filtered_val_idx]
                 except Exception:
                     _b_val = None
-            # I6: key by the UNIQUE spec name, not base_column. A multi-base
+            # Key by the UNIQUE spec name, not base_column. A multi-base
             # spec and a single-base spec sharing the same PRIMARY base column
             # otherwise collide (last writer wins), so the other spec's OOF
-            # refit raised a base-width mismatch and was silently excluded.
-            # Bit-identical when no collision (name <-> base_column is 1:1).
+            # refit raises a base-width mismatch and is silently excluded.
             _base_full_per_spec[_spec_for_oof["name"]] = _b_filtered
             if _b_val is not None:
                 _base_val_per_spec[_spec_for_oof["name"]] = _b_val
@@ -424,12 +423,12 @@ def _build_cross_target_ensemble_for_target(
             except (TypeError, IndexError):
                 _group_ids_for_oof = None
 
-        # 2026-05-26 OOF pre-screen optimisation: the dummy-floor gate
+        # OOF pre-screen optimisation: the dummy-floor gate
         # at the BOTTOM of this function frequently drops 60-70% of
-        # components (observed in prod: 14/21 dropped). Pre-fix, all
-        # 21 components were OOF-refit (~10 min/MLP, ~5 min/booster),
+        # components (observed in prod: 14/21 dropped). Without it, all
+        # 21 components are OOF-refit (~10 min/MLP, ~5 min/booster),
         # then 14 immediately discarded -- ~30-50 minutes of pure
-        # waste per target. Pre-screen now uses Phase-4-trained
+        # waste per target. The pre-screen uses already-trained
         # models' predict() on the external_val frame (cheap; no
         # refit) to compute a LEAKY val_RMSE estimate -- leaks only
         # through early-stopping signal, not full training -- and

@@ -44,7 +44,7 @@ from ._eval_stats import (
 
 logger = logging.getLogger(__name__)
 
-# D13: sentinel base key for the dedicated UNARY (``requires_base=False``)
+# Sentinel base key for the dedicated UNARY (``requires_base=False``)
 # evaluation context. Unary transforms ignore the base column entirely, so they
 # are scored ONCE against the FULL feature matrix (no base dropped) rather than
 # bound to an arbitrary first base. The empty string is also the
@@ -318,7 +318,7 @@ def fit(
     )
     train_idx_screen = train_idx[sample_idx]
 
-    # M6 time-awareness: when the caller supplies an explicit ``time_ordering``,
+    # Time-awareness: when the caller supplies an explicit ``time_ordering``,
     # SORT the screening sample into time order so the downstream tiny-model CV
     # is a genuine forward-walk (TimeSeriesSplit). The old heuristic inferred
     # time-awareness from base MONOTONICITY, which never fires for the canonical
@@ -371,12 +371,12 @@ def fit(
     self._auto_base_pool: dict[str, np.ndarray] = {}
 
     # Score each (base, transform).
-    # D13: unary y-transforms (``requires_base=False``) ignore the base column, so each routes through ONE dedicated context (``_UNARY_BASE_SENTINEL``) scored against the FULL feature matrix (no base dropped) with an empty-string, base-free spec name -- not bound to / scored against / named after an arbitrary "first" base as before (which made the unary's mi_gain shift with irrelevant auto-base ranking and claim a nonexistent base dependence). The set tracks which unary names are already evaluated so later base-loop iterations skip the redundant re-fit; bivariate + chain transforms still iterate per base.
+    # Unary y-transforms (``requires_base=False``) ignore the base column, so each routes through ONE dedicated context (``_UNARY_BASE_SENTINEL``) scored against the FULL feature matrix (no base dropped) with an empty-string, base-free spec name -- not bound to / scored against / named after an arbitrary "first" base as before (which made the unary's mi_gain shift with irrelevant auto-base ranking and claim a nonexistent base dependence). The set tracks which unary names are already evaluated so later base-loop iterations skip the redundant re-fit; bivariate + chain transforms still iterate per base.
     _unary_evaluated: set[str] = set()
 
     candidates: list[dict[str, Any]] = []
 
-    # 2026-05-20 #2: hoist the per-base setup OUT of the candidate
+    # Hoist the per-base setup OUT of the candidate
     # evaluation loop so a single parallel dispatch can span all
     # (base, transform) pairs. The previous serial outer loop over
     # bases bottlenecked total parallelism at ``n_transforms`` per
@@ -507,7 +507,7 @@ def fit(
             _mi_y_compare_memo_lock=threading.Lock(),
         )
 
-    # D13: dedicated UNARY context (full feature matrix, sentinel base) so unary
+    # Dedicated UNARY context (full feature matrix, sentinel base) so unary
     # (``requires_base=False``) transforms are scored ONCE against full X and
     # their mi_gain is invariant to auto-base ranking order. Built in the
     # ``_eval`` sibling to keep this module under the LOC threshold; see
@@ -529,7 +529,7 @@ def fit(
         _base_contexts[_UNARY_BASE_SENTINEL] = _unary_ctx
 
     # Build flat (base, transform_name, transform) work list. Base-dependent
-    # transforms iterate per base normally. D13: unary (``requires_base=False``)
+    # transforms iterate per base normally. Unary (``requires_base=False``)
     # transforms route to the dedicated ``_UNARY_BASE_SENTINEL`` context exactly
     # ONCE (full-X scoring, base-free name) instead of being bound to whichever
     # real base they happened to pair with first. ``_unary_evaluated`` still
@@ -563,7 +563,7 @@ def fit(
                 continue
             _work_items.append((base, transform_name, transform))
 
-    # 2026-05-20 #2: single parallel dispatch over the flat
+    # Single parallel dispatch over the flat
     # ``_work_items`` list. Joblib preserves input order so
     # ``candidates`` ends up in (base, transform) iteration order
     # identical to the legacy nested-loop serial path. joblib
@@ -649,7 +649,7 @@ def fit(
         linear_residual_fit=_linear_residual_fit,
     )
 
-    # R10b improvement #6: collapse redundant linear_residual ->
+    # Collapse redundant linear_residual ->
     # diff when alpha ~ 1 and beta ~ 0 (linear_residual has zero
     # information advantage over diff but carries 2 fitted params).
     # Drop linear_residual specs whose alpha is close to 1.0 on
@@ -739,7 +739,7 @@ def fit(
             raise RuntimeError(msg)
         logger.warning(msg + f" (fail_on_no_gain={mode!r})")
 
-    # OPEN-1 integration (2026-05-12): multi-base forward-stepwise auto-promotion of linear_residual specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, look at each kept ``linear_residual`` spec and try greedily adding more bases from the auto-base candidate pool. When the marginal RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 0.02 = 2%), upgrade the spec to ``linear_residual_multi`` with the expanded base list. Measure-first benchmark in ``benchmarks/composite_multi_base_benchmark.py`` validates: geo-mean gain 83% on positive scenarios, no-harm on negative scenarios -> auto-promote=True. Gated by ``self.config.multi_base_enabled``; opt-out via config.
+    # Multi-base forward-stepwise auto-promotion of linear_residual specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, look at each kept ``linear_residual`` spec and try greedily adding more bases from the auto-base candidate pool. When the marginal RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 0.02 = 2%), upgrade the spec to ``linear_residual_multi`` with the expanded base list. Measure-first benchmark in ``benchmarks/composite_multi_base_benchmark.py`` validates: geo-mean gain 83% on positive scenarios, no-harm on negative scenarios -> auto-promote=True. Gated by ``self.config.multi_base_enabled``; opt-out via config.
     if (kept_specs
             and getattr(self.config, "multi_base_enabled", False)
             and getattr(self, "_auto_base_pool", None)):
@@ -751,7 +751,7 @@ def fit(
         _cv_sel_qlevel = float(getattr(self.config, "cv_selector_quantile_level", 0.9))
         _cv_persist = bool(getattr(self.config, "cv_persist_fold_scores", False))
         _upgraded_specs: list[CompositeSpec] = []
-        # ENS-Low-6: hoist the (base_column, pool_signature) -> pool_arrays
+        # Hoist the (base_column, pool_signature) -> pool_arrays
         # build outside the per-spec loop so K linear_residual specs that
         # share the same auto_base_pool + base_column do ONE pool build
         # (and one _extract_column_array call), not K. Cache key includes

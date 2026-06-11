@@ -37,7 +37,7 @@ def build_unary_base_context(
     random_state: int,
     mi_estimator: str,
 ) -> dict[str, Any] | None:
-    """Build the dedicated UNARY (``requires_base=False``) evaluation context (D13).
+    """Build the dedicated UNARY (``requires_base=False``) evaluation context.
 
     Unary transforms ignore the base column entirely, so they are scored ONCE
     against the FULL feature matrix (NO base column dropped -- a unary drops no
@@ -121,7 +121,7 @@ def refit_transform_on_fold(
     """Re-fit a transform's params on ONE CV fold's TRAIN rows only.
 
     This is the ``_eval``-side contract for **per-fold transform refit**, the
-    cure for the in-fold leakage flagged as M2: in :func:`eval_one_transform`
+    cure for the in-fold leakage: in :func:`eval_one_transform`
     the transform is fit ONCE on every valid train row (line ~71) and those
     GLOBAL ``fitted_params`` (e.g. ``linear_residual``'s alpha/beta) are then
     reused for every inner tiny-CV fold downstream
@@ -207,7 +207,7 @@ def refit_transform_on_fold(
     # the caller keep global params rather than score on a degenerate refit.
     if fold_params.get("is_degenerate"):
         return None
-    # Fitted-params-aware domain refinement (T15 parity): drop rows that are
+    # Fitted-params-aware domain refinement: drop rows that are
     # only out-of-domain once the fold's params exist, so the mask the caller
     # uses to subset the fold matches the params it was fit on.
     _dcf = getattr(transform, "domain_check_fitted", None)
@@ -263,13 +263,13 @@ def eval_one_transform(
     if not valid.any():
         return _local
 
-    # P13 (2026-06-11) bit-identical sub-fix: gather ``y_train[valid]`` /
+    # Gather ``y_train[valid]`` /
     # ``base_train[valid]`` ONCE here and reuse the same arrays for both the
     # transform fit AND (below) the residual-std probe, instead of fancy-index
     # gathering the same rows a second time at the probe. ``transform.fit`` /
     # ``forward`` only READ these arrays (verified across linear/nonlinear
     # transforms), so sharing one gather is bit-identical. ``_valid_stale``
-    # tracks whether the T15 block below shrinks ``valid`` -- if it does, the
+    # tracks whether the fitted-domain block below shrinks ``valid`` -- if it does, the
     # reused gather is re-taken on the narrowed mask (still bit-identical,
     # just not shared). The dominant probe cost (``transform.forward`` over all
     # train rows) is unchanged here; moving it onto the smaller screen sample
@@ -279,7 +279,7 @@ def eval_one_transform(
     _base_train_valid = base_train[valid]
     _valid_stale = False
     fitted_params = transform.fit(_y_train_valid, _base_train_valid)
-    # T15 (2026-06-10): fitted-params-aware domain refinement. The pre-fit
+    # Fitted-params-aware domain refinement. The pre-fit
     # ``domain_check`` above cannot see learned params (log_y's ``offset``,
     # centered_ratio's shift ``c`` + eps-floor), so it lets rows through that
     # are out of the TRUE fitted domain -- e.g. log_y rows with
@@ -292,7 +292,7 @@ def eval_one_transform(
         valid_fitted = np.asarray(_dcf(y_train, base_train, fitted_params), dtype=bool)
         if valid_fitted.shape == valid.shape and not bool(valid_fitted[valid].all()):
             valid = valid & valid_fitted
-            _valid_stale = True  # P13: the cached gather no longer matches valid.
+            _valid_stale = True  # the cached gather no longer matches valid.
             valid_frac = float(valid.mean()) if valid.size else 0.0
             if valid_frac < self.config.min_valid_domain_frac:
                 _local.append(self._reject(
@@ -306,7 +306,7 @@ def eval_one_transform(
                 return _local
             if not valid.any():
                 return _local
-    # Pack D 2026-05-18: reject identity / near-identity transforms early.
+    # Reject identity / near-identity transforms early.
     # Some bivariate transforms can collapse to a constant residual
     # (T = y - const) when the base does not actually carry the
     # signal -- e.g. ``monotonic_residual`` on a base where the
@@ -327,7 +327,7 @@ def eval_one_transform(
             ),
         ))
         return _local
-    # 2026-05-21: linres_robust dedup. When the MAD-trim step in
+    # linres_robust dedup. When the MAD-trim step in
     # ``_linear_residual_robust_fit`` doesn't drop any rows, the
     # second-pass OLS produces alpha/beta identical to the first
     # pass -- i.e. the transform IS plain ``linear_residual``.
@@ -349,7 +349,7 @@ def eval_one_transform(
             ),
         ))
         return _local
-    # 2026-05-23: upper-bound degeneracy check. The pre-fix
+    # Upper-bound degeneracy check. The pre-fix
     # ``is_degenerate`` flag in transform.fit only catches the
     # LOWER bound (transform explains <5% of y variance -- T ~= y).
     # The OPPOSITE pathology also exists: transform absorbs SO
@@ -363,7 +363,7 @@ def eval_one_transform(
     # T_std / y_std < 0.001 (T is below 0.1% of y scale -- below
     # typical noise floor for f32 tabular targets).
     try:
-        # P13: reuse the gather hoisted above. Re-take it only when T15
+        # Reuse the gather hoisted above. Re-take it only when the fitted-domain block
         # narrowed ``valid`` (``_valid_stale``); otherwise the cached arrays
         # already hold exactly ``y_train[valid]`` / ``base_train[valid]``.
         if _valid_stale:
@@ -405,7 +405,7 @@ def eval_one_transform(
         )
     # T on the screening sample (which is a subset of train).
     valid_screen = transform.domain_check(y_screen, base_screen)
-    # T15: apply the same fitted-domain refinement to the screening mask so
+    # Apply the same fitted-domain refinement to the screening mask so
     # ``t_screen`` (mi_t) and ``y_screen[valid_screen]`` (mi_y_compare) score
     # the SAME row population -- otherwise mi_gain compares MI over different
     # rows (mi_t excludes NaN-T rows inside the binner, mi_y_compare keeps
@@ -581,7 +581,7 @@ def eval_one_transform(
         # sparsely-failing bootstrap still yields a usable, conservative p-value.
         bootstrap_p_value = bootstrap_gain_p_value(boot_gains)
 
-    # D13 (2026-06-11) -- unary specs are base-free. When
+    # Unary specs are base-free. When
     # ``transform.requires_base`` is False (cbrt_y / log_y / yeo_johnson_y /
     # quantile_normal_y / y_quantile_clip), the transform ignores ``base``
     # entirely. ``_fit.py`` routes these through the dedicated full-X sentinel

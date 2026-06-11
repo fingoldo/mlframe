@@ -1,9 +1,7 @@
 """Two-pass stacked variants of :meth:`CompositeTargetDiscovery.fit`.
 
-Carved out of ``composite_discovery`` via method-rebinding to keep the parent
-facade under the LOC budget. Methods are bound onto the class at the parent
-module's bottom; ``self`` stays the first arg so identity and behaviour are
-preserved.
+Bound onto the class via method-rebinding at the parent module's bottom;
+``self`` stays the first arg so identity and behaviour are preserved.
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ logger = logging.getLogger(__name__)
 # by the suite at integration time (the column lives only in the local
 # ``df_aug`` and the suite's ``_build_full_column_from_splits`` silently returns
 # an all-NaN column for any name absent from the per-split frames -> a composite
-# trained on garbage). See A6.
+# trained on garbage).
 _OOF_FEATURE_PREFIX = "_oof_"
 
 
@@ -32,8 +30,8 @@ def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
     Such a spec references a feature that exists only in the in-memory augmented
     frame; the suite cannot rebuild it from the persisted split frames, so the
     composite would train on an all-NaN base. We surface this loudly rather than
-    let it degrade silently (A6 cheap-interim fix; the full fix is to persist the
-    OOF recipe and rebuild it before training -- architectural, suite-side).
+    let it degrade silently (the full fix is to persist the OOF recipe and
+    rebuild it before training -- architectural, suite-side).
 
     Returns the list of unrebuildable spec names (for callers/tests).
     """
@@ -74,7 +72,7 @@ def fit_stacked(
     time_aware: bool = False,
     cv_splitter: Any = None,
 ):
-    """2-pass stacked composite discovery (Pack #3).
+    """2-pass stacked composite discovery.
 
     Pass 1 runs the standard :meth:`fit`. For each of the top
     ``max_pass1_specs_to_stack`` specs (ranked by tiny CV-RMSE),
@@ -90,7 +88,7 @@ def fit_stacked(
     Resulting ``self.specs_`` = pass1_specs UNION pass2_specs
     (collisions dropped, pass-1 wins).
 
-    ``time_aware`` / ``cv_splitter`` (A17): control the fold scheme of the
+    ``time_aware`` / ``cv_splitter``: control the fold scheme of the
     OOF-prediction step. By default the OOF uses a shuffled K-fold, which
     leaks future->past on temporal data (a pass-2 base built from
     future-contaminated OOF predictions). Pass ``time_aware=True`` (or an
@@ -207,7 +205,7 @@ def fit_stacked(
         return self
     pass2_specs = list(self.specs_) if self.specs_ else []
     existing_names = {s.name for s in pass1_specs}
-    # A6: pass-2 specs that adopted an ephemeral ``_oof_*`` column as their base
+    # Pass-2 specs that adopted an ephemeral ``_oof_*`` column as their base
     # cannot be rebuilt by the suite -> warn loudly so they aren't trained on an
     # all-NaN base silently.
     _warn_unrebuildable_oof_specs(pass2_specs, existing_names)
@@ -238,7 +236,7 @@ def fit_stacked_on_residual(
     time_aware: bool = False,
     cv_splitter: Any = None,
 ):
-    """Pack #4: residual-target stacked discovery (ALTERNATIVE to ``fit_stacked``).
+    """Residual-target stacked discovery (ALTERNATIVE to ``fit_stacked``).
 
     Where ``fit_stacked`` adds the OOF predictions of pass-1 specs as new FEATURES (treating them as bases for pass-2 transforms), this variant operates on a residual TARGET: pass-1 specs collectively predict ``pass1_pred``, then ``y_residual = y - pass1_pred`` becomes the new target for pass-2 discovery. Mathematically the more direct approach for residual-of-residual structure when feature stacking blocks at the discovery gate.
 
@@ -246,7 +244,7 @@ def fit_stacked_on_residual(
     - ``"mean"``: ``pass1_pred = mean(oof_preds_per_spec)``. Robust to a single overfit spec.
     - ``"first"``: ``pass1_pred = oof_preds_of_best_spec`` (best by tiny CV-RMSE).
 
-    ``max_pass1_specs_to_aggregate`` (A18): cap on how many top-ranked pass-1
+    ``max_pass1_specs_to_aggregate``: cap on how many top-ranked pass-1
     specs (best tiny CV-RMSE first) contribute their OOF predictions to
     ``pass1_pred``. Previously this path aggregated EVERY pass-1 spec
     (``ranked[:max(1,len(ranked))]`` is a no-op slice), so weak/overfit tail
@@ -256,13 +254,13 @@ def fit_stacked_on_residual(
     cap is immaterial there. Set to ``0`` or a negative value to disable the
     cap (aggregate all pass-1 specs, the historical behaviour).
 
-    ``time_aware`` / ``cv_splitter`` (A17): control the OOF fold scheme exactly
+    ``time_aware`` / ``cv_splitter``: control the OOF fold scheme exactly
     as in :func:`fit_stacked` -- default shuffled K-fold (historical numerics);
     pass ``time_aware=True`` on temporal data to avoid future->past leakage in
     the OOF predictions that define the residual target. The suite forwards
     ``time_aware=True`` automatically when a ``time_column`` is configured.
 
-    Returns: ``self.specs_`` = pass1_specs UNION pass2_specs, with ``discovered_on_residual=True`` annotation in spec metadata for pass-2 entries. Suite-side training integration (fit pass-2 specs on the actual residual not raw y) is the follow-up step -- the current scaffolding returns the specs for inspection / experimentation. Because the suite does NOT yet route these specs through a residual-aware training path, a WARNING is emitted (A7) listing them: their ``fitted_params`` were fit against the residual but training would apply them against raw ``y``, so they must be treated as inspection-only until the residual-aware path lands.
+    Returns: ``self.specs_`` = pass1_specs UNION pass2_specs, with ``discovered_on_residual=True`` annotation in spec metadata for pass-2 entries. Suite-side training integration (fit pass-2 specs on the actual residual not raw y) is the follow-up step -- the current scaffolding returns the specs for inspection / experimentation. Because the suite does NOT yet route these specs through a residual-aware training path, a WARNING is emitted listing them: their ``fitted_params`` were fit against the residual but training would apply them against raw ``y``, so they must be treated as inspection-only until the residual-aware path lands.
     """
     from sklearn.linear_model import Ridge
 
@@ -308,10 +306,10 @@ def fit_stacked_on_residual(
             )
             return self
 
-    # A18: cap the number of pass-1 specs whose OOF predictions feed the
-    # aggregate. The old ``ranked[:max(1,len(ranked))]`` was a no-op slice
-    # (selected ALL specs), letting weak tail specs pollute the ``mean``
-    # aggregate. ``<=0`` disables the cap (historical aggregate-all behaviour).
+    # Cap the number of pass-1 specs whose OOF predictions feed the aggregate.
+    # The old ``ranked[:max(1,len(ranked))]`` was a no-op slice (selected ALL
+    # specs), letting weak tail specs pollute the ``mean`` aggregate. ``<=0``
+    # disables the cap (historical aggregate-all behaviour).
     _cap = int(max_pass1_specs_to_aggregate)
     if _cap <= 0:
         _ranked_capped = list(ranked)
@@ -403,7 +401,7 @@ def fit_stacked_on_residual(
 
     existing_names = {s.name for s in pass1_specs}
     _new_residual_specs = [s for s in pass2_specs if s.name not in existing_names]
-    # A7: these pass-2 specs carry ``fitted_params`` fit against the RESIDUAL
+    # These pass-2 specs carry ``fitted_params`` fit against the RESIDUAL
     # target, but the suite has no residual-aware training route yet -- it would
     # apply them against raw ``y``, mis-using the residual-fitted params. The
     # ``discovered_on_residual`` flag is currently read only by tests, not by

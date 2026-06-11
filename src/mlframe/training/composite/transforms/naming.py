@@ -17,10 +17,9 @@ if TYPE_CHECKING:
 
 
 # Short-name aliases for composite-target naming. Used in
-# ``compose_target_name`` to keep displayed target names compact;
-# previously composites were named ``y__linear_residual__lag1``
-# which read ugly in logs / report headings / dict keys. The dash
-# separator + short aliases give us e.g. ``y-linres-lag1``.
+# ``compose_target_name`` to keep displayed target names compact in logs /
+# report headings / dict keys: the dash separator + short aliases give us
+# e.g. ``y-linres-lag1``.
 #
 # Order: declared transforms only -- if a transform is missing from
 # this map we fall back to the full name in ``compose_target_name`` so
@@ -41,18 +40,18 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "ewma_residual": "ewma",
     "rolling_quantile_ratio": "rqr",
     "frac_diff": "fdiff",
-    # Pack J unary y-transforms (no base segment in the composite name).
+    # Unary y-transforms (no base segment in the composite name).
     "cbrt_y": "cbrtY",
     "log_y": "logY",
     "yeo_johnson_y": "yjY",
     "quantile_normal_y": "qnY",
-    # Pack K chain transforms.
+    # Chain transforms.
     "chain_linres_cbrt": "linresCbrt",
     "chain_linres_yj": "linresYj",
     "chain_monres_cbrt": "monresCbrt",
     "chain_monres_yj": "monresYj",
     "chain_linres_cbrt_qn": "linresCbrtQn",
-    # Pack L extended bivariate + multi-base transforms (2026-05-26).
+    # Extended bivariate + multi-base transforms.
     "asinh_residual": "asinhr",
     "centered_ratio": "cratio",
     "polynomial_residual_deg2": "poly2",
@@ -83,7 +82,7 @@ def compose_target_name(
       ``quantile_normal_y``). A unary transform ignores ``base`` entirely, so
       stamping a base segment (``y-cbrtY-<some-base>``) wrongly implies a base
       dependence that does not exist and couples the spec name to the
-      irrelevant base-iteration order (D13). Passing ``base=None`` or
+      irrelevant base-iteration order. Passing ``base=None`` or
       ``base=""`` yields the base-free 2-segment name.
 
     Examples:
@@ -131,7 +130,7 @@ def _unary_transform_tokens() -> frozenset:
     transform is recognised in 2-segment names without editing this module).
 
     Unary transforms ignore ``base`` and so emit a base-free 2-segment
-    composite name ``{target}-{alias}`` (D13). Only these tokens may anchor
+    composite name ``{target}-{alias}``. Only these tokens may anchor
     a 2-segment composite; base-dependent transforms always carry a base
     segment, and treating their alias as a valid 2-segment composite would
     false-positive on plausible user columns (``revenue-diff``, ``price-ratio``).
@@ -207,7 +206,7 @@ def is_composite_target_name(name: str) -> bool:
 
     Used by per-target metric / chart helpers to switch their label from
     ``MTTR`` (raw mean target) to ``MTRESID`` (residual mean ~= 0 by
-    construction). Robust to both the post-2026-05-13 short-alias format
+    construction). Robust to both the short-alias format
     AND the legacy ``{target}__{transform}__{base}`` double-underscore
     format -- so loading a v1 suite-pickle still routes correctly.
 
@@ -231,7 +230,7 @@ def is_composite_target_name(name: str) -> bool:
     # Short-alias / full-name dash form (current discovery output).
     if _is_composite_via_separator(name, "-"):
         return True
-    # 2-segment UNARY form ``{target}-{unary_alias}`` (D13). Unary transforms
+    # 2-segment UNARY form ``{target}-{unary_alias}``. Unary transforms
     # ignore base and emit no base segment, so they never match the 3-segment
     # parse above. Anchor strictly: the FINAL dash-token must be a registered
     # UNARY alias and the target span before it must be non-empty. Restricting

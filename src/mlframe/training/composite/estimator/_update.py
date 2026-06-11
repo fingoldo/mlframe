@@ -1,6 +1,6 @@
 """Streaming-buffer update / inspect methods for ``CompositeTargetEstimator``.
 
-Carved out of ``_composite_target_estimator.py`` to keep the parent below the 1k-line monolith threshold. Functions here become bound methods on ``CompositeTargetEstimator`` at the parent's bottom via direct class-attribute assignment. Behavioural identity is preserved bit-for-bit.
+Functions here become bound methods on ``CompositeTargetEstimator`` at the parent's bottom via direct class-attribute assignment.
 """
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         raise RuntimeError(
             "CompositeTargetEstimator.update: online_refit_enabled is False. Set it to True in __init__ to enable streaming refit."
         )
-    # E23: linear_residual_robust shares the {alpha, beta} param shape and the
+    # linear_residual_robust shares the {alpha, beta} param shape and the
     # forward/inverse of linear_residual, so the closed-form streaming refit
     # applies to it too (the streaming refit recomputes alpha/beta by OLS on
     # the recent buffer -- the robust trim only matters at the initial fit).
@@ -167,7 +167,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         # Update params in-place. The wrapper's predict() reads these on every call so the next predict will use the drifted alpha / beta.
         self.fitted_params_["alpha"] = new_alpha
         self.fitted_params_["beta"] = new_beta
-        # E13: refresh the y-clip envelope + median + T-clip from the RECENT
+        # Refresh the y-clip envelope + median + T-clip from the RECENT
         # (drifted) buffer. The alpha/beta-only refit left these at their
         # pre-drift train values, so a drift-corrected prediction that moved
         # into the new regime was clipped back toward the DEAD regime by the

@@ -468,7 +468,7 @@ def compute_oof_holdout_predictions(
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
             return _hit
 
-    # N21: forward-walking K-fold OOF. When kfold>1 AND time_ordering is
+    # Forward-walking K-fold OOF. When kfold>1 AND time_ordering is
     # monotone (rows already in time order), use TimeSeriesSplit -- K expanding-
     # window folds whose holdouts are FUTURE blocks, covering K slices instead of
     # one trailing slice while staying past-only. A NON-monotone time signal
@@ -544,7 +544,7 @@ def compute_oof_holdout_predictions(
                         valid = transform.domain_check(y_stack, base_stack)
                         if valid.sum() < 10:
                             raise ValueError("too few valid rows after domain filter")
-                        # N6: re-fit the transform params on THIS fold's train
+                        # Re-fit the transform params on THIS fold's train
                         # rows so alpha/beta/MAD do not see the held-out fold
                         # (spec["fitted_params"] were fit on the FULL train, incl.
                         # this fold's holdout -> mild OOF optimism). Fall back to
@@ -808,7 +808,7 @@ def compute_oof_holdout_predictions(
                 # Drop invalid rows from stack_train; the inner trains only on rows where T is finite.
                 if valid.sum() < 10:
                     raise ValueError("too few valid rows after domain filter")
-                # N6: per-fold transform refit (see the kfold branch).
+                # Per-fold transform refit (see the kfold branch).
                 try:
                     _fold_params = transform.fit(y_stack[valid], base_stack[valid])
                 except Exception:

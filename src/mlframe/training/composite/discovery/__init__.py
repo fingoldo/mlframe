@@ -1,4 +1,4 @@
-"""CompositeTargetDiscovery: main entry-point class that auto-finds the best (base, transform) pairs for a regression target. Orchestrates: base candidate ranking via residualised-MI, transform screening over the registry, optional tiny-model rerank, multi-base forward-stepwise auto-promotion, validation gating, and CompositeProvenance generation. Split out of composite.py to isolate discovery internals from the lightweight wrapper / spec / provenance surface; composite.py re-exports CompositeTargetDiscovery at its bottom for full back-compat."""
+"""CompositeTargetDiscovery: main entry-point class that auto-finds the best (base, transform) pairs for a regression target. Orchestrates: base candidate ranking via residualised-MI, transform screening over the registry, optional tiny-model rerank, multi-base forward-stepwise auto-promotion, validation gating, and CompositeProvenance generation. composite.py re-exports CompositeTargetDiscovery for full back-compat."""
 
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pandas as pd
 
 # Module-level scipy import so external introspection (e.g. the
 # test_m3_spearman_demoter_uses_rankdata regression sensor) can confirm the
-# M3 fix is wired in - argsort-of-argsort fallback gives wrong ranks on
+# rankdata path is wired in - argsort-of-argsort fallback gives wrong ranks on
 # ties, so a revert MUST be caught at the sensor level. Graceful fallback
 # preserved for installs without scipy.
 try:
@@ -184,10 +184,10 @@ class CompositeTargetDiscovery:
             transform = get_transform(spec.transform_name)
             extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
             if not transform.requires_base:
-                # D13: unary specs carry an empty ``base_column`` sentinel and
-                # ignore base entirely. ``_extract_column_array(df, "")`` would
-                # crash; the adapter's domain_check/forward never read base, so
-                # pass None (domain_check gates on y, forward ignores base).
+                # Unary specs carry an empty ``base_column`` sentinel and ignore
+                # base entirely. ``_extract_column_array(df, "")`` would crash;
+                # the adapter's domain_check/forward never read base, so pass None
+                # (domain_check gates on y, forward ignores base).
                 base_full = None
             elif extra:
                 base_full = np.column_stack(
@@ -199,15 +199,15 @@ class CompositeTargetDiscovery:
             valid = transform.domain_check(y_full, base_full)
             t = np.full(y_full.shape[0], np.nan, dtype=np.float64)
             if valid.any():
-                # D13: unary specs have ``base_full is None`` (the transform
-                # ignores base); pass None straight through rather than slicing.
+                # Unary specs have ``base_full is None`` (the transform ignores
+                # base); pass None straight through rather than slicing.
                 _base_valid = None if base_full is None else base_full[valid]
                 t[valid] = transform.forward(
                     y_full[valid], _base_valid, spec.fitted_params,
                 )
             yield spec.name, t
 
-    # Per-cluster composite (REJECTED -- explicit user decision 2026-05-18):
+    # Per-cluster composite (REJECTED design decision):
     # Original proposal: when dataset has 50+ entities (group_id / customer_id /
     # segment) with >= 200 rows each, discovery COULD run per-cluster + global
     # fallback via ``linear_residual_grouped``. User judged this premature:
@@ -238,8 +238,8 @@ class CompositeTargetDiscovery:
 
         Returns ``self``. After the call, ``self.specs_`` is the stable subset and ``self.stability_counts_`` maps each name to its survival count.
 
-        M3 fix (composite-audit 2026-06-10)
-        -----------------------------------
+        Decorrelation rationale
+        -----------------------
         Two defects made the pre-fix "bootstrap" runs near-duplicates rather
         than independent replicates, so the gate barely filtered anything:
 
@@ -263,13 +263,13 @@ class CompositeTargetDiscovery:
            only ever reads ``train_idx`` rows). Set ``subsample_fraction=1.0``
            to recover the legacy reseed-only behaviour.
 
-        Perf note (cProfile / microbench 2026-06-11): the M3 additions are a
-        per-call ``derive_seeds`` (n_runs sha256 hashes) plus one
-        ``np.random.choice(replace=False)+sort`` per run. Measured ~400 us total
-        for 5 runs at n_train=400 and ~16 ms for a single 50% draw at
-        n_train=400k -- negligible vs one ``fit()`` (MI screening + tiny-model CV
-        over the whole sample, seconds). No actionable speedup; the draw is
-        intrinsically O(n_train) and is the cheapest part of each replicate.
+        Perf note: the decorrelation additions are a per-call ``derive_seeds``
+        (n_runs sha256 hashes) plus one ``np.random.choice(replace=False)+sort``
+        per run. Measured ~400 us total for 5 runs at n_train=400 and ~16 ms for
+        a single 50% draw at n_train=400k -- negligible vs one ``fit()`` (MI
+        screening + tiny-model CV over the whole sample, seconds). No actionable
+        speedup; the draw is intrinsically O(n_train) and is the cheapest part of
+        each replicate.
         """
         if n_bootstrap_runs <= 1:
             return self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
@@ -357,8 +357,7 @@ class CompositeTargetDiscovery:
                 # columns but fitted alphas has K entries" in
                 # _phase_dummy_baselines, _phase_composite_post (OOF holdout),
                 # and any post-train wrapping path that re-applies the
-                # transform. Reproduced by fuzz c0047 (multi-base
-                # auto-promoted to linresM-num_1+num_dep).
+                # transform.
                 "extra_base_columns": tuple(getattr(s, "extra_base_columns", ()) or ()),
             }
             for s in getattr(self, "specs_", [])
@@ -367,16 +366,12 @@ class CompositeTargetDiscovery:
     def report(self) -> list[dict[str, Any]]:
         """All evaluated candidates including rejected ones with reasons.
 
-        Wave 26 P1 fix (2026-05-20): pre-fix did a shallow ``list(...)``
-        over a list of dicts, so the outer list was decoupled but the
-        inner per-candidate dicts (incl. ``score`` / ``reason`` / base
-        column metadata) were returned by REFERENCE. A caller doing
-        ``discovery.report()[0]["score"] = 999`` mutated the persisted
-        internal record; subsequent ``report()`` calls returned the
-        corrupted value.
-        Sibling ``export_specs()`` above (~30 lines up) already builds
-        fresh inner dicts via comprehension -- this was inconsistent
-        defensive copying.
+        Inner per-candidate dicts are defensively deep-copied: a shallow
+        ``list(...)`` over a list of dicts decouples the outer list but returns
+        the inner dicts (incl. ``score`` / ``reason`` / base column metadata) by
+        REFERENCE, so a caller doing ``discovery.report()[0]["score"] = 999``
+        would mutate the persisted internal record and later ``report()`` calls
+        would return the corrupted value.
         """
         return [dict(r) for r in getattr(self, "report_", [])]
 
@@ -408,9 +403,8 @@ class CompositeTargetDiscovery:
         most common cause is a corr-threshold false positive on a
         legitimate autoregressive lag feature.
 
-        Wave 26 P1 fix (2026-05-20): same shape as ``report()`` above.
-        Inner dicts are defensively copied to prevent caller mutation
-        from poisoning the persisted internal state.
+        Same shape as ``report()`` above: inner dicts are defensively copied to
+        prevent caller mutation from poisoning the persisted internal state.
         """
         return [dict(d) for d in getattr(self, "_filter_drops", [])]
 

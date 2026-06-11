@@ -1,9 +1,8 @@
 """Tiny-model rerank phase for ``CompositeTargetDiscovery``.
 
-Split out of ``composite_discovery.py`` to keep the parent below the 1k-line
-monolith threshold. ``_tiny_model_rerank`` is bound back onto the
-``CompositeTargetDiscovery`` class at the parent's module top, so call sites
-that invoke ``self._tiny_model_rerank(...)`` continue to work unchanged.
+``_tiny_model_rerank`` is bound back onto the ``CompositeTargetDiscovery``
+class at the parent's module top, so call sites that invoke
+``self._tiny_model_rerank(...)`` continue to work unchanged.
 """
 from __future__ import annotations
 
@@ -138,7 +137,7 @@ def _tiny_model_rerank(
         if not families:
             families = ["lightgbm"]
 
-    # ENS-P2-5: hoist per-bin-enabled check above the first pass so we
+    # Hoist per-bin-enabled check above the first pass so we
     # request per-bin RMSE during the SAME multiseed sweep that produces
     # the global scores. The legacy second pass refit every fold to get
     # per-bin breakdowns; with this change the K-fold LGBM fit count is
@@ -157,7 +156,7 @@ def _tiny_model_rerank(
     # to avoid K redundant builds (each ~50 ndarray copies on a
     # 200K-row sample).
     per_family_scores: dict[str, list[float]] = {f: [] for f in families}
-    # ENS-P2-5: parallel buffer for per-bin RMSE captured during the
+    # Parallel buffer for per-bin RMSE captured during the
     # first pass. Keyed by spec.name -> per-bin ndarray. Only populated
     # when ``per_bin_enabled_pre`` is True.
     _per_bin_first_pass: dict[str, np.ndarray] = {}
@@ -182,7 +181,7 @@ def _tiny_model_rerank(
     for spec in kept_specs:
         if spec.base_column in _per_base_cache:
             continue
-        # D13: unary (``requires_base=False``) specs carry an empty
+        # Unary (``requires_base=False``) specs carry an empty
         # ``base_column`` sentinel -- they ignore the base entirely. Extracting
         # a column named "" would crash, so synthesise a zeros ``base_screen``
         # placeholder (never read by a unary transform's forward) and score
@@ -241,7 +240,7 @@ def _tiny_model_rerank(
         per_seed_by_family: dict[str, np.ndarray] = {}
         per_bin_first_local: Optional[np.ndarray] = None
         for family in families:
-            # ENS-P2-5: capture per-bin alongside RMSE in the SAME pass
+            # Capture per-bin alongside RMSE in the SAME pass
             # for the first family only (per-bin breakdown only checks
             # families[0] in the legacy second pass).
             is_first_family = (family == families[0])
@@ -414,7 +413,7 @@ def _tiny_model_rerank(
         for i in range(len(kept_specs))
     }
 
-    # R10b improvement #1: regime-aware gate. In addition to the
+    # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
     # spec AND for the raw-y baseline (binned by the SAME variable
     # for apples-to-apples). A spec is rejected if it loses to
@@ -432,7 +431,7 @@ def _tiny_model_rerank(
     # Per-spec per-bin RMSE: spec_name -> ndarray(n_bins,)
     spec_per_bin_rmse: dict[str, np.ndarray] = {}
     if per_bin_enabled:
-        # ENS-P2-5: REUSE the per-bin breakdown captured during the
+        # REUSE the per-bin breakdown captured during the
         # first-pass multiseed sweep instead of re-running the K-fold
         # LGBM fits. Falls back to a recompute only if first-pass
         # was disabled (e.g. when ``per_bin_n_bins`` was changed
@@ -502,7 +501,7 @@ def _tiny_model_rerank(
         # Explicit time_ordering (screen sorted by fit) forces it for ALL
         # specs; otherwise fall back to "any spec's base is monotone". Using
         # the same predicate as the per-spec side (base_t_aware) avoids the
-        # A4 cross-scheme mismatch where a monotone base put the raw baseline
+        # cross-scheme mismatch where a monotone base put the raw baseline
         # on TSS while non-monotone specs were scored on shuffled KFold.
         _any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or any(
             _is_monotone_nondecreasing(
@@ -604,7 +603,7 @@ def _tiny_model_rerank(
         tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
         threshold = (raw_baseline * tol
                      if math.isfinite(raw_baseline) else float("inf"))
-        # Pack #10 2026-05-18: skip the composite-target block when
+        # Skip the composite-target block when
         # raw is already SO close to perfect that composite has no
         # headroom. Compute raw_baseline / dummy_std as a proxy for
         # "fraction of dummy's variance the raw model could not
@@ -615,8 +614,8 @@ def _tiny_model_rerank(
         _raw_skip_ratio = float(getattr(
             self.config, "composite_skip_when_raw_dominates_ratio", 0.0,
         ))
-        # 2026-05-21: complementary skip via BaselineDiagnostics
-        # ablation delta%. When the top hint feature's drop balloons
+        # Complementary skip via BaselineDiagnostics ablation delta%.
+        # When the top hint feature's drop balloons
         # ablation RMSE by more than the configured fraction, the raw
         # model is essentially auto-regressive on that one feature --
         # composite discovery in this regime is wasted compute (observed
@@ -667,16 +666,14 @@ def _tiny_model_rerank(
                         getattr(self, "_target_col", "?"),
                         raw_baseline, _y_std, _reason,
                     )
-                    # FIX 2026-05-18 (pytest caught): pre-fix code referenced two non-
-                    # available names: ``candidates`` (lives in fit, not _tiny_model_rerank)
-                    # and ``tiny_rerank_scores_`` (read-only property; underlying attr is
-                    # ``_tiny_rerank_scores``). Returning an empty kept-spec list signals
-                    # to the caller that the composite block is skipped; fit's existing
-                    # empty-handling path (line ~878) still populates ``self.report_``
-                    # from the screening-phase ``candidates`` so per-(base, transform)
-                    # rejection diagnostics ARE preserved. The original buggy code
-                    # attempted to add rerank-level entries to ``report_`` which were
-                    # never accessible from this scope anyway -- no diagnostic loss.
+                    # Returning an empty kept-spec list signals to the caller that the
+                    # composite block is skipped; fit's existing empty-handling path
+                    # still populates ``self.report_`` from the screening-phase
+                    # ``candidates`` so per-(base, transform) rejection diagnostics ARE
+                    # preserved. ``candidates`` lives in fit (not _tiny_model_rerank) and
+                    # the underlying attr is ``_tiny_rerank_scores`` (``tiny_rerank_scores_``
+                    # is a read-only property), so rerank-level report_ entries cannot be
+                    # added from this scope -- no diagnostic loss.
                     self._tiny_rerank_scores = {}
                     return []
         self._raw_y_baseline_rmse = (
@@ -696,7 +693,7 @@ def _tiny_model_rerank(
                         (spec.name, score, threshold)
                     )
                     continue
-                # R10b stat #4: paired Wilcoxon signed-rank test
+                # Paired Wilcoxon signed-rank test
                 # on per-seed RMSE diffs (composite - raw). Reject
                 # spec unless the median diff is significantly
                 # negative at level gate_alpha.
@@ -719,14 +716,14 @@ def _tiny_model_rerank(
                     _min_seeds_wilcoxon = int(math.ceil(
                         math.log2(1.0 / max(gate_alpha, 1e-12))
                     ))
-                    # A13: composite and raw per-seed arrays are fixed-length
+                    # Composite and raw per-seed arrays are fixed-length
                     # NaN-padded on the SAME seed schedule, so pair by seed
-                    # INDEX and keep only positions finite on both sides. Pre-A13
-                    # the arrays were compacted finite-only, so a failed
-                    # composite seed and a failed raw seed at different positions
-                    # produced equal-length-but-mis-paired vectors -- the diff
-                    # then subtracted unrelated seeds. ``n`` for the min-seed gate
-                    # is now the jointly-finite pair count, not the raw length.
+                    # INDEX and keep only positions finite on both sides. A
+                    # compacted (finite-only) layout would let a failed composite
+                    # seed and a failed raw seed at different positions produce
+                    # equal-length-but-mis-paired vectors -- the diff would then
+                    # subtract unrelated seeds. ``n`` for the min-seed gate is the
+                    # jointly-finite pair count, not the raw length.
                     _both_finite = (
                         np.isfinite(comp_per_seed) & np.isfinite(raw_per_seed)
                         if (comp_per_seed is not None
@@ -775,7 +772,7 @@ def _tiny_model_rerank(
                                 "Wilcoxon gate skipped for spec=%s: %s",
                                 spec.name, _wx_err,
                             )
-                # R10b improvement #1: per-bin gate. Composite
+                # Per-bin gate. Composite
                 # passes the global mean test; now check that
                 # per-bin RMSE doesn't blow out vs the raw-y
                 # per-bin baseline on any quintile of base.
@@ -859,7 +856,7 @@ def _tiny_model_rerank(
             agg_scores = [sc for _, _, sc in survivors]
 
     # Sort by aggregated score (ascending: lowest RMSE wins).
-    # Wave 57 (2026-05-20): stable sort + spec-name tiebreak so tied RMSE
+    # Stable sort + spec-name tiebreak so tied RMSE
     # (common on small synthetic / regression tests) doesn't make top-M
     # pick depend on dict iteration order.
     _names = [getattr(s, "name", str(i)) for i, s in enumerate(kept_specs)]

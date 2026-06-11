@@ -1,4 +1,4 @@
-"""Screening helpers used by CompositeTargetDiscovery: column extraction (_extract_column_array / _is_numeric_column), correlation guards (_safe_corr / _safe_abs_corr_all / _residualise), mutual-information scoring (_mi_pair_bin / _mi_to_target), tiny-model CV-RMSE rerank (_build_tiny_model / _tiny_cv_rmse_raw_y / _tiny_cv_rmse_y_scale / *_multiseed variants), stratified sampling (_sample_indices). Split out of composite.py so discovery internals are isolated from the screening machinery; composite.py re-exports every symbol below at its bottom for full back-compat."""
+"""Screening helpers used by CompositeTargetDiscovery: column extraction (_extract_column_array / _is_numeric_column), correlation guards (_safe_corr / _safe_abs_corr_all / _residualise), mutual-information scoring (_mi_pair_bin / _mi_to_target), tiny-model CV-RMSE rerank (_build_tiny_model / _tiny_cv_rmse_raw_y / _tiny_cv_rmse_y_scale / *_multiseed variants), stratified sampling (_sample_indices). composite.py re-exports every symbol below for full back-compat."""
 
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
 
 
 def _is_polars_df(x: Any) -> bool:
-    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    """Prefer explicit isinstance check over duck-typing."""
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
@@ -115,7 +115,7 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
 
     Implemented via explicit centred-vector dot product instead of
     ``np.corrcoef`` to avoid the 2x2 matrix construction overhead
-    (~1.17x faster on 80K rows; benchmarked 2026-05-10).
+    (~1.17x faster on 80K rows).
     """
     finite = np.isfinite(a) & np.isfinite(b)
     n = int(finite.sum())
@@ -273,7 +273,7 @@ def _mi_pair_bin(
     return max(0.0, mi)
 
 
-# P15: bin codes only ever hold 0..nbins-1 (plus the -1 non-finite sentinel),
+# Bin codes only ever hold 0..nbins-1 (plus the -1 non-finite sentinel),
 # so int16 (range -32768..32767) suffices for nbins up to int16-max and halves
 # the (n_rows, n_cols) prebin buffer + improves gather/bincount cache locality
 # vs the prior int64. BUT the codes feed ``_mi_from_binned_pair``'s
@@ -289,7 +289,7 @@ _PREBIN_INT16_MAX_NBINS = 182  # nbins**2 - 1 must stay <= np.iinfo(np.int16).ma
 def _prebin_code_dtype(nbins: int) -> np.dtype:
     """Narrowest signed int dtype that holds bin codes 0..nbins-1 (and the -1
     sentinel) AND keeps ``nbins**2 - 1`` representable in int16 for the
-    downstream combo. int16 for ``nbins < 182``, else int32. See P15."""
+    downstream combo. int16 for ``nbins < 182``, else int32."""
     return np.dtype(np.int16) if nbins < _PREBIN_INT16_MAX_NBINS else np.dtype(np.int32)
 
 
@@ -306,11 +306,10 @@ def _prebin_feature_columns(
     typical 8-candidate × 25-feature sweep, roughly half the MI wall
     time.
 
-    Dtype (P15): int16 when ``nbins < 182`` else int32 (see
-    ``_prebin_code_dtype``). int16 quarters the prebin buffer vs the prior
-    int64 and improves gather/bincount cache locality; the downstream
-    ``_mi_from_binned_pair`` upcasts its ``combo`` internally so MI stays
-    bit-identical to the int64 path.
+    Dtype: int16 when ``nbins < 182`` else int32 (see ``_prebin_code_dtype``).
+    int16 quarters the prebin buffer vs the prior int64 and improves
+    gather/bincount cache locality; the downstream ``_mi_from_binned_pair``
+    upcasts its ``combo`` internally so MI stays bit-identical to the int64 path.
 
     Uses ``np.nanquantile`` so NaN values don't corrupt the cut
     points; non-finite rows get sentinel -1 and are skipped by the
@@ -358,9 +357,9 @@ def _mi_per_feature_prebinned(
         return None
     if feature_binned.shape[0] != target.shape[0]:
         return None
-    # Wave 24 P1 fix (2026-05-20): gate the size check on target-finite only;
-    # the per-column inner loop handles its own -1 sentinel masking (a
-    # COLUMN-0-NaN early return would zero MI for the whole batch silently).
+    # Gate the size check on target-finite only; the per-column inner loop
+    # handles its own -1 sentinel masking (a COLUMN-0-NaN early return would
+    # zero MI for the whole batch silently).
     finite = np.isfinite(target)
     n_fin = int(finite.sum())
     if n_fin < 5 * nbins:
@@ -427,7 +426,7 @@ def _mi_from_binned_pair(
 ) -> float:
     """MI from two already-binned integer arrays (0..nbins-1).
 
-    P15: ``x_idx`` / ``y_idx`` may arrive as int16 (the narrowed prebin code
+    ``x_idx`` / ``y_idx`` may arrive as int16 (the narrowed prebin code
     dtype). The flattened index ``x_idx*nbins + y_idx`` reaches ``nbins**2 - 1``,
     which overflows int16 at ``nbins >= 182`` (and even int16*python-scalar can
     wrap on intermediate products), so the combo is computed in int64 explicitly.
@@ -468,8 +467,7 @@ def _mi_per_feature_y_fixed(
     (matches ``_mi_pair_bin``'s contract when used inside the feature
     loop at ``composite_discovery._auto_base``).
 
-    Benchmark (n=500K, k=30, nbins=50, screening sample from
-    ``_profile_fuzz_1m.py`` seed=99): naive 2888.5 ms -> hoisted 1729.3 ms
+    Benchmark (n=500K, k=30, nbins=50): naive 2888.5 ms -> hoisted 1729.3 ms
     => 1.67x faster, bit-exact (max abs diff 0.0).
     """
     n_rows, n_cols = feature_matrix.shape
@@ -505,8 +503,8 @@ def _mi_per_feature_y_fixed_per_col(
     internal mask and the ``_mi_per_feature_prebinned`` ``-1``-sentinel
     contract.
 
-    Motivation (audit D12, sibling of D11): ``_auto_base`` previously ranked
-    candidates by MI computed on the GLOBAL all-column finite intersection
+    Motivation: ``_auto_base`` previously ranked candidates by MI computed on
+    the GLOBAL all-column finite intersection
     (``np.all(isfinite(x_matrix), axis=1)``). For mid-range-NaN columns that
     intersection is a non-random (MNAR) subset of rows -- the MI ranking is
     estimated on exactly the rows where every feature happens to be observed,
@@ -587,11 +585,11 @@ def _mi_to_target(
 
     Aggregation across feature columns:
 
-    - ``"mean"`` (default since 2026-05-10, R10b stat #1):
+    - ``"mean"`` (default):
       ``sum_j MI(x_j, target) / n_features``. Invariant to feature
       count -- the metric stays comparable when the feature set
-      shrinks (because the base column was excluded). Statistician's
-      review flagged the legacy ``"sum"`` aggregation as biased:
+      shrinks (because the base column was excluded). The legacy
+      ``"sum"`` aggregation is biased:
       sum-of-marginal-MI overcounts shared information when X is
       correlated, AND the over-count differs between numerator
       ``MI(T, X_no_base)`` and denominator ``MI(y, X_no_base)``
@@ -640,16 +638,11 @@ def _mi_to_target(
             )[0])
     if aggregation == "sum":
         return float(np.sum(per_feat))
-    # Default: mean (statistician #1).
+    # Default: mean.
     return float(np.mean(per_feat))
 
 
-# Wave 98 (2026-05-21): tiny-model RMSE / CV helpers
-# (_silence_tiny_model_output, _build_tiny_model, _tiny_cv_rmse_raw_y,
-# _tiny_cv_rmse_y_scale_multiseed, _tiny_cv_rmse_raw_y_multiseed,
-# _per_bin_rmse, _tiny_cv_rmse_y_scale) moved to sibling file
-# _composite_screening_tiny.py to drop this file below the 1k-line
-# monolith threshold. Re-exported below.
+# Tiny-model RMSE / CV helpers live in sibling ``_screening_tiny``; re-exported here.
 from ._screening_tiny import (  # noqa: F401, E402
     _silence_tiny_model_output,
     _build_tiny_model,

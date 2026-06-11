@@ -1,9 +1,6 @@
 """``CompositeCrossTargetEnsemble`` -- the multi-component composite ensemble class.
 
-Wave 101 (2026-05-21): split out from ``composite_ensemble.py`` to keep that
-file below the 1k-line monolith threshold. Behaviour preserved bit-for-bit;
-the class is re-exported from ``composite_ensemble`` so existing imports
-continue to work.
+The class is re-exported from ``composite_ensemble`` so existing imports continue to work.
 """
 from __future__ import annotations
 
@@ -108,7 +105,7 @@ class CompositeCrossTargetEnsemble:
     ) -> CompositeCrossTargetEnsemble:
         """Equal-weight average: ``w_k = 1/K`` for all components."""
         n = len(component_models)
-        # C-P2-3: fail fast with a self-attributed message rather than falling through to
+        # Fail fast with a self-attributed message rather than falling through to
         # ``__init__``'s generic "empty component list" check. Callers reach this point because
         # they had no fit candidates, not because of an internal bug -- surfacing the true cause
         # at the call site lets ops investigate the upstream candidate-discovery step.
@@ -153,7 +150,6 @@ class CompositeCrossTargetEnsemble:
         no renormalisation, so a negative weight means the component's
         prediction is subtracted.
         """
-        # ENS-Low-7: Ridge / RidgeCV hoisted to module-top imports.
         n = len(component_models)
         if n == 0:
             raise ValueError("from_linear_stack: empty component list.")
@@ -209,14 +205,14 @@ class CompositeCrossTargetEnsemble:
                 "falling back to mean."
             )
             return cls.from_uniform_weights(component_models, component_names)
-        # WEIGHT-NEGATIVE-WARN: Ridge can produce negative coefficients when a component is
+        # Ridge can produce negative coefficients when a component is
         # anti-correlated with the target. That's mathematically fine for a linear stack but
         # operators routinely interpret negative-weight ensembles as a bug; surface them at WARN
         # so the suite log makes the situation explicit. The ensemble is still built (the predict
         # path supports negative weights via is_convex=False).
         _neg_mask = raw_weights < 0
         if _neg_mask.any():
-            # C-P2-1: surface a quantitative impact estimate so operators see HOW MUCH of the ensemble's
+            # Surface a quantitative impact estimate so operators see HOW MUCH of the ensemble's
             # combined |weight| comes from negative-coefficient members. A scalar like 0.62 means
             # 62% of the absolute-weight mass is anti-correlated, which is a much clearer signal than
             # the per-member list alone.
@@ -249,9 +245,9 @@ class CompositeCrossTargetEnsemble:
             is_convex=False,
         )
         instance._linear_stack_intercept = float(ridge.intercept_)
-        # SOLVER-COPY: ``component_predictions[finite]`` already returns a copy (boolean indexing on
-        # ndarray always allocates), so the prior explicit ``.copy()`` was a 256-MB-per-pickle
-        # duplicate. Same for ``y[finite]``. Keep a reference instead of a copy of a copy.
+        # ``component_predictions[finite]`` already returns a copy (boolean indexing on ndarray
+        # always allocates), so an explicit ``.copy()`` would be a 256-MB-per-pickle duplicate.
+        # Same for ``y[finite]``. Keep a reference instead of a copy of a copy.
         instance._linear_stack_train_preds = component_predictions[finite]
         instance._linear_stack_train_y = y[finite]
         instance._linear_stack_ridge_alpha = chosen_alpha
@@ -342,8 +338,8 @@ class CompositeCrossTargetEnsemble:
             # for so the gate's measured RMSE corresponds to the deployed model.
             is_convex=False,
         )
-        # SOLVER-COPY: boolean-indexing already produces a copy; the prior explicit ``.copy()`` was
-        # a redundant 256-MB-per-pickle duplicate. Keep the bool-indexed view directly.
+        # Boolean-indexing already produces a copy; an explicit ``.copy()`` would be a redundant
+        # 256-MB-per-pickle duplicate. Keep the bool-indexed view directly.
         instance._nnls_stack_train_preds = component_predictions[finite]
         instance._nnls_stack_train_y = y[finite]
         return instance
@@ -374,8 +370,8 @@ class CompositeCrossTargetEnsemble:
         median of ``component_train_rmse`` is used as a self-
         normalising fallback.
 
-        Baseline-scale consistency (N17)
-        --------------------------------
+        Baseline-scale consistency
+        --------------------------
         The gain ``baseline - rmse`` is only meaningful when the
         baseline and the ranked rmses live on the SAME scale. When
         ranking on OOF (``component_oof_rmse`` supplied) the only
@@ -399,12 +395,12 @@ class CompositeCrossTargetEnsemble:
         n = len(component_models)
         if n == 0:
             raise ValueError("from_train_metrics: empty component list.")
-        # VAL-LEAK (from_train_metrics): prefer OOF RMSE when supplied. Train-set RMSE is biased
+        # Prefer OOF RMSE when supplied. Train-set RMSE is biased
         # because train rows were seen at fit -- using it for weight derivation is the
         # same selection problem as using val (already burned for ES). When ``component_oof_rmse``
         # is given we rank on OOF; otherwise we fall back to train_rmse with a WARN so the operator
         # knows the gate is biased optimistic.
-        # N17: ``rmse_source`` records which scale the ranked rmses live on so the baseline can be
+        # ``rmse_source`` records which scale the ranked rmses live on so the baseline can be
         # kept scale-consistent (and so callers/operators can see it in ``notes``). ``baseline``
         # candidate + its provenance are resolved jointly below; a train-scale baseline passed
         # alongside OOF rmses is an apples-to-oranges mismatch and must NOT be used.
@@ -463,19 +459,18 @@ class CompositeCrossTargetEnsemble:
             raise ValueError("from_train_metrics: rmses contain non-finite values.")
 
         if baseline_candidate is None or not math.isfinite(baseline_candidate):
-            # MEDIAN-BASELINE: previously fell back to ``np.median(rmses)`` which by construction
-            # discards the worse-than-median half of the candidate pool entirely. That's a hidden
-            # contract surprise: the caller passed K components expecting a K-component ensemble
-            # and got a (K/2)-component one with no log line. We now use the WORST component RMSE
-            # (numerically the largest) as the baseline so every component that beats the worst
-            # contributes a non-zero weight, AND we WARN the caller that no explicit baseline was
-            # passed -- the operator should plug in a real benchmark (naive predictor / median
-            # baseline / dataset variance) for production runs. ``baseline_source`` is set here
-            # rather than above because the supplied baseline (if any) was rejected as off-scale or
-            # non-finite -- the actual baseline used is the self-normalising max(rmses).
+            # Use the WORST component RMSE (numerically the largest) as the baseline so every
+            # component that beats the worst contributes a non-zero weight, AND WARN the caller that
+            # no explicit baseline was passed -- the operator should plug in a real benchmark (naive
+            # predictor / median baseline / dataset variance) for production runs. A median baseline
+            # would by construction discard the worse-than-median half of the candidate pool, a
+            # hidden contract surprise (K components in, (K/2)-component ensemble out, no log line).
+            # ``baseline_source`` is set here rather than above because the supplied baseline (if
+            # any) was rejected as off-scale or non-finite -- the actual baseline used is the
+            # self-normalising max(rmses).
             baseline = float(np.max(rmses))
             baseline_source = "max_fallback"
-            # N17: only emit the "no baseline passed" nudge when the caller genuinely supplied none.
+            # Only emit the "no baseline passed" nudge when the caller genuinely supplied none.
             # The OOF/train-scale-mismatch case already logged its own (more specific) WARN above.
             if not (rmse_source == "oof" and baseline_train_rmse is not None):
                 logger.warning(
@@ -523,13 +518,13 @@ class CompositeCrossTargetEnsemble:
             weights=weights,
             strategy="oof_weighted",
             notes={
-                # N17: scale provenance so downstream readers/operators can tell whether the
+                # Scale provenance so downstream readers/operators can tell whether the
                 # ranking + baseline were on the honest OOF scale or the biased train scale, and
                 # where the baseline came from (caller-supplied vs the self-normalising max fallback).
                 "rmse_source": rmse_source,
                 "baseline_source": baseline_source,
                 "baseline": baseline,
-                # Legacy key retained for back-compat (pre-N17 readers / persisted metadata expect
+                # Legacy key retained for back-compat (older readers / persisted metadata expect
                 # ``baseline_train_rmse`` / ``component_train_rmses``); on the OOF path these now hold
                 # OOF-scale values -- consult ``rmse_source`` to interpret the scale.
                 "baseline_train_rmse": baseline,
@@ -664,8 +659,7 @@ class CompositeCrossTargetEnsemble:
                 if hasattr(self, _attr):
                     setattr(copy_inst, _attr, getattr(self, _attr))
             return copy_inst
-        # Pick top-N by |weight|.
-        # Wave 57 (2026-05-20): lexsort with component-index tiebreaker so tied
+        # Pick top-N by |weight|. lexsort with component-index tiebreaker so tied
         # weights (NNLS shrinkage saturation, convex weights pinned at 0) don't
         # silently flip which components survive across stack-row orderings.
         _abs_w = np.abs(np.asarray(self.weights, dtype=np.float64))

@@ -1,4 +1,4 @@
-"""CompositeProvenance dataclass + report-to-markdown helper. Production-grade metadata for one composite-target spec: human-readable formula, fitted params, baseline metrics, ensemble weight, selection-path audit trail. Split out of composite.py for clean separation between discovery internals and stakeholder-facing audit artefacts; composite.py re-exports every symbol below at its bottom for full back-compat."""
+"""CompositeProvenance dataclass + report-to-markdown helper. Production-grade metadata for one composite-target spec: human-readable formula, fitted params, baseline metrics, ensemble weight, selection-path audit trail. ``composite.py`` re-exports every symbol below at its bottom for full back-compat."""
 
 
 from __future__ import annotations
@@ -18,11 +18,6 @@ if TYPE_CHECKING:
     from .spec import CompositeSpec  # used as a forward annotation in CompositeProvenance.from_spec; importing at runtime is unnecessary and risks circular load.
 
 logger = logging.getLogger(__name__)
-
-
-# ----------------------------------------------------------------------
-# CompositeProvenance + report helpers
-# ----------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -188,14 +183,12 @@ class CompositeProvenance:
 
 # Friendly transform-name-to-paragraph table.
 #
-# Covers EVERY registered transform (audit S12: the old 4-entry table left
-# ~32 of ~36 registered transforms rendering a generic stub, contradicting
-# the "reproduce the inverse at serving time without consulting source
-# code" promise in :class:`CompositeProvenance`). A meta-test
-# (``test_provenance_formula_coverage_future``) pins this table + the
-# builder table below against the live ``TRANSFORMS_REGISTRY`` so a newly
-# registered transform that forgets a formula entry fails fast instead of
-# silently regressing to the opaque generic stub.
+# Covers EVERY registered transform: a partial table renders a generic stub for the uncovered
+# transforms, contradicting the "reproduce the inverse at serving time without consulting source
+# code" promise in :class:`CompositeProvenance`. A meta-test
+# (``test_provenance_formula_coverage_future``) pins this table + the builder table below against
+# the live ``TRANSFORMS_REGISTRY`` so a newly registered transform that forgets a formula entry
+# fails fast instead of silently regressing to the opaque generic stub.
 _TRANSFORM_DESCRIPTIONS: dict[str, str] = {
     "diff": ("predicts the residual after subtracting the base feature "
              "from the target"),
@@ -288,14 +281,11 @@ def _join_base_columns(base_column: str, fitted_params: dict[str, Any]) -> str:
     return base_column
 
 
-# ----------------------------------------------------------------------
-# Per-transform formula builders. Each returns (forward_human,
-# inverse_human) given (target_col, base_column, fitted_params). The
-# ``diff`` / ``ratio`` / ``logratio`` / ``linear_residual`` four keep their
-# exact original strings (bit-identical -- pinned by ``TestFormulas``); the
-# rest fill the audit S12 gap with faithful, fitted-param-interpolating
-# formulas so an inverse can be reproduced at serving time without source.
-# ----------------------------------------------------------------------
+# Per-transform formula builders. Each returns (forward_human, inverse_human) given
+# (target_col, base_column, fitted_params). The ``diff`` / ``ratio`` / ``logratio`` /
+# ``linear_residual`` four keep exact strings (bit-identical -- pinned by ``TestFormulas``); the
+# rest carry faithful, fitted-param-interpolating formulas so an inverse can be reproduced at
+# serving time without source.
 
 
 def _f_diff(t: str, b: str, p: dict) -> tuple[str, str]:
@@ -573,7 +563,7 @@ def _f_chain_linres_cbrt_qn(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 # name -> builder. Source of truth alongside ``_TRANSFORM_DESCRIPTIONS``;
-# both are coverage-pinned against the live registry by the S12 meta-test.
+# both are coverage-pinned against the live registry by the formula-coverage meta-test.
 _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
     "diff": _f_diff,
     "additive_residual": _f_additive_residual,
@@ -612,7 +602,7 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
 
 def _registered_transform_names() -> frozenset[str]:
     """Live registry keys, lazily imported (no import-time coupling; the
-    registry is only needed for the S12 coverage meta-test and graceful
+    registry is only needed for the formula-coverage meta-test and graceful
     fallback bookkeeping, never at provenance module load)."""
     try:
         from .transforms import TRANSFORMS_REGISTRY  # local import: avoid cycle
@@ -632,9 +622,9 @@ def _format_transform_formulas(
     descriptions without forcing the caller to know the registry.
 
     Every transform registered in ``TRANSFORMS_REGISTRY`` has a dedicated
-    builder in ``_TRANSFORM_FORMULA_BUILDERS`` (audit S12); a genuinely
-    unknown / future name falls back to the generic ``forward(...)`` /
-    ``inverse(...)`` stub so the function never raises.
+    builder in ``_TRANSFORM_FORMULA_BUILDERS``; a genuinely unknown / future
+    name falls back to the generic ``forward(...)`` / ``inverse(...)`` stub
+    so the function never raises.
     """
     description = _TRANSFORM_DESCRIPTIONS.get(transform_name, "")
     builder = _TRANSFORM_FORMULA_BUILDERS.get(transform_name)

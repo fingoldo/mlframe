@@ -273,9 +273,8 @@ def detect_group_column_candidates(
 # calibrated for FHC target-encoding (target_mean / WoE) rather than
 # linear_residual_grouped.
 #
-# Wave 64 (2026-05-20): closes the wave-10 deferral. Where group-column
-# detection wants UNIFORM group sizes (linear_residual_grouped needs
-# balanced groups to fit per-group affine residuals reliably), category
+# Where group-column detection wants UNIFORM group sizes (linear_residual_grouped
+# needs balanced groups to fit per-group affine residuals reliably), category
 # detection wants ENOUGH SAMPLES PER LEVEL (FHC encoders need >=
 # min_samples_per_cat samples per category to estimate a stable target
 # mean / log-odds without high variance). The thresholds differ:
@@ -302,8 +301,8 @@ _CAT_DETECT_DEFAULT_SWEET_SPOT_PEAK: float = 40.0
 def _cat_info_bonus(n_unique: int, sweet_spot_peak: float) -> float:
     """Unimodal cardinality bonus peaking at ``sweet_spot_peak`` distinct levels.
 
-    A24 fix (2026-06-11): the previous ``n_unique / (log1p(n_unique) + 1)`` was
-    monotone-INCREASING, so an ID-like high-cardinality int column (e.g. 500
+    The previous ``n_unique / (log1p(n_unique) + 1)`` was monotone-INCREASING,
+    so an ID-like high-cardinality int column (e.g. 500
     levels that barely clear ``min_samples_per_cat``) scored a far larger bonus
     than a clean 10-50 category column -- the exact opposite of the documented
     intent ("rewards 10-100 categories more than 2 or 500"). With coverage held
@@ -458,8 +457,7 @@ def detect_cat_columns(
         # sparse / ID-like) weighted by coverage. ``_cat_info_bonus`` is a
         # UNIMODAL log-scale curve peaking at ``sweet_spot_peak`` levels, so a
         # clean 10-100 category column outranks both binary columns and ID-like
-        # high-cardinality columns (A24 fix: the old monotone shape ranked
-        # ID-like columns first).
+        # high-cardinality columns.
         info_bonus = _cat_info_bonus(n_unique, sweet_spot_peak)
         score = coverage_top10 * info_bonus
 

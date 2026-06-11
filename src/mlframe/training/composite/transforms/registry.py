@@ -203,10 +203,10 @@ _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a 
     _log_y_fit_raw, _log_y_forward_raw, _log_y_inverse_raw,
     # log_y_domain is the 2-arg form (y, params); wrap to drop params at fit-time.
     lambda y: _log_y_domain_raw(y),
-    # T15 fix: the pre-fit domain only checks isfinite(y); the TRUE log_y
-    # domain is ``y + offset > 0``, knowable only after ``fit`` sets offset.
-    # Without this hook, screening forwards log() over ``y <= -offset`` rows
-    # (silent NaN T -> biased MI gain) and the wrapper later hard-raises
+    # The pre-fit domain only checks isfinite(y); the TRUE log_y domain is
+    # ``y + offset > 0``, knowable only after ``fit`` sets offset. Without
+    # this hook, screening forwards log() over ``y <= -offset`` rows (silent
+    # NaN T -> biased MI gain) and the wrapper later hard-raises
     # DomainViolationError on the same rows. Pass the params-aware raw form.
     domain_fitted_fn=_log_y_domain_raw,
 )
@@ -221,7 +221,7 @@ _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _ma
 
 
 def _centered_ratio_domain_fitted(y, base, params):
-    """T15 fitted-domain for ``centered_ratio`` (T = y / (base + c)).
+    """Fitted-domain for ``centered_ratio`` (T = y / (base + c)).
 
     The pre-fit ``_centered_ratio_domain`` only gates on finite y / base; the
     real per-row validity depends on the learned shift ``c`` and eps-floor:
@@ -455,15 +455,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         # wrong rows, so the forward runs full-then-mask (see Transform.recurrent).
         recurrent=True,
     ),
-    # ------------------------------------------------------------------
-    # Pack J: unary y-only transforms. ``requires_base=False`` tells the
-    # wrapper to skip base-column extraction, and the base is unused by
-    # forward/inverse here. D13 (2026-06-11): discovery now scores these
-    # against the full feature matrix via a dedicated sentinel context and
-    # emits a BASE-FREE 2-segment composite name (``y-cbrtY``), with an empty
-    # ``base_column`` -- no spurious base segment, and the spec's mi_gain no
-    # longer depends on auto-base ranking order.
-    # ------------------------------------------------------------------
+    # Unary y-only transforms. ``requires_base=False`` tells the wrapper to skip base-column extraction, and the base is unused by forward/inverse here.
+    # Discovery scores these against the full feature matrix via a dedicated sentinel context and emits a BASE-FREE 2-segment composite name (``y-cbrtY``),
+    # with an empty ``base_column`` -- no spurious base segment, and the spec's mi_gain no longer depends on auto-base ranking order.
     "cbrt_y": Transform(
         name="cbrt_y",
         forward=_cbrt_forward,
@@ -486,8 +480,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         inverse=_log_inverse_a,
         fit=_log_fit_a,
         domain_check=_log_domain_a,
-        # T15: fitted-domain gates ``y + offset > 0`` once offset is learned,
-        # so screening/fit never forward log() over a NaN-producing row.
+        # Fitted-domain gates ``y + offset > 0`` once offset is learned, so screening/fit never forward log() over a NaN-producing row.
         domain_check_fitted=_log_domain_fitted_a,
         description=(
             "Shifted log unary y-transform: T = log(y + offset) where offset is fitted so "
@@ -526,10 +519,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_base=False,
     ),
-    # ------------------------------------------------------------------
-    # Pack K: chain transforms. Bivariate residual + unary tail
-    # compression, composed by the chain factory above.
-    # ------------------------------------------------------------------
+    # Chain transforms: bivariate residual + unary tail compression, composed by the chain factory above.
     "chain_linres_cbrt": _make_chain_transform(
         name="chain_linres_cbrt", short_name="linres+cbrt",
         bivariate_name="linear_residual",
@@ -592,12 +582,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Chain: monotonic_residual + Yeo-Johnson power transform."
         ),
     ),
-    # Pack K extension: 3-stage chain. For VERY heavy-tail residuals
-    # where a single unary still leaves leptokurtosis, follow up with
-    # quantile-normalisation to map any remaining structure to a
-    # standard Normal. Lossy on absolute scale (quantile_normal forgets
-    # the original units) but RMSE on the doubly-compressed T is
-    # cleaner for boosting inners.
+    # 3-stage chain. For VERY heavy-tail residuals where a single unary still leaves leptokurtosis, follow up with quantile-normalisation to map
+    # any remaining structure to a standard Normal. Lossy on absolute scale (quantile_normal forgets the original units) but RMSE on the
+    # doubly-compressed T is cleaner for boosting inners.
     "chain_linres_cbrt_qn": _make_multi_chain_transform(
         name="chain_linres_cbrt_qn", short_name="linresCbrtQn",
         bivariate_fit=_linear_residual_fit,
@@ -617,18 +604,10 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "boosting inners."
         ),
     ),
-    # ------------------------------------------------------------------
-    # Pack L (2026-05-26): extended bivariate + multi-base transforms.
-    # Plug specific failure modes observed in production where the
-    # existing core/extended set didn't reach: signed bases for log-like
-    # residuals (``asinh_residual``), expanded ratio domain via learned
-    # shift (``centered_ratio``), curvature beyond OLS line
-    # (``polynomial_residual_deg2``), distribution-free monotone
-    # (``rank_residual``), arbitrary smooth non-monotone
-    # (``smoothing_spline_residual``), multiplicative-jump dynamics
-    # (``reciprocal_residual``), and two multi-base variants
-    # (``geometric_mean_residual``, ``pairwise_interaction_residual``).
-    # ------------------------------------------------------------------
+    # Extended bivariate + multi-base transforms. Plug specific failure modes observed in production where the existing core/extended set didn't reach:
+    # signed bases for log-like residuals (``asinh_residual``), expanded ratio domain via learned shift (``centered_ratio``), curvature beyond OLS line
+    # (``polynomial_residual_deg2``), distribution-free monotone (``rank_residual``), arbitrary smooth non-monotone (``smoothing_spline_residual``),
+    # multiplicative-jump dynamics (``reciprocal_residual``), and two multi-base variants (``geometric_mean_residual``, ``pairwise_interaction_residual``).
     "asinh_residual": Transform(
         name="asinh_residual",
         forward=_asinh_residual_forward,
@@ -651,8 +630,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         inverse=_centered_ratio_inverse,
         fit=_centered_ratio_fit,
         domain_check=_centered_ratio_domain,
-        # T15: fitted-domain gates ``|base + c| >= eps`` once the shift c and
-        # eps-floor are learned, so screening/fit drop rows whose denominator
+        # Fitted-domain gates ``|base + c| >= eps`` once the shift c and eps-floor are learned, so screening/fit drop rows whose denominator
         # would be clamped to the eps-floor (T then no longer the true ratio).
         domain_check_fitted=_centered_ratio_domain_fitted,
         description=(

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 #
 # 1. ``streaming_alpha_check_and_refit(y_buffer, base_buffer, current_alpha, current_beta, *, z_threshold=3.0, min_buffer_n=200)`` -- Chow-style stability check + refit. Computes a fresh (alpha, beta) on the buffer, compares BOTH the slope alpha and the intercept beta to the deployed coefficients via per-coefficient z-scores (each delta normalised by its OLS standard error), and returns the refit params iff EITHER |z_alpha| > threshold or |z_beta| > threshold. Otherwise returns the unchanged ``(current_alpha, current_beta)`` so the caller can no-op.
 #
-#    Before fitting, the helper runs a single-change-point scan (two-segment SSE split, S8): a drifting buffer holds pre- AND post-drift rows mixed FIFO, so an OLS over the whole buffer is biased toward the dead (pre-drift) regime. When a significant break is detected the refit (and the SE / z estimates) use ONLY the post-change segment, so the corrected coefficients track the live regime instead of the blend. A homogeneous buffer (no break that beats the F gate) falls back to the full-buffer fit -- numerically identical to the legacy behaviour.
+#    Before fitting, the helper runs a single-change-point scan (two-segment SSE split): a drifting buffer holds pre- AND post-drift rows mixed FIFO, so an OLS over the whole buffer is biased toward the dead (pre-drift) regime. When a significant break is detected the refit (and the SE / z estimates) use ONLY the post-change segment, so the corrected coefficients track the live regime instead of the blend. A homogeneous buffer (no break that beats the F gate) falls back to the full-buffer fit.
 #
 # 2. ``CompositeTargetEstimator.update(y_recent, base_recent)`` -- rolling-buffer interface for production callers. Each ``update()`` appends new observations (FIFO eviction at ``online_refit_buffer_n``); when the buffer fills and a check fires, the wrapper's ``fitted_params_`` is updated in-place with the new alpha/beta. Disabled by default (``online_refit_enabled=False``); explicit opt-in protects against sklearn ``clone()`` semantics breakage (stateful estimators clone as fresh).
 # ----------------------------------------------------------------------
@@ -73,7 +73,7 @@ def _detect_change_point(
     min_segment_n: int = _STREAMING_CP_MIN_SEGMENT_N,
     f_threshold: float = _STREAMING_CP_F_THRESHOLD,
 ) -> dict[str, Any]:
-    """Single-change-point scan over a FIFO buffer (S8).
+    """Single-change-point scan over a FIFO buffer.
 
     Scans every split ``k`` with at least ``min_segment_n`` rows on each side,
     fits OLS on ``[0:k]`` and ``[k:n]`` independently, and picks the split that
@@ -114,14 +114,13 @@ def _detect_change_point(
     _, _, sse_full = _ols_alpha_beta_sse(y, base)
     if not np.isfinite(sse_full):
         return no_break
-    # O(n) split scan via prefix sufficient statistics (S8). Each candidate
+    # O(n) split scan via prefix sufficient statistics. Each candidate
     # split's two-segment SSE is computed in O(1) from cumulative sums of
     # base, y, base^2, base*y, y^2 -- the per-segment OLS SSE is
     #   SSE_seg = Syy - Sxy^2 / Sxx
-    # with the centred sums Sxx = sum(b^2) - (sum b)^2/m, etc. This replaces the
-    # earlier O(n^2) per-split re-fit (~149 ms/scan at n=2000 -> ~0.3 ms);
-    # numerically equivalent to the per-segment _ols_alpha_beta_sse (same
-    # sufficient statistics) up to FP rounding in the cumulative reduction.
+    # with the centred sums Sxx = sum(b^2) - (sum b)^2/m, etc. Numerically
+    # equivalent to the per-segment _ols_alpha_beta_sse (same sufficient
+    # statistics) up to FP rounding in the cumulative reduction.
     # _ols_alpha_beta_sse is retained for sse_full + as the tested reference.
     cb = np.concatenate(([0.0], np.cumsum(base)))          # prefix sum base
     cy = np.concatenate(([0.0], np.cumsum(y)))             # prefix sum y
@@ -201,13 +200,12 @@ def streaming_alpha_check_and_refit(
         ``(current_alpha, current_beta, {"refit": False, ...,
         "reason": "buffer_too_small"})`` without computing anything.
     detect_change_point
-        When True (default), scan the buffer for a single regime break (S8) and,
+        When True (default), scan the buffer for a single regime break and,
         if one is found, refit + compute the drift z-scores on the POST-CHANGE
         segment only. A FIFO buffer mixes pre- and post-drift rows, so a
         whole-buffer OLS is biased toward the dead regime; fitting the live
         segment recovers the current coefficients. No break (or too few rows) ->
-        full-buffer fit, numerically identical to the legacy path. Set False to
-        force the legacy whole-buffer fit.
+        full-buffer fit. Set False to force the whole-buffer fit.
     cp_min_segment_n, cp_f_threshold
         Change-point scan knobs (min rows per side; F gate to accept a break).
 
@@ -252,7 +250,7 @@ def streaming_alpha_check_and_refit(
     y_clean = y_f[finite]
     base_clean = base_f[finite]
 
-    # S8: change-point-aware fit window. A drifting FIFO buffer holds the dead
+    # Change-point-aware fit window. A drifting FIFO buffer holds the dead
     # regime in its head and the live regime in its tail; fitting the whole
     # buffer blends them. Restrict the refit window to the live (post-change)
     # segment when a significant single break is detected.
@@ -294,7 +292,7 @@ def streaming_alpha_check_and_refit(
     # SE(alpha) = sigma_resid / (sqrt(n) * base_std); the intercept SE is
     # SE(beta) = sigma_resid * sqrt(1/n + base_mean^2 / (n * base_var)) -- the
     # textbook OLS intercept SE, which is what lets us detect a pure
-    # level-shift (S7: alpha unchanged, beta jumps).
+    # level-shift (alpha unchanged, beta jumps).
     if n_fit > 2:
         residuals = fit_y - (alpha_buf * fit_base + beta_buf)
         sse = float(np.sum(residuals * residuals))

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def apply_fdr_control_to_candidates(
     candidates: list[dict[str, Any]], *, alpha: float,
 ) -> int:
-    """Mark candidate entries that family-wise FDR control rejects (M4).
+    """Mark candidate entries that family-wise FDR control rejects.
 
     ``candidates`` is the list of per-spec entry dicts ``eval_one_transform``
     returns; each carries a ``bootstrap_p_value`` (NaN when no bootstrap ran).

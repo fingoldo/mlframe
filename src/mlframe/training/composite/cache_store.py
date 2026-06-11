@@ -1,4 +1,4 @@
-"""Disk-backed ``DiscoveryCache`` store carved out of ``cache.py`` (monolith-split, 2026-06-11).
+"""Disk-backed ``DiscoveryCache`` store.
 
 Holds the key->pickle disk cache class + its byte-total helper. The signature / cache-key
 composition primitives stay in the sibling ``cache.py``, which re-exports ``DiscoveryCache``
@@ -29,9 +29,7 @@ from mlframe.utils.safe_pickle import (
 
 logger = logging.getLogger(__name__)
 
-# Audit D L-4 (2026-05-18): pre-compiled hex matcher replaces the
-# ``all(c in "0123456789abcdefABCDEF" for c in key)`` generator-expression in ``_safe_key`` per
-# the user's ``feedback_orjson_compile_regex`` rule (compile once, reuse). The regex anchors with
+# Pre-compiled hex matcher for ``_safe_key`` (compile once, reuse). The regex anchors with
 # ``\A`` / ``\Z`` to require the WHOLE key to be hex (otherwise ``re.match`` only anchors to the
 # start and ``abc-def`` would slip through).
 _HEX_KEY_RE = re.compile(r"\A[0-9a-fA-F]+\Z")
@@ -102,17 +100,12 @@ class DiscoveryCache:
                 "to opt into unbounded growth) so the choice is auditable."
             )
 
-    # ------------------------------------------------------------------
-    # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read
-    # / write the whole file on every touch. Atime is too unreliable on
-    # NTFS to depend on.
+    # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read / write the whole file on
+    # every touch. Atime is too unreliable on NTFS to depend on.
     #
-    # DISC-LRU-RACE / DISC-RACE-UNPROT: file-lock the sidecar so two
-    # concurrent processes hitting the same data_dir can't interleave
-    # an evict + write and leave live entries marked stale. ``filelock``
-    # is optional -- absence falls back to the pre-fix racy behaviour
-    # with a one-time WARN.
-    # ------------------------------------------------------------------
+    # File-lock the sidecar so two concurrent processes hitting the same data_dir can't interleave
+    # an evict + write and leave live entries marked stale. ``filelock`` is optional -- absence
+    # falls back to the racy behaviour with a one-time WARN.
 
     def _lock_path(self) -> str:
         return self._lru_path + ".lock"
@@ -177,15 +170,15 @@ class DiscoveryCache:
         # Cross-process file lock around read-modify-write so a concurrent process can't replay a
         # stale-snapshot save and overwrite a fresh access timestamp. filelock is optional.
         #
-        # Audit D L-1 (2026-05-18): ``time.time()`` is wall-clock (subject to NTP step-back) but
-        # we deliberately do NOT use ``time.monotonic()`` here -- the LRU sidecar is shared across
-        # processes, and monotonic clock values are not comparable across processes (each
-        # process's monotonic clock starts from an arbitrary reference). Cross-process LRU
-        # ordering requires a shared reference frame -- wall clock is the only portable option.
-        # Single-host NTP step-backs are rare and only mis-order entries within the step delta.
+        # ``time.time()`` is wall-clock (subject to NTP step-back) but we deliberately do NOT use
+        # ``time.monotonic()`` here -- the LRU sidecar is shared across processes, and monotonic
+        # clock values are not comparable across processes (each process's monotonic clock starts
+        # from an arbitrary reference). Cross-process LRU ordering requires a shared reference
+        # frame -- wall clock is the only portable option. Single-host NTP step-backs are rare and
+        # only mis-order entries within the step delta.
         #
-        # Audit D P2-2 (2026-05-18): the full JSON rewrite per touch is O(N entries). For caches
-        # >10,000 entries the rewrite cost dominates the read; we keep the simple
+        # The full JSON rewrite per touch is O(N entries). For caches >10,000 entries the rewrite
+        # cost dominates the read; we keep the simple
         # write-everything-each-touch design because:
         #   (a) the rewrite happens under the cross-process filelock, so a "mark dirty, flush
         #       later" batching strategy would require additional cross-process flush
@@ -204,8 +197,8 @@ class DiscoveryCache:
         return os.path.join(self.cache_dir, f"{safe_key}.pkl")
 
     def __contains__(self, key: str) -> bool:
-        # Audit D L-5 (2026-05-18): ``os.path.exists`` is racy by design (TOCTOU: the file
-        # can be deleted between the check and a subsequent ``get``). Callers should use
+        # ``os.path.exists`` is racy by design (TOCTOU: the file can be deleted between the check
+        # and a subsequent ``get``). Callers should use
         # ``get(key, default=_SENTINEL)`` and check ``is _SENTINEL`` instead of the
         # ``key in cache`` + ``cache.get(key)`` pattern. ``get`` opens the file directly and
         # treats ``FileNotFoundError`` as a miss, so the race is closed there.
@@ -328,10 +321,9 @@ class DiscoveryCache:
             return 0
         # Same lock as _touch_lru: eviction reads + writes the sidecar AND removes files; another
         # process eviction sweep racing here could double-delete or leave the sidecar inconsistent.
-        # Wave 52 (2026-05-20): capture sys.exc_info() so the in-flight exception is
-        # forwarded to the lock manager's __exit__ (preserves CM contract), AND wrap
-        # __exit__ itself in try/except so a filelock cleanup error doesn't mask the
-        # eviction-body exception.
+        # Capture sys.exc_info() so the in-flight exception is forwarded to the lock manager's
+        # __exit__ (preserves CM contract), AND wrap __exit__ itself in try/except so a filelock
+        # cleanup error doesn't mask the eviction-body exception.
         import sys as _sys
         _lock_ctx = self._maybe_filelock(self._lock_path())
         _lock_ctx.__enter__()
@@ -351,7 +343,7 @@ class DiscoveryCache:
     _ORPHAN_TMP_MIN_AGE_S: float = 3600.0
 
     def _sweep_orphan_tmp_files(self) -> int:
-        """Remove stale ``*.tmp`` files left by interrupted ``set`` / ``_save_lru`` writes (S18).
+        """Remove stale ``*.tmp`` files left by interrupted ``set`` / ``_save_lru`` writes.
 
         ``set`` and ``_save_lru`` write to ``tempfile.mkstemp(..., suffix=".tmp")`` then
         ``os.replace`` onto the visible name; a crash / kill between mkstemp and replace orphans
@@ -385,7 +377,7 @@ class DiscoveryCache:
     def _evict_to_caps_locked(self) -> int:
         # Best-effort orphan sweep before sizing: a crashed/interrupted ``set`` or ``_save_lru``
         # can leave a ``*.tmp`` in cache_dir that ``glob("*.pkl")`` never sees, so eviction's
-        # byte cap silently under-counts the true footprint (S18). The filelock around eviction
+        # byte cap silently under-counts the true footprint. The filelock around eviction
         # makes this safe -- no concurrent ``set`` is mid-rename on a tmp we'd delete -- but we
         # still age-gate so a tmp from a write that is genuinely in flight in THIS process (none,
         # since we hold the lock) or a clock-skewed sibling is never yanked. Lock files
@@ -402,10 +394,10 @@ class DiscoveryCache:
                 size = os.path.getsize(path)
             except OSError:
                 size = 0
-            # S18: count the ``.pkl.sha256`` sidecar in the entry's footprint so the eviction
-            # byte cap agrees with ``_discovery_cache_bytes_total`` (which counts .pkl + sidecar).
-            # Pre-fix the cap measured only the .pkl, so a cache reported as over ``max_size_mb``
-            # by the helper could still refuse to evict (cap thought it was under budget).
+            # Count the ``.pkl.sha256`` sidecar in the entry's footprint so the eviction byte cap
+            # agrees with ``_discovery_cache_bytes_total`` (which counts .pkl + sidecar). Measuring
+            # only the .pkl lets a cache reported as over ``max_size_mb`` by the helper still refuse
+            # to evict (cap thinks it is under budget).
             try:
                 size += os.path.getsize(path + ".sha256")
             except OSError:
@@ -483,8 +475,8 @@ class DiscoveryCache:
                 _safe_pickle_write_sidecar(path)
             except OSError as _sc_err:
                 logger.debug("DiscoveryCache.set sidecar write failed (value written OK): %s", _sc_err)
-            # Audit D L-10 (2026-05-18): POSIX requires ``fsync(dirfd)`` to make the new entry's
-            # directory metadata durable across a power loss; without it the rename is visible
+            # POSIX requires ``fsync(dirfd)`` to make the new entry's directory metadata durable
+            # across a power loss; without it the rename is visible
             # to readers but may revert after a crash on journaled-data-mode-off filesystems.
             # Windows NTFS does NOT expose directory fsync via ``os.fsync(dirfd)``
             # (``OSError: [Errno 13] Permission denied`` opening a dir for fsync), so we skip
@@ -514,10 +506,10 @@ class DiscoveryCache:
         # Touch LRU AFTER the rename so the timestamp reflects the new
         # entry; then evict if caps are configured.
         #
-        # Audit D L-6 (2026-05-18): the previous ``except Exception: pass`` silently swallowed
-        # disk-full / lock-timeout / corrupt-LRU errors during eviction. Log at DEBUG so an
-        # operator running with ``logging.DEBUG`` sees the underlying cause, while normal runs
-        # are unaffected (the write itself already succeeded before this block).
+        # A bare ``except Exception: pass`` here would silently swallow disk-full / lock-timeout /
+        # corrupt-LRU errors during eviction. Log at DEBUG so an operator running with
+        # ``logging.DEBUG`` sees the underlying cause, while normal runs are unaffected (the write
+        # itself already succeeded before this block).
         try:
             self._touch_lru(self._safe_key(key))
             self._evict_to_caps()
@@ -527,10 +519,9 @@ class DiscoveryCache:
     def invalidate(self, key: str) -> bool:
         """Remove a cached entry. Returns True if the entry existed, False otherwise."""
         path = self._path(key)
-        # Wave 48 (2026-05-20): TOCTOU race -- parallel hyperopt suites sharing
-        # cache_dir can both call invalidate(same_key); the prior exists+remove
-        # pattern raised uncaught FileNotFoundError on the loser. Replace with
-        # try/except so concurrent invalidations of the same key are idempotent.
+        # TOCTOU race -- parallel hyperopt suites sharing cache_dir can both call
+        # invalidate(same_key); an exists+remove pattern raises uncaught FileNotFoundError on the
+        # loser. try/except makes concurrent invalidations of the same key idempotent.
         try:
             os.remove(path)
         except FileNotFoundError:
@@ -553,9 +544,9 @@ class DiscoveryCache:
     def clear(self) -> int:
         """Remove all cached entries (and their sidecars). Returns the number of ``.pkl`` entries removed.
 
-        S18: also sweeps orphan ``*.tmp`` files (interrupted ``set`` / ``_save_lru`` writes) and
-        the ``.lru.lock`` filelock marker, which eviction never reclaims -- pre-fix a long-lived
-        cache_dir accumulated these forever. The returned count is still the number of cached
+        Also sweeps orphan ``*.tmp`` files (interrupted ``set`` / ``_save_lru`` writes) and the
+        ``.lru.lock`` filelock marker, which eviction never reclaims -- otherwise a long-lived
+        cache_dir accumulates these forever. The returned count is still the number of cached
         ``.pkl`` ENTRIES removed (the contract callers rely on); swept tmp/lock files are logged
         at DEBUG, not counted, so existing assertions on the entry count are unaffected.
         """

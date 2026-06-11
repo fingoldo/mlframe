@@ -1,10 +1,8 @@
 """Tiny-model RMSE / CV helpers for composite-target screening.
 
-Wave 98 (2026-05-21): split out from ``composite_screening.py`` to keep
-that file below the 1k-line threshold. Behaviour preserved bit-for-bit;
-every moved symbol is re-exported from ``composite_screening`` so
-existing ``from mlframe.training.composite_screening import _build_tiny_model``
-(and the other six moved names) imports continue to work.
+Every moved symbol is re-exported from ``composite_screening`` so existing
+``from mlframe.training.composite_screening import _build_tiny_model`` (and the
+other six moved names) imports continue to work.
 
 What lives here:
   - ``_silence_tiny_model_output`` (CB / LGB log-silencer context)
@@ -30,15 +28,12 @@ if TYPE_CHECKING:
 import numpy as np
 import pandas as pd
 
-# Hoisted from a lazy import inside ``_one_fold`` (wave 98 split-out). The lazy form raced
-# under joblib threading + n_jobs > 1: two folds simultaneously executing
-# ``from ..estimator import _y_train_clip_bounds`` could see a partially-loaded
-# composite.estimator module on Python's import dance, leaving the local name unbound for
-# the second thread. Symptom observed in a prod log: 4x
-# ``composite_screening: tiny-model CV fold failed (name '_y_train_clip_bounds' is not defined)``
-# warnings -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
-# it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module
-# level (line 34) so there is no circular-dep concern.
+# Hoisted from a lazy import inside ``_one_fold``. The lazy form raced under joblib threading + n_jobs > 1:
+# two folds simultaneously executing ``from ..estimator import _y_train_clip_bounds`` could see a
+# partially-loaded composite.estimator module on Python's import dance, leaving the local name unbound for
+# the second thread -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
+# it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
+# is no circular-dep concern.
 from ..estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
@@ -84,7 +79,7 @@ def _silence_tiny_model_output():
         # to hundreds of identical warning lines per discovery run.
         # Squelching at this scope so the log stays readable; the actual
         # remediation (drop fully-NaN columns) lives in the auto-base
-        # per-column NaN gate (2026-05-26 fix).
+        # per-column NaN gate.
         warnings.filterwarnings(
             "ignore",
             message=".*Skipping features without any observed values.*",
@@ -258,7 +253,7 @@ def _tiny_cv_rmse_raw_y(
             groups_clean = _g[finite_mask] if finite_mask is not None else _g
             _n_groups = int(np.unique(groups_clean).size)
             if _n_groups < cv_folds:
-                # A10: silent GroupKFold->KFold downgrade -> WARN (see y-scale twin).
+                # Silent GroupKFold->KFold downgrade -> WARN (see y-scale twin).
                 logger.warning(
                     "_tiny_cv_rmse_raw_y: groups supplied but only %d distinct "
                     "group(s) survive the finite mask (< cv_folds=%d); falling "
@@ -274,7 +269,7 @@ def _tiny_cv_rmse_raw_y(
         _precomputed_splits = None
     elif groups_clean is not None:
         if time_aware:
-            # A11: groups win over time_aware; temporal order dropped. WARN once.
+            # Groups win over time_aware; temporal order dropped. WARN once.
             logger.warning(
                 "_tiny_cv_rmse_raw_y: both groups and time_aware requested; "
                 "GroupKFold takes precedence and temporal order is NOT preserved. "
@@ -372,7 +367,7 @@ def _tiny_cv_rmse_raw_y(
             fold_results = [_one_fold(tr, va) for tr, va in splits]
     else:
         fold_results = [_one_fold(tr, va) for tr, va in splits]
-    # E1.2 (2026-05-22): emit a single WARN when ANY fold returned NaN. The
+    # Emit a single WARN when ANY fold returned NaN. The
     # outer ``except Exception`` in ``_one_fold`` swallows every failure into a
     # NaN result, and downstream ``np.nanmean`` silently shifts the screening
     # RMSE toward the surviving folds. Without this WARN the operator never
@@ -421,36 +416,35 @@ def _tiny_cv_rmse_y_scale_multiseed(
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_y_scale`.
 
-    R10b improvement #10: with cv_folds=3, a single CV split has
-    high variance. Repeat the K-fold split with different random
-    seeds and return the MEDIAN of the per-seed mean RMSEs (instead
-    of a single point estimate). When ``return_per_bin=True``, also
-    returns the per-bin median across seeds.
+    With cv_folds=3, a single CV split has high variance. Repeat the
+    K-fold split with different random seeds and return the MEDIAN of
+    the per-seed mean RMSEs (instead of a single point estimate). When
+    ``return_per_bin=True``, also returns the per-bin median across seeds.
 
-    R10b statistician #4: when ``return_per_seed=True``, also returns
-    the array of per-seed mean RMSEs so callers can run a paired
-    Wilcoxon test against a reference (raw-y baseline) array.
+    When ``return_per_seed=True``, also returns the array of per-seed
+    mean RMSEs so callers can run a paired Wilcoxon test against a
+    reference (raw-y baseline) array.
 
-    A13: the returned per-seed array is FIXED-LENGTH (one slot per
-    seed, in ``base_random_state + s_idx*7919`` seed order) with NaN at
-    positions where that seed's CV degenerated. The composite and raw-y
-    sweeps run the SAME seed schedule, so a failed seed leaves a NaN in
-    the SAME slot on both sides -- the consumer pairs by seed index and
-    diffs only jointly-finite positions. The pre-A13 contract compacted
-    out failed seeds, so composite-seed-1-failed vs raw-seed-2-failed
-    silently mis-paired (comp[1]=seed2 against raw[1]=seed1) in the
-    paired Wilcoxon gate. The median is still taken over finite seeds
-    only, so the returned point estimate is bit-identical to pre-A13.
+    The returned per-seed array is FIXED-LENGTH (one slot per seed, in
+    ``base_random_state + s_idx*7919`` seed order) with NaN at positions
+    where that seed's CV degenerated. The composite and raw-y sweeps run
+    the SAME seed schedule, so a failed seed leaves a NaN in the SAME
+    slot on both sides -- the consumer pairs by seed index and diffs only
+    jointly-finite positions. A compacted (finite-only) contract would
+    mis-pair a failed composite seed against a failed raw seed at a
+    different position in the paired Wilcoxon gate. The median is still
+    taken over finite seeds only, so the returned point estimate is
+    unaffected.
 
-    A12/P11: ``early_stop_threshold`` (forwarded transparently through
-    ``**kwargs`` into the underlying serial fold loop) lets the rerank
-    caller abort a spec's per-fold fits once the running fold-mean is
-    GUARANTEED to exceed the raw-baseline gate threshold (the spec will be
-    rejected regardless). For this to be sound across seeds the caller
-    passes the SAME threshold every seed -- each seed independently early-
-    stops; the median over the surviving (finite) seeds is unchanged when
-    the threshold is ``inf`` (the default), so the multiseed return value
-    is bit-identical to the no-threshold call. The early-stop fires only on
+    ``early_stop_threshold`` (forwarded transparently through ``**kwargs``
+    into the underlying serial fold loop) lets the rerank caller abort a
+    spec's per-fold fits once the running fold-mean is GUARANTEED to
+    exceed the raw-baseline gate threshold (the spec will be rejected
+    regardless). For this to be sound across seeds the caller passes the
+    SAME threshold every seed -- each seed independently early-stops; the
+    median over the surviving (finite) seeds is unchanged when the
+    threshold is ``inf`` (the default), so the multiseed return value is
+    bit-identical to the no-threshold call. The early-stop fires only on
     the serial path (``n_jobs<=1``) and only for ``cv_selector_mode='mean'``
     (the partial-sum bound is a mean bound); see ``_tiny_cv_rmse_y_scale``.
 
@@ -473,7 +467,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
         if return_per_seed:
             mean = result[0] if isinstance(result, tuple) else result
             # Fixed length 1: NaN when the single seed degenerated, so the
-            # consumer always sees one slot per scheduled seed (A13).
+            # consumer always sees one slot per scheduled seed.
             per_seed_arr = np.array([mean], dtype=np.float64)
             if isinstance(result, tuple):
                 return result + (per_seed_arr,)
@@ -482,7 +476,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
-    # A13: one slot per scheduled seed; NaN where that seed failed.
+    # One slot per scheduled seed; NaN where that seed failed.
     per_seed_full = np.full(_effective_repeats, float("nan"), dtype=np.float64)
     for s_idx in range(_effective_repeats):
         kwargs["random_state"] = base_random_state + s_idx * 7919
@@ -528,7 +522,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_raw_y`. See
     :func:`_tiny_cv_rmse_y_scale_multiseed` for the rationale (including
-    the A13 fixed-length NaN-padded per-seed contract)."""
+    the fixed-length NaN-padded per-seed contract)."""
     # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
     # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
     _seed_invariant = bool(kwargs.get("time_aware", False)) or (
@@ -540,7 +534,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
         result = _tiny_cv_rmse_raw_y(*args, **kwargs)
         if return_per_seed:
             mean = result[0] if isinstance(result, tuple) else result
-            # Fixed length 1: NaN when the single seed degenerated (A13).
+            # Fixed length 1: NaN when the single seed degenerated.
             per_seed_arr = np.array([mean], dtype=np.float64)
             if isinstance(result, tuple):
                 return result + (per_seed_arr,)
@@ -549,7 +543,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
-    # A13: one slot per scheduled seed; NaN where that seed failed.
+    # One slot per scheduled seed; NaN where that seed failed.
     per_seed_full = np.full(_effective_repeats, float("nan"), dtype=np.float64)
     for s_idx in range(_effective_repeats):
         kwargs["random_state"] = base_random_state + s_idx * 7919
@@ -665,11 +659,11 @@ def _tiny_cv_rmse_y_scale(
     so the inner LightGBM doesn't oversubscribe. NaN if anything
     degenerates so callers can deprioritise.
 
-    A5: when the transform's fitted domain excludes some finite-y rows, the val
+    When the transform's fitted domain excludes some finite-y rows, the val
     population is the full finite-y set (raw-y baseline parity); the model trains
     only on the domain but each fold scores its full val rows with a y_train_median
     fallback on the off-domain ones (mirrors CompositeTargetEstimator.predict).
-    The all-valid common case is bit-identical and keeps the P9 no-copy fast path.
+    The all-valid common case is bit-identical and keeps the no-copy fast path.
     cProfile note: the emulation adds one ``np.isfinite(y_train)`` + one ``.any()``
     on the common (all-valid) path -- <0.1 ms at n=20k vs the ~26 ms fold fits, far
     under the actionable threshold; no further optimization needed.
@@ -679,7 +673,7 @@ def _tiny_cv_rmse_y_scale(
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     valid = transform.domain_check(y_train, base_train)
-    # T15: refine with the fitted-params-aware domain (log_y's offset,
+    # Refine with the fitted-params-aware domain (log_y's offset,
     # centered_ratio's c+eps). Without this, rows that are valid pre-fit but
     # out of the TRUE fitted domain produce NaN T below -> the non-finite
     # guard nukes the WHOLE spec's rerank score, silently dropping a spec
@@ -693,9 +687,9 @@ def _tiny_cv_rmse_y_scale(
             valid = valid & _valid_fitted
     if valid.sum() < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-    # A5: baseline-population parity with the raw-y sibling. The raw-y baseline scores EVERY finite-y row, but this transformed-target path previously scored only domain-valid rows -- so composite RMSE was measured on a STRICT SUBSET of the rows raw RMSE was measured on, a population mismatch that biases the raw-baseline gate exactly where a transform's domain excludes hard rows.
-    # Production CompositeTargetEstimator.predict does NOT drop invalid rows: it predicts on the whole batch and fills domain-violation rows with y_train_median (estimator/_predict.py:140-164). We emulate that so the screening val population == the raw-y val population (all finite-y rows): the model still TRAINS only on the transform's domain (forward is undefined off-domain), but each fold is SCORED over its full finite-y val rows, with domain-invalid val rows filled by the train-fold median.
-    # The _all_valid short-circuit keeps this bit-identical to the legacy path when the transform's domain covers every row (the common case) and preserves the P9 no-copy fast path; ``finite_y`` mirrors raw-y's isfinite(y) mask and ``valid`` is a subset of it, so the split population (finite_y) is a superset of the trainable (valid) rows.
+    # Baseline-population parity with the raw-y sibling. The raw-y baseline scores EVERY finite-y row, but this transformed-target path previously scored only domain-valid rows -- so composite RMSE was measured on a STRICT SUBSET of the rows raw RMSE was measured on, a population mismatch that biases the raw-baseline gate exactly where a transform's domain excludes hard rows.
+    # Production CompositeTargetEstimator.predict does NOT drop invalid rows: it predicts on the whole batch and fills domain-violation rows with y_train_median. We emulate that so the screening val population == the raw-y val population (all finite-y rows): the model still TRAINS only on the transform's domain (forward is undefined off-domain), but each fold is SCORED over its full finite-y val rows, with domain-invalid val rows filled by the train-fold median.
+    # The _all_valid short-circuit keeps this bit-identical to the legacy path when the transform's domain covers every row (the common case) and preserves the no-copy fast path; ``finite_y`` mirrors raw-y's isfinite(y) mask and ``valid`` is a subset of it, so the split population (finite_y) is a superset of the trainable (valid) rows.
     _all_valid = bool(valid.all())
     finite_y = np.isfinite(np.asarray(y_train, dtype=np.float64))
     _emulate_fallback = (not _all_valid) and bool((finite_y & ~valid).any())
@@ -720,7 +714,7 @@ def _tiny_cv_rmse_y_scale(
         _split_valid_mask = valid_pop
         _group_mask = pop_mask
     else:
-        # P9: skip the full-matrix fancy-index copy of the wide feature matrix when
+        # Skip the full-matrix fancy-index copy of the wide feature matrix when
         # every row is valid (mirror the raw-y no-copy gate at the top of
         # _tiny_cv_rmse_raw_y). Downstream reads x_clean[train_fold]/x_clean[val_fold]
         # (which fancy-index a copy regardless), so passing the view is bit-identical.
@@ -737,14 +731,14 @@ def _tiny_cv_rmse_y_scale(
     if groups is not None:
         _g_arr = np.asarray(groups)
         if _g_arr.shape[0] == len(y_train):
-            # A5: align groups to whichever population the split runs on -- the
+            # Align groups to whichever population the split runs on -- the
             # finite-y superset under fallback emulation, else the valid subset.
             groups_clean = (
                 _g_arr[_group_mask] if _group_mask is not None else _g_arr
             )
             _n_groups = int(np.unique(groups_clean).size)
             if _n_groups < cv_folds:
-                # A10: groups requested but too few distinct groups survive the
+                # Groups requested but too few distinct groups survive the
                 # domain mask -> silent downgrade to KFold (different fold
                 # population, no group separation). WARN so the operator sees
                 # why the group split did not apply.
@@ -772,7 +766,7 @@ def _tiny_cv_rmse_y_scale(
         )
     elif groups_clean is not None:
         if time_aware:
-            # A11: both group- and time-awareness were requested but the splitter
+            # Both group- and time-awareness were requested but the splitter
             # can honour only one; GroupKFold wins and the temporal ordering is
             # dropped (future->past leak risk on autoregressive bases). WARN once
             # per call so the operator can supply a grouped forward-chaining
@@ -822,7 +816,7 @@ def _tiny_cv_rmse_y_scale(
                         "inner %s under outer n_jobs=%d (oversubscription risk): %s: %s",
                         type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
                     )
-            # A5: under fallback emulation the train fold may contain off-domain rows (NaN T); fit ONLY on the domain-valid train rows (forward is undefined off-domain) -- production fits the inner the same way. ``_fit_rows`` == the full train fold on the legacy / all-valid path.
+            # Under fallback emulation the train fold may contain off-domain rows (NaN T); fit ONLY on the domain-valid train rows (forward is undefined off-domain) -- production fits the inner the same way. ``_fit_rows`` == the full train fold on the legacy / all-valid path.
             if _split_valid_mask is not None:
                 _tr_valid = train_fold[_split_valid_mask[train_fold]]
                 if _tr_valid.shape[0] < 2:
@@ -833,7 +827,7 @@ def _tiny_cv_rmse_y_scale(
             with _silence_tiny_model_output():
                 model.fit(x_clean[_fit_rows], t_clean[_fit_rows])
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
-            # A5: domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
+            # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
             if _split_valid_mask is not None:
                 _val_valid = _split_valid_mask[val_fold]
                 _base_for_inverse = np.where(_val_valid, base_clean[val_fold], 1.0)
@@ -841,7 +835,7 @@ def _tiny_cv_rmse_y_scale(
                 _val_valid = None
                 _base_for_inverse = base_clean[val_fold]
             y_hat = transform.inverse(t_hat, _base_for_inverse, fitted_params)
-            # R10b improvement #4: wrapper-aware clipping. The
+            # Wrapper-aware clipping. The
             # production CompositeTargetEstimator.predict applies
             # the same y-clip on inverse output to keep predictions
             # inside a physically plausible range. Mirror that here
@@ -855,7 +849,7 @@ def _tiny_cv_rmse_y_scale(
             y_hat = np.clip(
                 y_hat.astype(np.float64), y_clip_low, y_clip_high,
             )
-            # Domain-violation fallback: rows where the transform's domain_check fails on val use y_train_median (matches wrapper.predict). The wrapper computes domain_check on (y, base) but at inference y is unknown, so it uses y=None handling; here on val we know y_clean[val_fold] and emulate the wrapper by falling back rows where y_hat is non-finite OR (A5) where the row is domain-invalid. The fallback median uses the domain-valid train y (estimator/_predict.py stores y_train_median over fit rows).
+            # Domain-violation fallback: rows where the transform's domain_check fails on val use y_train_median (matches wrapper.predict). The wrapper computes domain_check on (y, base) but at inference y is unknown, so it uses y=None handling; here on val we know y_clean[val_fold] and emulate the wrapper by falling back rows where y_hat is non-finite OR where the row is domain-invalid. The fallback median uses the domain-valid train y (estimator/_predict.py stores y_train_median over fit rows).
             _y_train_fallback: float | None = None
             if _val_valid is not None and (~_val_valid).any():
                 _y_fit = y_clean[_fit_rows]
@@ -911,7 +905,7 @@ def _tiny_cv_rmse_y_scale(
         except ImportError:
             fold_results = [_one_fold(tr, va) for tr, va in splits]
     else:
-        # Pack #7 serial early-stop: track partial-sum and break when
+        # Serial early-stop: track partial-sum and break when
         # the final mean is GUARANTEED to exceed early_stop_threshold,
         # i.e. ``sum_so_far > early_stop_threshold * cv_folds``. Even if
         # all remaining folds return 0, the mean = sum / cv_folds > thr.
@@ -936,7 +930,7 @@ def _tiny_cv_rmse_y_scale(
                 # Final mean cannot reach <= threshold; abort remaining folds.
                 break
 
-    # E1.2 (2026-05-22): NaN-fold aggregate WARN (twin of the y-scale branch).
+    # NaN-fold aggregate WARN (twin of the y-scale branch).
     _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
     if _nan_fold_count > 0:
         logger.warning(

@@ -37,7 +37,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Optional chronological-order column (timestamp / monotone index). When set, discovery SORTS the MI-screening sample by it so the tiny-model CV is a forward-walk (TimeSeriesSplit) not a shuffled K-fold -- the canonical non-monotone ``lag(y)`` base defeated the legacy base-monotonicity heuristic, so the screen leaked future->past. None keeps the legacy auto-detection.
     time_column: Optional[str] = None
 
-    # Opt-in: add the 3 chronological-order transforms (ewma_residual / rolling_quantile_ratio / frac_diff) to the candidate set. They need the screen in time order, so set ``time_column`` too (M6). Default OFF -- on a shuffled frame they model a meaningless row sequence.
+    # Opt-in: add the 3 chronological-order transforms (ewma_residual / rolling_quantile_ratio / frac_diff) to the candidate set. They need the screen in time order, so set ``time_column`` too. Default OFF -- on a shuffled frame they model a meaningless row sequence.
     time_series_transforms_enabled: bool = False
 
     # Base candidate selection.
@@ -56,36 +56,36 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     # Transform names from the registry (mlframe.training.composite).
     #
-    # 2026-05-11 (R10c brainstorm rollout): default extended from the original 4 to include the SINGLE-BASE, DROP-IN transforms shipped in commits 9e05955 + 0894369:
+    # The default extends beyond the original 4 to include the SINGLE-BASE, DROP-IN transforms:
     #   - ``quantile_residual`` -- conditional-on-bin centering + scaling.
     #   - ``monotonic_residual`` -- monotone PCHIP spline residual.
     # These accept the standard ``(y, base)`` signature and need no special orchestration -- discovery evaluates them like ``linear_residual``.
     #
-    # NOT in default list (need orchestration): ``linear_residual_multi`` (multi-column base selection via forward stepwise; single-base mode == linear_residual), ``linear_residual_grouped`` (group_column extraction + groups kwarg), and the three chronological-order transforms ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` (now reachable via ``time_series_transforms_enabled`` + ``time_column``; M9). All accessible via explicit ``CompositeTargetEstimator(...)`` and ship their own tests.
+    # NOT in default list (need orchestration): ``linear_residual_multi`` (multi-column base selection via forward stepwise; single-base mode == linear_residual), ``linear_residual_grouped`` (group_column extraction + groups kwarg), and the three chronological-order transforms ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` (now reachable via ``time_series_transforms_enabled`` + ``time_column``). All accessible via explicit ``CompositeTargetEstimator(...)`` and ship their own tests.
     transforms: List[str] = Field(
         default_factory=lambda: [
             "diff", "additive_residual", "median_residual",
             "ratio", "logratio", "linear_residual",
             "linear_residual_robust",  # trimmed-LS variant; safe on outlier-contaminated bases.
             "quantile_residual", "monotonic_residual",
-            # 2026-05-23: y_quantile_clip unary (requires_base=False) -- limit-damage
+            # y_quantile_clip unary (requires_base=False) -- limit-damage
             # transform for neural / linear downstream models.
             "y_quantile_clip",
-            # Pack J unary y-transforms (``requires_base=False`` -- tried once across all bases via the discovery loop's per-transform dedup).
+            # Unary y-transforms (``requires_base=False`` -- tried once across all bases via the discovery loop's per-transform dedup).
             "cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y",
-            # Pack K chain transforms (bivariate residual + unary tail compression).
+            # Chain transforms (bivariate residual + unary tail compression).
             "chain_linres_cbrt", "chain_linres_yj",
             "chain_monres_cbrt", "chain_monres_yj",
-            # Pack L bivariate extensions (2026-05-26). Plug specific
+            # Bivariate extensions. Plug specific
             # failure modes: signed bases (asinh_residual / centered_ratio),
             # curvature beyond OLS line (polynomial_residual_deg2),
             # distribution-free monotone (rank_residual), arbitrary smooth
             # non-monotone dependence (smoothing_spline_residual),
             # multiplicative-jump dynamics (reciprocal_residual). The two
-            # Pack L multi-base transforms (geometric_mean_residual,
+            # multi-base transforms (geometric_mean_residual,
             # pairwise_interaction_residual) stay out of the default list
             # because they need multi-base orchestration (same status as
-            # linear_residual_multi pre-OPEN-1).
+            # linear_residual_multi).
             "asinh_residual", "centered_ratio", "polynomial_residual_deg2",
             "rank_residual", "smoothing_spline_residual",
             "reciprocal_residual",
@@ -104,7 +104,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     cv_selector_quantile_level: float = 0.9 # for aggregate="quantile" (auto-flip by direction)
     cv_persist_fold_scores: bool = False    # surface per-fold scores in forward-stepwise diagnostics
 
-    # Pack #3: stacked 2-pass composite discovery. When True the suite calls
+    # Stacked 2-pass composite discovery. When True the suite calls
     # ``CompositeTargetDiscovery.fit_stacked`` instead of plain ``fit``. Pass 1
     # is the normal discovery; for the top ``stacked_max_pass1_specs`` specs
     # we compute OOF predictions on the train rows, append them as new feature
@@ -113,7 +113,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # (e.g. y = f(x_a) + g(x_b): pass 1 takes f(x_a), pass 2 finds g(x_b) on
     # the leftover). Default False so the path is opt-in until measured
     # on real data; switch to True after biz_val on your target.
-    # T3#20 2026-05-18 default-flip eval: measured on
+    # Default-flip eval measured on
     # ``profiling/bench_stacked_discovery_default_flip.py`` on a TRUE
     # residual-of-residual synthetic ``y = 1.5*x_a + 3*sin(x_b) + noise``
     # (pass-1 linear_residual captures the x_a slope; pass-2 should
@@ -127,7 +127,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacked_n_oof_folds: int = 3
     stacked_max_pass1_specs: int = 3
 
-    # T1#6 2026-05-18 #4: residual-target stacked discovery (alternative to
+    # Residual-target stacked discovery (alternative to
     # ``use_stacked_discovery``). When True the suite calls
     # ``CompositeTargetDiscovery.fit_stacked_on_residual`` instead of
     # ``fit_stacked``. Pass 1 specs collectively predict ``pass1_pred``;
@@ -148,7 +148,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Forwarded to ``fit_stacked_on_residual(residual_aggregation=...)``.
     stacked_residual_aggregation: str = "mean"
 
-    # A18 2026-06-11: cap on how many top-ranked pass-1 specs (best tiny
+    # Cap on how many top-ranked pass-1 specs (best tiny
     # CV-RMSE first) contribute their OOF predictions to the residual-target
     # aggregate in ``fit_stacked_on_residual``. Previously that path aggregated
     # EVERY pass-1 spec (a no-op ``ranked[:max(1,len(ranked))]`` slice), so weak
@@ -215,7 +215,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # invariants (T-MAE == y-MAE for additive-invertible transforms).
     skip_wrap_pass_predict: bool = True
 
-    # HIGH#4 2026-05-18: disable the Pack G runtime watchdog when its
+    # Disable the runtime watchdog when its
     # extra ``wrapper.predict + inner.predict`` per (entry, split) costs
     # more than the rare-bug catch is worth. Measured overhead on
     # n=200k, 2 composites x 5 models = 30 (entry, split) pairs:
@@ -274,7 +274,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # accurate but slow on n>10k); "bin" uses a quantile-binning
     # estimator (5-10x faster, biased low on heavy-tail).
     #
-    # Default flipped from "knn" -> "bin" 2026-05-10 after a
+    # Default flipped from "knn" -> "bin" after a
     # statistical review noted that:
     # 1. kNN is biased high on heavy-tail / mixed-density distributions
     #    and the bias scales DIFFERENTLY for raw y (potentially fat-
@@ -294,7 +294,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_estimator: str = "bin"
     mi_nbins: int = 16  # Bin count when ``mi_estimator == "bin"``.
 
-    # R10b statistician #1: aggregation across feature columns when
+    # Aggregation across feature columns when
     # comparing MI(T, X_no_base) against MI(y, X_no_base). Legacy
     # ``"sum"`` is biased (overcounts shared information when X is
     # correlated, and the over-count differs between numerator and
@@ -327,7 +327,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # inverse). This is the "true objective" -- MI is a proxy. Skip
     # by setting ``screening`` = ``"mi"``.
     #
-    # Default raised from "mi" -> "hybrid" in 2026-05-10 after a
+    # Default raised from "mi" -> "hybrid" after a
     # production case where MI-only screening kept composites whose
     # bases (spatial coordinates) had trivial pairwise MI(y, x) but
     # zero structural signal for residual learning. The MI-gain test
@@ -344,7 +344,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     top_m_after_tiny: int = 10  # final top-M after Phase B re-rank
     tiny_model_n_jobs: int = 1  # >1 = parallelise CV folds via joblib
 
-    # 2026-05-20 #10: parallelise the per-spec rerank loop in
+    # Parallelise the per-spec rerank loop in
     # ``_tiny_model_rerank``. Each spec runs ``_tiny_cv_rmse_y_scale_multiseed``
     # per family — typically the dominant wall-time slice of Phase B on
     # subsample=200k+ configs. Threads share base/x_matrix arrays via
@@ -428,7 +428,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     require_beats_raw_baseline: bool = False
     raw_baseline_tolerance: float = 1.02
 
-    # R10b improvement #1: regime-aware gate. In addition to the
+    # Regime-aware gate. In addition to the
     # global mean RMSE comparison, also check per-quintile-of-base
     # RMSE: a spec is rejected if its tiny CV-RMSE in any quintile
     # exceeds raw_baseline-in-that-quintile by ``raw_baseline_per_bin_tolerance``.
@@ -448,7 +448,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     raw_baseline_per_bin_tolerance: float = 1.10
     per_bin_n_bins: int = 0
 
-    # 2026-05-23 audit-followup C1: force-inject the ``(top_ablation_feature,
+    # Force-inject the ``(top_ablation_feature,
     # diff)`` and ``(top_ablation_feature, additive_residual)`` specs into
     # the discovery output when the top-feature ablation delta% exceeds
     # this threshold, regardless of gate / MI / top-K filtering. This is
@@ -467,7 +467,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # plumbing of per-feature ablation pct into discovery internals.
     force_inject_diff_on_top_ablation_pct: float = 0.0
 
-    # R10b improvement #10: median-of-seeds gate. Tiny CV-RMSE with
+    # Median-of-seeds gate. Tiny CV-RMSE with
     # 3 folds is variance-prone (one unlucky split can drag the mean).
     # Optionally repeat the K-fold split with multiple seeds and take
     # the MEDIAN across (folds × seeds) for both raw-y and per-spec
@@ -483,7 +483,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # losing the actual winning spec.
     tiny_model_n_seed_repeats: int = 3
 
-    # R10b statistician #4: paired one-sided Wilcoxon signed-rank
+    # Paired one-sided Wilcoxon signed-rank
     # test on per-fold-pair RMSE differences (composite minus raw).
     # Replaces the static ``raw_baseline * tolerance`` threshold with
     # a non-parametric significance test: spec is rejected unless
@@ -500,7 +500,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     use_wilcoxon_gate: bool = False
     gate_alpha: float = 0.05
 
-    # R10b statistician #6: detect alpha-drift in linear_residual.
+    # Detect alpha-drift in linear_residual.
     # Fit alpha on first half of train and on second half; compare
     # via Chow-style |Δα| / pooled SE. If the absolute z-score
     # exceeds ``alpha_drift_z_threshold`` (default 3.0), the
@@ -516,7 +516,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # default; flag to True on series with known non-stationarity.
     reject_on_alpha_drift: bool = False
 
-    # R10b stat #8: bootstrap CI on mi_gain. The point-estimate
+    # Bootstrap CI on mi_gain. The point-estimate
     # mi_gain has noise floor that scales with the screening sample
     # size and the heaviness of the y-tail; the eps_mi_gain absolute
     # threshold misses this. Optional bootstrap (resample the
@@ -545,7 +545,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_gain_fdr_control: bool = True
     mi_gain_fdr_alpha: float = 0.10
 
-    # R10b stat #8 (continued): boost n_strata on heavy-tail targets
+    # Boost n_strata on heavy-tail targets
     # when stratified MI sampling is enabled. Default 10 strata is
     # too few for tail-driven signal -- tail rows get one bin each
     # and MI estimates become unstable. Auto-detection: when y skew
@@ -699,7 +699,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     use_baseline_diagnostics_hint: bool = True
     baseline_diagnostics_hint_top_k: int = 3
 
-    # R10c bug #5: hint-strength threshold for the adaptive hint cap.
+    # Hint-strength threshold for the adaptive hint cap.
     # When the top hint feature has BaselineDiagnostics ablation
     # ``delta_pct >= hint_strength_threshold_pct``, ``_auto_base``
     # uses the FULL hint list (no cap) instead of capping at
@@ -707,7 +707,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # effectively disable the strong-hint shortcut.
     hint_strength_threshold_pct: float = 50.0
 
-    # Cross-base correlation dedup (R10b improvement #9). After
+    # Cross-base correlation dedup. After
     # auto-base ranking, drop a candidate base if its absolute Pearson
     # correlation against any already-kept candidate exceeds this
     # threshold on the screening sample. Stops near-duplicate lag
@@ -735,7 +735,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     dedup_x_remaining_for_mi_baseline: bool = True
     dedup_x_remaining_corr_threshold: float = 0.99
 
-    # Audit D12 (sibling of D11): rank auto-base candidates by MI computed
+    # Rank auto-base candidates by MI computed
     # with PER-PAIR (per-column) NaN masking instead of the global
     # all-column finite intersection. For mid-range-NaN columns the global
     # intersection keeps only the rows where EVERY feature is observed -- a
@@ -754,7 +754,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # when ``auto_base_mi_per_pair_mask`` is True (per-pair is always used).
     auto_base_mnar_per_pair_threshold: float = 0.5
 
-    # R10b improvement #2: permutation-MI null distribution test in
+    # Permutation-MI null distribution test in
     # ``_auto_base``. For each candidate feature compute MI(y, x) AND
     # MI(y, shuffle(x)) on ``auto_base_null_perms`` shuffles, then
     # require the candidate's MI to exceed ``mean_null + n_sigma *
@@ -774,7 +774,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # row-level shuffle (i.i.d. assumption).
     auto_base_null_block_length: Union[str, int] = "auto"
 
-    # R10b improvement #7: structural detectors for time-index and
+    # Structural detectors for time-index and
     # spatial-coordinate features. Demote (push to bottom of MI
     # ranking) features that look like:
     # - **Time index**: |Spearman(rank(x), arange(n))| > 0.95.
@@ -793,7 +793,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     auto_base_demote_spatial_coords: bool = True
 
     # Collapse ``linear_residual`` -> ``diff`` when the fitted alpha
-    # is approximately 1.0 (R10b improvement #6). ``linear_residual``
+    # is approximately 1.0. ``linear_residual``
     # is a strict generalisation of ``diff`` (diff = linear_residual
     # with alpha=1, beta=0). When OLS lands at alpha~1 on stationary
     # lag features, the two transforms produce numerically identical
@@ -806,7 +806,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # to disable (always keep both).
     collapse_linear_residual_alpha_eps: float = 0.05
 
-    # R3.18: handling multilabel (multi-output) regression targets,
+    # Handling multilabel (multi-output) regression targets,
     # i.e. ``target_by_type[regression][name]`` is a 2-D array of
     # shape ``(n_rows, n_outputs)``.
     # - ``"per_target"`` (default): expand into ``n_outputs`` separate
@@ -839,7 +839,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # train-RMSE proxy that overstates accuracy. Cost: re-fits every
     # component once on (1-frac) of train rows.
     #
-    # Default flipped from 0.0 -> 0.2 on 2026-05-15 because the default
+    # Default flipped from 0.0 -> 0.2 because the default
     # cross_target_ensemble_strategy is ``nnls_stack``. Fitting NNLS on
     # in-sample component predictions is a stacking leak: every
     # component has effectively memorised its training rows, so NNLS
@@ -907,7 +907,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # group-blind train-tail carves where the trained-model OOF was
     # artificially inflated by ~25% due to within-group leakage in
     # the inner early-stopping eval; now that ``_carve_inner_eval_split``
-    # is group-aware (2026-05-25), the trained-model honest OOF is no
+    # is group-aware, the trained-model honest OOF is no
     # longer biased high vs lag, so the tolerance no longer needs to
     # absorb the gap. Set to 0 to disable.
     lag_predict_failsafe_tolerance: float = 0.10
@@ -1000,7 +1000,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     @classmethod
     def _normalise_multilabel_strategy(cls, v: str) -> str:
         v_lower = str(v).lower()
-        # F-34 (2026-05-31): added "multi_target_regression" — keeps
+        # "multi_target_regression" keeps
         # (N, K) regression targets joint under
         # TargetTypes.MULTI_TARGET_REGRESSION instead of expanding to
         # K independent 1-D targets. Best for correlated targets that
@@ -1014,11 +1014,11 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     @model_validator(mode="after")
     def _append_time_series_transforms(self) -> "CompositeTargetDiscoveryConfig":
-        """M9: when ``time_series_transforms_enabled`` is on, add the three
+        """When ``time_series_transforms_enabled`` is on, add the three
         chronological-order transforms to the candidate set (deduped, appended
         so the existing order is preserved). They are valid only once the
-        screening sample is in time order, which ``time_column`` guarantees
-        (M6); enabling without a time signal is allowed but warned by discovery.
+        screening sample is in time order, which ``time_column`` guarantees;
+        enabling without a time signal is allowed but warned by discovery.
         """
         if getattr(self, "time_series_transforms_enabled", False):
             _ts = ["ewma_residual", "rolling_quantile_ratio", "frac_diff"]

@@ -1,5 +1,5 @@
 """
-Phase 4.6: composite-target discovery (opt-in, default OFF).
+Composite-target discovery (opt-in, default OFF).
 
 Runs after outlier detection, before per-target training. Each discovered spec
 becomes one entry in ``target_by_type[regression]``; specs are stored on
@@ -511,7 +511,7 @@ def run_composite_target_discovery(
                 # ``.clear()`` / ``.append()`` on these values (composite_target_y_scale_metrics
                 # at _phase_composite_post.py:174-177 already does ``.clear()`` on a sibling
                 # metadata list) would corrupt the cache entry in place. Same shape as the CB
-                # Pool id-recycle bug from wave 7 -- catch it BEFORE the LRU sidecar lands.
+                # Pool id-recycle bug -- catch it BEFORE the LRU sidecar lands.
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
                 metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = list(
                     _cached_payload.get("specs_export") or []
@@ -584,13 +584,13 @@ def run_composite_target_discovery(
                             _tname_disc,
                             int(np.unique(_grp_filtered_slice).size),
                         )
-                    # Pack #3 wiring: stacked 2-pass discovery (OOF predictions
+                    # Stacked 2-pass discovery (OOF predictions
                     # from pass 1 augment feature_cols for pass 2). Wraps the
                     # standard ``fit()`` so the rest of the phase code path is
                     # unchanged. Opt-in via config; default False keeps the
                     # historical single-pass behaviour.
                     #
-                    # T1#6 2026-05-18 Pack #4 wiring: residual-target alt
+                    # Residual-target alt
                     # (``fit_stacked_on_residual``). Mutually exclusive with
                     # feature-stack mode -- residual wins if both flags set,
                     # per its "more direct" docstring recommendation.
@@ -609,7 +609,7 @@ def run_composite_target_discovery(
                             "residual-of-residual structure). Disable one "
                             "flag to silence this warning."
                         )
-                    # A17: when a time_column is configured the data is
+                    # When a time_column is configured the data is
                     # temporally ordered, so the stacked OOF-prediction step
                     # must use time-respecting folds (TimeSeriesSplit) instead
                     # of shuffled K-fold -- otherwise the pass-2 bases / residual
@@ -651,7 +651,7 @@ def run_composite_target_discovery(
                             time_aware=_stacked_time_aware,
                         )
                     else:
-                        # M6: extract the chronological-order column (if the
+                        # Extract the chronological-order column (if the
                         # user named one) so discovery sorts the screening
                         # sample into a forward-walk instead of leaking
                         # future->past on temporal data via shuffled K-fold.

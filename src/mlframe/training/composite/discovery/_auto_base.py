@@ -17,7 +17,7 @@ import numpy as np
 # ``rankdata`` is an optional scipy dependency; if unavailable, the fallback
 # argsort-of-argsort path is wrong on ties and the auto-base ranker would
 # emit incorrect orders. Same graceful-fallback contract as the parent
-# module preserves the M3 fix sensor wiring.
+# module preserves the rankdata-based Spearman demoter wiring.
 try:
     from scipy.stats import rankdata
 except ImportError:
@@ -46,7 +46,7 @@ def _auto_base(
     sample, take the top-K.
 
     Why pairwise MI(y, x) and not the more elaborate "residualised
-    gain" of round-2 critique R2.27: the residualised metric
+    gain": the residualised metric
     ranks candidates by how predictable ``y - alpha*x - beta``
     is from the remaining features. On a feature whose linear
     contribution is small, the residual still contains the
@@ -97,7 +97,7 @@ def _auto_base(
             len(hint_dropped), hint_dropped[:5],
         )
     top_k = self.config.auto_base_top_k
-    # R10c bug #5 fix: adaptive hint cap. Previous fixed cap of
+    # Adaptive hint cap. Previous fixed cap of
     # ``max(1, top_k // 2)`` was too aggressive when BD ablation
     # confidently identified the dominant base (e.g. delta% > 100%
     # for the top-1 feature in a prod incident). Now: if the user
@@ -185,7 +185,7 @@ def _auto_base(
         usable_features = [
             f for f, k in zip(usable_features, _keep_cols.tolist()) if k
         ]
-    # D12 fix (sibling of D11): the MI RANKING must be estimated with
+    # The MI RANKING must be estimated with
     # PER-PAIR (per-column) finite masking, NOT the global all-column
     # ``np.all(isfinite(x_matrix), axis=1)`` intersection. For mid-range-NaN
     # columns the intersection is a non-random (MNAR) subset -- the rows
@@ -208,7 +208,7 @@ def _auto_base(
     # Audit the MNAR severity once: how much of the per-pair-available row
     # mass the global intersection discards. Below the configured fraction
     # the global mask would meaningfully under-sample some column, which is
-    # exactly the case D12 flags; log it so the divergence is auditable.
+    # exactly the per-pair masking case; log it so the divergence is auditable.
     _mnar_threshold = float(getattr(
         self.config, "auto_base_mnar_per_pair_threshold", 0.5,
     ))
@@ -259,7 +259,7 @@ def _auto_base(
     # the 1.67x bit-exact benchmark.
     if self.config.mi_estimator == "bin":
         if use_per_pair:
-            # Per-pair NaN masking (D12); bit-identical to the global path
+            # Per-pair NaN masking; bit-identical to the global path
             # on an all-finite screening sample.
             mi_per_feature = _mi_per_feature_y_fixed_per_col(
                 x_matrix_for_mi, y_screen,
@@ -297,7 +297,7 @@ def _auto_base(
                 n_neighbors=self.config.mi_n_neighbors,
                 random_state=self.config.random_state,
             )
-    # R10b improvement #7: structural detectors for time-index
+    # Structural detectors for time-index
     # and spatial-coordinate features. Cheap heuristics applied
     # to the screening matrix; flagged features are demoted
     # (large MI penalty) so they only win base selection when
@@ -310,12 +310,12 @@ def _auto_base(
         # ``argsort(argsort(x))`` assigned arbitrary integer positions to tied values,
         # which inflated |Spearman| toward 1.0 on columns with many duplicate values
         # (e.g. integer-encoded categoricals) and silently misfired the time-index demoter.
-        # Use the module-level binding so the M3 fix is detectable from
+        # Use the module-level binding so the rankdata fix is detectable from
         # outside (see regression sensor test_m3_spearman_demoter_uses_rankdata).
         _rankdata = rankdata
         n_screen = int(finite.sum())
         row_idx = np.arange(n_screen, dtype=np.float64)
-        # R10c bug #2 extension: hint features are IMMUNE from
+        # Hint features are IMMUNE from
         # the time-index demoter too. BD ablation already proved
         # they predict y; demoting silently is wrong.
         time_hint_protected = set(hint_kept) if hint_kept else set()
@@ -340,7 +340,7 @@ def _auto_base(
             )
     if getattr(self.config, "auto_base_demote_spatial_coords", True) \
             and len(usable_features) >= 3 and finite.sum() >= 50:
-        # R10c bug #1 fix: spatial-coord block detector tightened
+        # Spatial-coord block detector tightened
         # after a production geological-data run demoted 17
         # features (entire feature set). Previously: ``>=2 cross-
         # correlations |corr|>0.5`` -- fires on any moderately-
@@ -420,7 +420,7 @@ def _auto_base(
                 sorted(spatial_demoted)[:8],
             )
 
-    # R10b improvement #2: permutation-MI null filter. Catches
+    # Permutation-MI null filter. Catches
     # features whose MI(y, x) is non-trivial only because of a
     # shared monotonic component (time/spatial trend), not
     # structural information about y. Computes MI(y, shuffle(x))
@@ -465,7 +465,7 @@ def _auto_base(
             int(self.config.random_state) + 7919
         )
         y_finite = y_screen[finite]
-        # D12: under per-pair masking the null distribution must be estimated
+        # Under per-pair masking the null distribution must be estimated
         # on the SAME rows as the per-pair MI it is compared against (line
         # ``passes_null = mi_per_feature > null_threshold``); otherwise a
         # per-pair MI (its own observed rows) is gated against a null built on
@@ -582,7 +582,7 @@ def _auto_base(
         mi_for_ranking = np.where(passes_null, mi_per_feature, -np.inf)
     else:
         mi_for_ranking = mi_per_feature.copy()
-    # R10b improvement #7: apply demotion to time-index / spatial-
+    # Apply demotion to time-index / spatial-
     # coord candidates. Subtract a large penalty so they sort
     # below all non-demoted features but stay reachable as a
     # last resort.
@@ -614,7 +614,7 @@ def _auto_base(
         kept_ranked: list[tuple[float, str]] = []
         kept_arrays: dict[str, np.ndarray] = {}
         dedup_dropped: list[tuple[str, str, float]] = []
-        # R10c bug #2 fix: hint features are IMMUNE from dedup.
+        # Hint features are IMMUNE from dedup.
         # Otherwise on geological data with high feature
         # cross-correlation (e.g. Z ~ y_prev at |corr|=0.974),
         # the lower-MI hint candidate gets dropped against a

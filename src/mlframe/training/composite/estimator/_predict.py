@@ -1,6 +1,6 @@
 """Predict family for ``CompositeTargetEstimator``: ``_predict_unclipped``, ``predict_pre_clip``, ``predict``, ``predict_quantile``.
 
-Carved out of ``_composite_target_estimator.py`` to keep the parent below the 1k-line monolith threshold. Functions here become bound methods on ``CompositeTargetEstimator`` at the parent's bottom via direct class-attribute assignment.
+Functions here become bound methods on ``CompositeTargetEstimator`` at the parent's bottom via direct class-attribute assignment.
 
 The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallback, and the runtime-stats / callback recording are factored into module-level helpers (``_compute_base_domain_ok`` / ``_apply_t_clip`` / ``_inverse_with_fallback`` / ``_record_runtime_stats``) so the point-predict and quantile-predict paths share one implementation and gate NaN / out-of-domain bases identically.
 """
@@ -227,8 +227,8 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     # (no base) we delegate to the transform's own domain_check on
     # ``y=None, base=None`` which the registry adapter handles by
     # returning all-True for the t_hat row count below.
-    # Base-side domain mask. T15: the params-free ``domain_check`` cannot see
-    # learned params, so ``_compute_base_domain_ok`` refines it with the
+    # Base-side domain mask. The params-free ``domain_check`` cannot see learned
+    # params, so ``_compute_base_domain_ok`` refines it with the
     # fitted-params-aware hook where present (centered_ratio's eps-floored
     # denominator) and is bit-identical for the 30+ params-free transforms.
     if transform.requires_base:
@@ -427,8 +427,8 @@ def predict_quantile(
     else:
         base_arr = None
 
-    # E6/DX3: grouped-transform parity with predict(). The grouped inverse needs
-    # per-row group labels, and the inner must NOT see the (string) group_column.
+    # Grouped-transform parity with predict(). The grouped inverse needs per-row
+    # group labels, and the inner must NOT see the (string) group_column.
     inverse_kwargs: dict[str, Any] = {}
     X_for_inner = X
     if transform.requires_groups:

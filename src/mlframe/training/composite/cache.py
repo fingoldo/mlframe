@@ -9,8 +9,8 @@ import logging
 from typing import Any, Dict, List, NewType, Optional, Sequence
 
 # The disk-backed ``DiscoveryCache`` store (which owns the pickle / filelock / tempfile / glob
-# machinery and the ``mlframe.utils.safe_pickle`` imports) was carved into the sibling
-# ``cache_store.py`` (monolith-split, 2026-06-11) and is re-exported at the bottom of this module.
+# machinery and the ``mlframe.utils.safe_pickle`` imports) lives in the sibling
+# ``cache_store.py`` and is re-exported at the bottom of this module.
 
 # Typed alias for discovery-cache config signatures (see ``compute_config_signature_v1`` below).
 # Keeping it a ``NewType`` over ``str`` means callers that build their own legacy string
@@ -21,13 +21,13 @@ ConfigSignatureV1 = NewType("ConfigSignatureV1", str)
 
 logger = logging.getLogger(__name__)
 
-# S25 (audit 2026-06-10): on-disk discovery-cache schema/code-version stamp, folded
-# UNCONDITIONALLY into every ``compute_config_signature_v1`` digest (see that function).
-# Pre-fix, the code-version component was only present when a caller explicitly passed
-# ``library_versions`` (the production path in ``_phase_composite_discovery`` does, but a
-# direct R&D user following the module recipe at the top of this file does NOT) -- so a
-# docstring-following caller built keys with NO mlframe-version component and replayed stale
-# specs across mlframe upgrades that changed MI / Wilcoxon / boosting / transform semantics.
+# On-disk discovery-cache schema/code-version stamp, folded UNCONDITIONALLY into every
+# ``compute_config_signature_v1`` digest (see that function). The code-version component must be
+# present even when a caller does NOT pass ``library_versions`` (the production path in
+# ``_phase_composite_discovery`` does, but a direct R&D user following the module recipe at the
+# top of this file does not) -- otherwise a docstring-following caller builds keys with NO
+# mlframe-version component and replays stale specs across mlframe upgrades that change MI /
+# Wilcoxon / boosting / transform semantics.
 #
 # ``_DISCOVERY_CACHE_SCHEMA_VERSION`` is the on-disk payload/semantics epoch: BUMP IT whenever
 # the cached payload shape changes OR discovery semantics change in a way that must invalidate
@@ -94,24 +94,24 @@ except Exception:  # pragma: no cover
 
 
 def _is_polars_df(x: Any) -> bool:
-    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    """Prefer an explicit isinstance check over duck-typing."""
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
 # Discovery caching layer: key discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so re-runs that only vary inner hyperparameters skip the minutes-long MI-null / Wilcoxon / tiny-rerank phases.
 # Primitives: ``data_signature`` (blake2b over a deterministic sample + dtypes + a reorder-sensitive row fingerprint), ``DiscoveryCache(cache_dir)`` (disk key->pickle store: get/set/invalidate/clear/__contains__), ``make_discovery_cache_key`` (stable hex key), ``compute_config_signature_v1`` (config -> ConfigSignatureV1). The layer does NOT auto-integrate with fit(); callers manage lookup/store at their orchestration level to keep the discovery class free of I/O.
-# Code-version safety (S25): ``compute_config_signature_v1`` UNCONDITIONALLY folds the on-disk schema epoch (``_DISCOVERY_CACHE_SCHEMA_VERSION``) and ``mlframe.__version__`` into every config signature, so cache keys built by a direct caller who passes no ``library_versions`` still invalidate across mlframe upgrades. Pass ``library_versions`` (as the suite does) for the richer sklearn/boosting/polars/numpy/scipy/pandas/python tuple on top.
+# Code-version safety: ``compute_config_signature_v1`` UNCONDITIONALLY folds the on-disk schema epoch (``_DISCOVERY_CACHE_SCHEMA_VERSION``) and ``mlframe.__version__`` into every config signature, so cache keys built by a direct caller who passes no ``library_versions`` still invalidate across mlframe upgrades. Pass ``library_versions`` (as the suite does) for the richer sklearn/boosting/polars/numpy/scipy/pandas/python tuple on top.
 
 
 _DISCOVERY_SIGNATURE_SAMPLE_N: int = 1000
 # Single source of truth for discovery cache seed; both
 # ``data_signature`` and ``make_discovery_cache_key`` reference it so a
 # downstream override touches one constant, not two function defaults.
-# Audit D L-9 (2026-05-18): a caller running multiple parallel discoveries with different RNGs
-# but relying on the default ``random_state`` of ``data_signature`` will see signature collisions
-# (same default seed → same sampled rows → same digest). This is a documented design choice: the
-# default keeps the signature stable across re-runs of the same workflow. Parallel-RNG callers
-# MUST pass an explicit ``random_state`` matching the discovery's RNG seed.
+# A caller running multiple parallel discoveries with different RNGs but relying on the default
+# ``random_state`` of ``data_signature`` will see signature collisions (same default seed → same
+# sampled rows → same digest). This is a deliberate design choice: the default keeps the signature
+# stable across re-runs of the same workflow. Parallel-RNG callers MUST pass an explicit
+# ``random_state`` matching the discovery's RNG seed.
 _DISCOVERY_DEFAULT_SEED: int = 42
 
 
@@ -126,19 +126,17 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
     (``df.sample(frac=0.99)``) that did not touch the head or tail rows produced an identical
     fingerprint, silently replaying stale specs on R&D workflows.
 
-    Post-fix (audit D P1-2, 2026-05-18): polars path uses ``hash_rows()`` which produces a row
-    hash for every row in O(N) (vectorised C++); we slice the first ``_ROW_ORDER_PREFIX_ROWS``
-    and hash those bytes, so an inner reorder that lands inside the prefix bursts the cache.
-    The pandas path hashes the head ``n_edge`` rows' raw bytes (``to_numpy().tobytes()``) instead
-    of the prior ``to_csv`` round-trip (the codebase migrated away from CSV-roundtrip hashing in
-    fingerprint.py for the same reason -- it's the slowest legacy path).
+    The polars path uses ``hash_rows()`` which produces a row hash for every row in O(N)
+    (vectorised C++); we slice the first ``_ROW_ORDER_PREFIX_ROWS`` and hash those bytes, so an
+    inner reorder that lands inside the prefix bursts the cache. The pandas path hashes the head
+    ``n_edge`` rows' raw bytes (``to_numpy().tobytes()``) rather than a ``to_csv`` round-trip
+    (CSV-roundtrip hashing is the slowest path).
 
-    S3 (audit 2026-06-10): the polars branch now hashes a bounded TAIL slice in addition to the
-    prefix, mirroring the pandas head+tail coverage. Pre-fix the polars path was prefix-ONLY, so
-    a reorder that touched only the tail rows (e.g. ``df`` vs ``df`` with the last block shuffled)
-    produced an identical fingerprint -- a real residual blind spot relative to the pandas path.
-    Both slices are bounded (``_ROW_ORDER_PREFIX_ROWS`` head + tail), so the O(N)-scan hazard the
-    P1-2 fix removed does not return.
+    The polars branch also hashes a bounded TAIL slice in addition to the prefix, mirroring the
+    pandas head+tail coverage: a prefix-only fingerprint misses a reorder that touches only the
+    tail rows (e.g. ``df`` vs ``df`` with the last block shuffled), producing an identical
+    fingerprint -- a blind spot relative to the pandas path. Both slices are bounded
+    (``_ROW_ORDER_PREFIX_ROWS`` head + tail) so the O(N)-scan hazard does not return.
 
     KNOWN RESIDUAL BLIND SPOT: this is an edge-sampling fingerprint, NOT a whole-frame hash. A
     reorder confined to the MIDDLE of a frame larger than head+tail rows (and disjoint from the
@@ -170,7 +168,7 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
             # gather optimisation (multi-second + multi-GB per cache lookup).
             head_hashes = df.slice(0, n_take).hash_rows().to_numpy()
             payload = np.ascontiguousarray(head_hashes).tobytes()
-            # Tail slice (S3): only add a distinct tail when the frame is wider than the prefix,
+            # Tail slice: only add a distinct tail when the frame is wider than the prefix,
             # else head already covers every row and a tail slice would re-hash the same rows
             # (the head-only digest stays unchanged for small frames -- bounded duplication).
             if height > n_take:
@@ -216,15 +214,14 @@ def data_signature(
 
     Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + dtypes + a cheap first-and-last row fingerprint, hashed via blake2b to a 16-byte hex fingerprint.
 
-    Row-order sensitivity (commit 4e2f031, 2026-05-16): the signature is now
-    SENSITIVE TO ROW ORDER. ``_row_order_fingerprint`` hashes the head and
-    tail of the frame, so a shuffled frame produces a different signature
-    than the original. The pre-fix docstring stated the signature was
-    "stable under row REORDER" - that was the bug (shuffled frames got
-    cache hits on stale specs). Note that this also means: the signature
-    DOES change when row insertion shifts the sample composition or
-    perturbs head/tail rows, which is the intended behaviour for the R&D
-    workflow where the underlying frame is the same across runs.
+    Row-order sensitivity: the signature is SENSITIVE TO ROW ORDER.
+    ``_row_order_fingerprint`` hashes the head and tail of the frame, so a
+    shuffled frame produces a different signature than the original (a
+    reorder-stable signature would hand shuffled frames cache hits on stale
+    specs). This also means the signature DOES change when row insertion
+    shifts the sample composition or perturbs head/tail rows, which is the
+    intended behaviour for the R&D workflow where the underlying frame is the
+    same across runs.
 
     Parameters
     ----------
@@ -248,14 +245,14 @@ def data_signature(
     sample_n_eff = min(n_rows, int(sample_n))
     sample_idx = np.sort(rng.choice(n_rows, size=sample_n_eff, replace=False))
     h = hashlib.blake2b(digest_size=16)
-    # CACHE-P0-2: row count goes into the hash so appending rows invalidates
-    # the cache even when the deterministic sample happens to coincide.
+    # Row count goes into the hash so appending rows invalidates the cache
+    # even when the deterministic sample happens to coincide.
     h.update(b"nrows=")
     h.update(str(int(n_rows)).encode("utf-8"))
-    # CACHE-row-order: the seeded sample misses row swaps in unsampled positions, and the per-column
-    # min/max/null stats are permutation-invariant. Fold in a cheap fingerprint of the first/last
-    # row content so head/tail swaps burst the cache (re-running with reordered rows must NOT
-    # replay the prior spec).
+    # The seeded sample misses row swaps in unsampled positions, and the per-column min/max/null
+    # stats are permutation-invariant. Fold in a cheap fingerprint of the first/last row content
+    # so head/tail swaps burst the cache (re-running with reordered rows must NOT replay the prior
+    # spec).
     h.update(b"|roworder=")
     h.update(_row_order_fingerprint(df).encode("utf-8"))
     # Hash 1: target column + feature cols (names + order).
@@ -270,12 +267,12 @@ def data_signature(
         Folded into the hash so a single appended row that lands in the unsampled portion still
         changes the signature - which the sampled-values-only hash misses.
 
-        Dtype-aware: pre-fix this routine fell through to ``np.unique(arr.astype(str))`` for
-        anything that did not coerce cleanly to float64, which collapsed integer columns with NaN
-        sentinels onto a stringified-distinct-values summary and dropped the min/max/null
-        distribution information (DISC-CACHE-NULL-DTYPE). Post-fix the integer branch is handled
-        explicitly: when the dtype kind is in {'i','u','b'} we read min/max/uniques without ever
-        trying the float-cast that NaN sentinels would corrupt.
+        Dtype-aware: falling through to ``np.unique(arr.astype(str))`` for anything that does not
+        coerce cleanly to float64 collapses integer columns with NaN sentinels onto a
+        stringified-distinct-values summary and drops the min/max/null distribution information.
+        The integer branch is handled explicitly instead: when the dtype kind is in {'i','u','b'}
+        we read min/max/uniques without ever trying the float-cast that NaN sentinels would
+        corrupt.
         """
         if arr.size == 0:
             return b"empty"
@@ -343,10 +340,10 @@ def data_signature(
             return b"opaque"
 
     # Hash 2: per-column dtype + whole-column stats + per-column sampled values.
-    # CACHE-P0-1/2 (audit D 2026-05-18): the per-column ``to_numpy()`` of the WHOLE column was
-    # the dominant cost of ``data_signature`` on multi-million-row frames -- 200 columns x 10M
-    # rows = 2 full materialisations per signature call (one for stats, one for the sample
-    # gather). Polars can compute min / max / null-count natively in a single lazy ``select``
+    # The per-column ``to_numpy()`` of the WHOLE column is the dominant cost of ``data_signature``
+    # on multi-million-row frames -- 200 columns x 10M rows = 2 full materialisations per signature
+    # call (one for stats, one for the sample gather). Polars can compute min / max / null-count
+    # natively in a single lazy ``select``
     # over all needed columns, and the sample gather is ``col.gather(sample_idx)`` which is
     # O(sample_n) instead of O(N). Result on a 200-col 10M-row frame: ~100x speedup measured
     # in tests/training/_benchmarks/bench_data_signature.py.
@@ -477,13 +474,12 @@ def compute_config_signature_v1(
     return value lets ``make_discovery_cache_key`` accept ``ConfigSignatureV1`` instead of a
     bare ``str``, so a caller cannot accidentally pass any other hex string in its place.
 
-    Always-folded code-version stamp (S25, audit 2026-06-10): regardless of whether
-    ``library_versions`` is passed, the digest UNCONDITIONALLY folds
-    ``_DISCOVERY_CACHE_SCHEMA_VERSION`` and a best-effort ``mlframe.__version__`` under the
-    reserved ``_schema`` key. Pre-fix the version component was opt-in (only present when a
-    caller supplied ``library_versions``), so a direct R&D user following the module recipe at
-    the top of this file built keys with no code-version component and replayed stale specs
-    across mlframe upgrades. ``library_versions`` remains the richer override -- the production
+    Always-folded code-version stamp: regardless of whether ``library_versions`` is passed, the
+    digest UNCONDITIONALLY folds ``_DISCOVERY_CACHE_SCHEMA_VERSION`` and a best-effort
+    ``mlframe.__version__`` under the reserved ``_schema`` key. An opt-in version component (only
+    present when a caller supplied ``library_versions``) lets a direct R&D user following the
+    module recipe at the top of this file build keys with no code-version component and replay
+    stale specs across mlframe upgrades. ``library_versions`` remains the richer override -- the production
     path (``_phase_composite_discovery._discovery_config_signature``) still supplies the full
     sklearn/boosting/polars/numpy/scipy/pandas/python tuple; the ``_schema`` fold is additive,
     so it does NOT replace that richer map, it just guarantees a floor of version sensitivity
@@ -502,7 +498,7 @@ def compute_config_signature_v1(
     coverage smoke that flags missing fields.
     """
     payload: dict[str, Any] = {}
-    # Unconditional code-version / schema epoch stamp (S25). Best-effort mlframe version: if the
+    # Unconditional code-version / schema epoch stamp. Best-effort mlframe version: if the
     # import fails (partial install / circular import during teardown) we still fold the schema
     # version so the digest is never version-blind. Kept under a reserved ``_schema`` key so it
     # never collides with a config field or the ``versions`` override map below.
@@ -558,8 +554,8 @@ def make_discovery_cache_key(
     return h.hexdigest()
 
 
-# Monolith-split (2026-06-11): the disk-backed ``DiscoveryCache`` store + its byte-total
-# helper live in the sibling ``cache_store.py``. Re-exported here so existing imports
+# The disk-backed ``DiscoveryCache`` store + its byte-total helper live in the sibling
+# ``cache_store.py``. Re-exported here so existing imports
 # (``from mlframe.training.composite.cache import DiscoveryCache``) keep resolving.
 from .cache_store import (  # noqa: E402,F401
     DiscoveryCache,
