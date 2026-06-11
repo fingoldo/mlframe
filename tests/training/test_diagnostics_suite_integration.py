@@ -110,11 +110,11 @@ def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
     assert saved_acc, "no charts accounting recorded in metadata/models"
 
 
-def test_per_model_calibration_chart_subdir_is_created(tmp_path):
+def test_per_model_calibration_chart_is_written_without_missing_dir(tmp_path):
     """Regression: ``plot_file`` reaches ``_compute_split_metrics`` as a filename prefix ending in the model-type name
-    (not a directory). Joining the split name nests each model's charts under ``.../<ModelType>/val_perfplot.png``; that
-    folder must be created before ``show_calibration_plot`` savefigs into it, otherwise the suite dies with
-    FileNotFoundError. Enable the per-class reliability chart so the exact savefig path is exercised."""
+    (not a directory ending in os.sep). The split-chart path is derived from that prefix and its directory must exist
+    before ``show_calibration_plot`` savefigs the reliability diagram, otherwise the suite dies with FileNotFoundError.
+    Enable the per-class reliability chart so the exact savefig path is exercised."""
     skip_if_dependency_missing("hgb")
     df = _make_frame(600, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
@@ -136,9 +136,7 @@ def test_per_model_calibration_chart_subdir_is_created(tmp_path):
     perfplots = [
         p for p in glob.glob(os.path.join(data_dir, "charts", "**", "*perfplot*.png"), recursive=True) if os.path.isfile(p)
     ]
-    assert perfplots, "per-model calibration perfplot.png was not saved (nested chart dir not created)"
-    # The crashing path nested the file one directory below the per-target chart dir; confirm that nesting exists.
-    assert any(os.path.basename(os.path.dirname(p)) for p in perfplots)
+    assert perfplots, "per-model calibration perfplot.png was not saved (chart dir not created before savefig)"
 
 
 def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):

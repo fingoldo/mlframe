@@ -462,11 +462,15 @@ def _compute_split_metrics(
     df_prepared = _prepare_df_for_model(df, model_type_name) if df is not None else None
 
     effective_show_fi = show_fi and not has_other_splits
-    # plot_file is a filename PREFIX ending in the model-type name (built by _setup_model_info_and_paths), not a
-    # directory; joining the split name nests each model's charts under its own folder, which must exist before savefig.
+    # plot_file ending in os.sep is a chart directory -> join keeps a clean `<dir>/val_perfplot.png`; otherwise it is a
+    # filename prefix ending in the model-type name -> underscore-join keeps the per-model file flat
+    # (`<prefix>_val_perfplot.png`), the layout chart-artifact consumers expect (each model/ensemble-method prefix is unique).
     if plot_file:
-        ensure_dir_exists(plot_file + os.sep)
-        split_plot_file = os.path.join(plot_file, split_name)
+        if plot_file.endswith(os.sep):
+            split_plot_file = os.path.join(plot_file, split_name)
+        else:
+            split_plot_file = f"{plot_file}_{split_name}"
+        ensure_dir_exists(os.path.dirname(split_plot_file) + os.sep)
     else:
         split_plot_file = ""
 
