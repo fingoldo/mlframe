@@ -290,6 +290,13 @@ def _prebin_feature_columns(
     points; non-finite rows get sentinel -1 and are skipped by the
     downstream ``_mi_to_target_prebinned``.
     """
+    # bench-attempt-deferred (P15): int16 bin codes (vs int64) would halve the
+    # (n_rows, n_cols) prebin buffer + improve gather/bincount cache locality,
+    # but the codes feed ``_mi_from_binned_pair``'s ``combo = x_idx*nbins + y_idx``
+    # which overflows int16 once ``nbins >= ~182`` and the change must be applied
+    # COHERENTLY across this site, ``_auto_base.py`` (403-422), and the combo
+    # widening -- a cross-file dtype contract. Kept int64 (always safe); the win
+    # is measurement-gated and not benchable on this contended host. See audit P15.
     n_rows, n_cols = feature_matrix.shape
     if n_rows < 5 * nbins:
         return np.full((n_rows, n_cols), -1, dtype=np.int64)
@@ -454,6 +461,83 @@ def _mi_per_feature_y_fixed(
     return out
 
 
+def _mi_per_feature_y_fixed_per_col(
+    feature_matrix: np.ndarray,
+    y: np.ndarray,
+    *,
+    nbins: int,
+    min_finite: int = 50,
+) -> np.ndarray:
+    """Per-feature MI(y, x_j) with PER-PAIR (per-column) NaN masking.
+
+    NaN-aware sibling of ``_mi_per_feature_y_fixed``. Where that function
+    assumes the caller already cross-column finite-masked the matrix (so
+    every column shares ONE row subset), this one masks each column on its
+    OWN ``isfinite(col) & isfinite(y)`` rows -- mirroring ``_mi_pair_bin``'s
+    internal mask and the ``_mi_per_feature_prebinned`` ``-1``-sentinel
+    contract.
+
+    Motivation (audit D12, sibling of D11): ``_auto_base`` previously ranked
+    candidates by MI computed on the GLOBAL all-column finite intersection
+    (``np.all(isfinite(x_matrix), axis=1)``). For mid-range-NaN columns that
+    intersection is a non-random (MNAR) subset of rows -- the MI ranking is
+    estimated on exactly the rows where every feature happens to be observed,
+    biasing which base wins. Per-pair masking estimates each column's MI on
+    its own observed rows, removing the selection bias and matching the
+    per-pair contract already used by ``_mi_to_target``.
+
+    Bit-identity: on an all-finite ``feature_matrix`` (and finite ``y``)
+    every per-pair mask is the full row set, the hoisted y-binning is reused
+    for every column, and the result is bit-identical to
+    ``_mi_per_feature_y_fixed``. A column with too few jointly-finite rows
+    (``< min_finite``) returns 0.0 for that column only (never NaN, never
+    pulling rows out from under its neighbours).
+    """
+    n_rows, n_cols = feature_matrix.shape
+    out = np.zeros(n_cols, dtype=np.float64)
+    if n_cols == 0:
+        return out
+    y_finite = np.isfinite(y)
+    n_y = int(y_finite.sum())
+    if n_y < max(min_finite, 5 * nbins):
+        return out
+    qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+    # When y is fully finite (the common case) bin it ONCE and reuse the
+    # codes for the no-NaN columns; only re-bin y on the surviving rows for
+    # the columns that actually carry NaN. This keeps the all-finite path
+    # bit-identical to (and as fast as) ``_mi_per_feature_y_fixed``.
+    y_all_finite = n_y == y_finite.shape[0]
+    if y_all_finite:
+        y_edges_full = np.quantile(y, qs)
+        y_idx_full = np.searchsorted(y_edges_full, y, side="right").astype(np.int64)
+        np.clip(y_idx_full, 0, nbins - 1, out=y_idx_full)
+    for j in range(n_cols):
+        col = feature_matrix[:, j]
+        col_finite = np.isfinite(col)
+        if y_all_finite and col_finite.all():
+            # No extra NaN in this column -> shared full-row path (the
+            # ``_mi_per_feature_y_fixed`` branch, bit-identical).
+            x_edges = np.quantile(col, qs)
+            x_idx = np.searchsorted(x_edges, col, side="right").astype(np.int64)
+            np.clip(x_idx, 0, nbins - 1, out=x_idx)
+            out[j] = _mi_from_binned_pair(x_idx, y_idx_full, nbins=nbins)
+            continue
+        pair = col_finite & y_finite
+        if int(pair.sum()) < max(min_finite, 5 * nbins):
+            out[j] = 0.0
+            continue
+        col_p = col[pair]
+        y_p = y[pair]
+        x_edges = np.quantile(col_p, qs)
+        x_idx = np.searchsorted(x_edges, col_p, side="right").astype(np.int64)
+        np.clip(x_idx, 0, nbins - 1, out=x_idx)
+        y_edges = np.quantile(y_p, qs)
+        y_idx = np.searchsorted(y_edges, y_p, side="right").astype(np.int64)
+        np.clip(y_idx, 0, nbins - 1, out=y_idx)
+        out[j] = _mi_from_binned_pair(x_idx, y_idx, nbins=nbins)
+    return out
+
+
 def _mi_to_target(
     feature_matrix: np.ndarray,
     target: np.ndarray,
@@ -487,24 +571,45 @@ def _mi_to_target(
       Mean is the simplest fix that removes the dimension confound.
     - ``"sum"``: legacy behaviour. Set explicitly for backward-
       compatibility on existing benchmarks.
+
+    Per-pair finite masking (NOT a global all-column AND-mask): each
+    column's MI is computed on the rows where THAT column AND the target
+    are both finite. A single mostly-NaN column therefore only degrades
+    its own MI to 0.0 rather than dropping the rows out from under every
+    other column -- the old ``np.all(isfinite(feature_matrix), axis=1)``
+    intersection let one 99%-NaN column zero the entire sweep (one bad
+    column could leave <50 jointly-observed rows for a 25-column matrix
+    of otherwise-dense features). This mirrors the prebinned path's
+    per-column ``-1`` sentinel handling in ``_mi_per_feature_prebinned``
+    and ``_mi_pair_bin``'s own internal per-pair mask.
     """
-    finite = np.isfinite(target) & np.all(np.isfinite(feature_matrix), axis=1)
-    if finite.sum() < 50:
+    if feature_matrix.ndim != 2 or feature_matrix.shape[1] == 0:
         return 0.0
-    target_f = target[finite]
-    fm_f = feature_matrix[finite]
-    if fm_f.shape[1] == 0:
+    target_finite = np.isfinite(target)
+    if int(target_finite.sum()) < 50:
         return 0.0
+    n_cols = feature_matrix.shape[1]
+    per_feat = np.zeros(n_cols, dtype=np.float64)
     if estimator == "bin":
-        per_feat = np.array([
-            _mi_pair_bin(fm_f[:, j], target_f, nbins=nbins)
-            for j in range(fm_f.shape[1])
-        ])
+        # ``_mi_pair_bin`` masks ``isfinite(x) & isfinite(y)`` itself, so
+        # pass full columns + full target; its own gate returns 0.0 for
+        # columns with too few jointly-finite rows.
+        for j in range(n_cols):
+            per_feat[j] = _mi_pair_bin(feature_matrix[:, j], target, nbins=nbins)
     else:
         from sklearn.feature_selection import mutual_info_regression
-        per_feat = mutual_info_regression(
-            fm_f, target_f, n_neighbors=n_neighbors, random_state=random_state,
-        )
+        # sklearn's Kraskov estimator cannot ingest NaN, so mask per pair
+        # here and run the single-column estimator on the surviving rows.
+        for j in range(n_cols):
+            col = feature_matrix[:, j]
+            pair_finite = target_finite & np.isfinite(col)
+            if int(pair_finite.sum()) < 50:
+                per_feat[j] = 0.0
+                continue
+            per_feat[j] = float(mutual_info_regression(
+                col[pair_finite].reshape(-1, 1), target[pair_finite],
+                n_neighbors=n_neighbors, random_state=random_state,
+            )[0])
     if aggregation == "sum":
         return float(np.sum(per_feat))
     # Default: mean (statistician #1).

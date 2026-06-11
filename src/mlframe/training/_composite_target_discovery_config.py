@@ -183,6 +183,16 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Forwarded to ``fit_stacked_on_residual(residual_aggregation=...)``.
     stacked_residual_aggregation: str = "mean"
 
+    # A18 2026-06-11: cap on how many top-ranked pass-1 specs (best tiny
+    # CV-RMSE first) contribute their OOF predictions to the residual-target
+    # aggregate in ``fit_stacked_on_residual``. Previously that path aggregated
+    # EVERY pass-1 spec (a no-op ``ranked[:max(1,len(ranked))]`` slice), so weak
+    # tail specs polluted the ``mean`` aggregate and the leftover residual.
+    # Default 3 matches the feature-stack sibling (``stacked_max_pass1_specs``);
+    # ``<=0`` restores the historical aggregate-all behaviour. Immaterial when
+    # ``stacked_residual_aggregation="first"`` (single best spec only).
+    stacked_residual_max_pass1_specs_to_aggregate: int = 3
+
     # Parallel evaluation of (base, transform) candidates in
     # CompositeTargetDiscovery.fit via joblib(threading). 0 = auto
     # (min(len(work_items), cpu_count)); 1 = serial; >1 = explicit.
@@ -328,13 +338,22 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # ``"sum"`` for reproducibility.
     mi_aggregation: str = "mean"
 
-    # MI sampling strategy. "random" is the cheap default; switch to
-    # "stratified_quantile" on heavy-tail targets (financial returns,
-    # fraud scores, queue lengths) where random sampling can miss the
-    # tail rows that carry most of the signal. Stratified sampling
-    # bins y into ``mi_n_strata`` quantile bins and samples equally
-    # from each, guaranteeing per-bin coverage.
-    mi_sample_strategy: str = "random"
+    # MI sampling strategy. "stratified_quantile" (default) bins y into
+    # ``mi_n_strata`` quantile bins and samples equally from each, guaranteeing
+    # per-bin coverage so the rare-tail rows that carry most of the signal on
+    # heavy-tail targets (financial returns, fraud scores, queue lengths) are
+    # never dropped by an unlucky uniform draw. "random" is the cheaper legacy
+    # uniform sample -- set it explicitly only when you have verified the target
+    # is light-tailed and the per-stratum draw buys nothing.
+    #
+    # Default flipped "random" -> "stratified_quantile": under "random" the
+    # heavy-tail ``mi_n_strata`` auto-boost in discovery (skew>2/kurt>5 ->
+    # mi_n_strata_heavy_tail) was a dead no-op because the uniform draw never
+    # consulted the strata. Stratified sampling is what makes that boost (and
+    # the mi_n_strata knob at all) actually steer which rows the MI screen sees;
+    # the per-stratum quotas raise tail coverage materially on skewed y without
+    # changing the screen on already-uniform y.
+    mi_sample_strategy: str = "stratified_quantile"
     mi_n_strata: int = 10
 
     # Phase B: tiny-model rerank. After MI screening narrows to top-K,
@@ -715,6 +734,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # all surviving into Phase B and inflating ensemble correlation.
     # Set to 1.0 to disable.
     auto_base_dedup_corr_threshold: float = 0.95
+
+    # Audit D12 (sibling of D11): rank auto-base candidates by MI computed
+    # with PER-PAIR (per-column) NaN masking instead of the global
+    # all-column finite intersection. For mid-range-NaN columns the global
+    # intersection keeps only the rows where EVERY feature is observed -- a
+    # non-random (MNAR) subset -- so MI(y, x_j) on it is biased by the
+    # joint-observability pattern and silently shifts which base wins.
+    # Per-pair masking estimates each column's MI on its own observed rows
+    # (matching ``_mi_to_target`` and the prebinned ``-1``-sentinel path)
+    # and is bit-identical when the screening sample has no NaN. Default ON
+    # per the "enable corrective mechanisms by default" convention; set to
+    # False only to reproduce the pre-fix global-mask ranking.
+    auto_base_mi_per_pair_mask: bool = True
+    # Fraction of the per-pair-available row mass below which the global
+    # intersection is judged to be MNAR-shrinking the ranking sample; used
+    # purely to LOG that the per-pair ranking diverged from what the global
+    # mask would have produced (auditability). Does not change behaviour
+    # when ``auto_base_mi_per_pair_mask`` is True (per-pair is always used).
+    auto_base_mnar_per_pair_threshold: float = 0.5
 
     # R10b improvement #2: permutation-MI null distribution test in
     # ``_auto_base``. For each candidate feature compute MI(y, x) AND

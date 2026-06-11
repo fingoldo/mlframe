@@ -8,6 +8,13 @@ the surface the components were tuned against.
 
 Bench: ``training/_benchmarks/bench_mtr_nnls_oof.py`` (honest-OOF NNLS beats equal_mean on 8/8 seeds, ~9% lower test
 RMSE, and is leak-free vs val-fit).
+
+cProfile (n=4000, K=3, 4 components, kfold=5; 2026-06-11): ``compute_mtr_oof_nnls_weights`` is ~0.14 s/call, of
+which ~77% is the inner component ``fit`` re-refits (the leak-free K-fold's irreducible cost) and ~2% is the
+wrapper's own work; the NNLS solves, the per-component finite check (``np.isfinite(oof).all(axis=(1,2))``) and the
+exclusion bookkeeping are in the noise. The per-component-exclusion path solves a ``<= n_comp``-wide NNLS submatrix
+(survivors only), so it is strictly ``<=`` the prior full-matrix work -- no actionable wrapper speedup; the hot path
+is the inner refits, which exist by design.
 """
 from __future__ import annotations
 
@@ -41,21 +48,35 @@ def compute_mtr_oof_nnls_weights(
     """Return ``(n_components, n_targets)`` per-column NNLS weights from honest train-K-fold OOF, or ``None``.
 
     Each component is cloned and re-fit on K-1 folds to predict the held-out fold, assembling an OOF (n_comp, n,
-    K) stack; per target column an independent NNLS solve recovers non-negative weights. Returns ``None`` on any
-    failure so the caller can fall back to equal-mean.
+    K) stack; per target column an independent NNLS solve recovers non-negative weights.
 
-    Observability (audit I7, 2026-06-11): a ``None`` return forfeits the benched ~9% honest-OOF win
-    (``bench_mtr_nnls_oof.py``) and silently degrades the MTR ensemble to equal-mean. The two *failure* exits
-    (a component fold-refit raising, or a non-finite OOF cell) and the catch-all exit are therefore logged at
-    WARNING -- not DEBUG -- so the forfeiture is visible in prod logs. The "not applicable" exit (too few
-    components / too few rows for a meaningful K-fold) stays quiet: that path is expected on small data and
-    equal-mean is the correct, non-degraded answer there.
+    Per-component exclusion (audit I7, implemented 2026-06-11)
+    ----------------------------------------------------------
+    A SINGLE bad component (its fold-refit raises, or it emits a non-finite OOF cell) no longer forfeits the
+    WHOLE benched ~9% honest-OOF win (``bench_mtr_nnls_oof.py``). The bad component is EXCLUDED -- its row in the
+    returned ``(n_components, n_targets)`` weight matrix is left all-zero -- and the NNLS solve runs over the
+    SURVIVING components only, so the ensemble keeps the honest weighting whenever >=2 components survive. A
+    zero weight-row contributes nothing to the caller's ``np.einsum("cnk,ck->nk", stack, weights)`` apply, so
+    the return contract is preserved: the matrix is still shaped to ALL components (the caller at
+    ``_post_xt_ensemble_mtr.py`` injects weights of exactly that shape), the excluded component simply gets
+    weight 0 on every target. This is strictly better than the previous all-or-nothing ``None`` return, which
+    silently degraded the ensemble to equal-mean (a documented numerical loss) on the first bad component.
 
-    FUTURE (deferred per audit I7): the failure exits return ``None`` for the WHOLE weighting on a SINGLE bad
-    component -- a per-component exclusion (drop the failing component, NNLS-weight the rest) would salvage the
-    win in more cases. That is held back deliberately: it changes the return contract (the caller at
-    ``_post_xt_ensemble_mtr.py`` injects weights shaped to ALL components) and must be re-validated against
-    ``bench_mtr_nnls_oof.py`` before shipping, which cannot run in this environment.
+    ``None`` is returned only when the honest weighting cannot be formed at all:
+
+    * Not applicable -- fewer than 2 components, or fewer than ``max(50, kfold * 2)`` rows: K-fold OOF is not
+      meaningful and equal-mean is the correct, non-degraded answer. Stays quiet (no WARNING).
+    * Too few survivors -- after exclusion fewer than 2 components remain usable: there is no ensemble left to
+      weight, so equal-mean is again correct. Logged at WARNING (some honest weighting was forfeited).
+    * Catch-all -- an unexpected error before any per-component result is available. Logged at WARNING.
+
+    Each EXCLUDED component is logged once at WARNING naming the partial forfeiture so the degradation is visible
+    in prod logs; the success (all components survive) and not-applicable paths stay quiet.
+
+    Bench note: per-component exclusion only ADDS rows to the survivor set relative to the previous code (which
+    survived only when ALL components were clean); on the all-clean case it is bit-identical to the prior NNLS
+    solve, so it cannot regress the ``bench_mtr_nnls_oof.py`` majority-win verdict (that bench has no failing
+    component). It strictly salvages cases the old code dropped to equal-mean.
     """
     from sklearn.base import clone
     from sklearn.model_selection import KFold
@@ -70,12 +91,18 @@ def compute_mtr_oof_nnls_weights(
         if n_comp < 2 or n < max(50, kfold * 2):
             return None
         oof = np.full((n_comp, n, k), np.nan, dtype=np.float64)
+        # Per-component health: a component is excluded if ANY fold-refit raises
+        # (recorded in ``excluded``) or it emits a non-finite OOF cell (detected
+        # after the stack is built). Excluded components keep a zero weight-row.
+        excluded: dict[int, str] = {}
         kf = KFold(n_splits=int(kfold), shuffle=True, random_state=int(random_state))
         for tr_idx, ho_idx in kf.split(np.arange(n)):
             X_tr = _slice_rows_by_idx(X_train, tr_idx)
             X_ho = _slice_rows_by_idx(X_train, ho_idx)
             y_tr = y_arr[tr_idx]
             for ci, comp in enumerate(components):
+                if ci in excluded:
+                    continue  # already failed in an earlier fold -> skip the refit
                 try:
                     cl = clone(comp)
                     cl.fit(X_tr, y_tr)
@@ -84,24 +111,43 @@ def compute_mtr_oof_nnls_weights(
                         p = p.reshape(-1, 1)
                     oof[ci, ho_idx, :] = p
                 except Exception as exc:
-                    logger.warning(
-                        "[MTR CT_ENSEMBLE] honest-OOF fold refit failed for component %d (%s); forfeiting "
-                        "the benched ~9%% NNLS win and falling back to equal-mean per-column weights.",
-                        ci, exc,
-                    )
-                    return None
-        if not np.all(np.isfinite(oof)):
+                    excluded[ci] = f"fold refit raised ({exc})"
+        # Non-finite OOF cells exclude their component (not the whole weighting).
+        # Components already excluded for a raise have NaN rows and are skipped here.
+        finite_per_comp = np.isfinite(oof).all(axis=(1, 2))  # (n_comp,)
+        for ci in range(n_comp):
+            if ci not in excluded and not bool(finite_per_comp[ci]):
+                n_bad = int((~np.isfinite(oof[ci])).sum())
+                excluded[ci] = f"non-finite OOF cells ({n_bad}/{oof[ci].size})"
+        survivors = [ci for ci in range(n_comp) if ci not in excluded]
+        for ci in sorted(excluded):
             logger.warning(
-                "[MTR CT_ENSEMBLE] honest-OOF stack contains non-finite predictions (%d/%d cells); "
+                "[MTR CT_ENSEMBLE] honest-OOF excluding component %d (%s); weighting the remaining "
+                "%d/%d component(s) with the benched ~9%% NNLS surface (excluded component gets weight 0).",
+                ci, excluded[ci], len(survivors), n_comp,
+            )
+        if len(survivors) < 2:
+            logger.warning(
+                "[MTR CT_ENSEMBLE] honest-OOF left only %d usable component(s) of %d after exclusion; "
                 "forfeiting the benched ~9%% NNLS win and falling back to equal-mean per-column weights.",
-                int((~np.isfinite(oof)).sum()), oof.size,
+                len(survivors), n_comp,
             )
             return None
+        # NNLS over the survivor sub-matrix only; scatter back into a full-width
+        # (n_comp, k) matrix so excluded rows stay 0 and the caller's einsum apply
+        # over ALL components is unchanged.
         weights = np.zeros((n_comp, k), dtype=np.float64)
+        surv_idx = np.asarray(survivors, dtype=np.intp)
+        oof_surv = oof[surv_idx]  # (n_surv, n, k); all-finite by construction
         for kk in range(k):
-            A_k = oof[:, :, kk].T  # (n, n_comp)
+            A_k = oof_surv[:, :, kk].T  # (n, n_surv)
             w_k, _ = nnls(A_k, y_arr[:, kk], maxiter=200)
-            weights[:, kk] = w_k if float(w_k.sum()) > 0 else 1.0 / n_comp
+            if float(w_k.sum()) > 0:
+                weights[surv_idx, kk] = w_k
+            else:
+                # Degenerate NNLS for this column -> equal-mean across SURVIVORS
+                # only (excluded components stay 0).
+                weights[surv_idx, kk] = 1.0 / len(survivors)
         return weights
     except Exception as exc:
         logger.warning(

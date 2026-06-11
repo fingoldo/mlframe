@@ -256,12 +256,30 @@ def _tiny_cv_rmse_raw_y(
         _g = np.asarray(groups)
         if _g.shape[0] == len(y_train):
             groups_clean = _g[finite_mask] if finite_mask is not None else _g
-            if int(np.unique(groups_clean).size) < cv_folds:
+            _n_groups = int(np.unique(groups_clean).size)
+            if _n_groups < cv_folds:
+                # A10: silent GroupKFold->KFold downgrade -> WARN (see y-scale twin).
+                logger.warning(
+                    "_tiny_cv_rmse_raw_y: groups supplied but only %d distinct "
+                    "group(s) survive the finite mask (< cv_folds=%d); falling "
+                    "back to %s split. Group separation is NOT enforced for the "
+                    "raw-y baseline -- reduce cv_folds or supply more groups.",
+                    _n_groups, cv_folds,
+                    "TimeSeriesSplit" if (cv_splitter is None and time_aware)
+                    else "shuffled KFold",
+                )
                 groups_clean = None
     if cv_splitter is not None:
         kf = cv_splitter
         _precomputed_splits = None
     elif groups_clean is not None:
+        if time_aware:
+            # A11: groups win over time_aware; temporal order dropped. WARN once.
+            logger.warning(
+                "_tiny_cv_rmse_raw_y: both groups and time_aware requested; "
+                "GroupKFold takes precedence and temporal order is NOT preserved. "
+                "Pass a grouped forward-chaining cv_splitter to honour both.",
+            )
         kf = GroupKFold(n_splits=cv_folds)
         _precomputed_splits = list(kf.split(x_clean, groups=groups_clean))
     elif time_aware:
@@ -413,6 +431,17 @@ def _tiny_cv_rmse_y_scale_multiseed(
     the array of per-seed mean RMSEs so callers can run a paired
     Wilcoxon test against a reference (raw-y baseline) array.
 
+    A13: the returned per-seed array is FIXED-LENGTH (one slot per
+    seed, in ``base_random_state + s_idx*7919`` seed order) with NaN at
+    positions where that seed's CV degenerated. The composite and raw-y
+    sweeps run the SAME seed schedule, so a failed seed leaves a NaN in
+    the SAME slot on both sides -- the consumer pairs by seed index and
+    diffs only jointly-finite positions. The pre-A13 contract compacted
+    out failed seeds, so composite-seed-1-failed vs raw-seed-2-failed
+    silently mis-paired (comp[1]=seed2 against raw[1]=seed1) in the
+    paired Wilcoxon gate. The median is still taken over finite seeds
+    only, so the returned point estimate is bit-identical to pre-A13.
+
     ``n_seed_repeats=1`` is the legacy single-seed path -- exact
     same numerical result as calling the underlying function once.
     """
@@ -431,10 +460,9 @@ def _tiny_cv_rmse_y_scale_multiseed(
         result = _tiny_cv_rmse_y_scale(*args, **kwargs)
         if return_per_seed:
             mean = result[0] if isinstance(result, tuple) else result
-            per_seed_arr = np.array(
-                [mean] if math.isfinite(mean) else [],
-                dtype=np.float64,
-            )
+            # Fixed length 1: NaN when the single seed degenerated, so the
+            # consumer always sees one slot per scheduled seed (A13).
+            per_seed_arr = np.array([mean], dtype=np.float64)
             if isinstance(result, tuple):
                 return result + (per_seed_arr,)
             return result, per_seed_arr
@@ -442,18 +470,22 @@ def _tiny_cv_rmse_y_scale_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
+    # A13: one slot per scheduled seed; NaN where that seed failed.
+    per_seed_full = np.full(_effective_repeats, float("nan"), dtype=np.float64)
     for s_idx in range(_effective_repeats):
         kwargs["random_state"] = base_random_state + s_idx * 7919
         result = _tiny_cv_rmse_y_scale(*args, **kwargs)
         if return_pb and isinstance(result, tuple):
             mean_rmse, per_bin = result
             if math.isfinite(mean_rmse):
+                per_seed_full[s_idx] = mean_rmse
                 seed_results.append(mean_rmse)
                 seed_per_bins.append(per_bin)
         else:
             if math.isfinite(result):
+                per_seed_full[s_idx] = result
                 seed_results.append(result)
-    seed_arr = np.array(seed_results, dtype=np.float64)
+    seed_arr = per_seed_full
     if not seed_results:
         if return_pb:
             res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
@@ -483,7 +515,8 @@ def _tiny_cv_rmse_raw_y_multiseed(
     **kwargs,
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_raw_y`. See
-    :func:`_tiny_cv_rmse_y_scale_multiseed` for the rationale."""
+    :func:`_tiny_cv_rmse_y_scale_multiseed` for the rationale (including
+    the A13 fixed-length NaN-padded per-seed contract)."""
     # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
     # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
     _seed_invariant = bool(kwargs.get("time_aware", False)) or (
@@ -495,10 +528,8 @@ def _tiny_cv_rmse_raw_y_multiseed(
         result = _tiny_cv_rmse_raw_y(*args, **kwargs)
         if return_per_seed:
             mean = result[0] if isinstance(result, tuple) else result
-            per_seed_arr = np.array(
-                [mean] if math.isfinite(mean) else [],
-                dtype=np.float64,
-            )
+            # Fixed length 1: NaN when the single seed degenerated (A13).
+            per_seed_arr = np.array([mean], dtype=np.float64)
             if isinstance(result, tuple):
                 return result + (per_seed_arr,)
             return result, per_seed_arr
@@ -506,18 +537,22 @@ def _tiny_cv_rmse_raw_y_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
+    # A13: one slot per scheduled seed; NaN where that seed failed.
+    per_seed_full = np.full(_effective_repeats, float("nan"), dtype=np.float64)
     for s_idx in range(_effective_repeats):
         kwargs["random_state"] = base_random_state + s_idx * 7919
         result = _tiny_cv_rmse_raw_y(*args, **kwargs)
         if return_pb and isinstance(result, tuple):
             mean_rmse, per_bin = result
             if math.isfinite(mean_rmse):
+                per_seed_full[s_idx] = mean_rmse
                 seed_results.append(mean_rmse)
                 seed_per_bins.append(per_bin)
         else:
             if math.isfinite(result):
+                per_seed_full[s_idx] = result
                 seed_results.append(result)
-    seed_arr = np.array(seed_results, dtype=np.float64)
+    seed_arr = per_seed_full
     if not seed_results:
         if return_pb:
             res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
@@ -594,6 +629,7 @@ def _tiny_cv_rmse_y_scale(
     time_aware: bool = False,
     early_stop_threshold: float = float("inf"),
     groups: np.ndarray | None = None,
+    cv_splitter: Any = None,
     cv_selector_mode: str = "mean",
     cv_selector_alpha: float = 1.0,
     cv_selector_confidence: float = 0.9,
@@ -636,9 +672,14 @@ def _tiny_cv_rmse_y_scale(
             valid = valid & _valid_fitted
     if valid.sum() < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-    y_clean = y_train[valid].astype(np.float64)
-    base_clean = base_train[valid].astype(np.float64)
-    x_clean = x_train_matrix[valid]
+    # P9: skip the full-matrix fancy-index copy of the wide feature matrix when
+    # every row is valid (mirror the raw-y no-copy gate at the top of
+    # _tiny_cv_rmse_raw_y). Downstream reads x_clean[train_fold]/x_clean[val_fold]
+    # (which fancy-index a copy regardless), so passing the view is bit-identical.
+    _all_valid = bool(valid.all())
+    y_clean = y_train.astype(np.float64) if _all_valid else y_train[valid].astype(np.float64)
+    base_clean = base_train.astype(np.float64) if _all_valid else base_train[valid].astype(np.float64)
+    x_clean = x_train_matrix if _all_valid else x_train_matrix[valid]
     t_clean = transform.forward(y_clean, base_clean, fitted_params)
     if not np.all(np.isfinite(t_clean)):
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
@@ -648,9 +689,48 @@ def _tiny_cv_rmse_y_scale(
         _g_arr = np.asarray(groups)
         if _g_arr.shape[0] == len(y_train):
             groups_clean = _g_arr[valid]
-            if int(np.unique(groups_clean).size) < cv_folds:
+            _n_groups = int(np.unique(groups_clean).size)
+            if _n_groups < cv_folds:
+                # A10: groups requested but too few distinct groups survive the
+                # domain mask -> silent downgrade to KFold (different fold
+                # population, no group separation). WARN so the operator sees
+                # why the group split did not apply.
+                _fallback_desc = (
+                    "the caller-supplied cv_splitter" if cv_splitter is not None
+                    else ("TimeSeriesSplit" if time_aware else "shuffled KFold")
+                )
+                logger.warning(
+                    "_tiny_cv_rmse_y_scale: groups supplied but only %d distinct "
+                    "group(s) survive the domain mask (< cv_folds=%d); falling "
+                    "back to %s. Group separation is NOT enforced for this "
+                    "spec -- reduce cv_folds or supply more groups to keep the "
+                    "grouped fold contract.",
+                    _n_groups, cv_folds, _fallback_desc,
+                )
                 groups_clean = None  # fall back to KFold if not enough groups
-    if groups_clean is not None:
+    if cv_splitter is not None:
+        # Escape hatch (parity with _tiny_cv_rmse_raw_y): a caller-supplied
+        # splitter wins over the groups/time_aware/KFold auto-pick.
+        kf = cv_splitter
+        splits = (
+            list(kf.split(x_clean, groups=groups_clean))
+            if groups_clean is not None
+            else list(kf.split(x_clean))
+        )
+    elif groups_clean is not None:
+        if time_aware:
+            # A11: both group- and time-awareness were requested but the splitter
+            # can honour only one; GroupKFold wins and the temporal ordering is
+            # dropped (future->past leak risk on autoregressive bases). WARN once
+            # per call so the operator can supply a grouped forward-chaining
+            # cv_splitter if both must hold.
+            logger.warning(
+                "_tiny_cv_rmse_y_scale: both groups and time_aware were "
+                "requested; GroupKFold takes precedence and the temporal order "
+                "is NOT preserved (random group folds may leak future->past on "
+                "autoregressive bases). Pass a grouped forward-chaining "
+                "cv_splitter to honour both.",
+            )
         kf = GroupKFold(n_splits=cv_folds)
         splits = list(kf.split(x_clean, groups=groups_clean))
     elif time_aware:

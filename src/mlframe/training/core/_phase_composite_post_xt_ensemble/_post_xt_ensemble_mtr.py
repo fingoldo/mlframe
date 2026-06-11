@@ -283,6 +283,11 @@ def _build_mtr_per_column_ensemble(
         ensemble_strategy=_strategy_label,
         n_components=len(_components),
         component_names=tuple(_component_names),
+        # I20(b): single-target CT_ENSEMBLE entries carry ``metrics={}``
+        # (see ensemble/__init__.py:869). Mirror it here so consumers that
+        # read ``entry.metrics[split][metric]`` (e.g. _ensemble_chooser
+        # ``_read_metric``) get an empty dict rather than an AttributeError.
+        metrics={},
     )
     models.setdefault(_tt_e, {}).setdefault(_orig_tname, []).append(_ens_entry)
     metadata.setdefault("mtr_ct_ensemble", {}).setdefault(
@@ -292,6 +297,19 @@ def _build_mtr_per_column_ensemble(
         "component_names": list(_component_names),
         "n_targets": _K,
     }
+    # I20(c): stamp the chosen ensemble flavour under
+    # ``metadata["ensembles_chosen"]["cross_target"]`` for parity with the
+    # single-target cross-target ensemble (ensemble/__init__.py:883-885).
+    # This MTR per-column ensemble IS a cross-target ensemble, so it lives
+    # in the ``cross_target`` family bucket. Keyed by ``_orig_tname`` -- the
+    # key the entry currently lives under (the dedicated ``_CT_ENSEMBLE__``
+    # key migration is I20(a), deferred: it needs downstream save/predict
+    # verification). The MTRPerColumnEqualMeanEnsemble model carries its own
+    # per-column weights, so this stamp is a provenance/parity record, not a
+    # predict-path combine-flavour dependency.
+    metadata.setdefault("ensembles_chosen", {}) \
+        .setdefault("cross_target", {}) \
+        .setdefault(str(_tt_e), {})[_orig_tname] = _strategy_label
     logger.info(
         "[MTR CT_ENSEMBLE] target='%s' (K=%d): %s ensemble built "
         "over %d components: %s.",

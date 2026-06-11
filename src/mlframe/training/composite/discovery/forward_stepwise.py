@@ -1,4 +1,6 @@
-"""Forward-stepwise multi-base selection: picks additional bases to extend a linear_residual seed via 3-fold CV-RMSE on joint-OLS predictions. Lazy-imports ``_linear_residual_multi_fit`` from composite.py to break the import cycle (composite.py re-exports this module at the bottom)."""
+"""Forward-stepwise multi-base selection: picks additional bases to extend a linear_residual seed via 3-fold CV-RMSE on joint-OLS predictions. Lazy-imports ``_linear_residual_multi_fit`` from composite.py to break the import cycle (composite.py re-exports this module at the bottom).
+
+Selection uses a paired majority-of-folds gate (``paired_fold_selection``, default ON) on top of the aggregate relative-gain gate: a candidate must beat the current kept-set on a majority of jointly-finite folds, not merely on the aggregate point estimate (positively-correlated repeated-CV folds let one fold drive the aggregate). cProfile (25 bases, n=20k, tottime): irreducible OLS ``lstsq``/``svd`` + RMSE ufunc reductions dominate; per-trial design-matrix construction is no longer a hotspot after the A20 buffer-reuse (kept-prefix stacked once per round, candidate written into a preallocated last column -- byte-identical to the prior per-trial ``np.column_stack``; isolated microbench 5.4x on matrix construction at n=100k, K=2 prefix, 25 candidates)."""
 
 
 from __future__ import annotations
@@ -26,6 +28,14 @@ _MULTI_BASE_DEFAULT_MAX_K: int = 3
 _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN: float = 0.02
 
 
+def _as_f64_1d(arr: Any) -> np.ndarray:
+    """1-D float64 view of ``arr`` without an unconditional copy. Returns the input untouched when it is already a 1-D, C-contiguous float64 ndarray (the candidate-pool common case); otherwise falls back to ``np.asarray(..., float64).reshape(-1)``. Values are bit-identical either way -- only the redundant allocation is elided."""
+    a = np.asarray(arr)
+    if a.dtype == np.float64 and a.ndim == 1 and a.flags["C_CONTIGUOUS"]:
+        return a
+    return np.asarray(a, dtype=np.float64).reshape(-1)
+
+
 def forward_stepwise_multi_base(
     y_train: np.ndarray,
     candidate_bases: dict[str, np.ndarray],
@@ -48,6 +58,9 @@ def forward_stepwise_multi_base(
     cv_selector_confidence: float = 0.9,
     cv_selector_quantile_level: float = 0.9,
     cv_persist_fold_scores: bool = False,
+    # The point-estimate relative-gain gate accepts a base whenever the aggregated CV-RMSE drops by ``min_marginal_rmse_gain``, which a SINGLE lucky fold can drive (repeated-CV folds are positively correlated -- Nadeau-Bengio -- so the aggregate understates variance). ``paired_fold_selection`` adds a paired majority-of-folds gate on the same fold geometry: the chosen candidate must beat the current kept-set on at least ``paired_fold_min_win_frac`` of the jointly-finite folds (a one-sided sign test) BEFORE the relative-gain gate runs. Default ON -- a base that wins the aggregate on one fold but loses the other K-1 is rejected. Pass ``paired_fold_selection=False`` for the legacy point-estimate-only behaviour.
+    paired_fold_selection: bool = True,
+    paired_fold_min_win_frac: float = 0.5,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Greedy forward-stepwise base selection for ``linear_residual_multi``.
 
@@ -67,6 +80,10 @@ def forward_stepwise_multi_base(
         K-fold CV for scoring each candidate base addition. Default 3 (balance between speed and noise).
     random_state
         Seed for KFold splitter.
+    paired_fold_selection
+        When True (default), the best candidate must additionally beat the current kept-set on a MAJORITY of jointly-finite folds (paired sign test on the same fold geometry) before its relative aggregate gain is checked. Guards against a candidate whose aggregate improvement is driven by a single fold (positively-correlated repeated-CV folds inflate the apparent point gain). Set False for legacy point-estimate-only acceptance.
+    paired_fold_min_win_frac
+        Fraction of jointly-finite folds the candidate must strictly beat the baseline on to clear the paired gate. Default 0.5 (strict majority; on K=3 folds a candidate must win >=2). Lower it toward 0.0 to relax, raise toward 1.0 to require unanimity.
 
     Returns
     -------
@@ -85,8 +102,8 @@ def forward_stepwise_multi_base(
     if y.size < 4:
         return list(seed_bases or []), []
     # Materialise the full candidate map ONCE (no removal -- seeds and pool both read from this dict). The "available" set for the next round is simply ``candidates.keys() - kept``.
-    candidates = {name: np.asarray(arr, dtype=np.float64).reshape(-1)
-                  for name, arr in candidate_bases.items()}
+    # ``_as_f64_1d`` no-copies the common case (already float64, C-contiguous, 1-D) instead of always allocating a fresh reshape copy; the resulting values are bit-identical, only the allocation is elided (A20).
+    candidates = {name: _as_f64_1d(arr) for name, arr in candidate_bases.items()}
     # A length mismatch otherwise surfaces much later as an opaque column_stack ValueError; fail at the boundary with the offending column named.
     for _n, _a in candidates.items():
         if _a.size != y.size:
@@ -109,10 +126,15 @@ def forward_stepwise_multi_base(
 
     from ..._cv_aggregation import aggregate_fold_scores
 
-    def _cv_rmse_with_folds(base_names: list[str]) -> tuple[float, list[float]]:
+    def _cv_rmse_with_folds(base_names: list[str], base_matrix: np.ndarray | None = None) -> tuple[float, list[float]]:
         """Return ``(aggregated_score, per_fold_rmses)`` so callers can persist the full table
         when ``cv_persist_fold_scores=True``. ``cv_selector_mode='mean'`` is bit-identical to
-        the original ``float(np.mean(fold_rmses))`` path."""
+        the original ``float(np.mean(fold_rmses))`` path.
+
+        ``base_matrix`` (A20): when the greedy loop has already stacked the ``(n, len(base_names))``
+        design matrix (kept-prefix reused across all candidates in a round), pass it to skip the
+        per-trial ``np.column_stack``. The supplied matrix MUST be the column-stack of
+        ``[candidates[n] for n in base_names]`` in order -- the scoring is byte-identical."""
         _n = int(y.size)
         _groups_eff = None
         if groups is not None:
@@ -165,7 +187,8 @@ def forward_stepwise_multi_base(
             )
             return agg0, fold0
         # All names are guaranteed to be in ``candidates`` by the validation above.
-        base_matrix = np.column_stack([candidates[n] for n in base_names])
+        if base_matrix is None:
+            base_matrix = np.column_stack([candidates[n] for n in base_names])
         fold_rmses: list[float] = []
         for train_idx, val_idx in _iter_splits():
             # Fit OLS y ~ base_matrix on TRAIN.
@@ -191,32 +214,66 @@ def forward_stepwise_multi_base(
         )
         return aggregated, fold_rmses
 
-    def _cv_rmse(base_names: list[str]) -> float:
-        return _cv_rmse_with_folds(base_names)[0]
+    # Step 0: baseline RMSE with current kept bases (or 0-base if seeds empty). Keep the per-fold array so the paired sign test (M13) can compare each candidate against the SAME fold geometry.
+    rmse_current, folds_current = _cv_rmse_with_folds(kept)
 
-    # Step 0: baseline RMSE with current kept bases (or 0-base if seeds empty).
-    rmse_current = _cv_rmse(kept)
+    def _paired_fold_win_frac(cand_folds: list[float], base_folds: list[float]) -> tuple[float, int]:
+        """Fraction of jointly-finite folds on which the candidate STRICTLY beats the baseline (lower RMSE), and the count of jointly-finite folds. Fold arrays are produced over the same split sequence so element ``i`` is the same fold (M13)."""
+        wins = 0
+        usable = 0
+        for _cf, _bf in zip(cand_folds, base_folds):
+            if np.isfinite(_cf) and np.isfinite(_bf):
+                usable += 1
+                if _cf < _bf:
+                    wins += 1
+        if usable == 0:
+            return 0.0, 0
+        return wins / usable, usable
 
     # Greedy forward selection: add the best candidate each round if it clears the gate.
     while len(kept) < max_k:
         available = [n for n in candidates.keys() if n not in kept]
         if not available:
             break
+        # A20: stack the kept-prefix ONCE per round and reuse it across every candidate trial.
+        # The trial design matrix for ``kept + [cand]`` is the kept columns (fixed this round)
+        # plus the candidate column in the last slot. Reusing a preallocated buffer turns the
+        # per-trial ``column_stack`` (O(available * n * len(kept))) into a single last-column
+        # copy per trial. The matrix handed to OLS is byte-identical to the old column_stack.
+        _k = len(kept)
+        _trial_buf = np.empty((int(y.size), _k + 1), dtype=np.float64)
+        for _ci, _kn in enumerate(kept):
+            _trial_buf[:, _ci] = candidates[_kn]
         best_name = None
         best_rmse = float("inf")
+        best_folds: list[float] = []
         per_candidate_folds: dict[str, list[float]] = {}
         for cand_name in available:
             trial = kept + [cand_name]
-            rmse_trial, fold_rmses_trial = _cv_rmse_with_folds(trial)
+            _trial_buf[:, _k] = candidates[cand_name]
+            rmse_trial, fold_rmses_trial = _cv_rmse_with_folds(trial, base_matrix=_trial_buf)
             if cv_persist_fold_scores:
                 per_candidate_folds[cand_name] = list(fold_rmses_trial)
             if np.isfinite(rmse_trial) and rmse_trial < best_rmse:
                 best_rmse = rmse_trial
                 best_name = cand_name
+                best_folds = fold_rmses_trial
         if best_name is None:
             break
         gain = (rmse_current - best_rmse) / max(rmse_current, 1e-12)
         accepted = gain >= float(min_marginal_rmse_gain)
+        # M13: the relative-gain gate above keys on the aggregated point estimate, which one fold
+        # can dominate (positively-correlated repeated-CV folds understate variance). The paired
+        # sign test requires the chosen candidate to beat the kept-set baseline on a majority of
+        # jointly-finite folds before we accept it. A candidate that improves the aggregate purely
+        # via a single fold fails here and the greedy loop stops, exactly as a real out-of-sample
+        # forward-walk would have rejected it.
+        paired_win_frac = float("nan")
+        paired_folds_used = 0
+        if paired_fold_selection and folds_current:
+            paired_win_frac, paired_folds_used = _paired_fold_win_frac(best_folds, folds_current)
+            if paired_folds_used > 0 and paired_win_frac < float(paired_fold_min_win_frac):
+                accepted = False
         step_diag: dict[str, Any] = {
             "step": len(diagnostics) + 1,
             "candidate_added": best_name,
@@ -224,6 +281,8 @@ def forward_stepwise_multi_base(
             "rmse_after": best_rmse,
             "marginal_gain": gain,
             "accepted": bool(accepted),
+            "paired_fold_win_frac": paired_win_frac,
+            "paired_folds_used": paired_folds_used,
         }
         if cv_persist_fold_scores:
             step_diag["fold_rmses_per_candidate"] = per_candidate_folds
@@ -232,4 +291,5 @@ def forward_stepwise_multi_base(
             break
         kept.append(best_name)
         rmse_current = best_rmse
+        folds_current = best_folds
     return kept, diagnostics

@@ -71,6 +71,26 @@ def _tvt_strong(n: int = 1500, seed: int = 0):
     return df
 
 
+def _value_equal(a, b) -> bool:
+    """numpy-aware structural equality for fitted-param values.
+
+    Spec ``fitted_params`` can hold ndarrays (e.g. the ``monotonic_residual``
+    spline's ``knots_b`` / ``knots_y``). A plain ``==`` on tuples/lists/dicts
+    containing such arrays raises ``ValueError: truth value of an array ... is
+    ambiguous``, so any test asserting "specs identical" must descend with an
+    array-aware comparator instead of Python ``==``.
+    """
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
+        return np.array_equal(np.asarray(a), np.asarray(b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        if a.keys() != b.keys():
+            return False
+        return all(_value_equal(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_value_equal(x, y) for x, y in zip(a, b))
+    return bool(a == b)
+
+
 def _no_dominant(n: int = 1500, seed: int = 0):
     """Equal-weight contributors -- no feature should dominate."""
     rng = np.random.default_rng(seed)
@@ -285,7 +305,9 @@ class TestLeakageGuards:
         specs_after = [
             (s.name, s.fitted_params, s.mi_gain) for s in disc2.specs_
         ]
-        assert specs_before == specs_after
+        # numpy-aware comparison: fitted_params may hold ndarrays (spline
+        # knots), where a plain ``==`` raises an array-truthiness ValueError.
+        assert _value_equal(specs_before, specs_after)
 
     def test_iter_transform_uses_train_fitted_params_for_full_frame(self) -> None:
         """``iter_transform`` should apply train-fitted params to ALL

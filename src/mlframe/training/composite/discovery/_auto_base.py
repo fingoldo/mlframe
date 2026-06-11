@@ -27,6 +27,7 @@ from .screening import (
     _mi_from_binned_pair,
     _mi_pair_bin,
     _mi_per_feature_y_fixed,
+    _mi_per_feature_y_fixed_per_col,
     _safe_corr,
     _sample_indices,
 )
@@ -184,13 +185,58 @@ def _auto_base(
         usable_features = [
             f for f, k in zip(usable_features, _keep_cols.tolist()) if k
         ]
+    # D12 fix (sibling of D11): the MI RANKING must be estimated with
+    # PER-PAIR (per-column) finite masking, NOT the global all-column
+    # ``np.all(isfinite(x_matrix), axis=1)`` intersection. For mid-range-NaN
+    # columns the intersection is a non-random (MNAR) subset -- the rows
+    # where EVERY feature happens to be observed -- so MI(y, x_j) estimated
+    # on it is biased by the joint-observability pattern and silently shifts
+    # which base wins. Per-pair masking estimates each column's MI on its
+    # own observed rows (mirroring ``_mi_to_target`` / the prebinned
+    # ``-1``-sentinel path) and is bit-identical when nothing is NaN.
+    #
+    # Capture the pristine (pre-impute) screening matrix for the MI ranking:
+    # the legacy ``< 50``-global-finite fallback below imputes NaNs in
+    # ``x_matrix`` (used by the demoters / dedup, which need a SHARED row
+    # basis for pairwise correlations), but the MI ranking must see the real
+    # NaNs so per-pair masking can drop only the truly-missing rows. The
+    # impute reassigns ``x_matrix`` to a fresh ``np.where`` array, so this
+    # reference keeps pointing at the original NaN-bearing screening sample.
+    x_matrix_for_mi = x_matrix
+    use_per_pair = bool(getattr(self.config, "auto_base_mi_per_pair_mask", True))
     finite = np.isfinite(y_screen) & np.all(np.isfinite(x_matrix), axis=1)
+    # Audit the MNAR severity once: how much of the per-pair-available row
+    # mass the global intersection discards. Below the configured fraction
+    # the global mask would meaningfully under-sample some column, which is
+    # exactly the case D12 flags; log it so the divergence is auditable.
+    _mnar_threshold = float(getattr(
+        self.config, "auto_base_mnar_per_pair_threshold", 0.5,
+    ))
+    _n_global = int(finite.sum())
+    _per_col_finite = np.isfinite(x_matrix) & np.isfinite(y_screen)[:, None]
+    _per_col_counts = _per_col_finite.sum(axis=0)
+    _max_per_col = int(_per_col_counts.max()) if _per_col_counts.size else 0
+    if (
+        use_per_pair
+        and _max_per_col > 0
+        and _n_global < _mnar_threshold * _max_per_col
+    ):
+        logger.info(
+            "[CompositeTargetDiscovery] auto-base: global all-column finite "
+            "mask keeps %d row(s) vs %d per-pair-available (%.0f%%, below "
+            "%.0f%% MNAR threshold); ranking by PER-PAIR MI to avoid "
+            "selection bias.",
+            _n_global, _max_per_col,
+            100.0 * _n_global / _max_per_col, 100.0 * _mnar_threshold,
+        )
     if finite.sum() < 50:
         # Even after the per-column drop, the all-row finite mask can
         # still be too tight when many features have sparse but
         # non-zero NaN density. Impute remaining NaNs with per-column
         # mean and proceed (correlation-quality features survive; truly
-        # bad columns were already dropped above).
+        # bad columns were already dropped above). NOTE: this only feeds
+        # the demoters / dedup correlations; the MI ranking already uses
+        # ``x_matrix_for_mi`` (pristine + per-pair masked) above.
         _col_means = np.nanmean(x_matrix, axis=0)
         _col_means = np.where(np.isfinite(_col_means), _col_means, 0.0)
         _nan_mask = ~np.isfinite(x_matrix)
@@ -212,17 +258,45 @@ def _auto_base(
     # is wasted work.  See ``_mi_per_feature_y_fixed`` docstring for
     # the 1.67x bit-exact benchmark.
     if self.config.mi_estimator == "bin":
-        mi_per_feature = _mi_per_feature_y_fixed(
-            x_matrix[finite], y_screen[finite],
-            nbins=self.config.mi_nbins,
-        )
+        if use_per_pair:
+            # Per-pair NaN masking (D12); bit-identical to the global path
+            # on an all-finite screening sample.
+            mi_per_feature = _mi_per_feature_y_fixed_per_col(
+                x_matrix_for_mi, y_screen,
+                nbins=self.config.mi_nbins,
+            )
+        else:
+            mi_per_feature = _mi_per_feature_y_fixed(
+                x_matrix[finite], y_screen[finite],
+                nbins=self.config.mi_nbins,
+            )
     else:
         from sklearn.feature_selection import mutual_info_regression
-        mi_per_feature = mutual_info_regression(
-            x_matrix[finite], y_screen[finite],
-            n_neighbors=self.config.mi_n_neighbors,
-            random_state=self.config.random_state,
-        )
+        if use_per_pair:
+            # Kraskov kNN cannot ingest NaN, so mask per pair here and run
+            # the single-column estimator on each column's surviving rows
+            # (mirrors ``_mi_to_target``'s knn branch). A mostly-NaN column
+            # only zeros its own MI instead of the whole sweep.
+            _n_cols_mi = x_matrix_for_mi.shape[1]
+            mi_per_feature = np.zeros(_n_cols_mi, dtype=np.float64)
+            _y_fin_mi = np.isfinite(y_screen)
+            for _jc in range(_n_cols_mi):
+                _col = x_matrix_for_mi[:, _jc]
+                _pair = _y_fin_mi & np.isfinite(_col)
+                if int(_pair.sum()) < 50:
+                    mi_per_feature[_jc] = 0.0
+                    continue
+                mi_per_feature[_jc] = float(mutual_info_regression(
+                    _col[_pair].reshape(-1, 1), y_screen[_pair],
+                    n_neighbors=self.config.mi_n_neighbors,
+                    random_state=self.config.random_state,
+                )[0])
+        else:
+            mi_per_feature = mutual_info_regression(
+                x_matrix[finite], y_screen[finite],
+                n_neighbors=self.config.mi_n_neighbors,
+                random_state=self.config.random_state,
+            )
     # R10b improvement #7: structural detectors for time-index
     # and spatial-coordinate features. Cheap heuristics applied
     # to the screening matrix; flagged features are demoted
@@ -391,6 +465,17 @@ def _auto_base(
             int(self.config.random_state) + 7919
         )
         y_finite = y_screen[finite]
+        # D12: under per-pair masking the null distribution must be estimated
+        # on the SAME rows as the per-pair MI it is compared against (line
+        # ``passes_null = mi_per_feature > null_threshold``); otherwise a
+        # per-pair MI (its own observed rows) is gated against a null built on
+        # the global intersection rows -- apples to oranges. We therefore mask
+        # each column on its own ``isfinite(col) & isfinite(y_screen)`` rows
+        # (from the pristine pre-impute matrix) when per-pair is active. The
+        # fast hoisted-y-codes path stays for columns whose per-pair rows equal
+        # the global rows (no extra NaN), which keeps the all-finite case
+        # bit-identical and as fast as before.
+        _y_fin_null = np.isfinite(y_screen)
         # Fast null path: np.quantile is shuffle-invariant and np.searchsorted commutes
         # with the permutation, so binning a *shuffled* NaN-free column is identical to
         # shuffling that column's bin codes. For the "bin" estimator we therefore bin y +
@@ -414,12 +499,36 @@ def _auto_base(
         null_means = np.zeros(x_matrix.shape[1])
         null_stds = np.zeros(x_matrix.shape[1])
         for j in range(x_matrix.shape[1]):
-            col = x_matrix[finite, j]
+            if use_per_pair:
+                # Per-pair rows for this column (matches the per-pair MI).
+                _col_raw = x_matrix_for_mi[:, j]
+                _pair_j = _y_fin_null & np.isfinite(_col_raw)
+                if int(_pair_j.sum()) < 50:
+                    null_means[j] = 0.0
+                    null_stds[j] = 0.0
+                    continue
+                col = _col_raw[_pair_j]
+                y_col = y_screen[_pair_j]
+            else:
+                col = x_matrix[finite, j]
+                y_col = y_finite
             null_mis = np.empty(n_perms)
             # Prebin clean columns once, then shuffle codes instead of values (see note above).
             col_codes = None
-            if _y_codes_null is not None and np.isfinite(col).all():
-                _x_edges_null = np.quantile(col, _qs_null)
+            # Reuse the hoisted y-codes only when this column's per-pair rows
+            # are exactly the global rows (same length AND same y); otherwise
+            # bin y on the column's own rows so the null is self-consistent.
+            _y_codes_for_col = None
+            if _y_codes_null is not None and y_col.shape[0] == y_finite.shape[0]:
+                _y_codes_for_col = _y_codes_null
+            elif _bin_estimator and y_col.shape[0] >= 5 * _nbins and np.isfinite(y_col).all():
+                _qs_col = np.linspace(0.0, 1.0, _nbins + 1)[1:-1]
+                _ye = np.quantile(y_col, _qs_col)
+                _y_codes_for_col = np.searchsorted(_ye, y_col, side="right").astype(np.int64)
+                np.clip(_y_codes_for_col, 0, _nbins - 1, out=_y_codes_for_col)
+            if _y_codes_for_col is not None and np.isfinite(col).all():
+                _qs_col = np.linspace(0.0, 1.0, _nbins + 1)[1:-1]
+                _x_edges_null = np.quantile(col, _qs_col)
                 col_codes = np.searchsorted(
                     _x_edges_null, col, side="right",
                 ).astype(np.int64)
@@ -428,18 +537,18 @@ def _auto_base(
                 if col_codes is not None:
                     shuffled_codes = _block_shuffle(col_codes, rng_perm)
                     null_mis[p] = _mi_from_binned_pair(
-                        shuffled_codes, _y_codes_null, nbins=_nbins,
+                        shuffled_codes, _y_codes_for_col, nbins=_nbins,
                     )
                 elif _bin_estimator:
                     shuffled = _block_shuffle(col, rng_perm)
                     null_mis[p] = _mi_pair_bin(
-                        shuffled, y_finite, nbins=_nbins,
+                        shuffled, y_col, nbins=_nbins,
                     )
                 else:
                     shuffled = _block_shuffle(col, rng_perm)
                     from sklearn.feature_selection import mutual_info_regression
                     null_mis[p] = float(mutual_info_regression(
-                        shuffled.reshape(-1, 1), y_finite,
+                        shuffled.reshape(-1, 1), y_col,
                         n_neighbors=self.config.mi_n_neighbors,
                         random_state=self.config.random_state,
                     )[0])

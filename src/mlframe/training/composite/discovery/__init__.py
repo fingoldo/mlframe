@@ -221,12 +221,46 @@ class CompositeTargetDiscovery:
         *,
         n_bootstrap_runs: int = 5,
         min_keep_fraction: float = 0.6,
+        subsample_fraction: float = 0.5,
     ) -> CompositeTargetDiscovery:
-        """Run :meth:`fit` ``n_bootstrap_runs`` times with different random seeds and keep only specs that survive in at least ``min_keep_fraction * n_bootstrap_runs`` runs.
+        """Run :meth:`fit` ``n_bootstrap_runs`` times on DECORRELATED reseeds and per-run row subsamples, keeping only specs that survive in at least ``min_keep_fraction * n_bootstrap_runs`` runs.
 
-        Filters "lucky split" wins where a single seed happens to find a spec that does not generalise. Default thresholds (5 runs, 60% majority) match the standard stability-selection literature (Meinshausen-Buhlmann).
+        Filters "lucky split" wins where a single seed happens to find a spec that does not generalise. Default thresholds (5 runs, 60% majority, 50% subsample) match the standard stability-selection literature (Meinshausen-Buhlmann), whose procedure draws each replicate on a *random half* of the rows -- not merely a reseed of the same sample.
 
         Returns ``self``. After the call, ``self.specs_`` is the stable subset and ``self.stability_counts_`` maps each name to its survival count.
+
+        M3 fix (composite-audit 2026-06-10)
+        -----------------------------------
+        Two defects made the pre-fix "bootstrap" runs near-duplicates rather
+        than independent replicates, so the gate barely filtered anything:
+
+        1. **Seed-stride collision.** The per-run stride was
+           ``base_seed + i*7919``. The inner multi-seed sweep
+           (``_screening_tiny._tiny_cv_rmse_*_multiseed``) strides the SAME
+           7919 as ``base_random_state + s_idx*7919``. So run ``i``'s reseed
+           landed exactly on run ``i-1``'s second inner seed -> the
+           "independent" runs shared their CV draws on a 7919-aligned ladder,
+           correlating the very replicates the gate assumes are independent.
+           Fixed by deriving each run's master seed via the sha256-based
+           :func:`derive_seeds` (no arithmetic relationship to the inner
+           ``*7919`` ladder), which cannot collide with the multi-seed stride.
+        2. **No row subsample.** Every run reused the *identical* ``train_idx``,
+           so the only variation was the seed -- a spec found on one sample was
+           almost always re-found on the same sample. Meinshausen-Buhlmann
+           stability selection draws each replicate on a random subsample of
+           the rows; we now draw a ``subsample_fraction`` (default 0.5) slice of
+           ``train_idx`` per run with a per-run-seeded RNG. ``val_idx`` /
+           ``test_idx`` are passed through untouched (never resampled -- fit
+           only ever reads ``train_idx`` rows). Set ``subsample_fraction=1.0``
+           to recover the legacy reseed-only behaviour.
+
+        Perf note (cProfile / microbench 2026-06-11): the M3 additions are a
+        per-call ``derive_seeds`` (n_runs sha256 hashes) plus one
+        ``np.random.choice(replace=False)+sort`` per run. Measured ~400 us total
+        for 5 runs at n_train=400 and ~16 ms for a single 50% draw at
+        n_train=400k -- negligible vs one ``fit()`` (MI screening + tiny-model CV
+        over the whole sample, seconds). No actionable speedup; the draw is
+        intrinsically O(n_train) and is the cheapest part of each replicate.
         """
         if n_bootstrap_runs <= 1:
             return self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
@@ -237,12 +271,38 @@ class CompositeTargetDiscovery:
         _saved_cfg = self.config
         self.config = self.config.model_copy()
         base_seed = int(self.config.random_state)
+        # Decorrelate run seeds from the inner multi-seed ``*7919`` ladder
+        # (defect 1 above): sha256-derive one master seed per run keyed on the
+        # base seed + run index, so no run's reseed can land on another run's
+        # inner CV seed. Masked to int32 to stay a valid numpy/config seed.
+        _run_seeds = derive_seeds(base_seed, [f"stability_run_{i}" for i in range(int(n_bootstrap_runs))])
+        train_idx = np.asarray(train_idx)
+        _n_train = int(train_idx.size)
+        # M-B subsample size: clamp to [2, n_train]. A degenerate (<2 rows)
+        # subsample is meaningless for fitting transform params, so fall back to
+        # the full train_idx in that pathological case.
+        _frac = float(subsample_fraction)
+        _sub_n = _n_train if _frac >= 1.0 else max(2, int(round(_frac * _n_train)))
+        _sub_n = min(_sub_n, _n_train)
         keep_counter: Counter = Counter()
         spec_by_name: dict[str, CompositeSpec] = {}
         for i in range(int(n_bootstrap_runs)):
-            self.config.random_state = base_seed + i * 7919
+            _run_seed = int(_run_seeds[f"stability_run_{i}"]) & 0x7FFFFFFF
+            self.config.random_state = _run_seed
+            # Per-run row subsample (defect 2 above). A dedicated RNG seeded
+            # from the same decorrelated run seed keeps the draw reproducible
+            # for a given base seed while making each run a genuinely different
+            # row population. Sorted to preserve any time/order semantics the
+            # caller's train_idx carried (fit reads rows positionally).
+            if _sub_n < _n_train:
+                _run_rng = np.random.default_rng(_run_seed)
+                _run_train_idx = np.sort(
+                    _run_rng.choice(train_idx, size=_sub_n, replace=False)
+                )
+            else:
+                _run_train_idx = train_idx
             try:
-                self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+                self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx)
             except Exception as _exc:
                 logger.warning(
                     "[CompositeTargetDiscovery.stability] bootstrap run %d failed: %s",
@@ -259,9 +319,10 @@ class CompositeTargetDiscovery:
         self.specs_ = [spec_by_name[n] for n in stable_names if n in spec_by_name]
         self.stability_counts_ = dict(keep_counter)
         logger.info(
-            "[CompositeTargetDiscovery.stability] n_runs=%d, threshold=%d/%d. "
-            "Kept %d spec(s); counts: %s",
+            "[CompositeTargetDiscovery.stability] n_runs=%d, threshold=%d/%d, "
+            "subsample=%d/%d rows (frac=%.2f). Kept %d spec(s); counts: %s",
             n_bootstrap_runs, threshold, n_bootstrap_runs,
+            _sub_n, _n_train, _frac,
             len(self.specs_), dict(keep_counter),
         )
         return self

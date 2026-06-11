@@ -709,26 +709,41 @@ def _tiny_model_rerank(
                     _min_seeds_wilcoxon = int(math.ceil(
                         math.log2(1.0 / max(gate_alpha, 1e-12))
                     ))
-                    if (comp_per_seed is not None
+                    # A13: composite and raw per-seed arrays are fixed-length
+                    # NaN-padded on the SAME seed schedule, so pair by seed
+                    # INDEX and keep only positions finite on both sides. Pre-A13
+                    # the arrays were compacted finite-only, so a failed
+                    # composite seed and a failed raw seed at different positions
+                    # produced equal-length-but-mis-paired vectors -- the diff
+                    # then subtracted unrelated seeds. ``n`` for the min-seed gate
+                    # is now the jointly-finite pair count, not the raw length.
+                    _both_finite = (
+                        np.isfinite(comp_per_seed) & np.isfinite(raw_per_seed)
+                        if (comp_per_seed is not None
                             and raw_per_seed is not None
-                            and len(comp_per_seed) == len(raw_per_seed)
-                            and len(comp_per_seed) < _min_seeds_wilcoxon):
+                            and len(comp_per_seed) == len(raw_per_seed))
+                        else None
+                    )
+                    _n_paired = int(_both_finite.sum()) if _both_finite is not None else 0
+                    if (_both_finite is not None
+                            and _n_paired < _min_seeds_wilcoxon):
                         logger.warning(
                             "[CompositeTargetDiscovery] Wilcoxon gate skipped: "
-                            "n_seed_repeats=%d < %d, the minimum for a one-sided "
-                            "test to reach p<=gate_alpha=%.3g (min-p=1/2^n). "
-                            "Raise tiny_model_n_seed_repeats to >=%d to enable "
+                            "jointly-finite paired seeds=%d < %d, the minimum for "
+                            "a one-sided test to reach p<=gate_alpha=%.3g "
+                            "(min-p=1/2^n). Raise tiny_model_n_seed_repeats "
+                            "(and/or fix the seeds that degenerated) to enable "
                             "the gate; the threshold gate still applies.",
-                            len(comp_per_seed), _min_seeds_wilcoxon,
-                            gate_alpha, _min_seeds_wilcoxon,
+                            _n_paired, _min_seeds_wilcoxon, gate_alpha,
                         )
-                    elif (comp_per_seed is not None
-                            and raw_per_seed is not None
-                            and len(comp_per_seed) == len(raw_per_seed)
-                            and len(comp_per_seed) >= _min_seeds_wilcoxon):
+                    elif (_both_finite is not None
+                            and _n_paired >= _min_seeds_wilcoxon):
                         try:
                             from scipy.stats import wilcoxon
-                            diff = comp_per_seed - raw_per_seed
+                            diff = (
+                                comp_per_seed[_both_finite]
+                                - raw_per_seed[_both_finite]
+                            )
                             # One-sided: composite better (less RMSE)
                             # so we want diff < 0; alternative='less'.
                             stat_res = wilcoxon(

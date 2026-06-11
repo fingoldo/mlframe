@@ -17,6 +17,49 @@ from .screening import _extract_column_array
 logger = logging.getLogger(__name__)
 
 
+# Prefix marking the ephemeral OOF feature columns appended in pass 1. Pass-2
+# specs that adopt one of these as their ``base_column`` are NOT reconstructable
+# by the suite at integration time (the column lives only in the local
+# ``df_aug`` and the suite's ``_build_full_column_from_splits`` silently returns
+# an all-NaN column for any name absent from the per-split frames -> a composite
+# trained on garbage). See A6.
+_OOF_FEATURE_PREFIX = "_oof_"
+
+
+def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
+    """Warn for any *new* pass-2 spec whose base is an ephemeral ``_oof_*`` column.
+
+    Such a spec references a feature that exists only in the in-memory augmented
+    frame; the suite cannot rebuild it from the persisted split frames, so the
+    composite would train on an all-NaN base. We surface this loudly rather than
+    let it degrade silently (A6 cheap-interim fix; the full fix is to persist the
+    OOF recipe and rebuild it before training -- architectural, suite-side).
+
+    Returns the list of unrebuildable spec names (for callers/tests).
+    """
+    bad: list[str] = []
+    for _s in pass2_specs:
+        if _s.name in existing_names:
+            continue
+        _bases = (getattr(_s, "base_column", "") or "",) + tuple(
+            getattr(_s, "extra_base_columns", ()) or ()
+        )
+        if any(str(_b).startswith(_OOF_FEATURE_PREFIX) for _b in _bases):
+            bad.append(_s.name)
+    if bad:
+        logger.warning(
+            "[CompositeTargetDiscovery.stacked] %d pass-2 spec(s) reference "
+            "ephemeral OOF feature column(s) (prefix %r) that exist only in the "
+            "augmented training frame: %s. The suite cannot rebuild these bases "
+            "from the persisted split frames (they become all-NaN -> the "
+            "composite would train on garbage). These specs are kept in specs_ "
+            "for inspection but should NOT be trained as-is; persist the OOF "
+            "recipe and rebuild the column before training to use them (A6).",
+            len(bad), _OOF_FEATURE_PREFIX, bad,
+        )
+    return bad
+
+
 def fit_stacked(
     self,
     df: Any,
@@ -28,6 +71,8 @@ def fit_stacked(
     *,
     n_oof_folds: int = 3,
     max_pass1_specs_to_stack: int = 3,
+    time_aware: bool = False,
+    cv_splitter: Any = None,
 ):
     """2-pass stacked composite discovery (Pack #3).
 
@@ -44,6 +89,15 @@ def fit_stacked(
 
     Resulting ``self.specs_`` = pass1_specs UNION pass2_specs
     (collisions dropped, pass-1 wins).
+
+    ``time_aware`` / ``cv_splitter`` (A17): control the fold scheme of the
+    OOF-prediction step. By default the OOF uses a shuffled K-fold, which
+    leaks future->past on temporal data (a pass-2 base built from
+    future-contaminated OOF predictions). Pass ``time_aware=True`` (or an
+    explicit ``cv_splitter``) on temporally-ordered data so the OOF folds
+    respect time order. The suite forwards ``time_aware=True`` automatically
+    when a ``time_column`` is configured. Defaults preserve the historical
+    shuffled-K-fold numerics for non-temporal callers.
     """
     self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
     pass1_specs = list(self.specs_) if self.specs_ else []
@@ -99,8 +153,10 @@ def fit_stacked(
                 _factory, X_train, y_train,
                 n_splits=int(n_oof_folds),
                 random_state=int(self.config.random_state),
+                time_aware=bool(time_aware),
+                cv_splitter=cv_splitter,
             )
-            oof_cols[f"_oof_{spec.name}"] = preds
+            oof_cols[f"{_OOF_FEATURE_PREFIX}{spec.name}"] = preds
         except Exception as _oof_err:
             logger.warning(
                 "[CompositeTargetDiscovery.stacked] OOF for spec=%s failed: %s",
@@ -151,12 +207,17 @@ def fit_stacked(
         return self
     pass2_specs = list(self.specs_) if self.specs_ else []
     existing_names = {s.name for s in pass1_specs}
-    merged = pass1_specs + [s for s in pass2_specs if s.name not in existing_names]
+    # A6: pass-2 specs that adopted an ephemeral ``_oof_*`` column as their base
+    # cannot be rebuilt by the suite -> warn loudly so they aren't trained on an
+    # all-NaN base silently.
+    _warn_unrebuildable_oof_specs(pass2_specs, existing_names)
+    _new_specs = [s for s in pass2_specs if s.name not in existing_names]
+    merged = pass1_specs + _new_specs
     self.specs_ = merged
     logger.info(
         "[CompositeTargetDiscovery.stacked] pass1=%d specs, pass2=%d new specs, total=%d",
         len(pass1_specs),
-        len([s for s in pass2_specs if s.name not in existing_names]),
+        len(_new_specs),
         len(merged),
     )
     return self
@@ -173,6 +234,9 @@ def fit_stacked_on_residual(
     *,
     n_oof_folds: int = 3,
     residual_aggregation: str = "mean",
+    max_pass1_specs_to_aggregate: int = 3,
+    time_aware: bool = False,
+    cv_splitter: Any = None,
 ):
     """Pack #4: residual-target stacked discovery (ALTERNATIVE to ``fit_stacked``).
 
@@ -182,7 +246,23 @@ def fit_stacked_on_residual(
     - ``"mean"``: ``pass1_pred = mean(oof_preds_per_spec)``. Robust to a single overfit spec.
     - ``"first"``: ``pass1_pred = oof_preds_of_best_spec`` (best by tiny CV-RMSE).
 
-    Returns: ``self.specs_`` = pass1_specs UNION pass2_specs, with ``discovered_on_residual=True`` annotation in spec metadata for pass-2 entries. Suite-side training integration (fit pass-2 specs on the actual residual not raw y) is the follow-up step -- the current scaffolding returns the specs for inspection / experimentation.
+    ``max_pass1_specs_to_aggregate`` (A18): cap on how many top-ranked pass-1
+    specs (best tiny CV-RMSE first) contribute their OOF predictions to
+    ``pass1_pred``. Previously this path aggregated EVERY pass-1 spec
+    (``ranked[:max(1,len(ranked))]`` is a no-op slice), so weak/overfit tail
+    specs polluted the ``mean`` aggregate and the leftover residual. The cap
+    now matches the feature-stack sibling's behaviour (default 3). For
+    ``residual_aggregation="first"`` only the single best spec is used, so the
+    cap is immaterial there. Set to ``0`` or a negative value to disable the
+    cap (aggregate all pass-1 specs, the historical behaviour).
+
+    ``time_aware`` / ``cv_splitter`` (A17): control the OOF fold scheme exactly
+    as in :func:`fit_stacked` -- default shuffled K-fold (historical numerics);
+    pass ``time_aware=True`` on temporal data to avoid future->past leakage in
+    the OOF predictions that define the residual target. The suite forwards
+    ``time_aware=True`` automatically when a ``time_column`` is configured.
+
+    Returns: ``self.specs_`` = pass1_specs UNION pass2_specs, with ``discovered_on_residual=True`` annotation in spec metadata for pass-2 entries. Suite-side training integration (fit pass-2 specs on the actual residual not raw y) is the follow-up step -- the current scaffolding returns the specs for inspection / experimentation. Because the suite does NOT yet route these specs through a residual-aware training path, a WARNING is emitted (A7) listing them: their ``fitted_params`` were fit against the residual but training would apply them against raw ``y``, so they must be treated as inspection-only until the residual-aware path lands.
     """
     from sklearn.linear_model import Ridge
 
@@ -228,8 +308,18 @@ def fit_stacked_on_residual(
             )
             return self
 
+    # A18: cap the number of pass-1 specs whose OOF predictions feed the
+    # aggregate. The old ``ranked[:max(1,len(ranked))]`` was a no-op slice
+    # (selected ALL specs), letting weak tail specs pollute the ``mean``
+    # aggregate. ``<=0`` disables the cap (historical aggregate-all behaviour).
+    _cap = int(max_pass1_specs_to_aggregate)
+    if _cap <= 0:
+        _ranked_capped = list(ranked)
+    else:
+        _ranked_capped = ranked[: max(1, _cap)]
+
     oof_preds_per_spec: list[np.ndarray] = []
-    for spec in ranked[: max(1, len(ranked))]:
+    for spec in _ranked_capped:
         def _factory(_s=spec):
             return CompositeTargetEstimator(
                 base_estimator=Ridge(alpha=1e-3),
@@ -241,6 +331,8 @@ def fit_stacked_on_residual(
                 _factory, X_train, y_train,
                 n_splits=int(n_oof_folds),
                 random_state=int(self.config.random_state),
+                time_aware=bool(time_aware),
+                cv_splitter=cv_splitter,
             )
             if np.all(np.isfinite(_oof)):
                 oof_preds_per_spec.append(_oof)
@@ -310,13 +402,32 @@ def fit_stacked_on_residual(
             pass
 
     existing_names = {s.name for s in pass1_specs}
-    merged = pass1_specs + [s for s in pass2_specs if s.name not in existing_names]
+    _new_residual_specs = [s for s in pass2_specs if s.name not in existing_names]
+    # A7: these pass-2 specs carry ``fitted_params`` fit against the RESIDUAL
+    # target, but the suite has no residual-aware training route yet -- it would
+    # apply them against raw ``y``, mis-using the residual-fitted params. The
+    # ``discovered_on_residual`` flag is currently read only by tests, not by
+    # suite routing, so surface the hazard explicitly rather than let it merge
+    # silently into ``specs_``. (Full fix: a residual-aware training path or not
+    # merging these into ``specs_`` at all -- cross-file, suite-side.)
+    if _new_residual_specs:
+        logger.warning(
+            "[CompositeTargetDiscovery.stacked_on_residual] %d pass-2 spec(s) "
+            "were discovered on the RESIDUAL target and carry residual-fitted "
+            "params: %s. They are merged into specs_ and flagged "
+            "discovered_on_residual=True for inspection, but the suite does NOT "
+            "yet route them through a residual-aware training path -- training "
+            "would apply their params against raw y. Treat as inspection-only "
+            "until the residual-aware training path lands (A7).",
+            len(_new_residual_specs), [s.name for s in _new_residual_specs],
+        )
+    merged = pass1_specs + _new_residual_specs
     self.specs_ = merged
     logger.info(
         "[CompositeTargetDiscovery.stacked_on_residual] pass1=%d specs, "
         "pass2=%d new residual-target specs, total=%d",
         len(pass1_specs),
-        len([s for s in pass2_specs if s.name not in existing_names]),
+        len(_new_residual_specs),
         len(merged),
     )
     return self

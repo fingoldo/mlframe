@@ -614,20 +614,33 @@ def fit(
         if half >= 50:
             drift_dropped: list[tuple[str, float]] = []
             drift_kept: list[CompositeSpec] = []
+            y_train_for_drift = y_full[train_idx]
             for s in kept_specs:
                 if s.transform_name != "linear_residual":
                     drift_kept.append(s)
                     continue
-                base_full = _extract_column_array(df, s.base_column)
-                y_full_arr = y_full
-                idx1 = train_idx[:half]
-                idx2 = train_idx[half:]
+                # ``self._auto_base_pool[base]`` already holds ``base_full[train_idx]``
+                # (set during per-base setup). ``idx1/idx2`` are the train-row halves, so
+                # ``pool[:half]/pool[half:]/pool`` are bit-identical (same float32 values)
+                # to ``base_full[idx1]/base_full[idx2]/base_full[train_idx]`` without the
+                # full-column re-extraction. Fall back to extraction only if the pool
+                # missed this base (explicit-base path can supply specs outside the pool).
+                base_pool = self._auto_base_pool.get(s.base_column)
+                if base_pool is not None:
+                    base_t = base_pool
+                    base_h1 = base_pool[:half]
+                    base_h2 = base_pool[half:]
+                else:
+                    base_full = _extract_column_array(df, s.base_column)
+                    base_t = base_full[train_idx]
+                    base_h1 = base_full[train_idx[:half]]
+                    base_h2 = base_full[train_idx[half:]]
                 try:
                     params1 = _linear_residual_fit(
-                        y_full_arr[idx1], base_full[idx1],
+                        y_train_for_drift[:half], base_h1,
                     )
                     params2 = _linear_residual_fit(
-                        y_full_arr[idx2], base_full[idx2],
+                        y_train_for_drift[half:], base_h2,
                     )
                 except Exception:
                     drift_kept.append(s)
@@ -639,8 +652,7 @@ def fit(
                 # y-variance which overstates SE when the regressor
                 # explains most variance. Correct form is
                 # SE(alpha) = sqrt(SSE / (n-2)) / (sqrt(n) * base_std).
-                base_t = base_full[train_idx]
-                finite_pair = np.isfinite(base_t) & np.isfinite(y_full_arr[train_idx])
+                finite_pair = np.isfinite(base_t) & np.isfinite(y_train_for_drift)
                 base_finite = base_t[finite_pair]
                 base_std = (
                     float(base_finite.std()) if base_finite.size > 1
@@ -654,7 +666,7 @@ def fit(
                 # subtracts 2 (slope + intercept). ``half`` rows fit
                 # alpha/beta on each half - reuse params1's beta on the
                 # pooled segment for the residual scale.
-                y_finite = y_full_arr[train_idx][finite_pair]
+                y_finite = y_train_for_drift[finite_pair]
                 n_pair = int(finite_pair.sum())
                 if n_pair > 2:
                     # Use the average of (a1, a2) and average beta as a
@@ -730,7 +742,11 @@ def fit(
                 continue
             alpha = float(s.fitted_params.get("alpha", float("nan")))
             beta = float(s.fitted_params.get("beta", 0.0))
-            base_train = _extract_column_array(df, s.base_column)[train_idx]
+            # Reuse the pooled ``base_full[train_idx]`` (bit-identical float32 values)
+            # instead of re-extracting the full column then re-slicing train rows.
+            base_train = self._auto_base_pool.get(s.base_column)
+            if base_train is None:
+                base_train = _extract_column_array(df, s.base_column)[train_idx]
             base_finite = np.isfinite(base_train)
             std_base = (
                 float(np.std(base_train[base_finite]))
@@ -927,6 +943,49 @@ def fit(
                     _info["alpha_second_half"],
                     _info["z_score"], _drift_threshold,
                 )
+
+    # Reconcile the report ``kept`` flag against the FINAL surviving specs.
+    # ``entry['kept']`` is stamped True at the eps_mi_gain gate, but the specs
+    # then pass through top_k_after_mi trim, the alpha-drift gate, the
+    # linear_residual->diff collapse, the tiny-model rerank, and multi-base
+    # name-swaps -- none of which write back to the candidate entries. Without
+    # this pass ``report()`` claims kept=True for specs that were actually
+    # dropped (or renamed) downstream, contradicting its "all evaluated
+    # candidates with their final disposition" contract. Reconcile by spec name
+    # against ``kept_specs``; a multi-base upgrade swaps a seed
+    # ``linear_residual`` for a ``linear_residual_multi`` of a NEW name, so its
+    # seed entry is recorded as upgraded (not silently dropped).
+    _final_kept_names = {getattr(s, "name", None) for s in kept_specs}
+    _multi_seed_primaries = {
+        s.base_column
+        for s in kept_specs
+        if s.transform_name == "linear_residual_multi"
+    }
+    for _entry in candidates:
+        _espec = _entry.get("spec")
+        if _espec is None:
+            continue  # already a reject row; reason already set.
+        _ename = getattr(_espec, "name", None)
+        if _ename in _final_kept_names:
+            _entry["kept"] = True
+            continue
+        # Spec did NOT survive to the final set. Flip kept and record why,
+        # unless the eps gate already rejected it (kept was never set True).
+        if _entry.get("kept"):
+            if (_espec.transform_name == "linear_residual"
+                    and _espec.base_column in _multi_seed_primaries):
+                _entry["reason"] = (
+                    "upgraded into a linear_residual_multi spec "
+                    "(multi-base forward-stepwise)"
+                )
+            else:
+                _entry["reason"] = (
+                    "dropped after the MI gate by a downstream filter "
+                    "(top_k_after_mi trim / alpha-drift / "
+                    "linear_residual->diff collapse / tiny-model rerank / "
+                    "multi-base dedup)"
+                )
+            _entry["kept"] = False
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
     self.specs_ = kept_specs

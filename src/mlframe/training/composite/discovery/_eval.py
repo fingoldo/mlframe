@@ -53,7 +53,22 @@ def eval_one_transform(
     if not valid.any():
         return _local
 
-    fitted_params = transform.fit(y_train[valid], base_train[valid])
+    # P13 (2026-06-11) bit-identical sub-fix: gather ``y_train[valid]`` /
+    # ``base_train[valid]`` ONCE here and reuse the same arrays for both the
+    # transform fit AND (below) the residual-std probe, instead of fancy-index
+    # gathering the same rows a second time at the probe. ``transform.fit`` /
+    # ``forward`` only READ these arrays (verified across linear/nonlinear
+    # transforms), so sharing one gather is bit-identical. ``_valid_stale``
+    # tracks whether the T15 block below shrinks ``valid`` -- if it does, the
+    # reused gather is re-taken on the narrowed mask (still bit-identical,
+    # just not shared). The dominant probe cost (``transform.forward`` over all
+    # train rows) is unchanged here; moving it onto the smaller screen sample
+    # is NOT bit-identical (different rows -> different T_std/y_std ratio vs the
+    # 0.001 gate) and is left as a measured FUTURE (perf-measure-first).
+    _y_train_valid = y_train[valid]
+    _base_train_valid = base_train[valid]
+    _valid_stale = False
+    fitted_params = transform.fit(_y_train_valid, _base_train_valid)
     # T15 (2026-06-10): fitted-params-aware domain refinement. The pre-fit
     # ``domain_check`` above cannot see learned params (log_y's ``offset``,
     # centered_ratio's shift ``c`` + eps-floor), so it lets rows through that
@@ -67,6 +82,7 @@ def eval_one_transform(
         valid_fitted = np.asarray(_dcf(y_train, base_train, fitted_params), dtype=bool)
         if valid_fitted.shape == valid.shape and not bool(valid_fitted[valid].all()):
             valid = valid & valid_fitted
+            _valid_stale = True  # P13: the cached gather no longer matches valid.
             valid_frac = float(valid.mean()) if valid.size else 0.0
             if valid_frac < self.config.min_valid_domain_frac:
                 _local.append(self._reject(
@@ -137,8 +153,14 @@ def eval_one_transform(
     # T_std / y_std < 0.001 (T is below 0.1% of y scale -- below
     # typical noise floor for f32 tabular targets).
     try:
-        _y_train_valid = y_train[valid].astype(np.float64)
-        _base_train_valid = base_train[valid].astype(np.float64)
+        # P13: reuse the gather hoisted above. Re-take it only when T15
+        # narrowed ``valid`` (``_valid_stale``); otherwise the cached arrays
+        # already hold exactly ``y_train[valid]`` / ``base_train[valid]``.
+        if _valid_stale:
+            _y_train_valid = y_train[valid]
+            _base_train_valid = base_train[valid]
+        _y_train_valid = _y_train_valid.astype(np.float64)
+        _base_train_valid = _base_train_valid.astype(np.float64)
         _t_train_full = transform.forward(
             _y_train_valid, _base_train_valid, fitted_params,
         )
@@ -225,6 +247,39 @@ def eval_one_transform(
     # the mi_y baseline for THIS base must also be
     # recomputed on the same valid_screen subset to keep
     # comparison fair.
+    #
+    # P18 (2026-06-11) -- shrunk-domain ``mi_y_compare`` recompute, NOT memoised
+    # across work items, deferred. Several transforms that share the SAME base
+    # produce the SAME ``valid_screen`` mask (e.g. all the non-domain-shrinking
+    # bivariate residuals on one base keep the full screen), so the
+    # ``_mi_to_target_prebinned(_x_pb_valid, y_screen[valid_screen])`` call
+    # below is recomputed identically per transform. A
+    # ``(base, hash(valid_screen.tobytes())) -> mi_y_compare`` memo would save
+    # ~0.2-0.5 s/mask. It is deferred because ``eval_one_transform`` runs
+    # CONCURRENTLY from a threading pool (``discovery_n_jobs``) over a shared,
+    # currently read-only ``base_contexts``; a cross-call memo needs a
+    # thread-safe shared store (lock or per-base precompute) AND a measurement
+    # to confirm the saving survives the lock overhead. The bit-identical
+    # WITHIN-call sharing is already done (``_x_pb_valid`` is computed once and
+    # reused for both ``mi_t`` and this ``mi_y_compare``); only the
+    # ACROSS-call memo remains, and it cannot be added safely without the
+    # shared-state design. Do not stash the memo on ``self`` here -- that races.
+    #
+    # D21 (2026-06-11) -- correlated-sibling inflation of ``mi_y_compare``,
+    # deferred. ``x_remaining_matrix`` excludes only THIS base's column; a
+    # ~0.99-correlated sibling of the base (a second lag, a near-duplicate
+    # smooth) left in the remaining set inflates ``mi_y_compare`` (it carries
+    # almost the same info as the removed base) while contributing little to
+    # ``mi_t``, biasing ``mi_gain`` DOWN -- conservative (no leak, never an
+    # over-keep) but it can wrongly sink the lag-family bases discovery most
+    # wants. The fix masks out per-base high-corr siblings before the MI
+    # baseline (gated on the existing ``auto_base_dedup_corr_threshold``),
+    # which CHANGES which columns enter ``mi_y_compare`` -> changes the MI
+    # numerics -> needs a biz_value measurement, and ties into D10's
+    # ``exclude_col`` threading through ``_mi_to_target_prebinned`` (a sibling
+    # cross-file contract). Deferred rather than half-applied because dropping
+    # columns from ``x_remaining`` here without the calibrated threshold +
+    # measurement could silently over-keep weak specs.
     if valid_screen.sum() < y_screen.size:
         if _x_prebinned is not None:
             mi_y_compare = _mi_to_target_prebinned(
@@ -249,6 +304,25 @@ def eval_one_transform(
     # produces a 95% CI; the gate compares against the
     # LOWER CI bound (LCB), not the point estimate. Spec
     # is rejected if LCB <= eps_mi_gain.
+    #
+    # M4 (2026-06-11) -- KNOWN GAP, no family-wise multiplicity control here.
+    # ``eval_one_transform`` runs once per (base, transform) work item and the
+    # LCB above is a PER-SPEC 95% CI. Across the ~19 candidates a single sweep
+    # screens, that per-comparison error rate is NOT corrected for the family
+    # of tests, so under the gates that actually filter on it
+    # (eps_mi_gain >> -10, mi_gain_bootstrap_n > 0) the false-discovery rate
+    # inflates with the candidate count. This is LATENT under the shipped
+    # defaults (eps_mi_gain=-10.0 disables the MI prefilter and
+    # mi_gain_bootstrap_n=0 disables the CI entirely), so no default user is
+    # affected today. The honest fix is family-wise control (Benjamini-Hochberg
+    # on the per-spec bootstrap p-values, or a maxT step-down over the joint
+    # bootstrap of all candidates) applied at the gate in ``_fit.py`` AFTER all
+    # work items return -- selective-inference machinery that needs its own
+    # validation + a biz_value showing the FDR is actually controlled. It is
+    # deferred rather than half-wired here because a per-spec p-value computed
+    # in this function cannot see the family; the correction MUST be a
+    # post-collection pass. Do not add a per-spec BH approximation here -- it
+    # would be statistically wrong (BH needs the full p-value vector).
     bootstrap_n = int(getattr(
         self.config, "mi_gain_bootstrap_n", 0,
     ))
@@ -321,6 +395,21 @@ def eval_one_transform(
         if boot_finite.size >= bootstrap_n // 2:
             mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
 
+    # T21/D13 (2026-06-11) -- KNOWN naming defect for unary specs, deferred.
+    # When ``transform.requires_base`` is False (cbrt_y / log_y / yeo_johnson_y
+    # / quantile_normal_y / y_quantile_clip), the transform ignores ``base``
+    # entirely, yet the spec is still stamped with ``base_column=base`` and
+    # named ``y-cbrtY-<base>`` where ``<base>`` is whichever base the dispatch
+    # loop happened to pair this unary with first (``_fit.py`` dedups unary
+    # transforms to the first base in ``base_candidates`` order). The value is
+    # DETERMINISTIC (always the first base) but semantically MISLEADING: the
+    # name implies a base dependence that does not exist, and any report label
+    # or dedup key derived from it is base-order-coupled. The correct fix is a
+    # 2-segment unary name (``y-cbrtY``) + a sentinel ``base_column`` -- but
+    # that changes the emitted spec name, which is load-bearing for dedup keys,
+    # report headings, the wrapper's base-column extraction, AND v1 suite
+    # pickles, so it must be a coordinated cross-file change (name/spec/wrapper/
+    # report) with its own back-compat handling, not a local edit here.
     spec = CompositeSpec(
         name=compose_target_name(target_col, transform_name, base),
         target_col=target_col,
