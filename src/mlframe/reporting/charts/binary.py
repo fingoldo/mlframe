@@ -499,6 +499,113 @@ def binary_decile_table(y_true, y_score, *, n_deciles: int = 10) -> Dict[str, np
     return out
 
 
+# Columns drawn in the decile table, in order: (table-header, source-key-or-None, value-formatter).
+_DECILE_TABLE_COLUMNS: Tuple[Tuple[str, Optional[str], Callable], ...] = (
+    ("decile", "decile", lambda v: f"{int(v)}"),
+    ("n", "count", lambda v: f"{int(v):,}"),
+    ("positives", "positives", lambda v: f"{int(v):,}"),
+    ("response", "response_rate", lambda v: "-" if not np.isfinite(v) else f"{v:.1%}"),
+    ("cum gain", "gain", lambda v: "-" if not np.isfinite(v) else f"{v:.1%}"),
+    ("lift", "lift", lambda v: "-" if not np.isfinite(v) else f"{v:.2f}"),
+    ("cum KS", "cum_ks", lambda v: "-" if not np.isfinite(v) else f"{v:.3f}"),
+)
+
+
+def binary_decile_table_figure(
+    y_true,
+    y_score,
+    *,
+    n_deciles: int = 10,
+    highlight_top: int = 3,
+    title: str = "Decile gain / lift table",
+    figsize: Optional[Tuple[float, float]] = None,
+):
+    """Render the score-sorted decile gain/lift/KS table (decile 1 = top scores) as a styled matplotlib table figure.
+
+    The tabular complement to the GAIN curve: stakeholders read the exact per-decile capture / lift / cumulative-KS
+    numbers a curve only shows graphically. All numbers come from ONE call to ``binary_decile_table`` (a single
+    O(n log n) score sort) -- no per-decile rescans. The top ``highlight_top`` deciles are tinted, the cumulative-gain
+    column carries a light value-proportional shade, and a TOTAL row sums n / positives with the overall response rate.
+
+    Edge cases mirror the iter-1 guard style: a single-class target (gain/lift undefined) or fewer than ``n_deciles``
+    finite rows renders a centered annotation instead of a misleading table. Returns a matplotlib ``Figure`` (the
+    SHAP-style direct-matplotlib path; the heavy aggregation stays spec-pure in ``binary_decile_table``).
+    """
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    yt, ys = _finite_binary(y_true, y_score)
+    n = len(yt)
+    n_pos = int(yt.sum()) if n else 0
+
+    def _annotated(msg: str):
+        fig = Figure(figsize=figsize or (8.0, 2.4))
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+        ax.axis("off")
+        ax.set_title(title, fontsize=11)
+        ax.text(0.5, 0.5, msg, ha="center", va="center", fontsize=11, transform=ax.transAxes)
+        return fig
+
+    if n == 0:
+        return _annotated("Decile table undefined\n(no finite (label, score) pairs)")
+    if n_pos == 0 or n_pos == n:
+        return _annotated("Decile gain / lift undefined\n(only one class present)")
+    # With fewer rows than deciles every decile would hold <=1 row -- the per-decile rates are noise; bin to n rows.
+    eff_deciles = n_deciles if n >= n_deciles else max(1, n)
+    note = "" if n >= n_deciles else f" (n={n} < {n_deciles}: {eff_deciles} bins)"
+
+    tbl = binary_decile_table(yt, ys, n_deciles=eff_deciles)
+    n_rows = len(tbl["decile"])
+
+    col_headers = [c[0] for c in _DECILE_TABLE_COLUMNS]
+    cells: List[List[str]] = []
+    for d in range(n_rows):
+        cells.append([fmt(tbl[key][d]) for _, key, fmt in _DECILE_TABLE_COLUMNS])
+    total_pos = int(tbl["positives"].sum())
+    total_n = int(tbl["count"].sum())
+    total_resp = total_pos / total_n if total_n else float("nan")
+    # TOTAL row: cumulative gain/KS are 100% / 0 by construction at the full population; lift is 1.0 (the baseline).
+    total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}",
+                 "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
+    cells.append(total_row)
+
+    fig = Figure(figsize=figsize or (8.0, 0.42 * (n_rows + 3)))
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
+    ax.axis("off")
+    ax.set_title(title + note, fontsize=11)
+    table = ax.table(cellText=cells, colLabels=col_headers, loc="center", cellLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1.0, 1.35)
+
+    gain_col = col_headers.index("cum gain")
+    gain_vals = tbl["gain"]
+    header_color = "#34495e"
+    highlight = "#fff3cd"
+    total_color = "#d6eaf8"
+    gain_shade = (0.66, 0.78, 0.91)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor("#cccccc")
+        if row == 0:
+            cell.set_facecolor(header_color)
+            cell.set_text_props(color="white", fontweight="bold")
+        elif row == n_rows + 1:
+            cell.set_facecolor(total_color)
+            cell.set_text_props(fontweight="bold")
+        else:
+            d = row - 1
+            if col == gain_col and np.isfinite(gain_vals[d]):
+                a = 0.18 + 0.55 * float(gain_vals[d])
+                cell.set_facecolor((gain_shade[0], gain_shade[1], gain_shade[2], a))
+            elif d < highlight_top:
+                cell.set_facecolor(highlight)
+            else:
+                cell.set_facecolor("white")
+    return fig
+
+
 # ----------------------------------------------------------------------------
 # Token registry + composer
 # ----------------------------------------------------------------------------
@@ -573,4 +680,5 @@ __all__ = [
     "DEFAULT_BINARY_PANELS",
     "compose_binary_figure",
     "binary_decile_table",
+    "binary_decile_table_figure",
 ]

@@ -15,6 +15,7 @@ from mlframe.reporting.charts.binary import (
     ALLOWED_BINARY_PANEL_TOKENS,
     DEFAULT_BINARY_PANELS,
     binary_decile_table,
+    binary_decile_table_figure,
     compose_binary_figure,
     _finite_binary,
     _ScoreSort,
@@ -334,3 +335,130 @@ def test_decile_table_empty_input_returns_nan_filled():
     table = binary_decile_table(np.array([]), np.array([]))
     assert table["count"].sum() == 0
     assert np.all(np.isnan(table["gain"]))
+
+
+# ----------------------------------------------------------------------------
+# Decile-table FIGURE: unit (structure / cells / total row / degenerate annotate)
+# ----------------------------------------------------------------------------
+
+
+def _strong(n=8000, sep=3.0, prevalence=0.3, seed=1):
+    """Strongly separable synthetic: KS peaks in the top deciles, big top-decile lift."""
+    rng = np.random.default_rng(seed)
+    y = (rng.random(n) < prevalence).astype(np.int8)
+    raw = rng.normal(sep * y, 1.0, n)
+    return y, 1.0 / (1.0 + np.exp(-raw))
+
+
+def _decile_table_cells(fig):
+    """Pull the (text-cell -> str) grid out of a rendered matplotlib table figure as (col_headers, body_rows)."""
+    ax = fig.axes[0]
+    table = next(c for c in ax.tables)
+    celld = table.get_celld()
+    n_row = max(r for (r, _c) in celld) + 1
+    n_col = max(c for (_r, c) in celld) + 1
+    grid = [[celld[(r, c)].get_text().get_text() for c in range(n_col)] for r in range(n_row)]
+    return grid[0], grid[1:]
+
+
+def test_decile_table_figure_has_table_with_expected_columns_and_total_row():
+    y, s = _strong()
+    fig = binary_decile_table_figure(y, s)
+    headers, body = _decile_table_cells(fig)
+    assert headers == ["decile", "n", "positives", "response", "cum gain", "lift", "cum KS"]
+    # 10 decile rows + 1 TOTAL row.
+    assert len(body) == 11
+    assert body[-1][0] == "TOTAL"
+    assert body[-1][4] == "100.0%"  # cumulative gain at the full population
+    # n column of the TOTAL row equals the synthetic size.
+    assert body[-1][1].replace(",", "") == str(len(y))
+
+
+def test_decile_table_figure_single_class_renders_annotation_not_table():
+    fig = binary_decile_table_figure(np.ones(50, dtype=np.int8), np.linspace(0, 1, 50))
+    ax = fig.axes[0]
+    assert not list(ax.tables), "single-class input must annotate, not draw a table"
+    assert any("one class" in t.get_text().lower() for t in ax.texts)
+
+
+def test_decile_table_figure_tiny_n_bins_to_fewer_rows():
+    # n=5 < 10 deciles -> 5 bins, no spurious empty deciles.
+    y = np.array([0, 1, 1, 0, 1], dtype=np.int8)
+    s = np.array([0.1, 0.9, 0.8, 0.2, 0.7])
+    fig = binary_decile_table_figure(y, s, n_deciles=10)
+    headers, body = _decile_table_cells(fig)
+    assert len(body) == 5 + 1  # 5 bins + TOTAL
+    assert "5 bins" in fig.axes[0].get_title()
+
+
+def test_decile_table_figure_empty_input_annotates():
+    fig = binary_decile_table_figure(np.array([]), np.array([]))
+    assert not list(fig.axes[0].tables)
+
+
+# ----------------------------------------------------------------------------
+# Decile-table FIGURE: biz_value (gain monotone / terminal 1.0, top lift, curve-consistency, KS-peak-top3)
+# ----------------------------------------------------------------------------
+
+
+def test_biz_val_decile_figure_gain_monotone_and_reaches_one():
+    """Cumulative gain in the underlying table must be non-decreasing and hit exactly 1.0 at decile 10."""
+    y, s = _strong()
+    t = binary_decile_table(y, s, n_deciles=10)
+    assert np.all(np.diff(t["gain"]) >= -1e-12), "cumulative gain must be monotone non-decreasing"
+    assert abs(t["gain"][-1] - 1.0) < 1e-12, f"gain at decile 10 = {t['gain'][-1]} != 1.0"
+
+
+def test_biz_val_decile_figure_top_decile_lift_materially_above_one():
+    """A strong scorer concentrates positives at the top: top-decile lift >> 1.
+
+    Measured ~3.3x at sep=3.0 / prevalence=0.3; floor at 2.5x (~24% margin)."""
+    y, s = _strong()
+    t = binary_decile_table(y, s, n_deciles=10)
+    assert t["lift"][0] > 1.0
+    assert t["lift"][0] >= 2.5, f"top-decile lift {t['lift'][0]} below 2.5x floor for a strong model"
+
+
+def test_biz_val_decile_gain_matches_gain_curve_at_decile_fractions():
+    """The table's cumulative gain MUST equal the GAIN curve evaluated at the decile population fractions.
+
+    Both derive from the same descending-score sort, so this is bit-identical (atol 1e-12), not merely close --
+    it pins the table as a faithful tabular readout of the existing GAIN curve, never a divergent recomputation."""
+    y, s = _strong()
+    t = binary_decile_table(y, s, n_deciles=10)
+    yt, ys = _finite_binary(y, s)
+    sort = _ScoreSort(yt, ys)
+    gain_curve = sort.cum_tp.astype(np.float64) / sort.n_pos
+    fracs = (np.arange(1, 11) * sort.n / 10).round().astype(np.int64)
+    curve_at_deciles = gain_curve[fracs - 1]
+    assert np.allclose(t["gain"], curve_at_deciles, atol=1e-12), \
+        f"table gain {t['gain']} diverges from GAIN curve {curve_at_deciles}"
+
+
+def test_biz_val_decile_ks_peaks_in_top_three_deciles_for_strong_model():
+    """A discriminating model separates classes early, so the cumulative-KS maximum falls in the top ~3 deciles."""
+    y, s = _strong()
+    t = binary_decile_table(y, s, n_deciles=10)
+    ks_peak_decile = int(np.argmax(t["cum_ks"])) + 1  # 1-based
+    assert ks_peak_decile <= 3, f"KS peaks at decile {ks_peak_decile}, expected top 3 for a strong model"
+
+
+def test_decile_table_figure_cprofile_bounded_at_1e6():
+    """One score sort, pure aggregation: figure build at n=1e6 stays well under a second (no per-decile rescan)."""
+    import cProfile
+    import io
+    import pstats
+
+    rng = np.random.default_rng(7)
+    n = 1_000_000
+    y = (rng.random(n) < 0.3).astype(np.int8)
+    s = 1.0 / (1.0 + np.exp(-rng.normal(2.0 * y, 1.0, n)))
+    binary_decile_table_figure(y, s)  # warm matplotlib import
+    pr = cProfile.Profile()
+    pr.enable()
+    fig = binary_decile_table_figure(y, s)
+    pr.disable()
+    st = pstats.Stats(pr, stream=io.StringIO())
+    total = st.total_tt
+    assert fig is not None
+    assert total < 2.0, f"decile-table figure build at n=1e6 took {total:.3f}s (>2s: a per-decile rescan crept in)"

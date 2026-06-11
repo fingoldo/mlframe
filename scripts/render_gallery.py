@@ -52,14 +52,23 @@ def _renderer():
 
 
 def _save_spec(spec, category: str, name: str) -> str:
-    """Render a FigureSpec and save as docs/gallery/<category>/<name>.png. Returns the relative path."""
+    """Save a builder's output as docs/gallery/<category>/<name>.png. Returns the relative path.
+
+    Accepts either a ``FigureSpec`` (rendered via the active backend) or an already-built matplotlib ``Figure``
+    (the direct-matplotlib builders, e.g. the decile table / SHAP-style panels, which return a Figure themselves)."""
     out_dir = GALLERY / category
     out_dir.mkdir(parents=True, exist_ok=True)
     base = out_dir / name
-    rend = _renderer()
-    fig = rend.render(spec)
+    from mlframe.reporting.spec import FigureSpec
+    if isinstance(spec, FigureSpec):
+        rend = _renderer()
+        fig = rend.render(spec)
+        save_fn = lambda: rend.save(fig, str(base) + ".png", "png")
+    else:
+        fig = spec  # already a matplotlib Figure
+        save_fn = lambda: fig.savefig(str(base) + ".png", bbox_inches="tight", pad_inches=0.15)
     try:
-        rend.save(fig, str(base) + ".png", "png")
+        save_fn()
     finally:
         try:
             import matplotlib.pyplot as plt
@@ -141,6 +150,14 @@ def _b():
         y, score, panels_template="ROC PR SCORE_DIST KS THRESHOLD GAIN PIT",
         cost_ratio=(1.0, 5.0), suptitle="Binary classification diagnostics",
     )
+
+
+@entry("binary", "decile_table",
+       "Credit-scoring decile gain/lift table: per-decile response / cumulative-gain / lift / cumulative-KS (top deciles highlighted, TOTAL row).")
+def _b():
+    from mlframe.reporting.charts.binary import binary_decile_table_figure
+    y, score = _binary_separable()
+    return binary_decile_table_figure(y, score, title="Decile gain / lift table (separable synthetic)")
 
 
 @entry("binary", "decision_curve", "Decision-curve analysis: model net-benefit vs treat-all / treat-none policies.")
