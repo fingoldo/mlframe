@@ -805,6 +805,7 @@ def screen_predictors(
                                         entropy_cache=entropy_cache,
                                         factors_data=factors_data,
                                         factors_nbins=factors_nbins,
+                                        selected_vars=selected_vars,
                                     )
                                     # 2026-05-30 Wave 9.1 — anchor → PC1 swap.
                                     # When the freshly-grown cluster reaches

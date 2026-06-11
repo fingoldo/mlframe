@@ -5928,6 +5928,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         # full_npermutations. getattr fallback keeps old
                         # pickles (lacking the attr) loading at the 199 default.
                         swap_npermutations=getattr(self, "dcd_swap_npermutations", 199),
+                        warp_tiebreak_prefer_linear=getattr(self, "warp_tiebreak_prefer_linear", True),
+                        warp_twin_rank_corr=getattr(self, "warp_twin_rank_corr", 0.99),
+                        warp_linear_margin=getattr(self, "warp_linear_margin", 0.05),
                         # Layer 47 (2026-05-31): forward the auto-tau
                         # calibration knobs (number of sampled feature pairs
                         # and RNG seed) so make_dcd_state can fingerprint
@@ -7091,6 +7094,55 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``IndexError: arrays used as indices must be of integer (or boolean)
     # type`` because a float array can't index. Integer dtype makes the empty
     # slice a valid no-op on both the DataFrame and the ndarray paths.
+    #
+    # NEVER-EMPTY RAW REPRESENTATIVE (2026-06-12): when the ONLY confirmed feature(s) are engineered
+    # recipes (their raw operands all judged redundant, so ``selected_vars`` is empty while
+    # ``_engineered_recipes_`` is non-empty), the raw integer ``support_`` would be empty even though a
+    # genuine signal-bearing feature WAS selected. That breaks any linear downstream that consumes the raw
+    # ``support_`` (it sees zero columns) and the never-empty selection contract. Re-attach the single
+    # highest-marginal-MI raw OPERAND of a surviving engineered feature as the cluster's raw stand-in --
+    # mirrors ``reattach_raw_representative_after_aggregate_swap`` for the DCD aggregate case. One raw
+    # column is added (the operand most relevant to y), never an unvalidated one, and the engineered
+    # recipe still rides along via ``get_feature_names_out`` / ``transform``. Best-effort: any failure
+    # leaves the empty support_ unchanged (no crash on a degenerate fit).
+    if (not selected_vars) and getattr(self, "_engineered_recipes_", None):
+        try:
+            from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _NE_TOK_SPLIT
+            from ..info_theory import mi as _ne_mi
+            _raw_names_ne = set(self.feature_names_in_)
+            _operand_idxs: set = set()
+            for _rname in self._engineered_recipes_:
+                for _tok in _NE_TOK_SPLIT.split(str(_rname)):
+                    if not _tok:
+                        continue
+                    _base = _tok if _tok in _raw_names_ne else (_tok.split("__", 1)[0] if "__" in _tok else None)
+                    if _base in _raw_names_ne:
+                        try:
+                            _operand_idxs.add(cols.index(_base))
+                        except ValueError:
+                            continue
+            if _operand_idxs:
+                _tgt_ne = np.asarray(target_indices, dtype=np.int64)
+                _fn_ne = np.asarray(nbins, dtype=np.int64)
+                _best_idx_ne, _best_rel_ne = -1, float("-inf")
+                for _oi in sorted(_operand_idxs):
+                    try:
+                        _rel_ne = float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
+                    except Exception:
+                        _rel_ne = 0.0
+                    if _rel_ne > _best_rel_ne:
+                        _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
+                if _best_idx_ne >= 0:
+                    selected_vars = [_best_idx_ne]
+                    if verbose:
+                        logger.info(
+                            "MRMR never-empty raw representative: support_ would be empty (only engineered "
+                            "feature(s) selected); re-attached raw operand %r (marginal MI %.4f) as the raw "
+                            "stand-in.", cols[_best_idx_ne], _best_rel_ne,
+                        )
+        except Exception as _ne_exc:
+            logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
+
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
     # SELECTION-STABILITY REPLAY STATE (backlog W3, 2026-06-11). Store a compact slice of the

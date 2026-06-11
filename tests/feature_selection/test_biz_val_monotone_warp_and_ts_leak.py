@@ -219,17 +219,18 @@ class TestMRMRMonotoneWarpSurvivor:
         )
 
     @pytest.mark.slow
-    @pytest.mark.xfail(reason="PROD BUG: MRMR redundancy tie between f and its strictly-monotone warp g=exp(4f) "
-                              "is broken by COLUMN ORDER (binned MI/SU are monotone-invariant -> f and g tie), so "
-                              "the linear-unusable g survives whenever g precedes f. A linear-usability tie-break "
-                              "would always keep raw f.", strict=False)
     @pytest.mark.parametrize("seed", WARP_SEEDS)
     def test_warp_survivor_is_linear_usable_f_regardless_of_order(self, seed):
         """The contract a linear downstream wants: whichever order f and g appear
-        in, the SURVIVOR is the linear-usable raw f (not its exp-warp g). Current
-        behaviour keeps whichever of the tied pair comes first in column order,
-        so g survives under reversed order -- the MI-monotone-invariance blind
-        spot. xfail(strict=False) until a linear-usability tie-break lands."""
+        in, the SURVIVOR is the linear-usable raw f (not its exp-warp g).
+
+        DCD's ``warp_tiebreak_prefer_linear`` (default ON) biases the redundancy-
+        resolution choice between strictly-monotone twins toward the more linearly-
+        usable leg: at the cluster-pruning point, when the candidate about to be
+        pruned as SU-redundant with the anchor is a raw-rank-corr>=0.99 twin AND
+        strictly more linearly-usable (|corr(col, rank col)|), it DISPLACES the
+        anchor. Exactly one leg is kept either way, so f survives under both column
+        orders without any risk of emptying support_."""
         keep = []
         for reverse in (False, True):
             df, y = _make_warp_frame(seed=seed, reverse=reverse)
@@ -398,3 +399,114 @@ class TestRFECVPartialLeakThreshold:
                            leakage_action="exclude")
         assert "lead1" not in _names(tight), f"fast: 0.6 must exclude lead1; support={_names(tight)}"
         assert "lead1" in _names(loose), f"fast: 0.95 must keep lead1; support={_names(loose)}"
+
+
+# ---------------------------------------------------------------------------
+# (c) biz_value: warp linear-usability tie-break + never-empty raw support_
+# ---------------------------------------------------------------------------
+
+
+def _binq(x, nb: int = 10):
+    return pd.qcut(x, nb, labels=False, duplicates="drop").astype(np.int64)
+
+
+class TestWarpLinearTiebreakDirect:
+    """Unit-level proof that the DCD cluster-pruning tie-break keeps the linearly-
+    usable leg of a strictly-monotone twin pair. Probes ``discover_cluster_members``
+    directly with g (the exp-warp, linear-unusable) pre-selected as the anchor and f
+    (the linear-usable twin) as the candidate about to be pruned -- the regime the
+    end-to-end greedy hides because its relevance-tie ordering already happens to
+    pick f first, so this is the only place the mechanism is observable in isolation.
+    The flag-OFF side pins the legacy column-order behaviour (anchor kept)."""
+
+    def _setup(self, flag, seed=0, n=3000):
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            make_dcd_state, discover_cluster_members,
+        )
+        rng = np.random.default_rng(seed)
+        f = rng.standard_normal(n)
+        g = np.exp(4.0 * f)  # strictly-monotone, rank-identical to f, binned SU(f,g)=1
+        fac = np.column_stack([_binq(g), _binq(f)]).astype(np.int64)  # cols ['g','f']
+        nbins = np.array([fac[:, 0].max() + 1, fac[:, 1].max() + 1], dtype=np.int64)
+        Xraw = pd.DataFrame({"g": g, "f": f})
+        state = make_dcd_state(
+            X_raw=Xraw, factors_data=fac, cols=["g", "f"], nbins=nbins,
+            factors_nbins=nbins, target_indices=np.array([], dtype=np.int64),
+            warp_tiebreak_prefer_linear=flag, tau_cluster=0.7,
+        )
+        sv = [0]  # g (idx 0) is the already-selected anchor
+        discover_cluster_members(state, 0, [1], factors_data=fac,
+                                 factors_nbins=nbins, selected_vars=sv)
+        return state, sv
+
+    def test_warp_tiebreak_on_keeps_linear_f(self):
+        state, sv = self._setup(flag=True)
+        assert sv == [1], (
+            f"warp_tiebreak_prefer_linear ON must DISPLACE the exp-warp anchor g "
+            f"with the linear-usable twin f; selected_vars={sv}"
+        )
+        assert bool(state.pool_pruned_mask[0]) and not bool(state.pool_pruned_mask[1]), (
+            f"g must be pruned and f kept; mask={state.pool_pruned_mask.tolist()}"
+        )
+
+    def test_warp_tiebreak_off_keeps_order_decided_g(self):
+        state, sv = self._setup(flag=False)
+        assert sv == [0], (
+            f"flag OFF must preserve the order-decided anchor g (legacy column-order "
+            f"tie-break); selected_vars={sv}"
+        )
+        assert not bool(state.pool_pruned_mask[0]) and bool(state.pool_pruned_mask[1]), (
+            f"legacy: g kept, f pruned; mask={state.pool_pruned_mask.tolist()}"
+        )
+
+    def test_non_twin_does_not_fire(self):
+        """A merely-correlated (NOT monotone-twin) candidate below the rank-corr band
+        must NOT trigger the displacement even when SU clusters it -- guards against
+        over-firing on ordinary collinearity."""
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            make_dcd_state, discover_cluster_members,
+        )
+        rng = np.random.default_rng(1)
+        n = 3000
+        a = rng.standard_normal(n)
+        # c shares enough rank structure to cluster on SU but is NOT a strict monotone
+        # twin (rank-corr < 0.99): a heavy-noise linear mix.
+        c = a + 1.2 * rng.standard_normal(n)
+        fac = np.column_stack([_binq(a), _binq(c)]).astype(np.int64)
+        nbins = np.array([fac[:, 0].max() + 1, fac[:, 1].max() + 1], dtype=np.int64)
+        Xraw = pd.DataFrame({"a": a, "c": c})
+        state = make_dcd_state(
+            X_raw=Xraw, factors_data=fac, cols=["a", "c"], nbins=nbins,
+            factors_nbins=nbins, target_indices=np.array([], dtype=np.int64),
+            warp_tiebreak_prefer_linear=True, tau_cluster=0.0,  # tau=0 forces clustering
+        )
+        sv = [0]
+        discover_cluster_members(state, 0, [1], factors_data=fac,
+                                 factors_nbins=nbins, selected_vars=sv)
+        # a (idx 0) stays the anchor -- c is not a monotone twin, so no displacement.
+        assert sv == [0], (
+            f"a non-twin (rank-corr below band) must NOT displace the anchor; "
+            f"selected_vars={sv}"
+        )
+
+
+class TestNeverEmptyRawSupport:
+    """When the only confirmed feature is an engineered multi-parent interaction (its
+    raw operands all judged redundant), ``support_`` must still expose >=1 raw column
+    (the highest-marginal-MI operand re-attached as the cluster's raw stand-in). Pins
+    the previously-failing quantization_nbins=5 case, where the raw support_ went empty."""
+
+    @pytest.mark.parametrize("nbins", [5, 10, 20])
+    def test_support_never_empty_when_engineered_selected(self, nbins):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        from tests.feature_selection._biz_val_synth import make_signal_plus_noise, as_df
+        X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+        df, ys = as_df(X, y)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sel = MRMR(verbose=0, random_seed=42, quantization_nbins=nbins).fit(df, ys)
+        assert 1 <= len(sel.support_) <= df.shape[1], (
+            f"support_ must be non-empty (>=1 raw representative) and within bounds "
+            f"even when only engineered features were confirmed; nbins={nbins}, "
+            f"support_={sel.support_}, names={list(sel.get_feature_names_out())}"
+        )

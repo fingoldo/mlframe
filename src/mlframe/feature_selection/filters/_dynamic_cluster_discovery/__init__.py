@@ -170,6 +170,15 @@ class DCDState:
     # ``evaluate_swap_candidate`` also auto-raises it to ceil(1/swap_alpha) as a
     # backstop so the null can never be structurally un-rejectable.
     swap_npermutations: int = 199
+    # Monotone-warp linear-usability tie-break. A strictly-monotone warp g=exp(4f) of an informative f is rank-identical to f, so binned MI(g;y)==MI(f;y) and the redundancy gate keeps EXACTLY
+    # ONE of {f, g}; the survivor is otherwise decided by column order alone. f and g are equivalent for trees but f is strictly more linearly-usable. When ON, at the cluster-pruning point, if a
+    # candidate about to be pruned as SU-redundant with its anchor is a strictly-monotone twin (raw rank-corr >= warp_twin_rank_corr) AND ties the anchor in SU (within warp_tiebreak_su_band) AND is
+    # strictly more linearly-usable (|corr(col, rank(col))| on the RAW column), the candidate DISPLACES the anchor (the anchor is pruned instead). One leg is kept either way, so this can never empty
+    # support_ nor swap in an unvalidated column; non-twin / non-tie pairs are byte-identical to the order-decided default.
+    warp_tiebreak_prefer_linear: bool = True
+    warp_twin_rank_corr: float = 0.99                                # raw rank-corr floor to treat (c, anchor) as a strictly-monotone twin (NOT coarse-binned codes -- those create false twins at small nbins)
+    warp_tiebreak_su_band: float = 0.02                              # SU tie band: |SU(c, anchor) - SU(anchor, c)| is ~0, so the band gates how close anchor's own redundancy must be (kept for symmetry / future asymmetric metrics)
+    warp_linear_margin: float = 0.05                                 # minimum linear-usability advantage (|corr(c, rank c)| - |corr(anchor, rank anchor)|) for the candidate to displace the anchor
     # -- references to host MRMR matrix (mutated on swap) --
     X_raw_ref: Any = None                                             # pd.DataFrame or np.ndarray
     quantization_method: str = "quantile"
@@ -371,6 +380,8 @@ def make_dcd_state(
         "swap_gain_threshold", "swap_method", "pairwise_cache_max",
         "min_cluster_size", "max_cluster_size", "swap_alpha",
         "swap_npermutations",
+        "warp_tiebreak_prefer_linear", "warp_twin_rank_corr",
+        "warp_tiebreak_su_band", "warp_linear_margin",
         "suppress_legacy_postoc",
     ):
         if key in dcd_config:
@@ -443,6 +454,66 @@ from ._dcd_swap import (
 # =============================================================================
 
 
+def _raw_column(state: DCDState, idx: int) -> Optional[np.ndarray]:
+    """Pull raw column ``idx`` (by name from ``state.cols``) from ``X_raw_ref`` as a 1-D float64
+    array, or None when unavailable (no raw ref, name missing, ndarray out of range)."""
+    X_raw = state.X_raw_ref
+    if X_raw is None or state.cols is None or idx < 0 or idx >= len(state.cols):
+        return None
+    try:
+        if hasattr(X_raw, "columns"):
+            name = state.cols[idx]
+            if name not in X_raw.columns:
+                return None
+            col = X_raw[name]
+            if hasattr(col, "to_numpy"):
+                col = col.to_numpy()
+            arr = np.asarray(col, dtype=np.float64)
+        else:
+            arr = np.asarray(X_raw)
+            if arr.ndim != 2 or idx >= arr.shape[1]:
+                return None
+            arr = arr[:, idx].astype(np.float64, copy=False)
+    except Exception:
+        return None
+    return arr if arr.ndim == 1 else None
+
+
+def _linear_usability(arr: np.ndarray) -> Optional[float]:
+    """|corr(arr, rank(arr))| on the finite RAW values -- ~1.0 for a linear-usable column, ~0.14 for
+    exp(4 f). Returns None when the column is degenerate (constant / <8 finite rows)."""
+    fin = np.isfinite(arr)
+    if fin.sum() < 8:
+        return None
+    a = arr[fin]
+    if a.std() <= 1e-12:
+        return None
+    import pandas as _pd
+    ranks = _pd.Series(a).rank(method="average").to_numpy()
+    if ranks.std() <= 1e-12:
+        return None
+    c = np.corrcoef(a, ranks)[0, 1]
+    return abs(float(c)) if np.isfinite(c) else None
+
+
+def _raw_rank_corr(a: np.ndarray, b: np.ndarray) -> Optional[float]:
+    """|Spearman(a, b)| on the rows finite in BOTH -- the strictly-monotone-twin detector. Uses RAW
+    values (NOT coarse-binned codes, which manufacture false twins at small nbins)."""
+    mask = np.isfinite(a) & np.isfinite(b)
+    if mask.sum() < 8:
+        return None
+    aa, bb = a[mask], b[mask]
+    if aa.std() <= 1e-12 or bb.std() <= 1e-12:
+        return None
+    import pandas as _pd
+    ra = _pd.Series(aa).rank(method="average").to_numpy()
+    rb = _pd.Series(bb).rank(method="average").to_numpy()
+    if ra.std() <= 1e-12 or rb.std() <= 1e-12:
+        return None
+    c = np.corrcoef(ra, rb)[0, 1]
+    return abs(float(c)) if np.isfinite(c) else None
+
+
 def discover_cluster_members(
     state: DCDState,
     just_selected,
@@ -450,6 +521,7 @@ def discover_cluster_members(
     entropy_cache: Optional[dict] = None,
     factors_data=None,
     factors_nbins=None,
+    selected_vars: Optional[list] = None,
 ) -> set:
     """For each candidate in ``candidate_pool``, compute SU(c, just_selected).
     If above ``tau_cluster`` and cluster not at ``max_cluster_size``, mark
@@ -512,6 +584,42 @@ def discover_cluster_members(
                      entropy_cache=entropy_cache,
                      factors_data=factors_data, factors_nbins=factors_nbins)
         if su > float(state.tau_cluster):
+            # Monotone-warp linear-usability tie-break. The candidate ``c`` is about to be pruned as SU-redundant with the already-selected ``anchor``; the SU/MI gate is monotone-invariant, so for a
+            # strictly-monotone twin (e.g. anchor=g=exp(4f), c=raw f) the survivor is decided purely by which leg the greedy loop selected first (column order). When ON, if ``c`` is a strictly-monotone
+            # twin of the anchor AND strictly more linearly-usable, DISPLACE the anchor: prune the anchor and keep ``c`` selected instead. Exactly one leg is kept either way, so support_ can never empty
+            # and no unvalidated column is introduced. Guarded so a degenerate / non-twin / non-tie pair falls through to the order-decided default (byte-identical selection on those).
+            if (getattr(state, "warp_tiebreak_prefer_linear", False)
+                    and selected_vars is not None
+                    and int(anchor) in [int(s) for s in selected_vars]):
+                _a_raw = _raw_column(state, anchor)
+                _c_raw = _raw_column(state, c_int)
+                if _a_raw is not None and _c_raw is not None and _a_raw.shape == _c_raw.shape:
+                    _rc = _raw_rank_corr(_a_raw, _c_raw)
+                    if _rc is not None and _rc >= float(state.warp_twin_rank_corr):
+                        _lin_a = _linear_usability(_a_raw)
+                        _lin_c = _linear_usability(_c_raw)
+                        if (_lin_a is not None and _lin_c is not None
+                                and _lin_c - _lin_a > float(state.warp_linear_margin)):
+                            # ``c`` is the linear-usable leg of a monotone twin -> swap roles with the anchor.
+                            try:
+                                _pos = [int(s) for s in selected_vars].index(int(anchor))
+                                selected_vars[_pos] = c_int
+                            except ValueError:
+                                selected_vars.append(c_int)
+                            if int(anchor) < n_cols:
+                                state.pool_pruned_mask[int(anchor)] = True
+                            state.pool_pruned_mask[c_int] = False
+                            # Reseat the cluster under the new anchor ``c``: the old anchor becomes a pruned member.
+                            _existing = state.cluster_anchors.pop(int(anchor), set())
+                            _new_members = {int(m) for m in _existing if int(m) != c_int}
+                            _new_members.add(int(anchor))
+                            state.cluster_anchors[c_int] = _new_members
+                            for _m in _new_members:
+                                state.member_to_anchor[int(_m)] = c_int
+                            state.member_to_anchor.pop(c_int, None)
+                            anchor = c_int
+                            anchors = state.cluster_anchors[c_int]
+                            continue
             anchors.add(c_int)
             state.member_to_anchor[c_int] = anchor
             state.pool_pruned_mask[c_int] = True

@@ -1139,6 +1139,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # subsystem was dead on the default path. 199 gives min-p 0.005;
         # evaluate_swap_candidate also auto-raises B to ceil(1/swap_alpha).
         dcd_swap_npermutations: int = 199,
+        # Monotone-warp linear-usability tie-break. When two mutually-redundant candidates are strictly-monotone twins (e.g. f and g=exp(4f), rank-identical so binned MI/SU tie), the cluster-pruning
+        # gate keeps exactly one and prunes the other -- otherwise decided by column order alone. ON (default, per the enable-correct-by-default policy) biases that already-forced choice toward the
+        # more linearly-usable leg (raw f over its exp-warp g): trees are indifferent but a linear downstream recovers the signal f carried. Detects twins via RAW rank-corr >= ``dcd_warp_twin_rank_corr``
+        # (NOT coarse-binned codes) and requires a linear-usability margin (|corr(col, rank col)|) of ``dcd_warp_linear_margin``; one leg is kept either way so this can never empty support_ nor add an
+        # unvalidated column, and any non-twin / non-tie pair stays byte-identical to the order-decided default. Opt out with ``warp_tiebreak_prefer_linear=False`` for legacy column-order behaviour.
+        warp_tiebreak_prefer_linear: bool = True,
+        warp_twin_rank_corr: float = 0.99,
+        warp_linear_margin: float = 0.05,
         # ``dcd_postoc_compose=True`` keeps the post-hoc cluster_aggregate
         # active alongside DCD. Default False auto-suppresses it (DCD
         # already processed clusters during screening; running again would
