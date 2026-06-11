@@ -271,6 +271,11 @@ from .discovery._leakage import detect_base_target_leakage  # noqa: E402,F401
 from .report import composite_report  # noqa: E402,F401
 from .meta import CompositeOrRawStacker  # noqa: E402,F401
 
+# Full predictive-distribution composite (CRPS), joint HPO, model card.
+from .distributional import CompositeDistributionEstimator  # noqa: E402,F401
+from .hpo import optimize_composite  # noqa: E402,F401
+from .model_card import composite_model_card  # noqa: E402,F401
+
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
 from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
@@ -311,6 +316,7 @@ __all__ = [
     "explain_prediction", "attribution_summary", "CompositeDriftMonitor",
     "PurgedTimeSeriesSplit", "make_purged_cv", "detect_base_target_leakage",
     "composite_report", "CompositeOrRawStacker",
+    "CompositeDistributionEstimator", "optimize_composite", "composite_model_card",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
