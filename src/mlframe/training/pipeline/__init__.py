@@ -534,6 +534,42 @@ def _select_scalable_numeric_columns(
     return scalable
 
 
+def _apply_safe_scaler(
+    bp,
+    train_df: pl.DataFrame,
+    scaler_name: str,
+    q_low: float = 0.25,
+    q_high: float = 0.75,
+    requested_cols: Optional[List[str]] = None,
+    verbose: int = 0,
+):
+    """Append a polars-ds scaling step to ``bp`` with the zero-IQR/zero-spread
+    guard applied UNCONDITIONALLY.
+
+    polars-ds ``robust_scale`` divides by ``q_high - q_low`` (``scale`` divides
+    by std / range), which yields NaN/inf for any zero-spread (constant /
+    all-null / finite-empty) column -- silently corrupting every downstream
+    row. This helper recomputes the safe column subset here so the guard holds
+    even when a caller passes an explicit ``requested_cols`` that includes a
+    zero-IQR column; the safety does not depend on the caller pre-filtering.
+
+    Returns the (possibly unchanged) blueprint. When no column survives the
+    filter the scaler step is skipped entirely.
+    """
+    method = "robust" if scaler_name == "robust" else scaler_name
+    safe = _select_scalable_numeric_columns(train_df, method=method, q_low=q_low, q_high=q_high, verbose=verbose)
+    if requested_cols is not None:
+        _req = set(requested_cols)
+        safe = [c for c in safe if c in _req]
+    if not safe:
+        if verbose:
+            logger.info("  No numeric columns survived the zero-spread / all-null filter -- skipping scaler.")
+        return bp
+    if scaler_name == "robust":
+        return bp.robust_scale(safe, q_low=q_low, q_high=q_high)
+    return bp.scale(safe, method=scaler_name)
+
+
 def create_polarsds_pipeline(
     train_df: pl.DataFrame,
     config: PreprocessingBackendConfig,
@@ -634,23 +670,14 @@ def create_polarsds_pipeline(
     # to ``standard`` / ``min_max`` scalers (zero variance / zero
     # range), so the filter is universal.
     if config.scaler_name:
-        _scalable_numeric_cols = _select_scalable_numeric_columns(
+        bp = _apply_safe_scaler(
+            bp,
             train_df,
-            method="robust" if config.scaler_name == "robust" else config.scaler_name,
+            scaler_name=config.scaler_name,
             q_low=config.robust_q_low,
             q_high=config.robust_q_high,
             verbose=verbose,
         )
-        if _scalable_numeric_cols:
-            if config.scaler_name == "robust":
-                bp = bp.robust_scale(_scalable_numeric_cols, q_low=config.robust_q_low, q_high=config.robust_q_high)
-            else:
-                bp = bp.scale(_scalable_numeric_cols, method=config.scaler_name)
-        elif verbose:
-            logger.info(
-                "  No numeric columns survived the zero-spread / all-null "
-                "filter -- skipping scaler entirely."
-            )
 
     # Pre-compute the list of cat-like columns that SHOULD be encoded
     # (text/embedding features excluded). We pass this list explicitly

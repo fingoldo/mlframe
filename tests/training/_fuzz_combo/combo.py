@@ -908,15 +908,10 @@ class FuzzCombo:
             # exercised on clean-data combos.
             self.fix_infinities_cfg if not self.inject_inf_nan else True,
             self.ensure_float32_cfg,
-            # remove_constant_columns=False is meaningful only when no
-            # degenerate columns will exist. Combining it with
-            # inject_degenerate_cols (adds num_const + num_null columns)
-            # or inject_all_nan_col routes an all-NaN column to the
-            # downstream scaler — polars_ds robust_scale crashes on
-            # quantile(None) - quantile(None) in that case (c0008).
-            # Canonicalise to True so the dedup pass collapses the
-            # known-bad combination.
-            self.remove_constant_columns_cfg if not (self.inject_degenerate_cols or self.inject_all_nan_col) else True,
+            # remove_constant_columns axis is live on all combos: the prod robust scaler now guards a
+            # zero-IQR column (skip / no-scale) instead of dividing by quantile(None)-quantile(None), so
+            # degenerate / all-NaN columns no longer force constant-removal to avoid a scaler crash.
+            self.remove_constant_columns_cfg,
             # imputer_strategy is meaningful only if nulls / NaNs exist.
             # Without missing values the imputer never fires → all variants
             # collapse to the default to avoid wasting combos on a no-op axis.

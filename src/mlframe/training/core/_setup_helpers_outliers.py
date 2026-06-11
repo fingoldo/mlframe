@@ -151,8 +151,8 @@ def _apply_outlier_detection_global(
                             len(np.unique(_flat_post)),
                         )
                         break
-                except Exception as _exc:
-                    logger.debug("Class-balance pre-check failed for target %s: %s", _tn, _exc)
+                except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
+                    logger.warning("Class-balance pre-check failed for target %s: %s", _tn, _exc)
         if not _od_destroys_classes:
             logger.info("Outlier rejection: %d train samples -> %d kept.", len(train_df), train_kept)
             filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
@@ -184,7 +184,7 @@ def _apply_outlier_detection_global(
         # whole suite on the val-side raise.
         try:
             is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
-        except Exception as _od_exc:
+        except (ValueError, TypeError, ImportError, RuntimeError, MemoryError, AttributeError) as _od_exc:
             logger.error(
                 "Outlier detector %s raised on val frame: %s. Skipping val-side OD filter; "
                 "original val_df retained for evaluation.",
@@ -227,24 +227,22 @@ def _apply_outlier_detection_global(
                         val_kept = len(val_df)
                         val_od_idx = np.ones(len(val_df), dtype=bool)
                         break
-                except Exception as _exc:
-                    logger.debug("Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
-        # Symmetric of train-side min_keep guard: don't propagate a near-empty val_df; downstream
-        # eval paths handle empty val poorly. Keep original val_df and surface the error.
+                except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
+                    logger.warning("Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
+        # Symmetric of the train-side min_keep guard: a near-empty (or 0-row) val after OD is a real
+        # upstream config problem (too-aggressive contamination / train-val distribution drift). Raise
+        # rather than silently returning the unfiltered (outlier-contaminated) val: an unfiltered val
+        # would bias early stopping, and a 0-row val breaks eval entirely - both must surface, not be papered over.
         val_min_keep = max(1, int(len(val_df) * 0.01))
         if val_kept < val_min_keep:
-            logger.error(
-                "Outlier detector rejected %d of %d val samples, leaving "
-                "only %d rows (< %d, 1%% floor). Continuing with the "
-                "ORIGINAL (unfiltered) val_set so downstream evaluation "
-                "has data; investigate contamination / fit-distribution "
-                "mismatch between train and val.",
-                len(val_df) - val_kept, len(val_df), val_kept, val_min_keep,
+            raise ValueError(
+                f"Outlier detector rejected {len(val_df) - val_kept:_} of {len(val_df):_} val samples, "
+                f"leaving only {val_kept:_} rows (< {val_min_keep:_}, 1% of input). Mirrors the train-side "
+                f"min_keep guard: a near-empty val_set silently biases early stopping (val is the ES detector). "
+                f"Likely cause: contamination too high or a fit-distribution mismatch between train and val. "
+                f"Fix the OD config; do not run on a collapsed val_set."
             )
-            filtered_val_df = val_df
-            filtered_val_idx = val_idx
-            val_od_idx = None
-        elif val_kept < len(val_df):
+        if val_kept < len(val_df):
             logger.info("Outlier rejection: %d val samples -> %d kept.", len(val_df), val_kept)
             filtered_val_df = _filter_df_by_mask(val_df, val_od_idx)
             filtered_val_idx = val_idx[val_od_idx]
