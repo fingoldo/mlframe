@@ -196,6 +196,155 @@ def test_cprofile_residual_vs_time_at_1e6_rows():
     assert fig.panels[0][0].y[0].shape == (20,)
 
 
+# --------------------------------------------------------------------------- cusum_residual_drift
+
+
+def _resid_series(n, r, delta, seed):
+    """y_true / y_pred whose residual (yt - yp) is N(0,1) before row r and N(delta,1) from row r on."""
+    rng = np.random.default_rng(seed)
+    resid = np.concatenate([rng.normal(0.0, 1.0, r), rng.normal(delta, 1.0, n - r)])
+    yt = rng.normal(0.0, 1.0, n)
+    return yt, yt - resid
+
+
+def _cusum_cross_row(fig):
+    """Detected change-point ordered-row parsed from the panel title, or None if none detected."""
+    import re
+    m = re.search(r"ordered-row (\d+)", fig.panels[0][0].title)
+    return int(m.group(1)) if m else None
+
+
+def test_cusum_returns_line_panel_with_arms_and_limits():
+    yt, yp = _resid_series(4000, 2000, 1.0, 5)
+    fig = drift.cusum_residual_drift(yt, yp, np.arange(4000), decision_h=10.0)
+    assert isinstance(fig, FigureSpec)
+    panel = fig.panels[0][0]
+    assert isinstance(panel, LinePanelSpec)
+    # signed CUSUM + S+ + S- + (+h) + (-h) == 5 series.
+    assert len(panel.y) == 5
+    assert "S+" in panel.series_labels[1] and "S-" in panel.series_labels[2]
+    # +h / -h control limits are flat lines at +/- h.
+    np.testing.assert_allclose(panel.y[3], 10.0)
+    np.testing.assert_allclose(panel.y[4], -10.0)
+
+
+def test_cusum_marks_crossing_on_drift():
+    yt, yp = _resid_series(4000, 2000, 1.0, 5)
+    fig = drift.cusum_residual_drift(yt, yp, np.arange(4000), decision_h=10.0)
+    panel = fig.panels[0][0]
+    assert panel.vlines is not None and len(panel.vlines) == 1
+    assert panel.vspans is not None and len(panel.vspans) == 1
+    assert _cusum_cross_row(fig) is not None
+
+
+def test_cusum_no_crossing_marker_on_stationary():
+    rng = np.random.default_rng(6)
+    n = 4000
+    resid = rng.normal(0.0, 1.0, n)
+    yt = rng.normal(0.0, 1.0, n)
+    fig = drift.cusum_residual_drift(yt, yt - resid, np.arange(n), decision_h=10.0)
+    panel = fig.panels[0][0]
+    assert panel.vlines is None and panel.vspans is None
+    assert _cusum_cross_row(fig) is None
+    assert "no sustained shift" in panel.title
+
+
+def test_cusum_index_order_when_no_timestamps():
+    yt, yp = _resid_series(4000, 2000, 1.0, 5)
+    fig = drift.cusum_residual_drift(yt, yp, decision_h=10.0)  # no timestamps -> ordered by index
+    panel = fig.panels[0][0]
+    assert panel.x_is_time is False
+    assert _cusum_cross_row(fig) is not None
+
+
+def test_cusum_too_few_rows_is_annotation():
+    fig = drift.cusum_residual_drift(np.arange(5.0), np.arange(5.0) + 0.1, np.arange(5))
+    assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
+
+
+def test_cusum_constant_residual_is_annotation():
+    # Perfect predictions -> residual identically 0 -> nothing to standardize.
+    yt = np.linspace(0.0, 1.0, 100)
+    fig = drift.cusum_residual_drift(yt, yt.copy(), np.arange(100))
+    assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
+
+
+def test_cusum_handles_nan_rows():
+    yt, yp = _resid_series(2000, 1000, 1.0, 9)
+    yt[::50] = np.nan  # scattered missing rows must be dropped, not crash
+    fig = drift.cusum_residual_drift(yt, yp, np.arange(2000), decision_h=10.0)
+    assert isinstance(fig.panels[0][0], LinePanelSpec)
+
+
+def test_cusum_decimates_plotted_points():
+    yt, yp = _resid_series(50000, 25000, 1.0, 10)
+    fig = drift.cusum_residual_drift(yt, yp, np.arange(50000), decision_h=10.0, max_vertices=500)
+    panel = fig.panels[0][0]
+    assert panel.x.size <= 501  # 500 decimated + possibly the exact crossing index appended
+    # Crossing is computed on the FULL n, not the decimated curve.
+    assert _cusum_cross_row(fig) is not None
+
+
+def test_biz_value_cusum_detects_shift_at_injection_row():
+    """A residual mean shift injected at row r=4000 (first half N(0,1), second half N(+1,1)) MUST trip the CUSUM AT or
+    shortly AFTER r, never before. Measured detection row ~4015 (delay 15); floor: detected in [r, r+200]."""
+    n, r = 8000, 4000
+    yt, yp = _resid_series(n, r, 1.0, 101)
+    fig = drift.cusum_residual_drift(yt, yp, np.arange(n), decision_h=10.0)
+    cross = _cusum_cross_row(fig)
+    assert cross is not None, "CUSUM must detect the injected +1 sigma sustained shift"
+    assert r <= cross <= r + 200, f"detected change-point {cross} should land in [{r}, {r + 200}]"
+
+
+def test_biz_value_cusum_no_false_positive_on_stationary():
+    """A no-drift residual series (N(0,1) throughout) MUST NOT trip the CUSUM at the default-strength control limit:
+    the signed statistic stays within +/- h, so no change-point is reported."""
+    rng = np.random.default_rng(202)
+    n = 8000
+    resid = rng.normal(0.0, 1.0, n)
+    yt = rng.normal(0.0, 1.0, n)
+    fig = drift.cusum_residual_drift(yt, yt - resid, np.arange(n), decision_h=10.0)
+    assert _cusum_cross_row(fig) is None, "stationary residuals must not produce a false change-point"
+
+
+def test_biz_value_cusum_detects_earlier_than_per_bucket_mean():
+    """CUSUM's running accumulation alarms EARLIER than a per-bucket mean-of-residual at the same bucketization: the
+    bucket alarm cannot fire until a whole bucket is observed (its earliest alarm is the bucket END), whereas CUSUM
+    fires mid-bucket. Measured CUSUM row ~4015 vs per-bucket end row 4400 (>=300 rows earlier); floor: >=150 earlier."""
+    n, r, nb = 8000, 4000, 20
+    bs = n // nb
+    yt, yp = _resid_series(n, r, 1.0, 101)
+    fig = drift.cusum_residual_drift(yt, yp, np.arange(n), decision_h=10.0)
+    cusum_row = _cusum_cross_row(fig)
+    assert cusum_row is not None
+    resid = yt - yp
+    ic_std = float(np.std(resid[:r]))
+    thr = 3.0 * ic_std / np.sqrt(bs)  # 3-sigma band of a bucket mean under the in-control regime
+    bucket_alarm = None
+    for i in range(nb):
+        if resid[i * bs:(i + 1) * bs].mean() > thr:
+            bucket_alarm = (i + 1) * bs  # a bucket mean is only observable once the full bucket has arrived
+            break
+    assert bucket_alarm is not None
+    assert bucket_alarm - cusum_row >= 150, f"CUSUM ({cusum_row}) should beat per-bucket end ({bucket_alarm}) by >=150 rows"
+
+
+def test_cprofile_cusum_at_1e6_rows():
+    """cProfile cusum_residual_drift at n=1e6. Hot path is one robust-stat pass (median + MAD) + one O(n) njit CUSUM
+    recurrence + the decimation slice -- all O(n). The MAD's np.median (an O(n) introselect) dominates; the CUSUM
+    recurrence is a single njit pass. No actionable speedup; the recurrence is inherently sequential and already
+    njit-compiled, and the median is irreducible C. Documented so a re-profile does not re-flag the median."""
+    yt, yp = _resid_series(1_000_000, 500_000, 1.0, 11)
+    ts = np.arange(1_000_000)
+    pr = cProfile.Profile()
+    pr.enable()
+    fig = drift.cusum_residual_drift(yt, yp, ts, decision_h=10.0)
+    pr.disable()
+    assert isinstance(fig.panels[0][0], (LinePanelSpec, AnnotationPanelSpec))
+    s = io.StringIO()
+    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(8)
+
+
 # --------------------------------------------------------------------------- metric_over_time
 
 

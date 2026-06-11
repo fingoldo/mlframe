@@ -356,6 +356,20 @@ def _b():
     return residual_vs_time(yt, yp, ts, x_is_time=False)
 
 
+@entry("drift", "cusum_residual_drift", "Two-sided tabular CUSUM of standardized residuals: a sustained mean shift trips the control limit (change-point marked).")
+def _b():
+    from mlframe.reporting.charts.drift import cusum_residual_drift
+    n = 6000
+    shift = n // 2
+    ts = np.arange(n)
+    yt = RNG.normal(0.0, 1.0, size=n)
+    # Residual is unbiased in the first half, then a sustained +1 sigma mean shift kicks in -- the CUSUM accumulates
+    # the small persistent bias and crosses its control limit shortly after the break.
+    resid = np.concatenate([RNG.normal(0.0, 1.0, shift), RNG.normal(1.0, 1.0, n - shift)])
+    yp = yt - resid
+    return cusum_residual_drift(yt, yp, ts, x_is_time=False, decision_h=10.0)
+
+
 @entry("drift", "metric_over_time", "Rolling metric per time bucket with regime shading.")
 def _b():
     import pandas as pd

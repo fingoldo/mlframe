@@ -1,12 +1,15 @@
 """Temporal-drift + adversarial-validation diagnostics for time-ordered tabular data.
 
-Four spec builders (each returns a pure-data FigureSpec, no matplotlib/plotly objects):
+Five spec builders (each returns a pure-data FigureSpec, no matplotlib/plotly objects):
 
 - ``psi_heatmap``            -- Population Stability Index per feature per time bucket vs a baseline
                                (train slice or rolling): features x time HeatmapPanelSpec with the 0.10 / 0.25
                                triage thresholds. PSI > 0.25 in a feature's later buckets => that feature drifted.
 - ``residual_vs_time``       -- regression residual mean +- std per time bin (LinePanelSpec band): bias drift
                                (mean wandering off zero) + variance drift (band widening) over time.
+- ``cusum_residual_drift``   -- two-sided tabular CUSUM of standardized residuals: catches a SUSTAINED mean shift
+                               (structural break) earlier than per-bucket residual_vs_time, since a small persistent
+                               bias accumulates past the control limit before any single bucket's mean looks abnormal.
 - ``metric_over_time``       -- wraps ``training.evaluation.compute_ml_perf_by_time`` (numpy-fast, byte-identical)
                                into a LinePanelSpec, with per-split / regime shading via vspans.
 - ``adversarial_validation`` -- the Kaggle "will my CV transfer" panel: a LightGBM classifier separating
@@ -22,6 +25,12 @@ from __future__ import annotations
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+
+try:
+    from numba import njit
+    _NUMBA_AVAILABLE = True
+except ImportError:
+    _NUMBA_AVAILABLE = False
 
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
@@ -296,6 +305,166 @@ def residual_vs_time(
         band=(mean - std, mean + std),
         band_color="steelblue",
         band_label="+/- 1 std",
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+
+
+# Two-sided tabular CUSUM defaults (Page 1954 / Montgomery SPC): slack k=0.5 sigma is tuned to detect a 1-sigma
+# sustained shift fastest. The textbook decision interval is h=5 sigma (ARL_0 ~ 930), but a drift chart often runs
+# over many thousands of rows where ARL_0 930 produces nuisance false alarms; h=8 sigma pushes ARL_0 into the tens of
+# thousands so a no-drift series stays quiet, at a small cost in detection delay on a true shift. Residuals are
+# standardized first so k/h are in sigma units regardless of the residual scale.
+CUSUM_SLACK_K: float = 0.5
+CUSUM_DECISION_H: float = 8.0
+# Robust in-control mean/std from the FIRST in_control_frac of the time-ordered residuals (the period assumed drift-
+# free); median + MAD (scaled to sigma by 1.4826) resist the very mean-shift we are trying to detect downstream.
+CUSUM_IN_CONTROL_FRAC: float = 0.25
+_MAD_TO_SIGMA: float = 1.4826
+
+
+def _cusum_tabular_loop(z: np.ndarray, k: float, h: float) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Two-sided tabular CUSUM recurrence over standardized residuals ``z``.
+
+    ``sp_t = max(0, sp_{t-1} + z_t - k)`` accumulates positive drift, ``sm_t = max(0, sm_{t-1} - z_t - k)`` negative
+    drift. Returns ``(sp, sm, cross_idx)`` where ``cross_idx`` is the first index at which either arm exceeds ``h``
+    (the detected change-point), or -1 if neither crosses. Inherently sequential (each step clips at 0), so this is a
+    single O(n) pass -- njit-compiled when numba is present, plain-Python-loop fallback otherwise.
+    """
+    n = z.shape[0]
+    sp = np.empty(n, dtype=np.float64)
+    sm = np.empty(n, dtype=np.float64)
+    prev_p = 0.0
+    prev_m = 0.0
+    cross = -1
+    for i in range(n):
+        cur_p = prev_p + z[i] - k
+        if cur_p < 0.0:
+            cur_p = 0.0
+        cur_m = prev_m - z[i] - k
+        if cur_m < 0.0:
+            cur_m = 0.0
+        sp[i] = cur_p
+        sm[i] = cur_m
+        if cross < 0 and (cur_p > h or cur_m > h):
+            cross = i
+        prev_p = cur_p
+        prev_m = cur_m
+    return sp, sm, cross
+
+
+if _NUMBA_AVAILABLE:
+    _cusum_tabular = njit(cache=True)(_cusum_tabular_loop)
+else:
+    _cusum_tabular = _cusum_tabular_loop
+
+
+def cusum_residual_drift(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    timestamps: Optional[np.ndarray] = None,
+    *,
+    slack_k: float = CUSUM_SLACK_K,
+    decision_h: float = CUSUM_DECISION_H,
+    in_control_frac: float = CUSUM_IN_CONTROL_FRAC,
+    max_vertices: int = 2000,
+    x_is_time: bool = True,
+    title: str = "Residual drift CUSUM (sustained mean shift)",
+    figsize: Tuple[float, float] = (11.0, 4.0),
+) -> FigureSpec:
+    """Two-sided tabular CUSUM of standardized regression residuals -- detects a SUSTAINED mean shift (INV-).
+
+    Residual = y_true - y_pred is standardized by a robust in-control mean/std (median + MAD over the first
+    ``in_control_frac`` of the time-ordered rows, the period assumed drift-free), then run through the classic
+    two-sided tabular CUSUM with slack ``k`` and decision interval ``h`` (defaults h=8/k=0.5: detects a sustained
+    1-sigma shift fast while keeping false alarms rare over long series). Each arm accumulates one-sided drift and
+    resets to 0 in-control, so a small persistent bias
+    accumulates past ``h`` and trips a change-point alarm long before any single bucket's mean looks abnormal -- the
+    edge over per-bucket ``residual_vs_time``. The detected change-point (first arm crossing) is drawn as a vline and a
+    shaded post-change span; ``+h`` is an hline control limit.
+
+    O(n): one robust-stat pass + one cumulative CUSUM recurrence (njit). The crossing is computed on the FULL n; only
+    the PLOTTED curve is decimated to ``max_vertices`` (the crossing marker stays at its true x). ``timestamps`` orders
+    the residuals (index order when None). Edge-degenerate input (n small, all-equal residuals, all-NaN) ->
+    AnnotationPanelSpec. Returns a single-panel FigureSpec.
+    """
+    yt = np.asarray(y_true, dtype=np.float64).ravel()
+    yp = np.asarray(y_pred, dtype=np.float64).ravel()
+    mask = np.isfinite(yt) & np.isfinite(yp)
+    if timestamps is not None:
+        ts = np.asarray(timestamps).ravel()
+        mask &= np.isfinite(ts.astype(np.float64)) if np.issubdtype(ts.dtype, np.number) else mask
+    yt, yp = yt[mask], yp[mask]
+    n = yt.size
+    if n < 8:
+        ann: PanelSpec = AnnotationPanelSpec(text=f"cusum_residual_drift: need >= 8 finite rows (got {n})", title=title)
+        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
+
+    if timestamps is not None:
+        ts = np.asarray(timestamps).ravel()[mask]
+        order = np.argsort(ts, kind="stable")
+        resid = (yt - yp)[order]
+        x_full = ts[order].astype(np.float64)
+    else:
+        resid = yt - yp
+        x_full = np.arange(n, dtype=np.float64)
+        x_is_time = False
+
+    n_ic = max(4, int(round(in_control_frac * n)))
+    ic = resid[:n_ic]
+    center = float(np.median(ic))
+    mad = float(np.median(np.abs(ic - center)))
+    sigma = mad * _MAD_TO_SIGMA
+    if not np.isfinite(sigma) or sigma <= 0.0:
+        # MAD collapses on a near-constant in-control window; fall back to the full-series std (then a tiny floor) so a
+        # shift that begins right after the in-control window is still standardized on a real scale, not divided by 0.
+        sigma = float(np.std(resid))
+    if not np.isfinite(sigma) or sigma <= 0.0:
+        ann = AnnotationPanelSpec(text="cusum_residual_drift: residuals are constant (no variation to standardize)", title=title)
+        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
+
+    z = (resid - center) / sigma
+    sp, sm, cross = _cusum_tabular(z, float(slack_k), float(decision_h))
+    # Signed CUSUM for a readable single curve: positive arm minus negative arm. Both arms are >= 0 and only one is
+    # active at a time once drift sets in, so the difference shows direction (up-shift positive, down-shift negative).
+    stat = sp - sm
+
+    x_plot, sp_p, sm_p, stat_p = x_full, sp, sm, stat
+    if n > max_vertices:
+        keep = np.unique(np.linspace(0, n - 1, max_vertices).astype(np.int64))
+        if cross >= 0 and cross not in keep:
+            keep = np.unique(np.concatenate([keep, np.array([cross], dtype=np.int64)]))
+        x_plot, sp_p, sm_p, stat_p = x_full[keep], sp[keep], sm[keep], stat[keep]
+
+    hi = np.full_like(x_plot, float(decision_h))
+    lo = np.full_like(x_plot, -float(decision_h))
+    series = (stat_p, sp_p, sm_p, hi, lo)
+    labels = ("signed CUSUM (S+ - S-)", "S+ (up-shift)", "S- (down-shift)", f"+h ({decision_h:g} sigma)", "-h")
+    styles = ("-", "-", "-", "--", "--")
+    colors = ("steelblue", "darkorange", "purple", "red", "red")
+
+    vlines = None
+    vspans = None
+    if cross >= 0:
+        cx = float(x_full[cross])
+        direction = "up" if sp[cross] > sm[cross] else "down"
+        vlines = ((cx, "red", f"change-point @ {direction}-shift"),)
+        vspans = ((cx, float(x_full[-1]), "red", 0.07, "post-change"),)
+        subtitle = f"\nchange-point detected at ordered-row {cross} ({direction}-shift); h={decision_h:g}, k={slack_k:g} sigma"
+    else:
+        subtitle = f"\nno sustained shift detected (CUSUM stayed within +/-{decision_h:g} sigma); k={slack_k:g}"
+
+    line = LinePanelSpec(
+        x=x_plot,
+        y=series,
+        series_labels=labels,
+        title=title + subtitle,
+        xlabel="time" if x_is_time else "ordered row",
+        ylabel="CUSUM statistic (sigma)",
+        line_styles=styles,
+        colors=colors,
+        x_is_time=x_is_time,
+        vlines=vlines,
+        vspans=vspans,
     )
     return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
 
@@ -575,11 +744,15 @@ __all__ = [
     "PSI_MODERATE",
     "PSI_SIGNIFICANT",
     "PSI_DEFAULT_BINS",
+    "CUSUM_SLACK_K",
+    "CUSUM_DECISION_H",
+    "CUSUM_IN_CONTROL_FRAC",
     "ADV_MAX_ROWS_PER_SIDE",
     "ADV_TOP_FEATURES",
     "compute_psi_matrix",
     "psi_heatmap",
     "residual_vs_time",
+    "cusum_residual_drift",
     "metric_over_time",
     "adversarial_auc",
     "adversarial_validation",
