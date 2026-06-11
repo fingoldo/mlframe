@@ -196,6 +196,7 @@ def fast_calibration_report(
     show_inline_population_labels: bool = True,
     binning_strategy: str = "auto",
     reliability_show_ci: bool = True,
+    reliability_smoothed: bool = True,
     #
     plot_file: str = "",
     plot_outputs: Optional[str] = None,
@@ -234,6 +235,11 @@ def fast_calibration_report(
     ``reliability_show_ci`` (default on) renders the per-bin Wilson CI band on the
     reliability diagram; set False to suppress it (the toggle reaches the chart via
     ``show_calibration_plot`` -> ``build_calibration_spec(show_wilson_ci=...)``).
+
+    ``reliability_smoothed`` (default on) overlays a binning-free smoothed isotonic reliability curve. The raw per-row
+    ``(y_pred, y_true)`` arrays this function already holds (post finite-mask) are forwarded as views to
+    ``show_calibration_plot`` -> ``build_calibration_spec(raw_probs=, raw_labels=)``; the smoother subsamples internally
+    so no extra full-n copy is made. The overlay rides the DSL render path only; the legacy inline path is unaffected.
     """
 
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
@@ -409,6 +415,9 @@ def fast_calibration_report(
             prob_histogram_yscale=prob_histogram_yscale,
             show_inline_population_labels=show_inline_population_labels,
             show_wilson_ci=reliability_show_ci,
+            reliability_smoothed=reliability_smoothed,
+            raw_probs=y_pred,
+            raw_labels=y_true,
             dpi=dpi,
         )
 

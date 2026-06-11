@@ -110,6 +110,7 @@ def report_probabilistic_model_perf(
     plot_dpi: int | None = None,
     calibration_binning: str | None = None,
     reliability_show_ci: bool | None = None,
+    reliability_smoothed: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -449,6 +450,9 @@ def report_probabilistic_model_perf(
             prob_histogram_yscale=prob_histogram_yscale,
             show_inline_population_labels=show_inline_population_labels,
             dpi=plot_dpi,
+            # Smoothed isotonic reliability overlay: fast_calibration_report forwards the per-row (y_pred, y_true)
+            # views it already holds as raw_probs/raw_labels, so the overlay is default-ON in suite reliability diagrams.
+            reliability_smoothed=reliability_smoothed,
         )
         # Thread the DSL render path: when ReportingConfig.plot_outputs is set,
         # fast_calibration_report routes the reliability diagram through

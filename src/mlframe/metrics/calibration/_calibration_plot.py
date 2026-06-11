@@ -399,6 +399,9 @@ def show_calibration_plot(
     base_path: Optional[str] = None,
     dpi: Optional[int] = None,
     show_wilson_ci: bool = True,
+    reliability_smoothed: bool = True,
+    raw_probs: Optional[np.ndarray] = None,
+    raw_labels: Optional[np.ndarray] = None,
 ):
     """Plots reliability digaram from the binned predictions.
 
@@ -418,6 +421,11 @@ def show_calibration_plot(
     keep only one. ``show_wilson_ci`` (default on) controls the per-bin Wilson CI
     band on the reliability scatter; it is forwarded to ``build_calibration_spec``
     (the legacy inline matplotlib path draws no CI band, so it has no effect there).
+
+    ``reliability_smoothed`` (default on) overlays a binning-free smoothed isotonic reliability curve fit on the raw
+    per-row ``(raw_probs, raw_labels)`` pairs; these are passed as views, the smoother subsamples internally so no extra
+    full-n copy is made. The overlay reaches the chart only via the DSL render path (build_calibration_spec); the legacy
+    inline matplotlib path has no overlay. Absent raw arrays -> overlay simply not drawn (binned-only diagram, no crash).
     """
 
     # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
@@ -450,6 +458,9 @@ def show_calibration_plot(
             figsize=figsize,
             yscale=prob_histogram_yscale,
             show_wilson_ci=show_wilson_ci,
+            reliability_smoothed=reliability_smoothed,
+            raw_probs=raw_probs,
+            raw_labels=raw_labels,
         )
         if plot_outputs and base_path:
             _outputs = parse_plot_output_dsl(plot_outputs)
