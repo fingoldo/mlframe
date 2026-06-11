@@ -223,6 +223,9 @@ class ReportingConfig(BaseConfig):
     pdp_top_features: int = 4
     pdp_sample: int = 2000
     pdp_grid: int = 20
+    # 2-D PDP response surface (filled contour) for the top interacting feature pair -- shows non-additive interaction
+    # SHAPE a 1-D PDP averages away. Opt-in: costs ``pdp_grid`` extra predicts per pair on top of the 1-D PDP pass.
+    pdp_2d_charts: bool = False
     # Multi-model leaderboard, assembled per-target from the per-model preds/metrics the suite already collected; only
     # rendered when >=2 models were trained on the same task (single-model runs skip cheaply).
     model_comparison: bool = True

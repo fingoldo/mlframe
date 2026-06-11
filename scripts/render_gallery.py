@@ -667,6 +667,23 @@ def _b():
     )
 
 
+@entry("pdp_2d", "pdp_2d", "2-D partial-dependence response surface (filled contour) for the top interacting feature pair on a planted f0*f1 twist.")
+def _b():
+    import pandas as pd
+    from sklearn.ensemble import RandomForestRegressor
+    from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure
+    n, K = 3000, 4
+    names = [f"f{i}" for i in range(K)]
+    X = RNG.uniform(-2.0, 2.0, size=(n, K))
+    # Saddle/twist: response is the product f0*f1 so the surface is non-separable (1-D PDP would average it away).
+    y = X[:, 0] * X[:, 1] + 0.3 * X[:, 2] + RNG.normal(0.0, 0.2, size=n)
+    Xdf = pd.DataFrame(X, columns=names)
+    model = RandomForestRegressor(n_estimators=60, max_depth=8, random_state=0, n_jobs=1).fit(Xdf, y)
+    return compose_pdp_2d_figure(
+        model, Xdf, "f0", "f1", suptitle="2-D partial dependence (f0 x f1 twist)", sample_rows=800, grid=18,
+    )
+
+
 # ---------------------------------------------------------------------------
 # MODEL COMPARISON
 # ---------------------------------------------------------------------------
