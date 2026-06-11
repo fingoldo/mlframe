@@ -561,7 +561,17 @@ class ModelPipelineStrategy(ABC):
                 or hasattr(base_pipeline, 'get_support')  # RFECV and similar
             )
 
-        # Feature selectors go FIRST (before preprocessing)
+        # Whether the cat encoder must run BEFORE the feature selector: a selector whose internal estimator is numeric
+        # (RFECV with a linear estimator, MRMR's numeric MI path) crashes with "could not convert string to float: 'C'"
+        # on raw string cats. When the strategy itself requires encoding, place the encoder ahead of the selector so the
+        # selector operates on encoded numeric features. Strategies with native cat handling (requires_encoding=False)
+        # keep the selector-first order so their estimator sees the raw cats.
+        _encode_before_selector = bool(self.requires_encoding and cat_features and category_encoder is not None)
+
+        if _encode_before_selector:
+            steps.append(("ce", category_encoder))
+
+        # Feature selectors go FIRST (before preprocessing, but AFTER cat-encoding when the strategy requires it).
         if base_pipeline is not None and is_feature_selector:
             steps.append(("pre", base_pipeline))
 
@@ -569,7 +579,7 @@ class ModelPipelineStrategy(ABC):
         # numeric step and the model see a pure-numeric frame. No-op unless the strategy overrides the hook.
         steps.extend(self._extra_pre_encoding_steps(embedding_features, text_features))
 
-        # Add category encoding if required and categorical features exist.
+        # Add category encoding if required and categorical features exist (unless already placed before the selector).
         # Observability guard (2026-04-19 round-9 probe): if the strategy
         # declares ``requires_encoding=True`` AND there are cat_features
         # in the data BUT the caller passed ``category_encoder=None``,
@@ -579,7 +589,7 @@ class ModelPipelineStrategy(ABC):
         # so operators see the missing dependency at the source. We don't
         # raise because some tests/callers legitimately pre-encode cats
         # upstream and pass encoder=None; the WARN is enough signal.
-        if self.requires_encoding and cat_features:
+        if self.requires_encoding and cat_features and not _encode_before_selector:
             if category_encoder is not None:
                 steps.append(("ce", category_encoder))
             else:
