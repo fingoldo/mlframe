@@ -26,6 +26,63 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+# Data-aware emphasis panel orders. Tokens are intersected with the available
+# binary set, so a token absent from the composer (e.g. a DECISION_CURVE that
+# lives on the separate wired path) is silently skipped, never invented.
+# Imbalanced leads with PR / THRESHOLD and drops ROC, which is optimistic
+# under skew; balanced leads with ROC.
+_EMPHASIS_IMBALANCED = ("PR", "THRESHOLD", "SCORE_DIST", "KS", "GAIN")
+_EMPHASIS_BALANCED = ("ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD")
+# Below this many usable rows the base rate is too noisy to trust; emphasis
+# falls back to the requested panel set unchanged.
+_EMPHASIS_MIN_ROWS = 50
+
+
+def select_binary_emphasis_panels(
+    y_true: np.ndarray,
+    requested_panels: str,
+    *,
+    emphasis: str = "all",
+    imbalance_lo: float = 0.2,
+    imbalance_hi: float = 0.8,
+) -> str:
+    """Choose the emphasized binary panel order for the data at hand.
+
+    Returns ``requested_panels`` unchanged for ``emphasis="all"`` (default,
+    fully back-compatible). For ``emphasis="data_aware"`` it derives the
+    positive base rate from ``y_true`` (one O(n) ``mean``) and reorders /
+    selects within the tokens already present in ``requested_panels``:
+    imbalanced (base rate < ``imbalance_lo`` or > ``imbalance_hi``) leads with
+    PR / THRESHOLD and drops ROC; balanced leads with ROC. Single-class or
+    tiny-n inputs fall back to ``requested_panels`` (no emphasis, no crash).
+    """
+    if emphasis != "data_aware" or not requested_panels:
+        return requested_panels
+    requested = [t for t in requested_panels.split() if t]
+    if not requested:
+        return requested_panels
+    yt = np.asarray(y_true).ravel()
+    finite = yt[np.isfinite(yt)] if yt.dtype.kind == "f" else yt
+    n = finite.shape[0]
+    if n < _EMPHASIS_MIN_ROWS:
+        return requested_panels
+    n_pos = int(np.count_nonzero(finite))
+    if n_pos == 0 or n_pos == n:
+        return requested_panels
+    base_rate = n_pos / n
+    imbalanced = base_rate < imbalance_lo or base_rate > imbalance_hi
+    order = _EMPHASIS_IMBALANCED if imbalanced else _EMPHASIS_BALANCED
+    keep = set(requested)
+    emphasized = [t for t in order if t in keep]
+    if not emphasized:
+        return requested_panels
+    # Append the other requested tokens the emphasis order does not lead with so a
+    # data_aware run never silently loses a panel the operator wanted -- except ROC
+    # under imbalance, which is dropped outright since it is optimistic there.
+    tail = [t for t in requested if t not in emphasized and not (imbalanced and t == "ROC")]
+    return " ".join(emphasized + tail)
+
+
 def render_multi_target_panels(
     *,
     targets: np.ndarray,
@@ -47,6 +104,10 @@ def render_multi_target_panels(
     max_cols: int = 2,
     target_type: Optional[str] = None,
     plot_dpi: Optional[int] = None,
+    panel_emphasis: str = "all",
+    binary_panels_is_default: bool = False,
+    emphasis_imbalance_lo: float = 0.2,
+    emphasis_imbalance_hi: float = 0.8,
 ) -> Optional[str]:
     """Pick the right composer for the input shapes and render.
 
@@ -239,6 +300,14 @@ def render_multi_target_panels(
         elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
             y_score = probs_arr.ravel()
         if y_score is not None:
+            # Data-aware emphasis only when the operator left binary_panels at its
+            # default; an explicit custom template is never reordered/dropped.
+            effective_binary_panels = binary_panels
+            if panel_emphasis == "data_aware" and binary_panels_is_default:
+                effective_binary_panels = select_binary_emphasis_panels(
+                    targets_arr, binary_panels, emphasis="data_aware",
+                    imbalance_lo=emphasis_imbalance_lo, imbalance_hi=emphasis_imbalance_hi,
+                )
             try:
                 from mlframe.reporting.charts.binary import compose_binary_figure
                 from mlframe.reporting.output import parse_plot_output_dsl
@@ -246,7 +315,7 @@ def render_multi_target_panels(
 
                 spec = compose_binary_figure(
                     targets_arr, np.asarray(y_score),
-                    panels_template=binary_panels, threshold=threshold,
+                    panels_template=effective_binary_panels, threshold=threshold,
                     cost_ratio=cost_ratio, suptitle=suptitle, max_cols=max_cols,
                 )
                 if plot_dpi is not None:
@@ -263,4 +332,4 @@ def render_multi_target_panels(
     return None
 
 
-__all__ = ["render_multi_target_panels"]
+__all__ = ["render_multi_target_panels", "select_binary_emphasis_panels"]

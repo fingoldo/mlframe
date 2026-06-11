@@ -152,6 +152,42 @@ def _b():
     )
 
 
+@entry("binary", "panel_emphasis_imbalanced",
+       "Data-aware panel emphasis on a rare-event target (base rate ~0.03): the adaptive order leads with PR + threshold-sweep and "
+       "drops the optimistic-under-imbalance ROC, so the operator sees the diagnostics that actually matter under skew first.")
+def _b():
+    from mlframe.reporting.charts.binary import compose_binary_figure
+    from mlframe.reporting.auto_dispatch import select_binary_emphasis_panels
+    y = (RNG.random(6000) < 0.03).astype(np.int8)
+    raw = RNG.normal(loc=1.6 * y, scale=1.0, size=len(y))
+    score = 1.0 / (1.0 + np.exp(-raw))
+    template = select_binary_emphasis_panels(
+        y, "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT", emphasis="data_aware",
+    )
+    return compose_binary_figure(
+        y, score, panels_template=template,
+        suptitle=f"Data-aware emphasis (base rate ~0.03): {template}",
+    )
+
+
+@entry("binary", "panel_emphasis_balanced",
+       "Data-aware panel emphasis on a balanced target (base rate ~0.5): the adaptive order leads with ROC, which is informative when "
+       "the classes are even, ahead of PR / score-dist / KS / threshold.")
+def _b():
+    from mlframe.reporting.charts.binary import compose_binary_figure
+    from mlframe.reporting.auto_dispatch import select_binary_emphasis_panels
+    y = (RNG.random(6000) < 0.5).astype(np.int8)
+    raw = RNG.normal(loc=1.3 * y, scale=1.0, size=len(y))
+    score = 1.0 / (1.0 + np.exp(-raw))
+    template = select_binary_emphasis_panels(
+        y, "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT", emphasis="data_aware",
+    )
+    return compose_binary_figure(
+        y, score, panels_template=template,
+        suptitle=f"Data-aware emphasis (base rate ~0.5): {template}",
+    )
+
+
 @entry("binary", "decile_table",
        "Credit-scoring decile gain/lift table: per-decile response / cumulative-gain / lift / cumulative-KS (top deciles highlighted, TOTAL row).")
 def _b():

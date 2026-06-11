@@ -182,6 +182,10 @@ class ReportingConfig(BaseConfig):
     # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against the chart modules' ALLOWED_*_PANEL_TOKENS frozensets, no duplicates). All-by-default; operator removes tokens to skip individual panels.
     # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/KS/THRESHOLD/GAIN by default.
     binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
+    # Opt-in data-aware panel emphasis for the binary report. ``"all"`` (default) keeps the full binary_panels set in order (back-compat, no surprise). ``"data_aware"`` derives the positive base rate from y_true at dispatch and emphasizes the panels that matter for that skew: imbalanced (base rate < emphasis_imbalance_lo or > _hi) leads with PR / THRESHOLD and drops the optimistic-under-imbalance ROC; balanced leads with ROC. Only applies when binary_panels is left at its default; a custom binary_panels is never reordered. Single-class / tiny-n falls back to "all".
+    panel_emphasis: Literal["all", "data_aware"] = "all"
+    emphasis_imbalance_lo: float = 0.2
+    emphasis_imbalance_hi: float = 0.8
     # CONFUSION_MARGINS flanks the confusion heatmap with per-true-class support + per-pred-class precision bars, so a class imbalance that explains a confusion block is visible in one panel.
     multiclass_panels: str = "CONFUSION CONFUSION_MARGINS CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     # THRESHOLD_SWEEP adds the per-label argmax-F1 cutoff heatmap (per-label, not a global threshold) -- the operating-point picker for multilabel.

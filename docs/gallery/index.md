@@ -3,7 +3,7 @@
 Every chart / diagnostic in the mlframe reporting subsystem, rendered to PNG on synthetic
 data chosen to make each chart meaningful. Regenerate with `python scripts/render_gallery.py`.
 
-Total images: 37 across 18 categories.
+Total images: 40 across 19 categories.
 
 ## Contents
 
@@ -21,6 +21,7 @@ Total images: 37 across 18 categories.
 - [slice_finder](#slice-finder)
 - [pdp_ice](#pdp-ice)
 - [model_comparison](#model-comparison)
+- [split_comparison](#split-comparison)
 - [training_curve](#training-curve)
 - [learning_curve](#learning-curve)
 - [temporal](#temporal)
@@ -48,6 +49,18 @@ ROC, PR, score distribution, KS, threshold sweep, gain, PIT.
 
 ![binary_full](binary/binary_full.png)
 
+### panel_emphasis_imbalanced
+
+Data-aware panel emphasis on a rare-event target (base rate ~0.03): the adaptive order leads with PR + threshold-sweep and drops the optimistic-under-imbalance ROC, so the operator sees the diagnostics that actually matter under skew first.
+
+![panel_emphasis_imbalanced](binary/panel_emphasis_imbalanced.png)
+
+### panel_emphasis_balanced
+
+Data-aware panel emphasis on a balanced target (base rate ~0.5): the adaptive order leads with ROC, which is informative when the classes are even, ahead of PR / score-dist / KS / threshold.
+
+![panel_emphasis_balanced](binary/panel_emphasis_balanced.png)
+
 ### decile_table
 
 Credit-scoring decile gain/lift table: per-decile response / cumulative-gain / lift / cumulative-KS (top deciles highlighted, TOTAL row).
@@ -62,7 +75,7 @@ Decision-curve analysis: model net-benefit vs treat-all / treat-none policies.
 
 ### calibration_reliability
 
-Reliability diagram with Wilson CI bands + binning-free smoothed (isotonic) overlay + standard & debiased ECE annotation + population histogram.
+Reliability diagram with Wilson CI bands + binning-free smoothed (isotonic) overlay + bootstrap 95% band (significant-fraction annotation) + standard & debiased ECE annotation + population histogram.
 
 ![calibration_reliability](binary/calibration_reliability.png)
 
@@ -222,6 +235,14 @@ ROC overlay + leaderboard bars + between-model prediction-correlation heatmap (3
 
 ![model_comparison](model_comparison/model_comparison.png)
 
+## split_comparison
+
+### split_comparison
+
+Cross-split overfitting view for ONE model: grouped headline-metric bars per train/val/test + delta table with a RED traffic-light verdict. Synthetic memorizes train (AUC ~0.99) but barely beats chance on test (AUC ~0.70).
+
+![split_comparison](split_comparison/split_comparison.png)
+
 ## training_curve
 
 ### training_curve
@@ -278,8 +299,8 @@ SHAP beeswarm + dependence plots for a small tree model.
 
 ![shap_shap_dependence_2_f2](shap_panels/shap_shap_dependence_2_f2.png)
 
-### shap_shap_dependence_3_f3
+### shap_shap_dependence_3_f4
 
 SHAP beeswarm + dependence plots for a small tree model.
 
-![shap_shap_dependence_3_f3](shap_panels/shap_shap_dependence_3_f3.png)
+![shap_shap_dependence_3_f4](shap_panels/shap_shap_dependence_3_f4.png)
