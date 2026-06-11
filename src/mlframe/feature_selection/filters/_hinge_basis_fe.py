@@ -53,10 +53,13 @@ returns ``EngineeredRecipe`` objects for leak-safe transform-time replay.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -441,7 +444,7 @@ def generate_hinge_features(
 
 def build_hinge_basis_recipe(
     *, name: str, src_name: str, tau: float, side: str,
-):
+) -> "EngineeredRecipe":
     """Frozen recipe for one hinge basis column.
 
     * ``side="gt"``  -> ``max(X[src_name] - tau, 0)`` (slope change for x > tau);
@@ -563,7 +566,7 @@ def hybrid_hinge_fe_with_recipes(
     top_k: int = 5,
     min_leg_incr_r2: float = 0.005,
     **_legacy_ignored,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list]:
     """Hinge basis FE + held-out-linear-usability selection, returning leak-safe
     recipes. Returns ``(X_augmented, scores, recipes)``.
 

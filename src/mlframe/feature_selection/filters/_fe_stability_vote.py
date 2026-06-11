@@ -129,7 +129,7 @@ def _recipe_clears_fold(
 def confirm_recipes_cross_fold(
     *,
     recipes: dict,
-    X,
+    X: Any,
     y_codes: np.ndarray,
     feature_names_in: list,
     nbins: int,

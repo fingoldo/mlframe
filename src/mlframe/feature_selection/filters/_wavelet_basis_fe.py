@@ -73,10 +73,13 @@ for leak-safe transform-time replay.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -435,7 +438,7 @@ def generate_wavelet_features(
 
 def build_orth_wavelet_recipe(
     *, name: str, src_name: str, j: int, k: int, lo: float, span: float,
-):
+) -> "EngineeredRecipe":
     """Frozen recipe for one Haar wavelet basis column ``psi_{j,k}(z)`` where
     ``z = clip((X[src_name] - lo) / span, 0, 1)`` with the dyadic ``(j, k)`` and
     ``(lo, span)`` fixed at fit time.
@@ -499,7 +502,7 @@ def hybrid_wavelet_fe_with_recipes(
     smooth_complement_ratio: float = _WAVELET_SMOOTH_COMPLEMENT_RATIO,
     nbins: int = 10,
     **_legacy_ignored,
-):
+) -> tuple[pd.DataFrame, list, list, pd.DataFrame]:
     """Haar wavelet basis FE + held-out-incremental-MI selection, returning
     leak-safe recipes. Returns ``(X_augmented, appended_names, recipes, scores)``.
 

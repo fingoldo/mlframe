@@ -61,6 +61,7 @@ from __future__ import annotations
 import logging
 import os
 from itertools import combinations
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -267,7 +268,7 @@ def _finite_diff_mixed_partial_energy(predict_fn, Xs: np.ndarray, pairs, h: floa
 def rank_gradient_interaction_pairs(
     X: np.ndarray,
     y: np.ndarray,
-    candidate_indices,
+    candidate_indices: Sequence[int],
     *,
     row_cap: int = _GRAD_DEFAULT_ROW_CAP,
     n_components: int = _GRAD_DEFAULT_N_COMPONENTS,
@@ -280,7 +281,7 @@ def rank_gradient_interaction_pairs(
     kernel: str = "analytic",
     use_additive_residual: bool = True,
     seed: int = 0,
-):
+) -> tuple[list, dict, dict]:
     """Rank candidate pairs by self-gated mixed-partial energy.
 
     Returns ``(proposed_pairs, energies, diag)`` where ``proposed_pairs`` is the list of
@@ -357,18 +358,18 @@ def rank_gradient_interaction_pairs(
 # ---------------------------------------------------------------------------------------------
 
 def propose_gradient_interaction_pairs(
-    self,
+    self: Any,
     *,
     num_fs_steps: int,
-    data,
-    X_continuous,
-    cols,
-    target_indices,
-    categorical_vars,
+    data: Any,
+    X_continuous: Any,
+    cols: Sequence[str],
+    target_indices: Any,
+    categorical_vars: Any,
     numeric_vars_to_consider: set,
     non_numeric_idx: set,
-    verbose,
-):
+    verbose: int,
+) -> tuple[set, set]:
     """Widen the FE pair pool with operands of high mixed-partial pairs (idea #21 proposer).
 
     Mirrors ``apply_synergy_bootstrap``'s contract: returns

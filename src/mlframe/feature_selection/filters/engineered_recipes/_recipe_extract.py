@@ -44,7 +44,7 @@ def _extract_column(X: Any, name: str) -> np.ndarray:
 _NAN_CODE_KEY = "__MLFRAME_CAT_NAN__"
 
 
-def build_category_code_map(values, block_has_nan: bool | None = None) -> dict:
+def build_category_code_map(values: Any, block_has_nan: bool | None = None) -> dict:
     """Build the fit-time ``raw_value -> integer_code`` mapping for a categorical
     source column so a ``factorize`` / ``target_encoding`` recipe can reproduce
     the SAME codes at transform time.

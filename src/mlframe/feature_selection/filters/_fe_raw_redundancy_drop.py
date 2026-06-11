@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -129,9 +129,9 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
 def drop_redundant_raw_operands(
     *,
     data: np.ndarray,
-    cols,
-    selected_cols_idx,
-    raw_name_set,
+    cols: Sequence[str],
+    selected_cols_idx: Iterable[int],
+    raw_name_set: set,
     y_binned: np.ndarray,
     y_continuous: Optional[np.ndarray] = None,
     engineered_continuous: Optional[dict] = None,

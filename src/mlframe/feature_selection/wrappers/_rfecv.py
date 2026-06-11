@@ -634,8 +634,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             if trial_mean > cur_score:
                 if verbose:
                     logger.info(
-                        f"SFFS swap accepted: {out_f} -> {in_f} improved "
-                        f"{cur_score:.{ndigits}f} -> {trial_mean:.{ndigits}f}"
+                        "SFFS swap accepted: %s -> %s improved %.*f -> %.*f",
+                        out_f, in_f, ndigits, cur_score, ndigits, trial_mean,
                     )
                 cur_set = trial_set
                 cur_score = trial_mean
@@ -648,8 +648,8 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if verbose:
             logger.info(
-                f"SFFS swap pass: {n_swaps_accepted}/{len(swap_out)} paired "
-                f"swaps accepted (best score {cur_score:.{ndigits}f})."
+                "SFFS swap pass: %d/%d paired swaps accepted (best score %.*f).",
+                n_swaps_accepted, len(swap_out), ndigits, cur_score,
             )
 
     # sklearn 1.6 deprecated _get_tags / _more_tags in favour of __sklearn_tags__, which returns a sklearn.utils.Tags dataclass carrying

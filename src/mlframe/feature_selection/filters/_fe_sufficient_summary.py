@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -138,10 +139,10 @@ def sufficient_summary_reached(
     nbins: np.ndarray,
     y_continuous: np.ndarray,
     target_col_idx: int,
-    selected_cols_idx,
+    selected_cols_idx: Sequence[int],
     selected_continuous: dict,
-    raw_cols_idx,
-    cols_names=None,
+    raw_cols_idx: Sequence[int],
+    cols_names: Optional[Sequence[str]] = None,
     quantization_nbins: int = 10,
     residual_entropy_frac: float = _RESIDUAL_ENTROPY_FRAC_DEFAULT,
     maxt_permutations: int = _MAXT_PERMUTATIONS_DEFAULT,
@@ -421,15 +422,15 @@ def sufficient_summary_reached(
 
 
 def check_sufficient_summary_for_mrmr(
-    self,
+    self: Any,
     *,
     data: np.ndarray,
     nbins: np.ndarray,
-    cols,
-    selected_vars,
-    target_indices,
-    X,
-    y,
+    cols: Sequence[str],
+    selected_vars: Sequence[int],
+    target_indices: Sequence[int],
+    X: Any,
+    y: Any,
     verbose: int = 0,
 ) -> SufficientSummaryVerdict:
     """Thin adapter that plumbs ``MRMR.fit``'s greedy-loop state into

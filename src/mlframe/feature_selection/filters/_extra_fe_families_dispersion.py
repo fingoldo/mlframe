@@ -62,10 +62,13 @@ B's contract, plus the stored std).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 # NOTE: the binning helpers ``_digitize_with_edges`` / ``_quantile_edges`` /
 # ``_top_mi_num_cols`` live in the PARENT ``_extra_fe_families`` module, which
@@ -199,7 +202,7 @@ def generate_conditional_dispersion_features(
     *,
     n_bins: int = 10,
     kinds: Sequence[str] = ("absz", "z2"),
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """For every ordered pair ``(x_i, x_j)`` from ``num_cols`` emit the
     conditional dispersion-anomaly columns selected by ``kinds`` (default the two
     NON-monotone folds ``|z|`` and ``z**2`` -- the signed ``z`` is a near-
@@ -297,7 +300,7 @@ def apply_conditional_dispersion(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
 def build_conditional_dispersion_recipe(
     *, name: str, x_i: str, x_j: str, edges: np.ndarray, bin_mean: np.ndarray,
     bin_std: np.ndarray, global_mean: float, global_std: float, kind: str,
-):
+) -> "EngineeredRecipe":
     """Frozen recipe for one NUM x NUM conditional-dispersion column. Extends the
     Family-B ``conditional_residual`` payload with the per-bin std: stores the
     ``x_j`` quantile edges + per-bin ``(mu_hat, sigma_hat)`` of ``x_i`` + the
@@ -475,7 +478,7 @@ def hybrid_conditional_dispersion_fe(
     max_pair_cols: int = 6,
     mi_gate: bool = True,
     mi_gate_top_k: Optional[int] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list["EngineeredRecipe"], pd.DataFrame]:
     """End-to-end conditional-dispersion FE: bound the column set by top raw-MI
     (cardinality bound on the O(p^2) pair pool), materialise the dispersion-
     anomaly columns, MI-gate against the raw-baseline floor (Layer 91), keep top

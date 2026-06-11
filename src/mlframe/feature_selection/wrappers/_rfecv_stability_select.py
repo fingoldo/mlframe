@@ -432,5 +432,6 @@ def select_optimal_nfeatures_(
         dummy_gain = (base_perf[0] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
         allfeat_gain = (base_perf[-1] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
         logger.info(
-            f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds. Gain vs dummy={dummy_gain*100:.1f}%, gain vs all features={allfeat_gain*100:.1f}%"
+            "%d predictive factors selected out of %d during %d rounds. Gain vs dummy=%.1f%%, gain vs all features=%.1f%%",
+            self.n_features_, self.n_features_in_, len(self.selected_features_), dummy_gain * 100, allfeat_gain * 100,
         )

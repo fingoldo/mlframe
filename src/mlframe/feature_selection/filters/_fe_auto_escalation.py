@@ -58,6 +58,7 @@ so fit and transform are bit-identical on the same rows.
 from __future__ import annotations
 
 import logging
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -313,17 +314,17 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
 
 
 def find_underdelivering_pairs(
-    self,
+    self: Any,
     *,
-    prospective_pairs,
-    prospective_additions,
-    X,
-    cols,
-    classes_y,
-    done,
+    prospective_pairs: Any,
+    prospective_additions: dict,
+    X: Any,
+    cols: Sequence[str],
+    classes_y: Any,
+    done: Any,
     max_rows: int = 20000,
     n_permutations: int = 8,
-):
+) -> list[tuple]:
     """UNDERDELIVERY trigger for the auto-escalation (2026-06-10): pairs whose
     unary/binary search DID admit a column, but whose best admitted capture leaves
     SIGNIFICANT conditional pair signal on the table.
@@ -438,17 +439,17 @@ def find_underdelivering_pairs(
 
 
 def run_fe_auto_escalation(
-    self,
+    self: Any,
     *,
-    failed_pairs,
-    X,
-    cols,
-    classes_y,
+    failed_pairs: Any,
+    X: Any,
+    cols: Sequence[str],
+    classes_y: Any,
     pair_maxt_floor: float,
     admitted_pool: dict,
     verbose: int = 0,
     capture_vals: dict | None = None,
-):
+) -> list[dict]:
     """Escalate the FE search to the richer shipped bases for prescreen-surviving pairs
     the unary/binary step admitted NOTHING for (or, via the UNDERDELIVERY trigger,
     admitted only a partial capture for). PROPOSES candidates (signal-adaptive
