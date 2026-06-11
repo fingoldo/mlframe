@@ -43,15 +43,24 @@ _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 
 def _read(rel: str) -> str:
     """Read a source file. For modules that have been split into sibling
-    helpers (e.g. ``mrmr.py`` -> ``_mrmr_fit_impl.py`` /
-    ``_mrmr_fingerprints.py`` / ``_mrmr_fe_step/`` (subpackage) /
-    ``_mrmr_validate_transform.py``), concat every sibling so the
-    source-grep boundary check still matches the relocated code."""
-    primary = (_SRC_ROOT / rel).read_text(encoding="utf-8")
-    if rel == "feature_selection/filters/mrmr.py":
+    helpers / subpackages (e.g. ``mrmr.py`` -> ``mrmr/_mrmr_class.py`` +
+    ``_mrmr_fit_impl.py`` / ``_mrmr_fingerprints.py`` / ``_mrmr_fe_step/``
+    (subpackage) / ``_mrmr_validate_transform.py``), concat every sibling so
+    the source-grep boundary check still matches the relocated code."""
+    _path = _SRC_ROOT / rel
+    if not _path.exists() and _path.suffix == ".py" and (_path.with_suffix("") / "__init__.py").exists():
+        _pkg = _path.with_suffix("")
+        _parts = [(_pkg / "__init__.py").read_text(encoding="utf-8")]
+        for _sub in sorted(_pkg.glob("*.py")):
+            if _sub.name != "__init__.py":
+                _parts.append(_sub.read_text(encoding="utf-8"))
+        primary = "\n".join(_parts)
+    else:
+        primary = _path.read_text(encoding="utf-8")
+    if rel == "feature_selection/filters/mrmr/_mrmr_class.py":
         _dir = _SRC_ROOT / "feature_selection" / "filters"
         for nm in (
-            "_mrmr_fingerprints.py", "_mrmr_fit_impl.py",
+            "mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl.py",
             "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py",
             "_mrmr_validate_transform.py",
         ):

@@ -1,4 +1,9 @@
-"""sklearn-compatible MRMR estimator.
+"""sklearn-compatible MRMR estimator -- the irreducible class body.
+
+The ``MRMR`` class moved here verbatim from the former ``mrmr.py`` monolith; the ``mrmr`` package facade
+(``__init__.py``) re-exports it (and sets ``MRMR.__module__`` to the package path so pickle resolves), runs the
+method bindings, and re-exports the full historical public surface. ``MRMR.__module__`` is rewritten by the facade
+so do not rely on this submodule's path for pickle.
 
 Tolerates FE-engineered feature names in the post-fit support index map (routes synthetic names through
 ``_engineered_features_``). Includes an explicit input-validation contract in ``_validate_inputs`` and an
@@ -39,7 +44,7 @@ from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
 # downstream callers continue to resolve historical names.
-from ._mrmr_fingerprints import (  # noqa: E402,F401
+from .._mrmr_fingerprints import (  # noqa: E402,F401
     _astropy_histogram,
     histogram,
     _canonicalise_dtype_str,
@@ -88,7 +93,7 @@ from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 from mlframe.metrics.core import compute_probabilistic_multiclass_error  # noqa: F401
 from mlframe.utils.misc import set_random_seed  # noqa: F401
 
-from ._internals import (  # noqa: F401
+from .._internals import (  # noqa: F401
     ENSURE_ARROW_DF_SUPPORT,
     GPU_MAX_BLOCK_SIZE,
     LARGE_CONST,
@@ -98,12 +103,12 @@ from ._internals import (  # noqa: F401
     NMAX_NONPARALLEL_ITERS,
     sanitize,
 )
-from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort  # noqa: F401
-from .discretization import (  # noqa: F401
+from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort  # noqa: F401
+from ..discretization import (  # noqa: F401
     categorize_dataset,
     discretize_array,
 )
-from .feature_engineering import (  # noqa: F401
+from ..feature_engineering import (  # noqa: F401
     FE_DEFAULT_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
@@ -112,16 +117,16 @@ from .feature_engineering import (  # noqa: F401
     get_existing_feature_name,
     get_new_feature_name,
 )
-from .gpu import init_kernels, mi_direct_gpu  # noqa: F401
-from .info_theory import (  # noqa: F401
+from ..gpu import init_kernels, mi_direct_gpu  # noqa: F401
+from ..info_theory import (  # noqa: F401
     compute_mi_from_classes,
     conditional_mi,
     entropy,
     merge_vars,
     mi,
 )
-from .permutation import distribute_permutations, mi_direct, parallel_mi  # noqa: F401
-from .evaluation import (  # noqa: F401
+from ..permutation import distribute_permutations, mi_direct, parallel_mi  # noqa: F401
+from ..evaluation import (  # noqa: F401
     evaluate_candidate,
     evaluate_candidates,
     evaluate_gain,
@@ -130,14 +135,14 @@ from .evaluation import (  # noqa: F401
     handle_best_candidate,
     should_skip_candidate,
 )
-from .fleuret import (  # noqa: F401
+from ..fleuret import (  # noqa: F401
     get_fleuret_criteria_confidence,
     get_fleuret_criteria_confidence_parallel,
     parallel_fleuret,
 )
-from .screen import postprocess_candidates, screen_predictors  # noqa: F401
+from ..screen import postprocess_candidates, screen_predictors  # noqa: F401
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 
@@ -2475,7 +2480,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         method = getattr(self, "stability_selection_method", "classic")
         if method == "classic":
             return None  # fall through to legacy fit
-        from ._stability_cluster import (
+        from .._stability_cluster import (
             cluster_stability_selection,
             complementary_pairs_stability,
         )
@@ -3179,7 +3184,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         _fe_auto_restore: dict = {}
         if bool(getattr(self, "fe_auto", False)):
             try:
-                from ._meta_fe_recommender import recommend_fe_flags_by_rules
+                from .._meta_fe_recommender import recommend_fe_flags_by_rules
                 _rec_flags = recommend_fe_flags_by_rules(X, y)
                 for _flag, _on in _rec_flags.items():
                     if _on and not bool(getattr(self, _flag, False)):
@@ -3204,7 +3209,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
         # the default ``mi_normalization='none'`` path. Restored in finally so a
         # crashing _fit_impl can't leak SU mode into subsequent fits.
-        from .info_theory import set_su_normalization, set_jmim_aggregator, set_bur_lambda
+        from ..info_theory import set_su_normalization, set_jmim_aggregator, set_bur_lambda
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(
@@ -3223,7 +3228,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # is constructed inside ``_screen_predictors`` (passed via dcd_config
         # kwarg) — joblib-safe; the thread-local is only the read-only branch
         # toggle. Reset in finally.
-        from ._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
+        from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
         _dcd_on = bool(getattr(self, "dcd_enable", False))
         _set_dcd_active(_dcd_on)
         # Critic1/H-3 fix: when DCD active and dcd_postoc_compose=False, suppress
@@ -3303,7 +3308,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # columns landed in support_, why (origin + mechanism
             # details) and what each contributed in the greedy gain
             # ledger. Pure metadata; never mutates the selection result.
-            from ._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
+            from .._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
             _pop_prov(self)
             self._print_fit_summary()
             return result
@@ -3451,7 +3456,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         recommended_enable: list = []
         if X is not None:
             try:
-                from ._meta_fe_recommender import recommend_fe_flags_by_rules
+                from .._meta_fe_recommender import recommend_fe_flags_by_rules
                 rec = recommend_fe_flags_by_rules(X, y)
                 recommended_enable = sorted(f for f, on in rec.items() if on)
             except Exception as _exc:  # never let recommendation break introspection
@@ -3709,55 +3714,5 @@ class MRMR(BaseEstimator, TransformerMixin):
         was called directly with ndarray input (the canonical sklearn
         contract requires a DataFrame).
         """
-        from ._mrmr_validate_transform import transform as _t
+        from .._mrmr_validate_transform import transform as _t
         return _t(self, X, y)
-
-
-
-
-
-# Bind the carved-out method onto the class. _fit_impl lives in
-# _mrmr_fit_impl.py as a module-level function taking self as the
-# first argument; the binding here makes MRMR._fit_impl resolve to that
-# function so self._fit_impl(...) call sites keep working unchanged.
-from ._mrmr_fit_impl import _fit_impl as _fit_impl_func  # noqa: E402
-MRMR._fit_impl = _fit_impl_func
-
-from ._mrmr_fe_step import _run_fe_step as _run_fe_step_func  # noqa: E402
-MRMR._run_fe_step = _run_fe_step_func
-
-
-from ._mrmr_validate_transform import (  # noqa: E402
-    _validate_string_params as _validate_string_params_func,
-    _validate_inputs as _validate_inputs_func,
-    transform as _transform_func,
-    _append_engineered as _append_engineered_func,
-)
-MRMR._validate_string_params = _validate_string_params_func
-MRMR._validate_inputs = _validate_inputs_func
-# 1 fix (loop iter 34): ``transform`` is now defined
-# on the class body above (as a thin delegator) so
-# ``_SetOutputMixin.__init_subclass__`` wraps it correctly. Do NOT
-# late-rebind ``MRMR.transform`` here - that would replay the original
-# bug by stripping the wrapper.
-MRMR._append_engineered = _append_engineered_func
-
-# incremental / streaming refit. ``partial_fit``
-# lives in the sibling module so the parent stays under the 1.8k LOC budget;
-# binding here keeps the public sklearn-style API on the class surface.
-from ._mrmr_partial_fit import partial_fit as _partial_fit_func  # noqa: E402
-MRMR.partial_fit = _partial_fit_func
-
-# FE provenance report binding. The DataFrame is
-# populated inside ``fit`` (see _mrmr_fe_provenance.compute_fe_provenance);
-# ``get_fe_report`` is a thin renderer bound here so the public surface
-# stays on the class without forcing the parent module to take a new
-# heavyweight import at load time.
-from ._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
-MRMR.get_fe_report = _get_fe_report_func
-
-# semi-supervised fit helper. Importable from the
-# parent ``mrmr`` namespace so callers can ``from mlframe.feature_selection
-# .filters.mrmr import fit_with_unlabeled`` without reaching into the
-# sibling module path. See ``_semi_supervised_fe`` for full docs.
-from ._semi_supervised_fe import fit_with_unlabeled  # noqa: E402,F401

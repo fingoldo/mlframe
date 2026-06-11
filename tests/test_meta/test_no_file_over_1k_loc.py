@@ -24,12 +24,14 @@ LOC_LIMIT = 1000
 # wave; the goal is to drain this set to {} over consecutive PRs. Do NOT add
 # new entries without a documented PR-description reason.
 LOC_BUDGET_EXEMPT: set[str] = {
-    # FIXME(carve-wave-next): filters/mrmr.py at ~1.03k LOC after the
-    # in-flight feature_selection wrappers iteration grew the screening
-    # body; the validate/transform side is already carved (sibling
-    # ``_mrmr_validate_transform.py``). The remaining surface candidate is
-    # to lift the predictor-screening loop into ``_mrmr_screening_loop.py``.
-    "src/mlframe/feature_selection/filters/mrmr.py",
+    # FIXME(carve-wave-next): filters/mrmr/_mrmr_class.py at ~3.7k LOC -- the irreducible
+    # ``MRMR`` estimator class body after the mrmr subpackage split (class moved verbatim;
+    # the package ``__init__.py`` facade re-exports it + runs the method bindings). Carve
+    # candidate if it must shrink: lift the predictor-screening loop and the FE-flag
+    # plumbing block off the class body into sibling helper functions bound the same way as
+    # ``_fit_impl`` / ``_run_fe_step`` already are; the validate/transform/fit/fe-step/
+    # partial-fit/provenance method bodies already live in sibling modules.
+    "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py",
     # FIXME(carve-wave-next): filters/_mrmr_fit_impl.py at ~1.1k LOC after
     # the Wave 9.1 DCD + fallback hardening grew the post-screening section.
     # Carve candidates: the empty-support fallback block + the FE/RFECV

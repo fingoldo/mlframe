@@ -77,10 +77,11 @@ def _read(rel: str) -> str:
             _sib_path = _core / _sib_name
             if _sib_path.exists():
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
-    elif rel == "feature_selection/filters/mrmr.py":
-        # 2026-05-21 split: helpers moved to _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py.
+    elif rel == "feature_selection/filters/mrmr/_mrmr_class.py":
+        # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
+        # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
+        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
@@ -227,7 +228,7 @@ def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
 
 
 def test_mrmr_empty_fallback_uses_secondary_index() -> None:
-    src = _read("feature_selection/filters/mrmr.py")
+    src = _read("feature_selection/filters/mrmr/_mrmr_class.py")
     assert "_raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))" in src
 
 
