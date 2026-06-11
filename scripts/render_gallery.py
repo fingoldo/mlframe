@@ -475,6 +475,27 @@ def _b():
 
 
 # ---------------------------------------------------------------------------
+# PREDICTION STABILITY
+# ---------------------------------------------------------------------------
+
+
+@entry("prediction_stability", "prediction_stability",
+       "Ensemble member-disagreement: per-row spread histogram, spread-vs-mean scatter, uncertainty calibration (mean |error| rises with disagreement).")
+def _b():
+    from mlframe.reporting.charts.prediction_stability import compose_prediction_stability_figure
+    n, m = 6000, 10
+    y_true = RNG.normal(0.0, 1.0, size=n)
+    easy = np.zeros(n, dtype=bool)
+    easy[: n // 2] = True
+    # Easy region: members agree, predictions near truth. Hard region: members scatter widely AND carry a real error.
+    member_noise = np.where(easy[:, None], 0.05, 1.2)
+    bias = np.where(easy, 0.0, RNG.normal(0.0, 1.0, size=n))
+    preds = (y_true + bias)[:, None] + RNG.normal(0.0, 1.0, size=(n, m)) * member_noise
+    return compose_prediction_stability_figure(preds, y_true=y_true,
+                                               suptitle="Ensemble prediction stability (easy vs hard region)")
+
+
+# ---------------------------------------------------------------------------
 # SLICE FINDER
 # ---------------------------------------------------------------------------
 
