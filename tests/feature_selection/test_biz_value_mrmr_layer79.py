@@ -56,24 +56,7 @@ SEEDS = (1, 7, 13, 42, 101)
 _PRIOR_LAYERS: tuple[int, ...] = tuple(range(6, 79))
 
 
-def _make_mrmr(**overrides):
-    """Composite-mode MRMR ctor mirroring the per-layer test helpers."""
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 def _build_composite(seed: int, n: int = 2000):
     """Composite-signal dataset hitting every cross-basis arity AND the
     categorical/missingness/ratio FE family inputs.

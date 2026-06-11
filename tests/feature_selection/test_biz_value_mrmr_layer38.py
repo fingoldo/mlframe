@@ -51,23 +51,7 @@ SEEDS = (3801, 3802, 3803)
 # ---------------------------------------------------------------------------
 
 
-def _make_mrmr(**overrides):
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.6, seed: int = 0):
     rng = np.random.default_rng(seed)
     idx = np.arange(len(X))

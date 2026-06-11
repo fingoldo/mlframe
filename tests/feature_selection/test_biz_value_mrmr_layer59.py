@@ -75,24 +75,7 @@ def _import_diff_fe():
     )
 
 
-def _make_mrmr(**overrides):
-    """Cheap-and-deterministic MRMR ctor mirroring the Layer 58 helper."""
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 # ---------------------------------------------------------------------------
 # Data builders
 # ---------------------------------------------------------------------------

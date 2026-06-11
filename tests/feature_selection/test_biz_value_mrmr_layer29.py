@@ -69,29 +69,7 @@ SUPPORT_SIZE_FACTOR = 1.5
 SUPPORT_SIZE_SLACK = 5
 
 
-def _make_mrmr(**overrides):
-    """Cheap MRMR config aligned with Layers 27/28.
-
-    All optional sub-pipelines (DCD, cluster aggregate, friend graph,
-    cat FE) are disabled so the only moving piece between baseline and
-    hybrid runs is ``fe_hybrid_orth_*``.
-    """
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 def _fit_transform_pair(X_tr, y_tr, X_te, *, hybrid: bool):
     """Fit MRMR with hybrid on/off, transform train + holdout.
 

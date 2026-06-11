@@ -75,23 +75,7 @@ warnings.filterwarnings("ignore")
 SEEDS = (1, 13, 42)
 
 
-def _make_mrmr(**overrides):
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 def _build_quadratic_binary(seed: int, n: int = 1500):
     """``y = sign(x1^2 - 1)`` binary target. He_2(x1) is the signal.
 

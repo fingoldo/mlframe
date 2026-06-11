@@ -67,24 +67,7 @@ def _import_plug_in_fe():
     return generate_univariate_basis_features
 
 
-def _make_mrmr(**overrides):
-    """Cheap-and-deterministic MRMR ctor (mirrors Layer 65 / 66 helpers)."""
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 # ---------------------------------------------------------------------------
 # Data builders -- non-monotone / oscillatory fixtures
 # ---------------------------------------------------------------------------
@@ -138,22 +121,7 @@ def _build_quadratic_classif(seed: int, n: int = 1500, n_noise: int = 5):
     return X, pd.Series(y, name="y")
 
 
-def _build_linear(seed: int, n: int = 1500):
-    """Plain linear signal for the default-disabled byte-identical contract."""
-    rng = np.random.default_rng(int(seed))
-    x1 = rng.standard_normal(n)
-    x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
-    y = ((x1 + 0.7 * x2) > 0).astype(int)
-    return X, pd.Series(y, name="y")
-
-
+from tests.feature_selection._biz_val_synth import _build_linear
 # ---------------------------------------------------------------------------
 # Contract 1: dCor detects non-monotone dependence where Pearson misses
 # ---------------------------------------------------------------------------

@@ -394,3 +394,146 @@ def baseline_signal_auc(df, ys, signal: list, prefix: str = "x",
         LogisticRegression(max_iter=400), df[cols], ys, cv=cv,
         scoring="roc_auc",
     ).mean())
+
+
+# ---------------------------------------------------------------------------
+# Canonical MRMR-layer dataset builders + train/eval helpers
+#
+# These are the most-duplicated module-level ``_build_*`` / ``_train_*`` /
+# ``_logreg_auc`` / ``_quantile_bin_local`` / ``_mi_one`` helpers copied across
+# the ``test_biz_value_mrmr_layer*.py`` suite. Hosted here so a dataset bug is
+# fixed in ONE place; per-file deltas (n, n_noise) are explicit kwargs.
+# ---------------------------------------------------------------------------
+
+
+def _build_linear(seed: int, n: int = 1500):
+    """Plain linear-additive signal for the default-disabled contract."""
+    rng = np.random.default_rng(int(seed))
+    x1 = rng.standard_normal(n)
+    x2 = rng.standard_normal(n)
+    X = pd.DataFrame({
+        "x1": x1,
+        "x2": x2,
+        "noise_a": rng.standard_normal(n),
+        "noise_b": rng.standard_normal(n),
+        "noise_c": rng.standard_normal(n),
+    })
+    y = ((x1 + 0.7 * x2) > 0).astype(int)
+    return X, pd.Series(y, name="y")
+
+
+def _build_quadratic_classif(seed: int, n: int = 1500, n_noise: int = 5):
+    """y = sign(x1^2 - 1). Clean He_2 signal -- a stable winner appended
+    regardless of estimator, used for enable / pickle contracts."""
+    rng = np.random.default_rng(int(seed))
+    x1 = rng.standard_normal(n)
+    cols: dict = {"x1": x1}
+    for k in range(n_noise):
+        cols[f"noise_{k}"] = rng.standard_normal(n)
+    X = pd.DataFrame(cols)
+    y = ((x1 ** 2 + 0.1 * rng.standard_normal(n)) > 1.0).astype(int)
+    return X, pd.Series(y, name="y")
+
+
+def _build_redundant_multi(seed: int, n: int = 2000):
+    """``x1`` carries a primary quadratic signal; ``x_dup_a/b/c`` are near-copies
+    of ``x1`` (jointly redundant); ``x2`` carries an independent secondary
+    quadratic signal. TC-uplift against ``[x1]`` collapses the duplicates and
+    surfaces ``x2__He2`` -- the column with genuine new joint information."""
+    rng = np.random.default_rng(int(seed))
+    x1 = rng.standard_normal(n)
+    x_dup_a = x1 + 0.05 * rng.standard_normal(n)
+    x_dup_b = x1 + 0.05 * rng.standard_normal(n)
+    x_dup_c = x1 + 0.05 * rng.standard_normal(n)
+    x2 = rng.standard_normal(n)
+    X = pd.DataFrame({
+        "x1": x1,
+        "x_dup_a": x_dup_a,
+        "x_dup_b": x_dup_b,
+        "x_dup_c": x_dup_c,
+        "x2": x2,
+        "noise_0": rng.standard_normal(n),
+    })
+    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    thr = float(np.median(signal))
+    y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
+    return X, pd.Series(y, name="y")
+
+
+def _build_xor_redundant(seed: int, n: int = 2000):
+    rng = np.random.default_rng(int(seed))
+    x1 = rng.standard_normal(n)
+    x_dup_a = x1 + 0.05 * rng.standard_normal(n)
+    x_dup_b = x1 + 0.05 * rng.standard_normal(n)
+    x_dup_c = x1 + 0.05 * rng.standard_normal(n)
+    x2 = rng.standard_normal(n)
+    X = pd.DataFrame({
+        "x1": x1,
+        "x_dup_a": x_dup_a, "x_dup_b": x_dup_b, "x_dup_c": x_dup_c,
+        "x2": x2,
+        "noise_0": rng.standard_normal(n),
+    })
+    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    thr = float(np.median(signal))
+    y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
+    return X, pd.Series(y, name="y")
+
+
+def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
+                          train_frac: float = 0.6, seed: int = 0):
+    rng = np.random.default_rng(seed)
+    idx = np.arange(len(X))
+    rng.shuffle(idx)
+    cut = int(train_frac * len(X))
+    tr, ho = idx[:cut], idx[cut:]
+    return (
+        X.iloc[tr].reset_index(drop=True),
+        y.iloc[tr].reset_index(drop=True),
+        X.iloc[ho].reset_index(drop=True),
+        y.iloc[ho].reset_index(drop=True),
+    )
+
+
+def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series,
+                 X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
+    """LogReg AUC on numeric-only columns of (X_tr -> X_ho). Object cols are
+    dropped -- the baseline is "what LogReg can do without a TE step"."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+
+    num_cols = [c for c in X_tr.columns if pd.api.types.is_numeric_dtype(X_tr[c])]
+    if not num_cols:
+        return 0.5
+    Xn_tr = X_tr[num_cols].to_numpy(dtype=np.float64)
+    Xn_ho = X_ho[num_cols].to_numpy(dtype=np.float64)
+    clf = LogisticRegression(max_iter=500, solver="lbfgs")
+    clf.fit(Xn_tr, y_tr.to_numpy())
+    proba = clf.predict_proba(Xn_ho)[:, 1]
+    return float(roc_auc_score(y_ho.to_numpy(), proba))
+
+
+def _quantile_bin_local(arr: np.ndarray, nbins: int = 10) -> np.ndarray:
+    """Local helper for the diversity test (independent of the prod path)."""
+    a = np.asarray(arr, dtype=np.float64)
+    finite_mask = np.isfinite(a)
+    out = np.zeros(a.size, dtype=np.int64)
+    if not finite_mask.any():
+        return out
+    finite = a[finite_mask]
+    qs = np.linspace(0.0, 1.0, nbins + 1)
+    edges = np.unique(np.quantile(finite, qs))
+    if edges.size <= 2:
+        if edges.size == 2:
+            out[finite_mask] = (a[finite_mask] >= edges[1]).astype(np.int64)
+        return out
+    inner = edges[1:-1]
+    out[finite_mask] = np.searchsorted(inner, finite, side="right").astype(np.int64)
+    return out
+
+
+def _mi_one(col: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+        _mi_classif_batch,
+    )
+    arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
+    return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])
