@@ -17,7 +17,7 @@ in order on ``X`` and emits the post-fix shapes:
    trips one of {warn, raise, exclude} per ``leakage_action``.
 
 Re-imported at the parent's module bottom so historical
-``from ._rfecv_fit import _sanitize_X_inputs`` keeps resolving
+``from ._fit import _sanitize_X_inputs`` keeps resolving
 transparently.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _sanitize_X_inputs(self, X, y):

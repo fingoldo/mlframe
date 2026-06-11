@@ -198,7 +198,7 @@ class TestOptimizerTargetMean:
 
 class TestInitDesignSize:
     def test_auto_scales_with_p(self):
-        from mlframe.feature_selection.wrappers._rfecv_mbh_optimizer import _build_mbh_optimizer
+        from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
         # Tiny p=8 -> K=2 (legacy + 1 anchor only).
         r = RFECV(estimator=Ridge(), max_refits=10)
         opt = _build_mbh_optimizer(
@@ -211,7 +211,7 @@ class TestInitDesignSize:
         assert len(opt.seeded_inputs) <= 2
 
     def test_auto_larger_p_gets_more_seeds(self):
-        from mlframe.feature_selection.wrappers._rfecv_mbh_optimizer import _build_mbh_optimizer
+        from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
         r = RFECV(estimator=Ridge(), max_refits=50)
         opt = _build_mbh_optimizer(
             r,
@@ -223,7 +223,7 @@ class TestInitDesignSize:
         assert len(opt.seeded_inputs) == 5
 
     def test_explicit_int_overrides_auto(self):
-        from mlframe.feature_selection.wrappers._rfecv_mbh_optimizer import _build_mbh_optimizer
+        from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
         r = RFECV(estimator=Ridge(), max_refits=10, init_design_size=3)
         opt = _build_mbh_optimizer(
             r,
@@ -234,7 +234,7 @@ class TestInitDesignSize:
         assert len(opt.seeded_inputs) == 3
 
     def test_none_keeps_legacy_single_seed(self):
-        from mlframe.feature_selection.wrappers._rfecv_mbh_optimizer import _build_mbh_optimizer
+        from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
         r = RFECV(estimator=Ridge(), max_refits=10, init_design_size=None)
         opt = _build_mbh_optimizer(
             r,

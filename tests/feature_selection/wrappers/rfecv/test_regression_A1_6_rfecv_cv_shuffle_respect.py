@@ -18,7 +18,7 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 
-from mlframe.feature_selection.wrappers._rfecv_cv_setup import _resolve_cv_and_val_cv
+from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
 
 
 def _make_pd_datetime_indexed_xy():
@@ -32,7 +32,7 @@ def _make_pd_datetime_indexed_xy():
 def test_rfecv_cv_shuffle_true_overrides_temporal_pandas(caplog):
     X, y = _make_pd_datetime_indexed_xy()
     est = LogisticRegression(max_iter=50)
-    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
         cv, _val, _ = _resolve_cv_and_val_cv(
             cv=3, X=X, y=y, groups=None, estimator=est, cv_shuffle=True,
             random_state=42, fit_params={}, early_stopping_val_nsplits=0,
@@ -62,7 +62,7 @@ def test_rfecv_cv_shuffle_false_still_swaps_to_tss_on_temporal_pandas(caplog):
 def test_rfecv_cv_shuffle_true_overrides_polars_hint(caplog):
     X, y = _make_pd_datetime_indexed_xy()
     est = LogisticRegression(max_iter=50)
-    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
         cv, _val, _ = _resolve_cv_and_val_cv(
             cv=3, X=X, y=y, groups=None, estimator=est, cv_shuffle=True,
             random_state=42, fit_params={}, early_stopping_val_nsplits=0,
@@ -78,7 +78,7 @@ def test_rfecv_cv_shuffle_true_overrides_timestamps_hint(caplog):
     X, y = _make_pd_datetime_indexed_xy()
     est = LogisticRegression(max_iter=50)
     ts = np.arange(len(y))
-    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
         cv, _val, _ = _resolve_cv_and_val_cv(
             cv=3, X=X, y=y, groups=None, estimator=est, cv_shuffle=True,
             random_state=42, fit_params={"timestamps": ts}, early_stopping_val_nsplits=0,

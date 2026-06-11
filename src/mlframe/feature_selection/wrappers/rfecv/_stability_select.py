@@ -18,14 +18,14 @@ from sklearn.base import clone
 
 from pyutilz.system import tqdmu
 
-from ._enums import VotesAggregation
-from ._helpers import (
+from .._enums import VotesAggregation
+from .._helpers import (
     get_actual_features_ranking,
     get_feature_importances,
     select_appropriate_feature_importances,
 )
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _fit_stability_selection(self, X, y, signature):
@@ -186,7 +186,7 @@ def _fit_stability_selection(self, X, y, signature):
     self._selected_cols_cache = [c for c, s in zip(feature_names, support_mask) if s]
     # Refresh the params slot with POST-fit values before storing (fit may resolve params in place,
     # e.g. ``scoring=None -> make_scorer(...)``); see ``_rfecv_fit_init._current_params_signature``.
-    from ._rfecv_fit_init import _current_params_signature
+    from ._fit_init import _current_params_signature
 
     self.signature = signature[:-1] + (_current_params_signature(self),)
 

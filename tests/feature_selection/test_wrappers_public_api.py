@@ -139,9 +139,9 @@ class TestRfecvSubmoduleReExports:
         ],
     )
     def test_rfecv_reexport_present(self, name):
-        mod = __import__("mlframe.feature_selection.wrappers._rfecv", fromlist=[name])
+        mod = __import__("mlframe.feature_selection.wrappers.rfecv", fromlist=[name])
         obj = getattr(mod, name, None)
         assert obj is not None, (
-            f"{name} must remain importable from mlframe.feature_selection.wrappers._rfecv "
+            f"{name} must remain importable from mlframe.feature_selection.wrappers.rfecv "
             f"(declared as # noqa: F401 re-export)"
         )

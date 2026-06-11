@@ -89,7 +89,7 @@ def test_w5_fs_f10_y_fingerprint_is_bit_exact_not_6_decimal_rounded():
 def test_w5_fs_f11_groupkfold_n_groups_floor_enforced():
     """fit() must reject n_groups < 2*cv_n when groups are provided."""
     from sklearn.linear_model import LinearRegression
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rng = np.random.default_rng(0)
     n, p = 60, 4
@@ -105,7 +105,7 @@ def test_w5_fs_f11_groupkfold_n_groups_floor_enforced():
 
 def test_w5_fs_f16_deepcopy_splitter_in_early_stopping_path():
     """copy.copy -> deepcopy: mutating val_cv must not corrupt the caller's splitter."""
-    from mlframe.feature_selection.wrappers._rfecv_cv_setup import _resolve_cv_and_val_cv
+    from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
 
     class _CustomCV:
         """Splitter without get_params -> hits the deepcopy fallback."""

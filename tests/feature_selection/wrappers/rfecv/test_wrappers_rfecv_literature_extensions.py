@@ -154,7 +154,7 @@ class TestBorutaShapPowerSHAPRouting:
             estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2,
             random_state=0, prescreen="not_a_real_prescreen", verbose=1,
         )
-        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         assert any("Unknown prescreen" in r.getMessage() for r in caplog.records)
 
@@ -182,7 +182,7 @@ class TestBorutaShapPowerSHAPRouting:
             estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2,
             random_state=0, prescreen=bad_prescreen, verbose=1,
         )
-        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(Xdf, y)
         # Fit must complete despite prescreen failure.
         assert rfecv.n_features_ >= 1

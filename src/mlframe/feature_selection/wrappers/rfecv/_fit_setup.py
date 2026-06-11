@@ -19,10 +19,10 @@ from sklearn.metrics import make_scorer, mean_squared_error
 
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
 
-from ._helpers import _detect_multithreaded
+from .._helpers import _detect_multithreaded
 
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def filter_cat_features_by_dtype(

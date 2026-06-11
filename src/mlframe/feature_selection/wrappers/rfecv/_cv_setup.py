@@ -18,7 +18,7 @@ for splitters whose ``get_params()`` doesn't expose the slot (LOO etc.)
 and WARNS loudly because the override may be silently ignored.
 
 Re-imported at the parent's module bottom so historical
-``from ._rfecv_fit import _resolve_cv_and_val_cv`` keeps resolving
+``from ._fit import _resolve_cv_and_val_cv`` keeps resolving
 transparently.
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ from sklearn.model_selection import (
     TimeSeriesSplit,
 )
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _resolve_cv_and_val_cv(

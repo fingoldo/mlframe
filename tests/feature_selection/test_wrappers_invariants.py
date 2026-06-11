@@ -73,9 +73,9 @@ class TestEvalFoldClosureCapture:
         ``_eval_fold_body`` top-level helper -- only the closure-shaped ``def _eval_fold(...)``
         defined inside the outer-loop matters for the default-arg B023 contract."""
         import pathlib
-        import mlframe.feature_selection.wrappers._rfecv as mod_rfecv
+        import mlframe.feature_selection.wrappers.rfecv as mod_rfecv
         _dir = pathlib.Path(mod_rfecv.__file__).resolve().parent
-        for _p in sorted(_dir.glob("_rfecv*.py")):
+        for _p in sorted(_dir.glob("*.py")):
             with open(_p, encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             for node in ast.walk(tree):
@@ -259,7 +259,7 @@ class TestCoverageGaps:
         rfecv = _make_rfecv(swap_top_k=2, verbose=1)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+            with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
                 rfecv.fit(X, y)
         msgs = [r.message for r in caplog.records]
         assert any("SFFS swap pass:" in m for m in msgs), (

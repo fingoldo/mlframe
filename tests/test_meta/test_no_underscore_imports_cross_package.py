@@ -46,7 +46,7 @@ def _underscore_module_dir(module: str) -> Path | None:
     """Return the directory of the sibling cluster the underscore-module lives in, or None if the module does not match the underscore-cross-package pattern.
 
     For ``mlframe.training.core._phase_helpers`` returns ``src/mlframe/training/core``.
-    For ``mlframe.feature_selection.wrappers._rfecv`` returns ``src/mlframe/feature_selection/wrappers``.
+    For ``mlframe.feature_selection.wrappers.rfecv._fit`` returns ``src/mlframe/feature_selection/wrappers/rfecv``.
     For ``mlframe.utils.safe_pickle`` (no underscore in any segment) returns None.
     """
     if not module.startswith("mlframe."):

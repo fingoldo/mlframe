@@ -69,10 +69,10 @@ def _read(rel: str) -> str:
         # owns them after the predict monolith-split waves.
         for _sib_path in sorted(_core.glob("_predict*.py")):
             primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
-    elif rel == "feature_selection/wrappers/_rfecv.py":
-        _wraps = MLFRAME_ROOT / "feature_selection" / "wrappers"
-        for _sib_path in sorted(_wraps.glob("_rfecv*.py")):
-            if _sib_path.name != "_rfecv.py":
+    elif rel == "feature_selection/wrappers/rfecv/__init__.py":
+        _wraps = MLFRAME_ROOT / "feature_selection" / "wrappers" / "rfecv"
+        for _sib_path in sorted(_wraps.glob("*.py")):
+            if _sib_path.name != "__init__.py":
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     return primary
 
@@ -82,7 +82,7 @@ def _read(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 NOT_FITTED_TARGETS = [
-    "feature_selection/wrappers/_rfecv.py",
+    "feature_selection/wrappers/rfecv/__init__.py",
     "training/feature_handling/polynomial.py",
     "training/feature_handling/text_encoder.py",
     "training/feature_handling/custom_handler.py",

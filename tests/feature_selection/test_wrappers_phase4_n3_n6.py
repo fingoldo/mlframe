@@ -126,7 +126,7 @@ class TestN3_AutoFallback:
         threading, but RFECV doesn't compound it."""
         X, y = small_clf_data
         import logging
-        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv = RFECV(
                 estimator=RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=-1),
                 cv=3,

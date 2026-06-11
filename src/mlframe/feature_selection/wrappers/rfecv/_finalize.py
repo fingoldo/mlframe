@@ -12,7 +12,7 @@ Carved out of ``_rfecv_fit``'s post-loop tail. Three responsibilities:
    ``self.signature``; cache the resolved column list for ``transform``.
 
 Re-imported at the parent's module bottom so historical
-``from ._rfecv_fit import _finalize_fit_results`` keeps resolving
+``from ._fit import _finalize_fit_results`` keeps resolving
 transparently.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _finalize_fit_results(
@@ -211,7 +211,7 @@ def _finalize_fit_results(
     # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
     # so the entry-time params fingerprint would never match the NEXT fit's ``get_params`` and identical
     # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
-    from ._rfecv_fit_init import _current_params_signature
+    from ._fit_init import _current_params_signature
 
     self.signature = signature[:-1] + (_current_params_signature(self),)
 

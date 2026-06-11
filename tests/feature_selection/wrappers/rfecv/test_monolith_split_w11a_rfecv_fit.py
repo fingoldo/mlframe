@@ -1,4 +1,4 @@
-"""Wave 11a monolith-split sensor for ``mlframe.feature_selection.wrappers._rfecv_fit``.
+"""Wave 11a monolith-split sensor for ``mlframe.feature_selection.wrappers.rfecv._fit``.
 
 Carve pattern: top-of-function input validation + signature computation extracted into ``_rfecv_fit_init._init_fit_state``. Behavioural-equivalence test ensures fit produces identical fold scores and support_ vs pre-split byte-for-byte.
 """
@@ -15,14 +15,14 @@ from sklearn.linear_model import LogisticRegression
 
 @pytest.fixture(scope="module")
 def parent_module():
-    from mlframe.feature_selection.wrappers import _rfecv_fit
-    return _rfecv_fit
+    from mlframe.feature_selection.wrappers.rfecv import _fit
+    return _fit
 
 
 @pytest.fixture(scope="module")
 def init_sibling():
-    from mlframe.feature_selection.wrappers import _rfecv_fit_init
-    return _rfecv_fit_init
+    from mlframe.feature_selection.wrappers.rfecv import _fit_init
+    return _fit_init
 
 
 def test_init_fit_state_imported(parent_module, init_sibling):
@@ -30,7 +30,7 @@ def test_init_fit_state_imported(parent_module, init_sibling):
 
 
 def test_rfecv_fit_bound_to_class(parent_module):
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
     # fit is bound at parent bottom in _rfecv.py; identity is parent.fit IS RFECV.fit
     assert RFECV.fit is parent_module.fit
 
@@ -43,7 +43,7 @@ def test_facade_loc_budget(parent_module):
 
 def test_smoke_fit_runs_with_carved_prelude(parent_module):
     """Exercise the carved init helper end-to-end via a tiny RFECV fit. Per CLAUDE.md AST-audit rule, sensor must actually call the moved body, not just import."""
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rng = np.random.default_rng(7)
     n = 120
@@ -72,7 +72,7 @@ def test_smoke_fit_runs_with_carved_prelude(parent_module):
 
 def test_init_helper_validates_sample_weight_length(init_sibling):
     """The carved sample-weight length check must still raise ValueError pre-fit (was previously inline; behavioural-equivalence sensor)."""
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
     rfecv = RFECV(estimator=LogisticRegression(), cv=3)
     X = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [4, 3, 2, 1]})
     y = np.array([0, 1, 0, 1])
@@ -83,7 +83,7 @@ def test_init_helper_validates_sample_weight_length(init_sibling):
 
 def test_init_helper_validates_y_nan(init_sibling):
     """NaN in y must surface as ValueError in the carved validator."""
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
     rfecv = RFECV(estimator=LogisticRegression(), cv=3)
     X = pd.DataFrame({"a": np.arange(10, dtype=float), "b": np.arange(10, dtype=float)})
     y = np.array([0.0, 1.0, float("nan"), 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0])

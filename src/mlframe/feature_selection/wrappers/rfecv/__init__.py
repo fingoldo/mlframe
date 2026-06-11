@@ -60,9 +60,9 @@ from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
 
-from ._enums import OptimumSearch, VotesAggregation
-from ._rfecv_configs import SearchConfig, FIConfig, RobustnessConfig
-from ._helpers import (
+from .._enums import OptimumSearch, VotesAggregation
+from ._configs import SearchConfig, FIConfig, RobustnessConfig
+from .._helpers import (
     _detect_multithreaded,
     _pin_threads_to_one,
     get_feature_importances,
@@ -877,7 +877,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 # AFTER the class body has loaded so the sibling can reference RFECV-via-
 # self with no cycle.
 # ----------------------------------------------------------------------
-from ._rfecv_fit import fit as _fit_func  # noqa: E402
+from ._fit import fit as _fit_func  # noqa: E402
 
 
 @functools.wraps(_fit_func)
@@ -895,14 +895,14 @@ def _fit_with_rng_hygiene(self, *args, **kwargs):
 
 RFECV.fit = _fit_with_rng_hygiene
 
-from ._rfecv_stability_select import (  # noqa: E402
+from ._stability_select import (  # noqa: E402
     _fit_stability_selection as _fit_stability_selection_func,
     select_optimal_nfeatures_ as _select_optimal_nfeatures_func,
 )
 RFECV._fit_stability_selection = _fit_stability_selection_func
 RFECV.select_optimal_nfeatures_ = _select_optimal_nfeatures_func
 
-from ._rfecv_diagnostics import (  # noqa: E402,F401
+from ._diagnostics import (  # noqa: E402,F401
     cv_results_df_ as _cv_results_df_func,
     selection_stability_ as _selection_stability_func,
     n_features_one_se_ as _n_features_one_se_func,

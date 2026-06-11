@@ -6,7 +6,7 @@ loop state iff the checkpoint signature matches the current
 users can keep the same ``checkpoint_path`` across experiments.
 
 Re-imported at the parent's module bottom so historical
-``from ._rfecv_fit import _maybe_resume_from_checkpoint`` keeps
+``from ._fit import _maybe_resume_from_checkpoint`` keeps
 resolving transparently.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _maybe_resume_from_checkpoint(self, *, signature, verbose, state: Dict[str, Any]) -> Dict[str, Any]:

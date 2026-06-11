@@ -1,5 +1,5 @@
 """Regression tests for fixes in
-``mlframe.feature_selection.wrappers._rfecv_stability_select``.
+``mlframe.feature_selection.wrappers.rfecv._stability_select``.
 
 Finding [17][Low]: ``_fit_stability_selection`` had its triple-quoted docstring
 placed AFTER the ``if X.shape[0] < 20: raise`` guard, so Python did not bind it
@@ -15,7 +15,7 @@ import pytest
 
 def _load_func():
     mod = pytest.importorskip(
-        "mlframe.feature_selection.wrappers._rfecv_stability_select"
+        "mlframe.feature_selection.wrappers.rfecv._stability_select"
     )
     return mod._fit_stability_selection
 

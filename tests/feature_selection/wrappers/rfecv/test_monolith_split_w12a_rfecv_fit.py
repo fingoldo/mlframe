@@ -1,4 +1,4 @@
-"""Wave 12a monolith-split sensor for ``mlframe.feature_selection.wrappers._rfecv_fit``.
+"""Wave 12a monolith-split sensor for ``mlframe.feature_selection.wrappers.rfecv._fit``.
 
 Two carves:
 - ``_rfecv_fit_setup.py``: pre-loop pure helpers (cat_features dtype filter, n_jobs resolution, default scoring).
@@ -18,20 +18,20 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
-    from mlframe.feature_selection.wrappers import _rfecv_fit
-    return _rfecv_fit
+    from mlframe.feature_selection.wrappers.rfecv import _fit
+    return _fit
 
 
 @pytest.fixture(scope="module")
 def setup_sibling():
-    from mlframe.feature_selection.wrappers import _rfecv_fit_setup
-    return _rfecv_fit_setup
+    from mlframe.feature_selection.wrappers.rfecv import _fit_setup
+    return _fit_setup
 
 
 @pytest.fixture(scope="module")
 def fold_sibling():
-    from mlframe.feature_selection.wrappers import _rfecv_fit_fold
-    return _rfecv_fit_fold
+    from mlframe.feature_selection.wrappers.rfecv import _fit_fold
+    return _fit_fold
 
 
 def test_setup_helpers_resolve(setup_sibling):
@@ -112,7 +112,7 @@ def test_rfecv_fit_behavioural_equivalence_synthetic_regression():
     from sklearn.datasets import make_regression
     from sklearn.linear_model import Ridge
 
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     X, y = make_regression(n_samples=120, n_features=8, n_informative=3, noise=0.1, random_state=42)
     X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])

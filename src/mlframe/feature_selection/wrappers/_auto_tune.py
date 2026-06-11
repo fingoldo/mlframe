@@ -38,7 +38,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 import pandas as pd
 
-from ._rfecv_configs import SearchConfig, FIConfig, RobustnessConfig
+from .rfecv._configs import SearchConfig, FIConfig, RobustnessConfig
 
 logger = logging.getLogger(__name__)
 

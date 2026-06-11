@@ -34,7 +34,7 @@ class TestHighCardinalityIntDetector:
             estimator=LogisticRegression(max_iter=200),
             cv=3, max_refits=2, verbose=1, random_state=0,
         )
-        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         assert any("cardinality" in rec.getMessage() and "ID" in rec.getMessage()
                    for rec in caplog.records), \
@@ -109,7 +109,7 @@ class TestNaTInDatetimeIndex:
     def test_nat_disables_temporal_autodetect(self, caplog):
         # Direct call into _resolve_cv_and_val_cv: NaT in DatetimeIndex must
         # warn and disable the temporal auto-detect.
-        from mlframe.feature_selection.wrappers._rfecv_cv_setup import _resolve_cv_and_val_cv
+        from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
         rng = np.random.default_rng(0)
         n = 60
         dates = pd.to_datetime(["2024-01-01"] * n) + pd.to_timedelta(range(n), unit="D")
@@ -117,7 +117,7 @@ class TestNaTInDatetimeIndex:
         dates[30] = pd.NaT
         X = pd.DataFrame(rng.normal(size=(n, 3)), index=pd.DatetimeIndex(dates))
         y = (X.iloc[:, 0] > 0).astype(int).values
-        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             cv, _, _ = _resolve_cv_and_val_cv(
                 cv=3, X=X, y=y, groups=None, estimator=LogisticRegression(),
                 cv_shuffle=False, random_state=0, fit_params={},

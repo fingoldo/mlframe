@@ -25,28 +25,28 @@ from sklearn.pipeline import Pipeline
 
 from mlframe.utils.misc import set_random_seed
 
-from ._helpers import (
+from .._helpers import (
     _pin_threads_to_one,
     suppress_irritating_3rdparty_warnings,
 )
-from ._rfecv_cv_setup import _resolve_cv_and_val_cv
-from ._rfecv_mbh_optimizer import _build_mbh_optimizer
-from ._rfecv_finalize import _finalize_fit_results
-from ._rfecv_checkpoint import _maybe_resume_from_checkpoint
-from ._rfecv_must_include import _resolve_must_include
-from ._rfecv_fit_init import _init_fit_state
-from ._rfecv_fit_setup import (
+from ._cv_setup import _resolve_cv_and_val_cv
+from ._mbh_optimizer import _build_mbh_optimizer
+from ._finalize import _finalize_fit_results
+from ._checkpoint import _maybe_resume_from_checkpoint
+from ._must_include import _resolve_must_include
+from ._fit_init import _init_fit_state
+from ._fit_setup import (
     filter_cat_features_by_dtype,
     resolve_default_scoring,
     resolve_effective_n_jobs,
 )
-from ._rfecv_fit_outer_loop import (
+from ._fit_outer_loop import (
     IterationOutcome,
     OuterLoopState,
     run_outer_loop_iteration,
 )
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _apply_prescreen(self, *, X, y, candidate_features, verbose):
@@ -116,7 +116,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
             if verbose:
                 logger.warning("Prescreen='univariate_ht' needs pandas DataFrame; skipping.")
             return candidate_features
-        from ._univariate_ht import calculate_relevance_table as _crt
+        from .._univariate_ht import calculate_relevance_table as _crt
         try:
             _Xsub = X[candidate_features]
             _rel = _crt(_Xsub, np.asarray(y),
@@ -160,14 +160,14 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # in self.auto_tune_decision_ for inspection.
     if getattr(self, "auto_tune", False) and not getattr(self, "_auto_tune_applied_", False):
         try:
-            from ._auto_tune import DataFingerprint, suggest_configs, explain_suggestion
+            from .._auto_tune import DataFingerprint, suggest_configs, explain_suggestion
             _fp = DataFingerprint.from_xy(X, y)
             _sc, _fic, _rc = suggest_configs(_fp)
             _decision: dict = {"fingerprint": _fp, "explanation": explain_suggestion(_fp)}
             # For each suggested field, apply IFF the current attribute is at its constructor default.
             # We approximate "default" by comparing to the SearchConfig / FIConfig / RobustnessConfig
             # baseline defaults (no kwargs passed).
-            from ._rfecv_configs import SearchConfig as _SC, FIConfig as _FIC, RobustnessConfig as _RC
+            from ._configs import SearchConfig as _SC, FIConfig as _FIC, RobustnessConfig as _RC
             _baselines = (_SC(), _FIC(), _RC())
             _applied: dict = {}
             for _cfg, _baseline in zip((_sc, _fic, _rc), _baselines):

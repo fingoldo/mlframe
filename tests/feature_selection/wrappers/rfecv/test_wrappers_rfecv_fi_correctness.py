@@ -158,7 +158,7 @@ class TestMustIncludeOverridesLeakage:
             leakage_action="exclude",
             verbose=1,
         )
-        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         # Pinned leaky column must end up in selected features (NOT dropped).
         assert "leak" in rfecv.get_feature_names_out().tolist()
@@ -278,7 +278,7 @@ class TestFiRollbackOnLoserSubset:
     def test_loser_subset_fi_not_kept_by_default(self):
         # Direct unit on the rollback machinery: simulate two iters writing FI at the same N,
         # second one losing the gate. After the loop the loser's FI runs must be gone.
-        from mlframe.feature_selection.wrappers._rfecv_fit_outer_loop import OuterLoopState
+        from mlframe.feature_selection.wrappers.rfecv._fit_outer_loop import OuterLoopState
         state = OuterLoopState()
         # Simulate iter 1: a winning subset stored at N=5.
         state.feature_importances["5_0"] = {"a": 1.0}
@@ -319,7 +319,7 @@ class TestSwapTopKGatedOnValCv:
         import mlframe.core.helpers as _helpers
         monkeypatch.setattr(_helpers, "has_early_stopping_support", lambda name: True)
         # Also patch the in-finalize import binding.
-        from mlframe.feature_selection.wrappers import _rfecv_finalize
+        from mlframe.feature_selection.wrappers.rfecv import _finalize
         # Re-import to ensure binding sees patch.
         X, y = make_regression(n_samples=120, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
@@ -328,7 +328,7 @@ class TestSwapTopKGatedOnValCv:
             early_stopping_val_nsplits=5,
             verbose=1,
         )
-        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         assert any("swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage()
                    for rec in caplog.records), \

@@ -124,11 +124,10 @@ def test_rfecv_winner_picker_skips_nan_candidates():
     mask out NaN candidates before picking the winner."""
     import pathlib
     import mlframe as _mlframe
-    # Fit body + sibling helpers all live under wrappers/; concat every
-    # ``_rfecv*.py`` so the sensor catches the pattern regardless of which
-    # sibling owns it after the monolith-split waves.
-    _wrappers = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "wrappers"
-    src = "\n".join(p.read_text(encoding="utf-8") for p in _wrappers.glob("_rfecv*.py"))
+    # Fit body + submodule helpers all live under wrappers/rfecv/; concat every
+    # submodule so the sensor catches the pattern regardless of which one owns it.
+    _rfecv = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "wrappers" / "rfecv"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in _rfecv.glob("*.py"))
     # Post-fix: both sites use a finite-mask filter before argmax.
     occurrences = src.count("_finite_mask = np.isfinite(")
     assert occurrences >= 2, (
@@ -191,7 +190,7 @@ def test_no_silent_argmax_on_potentially_nan_in_wave21_sites():
     root = pathlib.Path(_mlframe.__file__).resolve().parent
     # Each (file, pre_fix_substring) pair:
     pre_fix_shapes = [
-        ("feature_selection/wrappers/_rfecv.py",
+        ("feature_selection/wrappers/rfecv/__init__.py",
          "best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]"),
         ("feature_engineering/transformer/apriori_itemsets.py",
          "edges = np.quantile(X_ref[:, j]"),

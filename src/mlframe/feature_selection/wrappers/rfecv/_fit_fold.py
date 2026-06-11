@@ -23,13 +23,13 @@ from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
 from mlframe.estimators.baselines import get_best_dummy_score
 
-from ._helpers import (
+from .._helpers import (
     get_feature_importances,
     split_into_train_test,
 )
 
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _eval_fold_body(

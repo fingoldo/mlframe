@@ -90,17 +90,17 @@ def _read(rel: str) -> str:
         sibling = MLFRAME_ROOT / "feature_selection" / "filters" / "_screen_predictors.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "feature_selection/wrappers/_rfecv.py":
-        # 2026-05-21 split: RFECV.fit + ._fit_stability_selection +
-        # .select_optimal_nfeatures_ moved to sibling files.
-        _dir = MLFRAME_ROOT / "feature_selection" / "wrappers"
+    elif rel == "feature_selection/wrappers/rfecv/__init__.py":
+        # RFECV.fit + ._fit_stability_selection + .select_optimal_nfeatures_
+        # live in sibling submodules of the rfecv/ subpackage.
+        _dir = MLFRAME_ROOT / "feature_selection" / "wrappers" / "rfecv"
         for nm in (
-            "_rfecv_fit.py",
-            "_rfecv_stability_select.py",
-            "_rfecv_diagnostics.py",
-            "_rfecv_fit_fold.py",
-            "_rfecv_fit_outer_loop.py",
-            "_rfecv_finalize.py",
+            "_fit.py",
+            "_stability_select.py",
+            "_diagnostics.py",
+            "_fit_fold.py",
+            "_fit_outer_loop.py",
+            "_finalize.py",
         ):
             sibling = _dir / nm
             if sibling.exists():
@@ -114,14 +114,14 @@ def _read(rel: str) -> str:
 
 
 def test_rfecv_sffs_swap_uses_secondary_name_key() -> None:
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     assert "key=lambda f: (fi_mean.get(f, 0.0), str(f))" in src
     assert "key=lambda f: (-fi_mean.get(f, 0.0), str(f))" in src
 
 
 def test_rfecv_stability_topk_uses_lexsort() -> None:
     import re
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     # Indent-tolerant: the body was dedented by 4 spaces during the rfecv
     # monolith split (class-method extraction). Match the lexsort + tiebreak
     # tuple shape rather than the literal whitespace.
@@ -133,7 +133,7 @@ def test_rfecv_stability_topk_uses_lexsort() -> None:
 
 
 def test_rfecv_per_fold_top_uses_secondary_key() -> None:
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     assert "key=lambda k: (-fi[k], str(k))" in src
 
 

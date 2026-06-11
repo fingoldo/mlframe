@@ -48,12 +48,12 @@ def _read(rel: str) -> str:
     Parallel-call pattern still match.
     """
     primary = (_ROOT / rel).read_text(encoding="utf-8")
-    if rel == "feature_selection/wrappers/_rfecv.py":
-        _dir = _ROOT / "feature_selection" / "wrappers"
-        # Concat every ``_rfecv*.py`` sibling so the source-grep sensor matches
-        # the relocated code regardless of which sibling owns it now.
-        for _sib_path in sorted(_dir.glob("_rfecv*.py")):
-            if _sib_path.name != "_rfecv.py":
+    if rel == "feature_selection/wrappers/rfecv/__init__.py":
+        _dir = _ROOT / "feature_selection" / "wrappers" / "rfecv"
+        # Concat every rfecv/ submodule so the source-grep sensor matches
+        # the relocated code regardless of which submodule owns it now.
+        for _sib_path in sorted(_dir.glob("*.py")):
+            if _sib_path.name != "__init__.py":
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     elif rel == "feature_selection/filters/feature_engineering.py":
         # check_prospective_fe_pairs lives in the ``_feature_engineering_pairs``
@@ -156,7 +156,7 @@ def test_cupy_kernel_init_lock_doc_honest():
 
 
 def test_rfecv_parallel_requires_sharedmem():
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     # Pre-fix bare ``prefer='threads'`` without require must be gone:
     assert 'Parallel(n_jobs=n_jobs_effective, prefer="threads")(' not in src, (
         "Wave 27 P2 regression: _rfecv Parallel call reverted to "

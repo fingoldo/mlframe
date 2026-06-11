@@ -15,7 +15,7 @@ When ``top_predictors_search_method != ModelBasedHeuristic``, returns
 None (caller uses the non-MBH search path).
 
 Re-imported at the parent's module bottom so historical
-``from ._rfecv_fit import _build_mbh_optimizer`` keeps resolving
+``from ._fit import _build_mbh_optimizer`` keeps resolving
 transparently.
 """
 from __future__ import annotations
@@ -31,9 +31,9 @@ from mlframe.models.optimization import (
     OptimizationProgressPlotting,
 )
 
-from ._enums import OptimumSearch
+from .._enums import OptimumSearch
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_search_method):

@@ -16,12 +16,12 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._enums import OptimumSearch, VotesAggregation
-from ._helpers import get_next_features_subset, store_averaged_cv_scores
-from ._rfecv_fit_fold import _eval_fold_body
+from .._enums import OptimumSearch, VotesAggregation
+from .._helpers import get_next_features_subset, store_averaged_cv_scores
+from ._fit_fold import _eval_fold_body
 
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 class IterationOutcome(Enum):

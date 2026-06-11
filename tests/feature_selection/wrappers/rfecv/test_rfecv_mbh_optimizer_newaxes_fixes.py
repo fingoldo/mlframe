@@ -20,7 +20,7 @@ import pytest
 # ETR surrogate path needs sklearn (ExtraTreesRegressor).
 pytest.importorskip("sklearn")
 
-from mlframe.feature_selection.wrappers._rfecv_mbh_optimizer import _build_mbh_optimizer
+from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
 from mlframe.feature_selection.wrappers._enums import OptimumSearch
 
 

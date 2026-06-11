@@ -16,9 +16,9 @@ import polars as pl
 
 from sklearn.base import is_classifier
 
-from ._rfecv_validate import _sanitize_X_inputs
+from ._validate import _sanitize_X_inputs
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _current_params_signature(self) -> object:

@@ -7,7 +7,7 @@ the pinned set + the optimiser's search-complement, and warns when
 ``must_include`` exhausts every feature.
 
 Re-imported at the parent's module bottom so historical
-``from ._rfecv_fit import _resolve_must_include`` keeps resolving
+``from ._fit import _resolve_must_include`` keeps resolving
 transparently.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _resolve_must_include(self, *, X, original_features, verbose):

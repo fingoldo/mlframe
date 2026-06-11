@@ -197,7 +197,7 @@ class TestMultiEstimatorAmGmFallback:
             votes_aggregation_method=VotesAggregation.AM,
             verbose=1,
         )
-        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         assert any("Switching to Borda" in rec.getMessage() for rec in caplog.records)
 

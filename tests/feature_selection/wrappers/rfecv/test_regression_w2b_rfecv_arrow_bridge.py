@@ -15,7 +15,7 @@ pl = pytest.importorskip("polars")
 def test_rfecv_transform_polars_input_with_arrow_bridge():
     """Construct an RFECV manually with pre-set support_/feature_names_in_ so the test exercises ONLY transform(); we don't need fit()."""
     from sklearn.linear_model import LinearRegression
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     feat_names = [f"f{i}" for i in range(5)]
     rfecv = RFECV(estimator=LinearRegression(), cv=3)
