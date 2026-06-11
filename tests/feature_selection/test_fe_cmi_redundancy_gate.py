@@ -58,6 +58,7 @@ import pytest
 
 from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import (
     DEFAULT_CMI_RETAIN_FRAC,
+    _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
     apply_cmi_redundancy_gate,
 )
 from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
@@ -208,6 +209,161 @@ def test_relative_gap_leg_is_load_bearing():
         "conditional-permutation floor (so the debiased relative-gap TAU leg is the "
         "decisive rejector); if this fails the two-leg design may have collapsed to one leg"
     )
+
+
+# ---------------------------------------------------------------------------
+# FALSE-REJECT GUARD (2026-06-11): the relative-gap (leg 2) bar must NOT drop a
+# genuinely COMPLEMENTARY feature merely because it is WEAKER than a strong
+# incumbent. Adversarial finding: with one strong seed, rel_bar = TAU *
+# seed_excess becomes a large absolute CMI threshold, and several genuinely
+# independent weak drivers (each provably non-redundant -- independent of the
+# admitted support -- each clearing its OWN conditional-permutation floor 20x+)
+# were ALL mislabelled 'redundant_below_rel_bar' and dropped, costing ~3% R2 on
+# a real gradient-boosting model. The strong-significance escape admits a
+# candidate that clears its floor by >= significance_escape_margin (default 3x),
+# because robust conditional significance proves the information is NOT in the
+# admitted support (a truly redundant feature's CMI collapses to ~its floor).
+# ---------------------------------------------------------------------------
+
+
+def _disc(y, nbins=10):
+    y = np.asarray(y, dtype=np.float64)
+    edges = np.unique(np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)))
+    if edges.size <= 2:
+        return np.zeros(y.size, dtype=np.int64)
+    return np.searchsorted(edges[1:-1], y, side="right").astype(np.int64)
+
+
+def _marg_cands(cols: dict, yb: np.ndarray) -> dict:
+    return {
+        nm: (np.asarray(v, dtype=np.float64),
+             float(_cmi_from_binned(_quantile_bin(np.asarray(v, dtype=np.float64), nbins=10), yb, None)))
+        for nm, v in cols.items()
+    }
+
+
+def _weak_complementary_fixture(seed: int = 1, n: int = 20_000, n_weak: int = 5,
+                                strong_coef: float = 8.0, weak_coef: float = 1.5):
+    """One STRONG seed driver + several INDEPENDENT weak drivers, all genuinely
+    complementary (each its OWN additive piece of y, none a function of another).
+    The weak drivers' excess sits below TAU*seed_excess but each clears its floor
+    20x+ -- the regime the false-reject guard locks."""
+    rng = np.random.default_rng(seed)
+    cols = {}
+    S = rng.normal(size=n)
+    cols["strongS"] = S
+    y = _disc(S, 10).astype(float) * strong_coef
+    for k in range(n_weak):
+        w = rng.normal(size=n)
+        cols[f"weakW{k}"] = w
+        y = y + _disc(w, 4) * weak_coef
+    y = y + rng.normal(size=n) * 0.05
+    yb = _disc(y, nbins=10)
+    return cols, yb
+
+
+def cols_to_cands(cols, yb):
+    return _marg_cands(cols, yb)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_complementary_weak_feature_not_falsely_rejected(seed):
+    """A genuinely complementary (independent of the admitted support) but
+    individually WEAKER feature must be ADMITTED, not dropped as redundant.
+
+    Pre-fix: every weak driver's debiased excess was below rel_bar = TAU *
+    seed_excess (anchored to the one strong seed) and so was rejected
+    'redundant_below_rel_bar' -- a FALSE REJECT (the weak drivers are
+    independent of strongS, dropping all of them cost ~3% R2). Post-fix the
+    strong-significance escape admits them."""
+    cols, yb = _weak_complementary_fixture(seed=seed)
+    weak = [nm for nm in cols if nm.startswith("weakW")]
+    # GENUINENESS: each weak driver is (a) independent of the strong support
+    # (MI ~ 0 -- provably NOT redundant w.r.t. strongS) and (b) significant
+    # against the SEED-ONLY support (clears its floor by a wide margin when
+    # conditioned on strongS alone, before the other weak drivers fragment it).
+    s_bin = _quantile_bin(np.asarray(cols["strongS"], dtype=np.float64), nbins=10)
+    for nm in weak:
+        w_bin = _quantile_bin(np.asarray(cols[nm], dtype=np.float64), nbins=10)
+        mi_ws = float(_cmi_from_binned(w_bin, s_bin, None))
+        assert mi_ws < 0.02, f"weak driver {nm} not independent of strongS (MI={mi_ws}); fixture broken"
+        cmi_given_seed = float(_cmi_from_binned(w_bin, yb, s_bin))
+        assert cmi_given_seed > 0.01, (
+            f"weak driver {nm} carries no conditional signal given the seed "
+            f"(CMI={cmi_given_seed}); fixture broken"
+        )
+    # THE FIX: none of the genuinely complementary weak drivers is dropped.
+    accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=seed)
+    rejected = [nm for nm in weak if nm not in accepted]
+    assert not rejected, (
+        f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as "
+        f"redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
+    )
+
+
+def test_strong_significance_escape_is_decisive_for_weak_complementary():
+    """LOCK that it is the ESCAPE (not a coincidental excess >= rel_bar) that
+    admits the weak complementary drivers: at least one admitted weak driver has
+    excess BELOW rel_bar yet clears its floor >= the escape margin."""
+    cols, yb = _weak_complementary_fixture(seed=1)
+    accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=1)
+    weak = [nm for nm in cols if nm.startswith("weakW") and nm in accepted]
+    escaped = [
+        nm for nm in weak
+        if diag[nm]["cmi_excess"] < diag[nm]["rel_bar"]
+        and diag[nm]["cmi"] >= _CMI_SIGNIFICANCE_ESCAPE_MARGIN * diag[nm]["floor"]
+    ]
+    assert escaped, (
+        "expected at least one weak complementary driver admitted via the "
+        "strong-significance escape (excess < rel_bar but cmi >= margin*floor); "
+        f"diag={ {nm: diag[nm] for nm in weak} }"
+    )
+
+
+def test_escape_disabled_reproduces_false_reject():
+    """With the escape disabled (margin <= 1) the gate reverts to the pure
+    two-leg behaviour and DOES drop the weak complementary drivers -- proving the
+    escape (not some other change) is what fixes the false reject."""
+    cols, yb = _weak_complementary_fixture(seed=1)
+    accepted, _ = apply_cmi_redundancy_gate(
+        cols_to_cands(cols, yb), yb, nbins=10, seed=1, significance_escape_margin=1.0,
+    )
+    weak = [nm for nm in cols if nm.startswith("weakW")]
+    rejected = [nm for nm in weak if nm not in accepted]
+    assert rejected, (
+        "with the escape disabled the pure two-leg gate should still drop the weak "
+        "complementary drivers (this is the bug the escape fixes)"
+    )
+
+
+def test_escape_does_not_admit_monotone_redundant_remaps():
+    """The escape must NOT admit a feature whose information IS in the support: a
+    MONOTONE remap of an admitted driver (same quantile bins -> CMI given the
+    driver == 0) is rejected 'redundant_below_floor' (it cannot even clear its
+    floor), so the escape never fires for it. Guards against the escape
+    re-opening a false-ADMIT path."""
+    rng = np.random.default_rng(0)
+    n = 20_000
+    A = rng.normal(size=n)
+    y = _disc(A, 10).astype(float) * 10 + rng.normal(size=n) * 0.05
+    yb = _disc(y, nbins=10)
+    cols = {
+        "drvA": A,
+        "redA_cube": A ** 3,          # monotone -> identical quantile bins to A
+        "redA_exp": np.exp(A),        # monotone -> identical quantile bins to A
+        "redA_affine": 2.5 * A - 7.0,  # monotone -> identical quantile bins to A
+    }
+    accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=0)
+    group = list(cols)
+    admitted = [g for g in group if g in accepted]
+    # Exactly one survivor (A and its monotone remaps are the SAME binned column).
+    assert len(admitted) == 1, f"monotone-redundant remap FALSELY ADMITTED as extra info: {admitted}"
+    for nm in group:
+        if nm not in admitted:
+            assert diag[nm]["reason"] == "redundant_below_floor", (
+                f"monotone redundant remap {nm} should be rejected at the floor "
+                f"(CMI given the driver == 0), not via the relative bar: {diag[nm]}"
+            )
 
 
 def test_degenerate_single_candidate_admits_on_marginal():

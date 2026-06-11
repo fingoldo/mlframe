@@ -59,6 +59,31 @@ clean separation at every n from 1k up. The significance FLOOR leg is unchanged
 carry the same bias). The seed feature's anchor likewise uses a marginal-
 permutation-debiased excess so all anchors live on one debiased scale.
 
+STRONG-SIGNIFICANCE ESCAPE (the false-reject fix -- 2026-06-11 hardening)
+------------------------------------------------------------------------
+The relative bar (leg 2) is a RELATIVE separator anchored to the WEAKEST admitted
+feature's excess. When the admitted set is dominated by ONE strong seed, the bar
+``TAU * seed_excess`` becomes a large ABSOLUTE CMI threshold, and a genuinely
+COMPLEMENTARY feature that is merely WEAKER than that seed (independent of the
+admitted support, but adding an order-of-magnitude less information) is dropped
+``redundant_below_rel_bar`` -- a FALSE REJECT. Adversarial repro: one strong
+driver plus several INDEPENDENT weak drivers (each provably non-redundant -- MI
+with the support ~0 -- each clearing its OWN conditional-permutation floor 20x+)
+were ALL dropped, costing ~3% R2 on a real gradient-boosting model. "Much weaker
+than the strongest selected feature" is NOT "redundant".
+
+The fix adds a strong-significance escape: a candidate whose observed CMI clears
+its OWN conditional-permutation floor by at least ``significance_escape_margin``
+(default 3x) is admitted even when its excess is below the relative bar. Robust
+conditional significance proves the information is genuinely NEW (not in the
+admitted support): a truly redundant feature's CMI collapses to ~its floor
+(measured ``cmi/floor`` 1.0--1.4 for the spurious cross-signal ``sub``) while a
+genuine complementary feature clears it 20--340x, so the escape opens NO
+false-ADMIT path (a redundant feature cannot reach 3x its floor; a monotone remap
+of an admitted driver has CMI==0 and is caught at the floor itself). The escape
+requires ``passes_floor`` first (leg 1), so it only ever loosens leg 2, never
+leg 1.
+
 Greedy: seed on the highest-marginal-MI engineered candidate (admitted on its
 marginal significance -- nothing to condition on yet), then admit remaining
 candidates in MI order subject to the two-leg test, folding each admitted
@@ -88,6 +113,25 @@ DEFAULT_CMI_RETAIN_FRAC = 0.15
 # the floor is the cheap leg (the relative-gap leg does the heavy separation).
 _CMI_FLOOR_PERMUTATIONS = 25
 _CMI_FLOOR_QUANTILE = 0.95
+
+# Strong-significance escape margin for the relative-gap (leg 2) bar. The leg-2
+# bar (TAU * weakest-admitted excess) is a RELATIVE separator: it drops a
+# candidate whose information is an order of magnitude weaker than the weakest
+# admitted feature. Its DESIGN TARGET is the genuinely redundant feature (e.g. a
+# cross-signal ``sub`` whose y-information is already carried by the admitted
+# pair) -- such a feature sits only a SMALL multiple above its OWN conditional-
+# permutation floor (measured ``cmi/floor`` 1.0--1.4 for the spurious ``sub`` vs
+# 50--340 for the genuine ``div``/``mul``). But the bar by itself ALSO drops a
+# genuinely COMPLEMENTARY feature that is merely WEAKER than a strong incumbent
+# (independent of the support, ``cmi/floor`` ~20, real predictive value) -- a
+# FALSE REJECT, because "much weaker than the strongest selected feature" is not
+# the same as "redundant". The escape fixes this: a candidate whose observed CMI
+# clears its OWN conditional-permutation floor by at least this MULTIPLICATIVE
+# margin is robustly-significant NEW information that is NOT contained in the
+# admitted support (a redundant feature's CMI collapses to ~its floor), so it is
+# admitted even when its excess is below the relative bar. 3.0 sits with ~2x
+# margin on BOTH sides of the measured gap (redundant <=1.4x, genuine >=20x).
+_CMI_SIGNIFICANCE_ESCAPE_MARGIN = 3.0
 
 # Conditioning-support fragmentation cap (chi-squared rule-of-thumb: cells must
 # average >= 5 samples for the plug-in CMI to stay reliable). When folding the
@@ -188,6 +232,7 @@ def apply_cmi_redundancy_gate(
     retain_frac: float = DEFAULT_CMI_RETAIN_FRAC,
     n_permutations: int = _CMI_FLOOR_PERMUTATIONS,
     quantile: float = _CMI_FLOOR_QUANTILE,
+    significance_escape_margin: float = _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
     seed: int = 0,
     verbose: int = 0,
 ) -> tuple[set, dict]:
@@ -209,6 +254,15 @@ def apply_cmi_redundancy_gate(
         TAU -- the scale-free relative-retention fraction (default 0.15).
     n_permutations, quantile : int, float
         Conditional-permutation floor config.
+    significance_escape_margin : float
+        Strong-significance escape for the relative-gap (leg 2) bar. A candidate
+        whose observed CMI clears its OWN conditional-permutation floor by at
+        least this MULTIPLICATIVE margin is robustly-significant NEW information
+        not contained in the admitted support, so it is admitted even when its
+        debiased excess is below the relative bar. Prevents the FALSE REJECT of a
+        genuinely complementary but individually-WEAKER feature (whose excess is
+        below ``retain_frac * strongest-incumbent`` yet which clears its floor
+        20x+). Set ``<= 1`` to disable the escape (pure two-leg behaviour).
     seed : int
         RNG seed for the conditional-permutation floor (deterministic).
     verbose : int
@@ -308,16 +362,32 @@ def apply_cmi_redundancy_gate(
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
             passes_floor = cmi > floor                 # leg 1: significance
+            # Strong-significance escape: a candidate whose observed CMI clears
+            # its OWN conditional-permutation floor by a robust multiplicative
+            # margin carries genuinely NEW conditional information that is NOT in
+            # the admitted support (a redundant feature's CMI collapses to ~its
+            # floor -- measured cmi/floor 1.0--1.4 for the spurious cross-signal
+            # vs >=20 for a genuine complementary feature). Such a feature is
+            # admitted even if its debiased excess is below the relative bar,
+            # which by itself would FALSELY REJECT a complementary-but-weaker
+            # feature as "redundant". The escape requires passes_floor first (no
+            # division-by-noise on a sub-floor candidate).
+            strongly_significant = (
+                passes_floor
+                and significance_escape_margin > 1.0
+                and floor > 0.0
+                and cmi >= significance_escape_margin * floor
+            )
             passes_rel = cmi_excess >= rel_bar         # leg 2: debiased relative gap
-            passes = passes_floor and passes_rel
+            passes = passes_floor and (passes_rel or strongly_significant)
             if nm not in diagnostics:
                 diagnostics[nm] = {}
             diagnostics[nm].update(
                 accept=False, cmi=cmi, cmi_excess=cmi_excess, floor=floor,
                 null_mean=null_mean, rel_bar=rel_bar,
                 reason=("redundant_below_floor" if not passes_floor
-                        else "redundant_below_rel_bar" if not passes_rel
-                        else "pending"),
+                        else "pending" if (passes_rel or strongly_significant)
+                        else "redundant_below_rel_bar"),
             )
             if passes and cmi_excess > best_excess:
                 best_excess = cmi_excess
