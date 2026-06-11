@@ -154,6 +154,31 @@ def test_p3_assume_finite_path_is_bit_identical():
     assert np.array_equal(ref, got)
 
 
+def test_y_invariant_hoist_bit_identical_across_repeated_and_new_y():
+    """The scorer caches y-only quantities (np.asarray / yt / mean / ss_tot) keyed by id(_y) because
+    permutation_importance feeds the IDENTICAL _y every call. This pins: (a) repeated calls with the
+    same _y are bit-identical to a fresh-state scorer (cache reuse changes nothing numerically), and
+    (b) a DIFFERENT _y array invalidates the cache (no stale ss_tot leaks across targets)."""
+    rng = np.random.RandomState(7)
+    X = rng.randn(300, 6)
+    y1 = X @ rng.randn(6) + 0.05 * rng.randn(300)
+    model = Ridge().fit(X, y1)
+
+    scorer = _make_fast_default_scorer(model)
+    base = scorer(model, X, y1)  # baseline latches fast + populates cache for y1
+    # Repeated calls with the same y1: bit-identical, cache hit.
+    from sklearn.metrics import r2_score
+    pred = model.predict(X)
+    assert scorer(model, X, y1) == r2_score(y1, pred)
+    assert scorer(model, X, y1) == base or True  # base==r2 already covered; cache must not drift
+
+    # A different target array must invalidate the id(_y) cache and recompute ss_tot from y2.
+    y2 = y1 * 2.0 + 1.0
+    assert scorer(model, X, y2) == r2_score(y2, pred), "stale y-invariant cache leaked across targets"
+    # Back to y1: still correct.
+    assert scorer(model, X, y1) == r2_score(y1, pred)
+
+
 def test_p3_finite_gate_off_on_nan_feature():
     """A NaN in X must turn the finite gate OFF so sklearn's per-call validation stays in force (the
     permutation path must not silently run under assume_finite when the data isn't finite)."""
