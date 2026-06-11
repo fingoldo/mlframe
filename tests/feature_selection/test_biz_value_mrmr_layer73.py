@@ -145,25 +145,7 @@ def _build_redundant_multi(seed: int, n: int = 2000):
     return X, pd.Series(y, name="y")
 
 
-from tests.feature_selection._biz_val_synth import _build_linear
-def _quantile_bin_local(arr: np.ndarray, nbins: int = 10) -> np.ndarray:
-    """Local equi-frequency binner (independent of the prod path)."""
-    a = np.asarray(arr, dtype=np.float64)
-    finite_mask = np.isfinite(a)
-    out = np.zeros(a.size, dtype=np.int64)
-    if not finite_mask.any():
-        return out
-    finite = a[finite_mask]
-    qs = np.linspace(0.0, 1.0, nbins + 1)
-    edges = np.unique(np.quantile(finite, qs))
-    if edges.size <= 2:
-        if edges.size == 2:
-            out[finite_mask] = (a[finite_mask] >= edges[1]).astype(np.int64)
-        return out
-    inner = edges[1:-1]
-    out[finite_mask] = np.searchsorted(inner, finite, side="right").astype(np.int64)
-    return out
-
+from tests.feature_selection._biz_val_synth import _build_linear, _quantile_bin_local
 
 # ---------------------------------------------------------------------------
 # Contract 1: TC catches higher-order (XOR) redundancy

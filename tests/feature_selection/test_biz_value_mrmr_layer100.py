@@ -113,24 +113,7 @@ def _build_quadratic(seed: int, n: int = 2000):
     return X, pd.Series(y, name="y")
 
 
-def _build_xor_redundant(seed: int, n: int = 2000):
-    rng = np.random.default_rng(int(seed))
-    x1 = rng.standard_normal(n)
-    x_dup_a = x1 + 0.05 * rng.standard_normal(n)
-    x_dup_b = x1 + 0.05 * rng.standard_normal(n)
-    x_dup_c = x1 + 0.05 * rng.standard_normal(n)
-    x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x_dup_a": x_dup_a, "x_dup_b": x_dup_b, "x_dup_c": x_dup_c,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
-    thr = float(np.median(signal))
-    y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
-    return X, pd.Series(y, name="y")
-
+from tests.feature_selection._biz_val_synth import _build_xor_redundant
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 # ---------------------------------------------------------------------------

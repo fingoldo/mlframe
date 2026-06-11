@@ -53,30 +53,7 @@ SEEDS = (1, 7, 13)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
-def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.6, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    idx = np.arange(len(X))
-    rng.shuffle(idx)
-    cut = int(train_frac * len(X))
-    tr, ho = idx[:cut], idx[cut:]
-    return (
-        X.iloc[tr].reset_index(drop=True),
-        y.iloc[tr].reset_index(drop=True),
-        X.iloc[ho].reset_index(drop=True),
-        y.iloc[ho].reset_index(drop=True),
-    )
-
-
-def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
-    num_cols = [c for c in X_tr.columns if pd.api.types.is_numeric_dtype(X_tr[c])]
-    if not num_cols:
-        return 0.5
-    Xn_tr = X_tr[num_cols].to_numpy(dtype=np.float64)
-    Xn_ho = X_ho[num_cols].to_numpy(dtype=np.float64)
-    clf = LogisticRegression(max_iter=500, solver="lbfgs")
-    clf.fit(Xn_tr, y_tr.to_numpy())
-    proba = clf.predict_proba(Xn_ho)[:, 1]
-    return float(roc_auc_score(y_ho.to_numpy(), proba))
+from tests.feature_selection._biz_val_synth import _logreg_auc, _train_holdout_split
 
 
 # ---------------------------------------------------------------------------

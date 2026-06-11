@@ -50,13 +50,7 @@ SEEDS = (1, 7, 13, 42, 101)
 # ---------------------------------------------------------------------------
 
 
-def _mi_one(col: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
-    from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-        _mi_classif_batch,
-    )
-    arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
-    return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])
-
+from tests.feature_selection._biz_val_synth import _mi_one
 
 # ---------------------------------------------------------------------------
 # PART A fixtures

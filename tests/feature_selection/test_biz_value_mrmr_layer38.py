@@ -52,19 +52,7 @@ SEEDS = (3801, 3802, 3803)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
-def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.6, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    idx = np.arange(len(X))
-    rng.shuffle(idx)
-    cut = int(train_frac * len(X))
-    tr, ho = idx[:cut], idx[cut:]
-    return (
-        X.iloc[tr].reset_index(drop=True),
-        y.iloc[tr].reset_index(drop=True),
-        X.iloc[ho].reset_index(drop=True),
-        y.iloc[ho].reset_index(drop=True),
-    )
-
+from tests.feature_selection._biz_val_synth import _train_holdout_split
 
 def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
     num_cols = [c for c in X_tr.columns if pd.api.types.is_numeric_dtype(X_tr[c])]

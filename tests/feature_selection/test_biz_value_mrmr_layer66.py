@@ -99,21 +99,8 @@ def _build_heavy_tail_log_threshold(seed: int, n: int = 1500, n_noise: int = 4):
     return X, pd.Series(y, name="y")
 
 
-def _build_quadratic_classif(seed: int, n: int = 1500, n_noise: int = 5):
-    """Clean He_2 signal -- ``y = sign(x^2 > 1)``. Used for the enable /
-    pickle contracts where we want a stable winner appended.
-    """
-    rng = np.random.default_rng(int(seed))
-    x1 = rng.standard_normal(n)
-    cols: dict = {"x1": x1}
-    for k in range(n_noise):
-        cols[f"noise_{k}"] = rng.standard_normal(n)
-    X = pd.DataFrame(cols)
-    y = ((x1 ** 2 + 0.1 * rng.standard_normal(n)) > 1.0).astype(int)
-    return X, pd.Series(y, name="y")
 
-
-from tests.feature_selection._biz_val_synth import _build_linear
+from tests.feature_selection._biz_val_synth import _build_linear, _build_quadratic_classif
 # ---------------------------------------------------------------------------
 # Contract 1: monotone-transform invariance (the headline property)
 # ---------------------------------------------------------------------------
