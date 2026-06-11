@@ -898,4 +898,60 @@ def _apply_pre_pipeline_transforms(
             except Exception:
                 pass  # non-writable pre_pipeline (e.g. tuple), safe to ignore
 
+        # Validate the pre_pipeline output against what the model expects.
+        # A mis-shaped pre_pipeline output (e.g. a custom step that drops a
+        # column the fitted model needs) otherwise surfaces as an opaque
+        # sklearn/booster error far from the cause ("X has N features, but ...
+        # is expecting M" deep inside .predict). Raise an actionable error here
+        # naming the missing/extra columns. Only validate when the model's
+        # expected feature names are KNOWN (model already fitted, e.g. a reused
+        # round); on the first fit they're unknown -- skip to avoid over-validation.
+        _validate_pre_pipeline_output_against_model(model, pre_pipeline, train_df)
+
     return train_df, val_df
+
+
+def _validate_pre_pipeline_output_against_model(model, pre_pipeline, train_df) -> None:
+    """Raise an actionable error if the pre_pipeline output can't feed the model.
+
+    Checks (a) the output is non-empty, and (b) -- when the model's expected
+    feature names are known from a prior fit -- that the output column set
+    matches, naming the missing/extra columns and the pre_pipeline step. Silent
+    no-op when the expected names are unknown (first fit) so we don't reject a
+    legitimate first-fit shape.
+    """
+    if train_df is None or not hasattr(train_df, "columns"):
+        return
+    output_cols = list(train_df.columns)
+
+    # Non-empty check (always actionable: a 0-column frame can never feed a model).
+    if len(output_cols) == 0:
+        # 0-feature selector output is a distinct, already-handled scenario
+        # (trainer.py's 0-feature guard); don't intercept it here.
+        return
+
+    expected = getattr(model, "feature_names_in_", None)
+    if expected is None:
+        return  # model not yet fitted -> expected schema unknown, skip.
+    expected_cols = list(expected)
+    if not expected_cols:
+        return
+
+    output_set = set(output_cols)
+    expected_set = set(expected_cols)
+    if output_set == expected_set:
+        return
+
+    missing = [c for c in expected_cols if c not in output_set]
+    extra = [c for c in output_cols if c not in expected_set]
+    _step = type(pre_pipeline).__name__
+    _last = getattr(pre_pipeline, "steps", None)
+    if _last:
+        _step = f"{_step}(last step '{_last[-1][0]}')"
+    raise ValueError(
+        f"pre_pipeline output ({len(output_cols)} cols) does not match the "
+        f"{len(expected_cols)} features the fitted model expects. "
+        f"Missing (expected by model, dropped by pre_pipeline): {missing}. "
+        f"Extra (produced by pre_pipeline, unknown to model): {extra}. "
+        f"Check the pre_pipeline step {_step}."
+    )

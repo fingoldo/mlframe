@@ -367,10 +367,22 @@ def _apply_pre_pipeline_with_passthrough(
                 _src_for_stash = _candidate
                 break
         if _src_for_stash is not None:
+            # Batch the polars->pandas conversion ONCE for all passthrough cols
+            # (was per-column get_column(_pc).to_pandas() -- N conversions on a
+            # potentially 100GB frame). Narrow select keeps it to the stash cols.
+            _stash_pd_view = None
+            if isinstance(_src_for_stash, pl.DataFrame):
+                try:
+                    _stash_pd_view = _src_for_stash.select(_passthrough_cols).to_pandas()
+                except (KeyError, AttributeError, ValueError, TypeError):
+                    _stash_pd_view = None
             for _pc in _passthrough_cols:
                 try:
                     if isinstance(_src_for_stash, pl.DataFrame):
-                        _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
+                        if _stash_pd_view is not None:
+                            _stashed_passthrough[_pc] = _stash_pd_view[_pc]
+                        else:
+                            _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
                     else:
                         _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
                 except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:
@@ -385,6 +397,10 @@ def _apply_pre_pipeline_with_passthrough(
     try:
         input_for_model = model_obj.pre_pipeline.transform(input_for_model)
         if _stashed_passthrough and isinstance(input_for_model, pd.DataFrame):
+            # Reset the frame index ONCE before the loop -- was inside the loop,
+            # so an N-column passthrough reset (copied) the whole frame N times.
+            # Per-column _vals_aligned.reset_index stays (cheap Series reset).
+            input_for_model = input_for_model.reset_index(drop=True)
             for _pc, _vals in _stashed_passthrough.items():
                 if _pc in input_for_model.columns:
                     continue
@@ -392,7 +408,6 @@ def _apply_pre_pipeline_with_passthrough(
                     _vals_aligned = _vals
                     if hasattr(_vals_aligned, "reset_index"):
                         _vals_aligned = _vals_aligned.reset_index(drop=True)
-                    input_for_model = input_for_model.reset_index(drop=True)
                     input_for_model[_pc] = _vals_aligned
                 except (KeyError, ValueError, TypeError) as _reattach_err:
                     logger.warning(

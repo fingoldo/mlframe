@@ -548,8 +548,21 @@ def _train_model_with_fallback(
             model.set_params(device_type="cpu")
             try_again = True
         elif "pandas dtypes must be int, float or bool" in error_str:
-            logger.warning(f"Model {model} skipped due to error 'pandas dtypes must be int, float or bool, got {train_df.dtypes}'")
-            return None, None
+            # Upstream feature-typing gap: a column reached the estimator with a
+            # dtype it cannot consume (e.g. object/datetime/Categorical not cast
+            # to numeric). A silent ``return None, None`` here hides the real
+            # cause and surfaces downstream as an opaque "model produced no
+            # predictions" failure. Surface the offending dtypes and re-raise so
+            # the upstream type-detection / casting gap is visible and fixable.
+            _dtypes = getattr(train_df, "dtypes", None)
+            logger.error(
+                "Model %s received a column with an unsupported pandas dtype "
+                "(estimator requires int/float/bool). Offending frame dtypes: %s. "
+                "Fix upstream feature typing / casting -- do not pass object / "
+                "datetime / un-encoded categorical columns to this estimator.",
+                model_type_name, _dtypes,
+            )
+            raise
 
         elif model_type_name in CATBOOST_MODEL_TYPES and "Dictionary size is 0" in error_str:
             # CatBoost's text feature estimator failed to build a TF-IDF

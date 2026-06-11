@@ -101,16 +101,19 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     for _col in train_df.columns:
         try:
             _dt = train_df[_col].dtype
-        except Exception as _e_dt:
-            # Same shape as the per-col dtype-access pattern elsewhere in
-            # this module: silent skip means a Categorical that should be
-            # aligned across train/val/test silently isn't, then later
-            # asserts on category-set equality may misreport.
-            import logging as _logging
-            _logging.getLogger(__name__).debug(
-                "_eval_helpers: train_df dtype access failed for col=%r "
-                "(%s); col will NOT be added to cat-alignment list.",
-                _col, _e_dt,
+        except (KeyError, AttributeError, ValueError) as _e_dt:
+            # Narrowed from a bare ``except Exception``: only the expected
+            # column-access / dtype-resolution failures are tolerated. A skip
+            # here means a Categorical that should be aligned across
+            # train/val/test silently isn't, so later asserts on category-set
+            # equality may misreport -- log a WARNING (not a silent debug) so
+            # the gap is visible. Any other exception now propagates instead of
+            # masking a genuine bug.
+            logger.warning(
+                "_eval_helpers: dtype access failed for col=%r (%s: %s); col "
+                "will NOT be added to cat-alignment list, so train/val/test "
+                "category alignment may be incomplete for it.",
+                _col, type(_e_dt).__name__, _e_dt,
             )
             continue
         if isinstance(_dt, pd.CategoricalDtype):
