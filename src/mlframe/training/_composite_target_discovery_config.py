@@ -335,6 +335,19 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # WORSE OOF RMSE than raw-y because subtracting the base added
     # noise to the target. Phase B's CV-RMSE-on-y-scale catches this
     # directly. Cost: ~0.5-2 min per target on a 4M-row dataset.
+    # Information-criterion validation of transform choice. When True, the
+    # discovery loop MAY consult a WAIC/LOO-style score (the expected pointwise
+    # out-of-fold predictive density of the tiny-CV residuals, penalised for
+    # effective across-fold complexity -- see ``discovery._eval_waic``) as an
+    # ADDITIONAL ranking signal alongside MI-gain, never replacing it. It
+    # separates two transforms that MI-gain ties when one genuinely generalises
+    # and the other overfits the screen. Default OFF: it costs an extra per-fold
+    # OOF pass per surviving candidate. The scorer is self-contained -- enabling
+    # this flag does not rewire the gate, it only invites the caller to fold the
+    # per-transform WAIC into its ranking.
+    transform_waic_validation_enabled: bool = False
+    transform_waic_n_folds: int = 4
+
     screening: str = "hybrid"  # "mi" | "tiny_model" | "hybrid"
     tiny_model_n_estimators: int = 60
     tiny_model_num_leaves: int = 15
