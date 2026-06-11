@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from ..configs import MultilabelDispatchConfig  # forward annotation only; importing at runtime is unnecessary
 
 # Inline to avoid circular import (_reporting <- evaluation <- _reporting)
-DEFAULT_PLOT_SAMPLE_SIZE = 500
+DEFAULT_PLOT_SAMPLE_SIZE = 5000
 DEFAULT_REPORT_NDIGITS = 2
 DEFAULT_CALIB_REPORT_NDIGITS = 2
 DEFAULT_NBINS = 10
@@ -532,9 +532,11 @@ def report_model_perf(
                 _ytmin = getattr(y_train_envelope_stats, "y_min", None)
                 _ytmax = getattr(y_train_envelope_stats, "y_max", None)
                 _ytstd = getattr(y_train_envelope_stats, "y_std", None)
+            _scatter_sample = getattr(reporting_config, "regression_scatter_sample_size", DEFAULT_PLOT_SAMPLE_SIZE)
             preds, probs = report_regression_model_perf(
                 **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,
                 y_train_min=_ytmin, y_train_max=_ytmax, y_train_std=_ytstd,
+                plot_sample_size=_scatter_sample,
                 reporting_config=reporting_config,
             )
 

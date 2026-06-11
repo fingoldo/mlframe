@@ -140,6 +140,41 @@ def test_render_training_curves_writes_file(tmp_path):
     assert any(f.endswith(".png") and "training_curve" in f for f in os.listdir(str(tmp_path)))
 
 
+def test_keep_figure_handles_populates_figure_specs(tmp_path):
+    """With keep_figure_handles=True the render path stores the pure-data FigureSpec in metrics["figure_specs"]
+    (INV-56); default False leaves it absent. Pre-fix the config field did not exist so the getattr defaulted False
+    and figure_specs was never populated even when requested."""
+    from mlframe.training.configs import ReportingConfig
+
+    assert "keep_figure_handles" in ReportingConfig.model_fields
+    assert ReportingConfig().keep_figure_handles is False
+
+    evals, es = _synthetic_evals()
+    base = os.path.join(str(tmp_path), "model_keep")
+    metrics: dict = {}
+    _render_training_curves(
+        _FakeLGB(evals, es),
+        model_name="LGB", plot_file=base,
+        plot_outputs="matplotlib[png]", plot_dpi=80,
+        metrics=metrics, reporting_config=ReportingConfig(keep_figure_handles=True),
+    )
+    assert "training_curve" in metrics.get("figure_specs", {}), "figure_specs must be populated when keep_figure_handles=True"
+    spec = metrics["figure_specs"]["training_curve"]
+    assert hasattr(spec, "panels"), "stored object is the pure-data FigureSpec"
+    # FigureSpec is pickle-safe (no live matplotlib/plotly handle).
+    import pickle
+    pickle.loads(pickle.dumps(spec))
+
+    metrics_off: dict = {}
+    _render_training_curves(
+        _FakeLGB(evals, es),
+        model_name="LGB", plot_file=os.path.join(str(tmp_path), "model_off"),
+        plot_outputs="matplotlib[png]", plot_dpi=80,
+        metrics=metrics_off, reporting_config=ReportingConfig(keep_figure_handles=False),
+    )
+    assert "figure_specs" not in metrics_off
+
+
 def test_render_training_curves_noop_when_disabled(tmp_path):
     evals, es = _synthetic_evals()
 

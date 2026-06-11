@@ -178,11 +178,15 @@ class ReportingConfig(BaseConfig):
 
     # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against the chart modules' ALLOWED_*_PANEL_TOKENS frozensets, no duplicates). All-by-default; operator removes tokens to skip individual panels.
     # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/KS/THRESHOLD/GAIN by default.
-    binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN"
+    binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
     multiclass_panels: str = "CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
     ltr_panels: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL"
-    quantile_panels: str = "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST"
+    # Kept in lockstep with the composer's ``DEFAULT_QUANTILE_PANELS`` so QUANTILE_RELIABILITY / PINBALL_DECOMP / QUANTILE_CROSSING render on a default suite run (the suite passes this string to the dispatcher, not the composer default).
+    quantile_panels: str = (
+        "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST "
+        "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING"
+    )
     # Regression report panels (SCATTER + residual hist + residual-vs-pred funnel + per-decile error). Rendered by ``compose_regression_figure``; all-by-default like the other panel templates.
     regression_panels: str = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
 
@@ -193,6 +197,12 @@ class ReportingConfig(BaseConfig):
 
     # Per-model train/val metric-vs-iteration curves (from evals_result_ / ES callback history), early-stop point marked. ON by default; the renderer only emits when charts are saved AND iteration history is available, so it is a no-op for models without boosting history.
     training_curves: bool = True
+
+    # Retain the pure-data ``FigureSpec`` objects (no live matplotlib/plotly handle, so they stay pickle-safe) in ``metrics["figure_specs"]`` so callers can re-render or post-tweak panels after the suite. OFF by default -- the on-disk artifact is the primary output; this only matters for programmatic post-processing.
+    keep_figure_handles: bool = False
+
+    # Row cap for the regression pred-vs-actual scatter (extremes-preserving subsample keeps the worst-error points). 5000 is dense enough to read the residual structure while bounding render cost; raise for finer detail, lower for faster figures.
+    regression_scatter_sample_size: int = 5000
 
     @field_validator("title_metrics_template")
     @classmethod

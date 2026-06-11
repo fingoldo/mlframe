@@ -83,6 +83,58 @@ class TestDefaultTemplatesDispatch:
         assert tag == "quantile"
         assert os.path.exists(tmp_path / "qr_quantile_panels.png")
 
+    def test_default_quantile_template_renders_reliability_decomp_crossing(self, qr_inputs, tmp_path):
+        """R-6 end-to-end: the FULL default quantile template -- which now carries QUANTILE_RELIABILITY /
+        PINBALL_DECOMP / QUANTILE_CROSSING -- dispatches + renders through the real auto-dispatch path on a default
+        suite run. A revert that drops these from ReportingConfig.quantile_panels fails here, not silently."""
+        from mlframe.reporting.charts import compose_quantile_figure
+
+        y, preds, alphas = qr_inputs
+        cfg = ReportingConfig()
+        toks = cfg.quantile_panels.split()
+        for tok in ("QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING"):
+            assert tok in toks
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spec = compose_quantile_figure(y, preds, alphas, panels_template=cfg.quantile_panels)
+            tag = render_multi_target_panels(
+                targets=y, preds=preds, quantile_alphas=alphas,
+                plot_outputs="matplotlib[png]",
+                quantile_panels=cfg.quantile_panels,
+                base_path=str(tmp_path / "qrfull"),
+                target_type="quantile_regression",
+            )
+        assert _n_panels(spec) == len(toks)
+        assert tag == "quantile"
+        assert os.path.exists(tmp_path / "qrfull_quantile_panels.png")
+
+    def test_default_binary_template_renders_pit(self, tmp_path):
+        """INV-42 end-to-end: the default binary template now carries PIT and the full template renders through the
+        dispatcher. A revert that drops PIT from ReportingConfig.binary_panels fails here."""
+        from mlframe.reporting.charts.binary import compose_binary_figure
+
+        rng = np.random.default_rng(0)
+        n = 400
+        y = rng.integers(0, 2, n)
+        score = np.clip(0.5 + 0.3 * (2 * y - 1) + rng.normal(0, 0.2, n), 0.0, 1.0)
+        proba = np.column_stack([1.0 - score, score])
+        cfg = ReportingConfig()
+        toks = cfg.binary_panels.split()
+        assert "PIT" in toks
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spec = compose_binary_figure(y, score, panels_template=cfg.binary_panels)
+            tag = render_multi_target_panels(
+                targets=y, probs=proba,
+                plot_outputs="matplotlib[png]",
+                binary_panels=cfg.binary_panels,
+                base_path=str(tmp_path / "bin"),
+                target_type="binary_classification",
+            )
+        assert _n_panels(spec) == len(toks)
+        assert tag == "binary"
+        assert os.path.exists(tmp_path / "bin_binary_panels.png")
+
 
 class TestDefaultRegressionPanels:
     def test_default_regression_template_includes_new_panels(self):

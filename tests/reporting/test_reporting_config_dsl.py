@@ -138,6 +138,25 @@ class TestNewPanelsDefaultOn:
         assert "ERR_BY_DECILE" in cfg.regression_panels.split()
         assert ReportingConfig(regression_panels="ERR_BY_DECILE").regression_panels == "ERR_BY_DECILE"
 
+    def test_quantile_reliability_decomp_crossing_default_on(self):
+        """R-6: the three quantile-reliability tokens must be in the SUITE default ReportingConfig.quantile_panels
+        (not just the composer's DEFAULT_QUANTILE_PANELS), since the suite passes the config value to the dispatcher.
+        Pre-fix the default omitted all three so they never rendered on a default suite run."""
+        toks = ReportingConfig().quantile_panels.split()
+        for tok in ("QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING"):
+            assert tok in toks, f"{tok} must be default-ON in ReportingConfig.quantile_panels"
+
+    def test_config_quantile_default_matches_composer_default(self):
+        """The suite default and the composer default must stay in lockstep (same token set)."""
+        from mlframe.reporting.charts.quantile import DEFAULT_QUANTILE_PANELS
+
+        assert set(ReportingConfig().quantile_panels.split()) == set(DEFAULT_QUANTILE_PANELS.split())
+
+    def test_pit_default_on_in_binary_and_valid(self):
+        """INV-42: PIT must be in the binary default template (the token + _pit_panel already exist)."""
+        assert "PIT" in ReportingConfig().binary_panels.split()
+        assert ReportingConfig(binary_panels="PIT").binary_panels == "PIT"
+
     def test_validator_allowed_sets_match_chart_frozensets(self):
         """The validator must accept exactly the chart modules' frozensets --
         every token in each ALLOWED_*_PANEL_TOKENS round-trips through its
@@ -179,3 +198,31 @@ class TestCalibrationAndReliabilityKnobs:
 
     def test_reliability_show_ci_can_disable(self):
         assert ReportingConfig(reliability_show_ci=False).reliability_show_ci is False
+
+
+class TestRegressionScatterSampleKnob:
+    """INV-15: the suite-default regression scatter sample must be 5000, not the historical 500."""
+
+    def test_default_regression_scatter_sample_is_5000(self):
+        assert ReportingConfig().regression_scatter_sample_size == 5000
+
+    def test_regression_scatter_sample_is_overridable(self):
+        assert ReportingConfig(regression_scatter_sample_size=20000).regression_scatter_sample_size == 20000
+
+    def test_default_plot_sample_size_constant_is_5000(self):
+        """The runtime default the suite path resolves to when no config is threaded must also be 5000
+        (pre-fix this constant was 500 and overrode the spec builder's 5000)."""
+        from mlframe.training.reporting._reporting import DEFAULT_PLOT_SAMPLE_SIZE
+
+        assert DEFAULT_PLOT_SAMPLE_SIZE == 5000
+
+
+class TestKeepFigureHandlesField:
+    """INV-56: keep_figure_handles must be a real ReportingConfig field (the render path reads it via getattr)."""
+
+    def test_keep_figure_handles_field_exists_default_false(self):
+        assert "keep_figure_handles" in ReportingConfig.model_fields
+        assert ReportingConfig().keep_figure_handles is False
+
+    def test_keep_figure_handles_can_enable(self):
+        assert ReportingConfig(keep_figure_handles=True).keep_figure_handles is True
