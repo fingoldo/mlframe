@@ -141,6 +141,17 @@ def pooled_permutation_null_gain_floor(
     y_counts = np.bincount(y_codes, minlength=nbins_y).astype(np.float64)
     py = y_counts[y_counts > 0] * inv_n
     h_y = float(-(py * np.log(py)).sum())
+    # Idea-#9 (backlog #4): Miller-Madow bias uses the EFFECTIVE OCCUPIED bin
+    # count, not the nominal cardinality. Heavy-tailed engineered columns
+    # (e.g. a**2/b) bin to ~8 occupied cells out of nbins=16; the MM term
+    # ``(k_x-1)(k_y-1)/2n`` with nominal k OVER-corrects (it charges bias for
+    # empty cells that contribute no plug-in inflation), pushing the chance
+    # floor down and understating it. Using k_eff = #occupied bins is the
+    # statistically correct MM and tracks the true (null=0) MI 3.1-3.2x tighter
+    # on heavy-tailed cols (residual |MI|: nominal 0.045/0.018 -> occupied
+    # 0.014/0.006 at n=2000/5000). y's occupied count is invariant under the
+    # relabelling shuffle, so it is fixed here.
+    ky_eff = int(py.shape[0])
 
     scaled_codes = []   # x_codes * nbins_y  (so joint = scaled + y_perm)
     joint_card = []     # nbins_x * nbins_y
@@ -156,10 +167,11 @@ def pooled_permutation_null_gain_floor(
         xc = np.ascontiguousarray(factors_data[:, ci]).astype(np.int64)
         xcounts = np.bincount(xc, minlength=nb).astype(np.float64)
         px = xcounts[xcounts > 0] * inv_n
+        kx_eff = int(px.shape[0])  # occupied bins of this candidate (idea-#9)
         scaled_codes.append(xc * nbins_y)
         joint_card.append(nb * nbins_y)
         h_x.append(float(-(px * np.log(px)).sum()))
-        mm_bias.append(((nb - 1) * (nbins_y - 1) / (2.0 * n)) if cardinality_bias_correction else 0.0)
+        mm_bias.append(((kx_eff - 1) * (ky_eff - 1) / (2.0 * n)) if cardinality_bias_correction else 0.0)
 
     n_cand = len(scaled_codes)
     if n_cand < 2:
