@@ -978,6 +978,18 @@ CompositeTargetEstimator.predict_interval_mondrian = _predict_interval_mondrian
 CompositeTargetEstimator.calibrate_conformal_weighted = _calibrate_conformal_weighted
 CompositeTargetEstimator.predict_interval_weighted = _predict_interval_weighted
 
+# Adaptive Conformal Inference (ACI, Gibbs & Candes): online controller that adjusts alpha_t after each (x, y) so long-run coverage tracks 1-alpha under residual-scale drift that the frozen split-conformal band mis-covers. State under ``self._aci_state_`` (runtime only). ``conformal_online`` imports nothing from estimator, so no cycle.
+from ..conformal_online import (  # noqa: E402
+    init_aci as _init_aci,
+    update_conformal as _update_conformal,
+    predict_interval_online as _predict_interval_online,
+    get_aci_state as _get_aci_state,
+)
+CompositeTargetEstimator.init_aci = _init_aci
+CompositeTargetEstimator.update_conformal = _update_conformal
+CompositeTargetEstimator.predict_interval_online = _predict_interval_online
+CompositeTargetEstimator.get_aci_state = _get_aci_state
+
 # The public methods (``predict`` / ``predict_quantile`` / ``predict_pre_clip``
 # / ``update`` / ``get_buffer_state`` / ``get_booster``) and the sklearn-convention
 # properties (``feature_importances_`` / ``coef_`` / ``intercept_`` / ``booster_`` /
