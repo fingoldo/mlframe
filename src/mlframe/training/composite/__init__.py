@@ -280,6 +280,8 @@ from .sklearn_compat import (  # noqa: E402,F401
     make_composite_regressor,
     CompositeTargetTransformer,
 )
+from .autoconfig import suggest_discovery_config  # noqa: E402,F401
+from .highlevel import discover_and_wrap, DiscoverAndWrapResult  # noqa: E402,F401
 
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
@@ -292,6 +294,7 @@ __all__ = [
     "CompositeGLMEstimator", "CompositeQuantileEstimator",
     "CompositeMultiOutputEstimator", "make_per_column_specs",
     "make_composite_regressor", "CompositeTargetTransformer",
+    "suggest_discovery_config", "discover_and_wrap", "DiscoverAndWrapResult",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
