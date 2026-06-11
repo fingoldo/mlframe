@@ -283,3 +283,16 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
             "bin_confidence": bin_conf, "bin_accuracy": bin_acc,
             "bin_count": bin_cnt, "ece": float(ece),
         }
+
+
+# Split-conformal prediction SETS. Bound from ``composite/conformal_classification.py``
+# (which imports nothing from this module, so no cycle). calibrate_conformal_set(
+# X_cal, y_cal, alpha, score) fits the threshold from a held-out set; predict_set(
+# X, alpha, score) returns per-row coverage-guaranteed label sets.
+from .conformal_classification import (  # noqa: E402
+    calibrate_conformal_set as _calibrate_conformal_set,
+    predict_set as _predict_set,
+)
+
+CompositeClassificationEstimator.calibrate_conformal_set = _calibrate_conformal_set
+CompositeClassificationEstimator.predict_set = _predict_set
