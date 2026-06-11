@@ -22,7 +22,46 @@ from sklearn.exceptions import NotFittedError
 from sklearn.utils.metaestimators import available_if
 from sklearn.utils.validation import check_is_fitted
 
+try:
+    # sklearn's canonical "does this estimator's fit accept <param>" check.
+    from sklearn.utils.validation import has_fit_parameter as _sk_has_fit_parameter
+except ImportError:  # pragma: no cover - sklearn always ships this
+    _sk_has_fit_parameter = None
+
 logger = logging.getLogger(__name__)
+
+
+def _model_fit_accepts_sample_weight(model: Any) -> bool:
+    """True when ``model.fit`` declares ``sample_weight`` (or accepts ``**kwargs``).
+
+    Used to signature-GATE the optional ``sample_weight`` pass-through instead of
+    the old catch-all ``except TypeError`` retry. The retry pattern was wrong: a
+    ``TypeError`` raised DEEP inside a fit that *does* accept ``sample_weight`` (a
+    bad dtype, a shape mismatch, a downstream library bug) was mis-attributed to
+    "no sample_weight support" and the model was silently re-fit UNWEIGHTED --
+    dropping the weighting the caller asked for AND hiding the real error. Gating
+    on the declared signature swallows only the genuine "this fit has no
+    sample_weight parameter" case and lets every real error propagate.
+    """
+    import inspect
+
+    if _sk_has_fit_parameter is not None:
+        try:
+            return bool(_sk_has_fit_parameter(model, "sample_weight"))
+        except Exception:  # pragma: no cover - defensive; fall through
+            pass
+    fit_fn = getattr(model, "fit", None)
+    if fit_fn is None:
+        return False
+    try:
+        params = inspect.signature(fit_fn).parameters
+    except (ValueError, TypeError):
+        # Un-introspectable (builtin / C-extension): be permissive so we never
+        # silently drop weighting; a real "no such param" TypeError then surfaces.
+        return True
+    if "sample_weight" in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 def _inner_has_predict_quantile(shim: "PrePipelinePredictShim") -> bool:
@@ -87,15 +126,17 @@ class PrePipelinePredictShim(BaseEstimator):
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None, **kwargs: Any) -> "PrePipelinePredictShim":
         X_in = self._transform(X)
-        if sample_weight is not None:
-            try:
-                self.model.fit(X_in, y, sample_weight=sample_weight, **kwargs)
-                self._shim_fitted = True
-                return self
-            except TypeError:
-                # Inner does not accept sample_weight; drop and retry.
-                pass
-        self.model.fit(X_in, y, **kwargs)
+        # Signature-gate sample_weight rather than an ``except TypeError`` retry.
+        # The retry mis-attributed a TypeError raised DEEP inside a weight-AWARE
+        # inner fit (e.g. a downstream dtype/shape bug) to "no sample_weight
+        # support" and silently re-fit UNWEIGHTED, dropping the weighting and
+        # hiding the real error. ``has_fit_parameter`` is the canonical check and
+        # also resolves metadata-routed / delegated inners; a genuine inner
+        # TypeError now propagates instead of triggering an unweighted retry.
+        if sample_weight is not None and _model_fit_accepts_sample_weight(self.model):
+            self.model.fit(X_in, y, sample_weight=sample_weight, **kwargs)
+        else:
+            self.model.fit(X_in, y, **kwargs)
         self._shim_fitted = True
         return self
 

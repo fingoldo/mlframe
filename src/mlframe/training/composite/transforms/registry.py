@@ -418,6 +418,10 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Time-ordered exponentially-weighted moving-average residual: T = y - EWMA_k(base) with alpha = 2/(k+1). Captures slow drift / regime persistence beyond a single lag. Caller is responsible for chronological row order at fit and predict; non-finite base values carry the previous EWMA state forward."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        # EWMA carries state forward across the row sequence; the fit-time
+        # domain filter must run the forward over the full sequence then mask,
+        # so train T near a filtered gap matches predict-time T (see Transform.recurrent).
+        recurrent=True,
     ),
     "rolling_quantile_ratio": Transform(
         name="rolling_quantile_ratio",
@@ -429,6 +433,10 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Localised multiplicative residual: T = y / RollingMedian_k(base), with a centred window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value. LOOK-AHEAD: the centred window reads FUTURE base rows, so in time-ordered deployment T leaks forward; gated out of default discovery for this reason (a trailing-only mode is not yet implemented)."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        # Centred rolling median reads neighbouring rows; compacting the
+        # sequence before the forward would shrink each window across a
+        # filtered gap, so the forward runs full-then-mask (see Transform.recurrent).
+        recurrent=True,
     ),
     "frac_diff": Transform(
         name="frac_diff",
@@ -442,6 +450,10 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         # y-only transform: forward/inverse never read base, so a single spec must be emitted (not one per base) and base-finiteness must not drop y rows.
         requires_base=False,
+        # Fractional-difference weights convolve each row with its lagged
+        # predecessors; a compacted gap would re-align the weight tail onto the
+        # wrong rows, so the forward runs full-then-mask (see Transform.recurrent).
+        recurrent=True,
     ),
     # ------------------------------------------------------------------
     # Pack J: unary y-only transforms. ``requires_base=False`` tells the

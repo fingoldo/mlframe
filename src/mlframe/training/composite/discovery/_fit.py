@@ -8,6 +8,7 @@ sites that invoke ``disc.fit(...)`` continue to work unchanged.
 from __future__ import annotations
 
 import logging
+import threading
 from timeit import default_timer as timer
 from typing import Any, Sequence
 
@@ -35,6 +36,11 @@ from ..._ram_helpers import (
     get_process_rss_mb as _rss_mb,
 )
 from ._eval import build_unary_base_context, eval_one_transform
+from ._eval_stats import (
+    apply_alpha_drift_gate,
+    apply_fdr_control_to_candidates,
+    near_collinear_keep_mask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -415,6 +421,17 @@ def fit(
         if _full_x_prebinned is not None else None
     )
 
+    # Dedup ``x_remaining`` before the MI baseline. A near-duplicate
+    # sibling of the removed base inflates ``MI(y, x_remaining)`` (it re-carries
+    # the base's info) without helping ``MI(T, x_remaining)``, biasing
+    # ``mi_gain`` DOWN for exactly the lag-family bases discovery wants. The
+    # keep-mask is computed per base on the (base-dropped) screen matrix and
+    # applied identically to ``x_remaining_matrix`` / ``_x_prebinned`` and the
+    # decomposed per-feature MI vector so both halves of ``mi_gain`` score the
+    # same de-duplicated feature set. Gated + threshold-tunable via config; a
+    # strict no-op when no surviving pair exceeds the threshold.
+    _dedup_x_remaining = bool(getattr(self.config, "dedup_x_remaining_for_mi_baseline", True))
+    _dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
     _base_contexts: dict[str, dict[str, Any]] = {}
     for base in base_candidates:
         base_train = _extract_column_array(df, base)[train_idx]
@@ -427,6 +444,20 @@ def fit(
                 np.delete(_full_x_prebinned, _drop_idx, axis=1)
                 if _full_x_prebinned is not None else None
             )
+            _per_feat_y_base = (
+                np.delete(_per_feat_y_full, _drop_idx)
+                if _per_feat_y_full is not None else None
+            )
+            if _dedup_x_remaining and x_remaining_matrix.shape[1] > 1:
+                _keep = near_collinear_keep_mask(
+                    x_remaining_matrix, corr_threshold=_dedup_corr_thr,
+                )
+                if not _keep.all():
+                    x_remaining_matrix = x_remaining_matrix[:, _keep]
+                    if _x_prebinned is not None:
+                        _x_prebinned = _x_prebinned[:, _keep]
+                    if _per_feat_y_base is not None:
+                        _per_feat_y_base = _per_feat_y_base[_keep]
         else:
             # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
             logger.error(
@@ -471,6 +502,9 @@ def fit(
             _x_prebinned=_x_prebinned,
             mi_y_for_base=mi_y_for_base,
             _mi_kwargs=_mi_kwargs,
+            # Shrunk-domain ``mi_y_compare`` memo shared by all transforms on this base (they share the ``valid_screen`` mask); lock guards the eval threads.
+            _mi_y_compare_memo={},
+            _mi_y_compare_memo_lock=threading.Lock(),
         )
 
     # D13: dedicated UNARY context (full feature matrix, sentinel base) so unary
@@ -574,12 +608,20 @@ def fit(
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "transforms_evaluated")
 
+    # Family-wise FDR control across the candidate family before the eps gate (see ``apply_fdr_control_to_candidates``); no-op when the bootstrap is disabled.
+    if bool(getattr(self.config, "mi_gain_fdr_control", True)):
+        apply_fdr_control_to_candidates(
+            candidates, alpha=float(getattr(self.config, "mi_gain_fdr_alpha", 0.10)),
+        )
+
     # Filter + sort.
     kept_specs: list[CompositeSpec] = []
     for entry in candidates:
         spec: CompositeSpec | None = entry.get("spec")
         if spec is None:
             continue  # already a reject
+        if entry.get("fdr_dropped"):
+            continue  # family-wise FDR control already rejected this spec.
         # Gate compares LCB (lower CI bound), not point estimate,
         # when bootstrap is enabled. Falls back to point estimate
         # when LCB unavailable.
@@ -598,126 +640,14 @@ def fit(
     kept_specs.sort(key=lambda s: (-s.mi_gain, getattr(s, "name", "")))
     kept_specs = kept_specs[: self.config.top_k_after_mi]
 
-    # R10b stat #6: rolling-origin alpha drift detection for
-    # linear_residual specs. Fit alpha on first / second halves
-    # of train; Chow-style z-score on the difference. Specs with
-    # |z| > threshold either rejected or flagged depending on
-    # config.
-    if (getattr(self.config, "detect_linear_residual_alpha_drift", True)
-            and any(s.transform_name == "linear_residual"
-                    for s in kept_specs)):
-        self._alpha_drift_flags: dict[str, dict[str, float]] = {}
-        drift_threshold = float(getattr(
-            self.config, "alpha_drift_z_threshold", 3.0,
-        ))
-        reject_on_drift = bool(getattr(
-            self.config, "reject_on_alpha_drift", False,
-        ))
-        half = len(train_idx) // 2
-        if half >= 50:
-            drift_dropped: list[tuple[str, float]] = []
-            drift_kept: list[CompositeSpec] = []
-            y_train_for_drift = y_full[train_idx]
-            for s in kept_specs:
-                if s.transform_name != "linear_residual":
-                    drift_kept.append(s)
-                    continue
-                # ``self._auto_base_pool[base]`` already holds ``base_full[train_idx]``
-                # (set during per-base setup). ``idx1/idx2`` are the train-row halves, so
-                # ``pool[:half]/pool[half:]/pool`` are bit-identical (same float32 values)
-                # to ``base_full[idx1]/base_full[idx2]/base_full[train_idx]`` without the
-                # full-column re-extraction. Fall back to extraction only if the pool
-                # missed this base (explicit-base path can supply specs outside the pool).
-                base_pool = self._auto_base_pool.get(s.base_column)
-                if base_pool is not None:
-                    base_t = base_pool
-                    base_h1 = base_pool[:half]
-                    base_h2 = base_pool[half:]
-                else:
-                    base_full = _extract_column_array(df, s.base_column)
-                    base_t = base_full[train_idx]
-                    base_h1 = base_full[train_idx[:half]]
-                    base_h2 = base_full[train_idx[half:]]
-                try:
-                    params1 = _linear_residual_fit(
-                        y_train_for_drift[:half], base_h1,
-                    )
-                    params2 = _linear_residual_fit(
-                        y_train_for_drift[half:], base_h2,
-                    )
-                except Exception:
-                    drift_kept.append(s)
-                    continue
-                a1 = float(params1.get("alpha", 0.0))
-                a2 = float(params2.get("alpha", 0.0))
-                # ENS-Low-2: residual-based OLS slope SE. The previous
-                # formula y_std / (sqrt(n) * base_std) used the marginal
-                # y-variance which overstates SE when the regressor
-                # explains most variance. Correct form is
-                # SE(alpha) = sqrt(SSE / (n-2)) / (sqrt(n) * base_std).
-                finite_pair = np.isfinite(base_t) & np.isfinite(y_train_for_drift)
-                base_finite = base_t[finite_pair]
-                base_std = (
-                    float(base_finite.std()) if base_finite.size > 1
-                    else 1.0
-                )
-                if base_std < 1e-12 or half < 2:
-                    drift_kept.append(s)
-                    continue
-                # Use the pooled alpha/beta from full train_idx for a
-                # single residual sum estimate; degrees-of-freedom
-                # subtracts 2 (slope + intercept). ``half`` rows fit
-                # alpha/beta on each half - reuse params1's beta on the
-                # pooled segment for the residual scale.
-                y_finite = y_train_for_drift[finite_pair]
-                n_pair = int(finite_pair.sum())
-                if n_pair > 2:
-                    # Use the average of (a1, a2) and average beta as a
-                    # pooled OLS estimate to compute residuals; cheap
-                    # robust pooled fit on (y, base).
-                    b1 = float(params1.get("beta", 0.0))
-                    b2 = float(params2.get("beta", 0.0))
-                    alpha_pool = 0.5 * (a1 + a2)
-                    beta_pool = 0.5 * (b1 + b2)
-                    residuals = y_finite - (alpha_pool * base_finite + beta_pool)
-                    sse = float(np.sum(residuals * residuals))
-                    sigma_resid = float(np.sqrt(max(sse / (n_pair - 2), 0.0)))
-                else:
-                    # Fall back to marginal y-std if too few points to
-                    # compute residual variance.
-                    sigma_resid = float(y_finite.std()) if y_finite.size > 1 else 1.0
-                # a1-a2 is a difference of two independent half-fits, so Var(a1-a2)=2*sigma^2/(half*var_base); the sqrt(2) keeps the drift z from being inflated ~1.41x.
-                se_alpha = sigma_resid * np.sqrt(2.0) / (np.sqrt(half) * base_std)
-                z = abs(a1 - a2) / max(se_alpha, 1e-12)
-                self._alpha_drift_flags[s.name] = {
-                    "alpha_first_half": a1,
-                    "alpha_second_half": a2,
-                    "z_score": float(z),
-                }
-                if z > drift_threshold:
-                    if reject_on_drift:
-                        drift_dropped.append((s.name, float(z)))
-                        continue
-                    # Demoted to DEBUG: many drift-detected specs are subsequently rejected by the raw-y baseline gate / Wilcoxon filter; emitting a WARNING for each one before the gate produces dead-noise. A summary WARNING is emitted at the end of discovery ONLY for specs that survived all gates.
-                    else:
-                        logger.debug(
-                            "[CompositeTargetDiscovery] alpha drift "
-                            "candidate spec=%s (alpha first-half="
-                            "%.4f, second-half=%.4f, z=%.2f > %.2f).",
-                            s.name, a1, a2, z, drift_threshold,
-                        )
-                drift_kept.append(s)
-            if drift_dropped:
-                logger.info(
-                    "[CompositeTargetDiscovery] alpha drift gate "
-                    "dropped %d linear_residual spec(s): %s",
-                    len(drift_dropped),
-                    ", ".join(
-                        f"{n}(z={z:.2f})"
-                        for n, z in drift_dropped[:5]
-                    ),
-                )
-            kept_specs = drift_kept
+    # Rolling-origin alpha-drift Chow test for linear_residual specs (lifted to
+    # ``_eval_stats`` to keep this file under the monolith threshold).
+    kept_specs = apply_alpha_drift_gate(
+        self, kept_specs,
+        df=df, train_idx=train_idx, y_full=y_full,
+        extract_column_array=_extract_column_array,
+        linear_residual_fit=_linear_residual_fit,
+    )
 
     # R10b improvement #6: collapse redundant linear_residual ->
     # diff when alpha ~ 1 and beta ~ 0 (linear_residual has zero

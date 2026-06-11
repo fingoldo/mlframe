@@ -529,6 +529,22 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_gain_bootstrap_n: int = 0
     mi_gain_bootstrap_random_state: int = 12345
 
+    # Family-wise multiplicity control across the many (base, transform) gain
+    # tests evaluated in one sweep. Each spec's per-comparison bootstrap CI / MI
+    # prefilter controls only its OWN error rate; testing dozens of specs
+    # inflates the chance that at least one noise spec spuriously "beats
+    # baseline". When enabled AND a per-spec bootstrap p-value exists
+    # (``mi_gain_bootstrap_n > 0``), discovery applies a Benjamini-Hochberg FDR
+    # correction over the whole family of per-spec p-values AFTER all candidates
+    # are scored, and drops specs whose BH-adjusted p-value exceeds
+    # ``mi_gain_fdr_alpha`` (one-sided H0: ``mi_gain <= 0``). Default ON: it is a
+    # no-op under the shipped defaults (bootstrap disabled -> no p-values -> no
+    # specs filtered), so it never regresses recovery on default configs, and it
+    # tightens the false-discovery rate the moment a user re-enables the
+    # bootstrap gate. ``mi_gain_fdr_alpha`` is the target family-wise FDR level.
+    mi_gain_fdr_control: bool = True
+    mi_gain_fdr_alpha: float = 0.10
+
     # R10b stat #8 (continued): boost n_strata on heavy-tail targets
     # when stratified MI sampling is enabled. Default 10 strata is
     # too few for tail-driven signal -- tail rows get one bin each
@@ -699,6 +715,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # all surviving into Phase B and inflating ensemble correlation.
     # Set to 1.0 to disable.
     auto_base_dedup_corr_threshold: float = 0.95
+
+    # De-duplicate near-collinear feature columns from ``x_remaining`` BEFORE the
+    # per-base ``mi_y_compare`` MI baseline. ``x_remaining`` excludes only the
+    # base column itself; a near-duplicate sibling of the base (a second lag, a
+    # smoothed copy) left in the remaining set carries almost the same info as
+    # the removed base, so it inflates ``MI(y, x_remaining)`` while contributing
+    # little to ``MI(T, x_remaining)`` -- biasing ``mi_gain`` DOWN. The bias is
+    # conservative (it never over-keeps a spec, only wrongly sinks one), but it
+    # most hurts exactly the lag-family bases discovery is built to find. When
+    # enabled, columns whose absolute Pearson correlation with an
+    # already-kept-column exceeds ``dedup_x_remaining_corr_threshold`` are
+    # dropped from ``x_remaining`` (the FIRST of each collinear group is kept) so
+    # both halves of ``mi_gain`` score the de-duplicated feature set. Default ON
+    # per the "enable corrective mechanisms by default" convention; the dedup is
+    # a strict no-op when no two surviving columns are that correlated, and the
+    # threshold defaults high (0.99) so only genuine near-duplicates are removed.
+    # Set ``False`` to reproduce the pre-fix full-``x_remaining`` baseline.
+    dedup_x_remaining_for_mi_baseline: bool = True
+    dedup_x_remaining_corr_threshold: float = 0.99
 
     # Audit D12 (sibling of D11): rank auto-base candidates by MI computed
     # with PER-PAIR (per-column) NaN masking instead of the global

@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import inspect
 import logging
+import threading
 from typing import Any
 
 import numpy as np
 
 from ..spec import CompositeSpec
+from ._eval_stats import bootstrap_gain_p_value
 from .screening import (
     _aggregate_mi_per_feature,
     _mi_to_target,
@@ -83,6 +85,10 @@ def build_unary_base_context(
         _x_prebinned=full_x_prebinned,
         mi_y_for_base=mi_y,
         _mi_kwargs=mi_kwargs,
+        # Shared shrunk-domain ``mi_y_compare`` memo (see the per-base context
+        # build in ``_fit.py``); unary specs share this single sentinel context.
+        _mi_y_compare_memo={},
+        _mi_y_compare_memo_lock=threading.Lock(),
     )
 
 
@@ -446,91 +452,62 @@ def eval_one_transform(
             estimator=self.config.mi_estimator,
             **_mi_kwargs,
         )
-    # When the screening sample shrunk after domain
-    # filtering (logratio with negative rows in train),
-    # the mi_y baseline for THIS base must also be
-    # recomputed on the same valid_screen subset to keep
-    # comparison fair.
-    #
-    # P18 (2026-06-11) -- shrunk-domain ``mi_y_compare`` recompute, NOT memoised
-    # across work items, deferred. Several transforms that share the SAME base
-    # produce the SAME ``valid_screen`` mask (e.g. all the non-domain-shrinking
-    # bivariate residuals on one base keep the full screen), so the
-    # ``_mi_to_target_prebinned(_x_pb_valid, y_screen[valid_screen])`` call
-    # below is recomputed identically per transform. A
-    # ``(base, hash(valid_screen.tobytes())) -> mi_y_compare`` memo would save
-    # ~0.2-0.5 s/mask. It is deferred because ``eval_one_transform`` runs
-    # CONCURRENTLY from a threading pool (``discovery_n_jobs``) over a shared,
-    # currently read-only ``base_contexts``; a cross-call memo needs a
-    # thread-safe shared store (lock or per-base precompute) AND a measurement
-    # to confirm the saving survives the lock overhead. The bit-identical
-    # WITHIN-call sharing is already done (``_x_pb_valid`` is computed once and
-    # reused for both ``mi_t`` and this ``mi_y_compare``); only the
-    # ACROSS-call memo remains, and it cannot be added safely without the
-    # shared-state design. Do not stash the memo on ``self`` here -- that races.
-    #
-    # D21 (2026-06-11) -- correlated-sibling inflation of ``mi_y_compare``,
-    # deferred. ``x_remaining_matrix`` excludes only THIS base's column; a
-    # ~0.99-correlated sibling of the base (a second lag, a near-duplicate
-    # smooth) left in the remaining set inflates ``mi_y_compare`` (it carries
-    # almost the same info as the removed base) while contributing little to
-    # ``mi_t``, biasing ``mi_gain`` DOWN -- conservative (no leak, never an
-    # over-keep) but it can wrongly sink the lag-family bases discovery most
-    # wants. The fix masks out per-base high-corr siblings before the MI
-    # baseline (gated on the existing ``auto_base_dedup_corr_threshold``),
-    # which CHANGES which columns enter ``mi_y_compare`` -> changes the MI
-    # numerics -> needs a biz_value measurement, and ties into D10's
-    # ``exclude_col`` threading through ``_mi_to_target_prebinned`` (a sibling
-    # cross-file contract). Deferred rather than half-applied because dropping
-    # columns from ``x_remaining`` here without the calibrated threshold +
-    # measurement could silently over-keep weak specs.
+    # When the screening sample shrunk after domain filtering (logratio with
+    # negative rows in train), the mi_y baseline for THIS base must also be
+    # recomputed on the same valid_screen subset to keep the comparison fair.
+    # Many transforms that share the SAME base produce the SAME valid_screen mask
+    # (every non-domain-shrinking bivariate residual on one base keeps the full
+    # screen), so this baseline MI is otherwise recomputed identically per
+    # transform. Memoise it on ``hash(valid_screen.tobytes())`` within the base
+    # context so N transforms on one base compute it ONCE, bit-identical -- the
+    # cached value is the exact scalar the recompute would return. The memo lives
+    # on the base context (not ``self``), guarded by a per-base lock because
+    # ``eval_one_transform`` runs concurrently from the discovery threading pool.
     if valid_screen.sum() < y_screen.size:
-        if _x_prebinned is not None:
-            mi_y_compare = _mi_to_target_prebinned(
-                _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
-            )
-        else:
-            mi_y_compare = _mi_to_target(
-                x_screen_valid, y_screen[valid_screen],
-                n_neighbors=self.config.mi_n_neighbors,
-                random_state=self.config.random_state,
-                estimator=self.config.mi_estimator,
-                **_mi_kwargs,
-            )
+        _memo = _ctx.get("_mi_y_compare_memo")
+        _memo_lock = _ctx.get("_mi_y_compare_memo_lock")
+        _memo_key = hash(valid_screen.tobytes()) if _memo is not None else None
+        mi_y_compare = None
+        if _memo is not None:
+            with _memo_lock:
+                mi_y_compare = _memo.get(_memo_key)
+        if mi_y_compare is None:
+            if _x_prebinned is not None:
+                mi_y_compare = _mi_to_target_prebinned(
+                    _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
+                )
+            else:
+                mi_y_compare = _mi_to_target(
+                    x_screen_valid, y_screen[valid_screen],
+                    n_neighbors=self.config.mi_n_neighbors,
+                    random_state=self.config.random_state,
+                    estimator=self.config.mi_estimator,
+                    **_mi_kwargs,
+                )
+            if _memo is not None:
+                with _memo_lock:
+                    _memo[_memo_key] = mi_y_compare
     else:
         mi_y_compare = mi_y_for_base
     mi_gain = mi_t - mi_y_compare
 
-    # Bootstrap CI on mi_gain. The
-    # point-estimate has a noise floor that scales with
-    # screening-sample size and y-tail heaviness; the
-    # absolute eps_mi_gain threshold misses this. Bootstrap
-    # produces a 95% CI; the gate compares against the
-    # LOWER CI bound (LCB), not the point estimate. Spec
-    # is rejected if LCB <= eps_mi_gain.
-    #
-    # M4 (2026-06-11) -- KNOWN GAP, no family-wise multiplicity control here.
-    # ``eval_one_transform`` runs once per (base, transform) work item and the
-    # LCB above is a PER-SPEC 95% CI. Across the ~19 candidates a single sweep
-    # screens, that per-comparison error rate is NOT corrected for the family
-    # of tests, so under the gates that actually filter on it
-    # (eps_mi_gain >> -10, mi_gain_bootstrap_n > 0) the false-discovery rate
-    # inflates with the candidate count. This is LATENT under the shipped
-    # defaults (eps_mi_gain=-10.0 disables the MI prefilter and
-    # mi_gain_bootstrap_n=0 disables the CI entirely), so no default user is
-    # affected today. The honest fix is family-wise control (Benjamini-Hochberg
-    # on the per-spec bootstrap p-values, or a maxT step-down over the joint
-    # bootstrap of all candidates) applied at the gate in ``_fit.py`` AFTER all
-    # work items return -- selective-inference machinery that needs its own
-    # validation + a biz_value showing the FDR is actually controlled. It is
-    # deferred rather than half-wired here because a per-spec p-value computed
-    # in this function cannot see the family; the correction MUST be a
-    # post-collection pass. Do not add a per-spec BH approximation here -- it
-    # would be statistically wrong (BH needs the full p-value vector).
+    # Bootstrap CI on mi_gain. The point-estimate has a noise floor that scales
+    # with screening-sample size and y-tail heaviness; the absolute eps_mi_gain
+    # threshold misses this. Bootstrap produces a 95% CI; the gate compares
+    # against the LOWER CI bound (LCB), not the point estimate. Spec is rejected
+    # if LCB <= eps_mi_gain. The same bootstrap replicates also feed a one-sided
+    # p-value for H0 ``mi_gain <= 0`` (``bootstrap_p_value`` in the returned
+    # entry), which ``_fit.py`` collects across the whole candidate family and
+    # corrects with Benjamini-Hochberg FDR control: a per-spec CI controls only
+    # its OWN error rate, so testing dozens of specs in one sweep inflates the
+    # chance that a noise spec spuriously "beats baseline". The family-wise
+    # correction MUST be a post-collection pass (BH needs the full p-value
+    # vector), so it lives at the gate in ``_fit.py``, not here.
     bootstrap_n = int(getattr(
         self.config, "mi_gain_bootstrap_n", 0,
     ))
     mi_gain_lcb = mi_gain  # default: point estimate.
+    bootstrap_p_value = float("nan")  # NaN until bootstrap replicates exist.
     if bootstrap_n > 0:
         boot_rng = np.random.default_rng(
             int(getattr(
@@ -598,6 +575,11 @@ def eval_one_transform(
         boot_finite = boot_gains[np.isfinite(boot_gains)]
         if boot_finite.size >= bootstrap_n // 2:
             mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
+        # One-sided bootstrap p-value for H0 ``mi_gain <= 0`` from the same
+        # replicates, fed to the family-wise FDR correction in ``_fit.py``. Use
+        # ALL finite replicates (not gated on the >= n/2 floor the LCB uses) so a
+        # sparsely-failing bootstrap still yields a usable, conservative p-value.
+        bootstrap_p_value = bootstrap_gain_p_value(boot_gains)
 
     # D13 (2026-06-11) -- unary specs are base-free. When
     # ``transform.requires_base`` is False (cbrt_y / log_y / yeo_johnson_y /
@@ -637,5 +619,6 @@ def eval_one_transform(
         "kept": False,  # set after filtering
         "reason": "",
         "mi_gain_lcb": float(mi_gain_lcb),
+        "bootstrap_p_value": float(bootstrap_p_value),
     })
     return _local

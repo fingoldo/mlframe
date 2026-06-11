@@ -162,6 +162,21 @@ class Transform:
     # a base column. Default True keeps the 11 legacy bivariate
     # transforms unchanged.
     requires_base: bool = True
+    # Time-recurrent forward support. When True, ``forward`` reads each row's
+    # value in the context of its NEIGHBOURS in the row sequence (an EWMA
+    # carry-forward, a centred rolling window, a fractional-difference weight
+    # tail). For those transforms the fit-time domain filter must NOT compact
+    # the sequence before the forward: dropping a domain-violating row would
+    # close the gap and shift every later (or windowed) row's recurrence state,
+    # so T near a filtered gap would differ from the predict-time T computed on
+    # the uncompacted frame. The wrapper therefore runs the forward over the
+    # FULL (uncompacted) y / base sequence and masks to the valid rows AFTER,
+    # exactly mirroring the predict path (which never compacts). Default False:
+    # the 30+ pointwise transforms see their forward applied to the already-
+    # filtered rows, which is bit-identical to the full-then-mask order for
+    # them. Set True only for ``ewma_residual`` / ``rolling_quantile_ratio`` /
+    # ``frac_diff``.
+    recurrent: bool = False
 
 
 # ----------------------------------------------------------------------
