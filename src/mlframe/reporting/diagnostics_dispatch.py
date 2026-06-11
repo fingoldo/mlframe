@@ -20,6 +20,7 @@ real suite run -- no actionable speedup in this wiring layer; the orchestration 
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -301,6 +302,350 @@ def render_target_drift_diagnostics(
             _record(charts, "adversarial", False)
 
 
+def _record_path(charts: Optional[dict], path: str) -> None:
+    """Append a rendered-artifact base path to the charts accounting so the combined report can stitch it."""
+    if isinstance(charts, dict) and path:
+        charts.setdefault("paths", []).append(path)
+
+
+def render_pdp_ice_diagnostic(
+    *,
+    model: Any,
+    df: Any,
+    feature_names: Optional[Sequence[str]],
+    feature_importances: Optional[Sequence[float]],
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    top_features: int = 4,
+    sample: int = 2_000,
+    grid: int = 20,
+    seed: int = 0,
+) -> bool:
+    """PDP/ICE for the top feature-importance features. Default-ON when a fitted model + feature frame are present.
+
+    The composer subsamples rows to ``sample`` before any predict, so cost is ``grid`` predicts independent of n
+    (RAM-safe on 100GB frames -- the carrier frame is never copied, only a row view is sampled inside the composer).
+    Skips cheaply when the model cannot predict, the frame is empty, or no features can be ranked.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if model is None or df is None or not plot_outputs or not base_path:
+        return False
+    if not (hasattr(model, "predict") or hasattr(model, "predict_proba")):
+        return False
+    names = list(feature_names) if feature_names else _column_names(df)
+    if not names:
+        return False
+    # Rank by importance when available, else take the first columns; cap to the top-N legible features.
+    if feature_importances is not None and len(feature_importances) == len(names):
+        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        ranked = [names[i] for i in order]
+    else:
+        ranked = names
+    top = ranked[: max(1, int(top_features))]
+    interaction = (top[0], top[1]) if len(top) >= 2 else None
+    try:
+        from mlframe.reporting.charts.pdp_ice import compose_pdp_figure
+
+        spec = compose_pdp_figure(
+            model, df, top, grid=grid, sample=sample, interaction_pair=interaction, seed=seed,
+        )
+        ok = _save_spec(spec, plot_outputs, base_path + "_pdp_ice")
+        _record(charts, "pdp_ice", ok)
+        if ok:
+            _record_path(charts, base_path + "_pdp_ice")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: pdp_ice failed; continuing.")
+        _record(charts, "pdp_ice", False)
+        return False
+
+
+def render_slice_finder_diagnostic(
+    *,
+    df: Any,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    task: str,
+    feature_names: Optional[Sequence[str]],
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    seed: int = 0,
+) -> bool:
+    """Multi-dim weak-slice search on the precomputed per-row error. Default-ON (no model calls).
+
+    Feeds a bounded, worst-error-preserving row subsample + capped feature set (column views) so a 100GB frame
+    never densifies. Surfaces the worst-slice table in ``metrics_dict["weak_slices"]`` alongside the bar figure.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if df is None or not plot_outputs or not base_path:
+        return False
+    yt = np.asarray(y_true).ravel()
+    yp = np.asarray(y_pred).ravel()
+    n = min(len(yt), len(yp), _row_count(df))
+    if n == 0:
+        return False
+    yt, yp = yt[:n], yp[:n]
+
+    from mlframe.reporting.charts.error_analysis import _per_row_error
+    from mlframe.reporting.charts.slice_finder import find_weak_slices
+
+    loss = _per_row_error(yt, yp, task=task)
+    loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
+    idx = _bounded_sample_idx(n, loss_finite, seed=seed)
+    sub_df, names = _select_feature_columns(_subset_rows(df, idx), feature_names, DIAG_MAX_FEATURES)
+    try:
+        res = find_weak_slices(
+            sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed,
+        )
+        ok = _save_spec(res.figure, plot_outputs, base_path + "_weak_slices")
+        _record(charts, "weak_slices", ok)
+        if ok:
+            _record_path(charts, base_path + "_weak_slices")
+        if isinstance(metrics_dict, dict):
+            metrics_dict["weak_slices"] = res.table
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: slice_finder failed; continuing.")
+        _record(charts, "weak_slices", False)
+        return False
+
+
+def render_decision_curve_diagnostic(
+    *,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    model_label: str = "model",
+) -> bool:
+    """Binary decision-curve (net-benefit) analysis. Default-ON for binary targets; needs only y_true + score."""
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path:
+        return False
+    yt = np.asarray(y_true).ravel()
+    ys = np.asarray(y_score, dtype=np.float64).ravel()
+    m = min(len(yt), len(ys))
+    if m == 0:
+        return False
+    try:
+        from mlframe.reporting.charts.decision_curve import build_decision_curve_spec
+
+        res = build_decision_curve_spec(yt[:m], ys[:m], model_label=model_label)
+        ok = _save_spec(res.figure, plot_outputs, base_path + "_decision_curve")
+        _record(charts, "decision_curve", ok)
+        if ok:
+            _record_path(charts, base_path + "_decision_curve")
+        if isinstance(metrics_dict, dict):
+            metrics_dict["decision_curve_useful"] = bool(getattr(res, "useful", False))
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: decision_curve failed; continuing.")
+        _record(charts, "decision_curve", False)
+        return False
+
+
+def render_calibration_drift_diagnostic(
+    *,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    timestamps: np.ndarray,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    n_windows: int = 10,
+    n_bins: int = 10,
+) -> bool:
+    """Binary calibration drift over equal-population time windows. Default-ON when a split timestamp is present.
+
+    O(n) (one argsort + warmed njit ECE per window); skips cheaply when timestamps are absent or all-equal.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path or timestamps is None:
+        return False
+    yt = np.asarray(y_true).ravel()
+    ys = np.asarray(y_score, dtype=np.float64).ravel()
+    ts = np.asarray(timestamps).ravel()
+    m = min(len(yt), len(ys), len(ts))
+    if m < n_windows * 2:
+        return False
+    try:
+        from mlframe.reporting.charts.calibration_drift import build_calibration_drift_spec, calibration_drift
+
+        res = calibration_drift(yt[:m], ys[:m], ts[:m], n_windows=n_windows, n_bins=n_bins)
+        spec = build_calibration_drift_spec(res)
+        ok = _save_spec(spec, plot_outputs, base_path + "_calibration_drift")
+        _record(charts, "calibration_drift", ok)
+        if ok:
+            _record_path(charts, base_path + "_calibration_drift")
+        if isinstance(metrics_dict, dict):
+            metrics_dict["calibration_drift_trend"] = float(getattr(res, "ece_trend", float("nan")))
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: calibration_drift failed; continuing.")
+        _record(charts, "calibration_drift", False)
+        return False
+
+
+def render_target_acf_diagnostic(
+    *,
+    y_true: np.ndarray,
+    timestamps: np.ndarray,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+) -> bool:
+    """Target ACF/PACF (serial dependence) when the split carries timestamps. Default-ON; the series is tail-capped."""
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path or timestamps is None:
+        return False
+    yt = np.asarray(y_true).ravel()
+    ts = np.asarray(timestamps)
+    if yt.size < 8 or len(ts) < yt.size:
+        return False
+    try:
+        from mlframe.reporting.charts.temporal import compose_target_acf_figure
+
+        order = np.argsort(ts[: yt.size], kind="stable")
+        spec = compose_target_acf_figure(yt[order], suptitle="Target ACF / PACF")
+        ok = _save_spec(spec, plot_outputs, base_path + "_target_acf")
+        _record(charts, "target_acf", ok)
+        if ok:
+            _record_path(charts, base_path + "_target_acf")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: target_acf failed; continuing.")
+        _record(charts, "target_acf", False)
+        return False
+
+
+def render_shap_diagnostic(
+    *,
+    model: Any,
+    df: Any,
+    feature_names: Optional[Sequence[str]],
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    max_rows: int = 20_000,
+    top_k: int = 6,
+    allow_kernel: bool = False,
+    seed: int = 0,
+) -> bool:
+    """SHAP beeswarm + top-K dependence. Default-ON for TREE models; non-tree uses the slow KernelExplainer only when
+    ``allow_kernel`` is set. Uses shap's matplotlib-savefig path (not render_and_save -- these are figures, not specs).
+
+    Rows are stratified-subsampled to ``max_rows`` inside the builder (high-|score| tail kept) before any SHAP work,
+    so cost scales with the explained-row cap, not n (RAM-safe: the carrier frame is row-viewed, never copied).
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if model is None or df is None or not plot_outputs or not base_path:
+        return False
+    try:
+        from mlframe.reporting.charts.shap_panels import is_tree_model, shap_summary_and_dependence
+    except Exception:
+        logger.debug("diagnostics_dispatch: shap unavailable; skipping shap panels.", exc_info=True)
+        return False
+    if not is_tree_model(model) and not allow_kernel:
+        return False
+    try:
+        res = shap_summary_and_dependence(
+            model, df, feature_names=list(feature_names) if feature_names else None,
+            max_rows=max_rows, top_k=top_k, plot_file=base_path + "_shap.png",
+            plot_outputs=plot_outputs, allow_kernel=allow_kernel, seed=seed,
+        )
+        ok = bool(res.paths) and res.skipped is None
+        _record(charts, "shap_panels", ok)
+        for p in res.paths:
+            _record_path(charts, os.path.splitext(p)[0])
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: shap panels failed; continuing.")
+        _record(charts, "shap_panels", False)
+        return False
+
+
+def render_model_comparison_diagnostic(
+    *,
+    per_model: Dict[str, Dict[str, Any]],
+    task_type: str,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    metric: Optional[str] = None,
+    seed: int = 0,
+) -> bool:
+    """Multi-model leaderboard. Default-ON when >=2 models were trained on the same task (single-model skips cheaply).
+
+    ``per_model`` maps ``name -> {"y_true", "y_score"/"y_pred", "metrics"}``; the composer subsamples internally for
+    the correlation heatmap, so the assembly is bounded regardless of n.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path or not per_model or len(per_model) < 2:
+        return False
+    try:
+        from mlframe.reporting.charts.model_comparison import compose_model_comparison_figure
+
+        spec = compose_model_comparison_figure(per_model, task_type, metric=metric, seed=seed)
+        ok = _save_spec(spec, plot_outputs, base_path + "_model_comparison")
+        _record(charts, "model_comparison", ok)
+        if ok:
+            _record_path(charts, base_path + "_model_comparison")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: model_comparison failed; continuing.")
+        _record(charts, "model_comparison", False)
+        return False
+
+
+def build_combined_html_report(
+    *,
+    base_path: str,
+    chart_paths: Sequence[str],
+    plot_outputs: str,
+    title: str = "Model report",
+    metrics_dict: Optional[dict] = None,
+) -> Optional[str]:
+    """Stitch the rendered per-(model, split) chart PNGs into one navigable HTML index. Assembly-only (no re-render).
+
+    Looks for a ``<base>.png`` next to each recorded chart base path (the matplotlib renderer's output); missing
+    artifacts are noted inline by the builder, never crash. Records the combined path in ``metrics_dict["charts"]``.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not base_path or not chart_paths or "png" not in (plot_outputs or "").lower():
+        return None
+    try:
+        from mlframe.reporting.report_html import build_combined_report
+
+        entries = []
+        seen = set()
+        for p in chart_paths:
+            if not p or p in seen:
+                continue
+            seen.add(p)
+            label = os.path.basename(p)
+            png = p if p.lower().endswith(".png") else p + ".png"
+            if not os.path.exists(png):
+                # matplotlib renderer may suffix the backend (e.g. ``_pdp_ice.matplotlib.png``).
+                alt = p + ".matplotlib.png"
+                png = alt if os.path.exists(alt) else png
+            entries.append(("charts", label, png))
+        if not entries:
+            return None
+        out_path = base_path + "_report.html"
+        build_combined_report(entries, title=title, out_path=out_path)
+        _record(charts, "combined_html", True)
+        if isinstance(metrics_dict, dict):
+            charts.setdefault("combined_report", out_path)
+        return out_path
+    except Exception:
+        logger.exception("diagnostics_dispatch: combined HTML report failed; continuing.")
+        _record(charts, "combined_html", False)
+        return None
+
+
 def render_target_dist_overlay(
     *,
     y_true_by_split: Dict[str, np.ndarray],
@@ -332,6 +677,14 @@ __all__ = [
     "render_split_error_diagnostics",
     "render_target_drift_diagnostics",
     "render_target_dist_overlay",
+    "render_pdp_ice_diagnostic",
+    "render_slice_finder_diagnostic",
+    "render_decision_curve_diagnostic",
+    "render_calibration_drift_diagnostic",
+    "render_target_acf_diagnostic",
+    "render_shap_diagnostic",
+    "render_model_comparison_diagnostic",
+    "build_combined_html_report",
     "DIAG_ROW_CAP",
     "DIAG_MAX_FEATURES",
 ]
