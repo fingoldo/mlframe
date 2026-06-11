@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, List, Tuple
+from typing import Any, List
 
 import numpy as np
 
@@ -23,6 +23,21 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec,
     ViolinPanelSpec,
+)
+
+# Kaleido lifecycle + static-image write plumbing lives in the sibling module; re-exported here so
+# ``from mlframe.reporting.renderers.plotly import get_kaleido_oneshot_stats`` (and the recovery-test
+# imports of ``_restart_kaleido_server`` etc.) keep resolving from the same place.
+from ._kaleido import (  # noqa: F401
+    _ensure_kaleido_server_started,
+    _is_kaleido_persistent_burned,
+    _mark_kaleido_persistent_burned,
+    _record_kaleido_persistent_failure,
+    _restart_kaleido_server,
+    get_kaleido_oneshot_stats,
+    record_kaleido_oneshot_call,
+    reset_kaleido_oneshot_stats,
+    write_image_via_kaleido,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,171 +62,6 @@ def _warn_scatter_downsample(n: int) -> None:
             n, _SCATTER_MAX_POINTS,
         )
         _SCATTER_DOWNSAMPLE_WARNED = True
-
-
-# Process-singleton: track whether the persistent kaleido sync server
-# is up so we don't pay the ~10-15s Chromium-spawn cost on every PNG /
-# SVG / PDF write. Verified empirically (2026-05-08) that kaleido 1.x
-# default ``fig.write_image()`` calls spawn a fresh Chromium process
-# per call (~13s each); persistent server reuses one process and drops
-# subsequent calls to ~0.13s. On c0114 (lgb+xgb multiclass, 100k rows,
-# 32 PNG calls), this saved 32 * ~13s = ~7 minutes of wall time.
-_KALEIDO_SERVER_STARTED = False
-
-# 2026-05-08 v2 hardening: process-wide flag that the persistent path
-# has burned itself on a JS error / hang. Once True, all subsequent
-# saves in this process go straight to HTML fallback (skipping kaleido
-# entirely because plotly's oneshot also routes through the SAME
-# broken sync server -- verified empirically on c0031). Reset only on
-# interpreter exit.
-_KALEIDO_PERSISTENT_BURNED = False
-
-# Count of consecutive timeouts/errors. Burn after this many.
-# v3 (single-burn-on-first-failure) was paying 12 x 30s timeouts in
-# c0031 because each timeout fires once before "burning" via the
-# next-call path. Decrement: cap at 2 consecutive failures (~60s
-# wasted before HTML fallback takes over). Single-failure runs (rare
-# transient) still get a retry; pathological combos burn fast.
-_KALEIDO_PERSISTENT_FAIL_COUNT = 0
-_KALEIDO_PERSISTENT_FAIL_THRESHOLD = 2
-
-# 2026-05-10: idempotency guard for the "Failed to start kaleido sync
-# server" warning. Pre-2026-05-10, the warn fired on EVERY call when
-# the kaleido binary lacked ``start_sync_server`` (e.g. kaleido 0.x
-# wheels) -- 32+ times per suite call on plot-heavy regression suites,
-# polluting the log. Once True we suppress repeats; the suite-end
-# wall-share log will still surface the cumulative oneshot-fallback
-# cost so the user notices the missing fast path.
-_KALEIDO_START_WARN_EMITTED = False
-# Counter of fallback PNG/SVG/PDF writes that took the slow oneshot
-# path. Reported in the suite-end summary so the reader sees ROI for
-# upgrading kaleido.
-_KALEIDO_ONESHOT_CALL_COUNT = 0
-_KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
-
-
-def get_kaleido_oneshot_stats() -> Tuple[int, float]:
-    """Returns (n_oneshot_calls, total_wall_seconds) so suite-end
-    reporting can quote concrete numbers. Cleared via ``reset_kaleido_oneshot_stats``."""
-    return _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
-
-
-def reset_kaleido_oneshot_stats() -> None:
-    global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
-    _KALEIDO_ONESHOT_CALL_COUNT = 0
-    _KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
-
-
-def record_kaleido_oneshot_call(wall_s: float) -> None:
-    global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
-    _KALEIDO_ONESHOT_CALL_COUNT += 1
-    _KALEIDO_ONESHOT_TOTAL_WALL_S += wall_s
-
-# Hard ceiling on a single persistent write_fig_sync call. Beyond this,
-# the call is treated as hung; we leave the worker thread to die on
-# process exit (the kaleido server holds an asyncio loop so we can't
-# safely cancel it from outside). Empirical normal cost after warmup:
-# 0.13s/call. Cold persistent warmup: ~8s. 30s is well above both,
-# while still bounding c0031-style hangs to 30s instead of infinity.
-_KALEIDO_PERSISTENT_TIMEOUT_S = 30.0
-
-
-def _is_kaleido_persistent_burned() -> bool:
-    return _KALEIDO_PERSISTENT_BURNED
-
-
-def _record_kaleido_persistent_failure() -> bool:
-    """Increment failure counter; return True if we just crossed the
-    threshold (caller should burn the persistent path)."""
-    global _KALEIDO_PERSISTENT_FAIL_COUNT, _KALEIDO_PERSISTENT_BURNED
-    _KALEIDO_PERSISTENT_FAIL_COUNT += 1
-    if _KALEIDO_PERSISTENT_FAIL_COUNT >= _KALEIDO_PERSISTENT_FAIL_THRESHOLD:
-        _KALEIDO_PERSISTENT_BURNED = True
-        return True
-    return False
-
-
-def _mark_kaleido_persistent_burned() -> None:
-    """Force-burn the persistent path (legacy entry, kept for tests
-    and external callers)."""
-    global _KALEIDO_PERSISTENT_BURNED
-    _KALEIDO_PERSISTENT_BURNED = True
-
-
-def _restart_kaleido_server() -> bool:
-    """Stop + restart the kaleido sync server. Used after a JS error
-    poisons the async task chain so subsequent calls don't deadlock.
-    Idempotent / no-op when the server isn't started.
-
-    2026-05-11: a successful restart clears the persistent-failure
-    counter AND the burned flag. The counter exists to catch
-    "this process's kaleido is fundamentally broken" -- a clean
-    restart proves otherwise. Without this, prior failures
-    accumulated across two unrelated callsites (e.g. two separate
-    test_kaleido_recovery tests) would cross the burned threshold
-    and force HTML fallback forever.
-    """
-    global _KALEIDO_SERVER_STARTED
-    global _KALEIDO_PERSISTENT_FAIL_COUNT, _KALEIDO_PERSISTENT_BURNED
-    try:
-        import kaleido
-    except ImportError:
-        return False
-    if _KALEIDO_SERVER_STARTED:
-        try:
-            kaleido.stop_sync_server(silence_warnings=True)
-        except Exception:
-            pass
-        _KALEIDO_SERVER_STARTED = False
-    started = _ensure_kaleido_server_started()
-    if started:
-        # Successful restart: the persistent path is now usable again.
-        # Clear cumulative-failure state so callers don't keep burning
-        # after a recoverable hiccup.
-        _KALEIDO_PERSISTENT_FAIL_COUNT = 0
-        _KALEIDO_PERSISTENT_BURNED = False
-    return started
-
-
-def _ensure_kaleido_server_started() -> bool:
-    """Start the kaleido sync server (idempotent). Returns True if the
-    server is up after the call, False if kaleido isn't installed.
-    """
-    global _KALEIDO_SERVER_STARTED
-    if _KALEIDO_SERVER_STARTED:
-        return True
-    try:
-        import kaleido  # noqa: F401
-    except ImportError:
-        return False
-    try:
-        # silence_warnings=True so the "already started" message doesn't
-        # spam logs if some other caller already started the server.
-        kaleido.start_sync_server(silence_warnings=True)
-        _KALEIDO_SERVER_STARTED = True
-        # Register cleanup so the Chromium subprocess gets a clean exit
-        # rather than the "Resorting to unclean kill browser" warning
-        # at interpreter shutdown.
-        import atexit
-        def _stop():
-            try:
-                kaleido.stop_sync_server(silence_warnings=True)
-            except Exception:
-                pass
-        atexit.register(_stop)
-        return True
-    except Exception as e:
-        global _KALEIDO_START_WARN_EMITTED
-        if not _KALEIDO_START_WARN_EMITTED:
-            logger.warning(
-                "[plotly-render] kaleido sync server unavailable (%s); will "
-                "use the slower per-call oneshot path. This warning fires "
-                "ONCE per process; check the suite-end wall-share summary "
-                "for cumulative oneshot cost. To enable the fast path, "
-                "upgrade kaleido (>=1.x ships ``start_sync_server``).", e,
-            )
-            _KALEIDO_START_WARN_EMITTED = True
-        return False
 
 
 def _per_series_flags(flag, n: int):
@@ -347,171 +197,7 @@ class PlotlyRenderer:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(fig.to_json())
         elif fmt in ("png", "svg", "pdf"):
-            # Persistent-server fast path: write_fig_sync reuses one
-            # Chromium subprocess across all calls in the process,
-            # dropping per-call cost from ~13s (oneshot) to ~0.13s.
-            # Falls through to plotly's default write_image when the
-            # sync server can't be started (kaleido missing, etc.).
-            #
-            # 2026-05-08 brittleness fix: a single figure that triggers
-            # a JS error inside kaleido (e.g. "Error 525: Cannot read
-            # properties of undefined (reading 'v')") asyncio-cancels
-            # the persistent server's task chain and leaves
-            # ``write_fig_sync`` blocked on ``await asyncio.gather``
-            # FOREVER -- killing the whole suite. Real reproducer:
-            # c0031_c58ed4fc (lgb+xgb+hgb multiclass + recency
-            # weights). Recovery strategy:
-            #   1. Try persistent server.
-            #   2. On any kaleido / asyncio error, stop+restart the
-            #      sync server (clears the broken async-task chain).
-            #   3. Retry once via ONESHOT path (slower but isolated).
-            #   4. If that also fails, fall back to HTML so the suite
-            #      doesn't lose the diagnostic entirely.
-            #
-            # 2026-05-08 hardening v2: even with restart-on-error (above),
-            # certain figure shapes (multiclass + recency in c0031)
-            # produce JS errors that DON'T raise from write_fig_sync --
-            # they cancel the asyncio task chain INSIDE the server, but
-            # write_fig_sync waits forever on the queue. Mitigation: run
-            # write_fig_sync in a worker thread with a hard timeout. If
-            # it doesn't return in PERSISTENT_TIMEOUT_SECONDS, mark the
-            # persistent path "burned" for the rest of the process and
-            # forever-after use oneshot. We also do NOT retry the
-            # persistent path on failures within ONE process -- once
-            # any call fails, every later call goes oneshot directly.
-            persistent_failed = _is_kaleido_persistent_burned()
-            # ``server_hung`` distinguishes "persistent server is dead /
-            # hung" (timeout — skip oneshot retry, go straight to HTML
-            # because plotly's oneshot would re-enter the same dead queue)
-            # from "single persistent call raised an exception" (the
-            # server is probably still alive; oneshot retry may succeed).
-            # Pre-2026-05-11 the code treated both the same and went to
-            # HTML on any persistent failure, which surfaced as the
-            # test_kaleido_persistent_failure_falls_back_to_oneshot
-            # regression — the test injects a synthetic exception into
-            # ``write_fig_sync`` (not a hang), so the oneshot retry SHOULD
-            # produce a PNG. Now: exception -> restart server -> oneshot;
-            # timeout -> HTML directly.
-            server_hung = False
-            burned_now = False
-            if not persistent_failed and _ensure_kaleido_server_started():
-                import kaleido as _kal
-                import threading
-
-                _result: list = [None]
-                _exc: list = [None]
-
-                def _do_persistent():
-                    try:
-                        _kal.write_fig_sync(fig, path, opts={"format": fmt})
-                    except Exception as ee:
-                        _exc[0] = ee
-
-                th = threading.Thread(target=_do_persistent, daemon=True)
-                th.start()
-                th.join(timeout=_KALEIDO_PERSISTENT_TIMEOUT_S)
-                if th.is_alive():
-                    persistent_failed = True
-                    server_hung = True
-                    burned_now = _record_kaleido_persistent_failure()
-                    logger.warning(
-                        "kaleido persistent write_fig_sync(%s) did not "
-                        "return in %.0fs%s.",
-                        fmt, _KALEIDO_PERSISTENT_TIMEOUT_S,
-                        "; persistent path BURNED for this process -- subsequent "
-                        "saves write HTML directly" if burned_now else
-                        " (will retry persistent up to threshold before burning)",
-                    )
-                    # Don't try to restart the server -- a hung server may
-                    # have stop_sync_server() ALSO blocking. Just leave it
-                    # behind; it'll get cleaned up at process exit.
-                elif _exc[0] is not None:
-                    persistent_failed = True
-                    burned_now = _record_kaleido_persistent_failure()
-                    logger.warning(
-                        "kaleido persistent save(%s) raised %s%s.",
-                        fmt, type(_exc[0]).__name__,
-                        "; persistent path BURNED" if burned_now else
-                        " (will retry up to threshold)",
-                    )
-                    # 2026-05-11: server is likely still alive but its async
-                    # task chain may be poisoned -- restart it so the
-                    # oneshot retry below uses a clean queue. Best-effort;
-                    # if restart hangs we'll fall through to the HTML
-                    # fallback anyway via the burned-or-hung gate below.
-                    try:
-                        _restart_kaleido_server()
-                    except Exception:
-                        pass
-                else:
-                    return  # success
-
-            # 2026-05-08 v3: when the persistent server is HUNG or BURNED,
-            # ``fig.write_image`` routes through plotly's wrapper which
-            # talks to the SAME broken kaleido sync server. Verified
-            # empirically: c0031 v4 hung past 30 minutes because the
-            # oneshot fallback re-entered the same dead queue. In those
-            # cases write HTML directly -- a different code path
-            # (write_html doesn't touch kaleido) that always works.
-            #
-            # 2026-05-11 split: a single ``write_fig_sync`` exception is
-            # NOT proof that the server is dead; after restarting the
-            # sync server (see ``_restart_kaleido_server`` call above),
-            # the oneshot retry can succeed. Only go straight to HTML
-            # when the server is genuinely hung (timeout) or has crossed
-            # the burned threshold.
-            if persistent_failed and (server_hung or burned_now or _is_kaleido_persistent_burned()):
-                from os.path import splitext
-                root, _ = splitext(path)
-                try:
-                    fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
-                    logger.warning(
-                        "kaleido burned -- wrote interactive HTML instead of %s "
-                        "to %s (PNG/SVG/PDF unavailable for the rest of this "
-                        "process; restart Python to retry persistent kaleido).",
-                        fmt, root + ".html",
-                    )
-                except Exception as e:
-                    logger.error(
-                        "All save paths failed for %s (%s); diagnostic chart "
-                        "lost but suite continues. Last error: %s",
-                        path, fmt, e,
-                    )
-                return
-
-            # Persistent path skipped (kaleido never started or unavailable);
-            # use plotly oneshot. Catch ALL exceptions for HTML fallback.
-            # 2026-05-10: instrument oneshot wall-time + call count so the
-            # suite-end summary surfaces the cumulative cost (e.g. on the
-            # 2026-05-09 prod log: 32 oneshots x ~13s = 7+ minutes that
-            # disappear when kaleido is upgraded to a build with
-            # ``start_sync_server``).
-            import time as _time
-            _t0 = _time.time()
-            try:
-                try:
-                    fig.write_image(path, format=fmt)
-                except Exception as e:
-                    logger.warning(
-                        "plotly write_image(%s) oneshot failed (%s: %s); "
-                        "falling back to .html.",
-                        fmt, type(e).__name__, e,
-                    )
-                    from os.path import splitext
-                    root, _ = splitext(path)
-                    try:
-                        fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
-                    except Exception as e2:
-                        logger.error(
-                            "All save paths failed for %s (%s); diagnostic chart "
-                            "lost but suite continues. Last error: %s",
-                            path, fmt, e2,
-                        )
-            finally:
-                # Record cumulative oneshot wall regardless of success /
-                # exception path; the suite-end summary uses this to
-                # quote concrete savings of upgrading kaleido.
-                record_kaleido_oneshot_call(_time.time() - _t0)
+            write_image_via_kaleido(fig, path, fmt)
         else:
             raise ValueError(
                 f"plotly doesn't support format {fmt!r}; "
