@@ -272,6 +272,10 @@ from .multi_output import (  # noqa: E402,F401
     CompositeMultiOutputEstimator,
     make_per_column_specs,
 )
+from .sklearn_compat import (  # noqa: E402,F401
+    make_composite_regressor,
+    CompositeTargetTransformer,
+)
 
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
@@ -283,6 +287,7 @@ __all__ = [
     "CompositeTargetEstimator", "CompositeClassificationEstimator",
     "CompositeGLMEstimator",
     "CompositeMultiOutputEstimator", "make_per_column_specs",
+    "make_composite_regressor", "CompositeTargetTransformer",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
