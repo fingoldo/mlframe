@@ -68,9 +68,17 @@ def test_chart_entry_coercion_forms(tmp_path):
     assert "<div>frag</div>" in text
 
 
-def test_bad_entry_type_raises(tmp_path):
-    with pytest.raises(TypeError, match="ChartEntry"):
-        build_combined_report([42], title="t", out_path=str(tmp_path / "r.html"))
+def test_bad_entry_skipped_with_note_not_raised(tmp_path):
+    """A malformed entry is skipped with a visible note; it must not abort the whole report."""
+    png = _write_png(str(tmp_path / "a.png"))
+    out = build_combined_report(
+        [42, ChartEntry("Sec", "good", png_path=png)],
+        title="t", out_path=str(tmp_path / "r.html"),
+    )
+    text = open(out, encoding="utf-8").read()
+    assert "skipped malformed entry" in text
+    assert "good" in text  # the valid entry still renders
+    assert text.rstrip().endswith("</html>")
 
 
 def test_small_png_inlined_as_base64(tmp_path):
@@ -134,7 +142,7 @@ def test_sections_grouped_and_ordered(tmp_path):
     text = open(out, encoding="utf-8").read()
     # First-appearance section order preserved: Calibration before ROC.
     assert text.index("Calibration") < text.index("ROC")
-    assert text.count('class="sec"') == 2  # two distinct sections
+    assert text.count('<details class="section"') == 2  # two distinct collapsible sections
 
 
 def test_duplicate_labels_get_unique_anchors(tmp_path):
@@ -178,12 +186,12 @@ def test_creates_parent_dir(tmp_path):
 
 
 def test_biz_val_report_html_n_entries_yield_n_nav_and_n_panels(tmp_path):
-    """N entries across sections -> exactly N nav links, N panels, N img/fragment renders, valid HTML."""
+    """N entries across S sections -> S section TOC links + N child TOC links, S collapsible sections, N panels."""
     png = _write_png(str(tmp_path / "chart.png"))
-    n = 12
+    n, n_sections = 12, 3
     entries = []
     for i in range(n):
-        sec = f"section{i % 3}"
+        sec = f"section{i % n_sections}"
         if i % 2 == 0:
             entries.append(ChartEntry(sec, f"chart {i}", png_path=png))
         else:
@@ -191,7 +199,10 @@ def test_biz_val_report_html_n_entries_yield_n_nav_and_n_panels(tmp_path):
     out = build_combined_report(entries, title="model / test", out_path=str(tmp_path / "r.html"))
     text = open(out, encoding="utf-8").read()
 
-    assert text.count('<a href="#') == n, "one nav link per entry"
+    assert text.count('<a class="child" href="#') == n, "one child nav link per entry"
+    # Section-level TOC links: total anchors minus child anchors.
+    assert text.count('<a href="#') == n_sections, "one section TOC link per distinct section"
+    assert text.count('<details class="section"') == n_sections, "one collapsible section per distinct section"
     assert text.count('class="panel"') == n, "one panel per entry"
     rendered = text.count("data:image/png;base64,") + sum(f"<div>frag{i}</div>" in text for i in range(1, n, 2))
     assert rendered == n, "every entry produced an inline image or an embedded fragment"
@@ -215,6 +226,82 @@ def test_biz_val_report_html_reference_mode_no_byte_duplication(tmp_path):
         f"reference-mode HTML ({html_bytes}B) should stay below one referenced PNG ({png_bytes}B); "
         "the chart bytes must not be duplicated into the page"
     )
+
+
+def test_sections_are_collapsible_details_first_open(tmp_path):
+    """Each section is a <details>; the first is open by default, the rest collapsed."""
+    png = _write_png(str(tmp_path / "a.png"))
+    entries = [
+        ChartEntry("First", "c1", png_path=png),
+        ChartEntry("Second", "c2", png_path=png),
+        ChartEntry("Third", "c3", png_path=png),
+    ]
+    out = build_combined_report(entries, title="t", out_path=str(tmp_path / "r.html"))
+    text = open(out, encoding="utf-8").read()
+    assert text.count("<details ") == 3
+    assert text.count("</details>") == 3
+    assert "<summary>First</summary>" in text
+    # Exactly one open section (the first); collapsed sections carry no `open` attribute.
+    assert text.count('class="section" id="section-first" open') == 1
+    assert text.count(" open>") == 1
+
+
+def test_nav_anchors_resolve_to_section_and_panel_ids(tmp_path):
+    """Every TOC href (#anchor) must resolve to a matching id= in the document body."""
+    png = _write_png(str(tmp_path / "a.png"))
+    entries = [
+        ChartEntry("Alpha", "one", png_path=png),
+        ChartEntry("Alpha", "two", png_path=png),
+        ChartEntry("Beta", "three", png_path=png),
+    ]
+    out = build_combined_report(entries, title="t", out_path=str(tmp_path / "r.html"))
+    text = open(out, encoding="utf-8").read()
+    href_anchors = {seg.split('"')[0] for seg in text.split('href="#')[1:]}
+    id_anchors = {seg.split('"')[0] for seg in text.split('id="')[1:]}
+    assert href_anchors, "report must contain navigation anchors"
+    assert href_anchors <= id_anchors, "every nav anchor resolves to a section/panel id"
+
+
+def test_topbar_shows_title_and_subtitle(tmp_path):
+    png = _write_png(str(tmp_path / "a.png"))
+    out = build_combined_report(
+        [ChartEntry("S", "c", png_path=png)],
+        title="My Model Report", subtitle="LightGBM / holdout - 2026-06-11",
+        out_path=str(tmp_path / "r.html"),
+    )
+    text = open(out, encoding="utf-8").read()
+    assert 'class="topbar"' in text
+    assert "My Model Report" in text
+    assert "LightGBM / holdout - 2026-06-11" in text
+
+
+def test_section_descriptions_render_under_header(tmp_path):
+    png = _write_png(str(tmp_path / "a.png"))
+    out = build_combined_report(
+        [ChartEntry("Calibration", "c", png_path=png)],
+        title="t", out_path=str(tmp_path / "r.html"),
+        section_descriptions={"Calibration": "Reliability + Brier decomposition."},
+    )
+    text = open(out, encoding="utf-8").read()
+    assert "Reliability + Brier decomposition." in text
+    assert 'class="secdesc"' in text
+
+
+def test_no_cdn_refs_in_png_mode(tmp_path):
+    """PNG-only reports must be fully self-contained: no http(s):// CDN references."""
+    png = _write_png(str(tmp_path / "a.png"))
+    entries = [ChartEntry(f"sec{i}", f"c{i}", png_path=png) for i in range(5)]
+    out = build_combined_report(entries, title="t", out_path=str(tmp_path / "r.html"))
+    text = open(out, encoding="utf-8").read()
+    assert "http://" not in text and "https://" not in text
+
+
+def test_empty_entries_no_layout_just_notice(tmp_path):
+    out = build_combined_report([], title="nothing", out_path=str(tmp_path / "r.html"))
+    text = open(out, encoding="utf-8").read()
+    assert text.startswith("<!DOCTYPE html>") and text.rstrip().endswith("</html>")
+    assert "No charts to display" in text
+    assert "<details" not in text  # no empty section scaffolding
 
 
 # -----------------------------------------------------------------------------
