@@ -328,3 +328,17 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
         margin = np.clip(_inner_raw_margin(self.estimator_, X_inner), -_MARGIN_CLIP, _MARGIN_CLIP)
         out = base_mean * np.exp(margin)
         return np.maximum(out, 0.0)
+
+
+# Variance-scaled split-conformal prediction intervals. Bound from
+# ``composite/conformal_glm.py`` (which imports nothing from glm, so no cycle).
+# calibrate_conformal_glm(X_cal, y_cal, alpha) fits the standardized radius from a
+# held-out set; predict_interval_glm(X, alpha) returns a heteroscedastic band whose
+# width scales with sqrt(V(mu_hat)) and is clipped non-negative.
+from .conformal_glm import (  # noqa: E402
+    calibrate_conformal_glm as _calibrate_conformal_glm,
+    predict_interval_glm as _predict_interval_glm,
+)
+
+CompositeGLMEstimator.calibrate_conformal_glm = _calibrate_conformal_glm
+CompositeGLMEstimator.predict_interval_glm = _predict_interval_glm
