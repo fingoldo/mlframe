@@ -71,6 +71,16 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``recurrent_dataset_helpers.py`` sibling; keep the LightningModule
     # in the parent facade.
     "src/mlframe/training/neural/recurrent.py",
+    # FIXME(carve-wave-next): filters/_screen_predictors.py -- the irreducible single-function
+    # body of ``screen_predictors`` (one sequential orchestration: input validation, RNG
+    # snapshot/restore try/finally, the candidate-generate -> confirm -> select greedy loop with
+    # the inline Miller-Madow / maxT-floor / DCD-swap blocks). The two small free helpers
+    # (``_short_name`` / ``_pool_warmup_noop``) plus the confirmation math (``confirm_one_predictor``
+    # in ``_confirm_predictor.py``) and the prescreen (``_screen_predictors_prescreen.py``) already
+    # live in siblings; only the one giant orchestration function remains over budget (mirrors
+    # ``_step_core.py`` / ``_pairs_core.py``). Carve candidate if it must shrink: lift the
+    # inline DCD discover/swap block out of the select loop into a ``_screen_dcd_swap.py`` helper.
+    "src/mlframe/feature_selection/filters/_screen_predictors.py",
 }
 
 
