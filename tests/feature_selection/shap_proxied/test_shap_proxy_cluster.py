@@ -44,6 +44,7 @@ def test_clustering_recovers_known_partition_cpu():
         assert block in part, f"reflections of factor {k} not grouped: {sorted(part)}"
 
 
+@pytest.mark.gpu
 def test_clustering_cpu_gpu_partition_parity():
     cp = pytest.importorskip("cupy")
     if cp.cuda.runtime.getDeviceCount() == 0:

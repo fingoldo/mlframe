@@ -6,6 +6,16 @@ to assert on prod source-text. AST-walk instead asserts BEHAVIOUR.
 This linter scans every tests/**/*.py file and counts violations.
 The whitelist allows tests/test_rng_determinism.py to use the related
 inspect.getsourcefile pattern (now migrated to mod.__file__).
+
+A second linter (``test_no_source_text_position_proxy_in_test_files``) closes
+the ``read_text().find(...)`` escape hatch: reading a prod ``src/mlframe`` module
+via ``read_text`` and then asserting on the BYTE POSITION of substrings (``.find``
+/ ``.index`` / ``.rfind``) is the same source-text-proxy antipattern as
+``inspect.getsource`` -- it just dodges AST detection of the ``getsource`` call.
+The complementary ``"literal" in read_text_var`` membership shape is covered by
+``test_no_source_text_proxy`` / ``_source_proxy_scan``. Pure LOC-budget facade
+sensors (``read_text().splitlines()`` length checks from monolith-split tests)
+are NOT source-text proxies and are not flagged.
 """
 from __future__ import annotations
 
@@ -90,4 +100,95 @@ def test_no_inspect_getsource_in_test_files() -> None:
         "inspect.getsource() in test files violates feedback_behavioral_tests rule. "
         "Use behavioural tests (monkeypatch, raises, identity checks) instead. "
         f"Offenders:\n  " + "\n  ".join(offenders[:50])
+    )
+
+
+# Files that still inspect prod source byte-positions and are NOT owned by this change.
+# Documented known-debt: each asserts on the location of a substring inside a prod module
+# read via ``read_text`` rather than on runtime behaviour, and should migrate to a
+# behavioural sensor. Listed so the gate stays live for NEW code while tracking the
+# remaining sites explicitly (never silently passed). Use forward slashes.
+SOURCE_POSITION_PROXY_WHITELIST: set[str] = {
+    "training/test_dataset_cache_fingerprint.py",
+    "training/test_mlp_ttr_regression_no_collapse.py",
+    "training/test_t_scale_composite_report_skip.py",
+}
+
+_PROD_SOURCE_PATH_MARKERS = ("mlframe", "__file__")
+_POSITION_METHODS = {"find", "index", "rfind"}
+
+
+def _prod_source_read_text_names(tree: ast.Module) -> set[str]:
+    """Names bound from ``<prod-path>.read_text()`` -- a path expression that resolves into
+    an mlframe prod module (rooted in ``mlframe`` / a non-test ``__file__``)."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            continue
+        value = node.value
+        if value is None:
+            continue
+        if not any(
+            isinstance(s, ast.Call) and isinstance(s.func, ast.Attribute) and s.func.attr == "read_text"
+            for s in ast.walk(value)
+        ):
+            continue
+        seg = ast.unparse(value)
+        if "mlframe" not in seg and not ("__file__" in seg and "test" not in seg.lower()):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for t in targets:
+            if isinstance(t, ast.Name):
+                names.add(t.id)
+    return names
+
+
+def _find_source_position_proxies(path: Path) -> list[tuple[int, str]]:
+    """Return [(lineno, method)] for ``<prod-read_text-var>.find/index/rfind(...)`` calls."""
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return []
+    try:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return []
+    names = _prod_source_read_text_names(tree)
+    if not names:
+        return []
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in _POSITION_METHODS:
+            continue
+        base = node.func.value
+        while isinstance(base, (ast.Attribute, ast.Subscript)):
+            base = base.value
+        if isinstance(base, ast.Name) and base.id in names:
+            hits.append((node.lineno, node.func.attr))
+    return hits
+
+
+def test_no_source_text_position_proxy_in_test_files() -> None:
+    """No test file may assert on the byte-position of substrings inside a prod
+    ``src/mlframe`` module read via ``read_text`` (``.find`` / ``.index`` / ``.rfind``).
+
+    This is the source-text-proxy antipattern that ``inspect.getsource`` is banned for;
+    reading the file directly to ``.find`` a string and assert ordering carries the same
+    fragility (breaks on any rename / refactor, proves nothing about runtime values) while
+    dodging the ``getsource`` AST check. Migrate to a behavioural sensor that calls the prod
+    function and asserts on the result.
+    """
+    offenders: list[str] = []
+    for path in _iter_test_files():
+        rel = path.relative_to(_REPO_TESTS).as_posix()
+        if rel in SOURCE_POSITION_PROXY_WHITELIST:
+            continue
+        for ln, method in _find_source_position_proxies(path):
+            offenders.append(f"{rel}:{ln} (read_text(...).{method})")
+    assert not offenders, (
+        "Source-text position assertions on prod mlframe source violate "
+        "feedback_behavioral_tests rule. Call the prod function and assert on the "
+        f"RESULT instead. Offenders:\n  " + "\n  ".join(offenders[:50])
     )

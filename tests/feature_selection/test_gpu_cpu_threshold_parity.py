@@ -62,6 +62,7 @@ def _gpu_available() -> bool:
 _GPU_AVAILABLE = _gpu_available()
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not _GPU_AVAILABLE, reason="No CUDA device available")
 @pytest.mark.parametrize("min_nonzero_confidence", [0.90, 0.95, 0.99])
 def test_cpu_gpu_threshold_parity(min_nonzero_confidence):

@@ -305,7 +305,7 @@ def _discover_prior_layer_modules():
         # Skip Layer 39 itself.
         if p.name == Path(__file__).name:
             continue
-        mod_name = p.stem
+        mod_name = f"tests.feature_selection.{p.stem}"
         out.append((mod_name, p))
     return out
 
@@ -323,11 +323,6 @@ class TestPriorLayerImportSmoke:
     @pytest.mark.parametrize("mod_name,path", _LAYER_MODULES,
                              ids=[m for m, _ in _LAYER_MODULES])
     def test_prior_layer_module_imports(self, mod_name, path):
-        # Make sure the tests/ dir is on sys.path so the relative module
-        # name resolves the same way pytest's collector does.
-        tests_dir = str(path.parent)
-        if tests_dir not in sys.path:
-            sys.path.insert(0, tests_dir)
         # Force a fresh import so a previously-imported (and possibly
         # stale) cached module does not mask a current breakage. Snapshot
         # + restore the entry so we don't leave a rebound module behind

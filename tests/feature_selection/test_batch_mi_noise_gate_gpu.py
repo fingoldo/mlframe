@@ -30,6 +30,8 @@ from mlframe.feature_selection.filters.batch_mi_noise_gate_gpu import (
     dispatch_batch_mi_with_noise_gate_gpu,
 )
 
+pytestmark = pytest.mark.gpu
+
 
 def _make_frame(n, K, nbins, seed):
     """(n, K) int frame mixing informative / pure-noise / tie-heavy / strongly-

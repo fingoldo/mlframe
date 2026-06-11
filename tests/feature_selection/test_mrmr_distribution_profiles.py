@@ -40,11 +40,11 @@ import pytest
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection import _synthetic_distributions as sd
 # Reuse the battle-tested tolerant matcher from the uniform suite (no duplication).
-from tests.feature_selection.test_mrmr_create_keep_drop import _covers, _operand_tokens
+from tests.feature_selection.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
 
 SEED = 42
 FIT_TIMEOUT = 360
-_PROGRESS = r"D:/Temp/distros_progress.txt"
+_PROGRESS = _artifact_path("distros_progress.txt")
 _LEDGER = []
 
 
@@ -52,7 +52,7 @@ def _checkpoint(msg: str) -> None:
     try:
         with open(_PROGRESS, "a", encoding="utf-8") as fh:
             fh.write(msg.rstrip("\n") + "\n")
-    except Exception:
+    except OSError:
         pass
 
 
@@ -397,14 +397,19 @@ def test_ratio_sqr_nsweep_under_profile(profile, n):
 @pytest.fixture(scope="session", autouse=True)
 def _dump_profile_ledger():
     yield
+    ledger_path = _artifact_path("distros_profile_ledger.json")
     try:
         import orjson
-        with open(r"D:/Temp/distros_profile_ledger.json", "wb") as fh:
+        with open(ledger_path, "wb") as fh:
             fh.write(orjson.dumps(_LEDGER, option=orjson.OPT_INDENT_2))
-    except Exception:
+    except Exception as exc:
         try:
             import json
-            with open(r"D:/Temp/distros_profile_ledger.json", "w", encoding="utf-8") as fh:
+            import warnings
+
+            warnings.warn(f"distros ledger orjson dump failed ({exc!r}); using json fallback")
+            with open(ledger_path, "w", encoding="utf-8") as fh:
                 json.dump(_LEDGER, fh, indent=2)
-        except Exception:
-            pass
+        except Exception as exc2:
+            import warnings
+            warnings.warn(f"distros ledger dump failed entirely: {exc2!r}")

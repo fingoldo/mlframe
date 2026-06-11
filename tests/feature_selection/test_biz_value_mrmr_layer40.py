@@ -194,6 +194,7 @@ class TestCPUBitEquivalence:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gpu
 class TestGPUBitEquivalence:
 
     @_REQUIRES_CUPY
@@ -235,6 +236,7 @@ class TestGPUBitEquivalence:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gpu
 class TestGPUSpeedup:
     """At n >= _CUDA_THRESHOLD (5e5 by default), CUDA SHOULD beat
     njit_par; on a weak GPU the realistic floor is "no worse than 1.5x

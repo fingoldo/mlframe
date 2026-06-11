@@ -30,7 +30,7 @@ def _has_device():
         return False
 
 
-pytestmark = pytest.mark.skipif(not _has_device(), reason="no CUDA device available")
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _has_device(), reason="no CUDA device available")]
 
 
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):

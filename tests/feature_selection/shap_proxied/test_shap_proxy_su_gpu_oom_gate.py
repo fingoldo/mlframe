@@ -24,9 +24,10 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (  
     cluster_su_gpu_available,
 )
 
-pytestmark = pytest.mark.skipif(
-    not cluster_su_gpu_available(), reason="CUDA/cupy GPU not available"
-)
+pytestmark = [
+    pytest.mark.gpu,
+    pytest.mark.skipif(not cluster_su_gpu_available(), reason="CUDA/cupy GPU not available"),
+]
 
 
 def test_gate_rejects_config_whose_joint_row_cannot_fit():

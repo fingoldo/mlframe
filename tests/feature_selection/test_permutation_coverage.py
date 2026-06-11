@@ -122,10 +122,9 @@ def test_shuffle_arr_runs_under_numba_rng():
 
 
 def test_shuffle_arr_actually_shuffles_with_high_probability():
-    """30! permutations -> the chance of the shuffle hitting the identity is negligible. We assert it differs for a fixed seed."""
+    """30! permutations -> the chance of the shuffle hitting the identity is negligible. ``shuffle_arr`` is njit so it draws from numba's RNG, not numpy's seed."""
     arr = np.arange(30, dtype=np.int32)
     orig = arr.copy()
-    np.random.seed(42)
     shuffle_arr(arr)
     assert not np.array_equal(arr, orig)
 
@@ -156,7 +155,6 @@ def test_parallel_mi_strong_signal_low_failure_rate():
     """On strong signal nfailed should be very low (no permutation reaches the original MI). Single-process serial path."""
     factors, nbins = _build_signal_factors(n=300, seed=42)
     cx, fx, cy, fy, mi = _make_classes(factors, nbins)
-    np.random.seed(0)
     nf, nc = parallel_mi(cx, fx, cy, fy, 100, mi, max_failed=100, dtype=np.int32)
     assert nc <= 100
     assert nf / max(nc, 1) <= 0.1

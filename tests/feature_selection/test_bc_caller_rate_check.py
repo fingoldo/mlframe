@@ -75,11 +75,11 @@ def test_bc_signal_still_accepts():
     acceptance path).
     """
     from mlframe.feature_selection.filters.permutation import mi_direct
-    np.random.seed(7)
+    rng = np.random.default_rng(7)
     n = 800
-    x = np.random.randint(0, 8, n).astype(np.int32)
-    y = np.where(np.random.random(n) < 0.55, x % 2,
-                  np.random.randint(0, 2, n)).astype(np.int32)
+    x = rng.integers(0, 8, n).astype(np.int32)
+    y = np.where(rng.random(n) < 0.55, x % 2,
+                  rng.integers(0, 2, n)).astype(np.int32)
     factors = np.column_stack([x, y]).astype(np.int32)
     nbins = np.array([8, 2], dtype=np.int32)
     mi_bc, conf_bc = mi_direct(

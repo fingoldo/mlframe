@@ -261,6 +261,7 @@ class TestStabilityRanksMatchOrBeatSingleFit:
         base = _base_mrmr_params()
         single_hits = 0
         stab_hits = 0
+        per_seed_hits = []
         noise_in_stable_seeds = []
         for seed in MULTI_SEEDS:
             X, y = _make_moderate_signal(seed=seed)
@@ -268,7 +269,8 @@ class TestStabilityRanksMatchOrBeatSingleFit:
             m = MRMR(**base)
             m.fit(X, y)
             single_eng = list(getattr(m, "hybrid_orth_features_", []) or [])
-            if "x__He2" in single_eng:
+            single_hit = "x__He2" in single_eng
+            if single_hit:
                 single_hits += 1
             # Stability
             result = stability_select_fe(
@@ -280,14 +282,17 @@ class TestStabilityRanksMatchOrBeatSingleFit:
                 random_state=seed,
             )
             stable = result["stable_set"]
-            if "x__He2" in stable:
+            stab_hit = "x__He2" in stable
+            if stab_hit:
                 stab_hits += 1
+            per_seed_hits.append((seed, int(single_hit), int(stab_hit)))
             noisy = [c for c in stable if c.startswith("noise")]
             if noisy:
                 noise_in_stable_seeds.append((seed, noisy))
         assert stab_hits >= single_hits, (
             f"Stability hit rate {stab_hits}/{len(MULTI_SEEDS)} < single-fit hit rate "
-            f"{single_hits}/{len(MULTI_SEEDS)}; the wrapper regressed reliability"
+            f"{single_hits}/{len(MULTI_SEEDS)}; the wrapper regressed reliability "
+            f"(per-seed single/stable hits: {per_seed_hits})"
         )
         assert not noise_in_stable_seeds, (
             f"Noise transforms leaked into stable_set on at least one seed: "

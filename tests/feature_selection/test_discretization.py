@@ -32,8 +32,8 @@ class TestDiscretization:
 
     def test_discretize_array_shape_preservation(self):
         """Discretized array should have same length as input."""
-        np.random.seed(42)
-        x = np.random.randn(1000)
+        rng = np.random.default_rng(42)
+        x = rng.standard_normal(1000)
 
         result = discretize_array(x, n_bins=10)
 
@@ -41,8 +41,8 @@ class TestDiscretization:
 
     def test_discretize_array_bin_count(self):
         """Discretized values should be in valid bin range."""
-        np.random.seed(42)
-        x = np.random.randn(1000)
+        rng = np.random.default_rng(42)
+        x = rng.standard_normal(1000)
         n_bins = 10
 
         result = discretize_array(x, n_bins=n_bins)
@@ -64,8 +64,8 @@ class TestDiscretization:
 
     def test_categorize_dataset_shape(self):
         """Test categorize_dataset preserves shape."""
-        np.random.seed(42)
-        X = pd.DataFrame(np.random.randn(100, 5), columns=['a', 'b', 'c', 'd', 'e'])
+        rng = np.random.default_rng(42)
+        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=['a', 'b', 'c', 'd', 'e'])
 
         result, nbins_arr, categorical_vars = categorize_dataset(X, n_bins=10)
 

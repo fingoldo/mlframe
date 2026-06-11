@@ -116,8 +116,7 @@ env.bak/
 venv.bak/
 .direnv/
 
-# Stray test-artifact backups (e.g. tests/training/_fuzz_results.*.jsonl.bak) must
-# never be swept in by an accidental `git add -A` (test_code_quality-17).
+# Stray test-artifact backups (e.g. tests/training/_fuzz_results.*.jsonl.bak) must never be swept in by an accidental `git add -A`.
 *.bak
 
 # In-repo test liveness/ledger artifacts (env-overridable via MLFRAME_TEST_ARTIFACT_DIR).

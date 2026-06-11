@@ -10,16 +10,14 @@ no-harm uniformly and treat any lift as a bonus.
 """
 from __future__ import annotations
 
-import sys
 import warnings
 
 import numpy as np
 import pytest
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, __file__.rsplit("\\", 1)[0] if "\\" in __file__ else __file__.rsplit("/", 1)[0])
 
-from _biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df  # noqa: E402
+from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df  # noqa: E402
 from sklearn.metrics import roc_auc_score  # noqa: E402
 
 

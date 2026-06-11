@@ -160,6 +160,7 @@ def test_use_gpu_false_skips_gpu_even_when_available(monkeypatch):
     )
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not cluster_su_gpu_available(), reason="no cupy CUDA device")
 def test_gpu_kernel_parity_against_cpu():
     """When a real GPU is present the GPU kernel labels must equal the CPU kernel labels."""
@@ -178,6 +179,7 @@ def test_gpu_kernel_parity_against_cpu():
     )
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not cluster_su_gpu_available(), reason="no cupy CUDA device")
 def test_gpu_kernel_speedup_at_width_2000():
     """At width=2000 the GPU path should be >=2x faster than the CPU prange kernel."""

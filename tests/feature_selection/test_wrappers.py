@@ -984,14 +984,14 @@ class TestRFECVEdgeCases:
         When one feature is perfectly correlated with the target, RFECV
         should identify and select it.
         """
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 500  # Larger sample for better feature importance estimation
         # Create noise features
-        noise1 = np.random.randn(n)
-        noise2 = np.random.randn(n)
-        noise3 = np.random.randn(n)
+        noise1 = rng.standard_normal(n)
+        noise2 = rng.standard_normal(n)
+        noise3 = rng.standard_normal(n)
         # Perfect feature: target is directly derived from it
-        perfect = np.random.randn(n)
+        perfect = rng.standard_normal(n)
         y = (perfect > 0).astype(int)  # Binary classification from perfect feature
 
         X = np.column_stack([noise1, noise2, noise3, perfect])

@@ -15,7 +15,7 @@ def _has_device():
         return False
 
 
-pytestmark = pytest.mark.skipif(not _has_device(), reason="no CUDA device available")
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _has_device(), reason="no CUDA device available")]
 
 
 @pytest.mark.parametrize("metric,classification", [("rmse", False), ("mae", False), ("brier", True), ("logloss", True)])

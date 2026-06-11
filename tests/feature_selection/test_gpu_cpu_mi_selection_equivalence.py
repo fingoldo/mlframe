@@ -43,7 +43,7 @@ def _need_cuda() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
 def _free_gpu() -> None:

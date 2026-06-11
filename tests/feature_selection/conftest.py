@@ -397,16 +397,3 @@ def feature_engineering_example_data():
     })
 
     return df, y, ['a', 'b', 'c', 'd']
-
-
-@pytest.fixture
-def known_mi_data():
-    """Data with known mutual information for testing MI computation."""
-    rng = np.random.default_rng(42)
-    n = 1000
-
-    # Create perfectly predictable relationship
-    x = rng.integers(0, 5, n)
-    y = x.copy()  # MI(X,Y) = H(X) for identical variables
-
-    return x, y

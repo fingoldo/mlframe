@@ -20,6 +20,8 @@ warnings.filterwarnings("ignore")
 # All tests in this file require cupy.
 pytest.importorskip("cupy")
 
+pytestmark = pytest.mark.gpu
+
 
 def _make_signal(n=50_000, seed=42):
     """Strong-signal synthetic for GPU MI: ``y = sign(x + 0.3*noise)``."""

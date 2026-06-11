@@ -31,10 +31,10 @@ import pytest
 
 
 def _setup_valid_xor():
-    np.random.seed(0)
+    rng = np.random.default_rng(0)
     n = 500
-    x1 = np.random.randint(0, 2, n).astype(np.int64)
-    x2 = np.random.randint(0, 2, n).astype(np.int64)
+    x1 = rng.integers(0, 2, n).astype(np.int64)
+    x2 = rng.integers(0, 2, n).astype(np.int64)
     y = x1 ^ x2
     return x1, x2, y
 
