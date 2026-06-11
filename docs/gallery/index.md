@@ -3,12 +3,13 @@
 Every chart / diagnostic in the mlframe reporting subsystem, rendered to PNG on synthetic
 data chosen to make each chart meaningful. Regenerate with `python scripts/render_gallery.py`.
 
-Total images: 30 across 16 categories.
+Total images: 32 across 17 categories.
 
 ## Contents
 
 - [regression](#regression)
 - [binary](#binary)
+- [model_card](#model-card)
 - [multiclass](#multiclass)
 - [multilabel](#multilabel)
 - [ltr](#ltr)
@@ -57,6 +58,20 @@ Decision-curve analysis: model net-benefit vs treat-all / treat-none policies.
 Reliability diagram with Wilson CI bands + population histogram.
 
 ![calibration_reliability](binary/calibration_reliability.png)
+
+## model_card
+
+### model_card_binary
+
+One-glance executive model card: headline metrics + GREEN traffic-light verdict + mini ROC / score-dist / gain sparklines.
+
+![model_card_binary](model_card/model_card_binary.png)
+
+### model_card_regression
+
+Regression model card: RMSE/MAE/R2/bias headline + verdict + mini residual-vs-pred / residual-hist / pred-vs-actual sparklines.
+
+![model_card_regression](model_card/model_card_regression.png)
 
 ## multiclass
 

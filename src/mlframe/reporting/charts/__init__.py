@@ -31,6 +31,9 @@ from mlframe.reporting.charts.drift import (
     adversarial_validation, metric_over_time, psi_heatmap, residual_vs_time,
 )
 from mlframe.reporting.charts.model_comparison import compose_model_comparison_figure
+from mlframe.reporting.charts.model_card import (
+    ModelCardVerdict, compose_model_card_figure, model_card_verdict,
+)
 from mlframe.reporting.charts.pdp_ice import (
     compose_pdp_figure, compute_pdp, compute_pdp_2d, pdp_2d_panel, pdp_panel,
 )
@@ -89,6 +92,9 @@ __all__ = [
     "pdp_panel",
     "pdp_2d_panel",
     "compose_model_comparison_figure",
+    "compose_model_card_figure",
+    "model_card_verdict",
+    "ModelCardVerdict",
     "build_decision_curve_spec",
     "compute_net_benefit",
     "DecisionCurveResult",

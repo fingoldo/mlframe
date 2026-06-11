@@ -161,6 +161,30 @@ def _b():
 
 
 # ---------------------------------------------------------------------------
+# MODEL CARD
+# ---------------------------------------------------------------------------
+
+
+@entry("model_card", "model_card_binary", "One-glance executive model card: headline metrics + GREEN traffic-light verdict + mini ROC / score-dist / gain sparklines.")
+def _b():
+    from mlframe.reporting.charts.model_card import compose_model_card_figure
+    # Strong AND calibrated: labels drawn from a peaked score so AUC is high and ECE is low -> GREEN.
+    raw = RNG.normal(0.0, 2.5, 6000)
+    p = 1.0 / (1.0 + np.exp(-raw))
+    y = (RNG.random(6000) < p).astype(np.int8)
+    return compose_model_card_figure(task="classification", y_true=y, y_score=p, model_name="lgbm_strong", split="test")
+
+
+@entry("model_card", "model_card_regression", "Regression model card: RMSE/MAE/R2/bias headline + verdict + mini residual-vs-pred / residual-hist / pred-vs-actual sparklines.")
+def _b():
+    from mlframe.reporting.charts.model_card import compose_model_card_figure
+    x = RNG.uniform(0.0, 10.0, 6000)
+    yt = 2.0 * x + 5.0 + RNG.normal(0.0, 0.4, 6000)
+    yp = 2.0 * x + 5.0 + RNG.normal(0.0, 0.4, 6000)
+    return compose_model_card_figure(task="regression", y_true=yt, y_pred=yp, model_name="ridge", split="oof")
+
+
+# ---------------------------------------------------------------------------
 # MULTICLASS
 # ---------------------------------------------------------------------------
 
