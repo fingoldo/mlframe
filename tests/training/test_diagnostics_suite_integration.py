@@ -125,6 +125,8 @@ def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
     # Opt-in SHAP charts stay OFF under the default reporting config: neither interaction nor per-instance file appears.
     assert not any("shap_interactions" in f for f in files), f"shap_interactions rendered while opt-in off; files={files}"
     assert not any("shap_per_instance" in f for f in files), f"shap_per_instance rendered while opt-in off; files={files}"
+    # Opt-in 2-D PDP surface stays OFF under the default reporting config.
+    assert not any("pdp_2d" in f for f in files), f"pdp_2d rendered while opt-in off; files={files}"
     # INV-48: chart accounting recorded somewhere in the returned artifacts.
     saved_acc = _collect_charts_acc(metadata) + _collect_charts_acc(models)
     assert saved_acc, "no charts accounting recorded in metadata/models"
@@ -162,6 +164,38 @@ def test_opt_in_shap_interaction_and_per_instance_charts_render_when_enabled(tmp
     joined = " ".join(files)
     assert "shap_interactions" in joined, f"opt-in SHAP interaction chart not saved; files={files}"
     assert "shap_per_instance" in joined, f"opt-in SHAP per-instance chart not saved; files={files}"
+
+
+def test_opt_in_pdp_2d_chart_renders_when_enabled(tmp_path):
+    """The 2-D PDP surface is dormant by default; setting ``pdp_2d_charts=True`` wires it into the per-(model, split)
+    PDP dispatch and writes the pdp_2d artifact for a tiny tree-model binary run (the composer picks the feature pair)."""
+    skip_if_dependency_missing("hgb")
+    df = _make_frame(700, binary=True)
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+    cfg = ReportingConfig(
+        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        # Trim the other per-split diagnostics so the run is fast and isolates the opt-in 2-D PDP artifact.
+        pdp_ice=False, slice_finder=False, decision_curve=False, calibration_drift=False,
+        target_acf=False, model_comparison=False, decile_table=False, model_card=False, shap_panels=False,
+        pdp_2d_charts=True,
+    )
+    data_dir = str(tmp_path)
+    train_mlframe_models_suite(
+        df=df,
+        target_name="diag_pdp2d_optin",
+        model_name="hgb_pdp2d",
+        features_and_targets_extractor=fte,
+        mlframe_models=["hgb"],
+        hyperparams_config=get_cpu_config("hgb", 20),
+        reporting_config=cfg,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
+        verbose=0,
+    )
+    files = _saved_chart_files(data_dir)
+    joined = " ".join(files)
+    assert "pdp_2d" in joined, f"opt-in 2-D PDP surface not saved; files={files}"
 
 
 def test_per_model_calibration_chart_is_written_without_missing_dir(tmp_path):

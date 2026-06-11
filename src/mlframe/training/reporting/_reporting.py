@@ -445,7 +445,7 @@ def _render_post_fit_diagnostics(
 
     from mlframe.reporting.diagnostics_dispatch import (
         build_combined_html_report, render_decile_table_diagnostic, render_decision_curve_diagnostic,
-        render_model_card_diagnostic, render_pdp_ice_diagnostic, render_shap_diagnostic,
+        render_model_card_diagnostic, render_pdp_2d_diagnostic, render_pdp_ice_diagnostic, render_shap_diagnostic,
         render_shap_interactions_diagnostic, render_shap_per_instance_diagnostic,
         render_slice_finder_diagnostic,
     )
@@ -466,6 +466,13 @@ def _render_post_fit_diagnostics(
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             top_features=getattr(cfg, "pdp_top_features", 4), sample=getattr(cfg, "pdp_sample", 2000),
             grid=getattr(cfg, "pdp_grid", 20),
+        )
+
+    if getattr(cfg, "pdp_2d_charts", False) and y_arr is not None:
+        render_pdp_2d_diagnostic(
+            model=model, df=df, feature_names=names, feature_importances=importances,
+            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            sample=getattr(cfg, "pdp_sample", 2000), grid=getattr(cfg, "pdp_grid", 20),
         )
 
     if (

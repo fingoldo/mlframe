@@ -413,6 +413,51 @@ def render_pdp_ice_diagnostic(
         return False
 
 
+def render_pdp_2d_diagnostic(
+    *,
+    model: Any,
+    df: Any,
+    feature_names: Optional[Sequence[str]],
+    feature_importances: Optional[Sequence[float]],
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    sample: int = 2_000,
+    grid: int = 20,
+    seed: int = 0,
+) -> bool:
+    """2-D PDP surface for the top interacting feature pair (opt-in). The composer picks the pair (top SHAP-interaction
+    pair when available, else top-2 importances) and caps sample_rows + grid internally, so cost is ``grid`` predicts
+    independent of n. Best-effort: any failure is logged and swallowed so the report never aborts.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if model is None or df is None or not plot_outputs or not base_path:
+        return False
+    if not (hasattr(model, "predict") or hasattr(model, "predict_proba")):
+        return False
+    names = list(feature_names) if feature_names else _column_names(df)
+    if not names or len(names) < 2:
+        return False
+    # Rank by importance when available so the SHAP-less fallback pair is the top-2 most important, mirroring pdp_ice.
+    feat_x = feat_y = None
+    if feature_importances is not None and len(feature_importances) == len(names):
+        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        feat_x, feat_y = names[int(order[0])], names[int(order[1])]
+    try:
+        from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure
+
+        fig = compose_pdp_2d_figure(model, df, feat_x, feat_y, grid=grid, sample_rows=sample, seed=seed)
+        ok = _save_figure(fig, plot_outputs, base_path + "_pdp_2d")
+        _record(charts, "pdp_2d", ok)
+        if ok:
+            _record_path(charts, base_path + "_pdp_2d")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: pdp_2d failed; continuing.")
+        _record(charts, "pdp_2d", False)
+        return False
+
+
 def render_slice_finder_diagnostic(
     *,
     df: Any,
@@ -1081,6 +1126,7 @@ __all__ = [
     "render_target_drift_diagnostics",
     "render_target_dist_overlay",
     "render_pdp_ice_diagnostic",
+    "render_pdp_2d_diagnostic",
     "render_slice_finder_diagnostic",
     "render_decision_curve_diagnostic",
     "render_calibration_drift_diagnostic",
