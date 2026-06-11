@@ -53,6 +53,13 @@ _THRESHOLD_PLOT_CAP: int = 500
 _SCORE_DIST_BINS: int = 50
 # PIT histogram bins (matches the orphan plot_pit_diagram default of 20).
 _PIT_BINS: int = 20
+# Bootstrap resamples for the PR-AUC (average precision) CI. AP has no closed-form variance (unlike ROC-AUC's DeLong),
+# so we resample rows; B in this range keeps the 2.5/97.5 percentiles stable while staying sub-second under the cap.
+_AP_BOOTSTRAP_B: int = 500
+# AP CI width is driven by n; a subsample of this size has a representative CI and bounds the (B, m) gather cost.
+_AP_BOOTSTRAP_ROW_CAP: int = 50_000
+# Below this many rows (or positives) a bootstrap AP CI is too noisy to be informative; annotate AP only.
+_AP_BOOTSTRAP_MIN_N: int = 30
 
 
 # ----------------------------------------------------------------------------
@@ -171,14 +178,92 @@ def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
     )
 
 
-def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
-    """Precision-recall curve with the prevalence no-skill baseline; AP in the title.
+def bootstrap_ap_ci(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    *,
+    n_boot: int = _AP_BOOTSTRAP_B,
+    alpha: float = 0.05,
+    seed: int = 0,
+) -> Tuple[float, float, float]:
+    """Bootstrap percentile CI for PR-AUC (average precision), resampling rows with replacement.
+
+    Returns ``(ap, lower, upper)`` -- the full-data AP plus the ``1-alpha`` percentile interval. AP has no closed-form
+    variance (unlike ROC-AUC's DeLong), so the row bootstrap is the honest uncertainty estimate. Vectorised: subsample
+    to ``_AP_BOOTSTRAP_ROW_CAP`` rows first (the CI width tracks n, which the cap preserves up to its bound), sort that
+    subsample by score ONCE descending, then draw a single ``(n_boot, m)`` index gather. Each resample's AP comes from
+    per-rank cumulative TP/FP counts accumulated against the shared descending order -- ``np.add.at`` scatters each
+    drawn row's multiplicity to its rank, so one cumsum per resample yields the step-sum AP with no per-B re-sort.
+
+    Deterministic given ``seed``. Returns ``(ap, nan, nan)`` when n < ``_AP_BOOTSTRAP_MIN_N`` or one class is absent
+    (AP undefined / CI uninformative); the caller annotates AP without an interval there.
+    """
+    yt = np.asarray(y_true).ravel().astype(np.int8)
+    ys = np.asarray(y_score, dtype=np.float64).ravel()
+    n = yt.size
+    n_pos_full = int(yt.sum())
+    if n == 0 or n_pos_full == 0 or n_pos_full == n:
+        return float("nan"), float("nan"), float("nan")
+    full_ap = _ap_from_labels_desc(yt[np.argsort(ys, kind="stable")[::-1]])
+    if n < _AP_BOOTSTRAP_MIN_N:
+        return full_ap, float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    m = min(n, _AP_BOOTSTRAP_ROW_CAP)
+    if m < n:
+        sub = rng.choice(n, size=m, replace=False)
+        yt, ys = yt[sub], ys[sub]
+    # Sort the subsample by score ONCE (descending); resamples then index into this fixed rank order.
+    order = np.argsort(ys, kind="stable")[::-1]
+    yt_desc = yt[order].astype(np.int64)
+    idx = rng.integers(0, m, size=(n_boot, m))
+    boot_ap = np.empty(n_boot, dtype=np.float64)
+    pos_desc = yt_desc.astype(np.float64)
+    for b in range(n_boot):
+        # Multiplicity of each fixed-rank row in resample b (a row can be drawn 0..k times); scatter-add to its rank.
+        mult = np.bincount(idx[b], minlength=m).astype(np.float64)
+        tp = np.cumsum(mult * pos_desc)
+        total = np.cumsum(mult)
+        n_pos = tp[-1]
+        if n_pos <= 0:
+            boot_ap[b] = float("nan")
+            continue
+        # AP = sum (R_i - R_{i-1}) * P_i; the recall step is the resampled positive mass at rank i, so AP collapses to
+        # the precision-weighted positive multiplicity / n_pos -- avoids a per-resample concat + diff.
+        precision = tp / np.maximum(total, 1.0)
+        boot_ap[b] = np.dot(mult * pos_desc, precision) / n_pos
+    boot_ap = boot_ap[~np.isnan(boot_ap)]
+    if boot_ap.size == 0:
+        return full_ap, float("nan"), float("nan")
+    lo = float(np.percentile(boot_ap, 100.0 * alpha / 2.0))
+    hi = float(np.percentile(boot_ap, 100.0 * (1.0 - alpha / 2.0)))
+    return full_ap, lo, hi
+
+
+def _ap_from_labels_desc(labels_desc: np.ndarray) -> float:
+    """Average precision from labels already sorted descending-by-score (step-sum ``sum (R_i - R_{i-1}) * P_i``)."""
+    lab = labels_desc.astype(np.float64)
+    tp = np.cumsum(lab)
+    fp = np.cumsum(1.0 - lab)
+    n_pos = tp[-1]
+    if n_pos <= 0:
+        return float("nan")
+    precision = tp / np.maximum(tp + fp, 1.0)
+    recall = tp / n_pos
+    return float(np.sum(np.diff(np.concatenate(([0.0], recall))) * precision))
+
+
+def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None,
+              ap_ci: bool = True, ap_ci_seed: int = 0) -> PanelSpec:
+    """Precision-recall curve with the prevalence no-skill baseline; AP + bootstrap 95% CI in the title.
 
     Built from the shared score sort's per-distinct-threshold cumulative TP/FP counts, matching sklearn's
     ``precision_recall_curve`` (recall ascending, precision = TP/(TP+FP), curve prepended with recall=0 at
     precision=1). AP is the step-sum ``sum (R_i - R_{i-1}) * P_i`` -- sklearn's ``average_precision_score``
     definition -- so a separate full-n argsort is avoided. A curve hugging the dotted prevalence line reads
     as no better than always-positive.
+
+    ``ap_ci`` (default on) appends a 95% percentile bootstrap CI to the title -- AP has no closed-form variance, so
+    this is the honest counterpart to ROC's DeLong CI. Single-class / tiny-n -> AP shown without an interval.
     """
     if sort.n_pos == 0 or sort.n_neg == 0:
         return AnnotationPanelSpec(text="PR undefined\n(only one class present)", title="Precision-Recall curve")
@@ -192,11 +277,16 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
     x_thin, (prec_thin,) = _decimate(rec_plot, prec_plot)
     prevalence = sort.n_pos / max(1, sort.n)
     baseline = np.full_like(x_thin, prevalence)
+    title = f"Precision-Recall (AP={ap:.3f})"
+    if ap_ci:
+        _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed)
+        if np.isfinite(lo) and np.isfinite(hi):
+            title = f"Precision-Recall (AP={ap:.3f} [{lo:.3f}, {hi:.3f}], 95% CI)"
     return LinePanelSpec(
         x=x_thin,
         y=(prec_thin, baseline),
         series_labels=("PR", f"no-skill (prev={prevalence:.3f})"),
-        title=f"Precision-Recall (AP={ap:.3f})",
+        title=title,
         xlabel="Recall",
         ylabel="Precision",
         line_styles=("-", ":"),
@@ -637,6 +727,8 @@ def compose_binary_figure(
     max_cols: int = 2,
     cell_width: float = 6.0,
     cell_height: float = 4.0,
+    ap_ci: bool = True,
+    ap_ci_seed: int = 0,
 ) -> FigureSpec:
     """Build a binary-classification quality FigureSpec from a panel template.
 
@@ -651,6 +743,8 @@ def compose_binary_figure(
         to the THRESHOLD panel (default off).
     suptitle : figure suptitle (model identity).
     max_cols : grid width (default 2).
+    ap_ci : annotate the PR panel's AP with a 95% bootstrap CI (default on; AP has no closed-form variance).
+    ap_ci_seed : seed for the AP bootstrap, so the interval is reproducible.
     """
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -664,7 +758,10 @@ def compose_binary_figure(
     sort = _ScoreSort(yt, ys)
     panels: List[PanelSpec] = []
     for tok in tokens:
-        panels.append(_TOKEN_BUILDERS[tok](yt, ys, sort=sort, threshold=threshold, cost_ratio=cost_ratio))
+        kw = dict(sort=sort, threshold=threshold, cost_ratio=cost_ratio)
+        if tok == "PR":
+            kw.update(ap_ci=ap_ci, ap_ci_seed=ap_ci_seed)
+        panels.append(_TOKEN_BUILDERS[tok](yt, ys, **kw))
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0
@@ -679,6 +776,7 @@ __all__ = [
     "ALLOWED_BINARY_PANEL_TOKENS",
     "DEFAULT_BINARY_PANELS",
     "compose_binary_figure",
+    "bootstrap_ap_ci",
     "binary_decile_table",
     "binary_decile_table_figure",
 ]

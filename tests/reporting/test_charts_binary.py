@@ -16,6 +16,7 @@ from mlframe.reporting.charts.binary import (
     DEFAULT_BINARY_PANELS,
     binary_decile_table,
     binary_decile_table_figure,
+    bootstrap_ap_ci,
     compose_binary_figure,
     _finite_binary,
     _ScoreSort,
@@ -174,6 +175,71 @@ def test_finite_binary_drops_non_finite_and_out_of_range_labels():
 
 
 # ----------------------------------------------------------------------------
+# Unit: bootstrap PR-AUC (average precision) confidence interval
+# ----------------------------------------------------------------------------
+
+
+def test_pr_panel_title_carries_ap_bootstrap_ci():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
+    assert "95% CI" in panel.title
+    # AP and a [lo, hi] bracket both present in the title.
+    assert "AP=" in panel.title and "[" in panel.title and "]" in panel.title
+
+
+def test_pr_panel_ap_ci_can_be_disabled():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR", ap_ci=False))
+    assert "AP=" in panel.title and "95% CI" not in panel.title
+
+
+def test_bootstrap_ap_ci_lo_le_ap_le_hi():
+    y, s = _separable(n=4000)
+    ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
+    assert np.isfinite(lo) and np.isfinite(hi)
+    assert lo <= ap <= hi
+
+
+def test_bootstrap_ap_ci_matches_sklearn_full_ap():
+    from sklearn.metrics import average_precision_score
+
+    y, s = _separable(n=4000)
+    ap, _, _ = bootstrap_ap_ci(y, s, seed=0)
+    assert ap == pytest.approx(float(average_precision_score(y, s)), abs=1e-12)
+
+
+def test_bootstrap_ap_ci_seed_reproducible_and_seed_sensitive():
+    y, s = _separable(n=4000)
+    a = bootstrap_ap_ci(y, s, seed=7)
+    b = bootstrap_ap_ci(y, s, seed=7)
+    c = bootstrap_ap_ci(y, s, seed=8)
+    assert a == b
+    assert (a[1], a[2]) != (c[1], c[2])
+
+
+def test_bootstrap_ap_ci_single_class_returns_nan_bracket():
+    y = np.ones(500, dtype=int)
+    s = np.linspace(0.1, 0.9, 500)
+    ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
+    assert np.isnan(ap) and np.isnan(lo) and np.isnan(hi)
+
+
+def test_bootstrap_ap_ci_tiny_n_annotates_ap_without_interval():
+    y = np.array([0, 1, 0, 1, 1, 0, 0, 1])
+    s = np.array([0.1, 0.9, 0.2, 0.8, 0.7, 0.3, 0.4, 0.6])
+    ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
+    assert np.isfinite(ap)
+    assert np.isnan(lo) and np.isnan(hi)
+
+
+def test_pr_panel_single_class_still_annotates():
+    y = np.ones(500, dtype=int)
+    s = np.linspace(0.1, 0.9, 500)
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
+    assert isinstance(panel, AnnotationPanelSpec)
+
+
+# ----------------------------------------------------------------------------
 # Parity: vectorized THRESHOLD sweep vs per-threshold sklearn (distinct + tied)
 # ----------------------------------------------------------------------------
 
@@ -305,6 +371,36 @@ def test_biz_val_decile_gain_monotone_and_terminal_one():
     gain = table["gain"]
     assert np.all(np.diff(gain) >= -1e-12), "cumulative gain must be non-decreasing"
     assert gain[-1] == pytest.approx(1.0, abs=1e-9), "terminal gain must capture all positives"
+
+
+def test_biz_val_ap_ci_brackets_true_ap():
+    """On a KNOWN-separability synthetic the bootstrap AP CI must contain the full-data AP.
+
+    A broken bootstrap (wrong resample unit / off-by-one rank scatter) would shift the interval off the true AP."""
+    y, s = _separable(n=4000, sep=1.5, seed=3)
+    ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
+    assert lo <= ap <= hi, f"AP {ap} not bracketed by CI [{lo}, {hi}]"
+    # A real interval, not a degenerate point.
+    assert hi - lo > 0.0
+
+
+def test_biz_val_ap_ci_narrows_as_n_grows():
+    """AP CI width must shrink with n (uncertainty ~1/sqrt(n)).
+
+    Measured widths sep=1.5: ~0.034 @ n=2000 vs ~0.014 @ n=20000 (~2.4x narrower). Floor the ratio at 1.3x (margin)."""
+    y2, s2 = _separable(n=2000, sep=1.5, seed=3)
+    y20, s20 = _separable(n=20000, sep=1.5, seed=3)
+    _, lo2, hi2 = bootstrap_ap_ci(y2, s2, seed=0)
+    _, lo20, hi20 = bootstrap_ap_ci(y20, s20, seed=0)
+    w2, w20 = hi2 - lo2, hi20 - lo20
+    assert w20 < w2, f"CI did not narrow: width@20000={w20} >= width@2000={w2}"
+    assert w2 / w20 >= 1.3, f"narrowing ratio {w2 / w20:.2f} below 1.3x floor"
+
+
+def test_biz_val_ap_ci_reproducible_under_fixed_seed():
+    """Same seed -> bit-identical CI (the bootstrap must be deterministic for reproducible reports)."""
+    y, s = _separable(n=4000, sep=1.5, seed=3)
+    assert bootstrap_ap_ci(y, s, seed=11) == bootstrap_ap_ci(y, s, seed=11)
 
 
 # ----------------------------------------------------------------------------
