@@ -23,6 +23,7 @@ try:
 except ImportError:
     rankdata = None  # type: ignore[assignment]
 
+from ._structural_hints import boost_for_features
 from .screening import (
     _mi_from_binned_pair,
     _mi_pair_bin,
@@ -582,6 +583,52 @@ def _auto_base(
         mi_for_ranking = np.where(passes_null, mi_per_feature, -np.inf)
     else:
         mi_for_ranking = mi_per_feature.copy()
+    # Structural-affinity boost. Surfaces OBVIOUS base columns from data
+    # shape / correlation that the MI ranking alone can miss when a noisier
+    # competitor's pairwise MI lands a hair higher: a near-affine predictor of
+    # y (prime ``linear_residual`` base), a low-cardinality integer grouping
+    # column (prime ``grouped`` base), a monotone/timestamp column (prime
+    # ``time`` base). The boost is a BOUNDED nudge scaled to the MI spread --
+    # it augments the MI ranking, never replaces it: a clearly larger MI gap
+    # still wins. Applied to non-hint candidates only (hints already lead the
+    # slots) and BEFORE the time/spatial demotion so a demoted column cannot
+    # be re-promoted by the time detector here. A monotone column the
+    # time-index demoter would sink is not boosted as a ``time`` base when the
+    # demoter is active, so the two stay consistent.
+    if getattr(self.config, "auto_base_structural_boost", True):
+        finite_mi = [m for m in mi_for_ranking.tolist() if math.isfinite(m)]
+        mi_spread = (max(finite_mi) - min(finite_mi)) if len(finite_mi) >= 2 else 0.0
+        boost_fraction = float(getattr(
+            self.config, "auto_base_structural_boost_fraction", 0.25,
+        ))
+        boost, kinds = boost_for_features(
+            x_matrix[finite], y_screen[finite], list(usable_features),
+            mi_spread=mi_spread, max_boost_fraction=boost_fraction,
+        )
+        if kinds:
+            hint_set_boost = set(hint_kept)
+            applied: list[tuple[str, str, float]] = []
+            for j, col_name in enumerate(usable_features):
+                if boost[j] <= 0.0:
+                    continue
+                # Never boost a hint (already leading) or a demoted feature
+                # (the demoter's verdict is authoritative for that column).
+                if col_name in hint_set_boost or col_name in demote_set:
+                    continue
+                if not math.isfinite(mi_for_ranking[j]):
+                    continue
+                mi_for_ranking[j] += boost[j]
+                applied.append((col_name, kinds.get(col_name, "?"), float(boost[j])))
+            if applied:
+                preview = ", ".join(
+                    f"{n}({k},+{b:.4g})" for n, k, b in
+                    sorted(applied, key=lambda t: -t[2])[:5]
+                )
+                logger.info(
+                    "[CompositeTargetDiscovery] auto-base structural boost "
+                    "applied to %d candidate(s) (mi_spread=%.4g): %s",
+                    len(applied), mi_spread, preview,
+                )
     # Apply demotion to time-index / spatial-
     # coord candidates. Subtract a large penalty so they sort
     # below all non-demoted features but stay reachable as a

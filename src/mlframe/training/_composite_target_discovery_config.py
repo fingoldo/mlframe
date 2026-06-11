@@ -792,6 +792,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     auto_base_demote_time_index: bool = True
     auto_base_demote_spatial_coords: bool = True
 
+    # Structural-affinity boost for ``_auto_base``. Surfaces OBVIOUS base
+    # columns from data shape / correlation that the MI ranking alone can miss
+    # when a noisier competitor's pairwise MI(y, x) lands a hair higher:
+    # - **Near-affine predictor** (``|corr(y, x)|`` very high AND the OLS
+    #   residual variance collapses): prime ``linear_residual`` base.
+    # - **Low-cardinality integer column** (a small set of distinct integer
+    #   levels, not one-per-row): prime ``grouped`` base.
+    # - **Monotone / timestamp column** (forward diffs share one sign): prime
+    #   ``time`` base.
+    # The boost is a BOUNDED additive nudge scaled to the candidate MI spread
+    # (``auto_base_structural_boost_fraction`` of the MI range), so it can lift
+    # a near-tie but never override a clearly larger MI gap -- it AUGMENTS the
+    # MI ranking, it does not replace it. Bit-identical to "no boost" on data
+    # with no detectable structure. Default ON per the "enable corrective
+    # mechanisms by default" convention; set False to reproduce the pre-boost
+    # MI-only ranking.
+    auto_base_structural_boost: bool = True
+    auto_base_structural_boost_fraction: float = 0.25
+
     # Collapse ``linear_residual`` -> ``diff`` when the fitted alpha
     # is approximately 1.0. ``linear_residual``
     # is a strict generalisation of ``diff`` (diff = linear_residual
