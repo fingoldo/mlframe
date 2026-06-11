@@ -42,12 +42,16 @@ _GROUPS = (np.arange(_N) // 50).astype(np.int64)
 def _fit_params(name: str) -> dict:
     """Fit a transform on synthetic data and return its fitted params."""
     t = TRANSFORMS_REGISTRY[name]
+    # Groups checked FIRST: a transform may be requires_groups=True AND
+    # requires_base=False (target_encoding_residual), needing groups + base=None.
+    if t.requires_groups:
+        base = _BASE if t.requires_base else None
+        dom = t.domain_check(_Y, base)
+        base_dom = _BASE[dom] if t.requires_base else None
+        return t.fit(_Y[dom], base_dom, groups=_GROUPS[: int(dom.sum())])
     if not t.requires_base:
         dom = t.domain_check(_Y, None)
         return t.fit(_Y[dom], None)
-    if t.requires_groups:
-        dom = t.domain_check(_Y, _BASE)
-        return t.fit(_Y[dom], _BASE[dom], groups=_GROUPS[: int(dom.sum())])
     dom = t.domain_check(_Y, _BASE)
     return t.fit(_Y[dom], _BASE[dom])
 

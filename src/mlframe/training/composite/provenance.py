@@ -253,6 +253,10 @@ _TRANSFORM_DESCRIPTIONS: dict[str, str] = {
                               "of several positive base features"),
     "pairwise_interaction_residual": ("predicts the residual after subtracting a "
                                      "fitted multiple of the product of several base features"),
+    "signed_power_y": ("predicts the signed power of the target, |y|^p with p fitted "
+                      "to minimise skew, symmetrising a heavy-tailed target"),
+    "target_encoding_residual": ("predicts the residual after subtracting the "
+                                "empirical-Bayes smoothed per-category mean of the target"),
 }
 
 
@@ -562,6 +566,23 @@ def _f_chain_linres_cbrt_qn(t: str, b: str, p: dict) -> tuple[str, str]:
     )
 
 
+def _f_signed_power_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    pw = _fmt(p.get("p"))
+    return (
+        f"T = sign({t}) * |{t}|^p  (p={pw}, fitted to minimise skew)",
+        "y_hat = sign(T_hat) * |T_hat|^(1/p)",
+    )
+
+
+def _f_target_encoding_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    sm = _fmt(p.get("smoothing"))
+    return (
+        f"T = {t} - cat_mean(group)  (empirical-Bayes smoothed per-category mean, "
+        f"smoothing={sm}; unseen categories use the global mean)",
+        "y_hat = T_hat + cat_mean(group)",
+    )
+
+
 # name -> builder. Source of truth alongside ``_TRANSFORM_DESCRIPTIONS``;
 # both are coverage-pinned against the live registry by the formula-coverage meta-test.
 _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
@@ -597,6 +618,8 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
     "chain_monres_cbrt": _f_chain_monres_cbrt,
     "chain_monres_yj": _f_chain_monres_yj,
     "chain_linres_cbrt_qn": _f_chain_linres_cbrt_qn,
+    "signed_power_y": _f_signed_power_y,
+    "target_encoding_residual": _f_target_encoding_residual,
 }
 
 

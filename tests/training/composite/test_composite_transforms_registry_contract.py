@@ -76,27 +76,31 @@ _TRANSFORM_RTOL: dict[str, float] = {
 }
 
 
+# Groups is checked FIRST: a transform can be requires_groups=True AND
+# requires_base=False (target_encoding_residual -- the category column carries
+# the signal, no numeric base), in which case it still needs groups and takes
+# base=None.
 def _call_fit(t, y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    if t.requires_groups:
+        return t.fit(y, base if t.requires_base else None, groups=_GROUPS[: len(y)])
     if not t.requires_base:
         return t.fit(y, None)
-    if t.requires_groups:
-        return t.fit(y, base, groups=_GROUPS[: len(y)])
     return t.fit(y, base)
 
 
 def _call_forward(t, y: np.ndarray, base: np.ndarray, params: Mapping[str, Any]) -> np.ndarray:
+    if t.requires_groups:
+        return t.forward(y, base if t.requires_base else None, params, groups=_GROUPS[: len(y)])
     if not t.requires_base:
         return t.forward(y, None, params)
-    if t.requires_groups:
-        return t.forward(y, base, params, groups=_GROUPS[: len(y)])
     return t.forward(y, base, params)
 
 
 def _call_inverse(t, t_hat: np.ndarray, base: np.ndarray, params: Mapping[str, Any]) -> np.ndarray:
+    if t.requires_groups:
+        return t.inverse(t_hat, base if t.requires_base else None, params, groups=_GROUPS[: len(t_hat)])
     if not t.requires_base:
         return t.inverse(t_hat, None, params)
-    if t.requires_groups:
-        return t.inverse(t_hat, base, params, groups=_GROUPS[: len(t_hat)])
     return t.inverse(t_hat, base, params)
 
 
