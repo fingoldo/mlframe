@@ -60,7 +60,8 @@ def _read(rel: str) -> str:
     if rel == "feature_selection/filters/mrmr/_mrmr_class.py":
         _dir = _SRC_ROOT / "feature_selection" / "filters"
         for nm in (
-            "mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl.py",
+            "mrmr/__init__.py", "_mrmr_fingerprints.py",
+            "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py",
             "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py",
             "_mrmr_validate_transform.py",
         ):

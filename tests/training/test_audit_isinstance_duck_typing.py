@@ -93,7 +93,7 @@ def _read(rel: str) -> str:
         # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
         # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
         _dir = _ROOT / "feature_selection" / "filters"
-        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
+        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")

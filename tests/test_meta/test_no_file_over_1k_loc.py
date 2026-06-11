@@ -32,11 +32,15 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_fit_impl`` / ``_run_fe_step`` already are; the validate/transform/fit/fe-step/
     # partial-fit/provenance method bodies already live in sibling modules.
     "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py",
-    # FIXME(carve-wave-next): filters/_mrmr_fit_impl.py at ~1.1k LOC after
-    # the Wave 9.1 DCD + fallback hardening grew the post-screening section.
-    # Carve candidates: the empty-support fallback block + the FE/RFECV
-    # post-pass into ``_mrmr_fit_impl_finalise.py``.
-    "src/mlframe/feature_selection/filters/_mrmr_fit_impl.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fit_impl/_fit_impl_core.py -- the irreducible
+    # single-function body of ``_fit_impl`` (bound onto ``MRMR``) after the _mrmr_fit_impl
+    # subpackage split. The four small free helpers (``_orth_fe_numeric_cols`` /
+    # ``_dispatch_default_scorer`` / ``_mrmr_instance_state_size_bytes`` /
+    # ``_mrmr_cache_bytes_total``) live in the sibling ``_helpers.py``; only the one giant
+    # fit-orchestration function remains over budget (mirrors ``_step_core.py`` /
+    # ``_pairs_core.py``). Carve candidate if it must shrink: lift the empty-support fallback
+    # block + the FE/RFECV post-pass into a ``_finalise.py`` helper.
+    "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
     # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_core.py at ~1.53k LOC --
     # the irreducible single-function body of ``_run_fe_step`` after the
     # _mrmr_fe_step subpackage split. The two small operand-pool helpers
