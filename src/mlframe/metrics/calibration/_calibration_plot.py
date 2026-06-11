@@ -398,6 +398,7 @@ def show_calibration_plot(
     plot_outputs: Optional[str] = None,
     base_path: Optional[str] = None,
     dpi: Optional[int] = None,
+    show_wilson_ci: bool = True,
 ):
     """Plots reliability digaram from the binned predictions.
 
@@ -414,7 +415,9 @@ def show_calibration_plot(
     Inline per-bin population annotations (the small text labels next to each
     scatter point) are independently controlled by
     ``show_inline_population_labels`` so users can keep both, drop both, or
-    keep only one.
+    keep only one. ``show_wilson_ci`` (default on) controls the per-bin Wilson CI
+    band on the reliability scatter; it is forwarded to ``build_calibration_spec``
+    (the legacy inline matplotlib path draws no CI band, so it has no effect there).
     """
 
     # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
@@ -446,6 +449,7 @@ def show_calibration_plot(
             colorbar_label=colorbar_label,
             figsize=figsize,
             yscale=prob_histogram_yscale,
+            show_wilson_ci=show_wilson_ci,
         )
         if plot_outputs and base_path:
             _outputs = parse_plot_output_dsl(plot_outputs)

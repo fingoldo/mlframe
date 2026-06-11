@@ -37,11 +37,6 @@ from sklearn.preprocessing import LabelEncoder
 from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_roc_auc
 from pyutilz.pythonlib import get_human_readable_set_size
 
-# Accepted parameter names of fast_calibration_report; used to forward newer reporting knobs (reliability_show_ci)
-# only when the metrics layer supports them, so this wiring stays decoupled from the metrics release cadence.
-import inspect as _inspect
-_FCR_PARAMS = frozenset(_inspect.signature(fast_calibration_report).parameters)
-
 from ..phases import phase
 # Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
@@ -464,13 +459,12 @@ def report_probabilistic_model_perf(
             _fcr_kwargs["base_path"] = _class_base_path
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
-        # G7: calibration binning strategy (auto/uniform/quantile) from ReportingConfig; default "auto" already
-        # picks quantile under rare-event base rates. reliability_show_ci is forwarded only when the underlying
-        # report supports the kwarg -- the Wilson-CI band on the reliability diagram lands with the wave-5 y_err
-        # spec field, so guard with a signature check to stay forward-compatible without breaking today's contract.
+        # calibration binning strategy (auto/uniform/quantile) from ReportingConfig; default "auto" already picks
+        # quantile under rare-event base rates. reliability_show_ci toggles the Wilson-CI band on the reliability
+        # diagram and reaches the chart via fast_calibration_report -> build_calibration_spec(show_wilson_ci=...).
         if calibration_binning:
             _fcr_kwargs["binning_strategy"] = calibration_binning
-        if reliability_show_ci is not None and "reliability_show_ci" in _FCR_PARAMS:
+        if reliability_show_ci is not None:
             _fcr_kwargs["reliability_show_ci"] = reliability_show_ci
 
         # Inject precomputed (roc, pr) for THIS class id when the batched

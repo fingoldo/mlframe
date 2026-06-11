@@ -195,6 +195,7 @@ def fast_calibration_report(
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     binning_strategy: str = "auto",
+    reliability_show_ci: bool = True,
     #
     plot_file: str = "",
     plot_outputs: Optional[str] = None,
@@ -229,6 +230,10 @@ def fast_calibration_report(
     callers get explicit control over both metric selection AND order.
     Validation lives in ReportingConfig (training/configs.py); see the
     ``TITLE_METRIC_TOKENS`` frozenset for the complete grammar.
+
+    ``reliability_show_ci`` (default on) renders the per-bin Wilson CI band on the
+    reliability diagram; set False to suppress it (the toggle reaches the chart via
+    ``show_calibration_plot`` -> ``build_calibration_spec(show_wilson_ci=...)``).
     """
 
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
@@ -403,6 +408,7 @@ def fast_calibration_report(
             show_prob_histogram=show_prob_histogram,
             prob_histogram_yscale=prob_histogram_yscale,
             show_inline_population_labels=show_inline_population_labels,
+            show_wilson_ci=reliability_show_ci,
             dpi=dpi,
         )
 

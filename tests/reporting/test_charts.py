@@ -80,6 +80,123 @@ class TestCalibrationSpec:
                         str(tmp_path / "calib"))
         assert os.path.exists(tmp_path / "calib.html")
 
+    def test_wilson_ci_band_default_on(self):
+        spec = build_calibration_spec(
+            freqs_predicted=np.array([0.1, 0.5, 0.9]),
+            freqs_true=np.array([0.08, 0.52, 0.88]),
+            hits=np.array([100, 200, 50]),
+        )
+        scatter = spec.panels[0][0]
+        assert scatter.y_err is not None
+        lo, hi = scatter.y_err
+        assert np.any(lo > 0) and np.any(hi > 0)
+
+    def test_wilson_ci_band_suppressed_when_off(self):
+        spec = build_calibration_spec(
+            freqs_predicted=np.array([0.1, 0.5, 0.9]),
+            freqs_true=np.array([0.08, 0.52, 0.88]),
+            hits=np.array([100, 200, 50]),
+            show_wilson_ci=False,
+        )
+        scatter = spec.panels[0][0]
+        assert scatter.y_err is None
+
+    def test_bubble_area_capped_for_dominant_bin(self):
+        # One bin holds ~99.9% of the mass. The legacy 5000*h/sum scaling would give it an
+        # area ~5000, occluding every neighbour. Above MAX_BUBBLE_AREA the area is sqrt-
+        # compressed toward the cap, so the dominant bin is far smaller than the raw value
+        # yet still the largest point.
+        from mlframe.reporting.charts.calibration import MAX_BUBBLE_AREA
+        hits = np.array([1, 1, 1_000_000, 1, 1])
+        spec = build_calibration_spec(
+            freqs_predicted=np.linspace(0.1, 0.9, 5),
+            freqs_true=np.linspace(0.1, 0.9, 5),
+            hits=hits,
+        )
+        sizes = np.asarray(spec.panels[0][0].point_size, dtype=float)
+        dominant = sizes[2]
+        raw_uncapped = 5000.0 * hits[2] / hits.sum()
+        expected = MAX_BUBBLE_AREA * np.sqrt(raw_uncapped / MAX_BUBBLE_AREA)
+        assert dominant == pytest.approx(expected, rel=1e-9)
+        # Compression must materially shrink it relative to the uncapped scaling.
+        assert dominant < 0.5 * raw_uncapped
+        assert dominant == sizes.max()
+
+    def test_inline_labels_auto_disabled_above_max_bins(self):
+        from mlframe.reporting.charts.calibration import INLINE_LABEL_MAX_BINS
+        nbins = INLINE_LABEL_MAX_BINS + 5
+        spec = build_calibration_spec(
+            freqs_predicted=np.linspace(0.01, 0.99, nbins),
+            freqs_true=np.linspace(0.01, 0.99, nbins),
+            hits=np.full(nbins, 100),
+            show_inline_population_labels=True,
+        )
+        assert spec.panels[0][0].inline_labels is None
+
+    def test_inline_labels_kept_at_or_below_max_bins(self):
+        from mlframe.reporting.charts.calibration import INLINE_LABEL_MAX_BINS
+        nbins = INLINE_LABEL_MAX_BINS
+        spec = build_calibration_spec(
+            freqs_predicted=np.linspace(0.01, 0.99, nbins),
+            freqs_true=np.linspace(0.01, 0.99, nbins),
+            hits=np.full(nbins, 100),
+            show_inline_population_labels=True,
+        )
+        assert spec.panels[0][0].inline_labels is not None
+        assert len(spec.panels[0][0].inline_labels) == nbins
+
+
+class TestReliabilityCiToggleWiring:
+    """G7: ReportingConfig.reliability_show_ci must reach the chart, not be a dead pipe."""
+
+    def _binned(self):
+        rng = np.random.default_rng(0)
+        y_pred = rng.random(4000)
+        y_true = (rng.random(4000) < y_pred).astype(int)
+        return y_true, y_pred
+
+    def _spy_build_calibration_spec(self, monkeypatch, captured):
+        # build_calibration_spec is imported lazily inside show_calibration_plot; patch it at
+        # its definition module so the lazy import resolves to the spy. Capture the ORIGINAL
+        # reference before patching so the spy does not call itself (recursion).
+        import mlframe.reporting.charts.calibration as cal_mod
+        real = cal_mod.build_calibration_spec
+
+        def _spy(*args, **kwargs):
+            captured["show_wilson_ci"] = kwargs.get("show_wilson_ci")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(cal_mod, "build_calibration_spec", _spy)
+
+    def test_fast_calibration_report_off_suppresses_ci(self, tmp_path, monkeypatch):
+        # On pre-fix code fast_calibration_report has no reliability_show_ci parameter at all,
+        # and the toggle never reaches build_calibration_spec -> show_wilson_ci stays True.
+        from mlframe.metrics.core import fast_calibration_report
+
+        captured = {}
+        self._spy_build_calibration_spec(monkeypatch, captured)
+
+        y_true, y_pred = self._binned()
+        fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False,
+            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "cal"),
+            reliability_show_ci=False,
+        )
+        assert captured.get("show_wilson_ci") is False
+
+    def test_fast_calibration_report_default_keeps_ci(self, tmp_path, monkeypatch):
+        from mlframe.metrics.core import fast_calibration_report
+
+        captured = {}
+        self._spy_build_calibration_spec(monkeypatch, captured)
+
+        y_true, y_pred = self._binned()
+        fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False,
+            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "cal"),
+        )
+        assert captured.get("show_wilson_ci") is True
+
 
 # ----------------------------------------------------------------------------
 # Regression
