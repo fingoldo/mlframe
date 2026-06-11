@@ -85,6 +85,21 @@ def _coerce_y_classes(y) -> np.ndarray:
     return y_bin.astype(np.int64)
 
 
+# bench-attempt-rejected (2026-06-11, backlog #2 / frontier-idea-3 "leave-candidate-out
+# noise floor"): the hypothesis was that ``median(pool) + 3.5*1.4826*MAD(pool)`` self-gates
+# a LONE strong signal (signal pooled into med/MAD lifts the floor above itself), fixable by
+# computing med/MAD leave-candidate-out or upper-trimmed. FALSIFIED by 300k-draw Monte Carlo:
+#   * median/MAD is already robust to a single outlier, so the self-gating bug fires in only
+#     ~10% of signal pools and there it is driven by WIDE NOISE spread, not signal self-pooling.
+#   * upper-trim (cap 10%) fixed 50.2% of bug cases; true per-candidate LOO only 39.6%.
+#   * BOTH catastrophically REGRESS the all-noise case: removing the top / held-out value lowers
+#     the median while barely moving MAD, so the floor drops below the remaining noise band ->
+#     all-noise leak rose classic 13575 -> trim 36741 / LOO 29619 (~2-3x more noise admitted).
+# Net: attacks the wrong term and admits noise. Keep the pooled median+MAD floor as-is. Do not
+# re-attempt LOO/trim on the noise floor; a real fix for the rare wide-noise miss would target
+# the SIGMA threshold or an absolute-MI anchor, not the pooling of the candidate.
+
+
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
     y,
