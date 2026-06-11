@@ -651,6 +651,9 @@ def train_mlframe_models_suite(
             verbose=verbose,
             discovery_cache_dir=_discovery_cache_dir,
             group_ids=group_ids,
+            split_config=split_config,
+            data_dir=data_dir,
+            save_charts=save_charts,
         )
 
     (

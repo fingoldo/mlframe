@@ -33,6 +33,60 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+def _render_composite_discovery_diagnostics(
+    *,
+    data_dir: Any,
+    raw_target_name: str,
+    y_full: np.ndarray,
+    t_by_spec: Dict[str, np.ndarray],
+    specs_export: List[dict],
+) -> List[str]:
+    """Render the winning-spec target-distribution + MI-gain diagnostics under ``data_dir``.
+
+    One ``plot_mi_gain_with_jitter`` per raw target (ranks the accepted specs), plus one
+    ``plot_target_distribution`` per accepted spec (y-vs-T shape sanity-check). Both are small
+    per-spec diagnostics; the helpers already subsample huge inputs internally. Returns the saved
+    paths so the caller can stamp them into ``metadata`` for the chart-summary log.
+    """
+    import os
+
+    import matplotlib.pyplot as plt
+
+    from ..composite.diagnostics import plot_mi_gain_with_jitter, plot_target_distribution
+
+    saved: List[str] = []
+    _safe_target = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(raw_target_name))
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+    except OSError as _mk_err:
+        logger.info("[CompositeTargetDiscovery] chart dir create failed (%s); diagnostics skipped.", _mk_err)
+        return saved
+
+    def _save(fig, suffix: str) -> None:
+        path = os.path.join(data_dir, f"composite_{_safe_target}_{suffix}.png")
+        try:
+            fig.savefig(path, dpi=110, bbox_inches="tight")
+            saved.append(path)
+        finally:
+            plt.close(fig)
+
+    if specs_export:
+        try:
+            _save(plot_mi_gain_with_jitter(specs_export), "mi_gain")
+        except Exception as _mi_err:
+            logger.info("[CompositeTargetDiscovery] mi-gain diagnostic render failed for '%s': %s.", raw_target_name, _mi_err)
+    for _spec_name, _t_full in t_by_spec.items():
+        _safe_spec = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(_spec_name))
+        try:
+            _save(
+                plot_target_distribution(y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})"),
+                f"tdist_{_safe_spec}",
+            )
+        except Exception as _td_err:
+            logger.info("[CompositeTargetDiscovery] target-distribution diagnostic render failed for spec '%s': %s.", _spec_name, _td_err)
+    return saved
+
+
 def _build_disc_df_for_target(filtered_train_df, target_name: str, y_train_aligned):
     """Build a per-target discovery frame that injects ``target_name`` WITHOUT mutating the caller's ``filtered_train_df``.
 
@@ -135,6 +189,8 @@ def run_composite_target_discovery(
     discovery_cache_dir: Any = None,
     group_ids: Any = None,
     split_config: Any = None,
+    data_dir: Any = None,
+    save_charts: bool = False,
 ) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
@@ -553,6 +609,14 @@ def run_composite_target_discovery(
                             "residual-of-residual structure). Disable one "
                             "flag to silence this warning."
                         )
+                    # A17: when a time_column is configured the data is
+                    # temporally ordered, so the stacked OOF-prediction step
+                    # must use time-respecting folds (TimeSeriesSplit) instead
+                    # of shuffled K-fold -- otherwise the pass-2 bases / residual
+                    # target are built from future-contaminated OOF predictions.
+                    _stacked_time_aware = bool(
+                        getattr(_disc_cfg, "time_column", None)
+                    )
                     if _use_stacked_residual:
                         _disc = _disc_instance.fit_stacked_on_residual(
                             df=_disc_df,
@@ -565,6 +629,12 @@ def run_composite_target_discovery(
                             residual_aggregation=str(getattr(
                                 _disc_cfg, "stacked_residual_aggregation", "mean",
                             )),
+                            max_pass1_specs_to_aggregate=int(getattr(
+                                _disc_cfg,
+                                "stacked_residual_max_pass1_specs_to_aggregate",
+                                3,
+                            )),
+                            time_aware=_stacked_time_aware,
                         )
                     elif _use_stacked:
                         _disc = _disc_instance.fit_stacked(
@@ -578,6 +648,7 @@ def run_composite_target_discovery(
                             max_pass1_specs_to_stack=int(getattr(
                                 _disc_cfg, "stacked_max_pass1_specs", 3,
                             )),
+                            time_aware=_stacked_time_aware,
                         )
                     else:
                         # M6: extract the chronological-order column (if the
@@ -659,6 +730,7 @@ def run_composite_target_discovery(
             # Apply frozen (train-fitted) params to ALL rows so the per-target loop has T for val/test.
             # NaN rows (domain violations on val/test) get imputed with median(T_train).
             from ..composite import get_transform as _get_transform_local
+            _t_by_spec_for_charts: dict[str, np.ndarray] = {}
             for _spec in _disc.specs_:
                 _transform = _get_transform_local(_spec.transform_name)
                 # Multi-base specs (extra_base_columns non-empty) need a
@@ -710,10 +782,37 @@ def run_composite_target_discovery(
                             np.median(_t_train_for_median)
                         )
                 target_by_type[_tt_disc][_spec.name] = _ct_t_full
+                _t_by_spec_for_charts[_spec.name] = _ct_t_full
                 logger.info(
                     "[CompositeTargetDiscovery] added composite target '%s' "
                     "to target_by_type[%s].", _spec.name, _tt_disc,
                 )
+
+            # Render the winning-spec diagnostics (target-distribution + MI-gain) into the chart dir; the
+            # discovery accept-path is the only point where the original y, the per-spec T column, and the
+            # ranked spec export all coexist, so the wiring lives here rather than the later report path.
+            if save_charts and data_dir and _t_by_spec_for_charts:
+                try:
+                    _chart_specs = (
+                        metadata.get("composite_target_specs", {})
+                        .get(str(_tt_disc), {})
+                        .get(_tname_disc, [])
+                    )
+                    _saved_charts = _render_composite_discovery_diagnostics(
+                        data_dir=data_dir,
+                        raw_target_name=_tname_disc,
+                        y_full=_y_arr,
+                        t_by_spec=_t_by_spec_for_charts,
+                        specs_export=list(_chart_specs or []),
+                    )
+                    if _saved_charts:
+                        metadata.setdefault("composite_target_diagnostic_charts", {}) \
+                            .setdefault(str(_tt_disc), {})[_tname_disc] = _saved_charts
+                except Exception as _chart_err:
+                    logger.info(
+                        "[CompositeTargetDiscovery] diagnostic chart render failed for target='%s': %s; training continues.",
+                        _tname_disc, _chart_err,
+                    )
 
     n_specs_total = sum(
         len(v) for tt_specs in metadata["composite_target_specs"].values()
