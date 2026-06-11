@@ -135,6 +135,7 @@ def drop_redundant_raw_operands(
     y_binned: np.ndarray,
     y_continuous: Optional[np.ndarray] = None,
     engineered_continuous: Optional[dict] = None,
+    replayable_eng_names: Optional[set] = None,
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
     seed: int = 0,
     verbose: int = 0,
@@ -160,6 +161,17 @@ def drop_redundant_raw_operands(
         ``data`` column leaves a fully-subsumed DENOMINATOR operand (``b`` in
         ``a**2/b``) a spurious residual CMI and wrongly keeps it. Falls back to the
         ``data`` codes for any survivor missing from the snapshot.
+    replayable_eng_names : set[str] | None -- names of the engineered survivors
+        that have a REPLAYABLE recipe and will therefore survive into the fitted
+        ``transform()`` output. A raw operand may only be judged redundant against
+        a child that will actually EXIST at predict time; a nested-engineered
+        child (parents themselves engineered, no 1-deep recipe) is dropped from
+        transform output, so crediting a raw as "subsumed" by it deletes BOTH the
+        raw AND the child -> an EMPTY selection (no features reach the downstream
+        model). When provided, engineered survivors NOT in this set are excluded
+        from the subsumer / anchor set. ``None`` (legacy) trusts every survivor --
+        only safe when the caller guarantees all engineered survivors are
+        replayable. The fit pipeline always passes the concrete replayable set.
     retain_frac : ACCEPTED FOR BACK-COMPAT but no longer drives the verdict. The
         2026-06-10 redesign replaced the single ``retain_frac * weakest-anchor``
         relative bar (which over-dropped genuine raws whose linear/additive private
@@ -194,6 +206,31 @@ def drop_redundant_raw_operands(
     raw_sel_idx = [i for i, nm in zip(sel, sel_names) if nm in raw_name_set]
     if not eng_idx or not raw_sel_idx:
         return sel, []
+
+    # REPLAYABLE-ANCHOR GUARD (2026-06-11). A raw operand can only be conditionally
+    # redundant given an engineered child that will SURVIVE into the fitted
+    # ``transform()`` output. A nested-engineered survivor (parents themselves
+    # engineered -> no 1-deep replayable recipe) is dropped from transform output;
+    # if it is allowed to anchor the redundancy verdict it deletes BOTH the raw
+    # operands it "subsumes" AND itself -> an EMPTY selection that hands the
+    # downstream model zero features (observed on the canonical
+    # ``y=a**2/b + log(c)*sin(d)`` fixture where the strongest survivor was the
+    # un-replayable ``add(prewarp(div(sqr(a),abs(b))),neg(mul(log(c),sin(d))))``,
+    # so a/b/c/d all dropped and the support went empty). Restrict the engineered
+    # subsumer/anchor set to replayable survivors. ``None`` keeps the legacy
+    # behaviour (trust every survivor) for callers that guarantee replayability.
+    if replayable_eng_names is not None:
+        _replayable = set(replayable_eng_names)
+        eng_idx = [i for i in eng_idx if cols[i] in _replayable]
+        if not eng_idx:
+            if verbose:
+                logger.info(
+                    "raw-redundancy: no REPLAYABLE engineered survivor anchors the "
+                    "redundancy verdict (all engineered survivors are nested / "
+                    "un-replayable and would be dropped from transform output); "
+                    "keeping all raw operands."
+                )
+            return sel, []
 
     # raw_name -> list of engineered survivor column indices that consume it.
     eng_consumers: dict[str, list[int]] = {}

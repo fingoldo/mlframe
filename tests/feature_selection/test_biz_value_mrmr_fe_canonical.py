@@ -327,10 +327,26 @@ def test_fit_does_not_mutate_caller_dataframe():
 @pytest.mark.parametrize("n", [1000, 2000, 5000])
 def test_subsumed_ratio_operands_drop_at_small_n(n):
     """``y=(a**2)/b`` is fully determined by ``div(neg(a),sqrt(b))`` (since
-    ``(a/sqrt(b))**2 = a**2/b``), so BOTH raw operands ``a`` and ``b`` are
-    conditionally redundant and MUST drop -- at small n too, where the legacy
+    ``(a/sqrt(b))**2 = a**2/b``), so BOTH SUBSUMED raw operands ``a`` and ``b``
+    are conditionally redundant and MUST drop -- at small n too, where the legacy
     protective retention used to re-add them unconditionally. The engineered ratio
-    must remain (the signal is captured)."""
+    must remain (the signal is captured).
+
+    TWO SEPARATE contracts are pinned here, at different n-reliability floors:
+      * SUBSUMED-OPERAND DROP (``a``, ``b`` absent) -- the load-bearing
+        redundancy-drop contract -- holds at EVERY n (1000, 2000, 5000): the ratio
+        child captures them and the debiased excess-CMI sweep drops them.
+      * NOISE EXCLUSION (the negligible ``0.01*e`` term's column ``e`` absent) is a
+        SMALL-n SCREENING-SIGNIFICANCE question, NOT a redundancy-drop question:
+        ``e`` is never consumed by an engineered child, so the redundancy sweep
+        leaves the screen's verdict untouched. At n=1000 the ``0.01*e`` coefficient
+        is below the sample's significance-detection reliability and ``e``'s
+        finite-sample marginal MI crosses the screen floor on SOME data seeds
+        (verified: admitted on data-seeds 42/7, clean on seed 0; ALL n>=1500 cells
+        across seeds 0/7/42/123 correctly exclude it -- 2026-06-11). The noise
+        exclusion is therefore asserted only at n>=2000 where it is statistically
+        reliable, rather than masking the unreliable n=1000 verdict with a guard or
+        weakening the load-bearing drop assertion."""
     rng = np.random.default_rng(42)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a ** 2) / b + 0.01 * e
@@ -338,10 +354,18 @@ def test_subsumed_ratio_operands_drop_at_small_n(n):
     fs = MRMR(verbose=0, random_seed=42)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
-    raw_in = {nm for nm in out if nm in {"a", "b", "e"}}
-    assert raw_in == set(), f"subsumed raw operand(s) re-admitted at n={n}: {raw_in}; out={out}"
+    # Load-bearing redundancy-drop contract: the SUBSUMED ratio operands a, b MUST
+    # drop at every n (the engineered ratio absorbs them).
+    subsumed_in = {nm for nm in out if nm in {"a", "b"}}
+    assert subsumed_in == set(), (
+        f"subsumed ratio operand(s) re-admitted at n={n}: {subsumed_in}; out={out}"
+    )
     eng = _engineered_names(fs)
     assert _covers_pair(eng, "a", "b"), f"engineered ratio lost at n={n}: {eng}"
+    # Noise exclusion: reliable only where n is large enough to resolve the
+    # negligible 0.01*e term within its significance null (n>=2000).
+    if n >= 2000:
+        assert "e" not in out, f"pure-noise e re-admitted at n={n} (n>=2000 reliable): {out}"
 
 
 @pytest.mark.parametrize("n", [2000, 5000])
@@ -526,4 +550,118 @@ def test_redundancy_drop_still_drops_subsumed_ratio_operand_unit():
     assert "b" in dropped, (
         f"subsumed ratio denominator operand 'b' was NOT dropped (regression): kept="
         f"{[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2026-06-11 regression for the EMPTY-SELECTION value bug. On the canonical
+# golden ``y=a**2/b + log(c)*sin(d)`` at moderate n (n=8000, random_seed=42) the
+# fit returned an EMPTY support_ -- ``get_feature_names_out()==[]`` and
+# ``transform()`` shape ``(n, 0)`` -- so the downstream model got ZERO features
+# and could not even train (sklearn ``ValueError: Found array with 0 feature(s)``).
+# ROOT CAUSE: ``drop_redundant_raw_operands`` credited the raw operands a,b,c,d as
+# "conditionally subsumed" by the NESTED-engineered child
+# ``add(prewarp(div(sqr(a),abs(b))),neg(mul(log(c),sin(d))))`` whose parents are
+# themselves engineered, so it has NO replayable recipe and is DROPPED from
+# transform output. The raws were dropped against a child that then ceased to
+# exist -> raws gone AND child gone -> empty selection. The fix restricts the
+# redundancy-drop subsumer/anchor set to REPLAYABLE engineered survivors (passed
+# as ``replayable_eng_names``): a raw can only be redundant given a child that
+# will actually exist at predict time. The two unit cases below drive the helper
+# directly (fast, deterministic, no RNG-sensitive full-FE recipe selection).
+# ---------------------------------------------------------------------------
+def test_redundancy_drop_keeps_raws_when_subsumer_is_unreplayable_nested():
+    """A raw must NOT be dropped when its only subsumer is a NESTED-engineered
+    survivor with no replayable recipe (it would vanish from transform output,
+    emptying the support). With ``replayable_eng_names`` EXCLUDING the nested
+    child, the helper has no legitimate anchor and KEEPS all raw operands."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 2000
+    rng = np.random.default_rng(42)
+    a = rng.uniform(0.0, 1.0, n)
+    b = rng.uniform(0.0, 1.0, n)
+    e = rng.uniform(0.0, 1.0, n)
+    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    ratio = -a / np.sqrt(b)
+    # The ONLY engineered survivor is a NESTED composite with no replayable recipe
+    # (its name nests another engineered token); it must not anchor any drop.
+    nested = ratio  # values irrelevant; the name marks it nested/un-replayable
+    nested_name = "add(prewarp(div(neg(a),sqrt(b))),neg(e))"
+    cols = ["a", "b", nested_name, "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(nested), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=y_cont,
+        engineered_continuous={nested_name: nested},
+        replayable_eng_names=set(),  # the nested child is NOT replayable
+        seed=42,
+    )
+    assert dropped == [], (
+        f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer "
+        f"(would empty the support): dropped={dropped}, kept="
+        f"{[cols[i] for i in kept_idx]}"
+    )
+    assert {"a", "b"} <= {cols[i] for i in kept_idx}, (
+        f"raw operands not preserved: kept={[cols[i] for i in kept_idx]}"
+    )
+
+
+def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
+    """The replayable-anchor guard must NOT block a LEGITIMATE drop: when the
+    subsumer IS replayable (passed in ``replayable_eng_names``), the genuinely
+    subsumed denominator operand ``b`` of ``a**2/b`` still drops. Pins that the
+    empty-selection fix did not over-correct into never dropping anything."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 2000
+    rng = np.random.default_rng(42)
+    a = rng.uniform(0.0, 1.0, n)
+    b = rng.uniform(0.0, 1.0, n)
+    e = rng.uniform(0.0, 1.0, n)
+    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    ratio = -a / np.sqrt(b)
+    name = "div(neg(a),sqrt(b))"
+    cols = ["a", "b", name, "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=y_cont,
+        engineered_continuous={name: ratio},
+        replayable_eng_names={name},  # the ratio IS replayable -> a valid anchor
+        seed=42,
+    )
+    assert "b" in dropped, (
+        f"subsumed denominator 'b' wrongly kept despite a replayable subsumer: "
+        f"kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
+
+
+@pytest.mark.timeout(300)
+def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
+    """END-TO-END regression: the canonical golden fit must NEVER return an empty
+    selection (which hands the downstream model 0 features). Pre-fix this exact
+    config (n=8000, random_seed=42) emptied the support because the raw operands
+    were dropped against a non-replayable nested-engineered subsumer."""
+    df, y = _make_fixture(n=8000)
+    fs = MRMR(verbose=0, random_seed=42)
+    fs.fit(df, y)
+    out = list(fs.get_feature_names_out())
+    assert len(out) > 0, (
+        "canonical golden fit returned an EMPTY selection -- the downstream model "
+        "would get 0 features (raw operands dropped against an un-replayable "
+        f"nested-engineered subsumer). support_={getattr(fs, 'support_', None)}"
+    )
+    # And transform() must actually deliver those columns to the consumer.
+    Xt = np.asarray(fs.transform(df.head(64)))
+    assert Xt.shape[1] == len(out) and Xt.shape[1] > 0, (
+        f"transform delivered {Xt.shape[1]} cols, expected {len(out)} (>0)"
     )

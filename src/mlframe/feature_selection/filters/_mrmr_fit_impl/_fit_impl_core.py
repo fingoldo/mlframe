@@ -6666,6 +6666,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_cont_for_redund = _yv
                 except Exception:
                     _y_cont_for_redund = None
+                # Only engineered survivors with a replayable recipe (1-deep, in
+                # ``engineered_recipes``) survive into transform output; a nested-
+                # engineered child is dropped there. A raw must not be judged
+                # redundant against a child that will not exist at predict time
+                # (that empties the support -- see the guard in
+                # drop_redundant_raw_operands), so anchor the verdict only on the
+                # replayable survivors.
+                _replayable_eng_names = set(engineered_recipes.keys())
                 _kept_redund, _dropped_redund_names = drop_redundant_raw_operands(
                     data=data,
                     cols=cols,
@@ -6674,6 +6682,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     y_binned=classes_y,
                     y_continuous=_y_cont_for_redund,
                     engineered_continuous=_eng_continuous_snapshot,
+                    replayable_eng_names=_replayable_eng_names,
                     retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     verbose=verbose,
