@@ -143,10 +143,9 @@ class TestDefaultRegressionPanels:
         assert "RESID_VS_PRED" in toks
         assert "ERR_BY_DECILE" in toks
 
-    def test_default_regression_composer_renders_all_four(self):
-        """The regression composer's own default matches the config default and
-        renders one panel per token, including the new RESID_VS_PRED + decile
-        panels (the report path uses this same default)."""
+    def test_default_regression_composer_renders_one_panel_per_token(self):
+        """The regression composer renders one panel per token in the config default, including the
+        RESID_VS_PRED + decile panels and the integrator-enabled WORM + RESID_ACF (the report path uses this default)."""
         rng = np.random.default_rng(0)
         n = 2000
         y = rng.standard_normal(n) * 5.0

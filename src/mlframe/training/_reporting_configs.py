@@ -23,6 +23,9 @@ from ._configs_base import BaseConfig
 # ``Optional[FeatureImportanceConfig]``; the latter lives in
 # ``_training_runtime_configs.py``.
 from ._training_runtime_configs import FeatureImportanceConfig
+# ``training.diagnostics`` is leaf (does not import configs), so importing the
+# opt-in learning-curve config here introduces no cycle.
+from .diagnostics import LearningCurveConfig
 
 
 # Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
@@ -180,15 +183,16 @@ class ReportingConfig(BaseConfig):
     # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/KS/THRESHOLD/GAIN by default.
     binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
     multiclass_panels: str = "CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
-    multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
+    # THRESHOLD_SWEEP adds the per-label argmax-F1 cutoff heatmap (per-label, not a global threshold) -- the operating-point picker for multilabel.
+    multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST THRESHOLD_SWEEP"
     ltr_panels: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL"
-    # Kept in lockstep with the composer's ``DEFAULT_QUANTILE_PANELS`` so QUANTILE_RELIABILITY / PINBALL_DECOMP / QUANTILE_CROSSING render on a default suite run (the suite passes this string to the dispatcher, not the composer default).
+    # Kept in lockstep with the composer's ``DEFAULT_QUANTILE_PANELS`` so QUANTILE_RELIABILITY / PINBALL_DECOMP / QUANTILE_CROSSING render on a default suite run (the suite passes this string to the dispatcher, not the composer default). FAN_CHART overlays the nested forecast-uncertainty bands over the horizon.
     quantile_panels: str = (
         "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST "
-        "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING"
+        "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART"
     )
-    # Regression report panels (SCATTER + residual hist + residual-vs-pred funnel + per-decile error). Rendered by ``compose_regression_figure``; all-by-default like the other panel templates.
-    regression_panels: str = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
+    # Regression report panels rendered by ``compose_regression_figure``; all-by-default. WORM (de-trended residual QQ) + RESID_ACF (residual autocorrelation, Bartlett band) surface tail-misfit and serial dependence the scatter/hist hide.
+    regression_panels: str = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF"
 
     # Calibration binning strategy for the reliability diagram + ECE bins. ``"auto"`` (default) picks quantile (equal-population) bins under a rare-event base rate where uniform bins collapse to <=2 populated bins, uniform otherwise. ``"uniform"`` / ``"quantile"`` force one strategy.
     calibration_binning: Literal["auto", "uniform", "quantile"] = "auto"
@@ -203,6 +207,41 @@ class ReportingConfig(BaseConfig):
 
     # Row cap for the regression pred-vs-actual scatter (extremes-preserving subsample keeps the worst-error points). 5000 is dense enough to read the residual structure while bounding render cost; raise for finer detail, lower for faster figures.
     regression_scatter_sample_size: int = 5000
+
+    # Standalone post-fit diagnostics wired into the per-(model, split) report path. All are cheap (reuse the
+    # already-computed preds / errors / importances on a bounded subsample) so they default ON; each can be disabled
+    # individually for hot loops. The single genuinely-expensive path (non-tree SHAP, learning curve) is opt-in below.
+    #
+    # PDP/ICE for the top feature-importance features when a fitted model + feature frame are present. Rows are
+    # subsampled to ``pdp_sample`` before any predict, so cost is ``pdp_grid`` predicts independent of n.
+    pdp_ice: bool = True
+    pdp_top_features: int = 4
+    pdp_sample: int = 2000
+    pdp_grid: int = 20
+    # Multi-model leaderboard, assembled per-target from the per-model preds/metrics the suite already collected; only
+    # rendered when >=2 models were trained on the same task (single-model runs skip cheaply).
+    model_comparison: bool = True
+    # Multi-dim weak-slice search on the precomputed per-row error (no model calls); finds the worst feature-value regions.
+    slice_finder: bool = True
+    # Decision-curve net-benefit analysis for binary targets (needs only y_true + positive-class score).
+    decision_curve: bool = True
+    # Calibration-drift-over-time for binary targets that carry a split timestamp; reuses the warmed njit ECE kernel.
+    calibration_drift: bool = True
+    # Target ACF/PACF when the split carries timestamps (serial-dependence diagnostic on the target series).
+    target_acf: bool = True
+    # SHAP beeswarm + top-K dependence. Default-ON for TREE models (exact fast TreeExplainer, cost scales with the
+    # explained-row cap not n); for NON-tree models the slow KernelExplainer path is OFF unless ``shap_allow_kernel``.
+    shap_panels: bool = True
+    shap_max_rows: int = 20000
+    shap_top_k: int = 6
+    shap_allow_kernel: bool = False
+    # Combined single-page HTML index per (model, split) stitching the rendered chart artifacts (PNG refs + plotly
+    # fragments); assembly-only, default-on when charts are saved.
+    combined_html: bool = True
+    # Opt-in learning curve (holdout score vs train size). ``None`` / ``enabled=False`` skips it: it is K full refits
+    # by construction, the documented cost-gated exception to "cheap diagnostics default on". Set
+    # ``LearningCurveConfig(enabled=True)`` (optionally ``warm_start=True`` / ``time_budget_s=...``) to turn it on.
+    learning_curve: Optional[LearningCurveConfig] = None
 
     @field_validator("title_metrics_template")
     @classmethod

@@ -18,6 +18,7 @@ from mlframe.reporting.charts.multiclass import ALLOWED_MULTICLASS_PANEL_TOKENS
 from mlframe.reporting.charts.multilabel import ALLOWED_MULTILABEL_PANEL_TOKENS
 from mlframe.reporting.charts.quantile import ALLOWED_QUANTILE_PANEL_TOKENS
 from mlframe.reporting.charts.regression import ALLOWED_REGRESSION_PANEL_TOKENS
+from mlframe.reporting.charts.temporal import ALLOWED_TEMPORAL_PANEL_TOKENS
 
 # One-line descriptions per token. Keyed by task type so a token name reused across task types (ROC, PR_F1,
 # CALIB_GRID) can carry a task-specific blurb.
@@ -49,6 +50,7 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
         "CARDINALITY": "Distribution of #labels per row (pred vs true grouped bar).",
         "JACCARD_DIST": "Per-row Jaccard-score histogram.",
         "HAMMING_DIST": "Per-row Hamming-distance histogram.",
+        "THRESHOLD_SWEEP": "Per-label F1 across a shared threshold grid as a label x threshold heatmap; the per-label argmax-F1 cutoff (operating-point picker).",
     },
     "learning_to_rank": {
         "NDCG_K": "NDCG@k curve for k = 1..max_per_query.",
@@ -69,14 +71,34 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
         "QUANTILE_RELIABILITY": "Per-tau isotonic-recalibrated observed coverage vs nominal tau (CORP-style).",
         "PINBALL_DECOMP": "CORP additive pinball decomposition (miscal - discr + uncert) per tau.",
         "QUANTILE_CROSSING": "Per adjacent-tau-pair fraction of rows with q_lo > q_hi (monotonicity violations).",
+        "FAN_CHART": "Median forecast over the horizon with nested shaded quantile bands; widening bands = growing uncertainty.",
     },
     "regression": {
         "SCATTER": "Predictions vs true with y=x, robust trend line, and worst-K residuals highlighted red.",
         "RESID_HIST": "Residual histogram + fitted-Normal overlay (noise hypothesis + suggested loss).",
         "RESID_VS_PRED": "Residuals vs predicted with a running-median + IQR band (heteroscedasticity / bias).",
         "ERR_BY_DECILE": "Per-target-decile mean |residual| + mean signed residual (GBM compression pathology).",
+        "WORM": "De-trended normal QQ of residuals (worm plot) with a 95% CI band; tail points outside the band = tail misfit.",
+        "RESID_ACF": "Residual autocorrelation by lag with the Bartlett white-noise band; spikes = leftover serial structure.",
+    },
+    "temporal": {
+        "TARGET_ACF": "Target autocorrelation by lag with the Bartlett +-band (serial dependence in the target series).",
+        "TARGET_PACF": "Target partial autocorrelation by lag with the same band (direct lag effect; AR-order read).",
     },
 }
+
+# Standalone post-fit diagnostics (not panel-template tokens): each has its own composer / savefig path and is
+# wired into the per-(model, split) report by the suite, gated by a ``ReportingConfig`` knob.
+_STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
+    ("pdp_ice", "Partial-dependence + ICE for the top feature-importance features (default-on; subsampled, model-call bounded)."),
+    ("model_comparison", "Multi-model leaderboard (curve overlay + metric bar + prediction-correlation) when >=2 models share a task."),
+    ("slice_finder", "Multi-dim weak-slice search over the precomputed per-row error; worst feature-value regions ranked by degradation x support."),
+    ("decision_curve", "Binary decision-curve net-benefit vs treat-all / treat-none (the clinical-utility operating read)."),
+    ("calibration_drift", "Binary calibration drift over time (ECE per equal-population time window) when a split timestamp is present."),
+    ("shap_panels", "SHAP beeswarm + top-K dependence (default-on for tree models via fast TreeExplainer; opt-in KernelExplainer for non-tree)."),
+    ("learning_curve", "Holdout score vs train size (OPT-IN: K full refits; set LearningCurveConfig(enabled=True))."),
+    ("combined_html", "Single navigable HTML index per (model, split) stitching the rendered chart artifacts (assembly-only)."),
+]
 
 # Task type -> its ALLOWED_*_PANEL_TOKENS frozenset (the source of truth for which tokens exist).
 _TASK_TOKENS: Dict[str, frozenset] = {
@@ -86,6 +108,7 @@ _TASK_TOKENS: Dict[str, frozenset] = {
     "learning_to_rank": ALLOWED_LTR_PANEL_TOKENS,
     "quantile_regression": ALLOWED_QUANTILE_PANEL_TOKENS,
     "regression": ALLOWED_REGRESSION_PANEL_TOKENS,
+    "temporal": ALLOWED_TEMPORAL_PANEL_TOKENS,
 }
 
 
@@ -116,11 +139,24 @@ def describe_available_panels(*, file=None) -> Dict[str, List[Tuple[str, str]]]:
         lines.append(f"[{task}]")
         for tok, desc in catalogue[task]:
             lines.append(f"  {tok:<22} {desc}")
+    lines.append("")
+    lines.append("[standalone diagnostics] (ReportingConfig knobs, not panel tokens)")
+    for name, desc in _STANDALONE_DIAGNOSTICS:
+        lines.append(f"  {name:<22} {desc}")
     print("\n".join(lines), file=file)
     return catalogue
+
+
+def standalone_diagnostics() -> List[Tuple[str, str]]:
+    """Return ``[(name, description), ...]`` for the standalone post-fit diagnostics (PDP, SHAP, slice-finder, ...).
+
+    These are gated by ``ReportingConfig`` knobs rather than the ``*_panels`` token templates.
+    """
+    return list(_STANDALONE_DIAGNOSTICS)
 
 
 __all__ = [
     "available_panels",
     "describe_available_panels",
+    "standalone_diagnostics",
 ]

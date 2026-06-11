@@ -146,11 +146,25 @@ class TestNewPanelsDefaultOn:
         for tok in ("QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING"):
             assert tok in toks, f"{tok} must be default-ON in ReportingConfig.quantile_panels"
 
-    def test_config_quantile_default_matches_composer_default(self):
-        """The suite default and the composer default must stay in lockstep (same token set)."""
+    def test_config_quantile_default_is_composer_default_plus_fan_chart(self):
+        """The suite default is the composer's conservative DEFAULT_QUANTILE_PANELS plus FAN_CHART, which the
+        integrator enables default-on at the suite level (it is valid but kept out of the library composer default)."""
         from mlframe.reporting.charts.quantile import DEFAULT_QUANTILE_PANELS
 
-        assert set(ReportingConfig().quantile_panels.split()) == set(DEFAULT_QUANTILE_PANELS.split())
+        cfg_toks = set(ReportingConfig().quantile_panels.split())
+        composer_toks = set(DEFAULT_QUANTILE_PANELS.split())
+        assert composer_toks <= cfg_toks, "every composer-default token must stay default-on in the suite config"
+        assert cfg_toks - composer_toks == {"FAN_CHART"}, "the only suite-added quantile token is FAN_CHART"
+
+    def test_fan_chart_default_on_in_quantile(self):
+        assert "FAN_CHART" in ReportingConfig().quantile_panels.split()
+
+    def test_worm_resid_acf_default_on_in_regression(self):
+        toks = ReportingConfig().regression_panels.split()
+        assert "WORM" in toks and "RESID_ACF" in toks
+
+    def test_threshold_sweep_default_on_in_multilabel(self):
+        assert "THRESHOLD_SWEEP" in ReportingConfig().multilabel_panels.split()
 
     def test_pit_default_on_in_binary_and_valid(self):
         """INV-42: PIT must be in the binary default template (the token + _pit_panel already exist)."""

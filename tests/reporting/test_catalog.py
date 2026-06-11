@@ -17,6 +17,7 @@ from mlframe.reporting.charts.multiclass import ALLOWED_MULTICLASS_PANEL_TOKENS
 from mlframe.reporting.charts.multilabel import ALLOWED_MULTILABEL_PANEL_TOKENS
 from mlframe.reporting.charts.quantile import ALLOWED_QUANTILE_PANEL_TOKENS
 from mlframe.reporting.charts.regression import ALLOWED_REGRESSION_PANEL_TOKENS
+from mlframe.reporting.charts.temporal import ALLOWED_TEMPORAL_PANEL_TOKENS
 
 _EXPECTED = {
     "binary_classification": ALLOWED_BINARY_PANEL_TOKENS,
@@ -25,6 +26,7 @@ _EXPECTED = {
     "learning_to_rank": ALLOWED_LTR_PANEL_TOKENS,
     "quantile_regression": ALLOWED_QUANTILE_PANEL_TOKENS,
     "regression": ALLOWED_REGRESSION_PANEL_TOKENS,
+    "temporal": ALLOWED_TEMPORAL_PANEL_TOKENS,
 }
 
 
@@ -69,3 +71,24 @@ def test_describe_output_is_ascii():
     buf = io.StringIO()
     describe_available_panels(file=buf)
     buf.getvalue().encode("ascii")
+
+
+def test_standalone_diagnostics_listed_and_described():
+    from mlframe.reporting.catalog import standalone_diagnostics
+
+    rows = standalone_diagnostics()
+    names = {name for name, _desc in rows}
+    for expected in ("pdp_ice", "model_comparison", "slice_finder", "decision_curve",
+                     "calibration_drift", "shap_panels", "learning_curve", "combined_html"):
+        assert expected in names, f"{expected} missing from standalone diagnostics catalogue"
+    for name, desc in rows:
+        assert desc and desc != "(no description)", f"{name} has no description"
+        desc.encode("ascii")
+
+
+def test_describe_includes_standalone_section():
+    buf = io.StringIO()
+    describe_available_panels(file=buf)
+    text = buf.getvalue()
+    assert "standalone diagnostics" in text
+    assert "pdp_ice" in text and "shap_panels" in text
