@@ -27,6 +27,7 @@ Design choices mirroring the rest of the package:
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 
@@ -39,6 +40,12 @@ def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
     that guarantees marginal coverage >= 1-alpha). Returns ``+inf`` when the
     requested rank exceeds ``n`` (too few calibration points for the level) so
     the interval is uninformative-but-valid rather than silently under-covering.
+
+    Tiny-n contract: ``n_cal`` in ``{0, 1, 2}`` (and more generally any ``n``
+    below ``ceil((n+1)(1-alpha)) > n``, e.g. n=1/2 at alpha=0.1) cannot certify
+    the level at finite sample, so the radius is ``+inf`` -- a valid but
+    uninformative band -- rather than a too-tight one that silently mis-covers.
+    The caller never crashes on these sizes; the band is just (-inf, +inf).
     """
     r = np.abs(np.asarray(residuals, dtype=np.float64).reshape(-1))
     r = r[np.isfinite(r)]
@@ -210,6 +217,128 @@ def predict_interval_cqr(self, X, alpha=0.1):
     upper = lo_hi[:, 1] + radius
     # A negative radius can cross the bounds; keep lower <= upper.
     lower, upper = np.minimum(lower, upper), np.maximum(lower, upper)
+    params = getattr(self, "fitted_params_", {}) or {}
+    lo_b = params.get("y_clip_low", float("-inf"))
+    hi_b = params.get("y_clip_high", float("inf"))
+    return np.clip(lower, lo_b, hi_b), np.clip(upper, lo_b, hi_b)
+
+
+def _normalize_groups(groups, n: int) -> np.ndarray:
+    """Coerce a group label vector to a 1-D object array of length ``n``.
+
+    Accepts ndarray / list / pandas Series / polars Series; never copies a
+    frame. Raises on a length mismatch so a mis-aligned ``groups`` is caught at
+    calibration rather than silently mis-binning the residuals.
+    """
+    if hasattr(groups, "to_numpy"):
+        g = np.asarray(groups.to_numpy())
+    else:
+        g = np.asarray(groups)
+    g = g.reshape(-1)
+    if g.shape[0] != n:
+        raise ValueError(
+            f"groups has {g.shape[0]} entries but {n} rows were expected"
+        )
+    return g
+
+
+def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
+    """Mondrian (group-conditional) split-conformal: a SEPARATE finite-sample
+    radius per group, for conditional coverage ``>= 1-alpha`` WITHIN each group.
+
+    The plain marginal band (:func:`calibrate_conformal`) shares one radius
+    across all rows, so it under-covers groups with larger residual spread and
+    over-covers the tighter ones. Mondrian conformal partitions the calibration
+    residuals by ``groups_cal`` and takes the conservative
+    ``ceil((n_g + 1)(1-alpha))`` quantile *within* each group -- the conditional
+    analogue of the marginal guarantee, exact and distribution-free per group.
+
+    A global radius (the pooled marginal quantile) is always computed and stored
+    as the fallback for groups unseen at predict time, or groups too small to
+    certify the level at finite sample (their per-group rank exceeds ``n_g``, so
+    the per-group quantile would be ``+inf``); such groups fall back to the
+    global radius with a one-time warning rather than an uninformative band.
+
+    Stores ``self._mondrian_q_[round(alpha, 6)]`` as ``{group_label: radius}``
+    plus a ``None`` key holding the global fallback radius, and returns ``self``.
+    ``alpha`` may be a scalar or an iterable of levels.
+    """
+    if not hasattr(self, "estimator_"):
+        from sklearn.exceptions import NotFittedError
+        raise NotFittedError(
+            "CompositeTargetEstimator.calibrate_conformal_mondrian called before fit."
+        )
+    y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
+    y_pred = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
+    if y_pred.shape[0] != y_true.shape[0]:
+        raise ValueError(
+            "calibrate_conformal_mondrian: predict produced "
+            f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}"
+        )
+    residuals = y_true - y_pred
+    g = _normalize_groups(groups_cal, residuals.shape[0])
+    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    if not hasattr(self, "_mondrian_q_") or self._mondrian_q_ is None:
+        self._mondrian_q_ = {}
+    uniq = [u for u in np.unique(g)]
+    for a in alphas:
+        af = float(a)
+        global_r = conformal_quantile(residuals, af)
+        per_group: dict = {None: global_r}
+        for u in uniq:
+            r_g = residuals[g == u]
+            rad = conformal_quantile(r_g, af)
+            # A too-small group cannot certify the level on its own; fall back
+            # to the (finite, pooled) global radius instead of an inf band.
+            if not np.isfinite(rad) and np.isfinite(global_r):
+                rad = global_r
+            per_group[u] = float(rad)
+        self._mondrian_q_[round(af, 6)] = per_group
+    self._conformal_n_cal_ = int(np.isfinite(residuals).sum())
+    return self
+
+
+def predict_interval_mondrian(self, X, groups, alpha=0.1):
+    """Return group-conditional ``(lower, upper)`` y-scale intervals, each of
+    conditional coverage ``>= 1-alpha`` within its group.
+
+    Requires a prior :func:`calibrate_conformal_mondrian` at this ``alpha``.
+    Each row's radius is the calibrated per-group radius; rows whose group was
+    unseen at calibration (or was too small to certify the level) fall back to
+    the stored global radius, with a one-time ``warnings.warn``. A single test
+    row returns a 1-element ``(lower, upper)`` pair. The band is clipped to the
+    same train envelope as the point estimate.
+    """
+    key = round(float(alpha), 6)
+    table = getattr(self, "_mondrian_q_", {}) or {}
+    if key not in table:
+        raise RuntimeError(
+            f"predict_interval_mondrian: no Mondrian radius calibrated for "
+            f"alpha={alpha}. Call calibrate_conformal_mondrian(X_cal, y_cal, "
+            f"groups_cal, alpha={alpha}) on a held-out set first "
+            f"(calibrated levels: {sorted(table.keys())})."
+        )
+    per_group = table[key]
+    global_r = per_group.get(None, float("inf"))
+    point = np.asarray(self.predict(X), dtype=np.float64).reshape(-1)
+    g = _normalize_groups(groups, point.shape[0])
+    radii = np.empty(point.shape[0], dtype=np.float64)
+    missing = set()
+    for i in range(point.shape[0]):
+        lab = g[i]
+        if lab in per_group:
+            radii[i] = per_group[lab]
+        else:
+            radii[i] = global_r
+            missing.add(lab)
+    if missing:
+        warnings.warn(
+            "predict_interval_mondrian: groups not seen at calibration fell "
+            f"back to the global radius: {sorted(map(str, missing))}",
+            stacklevel=2,
+        )
+    lower = point - radii
+    upper = point + radii
     params = getattr(self, "fitted_params_", {}) or {}
     lo_b = params.get("y_clip_low", float("-inf"))
     hi_b = params.get("y_clip_high", float("inf"))

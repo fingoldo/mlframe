@@ -983,6 +983,8 @@ from ..conformal import (  # noqa: E402
     predict_interval as _predict_interval,
     calibrate_conformal_cqr as _calibrate_conformal_cqr,
     predict_interval_cqr as _predict_interval_cqr,
+    calibrate_conformal_mondrian as _calibrate_conformal_mondrian,
+    predict_interval_mondrian as _predict_interval_mondrian,
 )
 CompositeTargetEstimator.calibrate_conformal = _calibrate_conformal
 CompositeTargetEstimator.predict_interval = _predict_interval
@@ -990,6 +992,11 @@ CompositeTargetEstimator.predict_interval = _predict_interval
 # wrapper's quantile predictions, for heteroscedastic targets.
 CompositeTargetEstimator.calibrate_conformal_cqr = _calibrate_conformal_cqr
 CompositeTargetEstimator.predict_interval_cqr = _predict_interval_cqr
+# Mondrian (group-conditional) conformal: a separate per-group radius for
+# conditional coverage >= 1-alpha within each group; global-radius fallback for
+# unseen / too-small groups.
+CompositeTargetEstimator.calibrate_conformal_mondrian = _calibrate_conformal_mondrian
+CompositeTargetEstimator.predict_interval_mondrian = _predict_interval_mondrian
 
 # The public methods (``predict`` / ``predict_quantile`` / ``predict_pre_clip``
 # / ``update`` / ``get_buffer_state`` / ``get_booster``) and the sklearn-convention
