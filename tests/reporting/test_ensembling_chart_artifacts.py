@@ -97,23 +97,25 @@ def test_each_ensemble_method_writes_its_own_perfplot(ensembling_dataset, tmp_pa
             verbose=0,
         )
 
-    # Walk tmp_path and collect every emitted PNG.
+    # Walk tmp_path and collect every emitted perfplot PNG. The default plot_outputs is multi-backend
+    # ("plotly[html] + matplotlib[png]"), so the matplotlib image is named ``<base>_perfplot.matplotlib.png``
+    # (single-backend configs name it ``<base>_perfplot.png``); match both, exclude the ``.plotly.html`` twin.
     pngs: list[str] = []
     for root, _dirs, files in os.walk(tmp_path):
         for f in files:
-            if f.endswith("_perfplot.png"):
+            if "_perfplot" in f and f.endswith(".png"):
                 pngs.append(f)
 
     # 1) At least one base-model perfplot exists.
     base_pngs = [p for p in pngs if "Ens" not in p]
     assert base_pngs, (
-        f"no base-model *_perfplot.png written; full list: {sorted(pngs)}"
+        f"no base-model perfplot png written; full list: {sorted(pngs)}"
     )
 
-    # 2) Multiple distinct ``Ens{METHOD}_*_perfplot.png`` artifacts.
+    # 2) Multiple distinct ``Ens{METHOD}_*_perfplot[.<backend>].png`` artifacts.
     ens_methods_seen: set[str] = set()
     for p in pngs:
-        if p.startswith("Ens") and "_perfplot.png" in p:
+        if p.startswith("Ens") and "_perfplot" in p:
             # Filename shape: ``Ens{METHOD}-N{n}_{split}_perfplot.png``;
             # extract the method token between "Ens" and "-N".
             try:
@@ -165,7 +167,8 @@ def test_each_ensemble_method_writes_distinct_filename(ensembling_dataset, tmp_p
     ens_pngs = []
     for root, _dirs, files in os.walk(tmp_path):
         for f in files:
-            if f.startswith("Ens") and f.endswith("_perfplot.png"):
+            # Multi-backend output names the matplotlib image ``<base>_perfplot.matplotlib.png``; match either form.
+            if f.startswith("Ens") and "_perfplot" in f and f.endswith(".png"):
                 ens_pngs.append(f)
 
     assert len(ens_pngs) == len(set(ens_pngs)), (
