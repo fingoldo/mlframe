@@ -31,6 +31,13 @@ Plots
   rolling windows; drift signals base->y concept drift.
 - :func:`plot_predictions_vs_actual`: side-by-side ``y_pred`` vs
   ``y_true`` scatter per composite with the y=x diagonal.
+- :func:`plot_reliability_diagram`: top-label calibration curve for
+  ``CompositeClassificationEstimator`` (consumes the
+  ``calibration_report`` shape or raw ``y_true`` + ``proba``); annotates ECE.
+- :func:`plot_interval_coverage`: empirical coverage + mean width for
+  conformal / CQR / Mondrian prediction bands.
+- :func:`plot_interval_width_vs_x`: width-vs-feature scatter showing
+  adaptive (CQR) vs constant (split-conformal) interval width.
 
 Each helper returns a ``matplotlib.figure.Figure``; the caller is
 responsible for ``savefig`` / display / close. The Figure objects do
@@ -49,8 +56,18 @@ logger = logging.getLogger(__name__)
 def _lazy_pyplot():
     """Lazy-import matplotlib.pyplot. Picks the ``Agg`` backend when
     the current backend is interactive (Agg is the headless default
-    in CI / scripts; we don't want a stray ``plt.show()`` blocking)."""
-    import matplotlib
+    in CI / scripts; we don't want a stray ``plt.show()`` blocking).
+
+    Raises a clear ``ImportError`` when matplotlib is not installed so a
+    caller on a headless box without the plotting extra gets an actionable
+    message instead of a bare ``ModuleNotFoundError``."""
+    try:
+        import matplotlib
+    except ImportError as exc:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "matplotlib is required for mlframe composite diagnostic plots; "
+            "install it via `pip install matplotlib` (or `pip install mlframe[all]`)."
+        ) from exc
     # Only force Agg when the backend is still the unresolved auto-sentinel; calling get_backend() would itself resolve (and thus pin) a
     # backend, so we must read the raw rcParam to tell "user hasn't picked one yet" from "already configured". A user who ran
     # matplotlib.use(...) keeps their choice.
@@ -617,6 +634,268 @@ def plot_predictions_vs_actual(
     return fig
 
 
+def _subsample_idx(n: int, cap: int, random_state: int) -> np.ndarray:
+    """Random row indices for subsampling a large input down to ``cap`` rows.
+    Returns ``arange(n)`` (no copy of a fresh array beyond the range itself)
+    when ``n <= cap`` so small inputs are plotted in full and in order."""
+    if n <= cap:
+        return np.arange(n)
+    rng = np.random.default_rng(random_state)
+    return rng.choice(n, size=cap, replace=False)
+
+
+def plot_reliability_diagram(
+    y_true: np.ndarray | None = None,
+    proba: np.ndarray | None = None,
+    *,
+    report: dict[str, Any] | None = None,
+    n_bins: int = 10,
+    title: str = "Reliability diagram (top-label calibration)",
+    figsize: tuple[float, float] = (6, 6),
+    sample_n: int = 200_000,
+    random_state: int = 42,
+):
+    """Reliability diagram for :class:`CompositeClassificationEstimator` calibration.
+
+    Plots per-bin observed accuracy against mean predicted confidence (the
+    standard reliability curve, valid binary and multiclass) plus the y=x
+    perfect-calibration diagonal, and annotates the Expected Calibration
+    Error (ECE). Bars are sized to bin counts so empty bins are visible.
+
+    Two input shapes are accepted:
+
+    - ``report`` -- the dict returned by
+      ``CompositeClassificationEstimator.calibration_report`` (keys
+      ``bin_confidence`` / ``bin_accuracy`` / ``bin_count`` / ``ece``).
+      Already-binned, so nothing is recomputed.
+    - ``y_true`` + ``proba`` -- raw labels and the ``predict_proba`` matrix;
+      binned here with the SAME equal-width top-label scheme
+      ``calibration_report`` uses. Large inputs are subsampled to
+      ``sample_n`` rows before binning (disclosed in the annotation).
+
+    Pass exactly one of (``report``) or (``y_true`` and ``proba``).
+    """
+    plt = _lazy_pyplot()
+    if report is None:
+        if y_true is None or proba is None:
+            raise ValueError(
+                "plot_reliability_diagram: pass either report=... or both "
+                "y_true=... and proba=..."
+            )
+        report = _bin_top_label_calibration(
+            y_true, proba, n_bins=n_bins, sample_n=sample_n, random_state=random_state
+        )
+    bin_conf = np.asarray(report["bin_confidence"], dtype=np.float64)
+    bin_acc = np.asarray(report["bin_accuracy"], dtype=np.float64)
+    bin_cnt = np.asarray(report.get("bin_count", np.zeros(bin_conf.size)), dtype=np.float64)
+    ece = float(report.get("ece", float("nan")))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot([0.0, 1.0], [0.0, 1.0], color="black", linestyle="--", linewidth=1.0,
+            label="perfect calibration")
+    nb = bin_conf.size
+    centers = (np.arange(nb) + 0.5) / nb
+    valid = np.isfinite(bin_conf) & np.isfinite(bin_acc)
+    # Bar widths track bin occupancy so under-populated bins read as thin / absent;
+    # the line+markers trace the reliability curve over the populated bins only.
+    if bin_cnt.sum() > 0:
+        widths = 0.9 / nb * (bin_cnt / bin_cnt.max())
+    else:
+        widths = np.full(nb, 0.9 / nb)
+    ax.bar(centers[valid], bin_acc[valid], width=widths[valid], alpha=0.35,
+           color="tab:blue", label="observed accuracy")
+    ax.plot(bin_conf[valid], bin_acc[valid], marker="o", color="tab:red",
+            linewidth=1.5, label="reliability curve")
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xlabel("mean predicted confidence")
+    ax.set_ylabel("observed accuracy")
+    ax.set_title(title)
+    ax.legend(loc="upper left", fontsize=9)
+    ax.text(0.98, 0.02, f"ECE = {ece:.4f}\nbins = {nb}",
+            transform=ax.transAxes, va="bottom", ha="right",
+            fontsize=10, family="monospace",
+            bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def _bin_top_label_calibration(
+    y_true: np.ndarray,
+    proba: np.ndarray,
+    *,
+    n_bins: int,
+    sample_n: int,
+    random_state: int,
+) -> dict[str, Any]:
+    """Equal-width top-label reliability binning mirroring
+    ``CompositeClassificationEstimator.calibration_report`` so the standalone
+    plotter produces the identical curve. Subsamples to ``sample_n`` rows."""
+    proba_arr = np.asarray(proba, dtype=np.float64)
+    if proba_arr.ndim != 2:
+        raise ValueError("plot_reliability_diagram: proba must be a 2D (n, n_classes) array.")
+    y_arr = np.asarray(y_true).reshape(-1)
+    n = y_arr.shape[0]
+    idx = _subsample_idx(n, sample_n, random_state)
+    proba_arr = proba_arr[idx]
+    y_arr = y_arr[idx]
+    conf = proba_arr.max(axis=1)
+    # Map argmax column back to a label via the sorted unique labels -- the same
+    # class ordering sklearn's ``classes_`` (and the estimator) uses.
+    classes = np.unique(y_arr)
+    pred = classes[np.argmax(proba_arr, axis=1)] if classes.size == proba_arr.shape[1] \
+        else np.argmax(proba_arr, axis=1)
+    correct = (pred == y_arr).astype(np.float64)
+    nb = int(n_bins)
+    edges = np.linspace(0.0, 1.0, nb + 1)
+    binid = np.clip(np.digitize(conf, edges[1:-1]), 0, nb - 1)
+    bin_conf = np.full(nb, np.nan)
+    bin_acc = np.full(nb, np.nan)
+    bin_cnt = np.zeros(nb, dtype=np.int64)
+    ece = 0.0
+    m = conf.size
+    for b in range(nb):
+        sel = binid == b
+        c = int(sel.sum())
+        bin_cnt[b] = c
+        if c:
+            bin_conf[b] = float(conf[sel].mean())
+            bin_acc[b] = float(correct[sel].mean())
+            ece += (c / m) * abs(bin_conf[b] - bin_acc[b])
+    return {"bin_confidence": bin_conf, "bin_accuracy": bin_acc,
+            "bin_count": bin_cnt, "ece": float(ece)}
+
+
+def plot_interval_coverage(
+    y_true: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    *,
+    title: str = "Prediction-interval coverage",
+    figsize: tuple[float, float] = (8, 5),
+    sample_n: int = 5000,
+    random_state: int = 42,
+):
+    """Empirical coverage + mean width for conformal / CQR / Mondrian bands.
+
+    Sorts the rendered sample by ``y_true`` and draws each interval as a
+    vertical span (green when it covers ``y_true``, red when it misses),
+    overlaying the true value. Annotates the EMPIRICAL coverage (fraction of
+    rows with ``lower <= y_true <= upper``) and the mean band width, both
+    computed on the FULL input (not just the rendered subsample) so the
+    numbers are honest at any scale.
+    """
+    plt = _lazy_pyplot()
+    y_arr = np.asarray(y_true, dtype=np.float64).reshape(-1)
+    lo_arr = np.asarray(lower, dtype=np.float64).reshape(-1)
+    hi_arr = np.asarray(upper, dtype=np.float64).reshape(-1)
+    if not (y_arr.shape == lo_arr.shape == hi_arr.shape):
+        raise ValueError(
+            f"plot_interval_coverage: y_true {y_arr.shape}, lower {lo_arr.shape}, "
+            f"upper {hi_arr.shape} must share the same shape."
+        )
+    finite = np.isfinite(y_arr) & np.isfinite(lo_arr) & np.isfinite(hi_arr)
+    y_f, lo_f, hi_f = y_arr[finite], lo_arr[finite], hi_arr[finite]
+    # Honest stats on the full finite input, before any plot subsampling.
+    covered_mask = (y_f >= lo_f) & (y_f <= hi_f)
+    coverage = float(covered_mask.mean()) if y_f.size else float("nan")
+    mean_width = float(np.mean(hi_f - lo_f)) if y_f.size else float("nan")
+
+    fig, ax = plt.subplots(figsize=figsize)
+    if y_f.size == 0:
+        ax.text(0.5, 0.5, "no finite interval rows", ha="center", va="center",
+                transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    sub = _subsample_idx(y_f.size, sample_n, random_state)
+    order = sub[np.argsort(y_f[sub])]
+    x = np.arange(order.size)
+    cov_sub = covered_mask[order]
+    # Two vlines calls (covered / missed) instead of per-row plotting keep the
+    # render O(2) matplotlib artists even for the full 5k subsample.
+    if cov_sub.any():
+        ax.vlines(x[cov_sub], lo_f[order][cov_sub], hi_f[order][cov_sub],
+                  color="tab:green", alpha=0.5, linewidth=1.0, label="covered")
+    if (~cov_sub).any():
+        ax.vlines(x[~cov_sub], lo_f[order][~cov_sub], hi_f[order][~cov_sub],
+                  color="tab:red", alpha=0.7, linewidth=1.0, label="missed")
+    ax.plot(x, y_f[order], color="black", linewidth=0.8, label="y_true (sorted)")
+    ax.set_xlabel("sample (sorted by y_true)")
+    ax.set_ylabel("value")
+    ax.set_title(title)
+    ax.legend(loc="upper left", fontsize=9)
+    ax.text(0.98, 0.02,
+            f"empirical coverage = {coverage:.4f}\n"
+            f"mean width = {mean_width:.4f}\n"
+            f"n = {y_f.size}",
+            transform=ax.transAxes, va="bottom", ha="right",
+            fontsize=10, family="monospace",
+            bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_interval_width_vs_x(
+    x: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    *,
+    title: str = "Interval width vs x (adaptive CQR vs constant split)",
+    figsize: tuple[float, float] = (8, 5),
+    sample_n: int = 5000,
+    random_state: int = 42,
+):
+    """Scatter of band width ``upper - lower`` against a 1D feature ``x``.
+
+    Visualises whether the interval width ADAPTS to the input: a CQR / Mondrian
+    band widens in high-variance regions (sloped / heteroscedastic cloud) while
+    a split-conformal band is constant (flat horizontal line). Annotates the
+    width coefficient-of-variation -- near zero means constant width, larger
+    means adaptive. Large inputs subsample to ``sample_n`` for the scatter; the
+    CV is computed on the full finite input.
+    """
+    plt = _lazy_pyplot()
+    x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
+    lo_arr = np.asarray(lower, dtype=np.float64).reshape(-1)
+    hi_arr = np.asarray(upper, dtype=np.float64).reshape(-1)
+    if not (x_arr.shape == lo_arr.shape == hi_arr.shape):
+        raise ValueError(
+            f"plot_interval_width_vs_x: x {x_arr.shape}, lower {lo_arr.shape}, "
+            f"upper {hi_arr.shape} must share the same shape."
+        )
+    width = hi_arr - lo_arr
+    finite = np.isfinite(x_arr) & np.isfinite(width)
+    x_f, w_f = x_arr[finite], width[finite]
+    mean_w = float(np.mean(w_f)) if w_f.size else float("nan")
+    cv = float(np.std(w_f) / mean_w) if w_f.size and abs(mean_w) > 1e-12 else float("nan")
+
+    fig, ax = plt.subplots(figsize=figsize)
+    if w_f.size == 0:
+        ax.text(0.5, 0.5, "no finite width rows", ha="center", va="center",
+                transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    sub = _subsample_idx(w_f.size, sample_n, random_state)
+    ax.scatter(x_f[sub], w_f[sub], s=8, alpha=0.4, color="tab:blue", label="width")
+    ax.axhline(mean_w, color="tab:red", linestyle="--", linewidth=1.2,
+               label=f"mean width = {mean_w:.4f}")
+    ax.set_xlabel("x")
+    ax.set_ylabel("interval width (upper - lower)")
+    ax.set_title(title)
+    ax.legend(loc="best", fontsize=9)
+    kind = "constant (split-like)" if (np.isfinite(cv) and cv < 0.05) else "adaptive (CQR-like)"
+    ax.text(0.02, 0.98,
+            f"width CV = {cv:.4f}\n{kind}\nn = {w_f.size}",
+            transform=ax.transAxes, va="top", ha="left",
+            fontsize=10, family="monospace",
+            bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
 __all__ = [
     "plot_target_distribution",
     "plot_qq",
@@ -627,4 +906,7 @@ __all__ = [
     "plot_per_family_disagreement",
     "plot_alpha_stability",
     "plot_predictions_vs_actual",
+    "plot_reliability_diagram",
+    "plot_interval_coverage",
+    "plot_interval_width_vs_x",
 ]
