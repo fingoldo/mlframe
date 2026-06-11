@@ -31,6 +31,8 @@ except ImportError:
 
 from sklearn.pipeline import Pipeline
 
+from pyutilz.system import ensure_dir_exists
+
 from .utils import log_ram_usage, filter_existing
 
 
@@ -460,9 +462,13 @@ def _compute_split_metrics(
     df_prepared = _prepare_df_for_model(df, model_type_name) if df is not None else None
 
     effective_show_fi = show_fi and not has_other_splits
-    # plot_file ends in os.sep (a chart directory); join the split name so the file is
-    # `<dir>/val_perfplot.png`, not the underscore-prefixed `<dir>/_val_perfplot.png`.
-    split_plot_file = os.path.join(plot_file, split_name) if plot_file else ""
+    # plot_file is a filename PREFIX ending in the model-type name (built by _setup_model_info_and_paths), not a
+    # directory; joining the split name nests each model's charts under its own folder, which must exist before savefig.
+    if plot_file:
+        ensure_dir_exists(plot_file + os.sep)
+        split_plot_file = os.path.join(plot_file, split_name)
+    else:
+        split_plot_file = ""
 
     # Splice the split-specific target rate into
     # model_name for THIS split's report only. ``select_target`` stamped
