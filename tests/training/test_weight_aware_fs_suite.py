@@ -7,6 +7,8 @@ weights (``_maybe_resample_for_sample_weight``) before MI screening, so a heavil
 the selector keeps. Prior coverage only stamped/checked the marker at the unit level; nothing ran the suite end-to-end with a
 ``sample_weight``-producing extractor and asserted (a) the weights actually reach ``MRMR.fit`` only under the flag, (b) they
 change the selection, and (c) the FS-cache reuse invariant (flag=False -> exactly one MRMR fit per target across weight schemas).
+The flag was inert because the per-strategy ``clone()`` stripped the setattr-applied ``_mlframe_use_sample_weights_in_fs_``
+marker; it is now re-asserted on the clone so ``_passthrough_cols_fit_transform`` forwards the weights.
 
 Design of the discriminating synthetic
 ---------------------------------------
@@ -183,6 +185,18 @@ def _union_selected(records):
     return out
 
 
+def _top_ranked(records):
+    """First (highest-relevance) feature of the last MRMR fit that selected anything, or None.
+
+    ``get_feature_names_out`` returns features in MRMR's relevance ranking; at small n both informative features
+    (A and B) survive selection so the weight-aware signal is the RANK flip (A-first uniform vs B-first weighted),
+    not the selection-set difference."""
+    for r in reversed(records):
+        if r["selected"]:
+            return r["selected"][0]
+    return None
+
+
 @pytest.mark.slow
 class TestWeightAwareFeatureSelectionSuite:
     """End-to-end weight-aware FS through ``train_mlframe_models_suite``."""
@@ -218,7 +232,7 @@ class TestWeightAwareFeatureSelectionSuite:
     ):
         """flag=True with the 'weighted' schema up-weighting the 20% B-slice: ``sample_weight`` MUST reach MRMR.fit on the
         weighted schema (spy records sw-not-None at least once) and the weight-aware MI screen, now dominated by B-rows,
-        must keep ``B``. If weights never reach the selector OR fail to flip the selection that is a PROD BUG -> xfail."""
+        must keep ``B``."""
         df = _make_two_subpop_frame(seed=_SEED + 2)
         records = _install_mrmr_fit_spy(monkeypatch)
 
@@ -231,31 +245,25 @@ class TestWeightAwareFeatureSelectionSuite:
         assert TargetTypes.REGRESSION in models
         assert len(records) >= 1, "MRMR.fit was never called -- FS did not run"
         # Mechanism pin (load-bearing, correct behaviour): under the flag, the weighted schema's weights reach MRMR.fit.
-        # When MRMR is the lone pre-pipeline step it is passed bare and the marker survives; once any preprocessing step
-        # wraps it in an sklearn Pipeline (the common case, incl. the LGB path here) the forwarding code reads the marker
-        # off the WRAPPING Pipeline -- which is never stamped -- so weights are silently dropped. That is the PROD BUG.
-        if not any(r["sw_not_none"] for r in records):
-            pytest.xfail(
-                reason="PROD BUG: use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit -- the "
-                "weight-aware marker _mlframe_use_sample_weights_in_fs_ is stamped on the inner MRMR step but the "
-                "suite forwards via the wrapping sklearn Pipeline (fn.__self__), whose marker is unset, so _wants_sw "
-                "is False and weights are dropped"
-            )
-        # Business signal (only reached when weights DID arrive): the up-weighted B-slice flips the selection to B.
+        # The per-strategy ``clone()`` strips the setattr-applied marker; it is re-asserted on the clone so _wants_sw
+        # stays True and ``sample_weight`` is forwarded into MRMR.fit.
+        assert any(r["sw_not_none"] for r in records), (
+            "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
+        )
+        # Business signal: the up-weighted B-slice flips the selection to B.
         selected = _union_selected(records)
-        if selected and "B" not in selected:
-            pytest.xfail(
-                reason="PROD BUG: weight-aware FS weights reached MRMR.fit but did not flip selection to the "
-                f"up-weighted minority feature B (got {sorted(selected)})"
+        if selected:
+            assert "B" in selected, (
+                f"weight-aware FS should flip selection to up-weighted minority feature B, got {sorted(selected)}"
             )
 
     def test_weights_change_which_feature_is_selected(
         self, temp_data_dir, common_init_params, fast_iterations, monkeypatch
     ):
         """Two statistically-equivalent frames (same generative process, distinct seeds), two suite runs differing ONLY in
-        the flag: the selected feature set must differ (A under uniform vs B under weighted). A stable-across-flag selection
-        means weights are inert -> PROD BUG -> xfail. Distinct seeds also keep the process-global pre-pipeline cache from
-        letting the second run skip MRMR.fit on identical content."""
+        the flag: the top-ranked feature must flip (A-first under uniform vs B-first under weighted). A stable-across-flag
+        ranking means weights are inert. Distinct seeds also keep the process-global pre-pipeline cache from letting the
+        second run skip MRMR.fit on identical content."""
         df_off = _make_two_subpop_frame(seed=_SEED + 3)
         df_on = _make_two_subpop_frame(seed=_SEED + 30)
 
@@ -265,7 +273,10 @@ class TestWeightAwareFeatureSelectionSuite:
             temp_data_dir, common_init_params, fast_iterations,
             weight_schemas=("uniform", "weighted"),
         )
-        selected_off = _union_selected(records_off)
+        # Snapshot the off-run records BEFORE installing the second spy: monkeypatch stacks, so the on-run's spy
+        # delegates through the first spy, which would re-append on-run fits to ``records_off`` and pollute the pin.
+        off_sw_flags = [r["sw_not_none"] for r in records_off]
+        top_off = _top_ranked(records_off)
 
         records_on = _install_mrmr_fit_spy(monkeypatch)
         _run_suite(
@@ -273,22 +284,22 @@ class TestWeightAwareFeatureSelectionSuite:
             temp_data_dir, common_init_params, fast_iterations,
             weight_schemas=("weighted",),
         )
-        selected_on = _union_selected(records_on)
+        top_on = _top_ranked(records_on)
 
-        # Mechanism contrast: weights must reach the selector only under the flag. flag=False side is a hard pin (weights
-        # must NOT leak); flag=True side is the correct behaviour that the PROD BUG breaks -> xfail when it doesn't hold.
-        assert all(not r["sw_not_none"] for r in records_off)
-        if not any(r["sw_not_none"] for r in records_on):
-            pytest.xfail(
-                reason="PROD BUG: use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit (marker stamped "
-                "on inner MRMR step, not on the wrapping sklearn Pipeline the suite forwards through)"
-            )
+        # Mechanism contrast: weights reach the selector only under the flag. flag=False side is a hard pin (weights
+        # must NOT leak); flag=True side is the correct behaviour the marker-stripping clone broke.
+        assert all(not f for f in off_sw_flags)
+        assert any(r["sw_not_none"] for r in records_on), (
+            "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
+        )
 
-        if selected_off and selected_on and selected_off == selected_on:
-            pytest.xfail(
-                reason="PROD BUG: weight-aware FS produced identical selection to uniform FS "
-                f"(both {sorted(selected_off)}); weights are inert on selection"
+        # Business signal: the weight-aware MI screen flips the top-ranked feature from the majority A (uniform) to the
+        # up-weighted minority B (weighted). Both A and B survive selection at this n, so the rank flip is the signal.
+        if top_off is not None and top_on is not None:
+            assert top_off != top_on, (
+                f"weight-aware FS produced identical top-ranked feature to uniform FS (both {top_off!r}); weights inert"
             )
+            assert top_on == "B", f"weighted FS should rank up-weighted minority B first, got {top_on!r}"
 
     def test_flag_false_reuses_single_fs_fit_across_weight_schemas(
         self, temp_data_dir, common_init_params, fast_iterations, monkeypatch
@@ -338,11 +349,28 @@ def test_weight_aware_fs_marker_reaches_selector_via_suite(
     assert TargetTypes.REGRESSION in models
     assert len(records) >= 1
     if use_flag:
-        # Correct behaviour: weights reach MRMR.fit under the flag. Broken by the wrapping-Pipeline marker bug -> xfail.
-        if not any(r["sw_not_none"] for r in records):
-            pytest.xfail(
-                reason="PROD BUG: use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit (marker on "
-                "inner MRMR step, not on the wrapping sklearn Pipeline the suite forwards through)"
-            )
+        # Correct behaviour: weights reach MRMR.fit under the flag (marker re-asserted on the per-strategy clone).
+        assert any(r["sw_not_none"] for r in records), (
+            "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
+        )
     else:
         assert all(not r["sw_not_none"] for r in records), "flag=False: sample_weight must NOT reach MRMR.fit"
+
+
+def test_per_strategy_clone_preserves_weight_aware_marker():
+    """Regression: ``sklearn.clone`` strips the setattr-applied ``_mlframe_use_sample_weights_in_fs_`` marker, which
+    made weight-aware FS inert at the per-strategy clone in ``_train_one_target``. ``_forward_selector_sticky_attrs``
+    re-asserts it on the clone, so the marker (and the selector-kind tag) survive."""
+    from sklearn.base import clone
+    from mlframe.training.core._phase_train_one_target_body import _forward_selector_sticky_attrs
+
+    mrmr = MRMR(verbose=0, use_simple_mode=True, n_workers=1)
+    mrmr._mlframe_use_sample_weights_in_fs_ = True
+    mrmr._mlframe_selector_kind_ = "MRMR"
+
+    cloned = clone(mrmr)
+    assert not getattr(cloned, "_mlframe_use_sample_weights_in_fs_", False), "clone unexpectedly carried the marker"
+
+    _forward_selector_sticky_attrs(mrmr, cloned)
+    assert cloned._mlframe_use_sample_weights_in_fs_ is True
+    assert cloned._mlframe_selector_kind_ == "MRMR"

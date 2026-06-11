@@ -309,18 +309,55 @@ def _is_fitted(estimator):
             for _name, step in estimator.steps:
                 if step is None or step == "passthrough":
                     continue
-                try:
-                    check_is_fitted(step)
-                except NotFittedError:
+                if not _step_is_fitted(step):
                     return False
             return True
     except Exception:
         pass
+    return _step_is_fitted(estimator)
+
+
+def _step_is_fitted(step) -> bool:
+    """``check_is_fitted`` for a single estimator, ignoring mlframe-private markers.
+
+    The suite stamps selectors with trailing-underscore markers (``_mlframe_use_sample_weights_in_fs_`` etc.). sklearn's
+    default ``check_is_fitted`` heuristic treats ANY trailing-underscore attribute as fitted state, so a freshly-cloned
+    selector carrying only those markers would be misreported as fitted -> the suite skips the fit -> NotFittedError on
+    transform. Restrict the fitted check to genuine sklearn-fitted attributes by excluding the ``_mlframe_*`` markers.
+    """
+    if step is None:
+        return False
+    # Custom ``__sklearn_is_fitted__`` (some wrappers define it) is authoritative; honour it before the attr heuristic.
+    if hasattr(step, "__sklearn_is_fitted__"):
+        try:
+            check_is_fitted(step)
+            return True
+        except NotFittedError:
+            return False
+        except Exception:
+            pass
     try:
-        check_is_fitted(estimator)
+        fitted_attrs = [a for a in vars(step) if a.endswith("_") and not a.startswith("__") and not a.startswith("_mlframe_")]
+    except TypeError:
+        fitted_attrs = None
+    if fitted_attrs is not None and not fitted_attrs:
+        # Only mlframe markers (or nothing) end in ``_`` -> genuinely unfitted; sklearn's default heuristic would be
+        # fooled by the trailing-underscore markers into reporting fitted.
+        return False
+    try:
+        if fitted_attrs:
+            check_is_fitted(step, attributes=fitted_attrs)
+        else:
+            check_is_fitted(step)
         return True
     except NotFittedError:
         return False
+    except Exception:
+        try:
+            check_is_fitted(step)
+            return True
+        except NotFittedError:
+            return False
 
 
 def _is_stale_fit_state_value_error(exc) -> bool:
@@ -440,8 +477,16 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     # + fe_max_steps=2 confirming 0 predictors).
     # Resolve the underlying selector instance so we can read the weight-aware marker.
     # ``fn`` is typically a bound method (``selector.fit_transform``); fall back to None when not applicable.
-    _selector = getattr(fn, "__self__", None)
+    # When the selector is wrapped in an sklearn Pipeline (the common case: any preprocessing step wraps MRMR /
+    # RFECV under the ``'pre'`` step), ``fn.__self__`` is the WRAPPING Pipeline -- which is never stamped -- so the
+    # marker must be read off the inner ``'pre'`` step. A bare ``sample_weight`` kwarg also will not reach the inner
+    # step through ``Pipeline.fit``; sklearn routes per-step fit_params via the ``<step>__param`` namespace, so the
+    # kwarg key becomes ``pre__sample_weight`` when forwarding through a Pipeline.
+    _bound = getattr(fn, "__self__", None)
+    _selector = _extract_feature_selector(_bound) if _bound is not None else None
+    _sw_via_pipeline = isinstance(_bound, Pipeline)
     _wants_sw = bool(sample_weight is not None and getattr(_selector, "_mlframe_use_sample_weights_in_fs_", False))
+    _sw_kwarg = "pre__sample_weight" if _sw_via_pipeline else "sample_weight"
 
     def _call_fit(_fn, _arg, _target_arg):
         """Invoke fit/fit_transform with ``groups`` / ``sample_weight`` when supported.
@@ -463,15 +508,15 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         if groups is not None:
             _kwargs["groups"] = groups
         if _wants_sw:
-            _kwargs["sample_weight"] = sample_weight
+            _kwargs[_sw_kwarg] = sample_weight
         if not _kwargs:
             return _fn(_arg, _target_arg)
         try:
             return _fn(_arg, _target_arg, **_kwargs)
         except TypeError:
             # Drop sample_weight first (more selectors accept groups than sw); then drop groups.
-            if "sample_weight" in _kwargs:
-                _kwargs.pop("sample_weight")
+            if _sw_kwarg in _kwargs:
+                _kwargs.pop(_sw_kwarg)
                 if _kwargs:
                     try:
                         return _fn(_arg, _target_arg, **_kwargs)
@@ -486,8 +531,8 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
                 or "unexpected keyword argument 'groups'" in _msg
                 or "unexpected keyword argument 'sample_weight'" in _msg
             ):
-                if "sample_weight" in _kwargs:
-                    _kwargs.pop("sample_weight")
+                if _sw_kwarg in _kwargs:
+                    _kwargs.pop(_sw_kwarg)
                     if _kwargs:
                         try:
                             return _fn(_arg, _target_arg, **_kwargs)

@@ -64,6 +64,22 @@ from ._phase_train_one_target_mlp_helpers import (
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
+# mlframe-private selector markers applied to MRMR / RFECV via ``setattr`` in ``_build_pre_pipelines``; sklearn.clone()
+# strips non-constructor attributes, so they must be re-asserted on the per-strategy clone (esp. the weight-aware flag,
+# without which ``_passthrough_cols_fit_transform`` never forwards ``sample_weight`` and weight-aware FS is inert).
+_SELECTOR_STICKY_ATTRS = ("_mlframe_use_sample_weights_in_fs_", "_mlframe_selector_kind_", "_mlframe_identity_cache_override_")
+
+
+def _forward_selector_sticky_attrs(src, dst):
+    """Copy the mlframe selector sticky markers from ``src`` onto ``dst`` (and any inner ``'pre'`` step)."""
+    if src is None or dst is None:
+        return
+    src_step = src.named_steps["pre"] if hasattr(src, "named_steps") and "pre" in getattr(src, "named_steps", {}) else src
+    dst_step = dst.named_steps["pre"] if hasattr(dst, "named_steps") and "pre" in getattr(dst, "named_steps", {}) else dst
+    for _attr in _SELECTOR_STICKY_ATTRS:
+        if hasattr(src_step, _attr):
+            setattr(dst_step, _attr, getattr(src_step, _attr))
+
 
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
     """Train all models for one (target_type, target_name) pair."""
@@ -394,7 +410,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             _base_for_strategy = orig_pre_pipeline
             if _base_for_strategy is not None:
                 try:
-                    _base_for_strategy = clone(_base_for_strategy)
+                    _cloned_base = clone(_base_for_strategy)
+                    _forward_selector_sticky_attrs(_base_for_strategy, _cloned_base)
+                    _base_for_strategy = _cloned_base
                 except Exception as _clone_e:
                     # Custom non-BaseEstimator pipelines can't be sklearn-cloned;
                     # falling back to the original reference is correct IF the

@@ -332,19 +332,11 @@ def test_report_against_real_fitted_rfecv_surfaces_kept_dropped(informative_bina
     assert set(report["kept_features"]).isdisjoint(report["dropped_features"])
 
 
-@pytest.mark.xfail(
-    reason="PROD BUG: _build_feature_selection_report reads RFECV.feature_importances_['<n>_<fold>'] as an "
-    "ndarray aligned to feature_names_in_, but the real RFECV stores per-fold {feature: score} DICTS, so the "
-    "np.asarray(...) score-aggregation silently excepts and report['scores'] stays None on every real RFECV. "
-    "The stub test (ndarray-valued feature_importances_) cannot catch this attribute-surface mismatch.",
-    strict=False,
-)
 def test_report_against_real_fitted_rfecv_surfaces_scores(informative_binary_6feat):
-    """A REAL fitted RFECV should surface a non-empty per-feature ``scores`` dict in the report.
+    """A REAL fitted RFECV surfaces a non-empty per-feature ``scores`` dict in the report.
 
-    This documents the CORRECT behaviour: RFECV exposes per-feature fold importances, so the report's
-    ``scores`` must be a non-empty ``{feature: float}`` map. It currently fails because the builder expects
-    ndarray-valued ``feature_importances_`` while the real selector returns per-fold dicts (xfail above).
+    RFECV exposes per-fold ``{feature: importance}`` maps under ``feature_importances_``, so the report's
+    ``scores`` must be a non-empty ``{feature: float}`` map aggregated across folds.
     """
     from sklearn.linear_model import LogisticRegression
 
@@ -378,3 +370,46 @@ def test_report_against_real_fitted_rfecv_surfaces_scores(informative_binary_6fe
         "per-fold feature importances"
     )
     assert all(isinstance(v, float) for v in scores.values())
+
+
+def test_report_rfecv_scores_read_dict_valued_feature_importances_not_ndarray(informative_binary_6feat):
+    """Regression: RFECV report scores must read the dict-of-dicts ``feature_importances_`` surface.
+
+    The real fitted RFECV stores ``feature_importances_`` as ``{"<n>_<fold>": {feature: score}}``. The
+    pre-fix builder coerced those per-fold DICTS through ``np.asarray(..., float64)`` (expecting ndarrays
+    aligned to ``feature_names_in_``), which silently excepted and left ``scores=None`` on every real fit.
+    Pins: the fitted attribute IS dict-of-dicts, and the report aggregates a float score for the kept
+    informative features (f0/f1) from it.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    from mlframe.feature_selection.wrappers import RFECV
+
+    df, cols, y = informative_binary_6feat
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel = RFECV(
+            estimator=LogisticRegression(max_iter=200),
+            cv=2,
+            max_refits=2,
+            max_nfeatures=2,
+            verbose=0,
+        )
+        sel.fit(df, y)
+
+    fi = getattr(sel, "feature_importances_")
+    assert isinstance(fi, dict) and fi
+    assert all(isinstance(row, dict) for row in fi.values()), (
+        "fixture invariant drifted: RFECV.feature_importances_ values are no longer per-fold dicts"
+    )
+
+    support = list(getattr(sel, "support_"))
+    kept = [c for c, s in zip(cols, support) if s]
+    report = _build_feature_selection_report(
+        pre_pipeline=sel, pre_pipeline_name="lgb ", fitted_columns_in=cols, kept_columns=kept,
+    )
+
+    scores = report["scores"]
+    assert isinstance(scores, dict) and scores, "report['scores'] None means the dict-valued FI surface was not read"
+    for c in kept:
+        assert c in scores and isinstance(scores[c], float)
