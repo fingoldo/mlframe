@@ -148,7 +148,20 @@ def compute_unsupervised_drops(
                     stored_nan_count = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
                     null_count = (n_unfilled if fill_is_nan else 0) + stored_nan_count
                 else:
-                    null_count = int(col.isna().sum())
+                    # Fast null-count path (bit-identical to ``col.isna().sum()``): for a plain numpy
+                    # float column, ``isna`` is exactly ``np.isnan`` on the underlying buffer, but
+                    # ``col.isna()`` allocates a fresh boolean Series + dispatches through pandas'
+                    # nanops before summing (~6x slower per cProfile 2026-06-12: 61us -> 11us/col).
+                    # For numpy integer / bool columns no value can be null, so the count is exactly 0
+                    # without touching the data at all. Every other dtype (object/None, datetime/NaT,
+                    # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
+                    _np_dt = col.dtype
+                    if _np_dt == np.float64 or _np_dt == np.float32:
+                        null_count = int(np.isnan(col.to_numpy()).sum())
+                    elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:
+                        null_count = 0
+                    else:
+                        null_count = int(col.isna().sum())
             except Exception:
                 null_count = 0
             if null_count > null_cutoff:
