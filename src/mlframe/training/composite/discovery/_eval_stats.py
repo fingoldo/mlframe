@@ -266,8 +266,24 @@ def apply_alpha_drift_gate(
             base_h1 = base_full[train_idx[:half]]
             base_h2 = base_full[train_idx[half:]]
         try:
-            params1 = linear_residual_fit(y_train_for_drift[:half], base_h1)
-            params2 = linear_residual_fit(y_train_for_drift[half:], base_h2)
+            # Batched closed-form: the two half-fits are independent single-base
+            # OLS systems; solving them in one pass via
+            # _linear_residual_fit_batched pays the per-call dispatch ONCE
+            # instead of two lstsq/SVD launches. Bit-identical to applying the
+            # scalar closed-form per half (see the batched solver's contract).
+            from ..transforms.linear import _linear_residual_fit_batched
+            _alphas, _betas = _linear_residual_fit_batched(
+                [np.asarray(base_h1), np.asarray(base_h2)],
+                [np.asarray(y_train_for_drift[:half]),
+                 np.asarray(y_train_for_drift[half:])],
+            )
+            # A non-finite base/y half makes the closed-form sums NaN; mirror the
+            # legacy lstsq-raises-on-NaN behaviour by skipping the spec.
+            if not (np.isfinite(_alphas).all() and np.isfinite(_betas).all()):
+                drift_kept.append(s)
+                continue
+            params1 = {"alpha": float(_alphas[0]), "beta": float(_betas[0])}
+            params2 = {"alpha": float(_alphas[1]), "beta": float(_betas[1])}
         except Exception:
             drift_kept.append(s)
             continue

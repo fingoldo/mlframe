@@ -127,6 +127,103 @@ def _linear_residual_fit(
     alpha = float(coef[0])
     beta = float(coef[1])
     return {"alpha": alpha, "beta": beta}
+def _linear_residual_fit_closed(
+    x: np.ndarray, y: np.ndarray,
+) -> tuple[float, float]:
+    """Single-fold unweighted OLS via the closed-form normal equations.
+
+    Reference scalar path the batched solver below is bit-identical to. For
+    ``base = x``, ``y`` (length n) this returns ``(alpha, beta)`` of
+    ``y ~ alpha*x + beta`` using
+    ``alpha = (n*Sxy - Sx*Sy) / (n*Sxx - Sx^2)``, ``beta = mean_y - alpha*mean_x``
+    -- exact OLS, no ``lstsq`` / SVD dispatch. Degenerate folds are guarded
+    EXACTLY as ``_linear_residual_fit``'s scalar path: ``n < 2`` returns
+    ``(0.0, mean(y))`` (or ``(0.0, 0.0)`` for empty), and a zero-variance base
+    (``den == 0``) returns ``(0.0, mean(y))``.
+
+    NOTE: this is the normal-equations path, which differs from
+    ``np.linalg.lstsq`` by ~1 ULP. It is used by the per-fold CV refit loops
+    (alpha-drift gate, bootstrap, grouped per-segment) where the K systems are
+    solved together via :func:`_linear_residual_fit_batched`; the public
+    ``_linear_residual_fit`` keeps the ``lstsq`` path for selection stability.
+    """
+    n = len(y)
+    if n < 2:
+        return 0.0, (float(np.mean(y)) if n > 0 else 0.0)
+    x_f = x.astype(np.float64)
+    y_f = y.astype(np.float64)
+    sx = float(x_f.sum())
+    sy = float(y_f.sum())
+    sxx = float((x_f * x_f).sum())
+    sxy = float((x_f * y_f).sum())
+    den = n * sxx - sx * sx
+    if den == 0.0:
+        return 0.0, float(np.mean(y_f))
+    alpha = (n * sxy - sx * sy) / den
+    beta = float(np.mean(y_f)) - alpha * float(np.mean(x_f))
+    return float(alpha), float(beta)
+def _linear_residual_fit_batched(
+    x_segments: Sequence[np.ndarray],
+    y_segments: Sequence[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Solve K independent single-base OLS systems in one batched pass.
+
+    ``x_segments`` / ``y_segments`` are the K per-fold ``(base, y)`` arrays. Each
+    fold's five reductions (``n, Sx, Sy, Sxx, Sxy``) are computed on the
+    contiguous segment with the SAME ``.sum()`` order as the scalar
+    :func:`_linear_residual_fit_closed`, then the K ``(alpha, beta)`` pairs are
+    derived in a SINGLE vectorised arithmetic pass over length-K arrays. This
+    pays K x dispatch overhead exactly once (one set of ufunc calls) instead of
+    K ``lstsq`` / SVD launches -- bit-identical to calling
+    ``_linear_residual_fit_closed`` per fold (verified: the per-segment ``.sum()``
+    reduction order is preserved, and the zero-variance / ``n<2`` guards match).
+
+    Returns ``(alphas, betas)`` as length-K float64 ndarrays aligned to the
+    input segment order. Empty input returns two empty arrays.
+    """
+    k = len(x_segments)
+    if k != len(y_segments):
+        raise ValueError(
+            f"_linear_residual_fit_batched: {k} x-segments != {len(y_segments)} y-segments"
+        )
+    alphas = np.zeros(k, dtype=np.float64)
+    betas = np.zeros(k, dtype=np.float64)
+    if k == 0:
+        return alphas, betas
+    counts = np.empty(k, dtype=np.float64)
+    sx = np.empty(k, dtype=np.float64)
+    sy = np.empty(k, dtype=np.float64)
+    sxx = np.empty(k, dtype=np.float64)
+    sxy = np.empty(k, dtype=np.float64)
+    small = np.zeros(k, dtype=bool)  # folds with n<2 -> (0, mean(y)|0).
+    for i in range(k):
+        xi = x_segments[i].astype(np.float64)
+        yi = y_segments[i].astype(np.float64)
+        n = yi.size
+        counts[i] = n
+        if n < 2:
+            small[i] = True
+            betas[i] = float(np.mean(yi)) if n > 0 else 0.0
+            sx[i] = sy[i] = sxx[i] = sxy[i] = 0.0
+            continue
+        sx[i] = xi.sum()
+        sy[i] = yi.sum()
+        sxx[i] = (xi * xi).sum()
+        sxy[i] = (xi * yi).sum()
+    big = ~small
+    if big.any():
+        den = counts * sxx - sx * sx
+        # Zero-variance base (den==0) degenerates to (0, mean(y)) exactly as
+        # the scalar guard. mean(y) = Sy / n is the same value the scalar path
+        # returns via np.mean for a finite-only segment.
+        nz = big & (den != 0.0)
+        safe_den = np.where(nz, den, 1.0)
+        a = (counts * sxy - sx * sy) / safe_den
+        mean_x = sx / np.where(counts > 0.0, counts, 1.0)
+        mean_y = sy / np.where(counts > 0.0, counts, 1.0)
+        alphas = np.where(nz, a, alphas)
+        betas = np.where(big, np.where(nz, mean_y - alphas * mean_x, mean_y), betas)
+    return alphas, betas
 def _linear_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
