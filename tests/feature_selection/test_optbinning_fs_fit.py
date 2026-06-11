@@ -37,6 +37,40 @@ import pytest
 pytest.importorskip("optbinning")
 pytest.importorskip("category_encoders")
 
+
+def _optbinning_sklearn_compatible() -> bool:
+    """optbinning <= 0.20.x calls scikit-learn's ``check_array(force_all_finite=...)``,
+    a kwarg REMOVED in scikit-learn 1.6 (renamed ``ensure_all_finite``). On such a
+    combo every optbinning ``.fit`` raises ``TypeError: check_array() got an unexpected
+    keyword argument 'force_all_finite'`` from deep inside optbinning's own
+    ``metrics.jeffrey`` -- a THIRD-PARTY version mismatch, not an mlframe defect. The
+    module docstring already pins the requirement (optbinning >= 0.21). ``importorskip``
+    only checks PRESENCE, so guard the version combo here too so this fit-level suite
+    skips cleanly on the incompatible pairing instead of failing in library internals."""
+    try:
+        from packaging.version import parse as _v
+        import optbinning as _ob
+        import sklearn as _sk
+        if _v(_sk.__version__) >= _v("1.6") and _v(_ob.__version__) < _v("0.21"):
+            return False
+    except Exception:
+        # If we cannot determine versions, let the tests run and surface any real error.
+        return True
+    return True
+
+
+if not _optbinning_sklearn_compatible():
+    import optbinning as _ob_mod
+    import sklearn as _sk_mod
+    pytest.skip(
+        f"optbinning {_ob_mod.__version__} is incompatible with scikit-learn "
+        f"{_sk_mod.__version__} (optbinning<0.21 calls the removed "
+        f"check_array(force_all_finite=...) on sklearn>=1.6); the IV feature-selection "
+        f"fit path raises in optbinning internals. Upgrade optbinning>=0.21 to exercise "
+        f"this suite. See module docstring.",
+        allow_module_level=True,
+    )
+
 from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors  # noqa: E402
 
 from tests.feature_selection.conftest import fast_subset  # noqa: E402
