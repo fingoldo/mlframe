@@ -892,6 +892,41 @@ def _build_cross_target_ensemble_for_target(
                     "[CompositeCrossTargetEnsemble] OOF gate check "
                     "skipped (%s); ensemble retained.", _gate_err,
                 )
+        # Opt-in post-hoc output recalibration. Fit a monotone map on the SAME OOF holdout surface
+        # the weights were derived from (blend the OOF component matrix with the frozen weights, then
+        # map that OOF blend onto the OOF truth). Leakage-free (OOF only) and bit-identical when off.
+        # Skip when the gate fell back to a single component (no ensemble blend to recalibrate).
+        _do_calib = bool(getattr(
+            composite_target_discovery_config,
+            "calibrate_cross_target_output", False,
+        ))
+        if (_do_calib
+                and isinstance(_ensemble, _CrossEns)
+                and _oof_pred_matrix is not None
+                and _oof_pred_matrix.shape[1] == len(_ensemble.component_models)
+                and _oof_y_holdout is not None
+                and _oof_pred_matrix.shape[0] >= 3):
+            try:
+                _calib_method = str(getattr(
+                    composite_target_discovery_config,
+                    "cross_target_calibration_method", "isotonic",
+                ))
+                _ensemble.fit_output_calibrator(
+                    _oof_pred_matrix, np.asarray(_oof_y_holdout, dtype=np.float64),
+                    method=_calib_method,
+                )
+                logger.info(
+                    "[CompositeCrossTargetEnsemble] target='%s' fitted output calibrator "
+                    "(method=%s, attached=%s) on %d OOF rows.",
+                    _orig_tname, _calib_method,
+                    getattr(_ensemble, "_output_calibrator", None) is not None,
+                    int(_oof_pred_matrix.shape[0]),
+                )
+            except Exception as _calib_err:
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] target='%s' output calibration failed "
+                    "(%s); ensemble retained uncalibrated.", _orig_tname, _calib_err,
+                )
     except Exception as _ens_err:
         logger.warning(
             "[CompositeCrossTargetEnsemble] target='%s' build failed: "

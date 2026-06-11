@@ -58,6 +58,8 @@ class CompositeCrossTargetEnsemble:
         strategy: str,
         notes: dict[str, Any] | None = None,
         is_convex: bool = True,
+        calibrate_output: bool = False,
+        calibration_method: str = "isotonic",
     ) -> None:
         if len(component_models) == 0:
             raise ValueError("CompositeCrossTargetEnsemble: empty component list.")
@@ -92,6 +94,13 @@ class CompositeCrossTargetEnsemble:
         self.strategy = strategy
         self.is_convex = bool(is_convex)
         self.notes = dict(notes or {})
+        # Opt-in post-hoc recalibration of the blended output. ``calibrate_output`` is the intent
+        # flag; the fitted ``OutputCalibrator`` lands in ``_output_calibrator`` after a successful
+        # ``fit_output_calibrator(...)`` call. While ``_output_calibrator is None`` predict returns
+        # the raw blend bit-for-bit, so the feature is bit-identical when off (the default).
+        self.calibrate_output = bool(calibrate_output)
+        self.calibration_method = str(calibration_method)
+        self._output_calibrator = None
 
     # ------------------------------------------------------------------
     # Constructors / factory methods
@@ -594,7 +603,8 @@ class CompositeCrossTargetEnsemble:
             full_weights = np.asarray(self.weights, dtype=np.float64)
             full_intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
             if len(surviving_idx) == len(self.component_models):
-                return (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
+                _raw = (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
+                return self._apply_output_calibration(_raw)
 
             surviving_weights = full_weights[surviving_idx]
             _intercept = full_intercept if self.strategy == "linear_stack" else 0.0
@@ -604,7 +614,8 @@ class CompositeCrossTargetEnsemble:
                 self.strategy, len(self.component_models) - len(surviving_idx),
                 len(self.component_models),
             )
-            return (preds_matrix * surviving_weights[None, :]).sum(axis=1) + _intercept
+            _raw = (preds_matrix * surviving_weights[None, :]).sum(axis=1) + _intercept
+            return self._apply_output_calibration(_raw)
 
         # Convex strategies (mean / oof_weighted): re-normalise across surviving components.
         if weights.sum() <= 0:
@@ -613,7 +624,82 @@ class CompositeCrossTargetEnsemble:
             weights = np.full_like(weights, 1.0 / len(weights))
         else:
             weights = weights / weights.sum()
-        return (preds_matrix * weights[None, :]).sum(axis=1)
+        _raw = (preds_matrix * weights[None, :]).sum(axis=1)
+        return self._apply_output_calibration(_raw)
+
+    # ------------------------------------------------------------------
+    # Output recalibration (opt-in; bit-identical when no calibrator attached)
+    # ------------------------------------------------------------------
+
+    def _apply_output_calibration(self, raw_blend: np.ndarray) -> np.ndarray:
+        """Apply the fitted monotone output calibrator, or return the raw blend unchanged.
+
+        When ``_output_calibrator is None`` (the default / off state) this is a pure pass-through, so the calibration feature is bit-identical when disabled.
+        """
+        cal = getattr(self, "_output_calibrator", None)
+        if cal is None:
+            return raw_blend
+        try:
+            return cal.predict(raw_blend)
+        except Exception as exc:
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] output calibrator predict failed (%s); "
+                "returning the raw blend for this batch.", exc,
+            )
+            return raw_blend
+
+    def _blend_oof_matrix(self, oof_component_matrix: np.ndarray) -> np.ndarray:
+        """Combine an OOF (n, K) component-prediction matrix into the raw blended output.
+
+        Mirrors :meth:`predict`'s weighting rule WITHOUT the per-row component-call path: non-convex strategies (linear_stack / nnls_stack) use the raw solver weights (+ linear_stack intercept); convex strategies (mean / oof_weighted) renormalise. Used by :meth:`fit_output_calibrator` to recover the same blended surface the gate scored, so the calibrator is fit on exactly what predict produces.
+        """
+        M = np.asarray(oof_component_matrix, dtype=np.float64)
+        if M.ndim != 2 or M.shape[1] != len(self.component_models):
+            raise ValueError(
+                f"_blend_oof_matrix: matrix has shape {M.shape}; expected (n, {len(self.component_models)})."
+            )
+        w = np.asarray(self.weights, dtype=np.float64)
+        if not getattr(self, "is_convex", True):
+            intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
+            return (M * w[None, :]).sum(axis=1) + intercept
+        wsum = float(w.sum())
+        w_norm = w / wsum if wsum > 0 else np.full_like(w, 1.0 / len(w))
+        return (M * w_norm[None, :]).sum(axis=1)
+
+    def fit_output_calibrator(
+        self,
+        oof_component_matrix: np.ndarray,
+        oof_y: np.ndarray,
+        method: str | None = None,
+        sample_weight: np.ndarray | None = None,
+    ) -> "CompositeCrossTargetEnsemble":
+        """Fit a monotone output recalibration map on the OOF blended output vs truth.
+
+        ``oof_component_matrix`` is the ``(n_oof, K)`` matrix of OUT-OF-FOLD per-component predictions (the same matrix the NNLS / gain weights were derived from, aligned column-for-column with ``self.component_names``); ``oof_y`` is the matching y-scale truth. The matrix is first blended with this ensemble's frozen weights (so the calibrator sees exactly the surface predict ships), then an :class:`OutputCalibrator` is fit on ``(blend_oof, oof_y)`` and stored on ``self._output_calibrator``.
+
+        Leakage: the predictions MUST be out-of-fold -- this method does not re-predict the training frame, it consumes the caller's OOF matrix, mirroring the weight solvers. Returns ``self`` (in-place) for chaining. On any failure the calibrator is left unattached (predict keeps returning the raw blend).
+        """
+        from ._calibration import fit_output_calibrator as _fit_cal  # local import keeps sklearn.isotonic off cold paths
+        _method = str(method) if method is not None else self.calibration_method
+        try:
+            raw_blend = self._blend_oof_matrix(oof_component_matrix)
+        except Exception as exc:
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] fit_output_calibrator: could not blend OOF matrix "
+                "(%s); leaving output uncalibrated.", exc,
+            )
+            self.calibrate_output = False
+            return self
+        cal = _fit_cal(raw_blend, np.asarray(oof_y, dtype=np.float64), method=_method, sample_weight=sample_weight)
+        if cal is None:
+            self.calibrate_output = False
+            self.notes["output_calibration"] = {"method": _method, "fitted": False}
+            return self
+        self._output_calibrator = cal
+        self.calibrate_output = True
+        self.calibration_method = _method
+        self.notes["output_calibration"] = cal.export()
+        return self
 
     def export_metadata(self) -> dict[str, Any]:
         """Plain-dict snapshot for ``metadata`` storage."""
@@ -623,6 +709,11 @@ class CompositeCrossTargetEnsemble:
             "weights": self.weights.tolist(),
             "is_convex": bool(getattr(self, "is_convex", True)),
             "intercept": float(getattr(self, "_linear_stack_intercept", 0.0)),
+            "calibrate_output": bool(getattr(self, "calibrate_output", False)),
+            "output_calibration": (
+                self._output_calibrator.export()
+                if getattr(self, "_output_calibrator", None) is not None else None
+            ),
             "notes": dict(self.notes),
         }
 
@@ -650,6 +741,8 @@ class CompositeCrossTargetEnsemble:
                 strategy=self.strategy,
                 notes=dict(self.notes),
                 is_convex=getattr(self, "is_convex", True),
+                calibrate_output=getattr(self, "calibrate_output", False),
+                calibration_method=getattr(self, "calibration_method", "isotonic"),
             )
             for _attr in (
                 "_linear_stack_intercept", "_linear_stack_train_preds",
@@ -658,6 +751,9 @@ class CompositeCrossTargetEnsemble:
             ):
                 if hasattr(self, _attr):
                     setattr(copy_inst, _attr, getattr(self, _attr))
+            # No trim: the blend is unchanged, so the output calibrator (fit on that blend) is
+            # still valid and carries over.
+            copy_inst._output_calibrator = getattr(self, "_output_calibrator", None)
             return copy_inst
         # Pick top-N by |weight|. lexsort with component-index tiebreaker so tied
         # weights (NNLS shrinkage saturation, convex weights pinned at 0) don't
@@ -677,7 +773,18 @@ class CompositeCrossTargetEnsemble:
                        if i not in keep
                    ]},
             is_convex=getattr(self, "is_convex", True),
+            calibration_method=getattr(self, "calibration_method", "isotonic"),
         )
+        # The trimmed ensemble blends a DIFFERENT subset of components, so an output calibrator
+        # fit on the full blend would mis-map the new surface. Drop it (predict returns the raw
+        # trimmed blend); the caller can re-fit a calibrator on a fresh OOF matrix if needed.
+        if getattr(self, "_output_calibrator", None) is not None:
+            logger.info(
+                "[CompositeCrossTargetEnsemble] cap_inference_components: dropping output calibrator "
+                "(blend changed after trimming to top %d). Re-fit on a fresh OOF matrix to recalibrate.",
+                int(max_components),
+            )
+            new.notes["output_calibration_dropped_on_cap"] = True
         # Carry over the linear/NNLS stash to the trimmed ensemble. predict (NO-REFIT) never reads
         # these; the column-slice below only keeps the stash aligned for the votenrank diagnostic
         # assertion, which expects the train-matrix columns to match the component ordering.

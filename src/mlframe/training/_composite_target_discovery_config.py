@@ -860,6 +860,26 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # / 0 means keep all components (default).
     max_inference_components: Optional[int] = None
 
+    # Post-hoc recalibration of the cross-target ensemble's blended output.
+    #
+    # When True, after the OOF gate the suite fits a monotone
+    # ``OutputCalibrator`` on the SAME OOF holdout surface the NNLS /
+    # gain weights were derived from -- it blends the OOF component
+    # matrix with the frozen ensemble weights, then fits an isotonic
+    # (or sigmoid / linear) map of that OOF blend onto the OOF truth and
+    # applies it as a final monotone post-map at predict time. This
+    # removes the systematic (often S-shaped) miscalibration a
+    # least-squares blend of biased components leaves behind, without
+    # changing the ensemble's ranking. Leakage-free: the fit consumes
+    # only out-of-fold predictions, never a re-prediction of train.
+    #
+    # Default False: with no calibrator attached predict returns the raw
+    # blend bit-for-bit, so the feature is bit-identical when off.
+    calibrate_cross_target_output: bool = False
+    # Calibration map family: "isotonic" (free-form monotone, default),
+    # "sigmoid" (Platt-style 2-param S), or "linear" (affine scale+offset).
+    cross_target_calibration_method: str = "isotonic"
+
     # Honest OOF for the ensemble gate / stacking.
     #
     # When > 0, the suite carves an extra holdout slice (this fraction

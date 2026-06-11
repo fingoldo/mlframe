@@ -901,4 +901,5 @@ def compute_oof_holdout_predictions(
 
 
 from ._cross_target import CompositeCrossTargetEnsemble  # noqa: F401, E402
+from ._calibration import OutputCalibrator, fit_output_calibrator  # noqa: F401, E402
 
