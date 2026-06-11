@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional, List, Set, Tuple, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig, DEFAULT_RANDOM_SEED
 
@@ -43,6 +43,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # auto-detection. Auto-detection of a likely time column (when this is None)
     # is wired separately via ``time_series_transforms_enabled``.
     time_column: Optional[str] = None
+
+    # Opt-in: add the 3 chronological-order transforms (ewma_residual,
+    # rolling_quantile_ratio, frac_diff) to the discovery candidate set. They
+    # need the screening sample in time order, so set ``time_column`` too (the
+    # screen is then sorted by it; M6). Default OFF because on a shuffled /
+    # non-temporal frame these transforms model a meaningless row sequence.
+    time_series_transforms_enabled: bool = False
 
     # Base candidate selection.
     # - "auto": rank all numeric features by structural MI gain
@@ -1011,4 +1018,20 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
             raise ValueError(
                 f"multilabel_strategy must be one of {valid}, got '{v}'")
         return v_lower
+
+    @model_validator(mode="after")
+    def _append_time_series_transforms(self) -> "CompositeTargetDiscoveryConfig":
+        """M9: when ``time_series_transforms_enabled`` is on, add the three
+        chronological-order transforms to the candidate set (deduped, appended
+        so the existing order is preserved). They are valid only once the
+        screening sample is in time order, which ``time_column`` guarantees
+        (M6); enabling without a time signal is allowed but warned by discovery.
+        """
+        if getattr(self, "time_series_transforms_enabled", False):
+            _ts = ["ewma_residual", "rolling_quantile_ratio", "frac_diff"]
+            _present = set(self.transforms)
+            for _t in _ts:
+                if _t not in _present:
+                    self.transforms.append(_t)
+        return self
 
