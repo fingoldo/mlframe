@@ -44,7 +44,7 @@ extra layout:
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -391,6 +391,7 @@ def missing_indicator_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     raw_X: Optional[pd.DataFrame] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append ``is_missing__{col}`` columns to X and emit one recipe per col.
 
@@ -418,7 +419,7 @@ def missing_indicator_with_recipes(
         from ._unified_fe_gate import local_mi_gate
 
         _floor_ref = raw_X if isinstance(raw_X, pd.DataFrame) and raw_X.shape[1] else X
-        keep = set(local_mi_gate(enc_df, y, raw_X=_floor_ref, top_k=mi_gate_top_k))
+        keep = set(local_mi_gate(enc_df, y, raw_X=_floor_ref, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
             return X.copy(), [], []
         cols = [c for c in cols if engineered_name_missing_indicator(c) in keep]

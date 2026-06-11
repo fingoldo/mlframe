@@ -255,6 +255,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # biz_value test asserts on it as a DETERMINISTIC work-saved proxy (timing on a contended
     # box is jittery). Always present for transform / pickle / clone.
     self._fe_steps_executed_ = 0
+    # PER-GATE FE REJECTION LEDGER (additive): reset the per-fit raw-record list HERE, before
+    # ANY FE stage runs (recipe-FE families at L33/L34/L37/L38/L104 + cluster-basis all record
+    # via their reject_sink BEFORE the pair-search loop). A later reset would clobber those
+    # families' unified-gate abs-MAD floor kills; fe_rejection_ledger_ is built from it at fit-end.
+    self._fe_rejection_records_ = []
     # Deferred hinge-leg buffer: the hinge stage detects + held-out-validates the
     # legs early (it needs the raw source columns before pair-FE rewrites them) but
     # DEFERS materialising them into the candidate matrix until support finalisation,
@@ -2911,6 +2916,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # the mean computation.
                 _y_for_te = np.asarray(_y_for_te, dtype=np.float64).ravel()
                 _X_before_te_cols = list(X.columns)
+                # W6 follow-up: record this family's unified local-MI abs-MAD
+                # floor kills into the FE rejection ledger (pure-record; the
+                # kept set is unchanged so selection is byte-identical).
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                _te_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _te_reject_sink(**_kw):
+                    _record_fe_rejection(self, step=_te_step, **_kw)
+
                 X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
                     X, _y_for_te,
                     cat_cols=_te_cols,
@@ -2923,6 +2937,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     ),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_te_reject_sink,
                 )
                 # Guard against silent overlap with prior stages: the
                 # ``{col}__te`` suffix is dedicated to this stage so the
@@ -2989,6 +3004,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 cat_num_interaction_with_recipes,
             )
             from .._target_encoding_fe import auto_detect_te_cols
+            from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+            # W6 follow-up: shared sink for the count/freq/cat-num family's
+            # unified local-MI abs-MAD floor kills (pure-record; selection
+            # byte-identical).
+            _l34_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+            def _l34_reject_sink(**_kw):
+                _record_fe_rejection(self, step=_l34_step, **_kw)
 
             _hybrid_appended_l34 = set(self.hybrid_orth_features_ or [])
             _mig_appended_l34 = set(self.mi_greedy_features_ or [])
@@ -3021,6 +3045,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_cnt,
+                        reject_sink=_l34_reject_sink,
                     )
                     _cnt_appended = [
                         c for c in _cnt_appended if c not in _X_before_cnt_cols
@@ -3071,6 +3096,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_freq,
+                        reject_sink=_l34_reject_sink,
                     )
                     _freq_appended = [
                         c for c in _freq_appended if c not in _X_before_freq_cols
@@ -3136,6 +3162,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 mi_gate_top_k=int(
                                     getattr(self, "fe_local_mi_gate_top_k", 20)
                                 ),
+                                reject_sink=_l34_reject_sink,
                             )
                         )
                         _cn_appended = [
@@ -3195,6 +3222,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 missingness_count_with_recipes,
                 missingness_pattern_with_recipes,
             )
+            from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+            # W6 follow-up: missingness-indicator family's unified local-MI
+            # abs-MAD floor kills (pure-record; selection byte-identical).
+            _l37_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+            def _l37_reject_sink(**_kw):
+                _record_fe_rejection(self, step=_l37_step, **_kw)
 
             _engineered_seen_l37 = (
                 set(self.hybrid_orth_features_ or [])
@@ -3239,6 +3274,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_ind,
                         raw_X=_raw_floor_X,
+                        reject_sink=_l37_reject_sink,
                     )
                     _ind_appended = [
                         c for c in _ind_appended if c not in _X_before_ind_cols
@@ -3400,6 +3436,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _y_for_l38 = (
                 y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
             )
+            from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+            # W6 follow-up: shared sink for the ratio/log-ratio/grouped-delta/
+            # lagged-diff family's unified local-MI abs-MAD floor kills
+            # (pure-record; selection byte-identical).
+            _l38_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+            def _l38_reject_sink(**_kw):
+                _record_fe_rejection(self, step=_l38_step, **_kw)
 
             # ----- Pairwise ratio --------------------------------------------
             if bool(getattr(self, "fe_pairwise_ratio_enable", False)):
@@ -3413,7 +3458,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     X_r, _r_appended, _r_recipes = pairwise_ratio_with_recipes(
                         X, cols=_ratio_cols, eps=_eps,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
-                        y=_y_for_l38,
+                        y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
                     _r_appended = [
                         c for c in _r_appended if c not in _X_before_r_cols
@@ -3452,7 +3497,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     X_lr, _lr_appended, _lr_recipes = pairwise_log_ratio_with_recipes(
                         X, cols=_lr_cols, eps=_eps_lr,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
-                        y=_y_for_l38,
+                        y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
                     _lr_appended = [
                         c for c in _lr_appended if c not in _X_before_lr_cols
@@ -3491,7 +3536,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     X_gd, _gd_appended, _gd_recipes = grouped_delta_with_recipes(
                         X, group_col=_gd_group, num_cols=_gd_nums,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
-                        y=_y_for_l38,
+                        y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
                     _gd_appended = [
                         c for c in _gd_appended if c not in _X_before_gd_cols
@@ -3534,7 +3579,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         X, time_col=_ld_time, value_cols=_ld_vals,
                         periods=_ld_periods,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
-                        y=_y_for_l38,
+                        y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
                     _ld_appended = [
                         c for c in _ld_appended if c not in _X_before_ld_cols
@@ -4167,6 +4212,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         else:
             try:
                 from .._extra_fe_families import hybrid_rare_category_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                # W6 follow-up: rare-category family's unified local-MI abs-MAD
+                # floor kills (pure-record; selection byte-identical).
+                _rc_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _rc_reject_sink(**_kw):
+                    _record_fe_rejection(self, step=_rc_step, **_kw)
 
                 _y_for_rc = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
@@ -4185,6 +4238,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     top_k=int(getattr(self, "fe_rare_category_top_k", 10)),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_rc_reject_sink,
                 )
                 _rc_appended = [
                     c for c in _rc_appended if c not in _X_before_rc_cols
@@ -4225,6 +4279,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         else:
             try:
                 from .._extra_fe_families import hybrid_conditional_residual_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                # W6 follow-up: conditional-residual family's unified local-MI
+                # abs-MAD floor kills (pure-record; selection byte-identical).
+                _cr_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _cr_reject_sink(**_kw):
+                    _record_fe_rejection(self, step=_cr_step, **_kw)
 
                 _y_for_cr = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
@@ -4252,6 +4314,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     ),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_cr_reject_sink,
                 )
                 _cr_appended = [
                     c for c in _cr_appended if c not in _X_before_cr_cols
@@ -4297,6 +4360,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         else:
             try:
                 from .._extra_fe_families import hybrid_conditional_dispersion_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                # W6 follow-up: conditional-dispersion family's unified local-MI
+                # abs-MAD floor kills (pure-record; selection byte-identical).
+                _cd_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _cd_reject_sink(**_kw):
+                    _record_fe_rejection(self, step=_cd_step, **_kw)
 
                 _y_for_cd = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
@@ -4331,6 +4402,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     ),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_cd_reject_sink,
                 )
                 _cd_appended = [
                     c for c in _cd_appended if c not in _X_before_cd_cols
@@ -5484,10 +5556,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
     engineered_recipes: dict = {}
-    # PER-GATE FE REJECTION LEDGER (additive, 2026-06-11): reset the per-fit raw-record list so
-    # ``_run_fe_step`` accumulates the gate drops of every FE step this fit. fe_rejection_ledger_
-    # is built from it at fit-end. Stays empty when FE produced no rejected candidates.
-    self._fe_rejection_records_ = []
+    # PER-GATE FE REJECTION LEDGER (additive, 2026-06-11): the per-fit raw-record list is reset
+    # near fit-start (above, before any FE stage records) so it accumulates the gate drops of
+    # EVERY FE stage this fit -- the recipe-FE families + cluster-basis (which record before this
+    # point) AND the pair-search ``_run_fe_step`` loop below. fe_rejection_ledger_ is built from
+    # it at fit-end. Stays empty when FE produced no rejected candidates.
     # Layer 23: seed engineered_recipes with hybrid orthogonal-poly recipes
     # built above (before the screening loop). The end-of-fit remap routes
     # any selected_vars_name matching a key here into _engineered_recipes_.

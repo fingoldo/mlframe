@@ -62,7 +62,7 @@ B's contract, plus the stored std).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -478,6 +478,7 @@ def hybrid_conditional_dispersion_fe(
     max_pair_cols: int = 6,
     mi_gate: bool = True,
     mi_gate_top_k: Optional[int] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> tuple[pd.DataFrame, list[str], list["EngineeredRecipe"], pd.DataFrame]:
     """End-to-end conditional-dispersion FE: bound the column set by top raw-MI
     (cardinality bound on the O(p^2) pair pool), materialise the dispersion-
@@ -526,6 +527,7 @@ def hybrid_conditional_dispersion_fe(
         winners = local_mi_gate(
             enc_df, y, raw_X=X,
             top_k=int(mi_gate_top_k) if mi_gate_top_k else int(top_k),
+            reject_sink=reject_sink,
         )
         # DUAL-UPLIFT GATE (backlog #12): a dispersion column earns its keep ONLY
         # if it carries MI BEYOND both (a) its raw source x_i and (b) its

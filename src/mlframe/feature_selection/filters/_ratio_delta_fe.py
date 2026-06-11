@@ -35,7 +35,7 @@ extra layout:
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -457,7 +457,7 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_k):
+def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_k, reject_sink=None):
     """Tier-1 local MI floor over an ordered-pair ratio pool. Returns the
     pruned ``(enc_df, accepted)`` keeping only pairs whose engineered column
     clears the raw-baseline noise floor (top-K by MI). No-op when ``mi_gate``
@@ -466,7 +466,7 @@ def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_
         return enc_df, accepted
     from ._unified_fe_gate import local_mi_gate
 
-    keep = set(local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k))
+    keep = set(local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k, reject_sink=reject_sink))
     if not keep:
         return enc_df.iloc[:, :0], []
     accepted = [(a, b) for (a, b) in accepted if name_fn(a, b) in keep]
@@ -482,6 +482,7 @@ def pairwise_ratio_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append ratio columns to X and emit one recipe per accepted pair.
 
@@ -501,6 +502,7 @@ def pairwise_ratio_with_recipes(
         return X.copy(), [], []
     enc_df, accepted = _gate_ratio_pairs(
         enc_df, accepted, engineered_name_ratio, y, X, mi_gate, mi_gate_top_k,
+        reject_sink=reject_sink,
     )
     if not accepted:
         return X.copy(), [], []
@@ -524,6 +526,7 @@ def pairwise_log_ratio_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append log-ratio columns and emit one recipe per accepted pair.
 
@@ -541,6 +544,7 @@ def pairwise_log_ratio_with_recipes(
         return X.copy(), [], []
     enc_df, accepted = _gate_ratio_pairs(
         enc_df, accepted, engineered_name_log_ratio, y, X, mi_gate, mi_gate_top_k,
+        reject_sink=reject_sink,
     )
     if not accepted:
         return X.copy(), [], []
@@ -564,6 +568,7 @@ def grouped_delta_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append grouped-delta + grouped-zscore columns and emit one recipe per
     engineered column.
@@ -584,7 +589,7 @@ def grouped_delta_with_recipes(
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
 
-        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k))
+        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
             return X.copy(), [], []
         enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
@@ -606,6 +611,7 @@ def lagged_diff_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append lagged-diff columns and emit one recipe per (value_col, period).
 
@@ -628,7 +634,7 @@ def lagged_diff_with_recipes(
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
 
-        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k))
+        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
             return X.copy(), [], []
         enc_df = enc_df[[c for c in enc_df.columns if c in keep]]

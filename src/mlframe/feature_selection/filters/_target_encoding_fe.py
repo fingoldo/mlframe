@@ -28,7 +28,7 @@ replay time. ``MRMR.transform`` recomputes each column deterministically.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -350,6 +350,7 @@ def kfold_target_encode_with_recipes(
     auto_max_card: int = 500,
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """End-to-end: detect / accept cat cols, fit OOF encoding, build
     ``EngineeredRecipe`` objects ready for ``MRMR.transform`` replay.
@@ -386,7 +387,7 @@ def kfold_target_encode_with_recipes(
     if mi_gate and not te_df.empty:
         from ._unified_fe_gate import local_mi_gate
 
-        keep = set(local_mi_gate(te_df, y, raw_X=X, top_k=mi_gate_top_k))
+        keep = set(local_mi_gate(te_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
             return X.copy(), [], []
         kept_src = [c for c in cat_cols if engineered_name_te(c) in keep]
