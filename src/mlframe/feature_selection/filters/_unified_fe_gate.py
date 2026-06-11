@@ -81,6 +81,24 @@ def _coerce_y_classes(y) -> np.ndarray:
         # Continuous: 10-bin quantile discretisation.
         from ._mi_greedy_cmi_fe import _quantile_bin
         return _quantile_bin(y_arr, nbins=10)
+    # bench-attempt-rejected (2026-06-11, wave-2 W8 "extreme-imbalance / tiny-n target-binning
+    # guard"): hypothesis was that equi-frequency TARGET binning silently yields a single-class
+    # degenerate bin under rare<<1% / n<200 y, corrupting MI -> unstable rare-feature ranking, and
+    # that a merge-degenerate-bins + coarser-nbins fallback would stabilise it. FALSIFIED:
+    #   * Classification rare-1% (n=150, ~1.5 positives): y is integer -> the factorize branch above,
+    #     never _quantile_bin, so a degenerate target bin CANNOT form on the classification path.
+    #   * Regression continuous y: _quantile_bin already drops duplicate quantile edges via
+    #     np.unique(edges) (see _mi_greedy_cmi_fe._quantile_bin docstring + ``edges.size <= 2``
+    #     branch) so collapse to <nbins bins is EXPLICIT and documented, not silent; tied-value bins
+    #     produce finite, sane, stable plug-in MI (verified). Existing collapse guards already live at
+    #     _adaptive_nbins.py:534 / _discretization_edges.py:259 / info_theory/_entropy_kernels.py:67.
+    #   * The proposed cap-to-nbins / merge fix did NOT stabilise the rare-feature rank across 12
+    #     seeds at n=150/1% (mean rank 5.25->5.33, std 1.96->2.36 -- no gain, marginally worse). The
+    #     rank instability is intrinsic small-n statistics (rare signal vs noise-MI chance at ~1.5
+    #     positives), NOT a binning artefact; it is the cross-project "rare imbalance needs large-n"
+    #     fact and no target-binning trick rescues it. Distinct from (and confirms) rejected idea #18
+    #     (imbalance-MI rescore). Large-n balanced is byte-identical to the cap variant either way.
+    # Do not re-attempt a degenerate-target-bin merge / coarser-nbins guard here.
     _, y_bin = np.unique(y_arr, return_inverse=True)
     return y_bin.astype(np.int64)
 
