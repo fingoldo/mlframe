@@ -17,6 +17,7 @@ from ..spec import CompositeSpec
 from ..ensemble import _is_monotone_nondecreasing
 from .screening import (
     _extract_column_array,
+    _per_bin_from_fold_preds,
     _sample_indices,
     _tiny_cv_rmse_raw_y,
     _tiny_cv_rmse_raw_y_multiseed,
@@ -559,10 +560,19 @@ def _tiny_model_rerank(
                     cv_selector_confidence=_cv_sel_conf,
                     cv_selector_quantile_level=_cv_sel_qlevel,
                 )
-        # Per-base raw-y per-bin breakdown for the regime gate.
-        # Cached by base column so multiple specs sharing a base
-        # compute baselines once.
+        # Per-base raw-y per-bin breakdown for the regime gate. The raw-y model
+        # is trained on ``x_full`` and is INDEPENDENT of the per-base bin_var,
+        # so fit the K-fold raw-y model ONCE (capturing per-fold predictions)
+        # and re-bin those cached predictions for each distinct base. Memoised
+        # by base column. Bit-identical to the prior per-base refit (the binning
+        # operates on the same fold predictions either way), but the dominant
+        # K-fold LGBM fit no longer repeats per base.
         if per_bin_enabled:
+            _raw_fold_preds = None
+            # bin_var aligns to the isfinite(y_screen)-masked space, matching the
+            # masking _tiny_cv_rmse_raw_y applies to bin_var internally.
+            _y_screen_finite = np.isfinite(np.asarray(y_screen))
+            _bin_var_needs_mask = not bool(_y_screen_finite.all())
             for spec in kept_specs:
                 if spec.base_column in raw_per_bin_per_base:
                     continue
@@ -571,27 +581,38 @@ def _tiny_model_rerank(
                     continue
                 base_screen, _ = cached
                 family = families[0]
-                raw_result = _tiny_cv_rmse_raw_y(
-                    y_train=y_screen,
-                    x_train_matrix=x_full,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    random_state=self.config.random_state,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    return_per_bin=True, n_bins=per_bin_n_bins,
-                    bin_var=base_screen,
-                    groups=_groups_screen,
-                    time_aware=_any_base_monotone,
+                if _raw_fold_preds is None:
+                    raw_result = _tiny_cv_rmse_raw_y(
+                        y_train=y_screen,
+                        x_train_matrix=x_full,
+                        family=family,
+                        n_estimators=self.config.tiny_model_n_estimators,
+                        num_leaves=self.config.tiny_model_num_leaves,
+                        learning_rate=self.config.tiny_model_learning_rate,
+                        cv_folds=self.config.tiny_model_cv_folds,
+                        random_state=self.config.random_state,
+                        n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                        deterministic=getattr(
+                            self.config, "deterministic_screening_models", False,
+                        ),
+                        return_fold_preds=True,
+                        groups=_groups_screen,
+                        time_aware=_any_base_monotone,
+                    )
+                    # (mean_rmse, fold_preds) when return_fold_preds=True.
+                    _raw_fold_preds = (
+                        raw_result[1] if isinstance(raw_result, tuple) else []
+                    )
+                if not _raw_fold_preds:
+                    continue
+                _bin_var_clean = (
+                    base_screen[_y_screen_finite]
+                    if _bin_var_needs_mask else base_screen
                 )
-                if isinstance(raw_result, tuple):
-                    _, raw_per_bin = raw_result
-                    raw_per_bin_per_base[spec.base_column] = raw_per_bin
+                raw_per_bin = _per_bin_from_fold_preds(
+                    _raw_fold_preds, _bin_var_clean, n_bins=per_bin_n_bins,
+                )
+                raw_per_bin_per_base[spec.base_column] = raw_per_bin
         finite_raw = [r for r in raw_rmse_per_family.values()
                       if math.isfinite(r)]
         if finite_raw:

@@ -61,6 +61,11 @@ def forward_stepwise_multi_base(
     # The point-estimate relative-gain gate accepts a base whenever the aggregated CV-RMSE drops by ``min_marginal_rmse_gain``, which a SINGLE lucky fold can drive (repeated-CV folds are positively correlated -- Nadeau-Bengio -- so the aggregate understates variance). ``paired_fold_selection`` adds a paired majority-of-folds gate on the same fold geometry: the chosen candidate must beat the current kept-set on at least ``paired_fold_min_win_frac`` of the jointly-finite folds (a one-sided sign test) BEFORE the relative-gain gate runs. Default ON -- a base that wins the aggregate on one fold but loses the other K-1 is rejected. Pass ``paired_fold_selection=False`` for the legacy point-estimate-only behaviour.
     paired_fold_selection: bool = True,
     paired_fold_min_win_frac: float = 0.5,
+    # Escape hatch: force the legacy per-trial ``np.column_stack`` design-matrix build instead of the preallocated
+    # buffer reuse. The default (False) reuses one ``(n, K+1)`` buffer per round and writes only the candidate column
+    # per trial; the legacy path re-allocates the full matrix every trial. Both produce byte-identical matrices and
+    # byte-identical selection / fold RMSEs -- the flag exists ONLY to A/B-bench the two and to pin bit-identity.
+    _legacy_per_trial_stack: bool = False,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Greedy forward-stepwise base selection for ``linear_residual_multi``.
 
@@ -84,6 +89,8 @@ def forward_stepwise_multi_base(
         When True (default), the best candidate must additionally beat the current kept-set on a MAJORITY of jointly-finite folds (paired sign test on the same fold geometry) before its relative aggregate gain is checked. Guards against a candidate whose aggregate improvement is driven by a single fold (positively-correlated repeated-CV folds inflate the apparent point gain). Set False for legacy point-estimate-only acceptance.
     paired_fold_min_win_frac
         Fraction of jointly-finite folds the candidate must strictly beat the baseline on to clear the paired gate. Default 0.5 (strict majority; on K=3 folds a candidate must win >=2). Lower it toward 0.0 to relax, raise toward 1.0 to require unanimity.
+    _legacy_per_trial_stack
+        Internal A/B knob (default False). When True, rebuilds the trial design matrix with ``np.column_stack`` on every candidate trial (the pre-buffer-reuse behaviour) instead of writing the candidate column into a reused preallocated buffer. Both paths feed OLS byte-identical matrices, so selection and per-fold RMSEs are identical; the flag exists only for the allocation-reduction benchmark and the bit-identity regression test.
 
     Returns
     -------
@@ -241,16 +248,21 @@ def forward_stepwise_multi_base(
         # per-trial ``column_stack`` (O(available * n * len(kept))) into a single last-column
         # copy per trial. The matrix handed to OLS is byte-identical to the old column_stack.
         _k = len(kept)
-        _trial_buf = np.empty((int(y.size), _k + 1), dtype=np.float64)
-        for _ci, _kn in enumerate(kept):
-            _trial_buf[:, _ci] = candidates[_kn]
+        # Legacy A/B path re-stacks the whole matrix every trial; the default reuses one buffer and fills the
+        # kept-prefix columns once per round, overwriting only the last (candidate) column per trial.
+        _trial_buf: np.ndarray | None = None
+        if not _legacy_per_trial_stack:
+            _trial_buf = np.empty((int(y.size), _k + 1), dtype=np.float64)
+            for _ci, _kn in enumerate(kept):
+                _trial_buf[:, _ci] = candidates[_kn]
         best_name = None
         best_rmse = float("inf")
         best_folds: list[float] = []
         per_candidate_folds: dict[str, list[float]] = {}
         for cand_name in available:
             trial = kept + [cand_name]
-            _trial_buf[:, _k] = candidates[cand_name]
+            if _trial_buf is not None:
+                _trial_buf[:, _k] = candidates[cand_name]
             rmse_trial, fold_rmses_trial = _cv_rmse_with_folds(trial, base_matrix=_trial_buf)
             if cv_persist_fold_scores:
                 per_candidate_folds[cand_name] = list(fold_rmses_trial)

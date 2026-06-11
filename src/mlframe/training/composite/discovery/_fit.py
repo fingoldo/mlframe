@@ -18,6 +18,7 @@ from ..spec import CompositeSpec
 from .forward_stepwise import forward_stepwise_multi_base
 from .screening import (
     _aggregate_mi_per_feature,
+    _aggregate_mi_per_feature_excluding,
     _extract_column_array,
     _mi_per_feature_prebinned,
     _mi_to_target,
@@ -444,10 +445,6 @@ def fit(
                 np.delete(_full_x_prebinned, _drop_idx, axis=1)
                 if _full_x_prebinned is not None else None
             )
-            _per_feat_y_base = (
-                np.delete(_per_feat_y_full, _drop_idx)
-                if _per_feat_y_full is not None else None
-            )
             if _dedup_x_remaining and x_remaining_matrix.shape[1] > 1:
                 _keep = near_collinear_keep_mask(
                     x_remaining_matrix, corr_threshold=_dedup_corr_thr,
@@ -456,8 +453,6 @@ def fit(
                     x_remaining_matrix = x_remaining_matrix[:, _keep]
                     if _x_prebinned is not None:
                         _x_prebinned = _x_prebinned[:, _keep]
-                    if _per_feat_y_base is not None:
-                        _per_feat_y_base = _per_feat_y_base[_keep]
         else:
             # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
             logger.error(
@@ -475,9 +470,12 @@ def fit(
             if _per_feat_y_full is not None and base in _col_index:
                 # Decompose: aggregate the precomputed per-feature MI over all
                 # features except the base column (bit-identical to re-MI'ing
-                # x_remaining vs y, since per-feature MI is base-invariant).
-                mi_y_for_base = _aggregate_mi_per_feature(
-                    np.delete(_per_feat_y_full, _drop_idx), _mi_aggregation,
+                # x_remaining vs y, since per-feature MI is base-invariant). The
+                # exclude-aware aggregate masks out the base entry in place, so
+                # no per-base (n, F-1) np.delete copy is materialised for the
+                # baseline -- only the held-alive transform-consumer matrices remain.
+                mi_y_for_base = _aggregate_mi_per_feature_excluding(
+                    _per_feat_y_full, _mi_aggregation, _drop_idx,
                 )
             elif _per_feat_y_full is not None:
                 mi_y_for_base = _aggregate_mi_per_feature(
