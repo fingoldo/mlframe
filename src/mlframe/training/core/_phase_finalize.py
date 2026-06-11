@@ -371,6 +371,49 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
         logger.info("[calib] auto-calibrated %d per-target model(s) on the disjoint calib slice.", _n)
 
 
+def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
+    """Render the per-target model-comparison leaderboard once all models for a target are trained.
+
+    Fires only when >=2 models on the same target carry a usable test score; the composer subsamples
+    internally so assembly is bounded regardless of n. Best-effort -- a render failure never blocks finalize.
+    """
+    data_dir = getattr(ctx, "data_dir", "") or ""
+    if not data_dir or not getattr(ctx, "save_charts", False):
+        return
+    _cfg = getattr(ctx, "reporting_config", None)
+    if _cfg is None:
+        _configs_root = getattr(ctx, "configs", None)
+        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
+    if _cfg is not None and not getattr(_cfg, "model_comparison_charts", True):
+        return
+    plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
+    if not plot_outputs:
+        return
+    from mlframe.reporting.diagnostics_dispatch import render_model_comparison_from_suite
+    _n = 0
+    for _tt, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list) or len(_entries) < 2:
+                continue
+            _base = join(
+                data_dir, "charts", slugify(ctx.target_name), slugify(ctx.model_name),
+                slugify(str(_tt).lower()), slugify(str(_tname)), "model_comparison",
+            )
+            try:
+                os.makedirs(os.path.dirname(_base), exist_ok=True)
+                if render_model_comparison_from_suite(
+                    model_entries=_entries, target_type=str(_tt),
+                    plot_outputs=plot_outputs, base_path=_base, metrics_dict=ctx.metadata,
+                ):
+                    _n += 1
+            except Exception as _mc_err:
+                logger.warning("[model_comparison] render failed for %s/%s: %s", _tt, _tname, _mc_err)
+    if _n and getattr(ctx, "verbose", 0):
+        logger.info("[model_comparison] rendered %d per-target leaderboard(s).", _n)
+
+
 def finalize_suite(ctx: TrainingContext) -> dict:
     """Aggregate fairness reports, save metadata, emit phase/rendering summaries, surface selected features.
 
@@ -450,6 +493,13 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _persist_ct_ensemble_entries(ctx)
     except Exception as _ct_err:
         logger.warning("[_CT_ENSEMBLE persist] failed: %s", _ct_err)
+
+    # Per-target model-comparison leaderboard (ROC/metric overlay + sorted metric bars + between-model
+    # prediction-correlation) once every model for a target exists; default-on, best-effort.
+    try:
+        _render_model_comparison_leaderboards(ctx)
+    except Exception as _mc_err:
+        logger.warning("[model_comparison] leaderboard pass failed: %s", _mc_err)
 
     # Honest-estimator diagnostics aggregator: stamps bootstrap CI per metric, categorical PSI drift, calibration plot, and the provenance disposition table into metadata so the persisted blob carries the four artefacts. Gated by ReportingConfig.honest_estimator_diagnostics (default True). Failures must not block the save.
     _reporting_cfg = getattr(ctx, "reporting_config", None)
