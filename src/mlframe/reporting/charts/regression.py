@@ -25,6 +25,21 @@ Token catalogue:
                         Exposes the GBM extreme-compression pathology
                         (top-decile under-prediction shows as a large
                         negative signed-residual bar).
+- ``WORM``           -- de-trended normal QQ of the residuals: the QQ
+                        ordinate minus the y=x identity, plotted against the
+                        theoretical normal quantile, with a pointwise CI band.
+                        Subtracting the identity flattens the dominant linear
+                        trend so small/medium departures (heavy tails, skew)
+                        that are invisible on a raw QQ become large vertical
+                        excursions; points leaving the band are significant
+                        non-normality. Order-statistic-decimated to <=2000
+                        plotted points, tails always kept.
+- ``RESID_ACF``      -- residual autocorrelation by lag with Bartlett white-
+                        noise +-1.96/sqrt(n) bounds (drawn as hlines). A lag-1
+                        bar above the bound means the residuals carry serial
+                        structure the model missed (mis-specified dynamics /
+                        omitted lagged feature). ACF via FFT, lag- and
+                        series-tail-capped so it stays bounded at n>=1e6.
 """
 
 from __future__ import annotations
@@ -37,10 +52,11 @@ import numpy as np
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
+from mlframe.reporting.charts._acf import MAX_ACF_LAGS, acf_fft, significance_band
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
-    ScatterPanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
+    PanelSpec, ScatterPanelSpec,
 )
 
 # Above this many finite points the pred-vs-actual cloud is drawn as a log-density 2-D histogram instead of a raw scatter
@@ -354,11 +370,144 @@ def _err_by_decile_panel(
     )
 
 
+# Plotted-point cap for the de-trended QQ. The tails are the diagnostic payload, so the decimation keeps
+# every point in the extreme heads/tails and thins only the dense central body to hit the cap.
+_WORM_PLOT_CAP: int = 2000
+# How many extreme order statistics at EACH tail are kept verbatim (never thinned) on the worm plot.
+_WORM_TAIL_KEEP: int = 100
+
+
+def _decimate_keep_tails(n: int, cap: int, tail_keep: int) -> np.ndarray:
+    """Sorted index subset of ``0..n-1`` of length <= ``cap`` that keeps the first/last ``tail_keep``.
+
+    The dense central body is uniformly strided down to the remaining budget; the heads and tails (where
+    QQ departures live) are retained verbatim. Returns all indices when ``n <= cap``.
+    """
+    if n <= cap:
+        return np.arange(n, dtype=np.int64)
+    tail_keep = min(tail_keep, n // 2)
+    head = np.arange(tail_keep, dtype=np.int64)
+    tail = np.arange(n - tail_keep, n, dtype=np.int64)
+    mid_budget = max(1, cap - 2 * tail_keep)
+    mid = np.linspace(tail_keep, n - tail_keep - 1, mid_budget).astype(np.int64)
+    return np.unique(np.concatenate([head, mid, tail]))
+
+
+def _worm_panel(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    audit: Any = None,
+) -> PanelSpec:
+    """De-trended normal QQ (worm plot) of the residuals with a pointwise CI band.
+
+    Sorts the residuals, standardises them, and compares each order statistic to its theoretical normal
+    quantile. The plotted ordinate is the DETRENDED QQ -- ``sample_quantile - theoretical_quantile`` --
+    so the dominant y=x slope is removed and only the departure remains: a flat worm near zero is normal,
+    upward tails are heavy/over-dispersed tails, an S-shape is skew. The CI band is the order-statistic
+    pointwise normal-theory band ``+- z * sqrt(p(1-p)/n) / phi(theoretical_quantile)`` (the asymptotic SE
+    of the p-th sample quantile, mapped through the standardisation); points outside it are significant.
+    """
+    yt, yp = _finite_pair(y_true, y_pred)
+    resid = yt - yp
+    n = resid.size
+    if n < 3:
+        return AnnotationPanelSpec(
+            text="Worm plot skipped: needs >= 3 finite residuals",
+            title="Worm plot (de-trended normal QQ)",
+        )
+    from scipy.stats import norm
+
+    mu = float(resid.mean())
+    sd = float(resid.std(ddof=1))
+    if sd <= 0.0:
+        return AnnotationPanelSpec(
+            text="Worm plot skipped: residuals are constant (zero variance)",
+            title="Worm plot (de-trended normal QQ)",
+        )
+    order_stats = np.sort(resid)
+    keep = _decimate_keep_tails(n, _WORM_PLOT_CAP, _WORM_TAIL_KEEP)
+    # Decimate FIRST, then evaluate norm.ppf only on the <=2000 kept plotting positions: the per-row ppf
+    # over the full n is the worm panel's biggest cost and the caller plots only the kept points anyway.
+    z_sample = (order_stats[keep] - mu) / sd
+    # Plotting positions (Blom): (i - 3/8) / (n + 1/4); robust at the tails vs i/(n+1).
+    p_k = (keep.astype(np.float64) + 1.0 - 0.375) / (n + 0.25)
+    zt = norm.ppf(p_k)
+    detrended = z_sample - zt
+    # Asymptotic SE of the p-th sample quantile (standardised scale): sqrt(p(1-p)/n)/phi(z_theo).
+    phi = norm.pdf(zt)
+    phi = np.where(phi > 1e-12, phi, 1e-12)
+    se = np.sqrt(p_k * (1.0 - p_k) / n) / phi
+    z95 = 1.959963984540054
+    ci = z95 * se
+    zero = np.zeros_like(zt)
+    return LinePanelSpec(
+        x=zt,
+        y=(detrended, zero),
+        series_labels=("de-trended QQ (sample - theoretical)", "normal (zero)"),
+        title=f"Worm plot (de-trended normal QQ; n={n:,}, plotted {zt.size:,})",
+        xlabel="Theoretical normal quantile",
+        ylabel="Sample quantile - theoretical (standardised)",
+        line_styles=("lines+markers", "--"),
+        colors=("steelblue", "green"),
+        band=(zero - ci, zero + ci),
+        band_color="steelblue",
+        band_label="95% pointwise CI",
+    )
+
+
+def _resid_acf_panel(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    nlags: int = MAX_ACF_LAGS,
+) -> PanelSpec:
+    """Residual autocorrelation by lag with Bartlett white-noise +-bounds (drawn as hlines).
+
+    Residuals of a correctly-specified model are white noise; a lag-1 (or seasonal-lag) ACF bar poking
+    above the +-1.96/sqrt(n) band means the model left serial structure on the table (mis-specified
+    dynamics, an omitted lagged feature, autocorrelated errors that bias the standard errors). ACF is the
+    FFT autocovariance (O(n log n)), with the series tail-capped and the lag count capped so the panel
+    stays bounded at n>=1e6.
+    """
+    yt, yp = _finite_pair(y_true, y_pred)
+    resid = yt - yp
+    if resid.size < 3:
+        return AnnotationPanelSpec(
+            text="Residual ACF skipped: needs >= 3 finite residuals",
+            title="Residual autocorrelation (Bartlett band)",
+        )
+    acf_lags, n_used = acf_fft(resid, nlags=nlags)
+    if acf_lags.size == 0:
+        return AnnotationPanelSpec(
+            text="Residual ACF skipped: residuals are constant (zero variance)",
+            title="Residual autocorrelation (Bartlett band)",
+        )
+    band = significance_band(n_used)
+    lags = np.arange(1, acf_lags.size + 1)
+    cats = tuple(str(int(l)) for l in lags)
+    sig = int(np.sum(np.abs(acf_lags) > band))
+    return BarPanelSpec(
+        categories=cats,
+        values=acf_lags.astype(np.float64),
+        title=(
+            f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond "
+            f"+-{band:.3f} Bartlett band => serial structure)"
+        ),
+        xlabel="Lag",
+        ylabel="Autocorrelation",
+        colors=("steelblue",),
+        hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
+    )
+
+
 _TOKEN_BUILDERS: Dict[str, Callable] = {
     "SCATTER": _scatter_panel,
     "RESID_HIST": _resid_hist_panel,
     "RESID_VS_PRED": _resid_vs_pred_panel,
     "ERR_BY_DECILE": _err_by_decile_panel,
+    "WORM": _worm_panel,
+    "RESID_ACF": _resid_acf_panel,
 }
 
 ALLOWED_REGRESSION_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
@@ -423,6 +572,10 @@ def compose_regression_figure(
             panels.append(_resid_vs_pred_panel(y_true, y_pred, audit=audit))
         elif tok == "ERR_BY_DECILE":
             panels.append(_err_by_decile_panel(y_true, y_pred))
+        elif tok == "WORM":
+            panels.append(_worm_panel(y_true, y_pred, audit=audit))
+        elif tok == "RESID_ACF":
+            panels.append(_resid_acf_panel(y_true, y_pred))
 
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)

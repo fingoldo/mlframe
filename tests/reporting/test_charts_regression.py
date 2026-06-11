@@ -47,10 +47,11 @@ def synth_reg():
     return yt, yp
 
 
-def test_allowed_tokens_are_the_four_panels():
+def test_allowed_tokens_include_core_and_diagnostics():
     assert ALLOWED_REGRESSION_PANEL_TOKENS == frozenset(
-        {"SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE"}
+        {"SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE", "WORM", "RESID_ACF"}
     )
+    # Default template is the integrator's concern; WORM / RESID_ACF are opt-in via the template until wired.
     assert DEFAULT_REGRESSION_PANELS == "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
 
 
