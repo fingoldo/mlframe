@@ -14,8 +14,11 @@ Design notes:
 - Every LINEAR combiner is a weight vector ``w`` over standardized+sign-aligned members; the aggregate
   is ``Z @ w`` (``mean_z`` -> 1/k, ``mean_inv_var`` -> reliability-weighted, ``pca_pc1`` -> PC1
   eigenvector, ``factor_score`` -> Bartlett combiner). ``median`` is the only non-linear v1 method.
-- Fit builds the recipe (storing train mean/std/signs/weights) then calls ``apply_recipe`` to produce
-  the binned column, so the fit-time column IS the replay output -> train/test parity by construction.
+- Fit builds the recipe (storing train mean/std/signs/weights) and the fit-time binned column is
+  produced by the SAME quantile-edge ``searchsorted`` reduction ``apply_recipe`` replays with, so the
+  fit-time column IS the replay output -> train/test parity by construction. (Fit bins the aggregate it
+  already holds directly rather than round-tripping back through ``apply_recipe`` member re-extraction;
+  the no-edges fallback still defers to ``apply_recipe``.)
 """
 from __future__ import annotations
 
@@ -423,8 +426,16 @@ def run_cluster_aggregate_step(
         best_member_mi = max(cl["rel"].values())
 
         best = None  # (mi, recipe, binned_col, method)
+        # Layer 50 SVD-reuse: every SVD-needing method (mean_inv_var, pca_pc1,
+        # pca_pc2, factor_score) shares the SAME ``Z`` per cluster, so thread one
+        # cache through the method loop -> the SVD + PC1 communalities of ``Z``
+        # are computed once and reused, collapsing up to 4 SVDs (+2 comm
+        # re-derivations) per cluster into 1 each. Bit-identical: the cache
+        # returns the exact (Zc, vt, comm) the per-method call would recompute
+        # from the identical ``Z``. Discarded after the cluster finishes.
+        _svd_cache: dict = {}
         for method in methods:
-            weights = _derive_weights(Z, method)
+            weights = _derive_weights(Z, method, svd_cache=_svd_cache)
             agg_name = f"clusteragg_{method}({'+'.join(member_names)})"
             # 2026-05-30 Wave 9.1 fix (loop iter 29): compute the
             # continuous aggregate FIRST so the recipe can persist the
@@ -469,8 +480,28 @@ def run_cluster_aggregate_step(
                 member_mean=mean, member_std=std, signs=signs, weights=weights,
                 quantization=_q_local, diagnostics={"representative": cols[rep]},
             )
-            # Fit-time column IS the replay output (parity by construction).
-            binned = apply_recipe(recipe, X)
+            # Fit-time column IS the replay output (parity by construction). The
+            # discarded-work fast path: ``apply_recipe`` would re-extract the
+            # member columns from ``X``, re-nan_to_num, re-standardize with the
+            # stored mean/std/signs, re-combine into the SAME ``_agg_continuous``
+            # we already hold, then bin it. We already have ``_agg_continuous``
+            # and the fit-time ``edges``, so bin directly with the SAME
+            # ``searchsorted(edges[1:-1], side="right")`` reduction
+            # ``_apply_cluster_aggregate`` uses -> bit-identical column, skipping
+            # the full member re-extract/re-standardize/re-combine round trip
+            # (9 methods x k cols of pandas getitem + nan_to_num + column_stack
+            # per cluster). Only the edges path (the default whenever
+            # quantization nbins>=2) is shortcut; the no-quantization / no-edges
+            # branch still defers to ``apply_recipe`` for exact behaviour.
+            _edges_local = None if _q_local is None else _q_local.get("edges")
+            if _edges_local is not None:
+                _edges_arr = np.asarray(_edges_local, dtype=np.float64)
+                binned = np.searchsorted(
+                    _edges_arr[1:-1] if _edges_arr.size >= 2 else _edges_arr,
+                    _agg_continuous, side="right",
+                ).astype(np.dtype(_q_local["dtype"]))
+            else:
+                binned = apply_recipe(recipe, X)
             agg_mi = float(mi(np.column_stack([data, binned.astype(data.dtype)]), np.array([data.shape[1]], dtype=np.int64),
                               target, np.concatenate([np.asarray(nbins), [int(quantization_nbins)]]).astype(np.int64), dtype=dtype))
             if best is None or agg_mi > best[0]:

@@ -184,6 +184,46 @@ def test_gate_rejects_when_no_mi_gain():
     assert n_added == 0 and not recipes  # independent noise -> no denoising gain -> rejected
 
 
+def test_fit_binned_column_is_bit_identical_to_apply_recipe_replay():
+    """The orchestration's direct-bin fast path (bin the already-computed continuous aggregate with
+    the fit-time quantile edges, skipping the full ``apply_recipe`` member re-extract/re-standardize/
+    re-combine round trip) must reproduce ``apply_recipe``'s replay column EXACTLY for every accepted
+    aggregate. A future "just call apply_recipe again" regression -- or any FP-order drift between the
+    fit-time aggregate and the replay aggregate -- changes the binned codes and would silently shift
+    which features get selected, so pin bit-identity across multiple seeds."""
+    from mlframe.feature_selection.filters._cluster_aggregate import run_cluster_aggregate_step
+    from mlframe.feature_selection.filters.discretization import discretize_array
+    from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+    NB = 8
+    for seed in (0, 3, 11):
+        X, y, _z = _reflection_frame(n=2500, k=5, noise=0.8, seed=seed)
+        cols = list(X.columns) + ["y"]
+        binned = [discretize_array(arr=X[c].to_numpy(), n_bins=NB, method="quantile", dtype=np.int32) for c in X.columns]
+        binned.append(np.asarray(y).astype(np.int32))
+        data = np.column_stack(binned).astype(np.int32)
+        nbins = np.array([NB] * len(X.columns) + [2], dtype=np.int64)
+        recipes: dict = {}
+        out = run_cluster_aggregate_step(
+            data=data, cols=cols, nbins=nbins, X=X, target_indices=(len(cols) - 1,),
+            feature_names_in_=list(X.columns), categorical_idx=(), cached_MIs={},
+            engineered_recipes=recipes, quantization_nbins=NB, quantization_method="quantile",
+            quantization_dtype=np.int32,
+            methods=("mean_z", "mean_inv_var", "pca_pc1", "pca_pc2", "factor_score",
+                     "median", "median_z", "signed_max_abs", "signed_l2_sum"),
+            mi_prevalence=1.0, corr_threshold=0.4, min_cluster_size=3, verbose=0,
+        )
+        data_out, n_added = out[0], out[4]
+        assert n_added >= 1, f"seed={seed}: expected at least one accepted aggregate"
+        added = data_out[:, data_out.shape[1] - n_added:]
+        for j, recipe in enumerate(list(recipes.values())[-n_added:]):
+            replay = apply_recipe(recipe, X).astype(added.dtype)
+            np.testing.assert_array_equal(
+                added[:, j], replay,
+                err_msg=f"seed={seed} recipe={recipe.name}: fast-path column != apply_recipe replay",
+            )
+
+
 # ---------------------------------------------------------------------------
 # MRMR-level contracts
 # ---------------------------------------------------------------------------
