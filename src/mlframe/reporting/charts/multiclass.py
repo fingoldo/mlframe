@@ -206,7 +206,7 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
     )
 
 
-def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> LinePanelSpec:
+def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True) -> LinePanelSpec:
     """Per-class ROC curves overlaid (one-vs-rest).
 
     Curve vertices AND the legend AUC come from one class-stratified subsample (cap
@@ -214,8 +214,15 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> LinePanelS
     class (~5s @2M/K=10) for a number the 200-pt display can't distinguish from the
     stratified estimate, so AUC is taken via ``auc(fpr, tpr)`` on the same subsample.
     ``sub`` may be a precomputed shared subsample index (composer passes one for all panels).
+
+    ``show_auc_ci`` (default on) appends a 95% DeLong confidence interval to each class's
+    AUC legend label. DeLong is the closed-form O(n log n) AUC-variance estimator -- no
+    bootstrap -- so the CI is essentially free on top of the AUC the panel already computes
+    (it reads the same stratified subsample). A wide bracket on a rare class flags that its
+    AUC is not yet pinned down by the data, which a single point estimate hides.
     """
     from sklearn.metrics import auc, roc_curve
+    from mlframe.reporting.charts.calibration import delong_auc_ci
 
     K = len(classes)
     labels: List[str] = []
@@ -238,7 +245,13 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> LinePanelS
         fpr, tpr, _ = roc_curve(bin_y, proba_s[:, k])
         roc_auc = auc(fpr, tpr)
         interpolated.append(np.interp(x_grid, fpr, tpr))
-        labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
+        if show_auc_ci:
+            # DeLong CI from the same stratified subsample (the displayed AUC's data); closed-form, no extra sort cost
+            # beyond two midrank argsorts the panel would not otherwise pay.
+            _, lo, hi = delong_auc_ci(bin_y, proba_s[:, k])
+            labels.append(f"{classes[k]} (AUC={roc_auc:.3f} [{lo:.3f}, {hi:.3f}])")
+        else:
+            labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
     return LinePanelSpec(
         x=x_grid,
