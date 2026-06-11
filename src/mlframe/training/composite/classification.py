@@ -296,3 +296,18 @@ from .conformal_classification import (  # noqa: E402
 
 CompositeClassificationEstimator.calibrate_conformal_set = _calibrate_conformal_set
 CompositeClassificationEstimator.predict_set = _predict_set
+
+# Inductive Venn-Abers probability calibration (binary). Bound from
+# ``composite/venn_abers.py`` (no import cycle). calibrate_venn_abers(X_cal, y_cal)
+# fits the two isotonic envelopes on a held-out set; predict_proba_interval(X)
+# returns the calibrated [p_low, p_high] multiprobability; predict_proba_venn_abers(X)
+# returns the regularised calibrated (n, 2) predict_proba.
+from .venn_abers import (  # noqa: E402
+    calibrate_venn_abers as _calibrate_venn_abers,
+    predict_proba_interval as _predict_proba_interval,
+    predict_proba_venn_abers as _predict_proba_venn_abers,
+)
+
+CompositeClassificationEstimator.calibrate_venn_abers = _calibrate_venn_abers
+CompositeClassificationEstimator.predict_proba_interval = _predict_proba_interval
+CompositeClassificationEstimator.predict_proba_venn_abers = _predict_proba_venn_abers
