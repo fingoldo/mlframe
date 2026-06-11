@@ -263,6 +263,11 @@ from ..configs import CompositeTargetDiscoveryConfig  # noqa: E402,F401
 from .classification import CompositeClassificationEstimator  # noqa: E402,F401
 from .conformal import conformal_quantile  # noqa: E402,F401
 
+# Conformal classification prediction SETS (LAC / APS), base-vs-residual
+# attribution, and deployed-model drift monitoring.
+from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
+from .monitoring import CompositeDriftMonitor  # noqa: E402,F401
+
 # GLM-family composite (log-link Poisson / Gamma / Tweedie residual over a base mean).
 from .glm import CompositeGLMEstimator  # noqa: E402,F401
 
@@ -295,6 +300,7 @@ __all__ = [
     "CompositeMultiOutputEstimator", "make_per_column_specs",
     "make_composite_regressor", "CompositeTargetTransformer",
     "suggest_discovery_config", "discover_and_wrap", "DiscoverAndWrapResult",
+    "explain_prediction", "attribution_summary", "CompositeDriftMonitor",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
