@@ -1,9 +1,6 @@
-"""``BorutaShap.fit`` + ``BorutaShap.explain`` carved out of
-``mlframe.feature_selection.boruta_shap``.
+"""``BorutaShap.fit`` + ``BorutaShap.explain`` carved out of the ``mlframe.feature_selection.boruta_shap`` package facade.
 
-Methods are bound onto the ``BorutaShap`` class at the parent's module
-bottom so ``self.fit(...)`` / ``self.explain(...)`` call sites resolve
-unchanged.
+Methods are bound onto the ``BorutaShap`` class in the package ``__init__`` so ``self.fit(...)`` / ``self.explain(...)`` call sites resolve unchanged.
 """
 
 from __future__ import annotations

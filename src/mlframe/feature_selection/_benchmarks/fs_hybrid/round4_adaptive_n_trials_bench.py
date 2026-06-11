@@ -1,6 +1,6 @@
 """A4-5 adaptive_n_trials (BorutaShap) -- cheap falsifiable speed-lever test.
 
-PRODUCTION FACT (read-only from _boruta_shap_fit_explain.py:367-380):
+PRODUCTION FACT (read-only from boruta_shap/_fit_explain.py):
   BorutaShap ALREADY early-terminates: each trial accumulates per-feature ``hits`` and runs the
   binomial H0 test (n=trial, p=0.5); the loop BREAKS once every feature is decided (zero tentative)
   -- ``n_trials_run_`` records the actual count. So "stop trials by binomial convergence" is LARGELY

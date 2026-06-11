@@ -1196,7 +1196,7 @@ class FuzzCombo:
             # knobs. The master toggle is only meaningful when BorutaShap is on;
             # patience/margin only bite when the master toggle is also on (they
             # are read solely inside the early_stop branch of
-            # _boruta_shap_fit_explain), so collapse them to the BorutaShap
+            # boruta_shap/_fit_explain), so collapse them to the BorutaShap
             # signature defaults outside that compound gate -- otherwise they'd
             # split dedup buckets for runs that behave identically.
             (self.boruta_early_stop_tentative_cfg if self.use_boruta_shap_cfg else False),

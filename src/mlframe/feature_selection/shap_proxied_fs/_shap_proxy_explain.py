@@ -169,7 +169,7 @@ def _treeshap_numba_min_features() -> int:
 
 
 def _unwrap_estimator(model):
-    """Return the SHAP-explainable base estimator, mirroring BorutaShap._boruta_shap_fit_explain."""
+    """Return the SHAP-explainable base estimator, mirroring BorutaShap's boruta_shap/_fit_explain."""
     est_name = type(model).__name__
     if est_name == "TransformedTargetRegressor":
         return model.regressor_ if hasattr(model, "regressor_") else model.regressor

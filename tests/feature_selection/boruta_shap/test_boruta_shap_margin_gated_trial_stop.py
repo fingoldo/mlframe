@@ -144,7 +144,7 @@ def test_shipped_rule_is_margin_gated_not_naive():
     """Guard that the SAFE margin-gated rule is what fires, NOT the naive accepted-set-stability rule. Construct a
     transient plateau where the accepted set is flat for the patience window BUT a tentative feature is still near a
     decision boundary: the naive rule would stop (and lock the wrong set), the shipped margin-gated rule must NOT."""
-    from mlframe.feature_selection._boruta_shap_fit_explain import (
+    from mlframe.feature_selection.boruta_shap._fit_explain import (
         _naive_accepted_set_stable,
         _tentative_near_boundary,
         _should_stop_tentative_tail,

@@ -1,17 +1,10 @@
 """BorutaShap shadow-feature construction + statistical / hit-test helpers.
 
-Carved verbatim out of ``boruta_shap.py`` (LOC-budget sibling re-export, see
-mlframe/CLAUDE.md "Monolith split"), mirroring the existing
-``_boruta_shap_fit_explain.py`` / ``_boruta_shap_io_plot.py`` method-binding
-split. These functions are bound onto ``BorutaShap`` at the bottom of
-``boruta_shap.py`` (instance methods take ``self``; the ``@staticmethod`` ones
-are re-wrapped with ``staticmethod`` at bind time, exactly like the IO/plot
-helpers), so the class's public method surface is unchanged.
+Carved out of the ``boruta_shap`` package facade (LOC-budget submodule split, see mlframe/CLAUDE.md "Monolith split"), mirroring the sibling
+``_fit_explain.py`` / ``_io_plot.py`` method-binding split. These functions are bound onto ``BorutaShap`` in the package ``__init__``
+(instance methods take ``self``; the ``@staticmethod`` ones are re-wrapped with ``staticmethod`` at bind time, exactly like the IO/plot helpers), so the class's public method surface is unchanged.
 
-The bodies are moved unchanged (docstrings / comments / decorators preserved).
-``_binom_test_cached`` stays defined in the parent (its public name must remain
-importable there); ``binomial_H0_test`` lazy-imports it in-body to avoid the
-parent<->sibling circular import at module-import time.
+``_binom_test_cached`` stays defined in the package ``__init__`` (its public name must remain importable there); ``binomial_H0_test`` lazy-imports it in-body to avoid the facade<->submodule circular import at module-import time.
 """
 from __future__ import annotations
 
@@ -259,10 +252,8 @@ def binomial_H0_test(array, n, p, alternative):
     This is an exact, two-sided test of the null hypothesis
     that the probability of success in a Bernoulli experiment is p
     """
-    # Lazy import of the parent's memoized binom_test to avoid the parent<->sibling
-    # circular import at module-import time (this sibling is imported at the bottom
-    # of ``boruta_shap.py``, after ``_binom_test_cached`` is defined there).
-    from .boruta_shap import _binom_test_cached
+    # Lazy import of the package facade's memoized binom_test to avoid the facade<->submodule circular import at module-import time (this submodule is imported at the bottom of the package ``__init__``, after ``_binom_test_cached`` is defined there).
+    from . import _binom_test_cached
     return [_binom_test_cached(int(x), n, p, alternative) for x in array]
 
 def symetric_difference_between_two_arrays(array_one, array_two):

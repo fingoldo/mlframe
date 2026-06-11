@@ -77,8 +77,8 @@ def _read(rel: str) -> str:
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "feature_selection/boruta_shap.py":
-        # 2026-05-22 split: BorutaShap.fit + .explain moved to sibling.
-        sibling = _ROOT / "feature_selection" / "_boruta_shap_fit_explain.py"
+        # BorutaShap.fit + .explain live in the boruta_shap package submodule.
+        sibling = _ROOT / "feature_selection" / "boruta_shap" / "_fit_explain.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "training/pipeline.py":

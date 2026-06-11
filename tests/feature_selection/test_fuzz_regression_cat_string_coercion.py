@@ -55,7 +55,7 @@ class TestBorutaPremergeOnStringCats:
     factor-code string categoricals first (fuzz c0149)."""
 
     def test_premerge_collapse_tolerates_string_cats(self):
-        from mlframe.feature_selection._boruta_shap_fit_explain import _premerge_collapse
+        from mlframe.feature_selection.boruta_shap._fit_explain import _premerge_collapse
 
         X = _mixed_frame()
         # Pre-fix: ``np.corrcoef(X.values)`` -> ``unsupported operand type(s)

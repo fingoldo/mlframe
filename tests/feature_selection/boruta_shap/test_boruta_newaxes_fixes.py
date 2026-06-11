@@ -1,4 +1,4 @@
-"""Regression tests for the BorutaShap stability-gate fixes in ``_boruta_shap_fit_explain.py``.
+"""Regression tests for the BorutaShap stability-gate fixes in ``boruta_shap/_fit_explain.py``.
 
 Each test pins one freshly-landed bug:
   * [4]  intersection mode (stability_threshold==1.0) must NOT let ``optimistic`` re-add the sub-majority
@@ -37,7 +37,7 @@ def _orchestrate_with_stub(self, X, y, accepted_for, base_seed=0):
     if the orchestrator runs the sub-fits concurrently (joblib threading backend). Returns the
     populated ``self`` plus the list of per-sub-fit observations.
     """
-    from mlframe.feature_selection import _boruta_shap_fit_explain as mod
+    from mlframe.feature_selection.boruta_shap import _fit_explain as mod
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     calls: list = []

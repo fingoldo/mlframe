@@ -230,14 +230,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # tentative feature is still close to a boundary, so the accepted/rejected sets at the stop are
         # decision-equivalent to running the full cap (measured synth Jaccard 1.0 ~72% wall saved, hard_synth
         # Jaccard 0.842 ~63% wall saved). See ``_should_stop_tentative_tail`` (and the documented-but-disabled
-        # naive contrast ``_naive_accepted_set_stable``) in ``_boruta_shap_fit_explain.py``.
+        # naive contrast ``_naive_accepted_set_stable``) in ``_fit_explain.py``.
         self.early_stop_tentative = early_stop_tentative
         self.early_stop_patience = early_stop_patience
         self.early_stop_margin = early_stop_margin
 
         # Control/safety knobs mirroring MRMR / RFECV: a wall-clock budget and a
         # filesystem stop-flag, both honoured inside the trial loop (see ``_fit_func``
-        # in ``_boruta_shap_fit_explain``). ``max_runtime_mins=None`` disables the time
+        # in ``_fit_explain``). ``max_runtime_mins=None`` disables the time
         # budget; ``stop_file`` is checked for existence each trial (touch it to abort
         # the run cleanly, returning the features classified so far).
         self.max_runtime_mins = max_runtime_mins
@@ -669,11 +669,9 @@ def load_data(data_type="classification"):
 
 
 # ----------------------------------------------------------------------
-# Method bindings. ``fit`` + ``explain`` bodies live in
-# ``_boruta_shap_fit_explain.py`` so this file stays below the 1k-LOC
-# monolith threshold.
+# Method bindings. ``fit`` + ``explain`` bodies live in ``_fit_explain.py`` so the package facade stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._boruta_shap_fit_explain import (  # noqa: E402
+from ._fit_explain import (  # noqa: E402
     fit as _fit_func,
     explain as _explain_func,
 )
@@ -681,7 +679,7 @@ from mlframe.utils.misc import rng_hygienic_fit  # noqa: E402
 BorutaShap.fit = rng_hygienic_fit(_fit_func)
 BorutaShap.explain = _explain_func
 
-from ._boruta_shap_io_plot import (  # noqa: E402,F401
+from ._io_plot import (  # noqa: E402,F401
     results_to_csv as _results_to_csv_func,
     plot as _plot_func,
     box_plot as _box_plot_func,
@@ -702,11 +700,8 @@ BorutaShap.hasNumbers = staticmethod(_has_numbers_func)
 BorutaShap.check_if_which_features_is_correct = staticmethod(_check_which_features_func)
 BorutaShap.to_dictionary = staticmethod(_to_dictionary_func)
 
-# Shadow-feature construction + statistical / hit-test helpers live in
-# ``_boruta_shap_shadow_stats.py`` (same LOC-budget method-binding split). Instance
-# methods take ``self`` and bind directly; the previously-``@staticmethod`` helpers
-# are re-wrapped with ``staticmethod`` here, exactly as the IO/plot helpers above.
-from ._boruta_shap_shadow_stats import (  # noqa: E402,F401
+# Shadow-feature construction + statistical / hit-test helpers live in ``_shadow_stats.py`` (same LOC-budget method-binding split). Instance methods take ``self`` and bind directly; the previously-``@staticmethod`` helpers are re-wrapped with ``staticmethod`` here, exactly as the IO/plot helpers above.
+from ._shadow_stats import (  # noqa: E402,F401
     calculate_hits as _calculate_hits_func,
     create_shadow_features as _create_shadow_features_func,
     calculate_Zscore as _calculate_zscore_func,
