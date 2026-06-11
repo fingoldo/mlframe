@@ -495,10 +495,26 @@ def screen_predictors(
             verbose=verbose,
         )
 
+        # ``classes_y_safe`` is OVERLOADED across two consumers with INCOMPATIBLE
+        # array-backend requirements, so we keep a CPU numpy buffer ALWAYS and a
+        # separate CuPy device buffer only when GPU is on:
+        #   * the FE step (returned ``classes_y_safe`` -> check_prospective_fe_pairs
+        #     -> the batched MI noise-gate) runs njit kernels (CPU fallback AND the
+        #     bit-identical GPU twin, which does ``np.asarray(classes_y_safe)`` +
+        #     a numba Fisher-Yates shuffle) -> it REQUIRES a numpy host array.
+        #   * the confirm / baseline-eval GPU branches (``mi_direct_gpu``) want the
+        #     pre-warmed CuPy DEVICE buffer to skip the H2D copy.
+        # Pre-2026-06-11 the GPU branch reassigned the single ``classes_y_safe``
+        # local to a CuPy array and returned THAT to the FE step, so any
+        # ``MRMR(use_gpu=True)`` fit that reached the FE pair-search crashed with
+        # ``TypingError: Cannot determine Numba type of <class 'cupy.ndarray'>``
+        # (or ``np.asarray`` on a cupy array raising in the subsample path). Now the
+        # numpy buffer survives for the return; the device buffer only goes to ctx.
+        classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
         if use_gpu:
             import cupy as cp
 
-            classes_y_safe = cp.asarray(classes_y.astype(np.int32))
+            classes_y_safe = cp.asarray(classes_y.astype(np.int32))  # device buffer for ctx -> mi_direct_gpu
             freqs_y_safe = cp.asarray(freqs_y)
         else:
             freqs_y_safe = None
@@ -956,7 +972,11 @@ def screen_predictors(
             if key in cached_cond_MIs:
                 additional_knowledge = cached_cond_MIs[key]
         """
-        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, dcd_state
+        # Return the CPU numpy ``classes_y_safe_host`` (NOT the CuPy device buffer that
+        # ``ctx`` holds for ``mi_direct_gpu``): the caller threads this into the FE step's
+        # njit MI noise-gate, which cannot accept a cupy array. ``classes_y_safe_host`` is
+        # defined unconditionally above; on the CPU path it IS ``classes_y_safe``.
+        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe_host, freqs_y, dcd_state
     finally:
         # Restore the global numpy RNG state captured at entry. Executes on the
         # happy return AND on any raise inside the try -- pre-fix code only restored on
