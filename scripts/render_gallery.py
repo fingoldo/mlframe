@@ -595,6 +595,33 @@ def _b():
 
 
 # ---------------------------------------------------------------------------
+# SPLIT COMPARISON (cross-split overfitting)
+# ---------------------------------------------------------------------------
+
+
+@entry("split_comparison", "split_comparison",
+       "Cross-split overfitting view for ONE model: grouped headline-metric bars per train/val/test + delta table with "
+       "a RED traffic-light verdict. Synthetic memorizes train (AUC ~0.99) but barely beats chance on test (AUC ~0.70).")
+def _b():
+    from mlframe.reporting.charts.split_comparison import compose_split_comparison_figure
+    n = 4000
+    # Train: score nearly equals the label (memorized) -> AUC ~0.99. Val/test: progressively weaker signal.
+    y_tr = (RNG.random(n) < 0.5).astype(np.int8)
+    s_tr = np.clip(y_tr + RNG.normal(0.0, 0.08, n), 0.0, 1.0)
+    def _weak(sep, seed):
+        r = np.random.default_rng(seed)
+        y = (r.random(n) < 0.5).astype(np.int8)
+        s = 1.0 / (1.0 + np.exp(-(sep * (y - 0.5) + r.normal(0.0, 1.0, n))))
+        return {"y_true": y, "y_score": s}
+    per_split = {
+        "train": {"y_true": y_tr, "y_score": s_tr},
+        "val": _weak(1.1, 11),
+        "test": _weak(0.9, 22),
+    }
+    return compose_split_comparison_figure(per_split, task="classification", model_name="lgbm_overfit")
+
+
+# ---------------------------------------------------------------------------
 # TRAINING CURVE
 # ---------------------------------------------------------------------------
 
