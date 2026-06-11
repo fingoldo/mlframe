@@ -197,7 +197,14 @@ def near_collinear_keep_mask_fast(
     # Cheap exits identical to the reference (also avoids JIT on trivial inputs).
     if n_cols < 2 or n_rows < 3 or not (thr < 1.0):
         return np.ones(n_cols, dtype=bool)
-    if not _HAS_NUMBA or n_cols < _MIN_COLS or n_rows < _MIN_ROWS:
+    if not _HAS_NUMBA:
+        return reference_fn(feature_matrix, corr_threshold=thr)
+    # Backend choice goes through the kernel_tuning_cache (per-host measured crossover)
+    # with the hardcoded _MIN_COLS / _MIN_ROWS gate as the fallback + an env-var
+    # force-override; bit-identical either way (borderline columns re-decided exactly).
+    from ._ktc_dispatch import choose_collinear_backend
+
+    if choose_collinear_backend(n_rows, n_cols, min_rows=_MIN_ROWS, min_cols=_MIN_COLS) == "numpy":
         return reference_fn(feature_matrix, corr_threshold=thr)
 
     fm = np.ascontiguousarray(feature_matrix, dtype=np.float64)

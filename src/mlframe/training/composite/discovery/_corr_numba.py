@@ -148,7 +148,14 @@ def safe_abs_corr_all_dispatch(
     if X.ndim != 2:
         raise ValueError("safe_abs_corr_all_dispatch expects a 2-D X")
     n_rows, n_cols = X.shape
-    if (not _HAS_NUMBA) or n_cols < _MIN_COLS or n_rows < _MIN_ROWS:
+    # Backend choice goes through the kernel_tuning_cache (per-host measured crossover)
+    # with the hardcoded _MIN_ROWS / _MIN_COLS gate as the fallback + an env-var
+    # force-override; bit-identical either way (borderline columns re-decided exactly).
+    if not _HAS_NUMBA:
+        return reference_fn(y, X)
+    from ._ktc_dispatch import choose_corr_backend
+
+    if choose_corr_backend(n_rows, n_cols, min_rows=_MIN_ROWS, min_cols=_MIN_COLS) == "numpy":
         return reference_fn(y, X)
 
     y_finite = np.isfinite(y)
