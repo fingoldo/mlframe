@@ -88,6 +88,16 @@ class TestPanelTypes:
         # K x K matrix
         assert spec.panels[0][0].matrix.shape == (3, 3)
 
+    def test_confusion_uses_cb_safe_sequential_cmap_not_diverging(self, synth_3class):
+        """Confusion values are unsigned (counts / row-rates), so the heatmap must use the CB-safe sequential
+        viridis -- a diverging red/blue map (RdBu_r) wrongly implies a meaningful zero-centre."""
+        from mlframe.reporting.colors import HEATMAP_CMAP, resolve_heatmap_cmap
+        y, p, c = synth_3class
+        panel = compose_multiclass_figure(y, p, c, panels_template="CONFUSION").panels[0][0]
+        assert panel.colormap == HEATMAP_CMAP
+        assert resolve_heatmap_cmap(panel.colormap) == "viridis"
+        assert panel.colormap != "RdBu_r"
+
     def test_pr_f1_returns_grouped_bar(self, synth_3class):
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="PR_F1")

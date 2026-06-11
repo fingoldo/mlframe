@@ -77,6 +77,23 @@ def test_spec_shape_and_orientation():
     assert panels[0].orientation == "horizontal"
 
 
+def test_bar_categories_are_worst_first_to_match_title():
+    """The horizontal-bar categories must be in worst-first order (matching ``table`` / the worst_slice).
+
+    The renderer inverts the y-axis for horizontal bars, so the FIRST category lands on TOP; pre-reversing the
+    data here put the worst slice at the BOTTOM, contradicting the panel's "worst-on-top" title."""
+    rng = np.random.default_rng(11)
+    n = 6000
+    f0, f1 = rng.random(n), rng.random(n)
+    bad = (f0 > 0.6) & (f1 > 0.6)
+    X = pd.DataFrame({"f0": f0, "f1": f1})
+    res = find_weak_slices(X, np.zeros(n), np.where(bad, 7.0, 1.0), task="regression", max_arity=2)
+    panel = _flat(res.figure)[0]
+    # Worst slice (largest mean error) is the first row of the worst-first table and the first bar category.
+    assert panel.values[0] == max(panel.values)
+    assert str(res.worst_slice[1]) in panel.categories[0]
+
+
 def test_three_way_cap_is_logged(caplog):
     rng = np.random.default_rng(3)
     n = 4000

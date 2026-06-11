@@ -17,7 +17,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from mlframe.reporting.colors import CALIBRATION
+from mlframe.reporting.colors import HEATMAP_CMAP
 from mlframe.reporting.spec import (
     FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
 )
@@ -174,7 +174,7 @@ def build_calibration_spec(
         ylabel=label_freq,
         perfect_fit_line=True,
         point_color=hits.astype(np.float64),
-        colormap=CALIBRATION,
+        colormap=HEATMAP_CMAP,
         point_alpha=0.7,
         point_size=point_size,
         inline_labels=inline_labels,
@@ -195,7 +195,7 @@ def build_calibration_spec(
         bin_centers=freqs_predicted,
         bin_width=bar_width,
         bar_colors=hits.astype(np.float64),
-        colormap=CALIBRATION,
+        colormap=HEATMAP_CMAP,
         title="",
         xlabel=label_prob,
         ylabel=label_histogram,

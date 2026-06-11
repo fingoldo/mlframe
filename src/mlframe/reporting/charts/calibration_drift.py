@@ -236,11 +236,14 @@ def build_calibration_drift_spec(
     rel_panel = _reliability_small_multiple(result, max_curve_panels=max_curve_panels)
     if rel_panel is None:
         return FigureSpec(suptitle="", panels=((ece_line,),), figsize=figsize)
+    # constrained_layout reserves space between the rows so the top panel's rotated date x-tick labels do not
+    # collide with the bottom panel's title; extra height gives both panels room once that gap is reserved.
     return FigureSpec(
         suptitle="",
         panels=((ece_line,), (rel_panel,)),
-        figsize=(figsize[0], figsize[1] * 1.7),
+        figsize=(figsize[0], figsize[1] * 2.0),
         row_height_ratios=(1.0, 1.2),
+        constrained_layout=True,
     )
 
 

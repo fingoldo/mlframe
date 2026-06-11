@@ -194,6 +194,10 @@ class LinePanelSpec:
     band: Optional[Tuple[np.ndarray, np.ndarray]] = None
     band_color: Optional[str] = None  # defaults to the first series color
     band_label: Optional[str] = None
+    # Place the legend OUTSIDE the axes (to the right) instead of "best": for many-series overlays (per-tau
+    # quantile reliability) an in-axes legend covers the curves. ``legend_ncol`` splits a long legend into columns.
+    legend_outside: bool = False
+    legend_ncol: int = 1
 
 
 @dataclass(frozen=True)

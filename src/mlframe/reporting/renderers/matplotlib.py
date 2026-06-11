@@ -485,7 +485,12 @@ class MatplotlibRenderer:
             handles += proxies
             leg_labels += [pr.get_label() for pr in proxies]
             if handles:
-                ax.legend(handles, leg_labels, loc="best", fontsize=8, framealpha=0.7)
+                if getattr(p, "legend_outside", False):
+                    ax.legend(handles, leg_labels, loc="center left", bbox_to_anchor=(1.02, 0.5),
+                              fontsize=7, framealpha=0.7, ncol=max(1, int(getattr(p, "legend_ncol", 1))))
+                else:
+                    ax.legend(handles, leg_labels, loc="best", fontsize=8, framealpha=0.7,
+                              ncol=max(1, int(getattr(p, "legend_ncol", 1))))
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)

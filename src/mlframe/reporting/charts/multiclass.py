@@ -28,7 +28,7 @@ import numpy as np
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
-from mlframe.reporting.colors import CONFUSION as CONFUSION_CMAP
+from mlframe.reporting.colors import HEATMAP_CMAP
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     LinePanelSpec, PanelSpec, ScatterPanelSpec, ViolinPanelSpec,
@@ -114,6 +114,9 @@ def _confusion_panel(y_true, y_proba, classes, *, y_pred=None, normalize: bool =
     raw counts hide minority-class confusion because a frequent class dominates the
     color scale. Cell text is suppressed past ``_CONFUSION_TEXT_MAX_K`` classes where
     K^2 annotations turn to soup.
+
+    Counts / row-rates are unsigned magnitudes, so the colormap is the CB-safe sequential
+    viridis -- a diverging red/blue map would imply a meaningful zero-centre that does not exist.
     """
     K = len(classes)
     matrix = _confusion_counts(y_true, _resolve_pred(y_pred, y_proba), K)
@@ -137,7 +140,7 @@ def _confusion_panel(y_true, y_proba, classes, *, y_pred=None, normalize: bool =
         title=title,
         xlabel="Predicted",
         ylabel="True",
-        colormap=CONFUSION_CMAP,
+        colormap=HEATMAP_CMAP,
         cell_text=display if K <= _CONFUSION_TEXT_MAX_K else None,
         text_format=fmt,
         colorbar_label=cbar,

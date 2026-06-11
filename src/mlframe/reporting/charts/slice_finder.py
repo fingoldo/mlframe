@@ -276,11 +276,11 @@ def find_weak_slices(
         for i in range(len(table))
     )
     vals = table["mean_error"].to_numpy()
-    # argsort gave worst-first; BarPanelSpec draws first category at the BOTTOM for horizontal bars, so reverse to put
-    # the worst slice on top.
+    # ``table`` is already worst-first; the renderer inverts the y-axis for horizontal bars so the first category
+    # lands on TOP, so the worst slice reads at the top to match the "worst-on-top" title (no pre-reverse here).
     bar = BarPanelSpec(
-        categories=cats[::-1],
-        values=vals[::-1],
+        categories=cats,
+        values=vals,
         title=title + f"\n(global mean error = {global_error:.3g}; worst-on-top, label = support n + error ratio)",
         xlabel="Slice mean error",
         ylabel="slice",

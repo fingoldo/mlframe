@@ -299,8 +299,15 @@ def shap_summary_and_dependence(
 
     figs_before = set(plt.get_fignums())
     try:
-        shap.summary_plot(shap_values, X_sample, feature_names=names, max_display=max(int(top_k), 1), show=False)
+        # Beeswarm SUMMARY from the 2-D per-sample SHAP matrix (positive class for a classifier). Passing the raw
+        # Explanation makes shap render a per-class / interaction grid instead of the canonical dot beeswarm.
+        shap.summary_plot(
+            shap_mat, vals_sample, feature_names=names, plot_type="dot",
+            max_display=max(int(top_k), 1), show=False,
+        )
         beeswarm = plt.gcf()
+        # Widen so the "SHAP value (impact on model output)" x-axis label is not clipped by the colorbar.
+        beeswarm.set_size_inches(9.0, max(4.0, 0.5 * min(len(names), max(int(top_k), 1)) + 2.0))
         figures.append(beeswarm)
         if plot_file:
             paths.extend(_save_figure(beeswarm, _base_for(plot_file, "shap_beeswarm"), plot_outputs))

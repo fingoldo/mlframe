@@ -276,6 +276,17 @@ class TestQuantileReliabilityPanelTypes:
         assert any("nominal" in s for s in panel.series_labels)
         assert any("obs" in s for s in panel.series_labels)
 
+    def test_quantile_reliability_legend_does_not_emit_per_tau_nominal_entries(self, synth_qr_calibrated):
+        """The per-tau nominal reference lines must NOT each get a legend label (~2K entries cover the plot at
+        K>=7); exactly one nominal-reference key is labelled and the legend is placed outside the axes."""
+        y, p, alphas = synth_qr_calibrated
+        panel = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_RELIABILITY").panels[0][0]
+        nominal_labels = [s for s in panel.series_labels if "nominal" in s]
+        assert len(nominal_labels) == 1, nominal_labels
+        labelled = [s for s in panel.series_labels if s]
+        assert len(labelled) == len(alphas) + 1  # K obs curves + one nominal key
+        assert panel.legend_outside is True
+
     def test_pinball_decomp_returns_bar(self, synth_qr_calibrated):
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_DECOMP")

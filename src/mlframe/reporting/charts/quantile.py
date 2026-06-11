@@ -400,11 +400,14 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         y = y[sub]
         P = P[sub]
 
+    from mlframe.reporting.colors import line_color
+
     quantile_grid = np.linspace(0.02, 0.98, _RELIABILITY_GRID)
     curves: List[np.ndarray] = []
     nominal: List[np.ndarray] = []
     labels: List[str] = []
     styles: List[str] = []
+    colors: List[str] = []
     for k in range(K):
         q_k = P[:, k]
         indicator = (y <= q_k).astype(np.float64)
@@ -414,9 +417,13 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         nominal.append(np.full(_RELIABILITY_GRID, float(a_arr[k])))
         labels.append(f"tau={a_arr[k]:g} (obs)")
         styles.append("lines+markers")
+        colors.append(line_color(k))
+    # The per-tau nominal lines are reference levels sharing each obs curve's color; labelling all K floods the
+    # legend (~2K entries cover the plot at K>=7). Label one as the dotted-reference key and blank the rest.
     for k in range(K):
-        labels.append(f"tau={a_arr[k]:g} (nominal)")
+        labels.append("nominal tau (dotted)" if k == 0 else "")
         styles.append(":")
+        colors.append(line_color(k))
     x_axis = np.linspace(0.0, 1.0, _RELIABILITY_GRID)
     return LinePanelSpec(
         x=x_axis,
@@ -426,6 +433,8 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         xlabel="Predicted-quantile rank (low -> high)",
         ylabel="Recalibrated P(y <= q_tau)",
         line_styles=tuple(styles),
+        colors=tuple(colors),
+        legend_outside=True,
     )
 
 
@@ -650,8 +659,8 @@ def compose_quantile_figure(
     panels_template: str = DEFAULT_QUANTILE_PANELS,
     suptitle: str = "",
     max_cols: int = 2,
-    cell_width: float = 6.0,
-    cell_height: float = 4.0,
+    cell_width: float = 7.5,
+    cell_height: float = 4.8,
 ) -> FigureSpec:
     """Build a quantile-regression quality FigureSpec from a panel template.
 
