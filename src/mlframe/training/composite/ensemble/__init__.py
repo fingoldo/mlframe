@@ -465,15 +465,22 @@ def compute_oof_holdout_predictions(
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
             return _hit
 
-    # Warn loudly when a caller asks for time-aware K-fold (kfold>1 AND time_ordering supplied) so they know the suite is downgrading to a single trailing-slice holdout. Forward-walking K-fold is semantically ambiguous (past-only training rules out shuffled K-fold) and intentionally unsupported; callers who got back ONE OOF slice instead of K used to have no signal their kfold request was ignored, biasing every downstream "average across folds" report.
-    if int(kfold) > 1 and time_ordering is not None:
+    # N21: forward-walking K-fold OOF. When kfold>1 AND time_ordering is
+    # monotone (rows already in time order), use TimeSeriesSplit -- K expanding-
+    # window folds whose holdouts are FUTURE blocks, covering K slices instead of
+    # one trailing slice while staying past-only. A NON-monotone time signal
+    # cannot be forward-walked without sorting the OOF frame, so it still
+    # downgrades to the single trailing-slice path (with a loud warn).
+    _time_monotone = time_ordering is not None and _is_monotone_nondecreasing(time_ordering)
+    if int(kfold) > 1 and time_ordering is not None and not _time_monotone:
         logger.warning(
-            "compute_oof_holdout_predictions: kfold=%d AND time_ordering supplied; K-fold is "
-            "incompatible with time-aware semantics. Downgrading to a single trailing-slice "
-            "holdout. Pass time_ordering=None to enable shuffled K-fold OOF.",
+            "compute_oof_holdout_predictions: kfold=%d AND a NON-monotone "
+            "time_ordering; cannot forward-walk without sorting the OOF frame. "
+            "Downgrading to a single trailing-slice holdout. Sort the frame by "
+            "time (so time_ordering is monotone) to get a K-fold forward walk.",
             int(kfold),
         )
-    if int(kfold) > 1 and time_ordering is None:
+    if int(kfold) > 1 and (time_ordering is None or _time_monotone):
         if external_holdout_X is not None:
             logger.warning(
                 "compute_oof_holdout_predictions: both kfold>1 and external_holdout_X supplied; kfold "
@@ -487,7 +494,11 @@ def compute_oof_holdout_predictions(
             _g_arr = np.asarray(group_ids)
             if _g_arr.shape[0] == n_train and np.unique(_g_arr).size >= int(kfold):
                 _kf_groups = _g_arr
-        if _kf_groups is not None:
+        if _time_monotone:
+            from sklearn.model_selection import TimeSeriesSplit
+            kf = TimeSeriesSplit(n_splits=int(kfold))
+            _kf_split = kf.split(np.arange(n_train))
+        elif _kf_groups is not None:
             from sklearn.model_selection import GroupKFold
             kf = GroupKFold(n_splits=int(kfold))
             _kf_split = kf.split(np.arange(n_train), groups=_kf_groups)
