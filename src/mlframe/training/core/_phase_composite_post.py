@@ -169,41 +169,75 @@ def run_composite_post_processing(
             len(composite_specs_by_target_type or {}),
             _n_specs_total,
         )
-    # Build CT_ENSEMBLE for raw-target models even when 0 composite
-    # specs were discovered. On extreme-AR + group-aware regression
+    # Build CT_ENSEMBLE for raw-target models even when a target had 0
+    # composite specs discovered. On extreme-AR + group-aware regression
     # (composite-discovery extreme_ar_group_aware_skip fires; see round
-    # 5.3) the existing entry guard requiring composite_specs_by_target_type
+    # 5.3) the affected target gets a ``composite_target_failures`` entry
+    # but NO ``composite_target_specs`` entry, so the entry guard below
     # silently bypasses the dummy-floor gate + lag_predict injection,
     # leaving the suite shipping a simple-arithmetic ensemble of the raw
     # models -- which is provably WORSE than the best single component
     # when 3 of 4 boosters are above the lag-predict floor (observed
     # in prod: EnsARITHM TEST=12.45 vs Ridge alone 11.63 vs
-    # lag_predict 11.58). Synthesise a per-target empty-spec entry for
-    # every regression target with at least one trained model so the
-    # below loop runs, lag_predict is injected, and the OOF + dummy-
-    # floor + AR(1)-failsafe gates pick the right component.
+    # lag_predict 11.58).
+    #
+    # I2 fix (2026-06-10): the synthesis must be PER-TARGET, not gated on
+    # the GLOBALLY-empty specs dict. In a mixed suite where one regression
+    # target was discovered (specs dict non-empty) and a sibling was
+    # AR-skipped (no specs entry), the old ``not composite_specs_by_target_type``
+    # guard skipped synthesis entirely, so the AR-skipped sibling never got
+    # its lag-floor ensemble. We now synthesise a per-target empty-spec
+    # entry for EVERY regression target with at least one trained raw model
+    # that lacks a specs entry, regardless of whether other targets were
+    # discovered, so the loop runs for every such target, lag_predict is
+    # injected, and the OOF + dummy-floor + AR(1)-failsafe gates pick the
+    # right component.
     _build_for_raw_only = bool(getattr(
         composite_target_discovery_config,
         "always_build_ct_ensemble_for_raw", True,
     ))
     if (composite_target_discovery_config.enabled
             and _ce_strategy != "off"
-            and not composite_specs_by_target_type
             and _build_for_raw_only):
         from ..configs import TargetTypes as _TT
-        _raw_only_specs: dict = {}
+
+        # Merge into a FRESH local dict; never mutate the metadata-owned
+        # ``composite_target_specs`` (that dict can back the on-disk discovery
+        # cache -- see _phase_composite_discovery.py:439-442 -- and is read by
+        # report()/predict()). Shallow-copy each per-target-type sub-dict so the
+        # synthesised ``[]`` entries don't leak back into metadata either.
+        _merged_specs: dict = {
+            _tt_k: dict(_tt_v) for _tt_k, _tt_v in (composite_specs_by_target_type or {}).items()
+        }
+        # ``TargetTypes`` is a ``StrEnum`` so ``_TT.REGRESSION`` and the
+        # ``str(...)``-flavoured key the discovery phase writes are
+        # hash-equivalent; ``setdefault`` resolves to the existing regression
+        # bucket (if any) rather than creating a duplicate.
+        _reg_specs_bucket = _merged_specs.setdefault(_TT.REGRESSION, {})
         _reg_models = (models or {}).get(_TT.REGRESSION, {}) if models else {}
+        _n_synth = 0
         for _raw_tname, _entries in _reg_models.items():
-            if _entries and not is_composite_target_name(str(_raw_tname)):
-                _raw_only_specs.setdefault(_TT.REGRESSION, {})[_raw_tname] = []
-        if _raw_only_specs:
-            composite_specs_by_target_type = _raw_only_specs
+            if (_entries
+                    and not is_composite_target_name(str(_raw_tname))
+                    and _raw_tname not in _reg_specs_bucket):
+                _reg_specs_bucket[_raw_tname] = []
+                _n_synth += 1
+        # Drop an empty regression bucket we created but never populated so the
+        # downstream ``if not _tt_specs: continue`` guard isn't tripped by an
+        # accidental empty key on a no-regression-model suite.
+        if not _reg_specs_bucket and _TT.REGRESSION not in (composite_specs_by_target_type or {}):
+            _merged_specs.pop(_TT.REGRESSION, None)
+        if _n_synth:
+            # Rebind to the merged dict so the loop below sees both the
+            # discovered specs AND the synthesised raw-only ``[]`` entries.
+            composite_specs_by_target_type = _merged_specs
             logger.info(
                 "[CompositeCrossTargetEnsemble] always_build_ct_ensemble_for_raw=True: "
                 "synthesised raw-only entries for %d regression target(s) "
-                "(no composite specs were discovered); ensemble loop will inject "
-                "lag_predict and run the dummy-floor + AR(1)-failsafe gates.",
-                len(_raw_only_specs.get(_TT.REGRESSION, {})),
+                "with trained models but no discovered composite specs; "
+                "ensemble loop will inject lag_predict and run the dummy-floor "
+                "+ AR(1)-failsafe gates for each.",
+                _n_synth,
             )
     if (composite_target_discovery_config.enabled
             and _ce_strategy != "off"

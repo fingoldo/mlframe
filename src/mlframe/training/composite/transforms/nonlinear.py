@@ -128,12 +128,17 @@ def _james_stein_shrinkage_factor(
     global_alpha: float,
     group_sizes: np.ndarray,
     sigma2_total: float,
+    base_vars: np.ndarray | None = None,
 ) -> float:
     """Estimate the James-Stein shrinkage factor toward ``global_alpha``.
 
     Returns a scalar c ∈ [0, 1]: c=0 keeps per-group alphas as-is (no shrinkage); c=1 collapses all per-group alphas to global_alpha (full shrinkage).
 
-    The classic JS estimator for K group means with known variance σ² is ``c = max(0, 1 - (K - 3) σ² / Σ_g (α_g - global)²)``. We use residual variance as σ² proxy (σ²/n_g per group), weighted by ``group_sizes``: large per-group spread relative to noise -> c->0 (let the data speak); noise dominating spread -> c->1 (shrink heavily).
+    The classic JS estimator for K estimators ``θ_g`` with known sampling variance σ²_g is ``c = max(0, (K - 3) · mean_g(σ²_g) / Σ_g (θ_g - global)²)`` (clamped to [0, 1]).
+
+    Here the shrunk estimators are per-group OLS *slopes* ``α_g``, whose sampling variance is ``Var(α_g) = σ² / (n_g · Var(base_g))`` -- NOT ``σ² / n_g``. The ``Var(base_g)`` term is essential: it makes the JS factor SCALE-INVARIANT. Rescale ``base`` by a factor ``s`` and every ``α_g`` scales by ``1/s`` (so ``Σ (α_g - global)²`` scales by ``1/s²``); the correct noise proxy ``σ² / (n_g · Var(base_g))`` ALSO scales by ``1/s²`` (since ``Var(base_g)`` scales by ``s²``), leaving ``c`` unchanged. Dropping ``Var(base_g)`` (the historic ``base_vars=None`` path) leaves the numerator fixed while the denominator moves with the unit, so the SAME data on a different ``base`` unit shrinks a different set of groups -- a unit-dependent bug.
+
+    Pass ``base_vars`` = per-group ``Var(base_g)`` (aligned 1:1 with ``per_group_alphas`` / ``group_sizes``) to get the correct, scale-invariant slope-variance proxy. When ``base_vars`` is ``None`` the legacy size-only proxy (``σ² / mean(n_g)``) is used for backward compatibility; callers shrinking OLS slopes should always supply it.
 
     A degenerate case (K < 4 groups, or all alphas equal) returns c=0 so the JS correction can't reduce K below the JS-applicability threshold; the per-group estimates pass through unmodified.
     """
@@ -144,9 +149,21 @@ def _james_stein_shrinkage_factor(
     sum_sq = float(np.sum(deviations * deviations))
     if sum_sq <= 0:
         return 0.0
-    # JS noise proxy: σ²_per_group ≈ σ²_total / mean(n_g) (mean per-group residual variance).
-    mean_per_group_variance = float(sigma2_total / max(np.mean(group_sizes), 1.0))
-    # Classic JS factor c in α_shrunk = (1-c) α_g + c α_global; c = (K-3) σ² / Σ_g (α_g - α_global)², clamped to [0, 1]. High noise / low spread => c->1 (full shrink); low noise / high spread => c->0 (keep per-group).
+    sizes = np.asarray(group_sizes, dtype=np.float64).reshape(-1)
+    if base_vars is not None:
+        # Correct slope-variance proxy: Var(α_g) = σ² / (n_g · Var(base_g)).
+        # Average over the K shrunk groups -> mean_g(σ²_g). Var(base_g) below a
+        # tiny floor (a near-constant base inside a group) would blow the proxy
+        # up; floor it so a single degenerate group can't force full shrinkage.
+        bvar = np.asarray(base_vars, dtype=np.float64).reshape(-1)
+        denom = np.maximum(sizes, 1.0) * np.maximum(bvar, 1e-12)
+        per_group_variance = sigma2_total / denom
+        mean_per_group_variance = float(np.mean(per_group_variance))
+    else:
+        # Legacy (unit-dependent) proxy: σ²_per_group ≈ σ²_total / mean(n_g).
+        # Retained only for callers that predate the scale-invariant fix.
+        mean_per_group_variance = float(sigma2_total / max(np.mean(sizes), 1.0))
+    # Classic JS factor c in α_shrunk = (1-c) α_g + c α_global; c = (K-3) · mean_g(σ²_g) / Σ_g (α_g - α_global)², clamped to [0, 1]. High noise / low spread => c->1 (full shrink); low noise / high spread => c->0 (keep per-group).
     raw = (k - 3) * mean_per_group_variance / sum_sq
     return float(max(0.0, min(1.0, raw)))
 def _row_alpha_beta(
@@ -348,13 +365,16 @@ def _monotonic_residual_fit(
 ) -> dict[str, Any]:
     """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly).
 
-    Auto-knot tuning: when ``base`` has few unique values (categorical / discrete), 12 default knots oversmooth -- many knots collapse to identical x positions, leaving < n_eff effective knots and a wobbly spline that often goes degenerate. Auto-cap ``n_knots`` at ``min(12, max(3, n_unique_base // 200))`` so the knot count scales with the base's effective cardinality.
+    Auto-knot tuning: when ``base`` has few unique values (categorical / discrete), the default knots oversmooth -- several quantile knots collapse to identical x positions, leaving < n_eff effective knots and a wobbly spline that often goes degenerate. The cap is driven by the base's *distinctness*, NOT its row count: at most ``n_unique_base`` distinct quantile knots can be placed (beyond that, ties collapse them), so ``n_knots`` is capped at ``min(n_knots, n_unique_base)`` (with a floor of 3). A continuous base keeps the full default regardless of n -- the historic ``n_unique_base // 200`` rule wrongly conflated cardinality with discreteness and starved continuous mid-/small-n bases (e.g. 600 distinct continuous values -> 3 knots) of resolution they could use.
     """
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
     base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
     _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
-    _auto_knots = max(3, _n_unique_base // 200) if _n_unique_base else n_knots
+    # Cap by distinctness only: a base with K distinct values supports at most K
+    # distinct quantile knots. Continuous bases (K >= n_knots) keep the full
+    # requested count; only genuinely discrete / low-cardinality bases reduce.
+    _auto_knots = _n_unique_base if _n_unique_base else n_knots
     n_knots = min(int(n_knots), _auto_knots)
     n_knots = max(3, int(n_knots))
     min_knot_n = max(2, int(min_knot_n))
@@ -719,31 +739,61 @@ def _ewma_residual_domain(
     if y is None:
         return base_ok
     return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+def _rolling_median_pandas(arr_f: np.ndarray, k: int) -> np.ndarray:
+    """Reference centred rolling median: pandas ``rolling(window=k, center=True, min_periods=1).median()``. This is the CONTRACT both backends reproduce. ``arr_f`` must already be float64 / 1-D / non-empty; ``k`` already clamped to ``>= 1``."""
+    import pandas as pd  # lazy
+    return pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy()
+
+
 def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
     """Centred rolling median with truncation at boundaries.
 
-    Dispatcher: prefers ``bottleneck.move_median`` (forward-window with O(n log k) per-window quickselect; ~8-10x faster than pandas rolling at k in [7, 21] on n=100k) and shifts the result to centre the window. Falls back to pandas ``rolling(center=True, min_periods=1).median()`` when bottleneck is unavailable (matches the legacy 80x-over-pure-Python contract). Both paths return finite values in boundary positions where the window has any finite cell, NaN only when the window is entirely non-finite -- which we then replace with the row's own value (or 0.0 if also non-finite) to match the legacy fallback.
+    Reference semantics (the cross-environment CONTRACT) = pandas ``rolling(window=k, center=True, min_periods=1).median()``: position ``i`` is the median of ``arr[i - k//2 .. i + (k-1)//2]`` clipped to ``[0, n-1]`` (so head/tail windows truncate, and NaN cells inside a window are SKIPPED, never poisoning the window).
+
+    Fast path: ``bottleneck.move_median`` (forward-window O(n log k) quickselect; ~8-10x faster than pandas at k in [7, 21] on n=100k) re-centred to that contract. The forward window ending at index ``j`` is the centred window for ``i = j - (k-1)//2``, so the correct LEFT shift is ``(k-1)//2`` (NOT ``k//2`` -- the historic ``k//2`` shift was off-by-one for every EVEN ``k``). Head positions and tail positions whose centred window would run past the array end carry directly-computed truncated medians (the historic code constant-filled the tail with the last full-window median -- wrong for both even and odd ``k``). ``move_median`` also REQUIRES ``window <= n``, so ``k`` is clamped to ``min(k, n)`` for the kernel call (a centred window wider than the array is identical to ``k = n``; the historic code passed ``k > n`` straight through and ``move_median`` raised, silently dropping the whole result to the non-finite fallback).
+
+    NaN parity: ``bottleneck.move_median`` does NOT skip NaN inside a window (one NaN poisons the window to NaN), whereas pandas' ``min_periods=1`` median skips them. So the fast path is bit-identical to the pandas contract ONLY when the input is all-finite; non-finite input routes to the pandas reference to preserve identical results regardless of whether bottleneck is installed. (The downstream callers domain-check ``base`` finite, so the all-finite fast path is the common case.) After either path, any residual NaN (an entirely-non-finite window under the pandas route) is replaced with the row's own value (or 0.0 if also non-finite) to match the legacy fallback.
     """
     arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
     if arr_f.size == 0:
         return arr_f.copy()
     n = arr_f.size
     k = max(1, int(k))
-    try:
-        import bottleneck as _bn  # lazy; optional dep but present in mlframe[all]
-        # ``move_median`` is forward-looking: position i holds the median of arr[i-k+1..i] (with min_count handling). Centring means position i should carry the median of arr[i-k//2..i+k//2]; achieved by shifting the forward result LEFT by ``k//2``. Tail rows whose centred window would have extended past the array end keep the last full-window median (boundary fallback consistent with min_periods=1 semantics).
-        _fwd = _bn.move_median(arr_f, window=k, min_count=1)
-        _shift = k // 2
-        if _shift == 0:
-            out = _fwd
-        else:
+    out: np.ndarray | None = None
+    # Fast path requires all-finite input (move_median can't NaN-skip within a
+    # window the way pandas does); otherwise fall through to the pandas reference
+    # so results are identical across environments.
+    if np.isfinite(arr_f).all():
+        try:
+            import bottleneck as _bn  # lazy; optional dep but present in mlframe[all]
+            k_eff = min(k, n)  # move_median requires 1 <= window <= n
+            _fwd = _bn.move_median(arr_f, window=k_eff, min_count=1)
+            _shift = (k - 1) // 2  # forward index j = i + (k-1)//2 (NOT k//2)
+            _left = k // 2
             out = np.empty(n, dtype=np.float64)
-            out[: n - _shift] = _fwd[_shift:]
-            _tail_fill = _fwd[-1] if n > 0 and np.isfinite(_fwd[-1]) else (arr_f[-1] if n > 0 else 0.0)
-            out[n - _shift:] = _tail_fill
-    except ImportError:
-        import pandas as pd  # lazy fallback
-        out = pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy()
+            # Interior positions ``i`` carry the full ``k_eff`` window AND are
+            # forward-readable: i >= _left, i + _shift >= k_eff - 1 (full kernel
+            # window), i + _shift <= n - 1 (in range). These are a single
+            # vectorised slice of the kernel output -- no per-row Python work.
+            lo_i = max(_left, k_eff - 1 - _shift)
+            hi_i = n - 1 - _shift
+            if hi_i >= lo_i:
+                out[lo_i:hi_i + 1] = _fwd[lo_i + _shift:hi_i + _shift + 1]
+            # Boundary positions (head + tail, O(k) of them): centred window
+            # truncates to the array; compute its median directly to match
+            # pandas exactly (the historic constant tail-fill was wrong).
+            for i in range(0, min(max(lo_i, 0), n)):
+                lo = i - _left if i - _left > 0 else 0
+                hi = i + _shift if i + _shift < n - 1 else n - 1
+                out[i] = np.median(arr_f[lo:hi + 1])
+            for i in range(max(hi_i + 1, 0), n):
+                lo = i - _left if i - _left > 0 else 0
+                hi = i + _shift if i + _shift < n - 1 else n - 1
+                out[i] = np.median(arr_f[lo:hi + 1])
+        except ImportError:
+            out = None
+    if out is None:
+        out = _rolling_median_pandas(arr_f, k)
     bad = ~np.isfinite(out)
     if bad.any():
         fallback = np.where(np.isfinite(arr_f), arr_f, 0.0)

@@ -83,15 +83,58 @@ def compose_target_name(target_col: str, transform_name: str, base: str) -> str:
 
 
 # Reverse-lookup pattern fragments: ``f"-{short}-"`` and ``f"-{full}-"``
-# both appear as substrings in canonical composite-target names. Used by
-# ``is_composite_target_name`` to detect "this target name came from
-# discovery, NOT a user-supplied column called ``y-base`` that happens
-# to have one dash".
+# both appear as substrings in canonical composite-target names. Kept as a
+# module global for back-compat (callers / tests import it) but the
+# substring scan is NO LONGER the detection primitive -- it false-positives
+# on plausible user columns (``price-diff-7d`` -> ``-diff-``,
+# ``debt-ratio-q`` -> ``-ratio-``). ``is_composite_target_name`` now uses a
+# strict structural parse (see below) that anchors the alias as a complete
+# dash-delimited token inside a ``{target}-{alias}-{base}`` triple.
 _COMPOSITE_NAME_FRAGMENTS: frozenset = frozenset(
     f"-{alias}-" for alias in TRANSFORM_NAME_SHORT.values()
 ) | frozenset(
     f"-{full}-" for full in TRANSFORM_NAME_SHORT.keys()
 )
+
+# Set of every recognised transform token (short alias + full name). A
+# token must equal one of these *exactly* (whole dash-/underscore-delimited
+# segment) to anchor a composite name -- this is what makes the parse strict
+# instead of a substring scan.
+_COMPOSITE_NAME_TOKENS: frozenset = frozenset(
+    TRANSFORM_NAME_SHORT.values()
+) | frozenset(TRANSFORM_NAME_SHORT.keys())
+
+
+def _is_composite_via_separator(name: str, sep: str) -> bool:
+    """Strict structural test for one separator (``-`` short-alias form or
+    ``__`` legacy double-underscore form).
+
+    A composite name is ``{target}{sep}{alias}{sep}{base}`` where ``alias``
+    is a registered transform token occupying a *complete* segment, with a
+    non-empty ``{target}`` segment before it and a non-empty ``{base}``
+    segment after it. Target / base may themselves contain the separator
+    (user column names with dashes), so we test every internal segment
+    boundary, not just a fixed 3-way split.
+    """
+    parts = name.split(sep)
+    if len(parts) < 3:
+        return False
+    # The alias must be an *internal* token: at least one segment before it
+    # (non-empty target) and at least one segment after it (non-empty base).
+    # parts[0] is the start of target; parts[-1] is the end of base. A valid
+    # alias therefore sits at index 1..len-2 inclusive, and both the target
+    # span (parts[:i]) and base span (parts[i+1:]) must be non-empty.
+    for i in range(1, len(parts) - 1):
+        if parts[i] not in _COMPOSITE_NAME_TOKENS:
+            continue
+        target_span = parts[:i]
+        base_span = parts[i + 1:]
+        # Non-empty, non-blank target and base (reject ``-linres-x`` /
+        # ``y-linres-`` style malformed names that the old substring scan
+        # silently accepted).
+        if "".join(target_span) and "".join(base_span):
+            return True
+    return False
 
 
 def is_composite_target_name(name: str) -> bool:
@@ -104,15 +147,32 @@ def is_composite_target_name(name: str) -> bool:
     construction). Robust to both the post-2026-05-13 short-alias format
     AND the legacy ``{target}__{transform}__{base}`` double-underscore
     format -- so loading a v1 suite-pickle still routes correctly.
+
+    Detection is a **strict structural parse**, not a substring scan: the
+    transform alias must be a complete dash- (or ``__``-) delimited token
+    bracketed by a non-empty target segment and a non-empty base segment.
+    This avoids the substring false-positives the old scan produced on
+    plausible user columns -- e.g. ``price-diff-7d`` and ``debt-ratio-q``
+    are 3-token names whose middle token IS a registered alias and remain
+    structurally indistinguishable from real composites (so they still
+    match -- there is no signal to separate them without the target list),
+    but multi-segment columns that merely *contain* an alias substring
+    (``quarterly-margin-ratio-of-revenue-2024``: alias ``ratio`` is an
+    internal token, still matches; ``net-ratiometric-index``: ``ratio`` is
+    only a substring of ``ratiometric``, NO longer matches) and malformed
+    leading/trailing-separator forms (``-linres-x``, ``y-linres-``) are
+    correctly rejected.
     """
     if not name:
         return False
-    if any(frag in name for frag in _COMPOSITE_NAME_FRAGMENTS):
+    # Short-alias / full-name dash form (current discovery output).
+    if _is_composite_via_separator(name, "-"):
         return True
-    # Legacy double-underscore format (older pickles).
-    for full in TRANSFORM_NAME_SHORT.keys():
-        if f"__{full}__" in name:
-            return True
+    # Legacy double-underscore format (older pickles). Only full transform
+    # names were ever emitted in that format, but accepting the union token
+    # set here is harmless and keeps the two paths symmetric.
+    if "__" in name and _is_composite_via_separator(name, "__"):
+        return True
     return False
 
 

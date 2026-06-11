@@ -18,7 +18,7 @@ import pandas as pd
 # _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at
 # module scope of any sibling -- the static analyzer flagged it as a missing
 # reference but Python resolves it from function-local scope.
-from ..composite import CompositeTargetEstimator, get_transform
+from ..composite import CompositeTargetEstimator, get_transform, _extract_base_matrix
 from .._format import format_metric as _fmt, strip_shim_suffix as _strip
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,34 @@ logger = logging.getLogger(__name__)
 # Mirror parent's watchdog threshold so the moved function sees the same
 # value it did pre-split. Kept in sync with _phase_composite_post.py:48.
 _WATCHDOG_RELATIVE_THRESHOLD = 0.01
+
+
+def _watchdog_base_columns(spec: dict) -> tuple[str, ...]:
+    """Full ordered base-column tuple for a spec, mirroring the wrapper's ``_resolve_base_columns``.
+
+    Multi-base specs (``linear_residual_multi`` and any future multi-base transform) carry the secondary bases in ``extra_base_columns``; the
+    watchdog must feed the transform's ``forward``/``inverse`` the same ``(n, K)`` base matrix the wrapper uses, otherwise those calls raise
+    "base has 1 columns but fitted alphas has K entries" and the watchdog silently swallows the error -- leaving the multi-base family (exactly
+    the one most prone to wrapper-math bugs) with zero coverage. Single-base specs return a 1-tuple, so the 1-D fast path below is unchanged.
+    """
+    _bc = spec.get("base_column") if isinstance(spec, dict) else None
+    if not _bc:
+        return ()
+    _extra = tuple(spec.get("extra_base_columns") or ()) if isinstance(spec, dict) else ()
+    return (_bc, *_extra)
+
+
+def _watchdog_extract_base(split_df: Any, base_columns: tuple[str, ...]) -> np.ndarray:
+    """Extract the watchdog base array for ``base_columns`` from ``split_df``.
+
+    For a single base column returns a 1-D float64 array (bit-identical to the prior ``np.asarray(split_df[col]).astype(np.float64)`` pull);
+    for K>=2 columns returns the canonical ``(n, K)`` matrix via the same ``_extract_base_matrix`` helper the wrapper uses, so the transform's
+    ``forward``/``inverse`` see all K bases. Format-native (no whole-frame copy): single-col path stays a narrow column pull, multi-col path
+    routes through the polars ``.select`` / pandas ``.loc`` single-buffer extractor.
+    """
+    if len(base_columns) == 1:
+        return np.asarray(split_df[base_columns[0]]).astype(np.float64)
+    return _extract_base_matrix(split_df, base_columns)
 
 
 def _emit_yscale_composite_chart(
@@ -565,11 +593,15 @@ def _run_composite_target_wrapping(
                             # If wrapper.predict diverges from manually-reconstructed inverse(inner.predict, base, params), the wrapper math is broken.
                             try:
                                 _wi_uni = getattr(_wrapper_for_score, "estimator_", None)
-                                _bc_uni = _spec.get("base_column") if isinstance(_spec, dict) else None
+                                # Resolve the FULL base set (primary + extra_base_columns) so multi-base specs feed the transform's
+                                # inverse the same (n, K) matrix the wrapper uses; a 1-D pull would raise the alphas-width mismatch and
+                                # the watchdog would swallow it at DEBUG, leaving linear_residual_multi entirely uncovered.
+                                _bcs_uni = _watchdog_base_columns(_spec)
                                 if (_wi_uni is not None and _spec_t_name
-                                        and _bc_uni and _bc_uni in _split_df):
+                                        and _bcs_uni
+                                        and all(_c in _split_df for _c in _bcs_uni)):
                                     _bivar_uni = get_transform(_spec_t_name)
-                                    _base_uni = np.asarray(_split_df[_bc_uni]).astype(np.float64)
+                                    _base_uni = _watchdog_extract_base(_split_df, _bcs_uni)
                                     _t_pred_uni = np.asarray(
                                         _wi_uni.predict(_split_df), dtype=np.float64,
                                     ).reshape(-1)
@@ -604,10 +636,13 @@ def _run_composite_target_wrapping(
                                 )
                             if _spec_t_name in _ADDITIVE_TRANSFORMS:
                                 _wi = getattr(_wrapper_for_score, "estimator_", None)
-                                _base_col = _spec.get("base_column") if isinstance(_spec, dict) else None
-                                if _wi is not None and _base_col and _base_col in _split_df:
+                                # Full base set including extra_base_columns: linear_residual_multi is additive but its forward needs the
+                                # (n, K) matrix. Building a 1-D base here is what previously raised the alphas-width ValueError and was
+                                # swallowed at DEBUG below, leaving this family with no T-MAE invariant coverage.
+                                _bcs_add = _watchdog_base_columns(_spec)
+                                if _wi is not None and _bcs_add and all(_c in _split_df for _c in _bcs_add):
                                     _bivar = get_transform(_spec_t_name)
-                                    _base_arr = np.asarray(_split_df[_base_col]).astype(np.float64)
+                                    _base_arr = _watchdog_extract_base(_split_df, _bcs_add)
                                     _t_true = _bivar.forward(
                                         _y_split.astype(np.float64),
                                         _base_arr,
@@ -626,13 +661,20 @@ def _run_composite_target_wrapping(
                                             _n_dbg = min(5, int(_ft.sum()))
                                             _dbg_rows = []
                                             _ft_idx = np.flatnonzero(_ft)[:_n_dbg]
+                                            _base_is_multi = _base_arr.ndim > 1
                                             for _i in _ft_idx:
+                                                # Multi-base specs carry a (n, K) base matrix; render the row as a bracketed K-vector,
+                                                # so the dump stays readable instead of crashing on ``%.4f`` of an array.
+                                                _base_repr = (
+                                                    "[" + ", ".join(f"{_v:.4f}" for _v in _base_arr[_i]) + "]"
+                                                    if _base_is_multi else f"{_base_arr[_i]:.4f}"
+                                                )
                                                 _dbg_rows.append(
                                                     f"y={_y_split[_i]:.4f}, "
                                                     f"y_hat={_y_pred[_i]:.4f}, "
                                                     f"T={_t_true[_i]:.4f}, "
                                                     f"T_hat={_t_pred[_i]:.4f}, "
-                                                    f"base={_base_arr[_i]:.4f}"
+                                                    f"base={_base_repr}"
                                                 )
                                             _y_resid_sample = _y_pred[_ft_idx] - _y_split[_ft_idx]
                                             _t_resid_sample = _dt[_ft_idx]

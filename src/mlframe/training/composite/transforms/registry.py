@@ -146,9 +146,16 @@ from .unary import (
 
 
 def _make_unary_registry_adapter(
-    fit_fn, forward_fn, inverse_fn, domain_fn,
+    fit_fn, forward_fn, inverse_fn, domain_fn, domain_fitted_fn=None,
 ):
-    """Adapt a unary (y, params) signature to the registry's (y, base, params) signature by ignoring ``base``. Returns (fit_adapter, forward_adapter, inverse_adapter, domain_adapter)."""
+    """Adapt a unary (y, params) signature to the registry's (y, base, params) signature by ignoring ``base``. Returns (fit_adapter, forward_adapter, inverse_adapter, domain_adapter[, domain_fitted_adapter]).
+
+    ``domain_fitted_fn`` (optional, signature ``(y, params) -> mask``) wires
+    the fitted-params-aware domain hook for unary transforms whose validity
+    depends on a learned parameter (e.g. ``log_y``'s ``offset``: rows with
+    ``y + offset <= 0`` are out of domain only once ``offset`` is known). When
+    ``None`` the returned 5th element is ``None`` and the registry entry leaves
+    ``domain_check_fitted`` unset (params-free ``domain_check`` is exact)."""
 
     def _fit(y, base):  # noqa: ARG001
         return fit_fn(y)
@@ -169,26 +176,75 @@ def _make_unary_registry_adapter(
             return np.ones(len(base) if hasattr(base, "__len__") else 1, dtype=bool)
         return domain_fn(y)
 
-    return _fit, _forward, _inverse, _domain
+    if domain_fitted_fn is None:
+        return _fit, _forward, _inverse, _domain, None
+
+    def _domain_fitted(y, base, params):  # noqa: ARG001
+        # Fitted-domain for unary: no base constraint, so at predict time
+        # (y is None) the per-row domain cannot be re-checked from base
+        # alone (e.g. log_y's ``y + offset > 0`` needs y). Return all-True
+        # for the predict-side row count, matching ``_domain``. At fit/
+        # screening time y is present and we gate on the params-aware
+        # unary domain (e.g. ``y + offset > 0``).
+        if y is None:
+            return np.ones(len(base) if hasattr(base, "__len__") else 1, dtype=bool)
+        return domain_fitted_fn(y, params)
+
+    return _fit, _forward, _inverse, _domain, _domain_fitted
 
 
-# Pre-build per-unary adapters (cheap, done once at import).
-_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain = _make_unary_registry_adapter(
+# Pre-build per-unary adapters (cheap, done once at import). The 5th element
+# is the fitted-params-aware domain adapter (``None`` for transforms whose
+# params-free domain is exact).
+_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _cbrt_domain_fitted = _make_unary_registry_adapter(
     _cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw, _cbrt_y_domain_raw,
 )
-_log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a = _make_unary_registry_adapter(
+_log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a = _make_unary_registry_adapter(
     _log_y_fit_raw, _log_y_forward_raw, _log_y_inverse_raw,
     # log_y_domain is the 2-arg form (y, params); wrap to drop params at fit-time.
     lambda y: _log_y_domain_raw(y),
+    # T15 fix: the pre-fit domain only checks isfinite(y); the TRUE log_y
+    # domain is ``y + offset > 0``, knowable only after ``fit`` sets offset.
+    # Without this hook, screening forwards log() over ``y <= -offset`` rows
+    # (silent NaN T -> biased MI gain) and the wrapper later hard-raises
+    # DomainViolationError on the same rows. Pass the params-aware raw form.
+    domain_fitted_fn=_log_y_domain_raw,
 )
-_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a = _make_unary_registry_adapter(
+_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a = _make_unary_registry_adapter(
     _yj_y_fit_raw, _yj_y_forward_raw, _yj_y_inverse_raw,
     lambda y: _yj_y_domain_raw(y),
 )
-_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a = _make_unary_registry_adapter(
+_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _make_unary_registry_adapter(
     _qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw,
     lambda y: _qn_y_domain_raw(y),
 )
+
+
+def _centered_ratio_domain_fitted(y, base, params):
+    """T15 fitted-domain for ``centered_ratio`` (T = y / (base + c)).
+
+    The pre-fit ``_centered_ratio_domain`` only gates on finite y / base; the
+    real per-row validity depends on the learned shift ``c`` and eps-floor:
+    a row whose ``base + c`` lands inside the near-zero ``[-eps, eps]`` band
+    has its denominator clamped to ``+/- eps`` in ``forward``/``inverse``, so
+    T no longer reflects the true ratio and the round-trip is only approximate
+    on that row. Those rows are excluded from screening + fit so the divisor
+    clamp never silently distorts the MI estimate / fitted scale. Mirrors the
+    ``domain_check`` ``y=None`` predict-time contract: with ``y`` unknown we
+    still gate the base-side ``|base + c| >= eps`` condition (knowable from
+    params), so the same rows are flagged at predict time.
+    """
+    base_arr = np.asarray(base, dtype=np.float64)
+    if params is None:
+        # No fitted params yet -> fall back to the params-free domain.
+        return _centered_ratio_domain(y, base)
+    c = float(params.get("c", 0.0))
+    eps = float(params.get("eps", 0.0))
+    shifted = base_arr + c
+    base_ok = np.isfinite(base_arr) & (np.abs(shifted) >= eps)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
 
 
 _TRANSFORMS_REGISTRY: dict[str, Transform] = {
@@ -416,6 +472,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         inverse=_log_inverse_a,
         fit=_log_fit_a,
         domain_check=_log_domain_a,
+        # T15: fitted-domain gates ``y + offset > 0`` once offset is learned,
+        # so screening/fit never forward log() over a NaN-producing row.
+        domain_check_fitted=_log_domain_fitted_a,
         description=(
             "Shifted log unary y-transform: T = log(y + offset) where offset is fitted so "
             "min(y_train) + offset > 0. Inverse y = exp(T) - offset. Compresses right-skewed "
@@ -578,6 +637,10 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         inverse=_centered_ratio_inverse,
         fit=_centered_ratio_fit,
         domain_check=_centered_ratio_domain,
+        # T15: fitted-domain gates ``|base + c| >= eps`` once the shift c and
+        # eps-floor are learned, so screening/fit drop rows whose denominator
+        # would be clamped to the eps-floor (T then no longer the true ratio).
+        domain_check_fitted=_centered_ratio_domain_fitted,
         description=(
             "T = y / (base + c) with ``c`` fitted on train so (base + c) > 0 "
             "subject to an eps floor. Extension of ``ratio`` to signed bases. "

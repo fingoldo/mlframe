@@ -13,12 +13,66 @@ helpers are defined, so the partial-module lookup succeeds.
 """
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+
+try:
+    # sklearn's canonical "does this estimator's fit accept <param>" check.
+    # Available since sklearn 0.x; guarded so a stripped install still imports.
+    from sklearn.utils.validation import has_fit_parameter as _sk_has_fit_parameter
+except ImportError:  # pragma: no cover - sklearn always ships this
+    _sk_has_fit_parameter = None
+
+
+def _callable_accepts_param(fn: Callable[..., Any], name: str) -> bool:
+    """True when ``fn`` declares a parameter ``name`` or accepts ``**kwargs``.
+
+    Used to signature-GATE optional ``sample_weight`` pass-through instead of
+    the catch-all ``except TypeError`` retry pattern. The retry pattern is wrong
+    because a ``TypeError`` raised DEEP inside a fit that *does* accept
+    ``sample_weight`` (a bad dtype, a shape mismatch, a downstream library bug)
+    is mis-attributed to "no sample_weight support" -> the estimator is then
+    silently re-fit UNWEIGHTED, dropping the weighting the caller asked for with
+    zero diagnostics. Gating on the declared signature only swallows the genuine
+    "this fit has no sample_weight parameter" case and lets every real error
+    propagate.
+    """
+    try:
+        sig = inspect.signature(fn)
+    except (ValueError, TypeError):
+        # Builtins / C-extensions without an introspectable signature: be
+        # permissive (assume the param is accepted) so we never silently drop
+        # weighting on an estimator we simply could not introspect; a real
+        # "no such param" TypeError then surfaces loudly to the caller.
+        return True
+    params = sig.parameters
+    if name in params:
+        return True
+    return any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
+
+
+def _estimator_fit_accepts_sample_weight(estimator: Any) -> bool:
+    """Signature-gate for an sklearn-style estimator's ``fit(..., sample_weight=)``.
+
+    Prefers sklearn's ``has_fit_parameter`` (handles metadata-routing /
+    delegated estimators); falls back to introspecting ``estimator.fit``.
+    """
+    if _sk_has_fit_parameter is not None:
+        try:
+            return bool(_sk_has_fit_parameter(estimator, "sample_weight"))
+        except Exception:  # pragma: no cover - defensive; fall through
+            pass
+    fit_fn = getattr(estimator, "fit", None)
+    if fit_fn is None:
+        return False
+    return _callable_accepts_param(fit_fn, "sample_weight")
 
 try:
     import polars as pl
@@ -199,6 +253,75 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         from . import _predict as _pred
         return _pred.predict_quantile(self, X, alpha)
 
+    def predict_pre_clip(self, X: Any) -> "np.ndarray":
+        """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
+
+        DX15: in-body delegating stub so the method is discoverable to mypy /
+        IDE / ``help()`` instead of being only runtime-bound at module bottom.
+        The heavy body stays carved out in ``_predict``.
+        """
+        from . import _predict as _pred
+        return _pred.predict_pre_clip(self, X)
+
+    # ------------------------------------------------------------------
+    # Streaming-buffer update / inspect (heavy bodies in ``_update``).
+    # In-body stubs (DX15) keep the public surface discoverable.
+    # ------------------------------------------------------------------
+
+    def update(self, y_recent: Any, base_recent: Any) -> "dict[str, Any]":
+        """Streaming-update: append (y, base) to the rolling buffer + drift check. See ``_update.update``."""
+        from . import _update as _upd
+        return _upd.update(self, y_recent, base_recent)
+
+    def get_buffer_state(self) -> "dict[str, Any]":
+        """Diagnostic snapshot of the rolling-buffer state. See ``_update.get_buffer_state``."""
+        from . import _update as _upd
+        return _upd.get_buffer_state(self)
+
+    # ------------------------------------------------------------------
+    # Inner-model accessors / sklearn-convention properties.
+    #
+    # DX15: defined in-body (discoverable to mypy / IDE / help()) instead of
+    # being only runtime class-attribute-bound at module bottom. Heavy bodies
+    # stay carved out in ``_utils``; these are thin delegations. ``_require_fitted``
+    # is still bound at module bottom (private; needed by the property bodies).
+    # ------------------------------------------------------------------
+
+    def get_booster(self) -> Any:
+        """XGBoost shim: ``estimator_.get_booster()`` (NotFittedError pre-fit). See ``_utils.get_booster``."""
+        from . import _utils as _utils
+        return _utils.get_booster(self)
+
+    @property
+    def feature_importances_(self) -> "np.ndarray":
+        """Inner ``feature_importances_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.feature_importances_``."""
+        from . import _utils as _utils
+        return _utils.feature_importances_(self)
+
+    @property
+    def coef_(self) -> "np.ndarray":
+        """Inner ``coef_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.coef_``."""
+        from . import _utils as _utils
+        return _utils.coef_(self)
+
+    @property
+    def intercept_(self) -> "float":
+        """Inner ``intercept_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.intercept_``."""
+        from . import _utils as _utils
+        return _utils.intercept_(self)
+
+    @property
+    def booster_(self) -> Any:
+        """LightGBM shim: inner ``booster_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.booster_``."""
+        from . import _utils as _utils
+        return _utils.booster_(self)
+
+    @property
+    def n_features_in_(self) -> "int | None":
+        """Feature count the WRAPPER saw at fit (consistent with ``feature_names_in_``). See ``_utils.n_features_in_``."""
+        from . import _utils as _utils
+        return _utils.n_features_in_(self)
+
     # ------------------------------------------------------------------
     # Alternate constructor: post-hoc wrapping
     # ------------------------------------------------------------------
@@ -273,29 +396,70 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             y_train_median = float(np.median(y_train[finite]))
             y_clip_low, y_clip_high = _y_train_clip_bounds(y_train[finite])
 
-        # T-scale clip bounds (mirror the .fit() path). On the
-        # from_fitted_inner route we don't have direct T_train access -
-        # caller passed y_train + transform_fitted_params. Reconstruct
-        # a conservative T envelope from y_train statistics when possible
-        # (transforms y - alpha*base have T-range bounded by y-range +
-        # alpha*base-range, but base isn't available here, so we widen
-        # to +/- 10 * y_std as a conservative T-envelope proxy that still
-        # catches order-of-magnitude blow-ups while leaving in-distribution
-        # T predictions untouched).
+        # T-scale clip bounds. On the from_fitted_inner route we don't have
+        # direct T_train access -- caller passed y_train + transform_fitted_params.
+        #
+        # E10 fix: for UNARY transforms (``requires_base=False`` -- log_y,
+        # cbrt_y, yeo_johnson_y, quantile_normal_y, y_quantile_clip) the
+        # T-scale is a fitted function of y ALONE (e.g. log_y: T = log(y+offset)),
+        # so T_train is OFFSET from 0. The old code built a symmetric
+        # ``+/-10*std(y)`` envelope CENTERED AT 0, which mis-centers every unary
+        # transform whose T is offset (log_y T~log(median(y)+offset) is far from
+        # 0): the in-distribution T_hat then clips flat to a constant on one side.
+        # Because the unary forward needs no base, we can reconstruct the EXACT
+        # T_train here via ``transform.forward(y, zeros, params)`` and apply the
+        # identical MAD-based envelope the .fit() path uses (median(T)+/-10*MAD,
+        # widened to the observed [T_min, T_max]).
+        #
+        # For BASE-dependent transforms base is genuinely unavailable on this
+        # route, so we keep the conservative ``+/-10*y_std`` proxy; that envelope
+        # is symmetric-about-0 and the core additive-residual transforms
+        # (diff / linear_residual: T = y - alpha*base - beta) have T centered
+        # near 0 by OLS construction, so the centering is appropriate there.
+        #
         # ``finite`` is a boolean mask, so ``finite.size`` is len(y_train) -- the
         # gate must count FINITE values (mirror the .fit() path, which sizes the
         # already-filtered finite array). Using .size let a mostly-NaN y_train
         # estimate the T-clip envelope from as few as 2 unrepresentative points.
+        t_clip_low, t_clip_high = float("-inf"), float("inf")
         if int(finite.sum()) >= 10:
-            y_std = float(np.std(y_train[finite]))
-            if y_std > 0:
-                t_envelope = 10.0 * y_std
-                t_clip_low = -t_envelope
-                t_clip_high = +t_envelope
+            _transform = get_transform(transform_name)
+            _t_train_recon: np.ndarray | None = None
+            if not _transform.requires_base:
+                # Unary: reconstruct exact T from y alone (base ignored by the
+                # unary registry adapter, so a zeros placeholder is sound).
+                try:
+                    _y_fin = y_train[finite]
+                    _t_train_recon = np.asarray(
+                        _transform.forward(
+                            _y_fin, np.zeros_like(_y_fin), dict(transform_fitted_params),
+                        ),
+                        dtype=np.float64,
+                    ).reshape(-1)
+                except Exception as _recon_err:  # pragma: no cover - defensive
+                    logger.debug(
+                        "[CompositeTargetEstimator.from_fitted_inner] unary T "
+                        "reconstruction failed for transform '%s' (%r); falling "
+                        "back to the y_std envelope proxy.",
+                        transform_name, _recon_err,
+                    )
+                    _t_train_recon = None
+            if _t_train_recon is not None:
+                t_finite = _t_train_recon[np.isfinite(_t_train_recon)]
+                if t_finite.size >= 10:
+                    t_med = float(np.median(t_finite))
+                    t_mad = float(np.median(np.abs(t_finite - t_med)))
+                    if t_mad > 0:
+                        t_clip_low = t_med - 10.0 * t_mad
+                        t_clip_high = t_med + 10.0 * t_mad
+                        t_clip_low = min(t_clip_low, float(t_finite.min()))
+                        t_clip_high = max(t_clip_high, float(t_finite.max()))
             else:
-                t_clip_low, t_clip_high = float("-inf"), float("inf")
-        else:
-            t_clip_low, t_clip_high = float("-inf"), float("inf")
+                y_std = float(np.std(y_train[finite]))
+                if y_std > 0:
+                    t_envelope = 10.0 * y_std
+                    t_clip_low = -t_envelope
+                    t_clip_high = +t_envelope
 
         instance.estimator_ = fitted_inner
         instance.fitted_params_ = {
@@ -335,6 +499,18 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                     "on CB/LGB/XGB inner model. Inner type: %s, inner names count: %d.",
                     _names_err, type(fitted_inner).__name__, len(list(_inner_names)),
                 )
+        # E11 fix: stamp the wrapper-level feature count so ``n_features_in_``
+        # is consistent with ``feature_names_in_``. ``from_fitted_inner`` does
+        # not support grouped transforms (no group_column arg), so the inner's
+        # feature count already equals what the wrapper exposes; prefer the
+        # inherited name list when present, else the inner's scalar.
+        _ffi_names = getattr(instance, "feature_names_in_", None)
+        if _ffi_names is not None:
+            instance._n_features_in_wrapper = len(_ffi_names)
+        else:
+            _inner_n = getattr(fitted_inner, "n_features_in_", None)
+            if _inner_n is not None:
+                instance._n_features_in_wrapper = int(_inner_n)
         instance.runtime_stats_ = {
             "predict_calls": 0,
             "predict_rows_total": 0,
@@ -458,6 +634,29 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                 f"CompositeTargetEstimator.fit: transform '{self.transform_name}' "
                 f"domain_check returned ndim={valid.ndim}; expected 1-D boolean mask."
             )
+        # T15 (2026-06-10): fitted-params-aware domain refinement. The
+        # params-free ``domain_check`` above cannot see learned params
+        # (log_y's ``offset``: rows with ``y + offset <= 0`` -> NaN under
+        # log; centered_ratio's ``c`` + eps-floor). Those rows otherwise
+        # reach ``forward`` and trip the hard non-finite-T guard below,
+        # crashing the wrapper on a spec discovery rightly accepted (its
+        # screening now drops the same rows). For transforms declaring the
+        # hook, do a provisional fit on the params-free-valid rows, refine
+        # the mask with the fitted params, and drop the out-of-domain rows
+        # BEFORE any derived slicing -- the params re-fit below then runs
+        # on the in-domain rows only. Gated on the hook so the 30+ other
+        # transforms are bit-identical (no extra fit). log_y / centered_ratio
+        # require neither groups nor sample_weight, so the provisional fit
+        # is the plain 2-arg form.
+        _dcf = getattr(transform, "domain_check_fitted", None)
+        if _dcf is not None and bool(valid.any()):
+            _provisional_params = transform.fit(y_arr[valid], base_arr[valid])
+            if isinstance(_provisional_params, dict):
+                _valid_fitted = np.asarray(
+                    _dcf(y_arr, base_arr, _provisional_params), dtype=bool,
+                )
+                if _valid_fitted.shape == valid.shape:
+                    valid = valid & _valid_fitted
         n_invalid = int((~valid).sum())
         if n_invalid > 0:
             if not self.drop_invalid_rows:
@@ -508,17 +707,20 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform_fit_kwargs: dict[str, Any] = {}
         if groups_train is not None:
             transform_fit_kwargs["groups"] = groups_train
-        try:
-            transform_params = transform.fit(
-                y_train, base_train,
-                sample_weight=sample_weight_train,
-                **transform_fit_kwargs,
-            )
-        except TypeError:
-            # Transform.fit doesn't accept sample_weight (most don't).
-            transform_params = transform.fit(
-                y_train, base_train, **transform_fit_kwargs,
-            )
+        # Signature-gate sample_weight instead of an ``except TypeError`` retry.
+        # E7 fix: a TypeError raised DEEP inside a weight-aware transform.fit
+        # (bad dtype / shape) was previously mis-read as "no sample_weight
+        # support" and the transform was silently re-fit UNWEIGHTED. Gating on
+        # the declared signature passes the weight only where it is actually a
+        # parameter and lets every genuine error propagate.
+        if (
+            sample_weight_train is not None
+            and _callable_accepts_param(transform.fit, "sample_weight")
+        ):
+            transform_fit_kwargs = {**transform_fit_kwargs, "sample_weight": sample_weight_train}
+        transform_params = transform.fit(
+            y_train, base_train, **transform_fit_kwargs,
+        )
 
         # Compute T on the valid rows. Grouped transforms need the
         # groups kwarg for forward as well.
@@ -587,10 +789,15 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # the wrapper produces a fresh inner.
         estimator = clone(self.base_estimator)
         if sample_weight is not None:
-            try:
+            # E7 fix: signature-gate sample_weight rather than an
+            # ``except TypeError`` retry. The retry mis-attributed a TypeError
+            # raised deep inside a weight-AWARE inner fit (e.g. a downstream
+            # dtype/shape bug) to "no sample_weight support", silently dropping
+            # the weighting on a re-fit. ``has_fit_parameter`` (sklearn) is the
+            # canonical check and also resolves metadata-routed / delegated fits.
+            if _estimator_fit_accepts_sample_weight(estimator):
                 estimator.fit(X_valid, t_train, sample_weight=sample_weight, **fit_kwargs)
-            except TypeError:
-                # Inner doesn't accept sample_weight; fall back.
+            else:
                 logger.info(
                     "[CompositeTargetEstimator] inner estimator '%s' does not accept "
                     "sample_weight; ignoring.",
@@ -659,6 +866,24 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             self.feature_names_in_ = list(X.columns)
         except AttributeError:
             pass
+        # E11 fix: stamp the feature count the WRAPPER saw at the X boundary so
+        # the class-level ``n_features_in_`` property reports a value consistent
+        # with ``feature_names_in_``. For grouped transforms the inner is fit on
+        # F-1 columns (group_column dropped), so delegating to ``inner.n_features_in_``
+        # would under-count by one and break the sklearn
+        # ``n_features_in_ == len(feature_names_in_)`` invariant. Prefer the
+        # column count when available; else fall back to the inner's count.
+        _names = getattr(self, "feature_names_in_", None)
+        if _names is not None:
+            self._n_features_in_wrapper = len(_names)
+        else:
+            _inner_n = getattr(estimator, "n_features_in_", None)
+            if _inner_n is not None:
+                # ndarray X with grouped transform: inner saw F-1 (group col was
+                # dropped); add it back so the count matches what the wrapper
+                # ingested.
+                _extra = 1 if (transform.requires_groups and self.group_column) else 0
+                self._n_features_in_wrapper = int(_inner_n) + _extra
         # Live counters initialised lazily by predict.
         self.runtime_stats_ = {
             "predict_calls": 0,
@@ -701,10 +926,29 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # Polars
         if _is_polars_df(X):
             present = [c for c in columns if c in X.columns]
+            # ``pl.DataFrame.drop`` is zero-copy (Arrow column projection); the
+            # remaining columns are shared, no row data is materialised.
             return X.drop(present) if present else X
         if isinstance(X, pd.DataFrame):
             present = [c for c in columns if c in X.columns]
-            return X.drop(columns=present) if present else X
+            if not present:
+                # No-op fast path: never touch the frame when nothing is dropped
+                # (the common case once feature-selection already removed the
+                # plumbing column upstream). Returning ``X`` unchanged avoids the
+                # block-consolidating copy ``drop`` would otherwise pay.
+                return X
+            # E12 (perf, FUTURE -- deferred, needs a before/after RAM/wall bench
+            # per perf-measure-first which cannot be run in this isolated pass):
+            # ``pd.DataFrame.drop(columns=...)`` materialises a copy of the
+            # remaining blocks on pandas<2 / CoW-off. Under pandas>=2 with
+            # Copy-on-Write the result is a lazy view (no copy until a write that
+            # never happens here), so the hot-path cost is config-dependent and a
+            # blind rewrite to ``X.loc[:, keep]`` would NOT be an improvement (it
+            # copies too) and could change column ordering. Only the group_column
+            # (a single column, grouped-transform path only) is ever dropped here,
+            # so the blast radius is bounded. A measured CoW-gated no-copy variant
+            # is tracked as E12 for a benchmark-capable session.
+            return X.drop(columns=present)
         # ndarray has no columns -> nothing to drop.
         return X
 
@@ -713,21 +957,18 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
 # Method rebinding from sibling carves. Done at module bottom so the parent class is fully constructed; identity preserved (parent.X is sibling.X) which keeps isinstance / hasattr / sklearn introspection unchanged. Mirror of the RFECV.fit carve pattern.
 from . import _utils as _utils  # noqa: E402
 from . import _predict as _pred  # noqa: E402
-from . import _update as _upd  # noqa: E402
 
+# ``_require_fitted`` / ``_require_inner_attr`` (private helpers used by the
+# delegated-attribute property bodies) and ``_predict_unclipped`` (private, used
+# by predict / predict_pre_clip) remain runtime-bound -- they are not part of the
+# public surface and have no IDE-discoverability requirement.
 CompositeTargetEstimator._require_fitted = _utils._require_fitted
-CompositeTargetEstimator.get_booster = _utils.get_booster
-CompositeTargetEstimator.feature_importances_ = property(_utils.feature_importances_)
-CompositeTargetEstimator.coef_ = property(_utils.coef_)
-CompositeTargetEstimator.intercept_ = property(_utils.intercept_)
-CompositeTargetEstimator.booster_ = property(_utils.booster_)
-CompositeTargetEstimator.n_features_in_ = property(_utils.n_features_in_)
-
+CompositeTargetEstimator._require_inner_attr = _utils._require_inner_attr
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
-CompositeTargetEstimator.predict_pre_clip = _pred.predict_pre_clip
-# ``predict`` / ``predict_quantile`` are now defined as in-body delegating stubs
-# on the class (discoverable to mypy / IDE / help()); the heavy implementations
-# stay in ``_pred`` and are reached via those stubs.
 
-CompositeTargetEstimator.update = _upd.update
-CompositeTargetEstimator.get_buffer_state = _upd.get_buffer_state
+# DX15: the public methods (``predict`` / ``predict_quantile`` / ``predict_pre_clip``
+# / ``update`` / ``get_buffer_state`` / ``get_booster``) and the sklearn-convention
+# properties (``feature_importances_`` / ``coef_`` / ``intercept_`` / ``booster_`` /
+# ``n_features_in_``) are now defined as in-body delegating stubs on the class so
+# they are discoverable to mypy / IDE / help(); the heavy bodies stay carved out
+# in ``_predict`` / ``_update`` / ``_utils`` and are reached via those stubs.

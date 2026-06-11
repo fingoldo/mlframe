@@ -14,9 +14,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.validation import check_is_fitted
 
 from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 from mlframe.training.composite.post_shim import PrePipelinePredictShim
@@ -58,6 +60,39 @@ class _StubEstimator(BaseEstimator, RegressorMixin):
     def predict(self, X):
         n = int(np.asarray(X).shape[0])
         return np.full(n, self.coef_, dtype=np.float64)
+
+
+class _QuantileStubEstimator(_StubEstimator):
+    """``_StubEstimator`` that ALSO exposes ``predict_quantile`` so the shim's
+    conditional quantile delegation can be exercised. Records the X it was asked
+    to quantile-predict so the test can assert the pre_pipeline routed it."""
+
+    def predict_quantile(self, X, alpha=0.5):
+        arr = np.asarray(X, dtype=np.float64)
+        self.quantile_input_mean_ = float(arr.mean())
+        n = int(arr.shape[0])
+        levels = np.atleast_1d(np.asarray(alpha, dtype=np.float64))
+        out = np.column_stack([np.full(n, self.coef_ + q, dtype=np.float64) for q in levels])
+        return out[:, 0] if np.isscalar(alpha) else out
+
+
+class _CompositeLikeWrapper(BaseEstimator, RegressorMixin):
+    """Mimics a quantile-capable ``CompositeTargetEstimator``: exposes both
+    ``estimator_`` (the raw inner) and ``predict_quantile`` on the wrapper, so
+    the shim's predicate path through ``model.predict_quantile`` is covered."""
+
+    def __init__(self, inner=None) -> None:
+        self.inner = inner
+
+    def fit(self, X, y, sample_weight=None):
+        self.estimator_ = (self.inner or _QuantileStubEstimator()).fit(X, y)
+        return self
+
+    def predict(self, X):
+        return self.estimator_.predict(X)
+
+    def predict_quantile(self, X, alpha=0.5):
+        return self.estimator_.predict_quantile(X, alpha)
 
 
 def _make_X_y(n: int = 200, seed: int = 7) -> tuple[pd.DataFrame, np.ndarray]:
@@ -182,3 +217,90 @@ class TestOofRefitWithShim:
         assert "OOF refit failed" not in caplog.text
         assert surviving == ["raw#0", "raw#1", "raw#2"]
         assert matrix.shape[1] == 3
+
+
+class TestShimIsFitted:
+    """E19: ``check_is_fitted(shim)`` must reflect the REAL fit state.
+
+    Verified pre-fix mechanism (sklearn 1.8 ``_is_fitted`` scans
+    ``vars(estimator)`` for a trailing-underscore attribute, and falls back to
+    ``__sklearn_is_fitted__`` only when defined): the shim had no
+    ``__sklearn_is_fitted__`` and its ``fit`` set NO trailing-underscore
+    instance attribute (the ``estimator_`` property is class-level, so invisible
+    to ``vars()``). Result: a *fitted* shim was wrongly reported as NOT fitted by
+    ``check_is_fitted`` -- breaking any caller (e.g. nested-clone OOF flows) that
+    gates on it. ``__sklearn_is_fitted__`` now reports both directions correctly.
+    """
+
+    def test_unfitted_shim_is_not_fitted(self) -> None:
+        shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="u")
+        with pytest.raises(NotFittedError):
+            check_is_fitted(shim)
+        assert shim.__sklearn_is_fitted__() is False
+
+    def test_fitted_shim_reports_fitted(self) -> None:
+        # Pre-fix this FAILED: a fitted shim raised NotFittedError because nothing
+        # in vars(shim) ended in '_'. Post-fix __sklearn_is_fitted__ returns True.
+        shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="f")
+        shim.fit(np.array([[1.0], [2.0], [3.0]]), np.array([1.0, 2.0, 3.0]))
+        check_is_fitted(shim)  # must not raise
+        assert shim.__sklearn_is_fitted__() is True
+
+    def test_pre_fitted_inner_without_shim_fit_reports_fitted(self) -> None:
+        # Cross-target ensemble wraps an ALREADY-trained inner and calls predict
+        # without re-calling shim.fit; the shim must still report fitted.
+        inner = _StubEstimator().fit(np.array([[1.0], [2.0]]), np.array([1.0, 2.0]))
+        shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="p")
+        check_is_fitted(shim)  # must not raise
+        assert shim.__sklearn_is_fitted__() is True
+
+    def test_clone_of_fitted_shim_is_not_fitted(self) -> None:
+        # Cloning drops fitted state; the fresh shim must report UNFITTED so the
+        # OOF refit knows it has to fit it.
+        shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="c")
+        shim.fit(np.array([[1.0], [2.0]]), np.array([1.0, 2.0]))
+        fresh = clone(shim)
+        with pytest.raises(NotFittedError):
+            check_is_fitted(fresh)
+
+
+class TestShimPredictQuantile:
+    """E19: ``predict_quantile`` must be delegated (through ``pre_pipeline``)
+    whenever the nested member supports it, and HIDDEN otherwise.
+
+    Pre-fix the shim defined no ``predict_quantile`` at all, so a
+    quantile-capable nested member silently lost its quantile head and
+    ``hasattr(shim, "predict_quantile")`` was always False.
+    """
+
+    def test_quantile_hidden_when_inner_lacks_it(self) -> None:
+        shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="n")
+        assert not hasattr(shim, "predict_quantile")
+
+    def test_quantile_exposed_when_inner_supports_it(self) -> None:
+        # Pre-fix hasattr was False even here (the bug); post-fix it is True.
+        shim = PrePipelinePredictShim(model=_QuantileStubEstimator(), pre_pipeline=None, name="q")
+        assert hasattr(shim, "predict_quantile")
+
+    def test_quantile_exposed_when_composite_wrapper_supports_it(self) -> None:
+        shim = PrePipelinePredictShim(model=_CompositeLikeWrapper(), pre_pipeline=None, name="w")
+        assert hasattr(shim, "predict_quantile")
+
+    def test_quantile_routes_through_pre_pipeline(self) -> None:
+        scaler = StandardScaler().fit(np.array([[1.0], [2.0], [3.0], [4.0]]))
+        inner = _QuantileStubEstimator()
+        inner.fit(scaler.transform(np.array([[1.0], [2.0]])), np.array([0.5, 1.5]))
+        shim = PrePipelinePredictShim(model=inner, pre_pipeline=scaler, name="q")
+        X = np.array([[5.0], [6.0], [7.0]])
+        shim.predict_quantile(X, 0.5)
+        # The inner must have seen the SCALED X, not the raw X.
+        expected = float(scaler.transform(X).mean())
+        assert inner.quantile_input_mean_ == pytest.approx(expected, abs=1e-9)
+        assert inner.quantile_input_mean_ != pytest.approx(float(X.mean()), abs=1e-3)
+
+    def test_quantile_scalar_vs_array_alpha_shapes(self) -> None:
+        inner = _QuantileStubEstimator().fit(np.array([[1.0], [2.0]]), np.array([0.0, 2.0]))
+        shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="q")
+        X = np.array([[1.0], [2.0], [3.0]])
+        assert shim.predict_quantile(X, 0.5).shape == (3,)
+        assert shim.predict_quantile(X, [0.1, 0.5, 0.9]).shape == (3, 3)

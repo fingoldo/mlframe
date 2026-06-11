@@ -117,6 +117,20 @@ class Transform:
       ``fit`` / ``forward``, and at predict-time to flag rows where
       the inverse cannot be applied cleanly (those rows fall back to
       ``y_train_median``).
+    - ``domain_check_fitted(y, base, params)`` -> boolean mask, OPTIONAL.
+      The pre-fit ``domain_check`` cannot see fitted parameters, so any
+      transform whose validity depends on a learned parameter (e.g.
+      ``log_y``'s ``offset`` -- rows with ``y + offset <= 0`` produce NaN
+      under ``log``; ``centered_ratio``'s shift ``c`` -- rows where
+      ``base + c`` lands in the near-zero eps-floor band) cannot enforce
+      its true domain through ``domain_check`` alone. When a transform
+      sets this hook, callers re-evaluate the valid mask AFTER ``fit`` and
+      drop the newly-invalid rows so they never reach ``forward`` (which
+      would silently emit NaN T). The same ``(y, base)`` -> all-True /
+      ``y=None`` predict-time contract as ``domain_check`` applies: with
+      ``y=None`` only the base-side, params-derived conditions are gated.
+      Transforms without params-dependent validity leave this ``None`` and
+      callers fall back to the params-free ``domain_check`` result.
     """
 
     name: str
@@ -126,6 +140,12 @@ class Transform:
     domain_check: Callable[[np.ndarray, np.ndarray], np.ndarray]
     description: str
     tags: frozenset[str] = field(default_factory=frozenset)
+    # Optional fitted-params-aware domain refinement. See the contract note
+    # above. ``None`` (default) means the transform's validity is fully
+    # captured by the params-free ``domain_check``. When set, the signature
+    # is ``(y, base, params) -> boolean mask`` with the same ``y=None``
+    # predict-time sentinel handling as ``domain_check``.
+    domain_check_fitted: Callable[..., np.ndarray] | None = None
     # Grouped-transform support. When True, the wrapper extracts a
     # ``groups`` array from a configured column and
     # passes it as a keyword argument to ``fit`` / ``forward`` /
@@ -277,10 +297,11 @@ from .nonlinear import (  # noqa: E402,F401
 from .registry import (  # noqa: E402,F401
     _TRANSFORMS_REGISTRY,
     _make_unary_registry_adapter,
-    _cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain,
-    _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a,
-    _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a,
-    _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a,
+    _cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _cbrt_domain_fitted,
+    _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a,
+    _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a,
+    _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a,
+    _centered_ratio_domain_fitted,
 )
 from .naming import (  # noqa: E402,F401
     TRANSFORM_NAME_SHORT,

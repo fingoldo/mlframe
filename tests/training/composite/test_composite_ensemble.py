@@ -178,6 +178,73 @@ class TestTrainMetricsWeights:
                 component_train_rmse=[float("nan")],
             )
 
+    # ------------------------------------------------------------------
+    # N17: baseline-scale consistency between OOF rmses and the baseline.
+    # ------------------------------------------------------------------
+
+    def test_oof_rmses_with_train_scale_baseline_does_not_spuriously_fall_back(self) -> None:
+        """N17 regression: ranking on OOF rmses while only a TRAIN-scale baseline is supplied.
+
+        Train RMSE is systematically lower than OOF RMSE (rows seen at fit). Pre-fix the method
+        used ``baseline_train_rmse`` *as the baseline against the OOF rmses* -- an apples-to-oranges
+        comparison. With a train baseline below every OOF rmse, ``gains = max(0, baseline - oof_rmse)``
+        collapses to all-zero and the method spuriously returns the single best model instead of an
+        ensemble. The fix IGNORES the off-scale train baseline and uses the self-normalising
+        ``max(oof_rmses)`` fallback, so the multi-component ensemble is built.
+
+        Pre-fix this returns a bare ``_StubModel`` (gains all <= 0); post-fix an ensemble.
+        """
+        models = [_StubModel(1.0), _StubModel(2.0), _StubModel(3.0)]
+        result = CompositeCrossTargetEnsemble.from_train_metrics(
+            component_models=models,
+            component_names=["a", "b", "c"],
+            component_oof_rmse=[0.8, 0.5, 0.3],   # honest OOF scale
+            baseline_train_rmse=0.25,             # train scale: below EVERY oof rmse
+            # baseline_oof_rmse intentionally omitted -> the mismatch path.
+        )
+        # Post-fix: a real ensemble (not the single-best bare model fallback).
+        assert isinstance(result, CompositeCrossTargetEnsemble), (
+            "off-scale train baseline must be ignored; an ensemble must be built, not a bare model"
+        )
+        # baseline used = max(oof) = 0.8; gains = (0.0, 0.3, 0.5) -> sum 0.8.
+        np.testing.assert_allclose(result.weights, np.array([0.0, 0.375, 0.625]))
+        assert result.weights.sum() == pytest.approx(1.0)
+        # Provenance recorded for operators / downstream readers (safe sub-fix).
+        assert result.notes["rmse_source"] == "oof"
+        assert result.notes["baseline_source"] == "max_fallback"
+        assert result.notes["baseline"] == pytest.approx(0.8)
+
+    def test_oof_rmses_with_oof_baseline_is_scale_consistent(self) -> None:
+        """An explicit OOF-scale baseline IS honoured (and labelled) -- the production path."""
+        models = [_StubModel(1.0), _StubModel(2.0), _StubModel(3.0)]
+        result = CompositeCrossTargetEnsemble.from_train_metrics(
+            component_models=models,
+            component_names=["a", "b", "c"],
+            component_oof_rmse=[0.8, 0.5, 0.3],
+            baseline_oof_rmse=1.0,   # same (OOF) scale as the rmses
+        )
+        assert isinstance(result, CompositeCrossTargetEnsemble)
+        # gains = (0.2, 0.5, 0.7) -> sum 1.4.
+        np.testing.assert_allclose(result.weights, np.array([0.2, 0.5, 0.7]) / 1.4)
+        assert result.notes["rmse_source"] == "oof"
+        assert result.notes["baseline_source"] == "oof"
+        assert result.notes["baseline"] == pytest.approx(1.0)
+
+    def test_train_path_with_train_baseline_unchanged(self) -> None:
+        """Behaviour-preservation: the pure train path is bit-identical to pre-N17."""
+        models = [_StubModel(1.0), _StubModel(2.0), _StubModel(3.0)]
+        result = CompositeCrossTargetEnsemble.from_train_metrics(
+            component_models=models,
+            component_names=["worst", "mid", "best"],
+            component_train_rmse=[1.0, 0.5, 0.2],
+            baseline_train_rmse=1.5,
+        )
+        assert isinstance(result, CompositeCrossTargetEnsemble)
+        # gains = (0.5, 1.0, 1.3) -> sum 2.8 (same as TestTrainMetricsWeights.test_gain_weighted_strategy).
+        np.testing.assert_allclose(result.weights, np.array([0.5, 1.0, 1.3]) / 2.8)
+        assert result.notes["rmse_source"] == "train"
+        assert result.notes["baseline_source"] == "train"
+
 
 # ----------------------------------------------------------------------
 # predict robustness

@@ -374,6 +374,24 @@ class CompositeCrossTargetEnsemble:
         median of ``component_train_rmse`` is used as a self-
         normalising fallback.
 
+        Baseline-scale consistency (N17)
+        --------------------------------
+        The gain ``baseline - rmse`` is only meaningful when the
+        baseline and the ranked rmses live on the SAME scale. When
+        ranking on OOF (``component_oof_rmse`` supplied) the only
+        scale-consistent baseline is ``baseline_oof_rmse``. A
+        ``baseline_train_rmse`` passed alongside OOF rmses is on the
+        train scale -- and train RMSE is systematically *lower* than
+        OOF RMSE (rows seen at fit), so using it would shrink every
+        gain (or drive it negative), spuriously firing the
+        "no component beats baseline" single-best fallback against an
+        apples-to-oranges benchmark. In that mismatch case the
+        train-scale baseline is IGNORED and the self-normalising
+        ``max(oof_rmses)`` fallback is used instead, with a WARN. The
+        scale actually used is recorded in ``notes`` as
+        ``rmse_source`` (``"oof"`` | ``"train"``) and
+        ``baseline_source`` (``"oof"`` | ``"train"`` | ``"max_fallback"``).
+
         If every component's RMSE is worse than the baseline, the
         method returns the SINGLE best-RMSE component instead of the
         ensemble (validation gate). Log line announces the fallback.
@@ -386,15 +404,38 @@ class CompositeCrossTargetEnsemble:
         # same selection problem as using val (already burned for ES). When ``component_oof_rmse``
         # is given we rank on OOF; otherwise we fall back to train_rmse with a WARN so the operator
         # knows the gate is biased optimistic.
+        # N17: ``rmse_source`` records which scale the ranked rmses live on so the baseline can be
+        # kept scale-consistent (and so callers/operators can see it in ``notes``). ``baseline``
+        # candidate + its provenance are resolved jointly below; a train-scale baseline passed
+        # alongside OOF rmses is an apples-to-oranges mismatch and must NOT be used.
         if component_oof_rmse is not None:
+            rmse_source = "oof"
             rmses = np.asarray(component_oof_rmse, dtype=np.float64)
             if len(rmses) != n:
                 raise ValueError(
                     f"from_train_metrics: component_oof_rmse list len {len(rmses)} != n_components {n}."
                 )
+            # Only an OOF-scale baseline is scale-consistent with OOF rmses. A train-scale
+            # ``baseline_train_rmse`` is systematically optimistic (train RMSE < OOF RMSE), so
+            # honouring it here would shrink every gain and spuriously trip the single-best gate.
             if baseline_oof_rmse is not None:
-                baseline_train_rmse = baseline_oof_rmse
+                baseline_candidate = float(baseline_oof_rmse)
+                baseline_source = "oof"
+            else:
+                baseline_candidate = None
+                baseline_source = None
+                if baseline_train_rmse is not None:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] from_train_metrics: ranking on OOF RMSE but only "
+                        "a TRAIN-scale baseline_train_rmse=%.4g was supplied. Train RMSE is systematically "
+                        "lower than OOF RMSE, so this baseline is on the wrong scale and would spuriously "
+                        "shrink every gain (firing the single-best fallback). IGNORING it and using the "
+                        "self-normalising max(oof_rmses) fallback instead. Pass baseline_oof_rmse=... for "
+                        "a real gain-over-naive OOF weighting.",
+                        float(baseline_train_rmse),
+                    )
         else:
+            rmse_source = "train"
             if component_train_rmse is None:
                 raise ValueError(
                     "from_train_metrics: must supply either component_oof_rmse "
@@ -411,10 +452,17 @@ class CompositeCrossTargetEnsemble:
                 "biased optimistic (rows seen at fit). Pass component_oof_rmse=... for an honest "
                 "cross-validated weighting."
             )
+            # On the train-rmse path a train-scale baseline IS scale-consistent.
+            if baseline_train_rmse is not None:
+                baseline_candidate = float(baseline_train_rmse)
+                baseline_source = "train"
+            else:
+                baseline_candidate = None
+                baseline_source = None
         if not np.all(np.isfinite(rmses)):
             raise ValueError("from_train_metrics: rmses contain non-finite values.")
 
-        if baseline_train_rmse is None:
+        if baseline_candidate is None or not math.isfinite(baseline_candidate):
             # MEDIAN-BASELINE: previously fell back to ``np.median(rmses)`` which by construction
             # discards the worse-than-median half of the candidate pool entirely. That's a hidden
             # contract surprise: the caller passed K components expecting a K-component ensemble
@@ -422,18 +470,23 @@ class CompositeCrossTargetEnsemble:
             # (numerically the largest) as the baseline so every component that beats the worst
             # contributes a non-zero weight, AND we WARN the caller that no explicit baseline was
             # passed -- the operator should plug in a real benchmark (naive predictor / median
-            # baseline_train_rmse / dataset variance) for production runs.
+            # baseline / dataset variance) for production runs. ``baseline_source`` is set here
+            # rather than above because the supplied baseline (if any) was rejected as off-scale or
+            # non-finite -- the actual baseline used is the self-normalising max(rmses).
             baseline = float(np.max(rmses))
-            logger.warning(
-                "[CompositeCrossTargetEnsemble] from_train_metrics: no baseline_train_rmse passed; "
-                "defaulting to max(component_train_rmse)=%.4g so every component beats baseline. "
-                "Pass an explicit baseline (e.g. naive predictor RMSE) to get a real gain-over-naive weighting.",
-                baseline,
-            )
+            baseline_source = "max_fallback"
+            # N17: only emit the "no baseline passed" nudge when the caller genuinely supplied none.
+            # The OOF/train-scale-mismatch case already logged its own (more specific) WARN above.
+            if not (rmse_source == "oof" and baseline_train_rmse is not None):
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] from_train_metrics: no scale-consistent baseline "
+                    "passed (rmse_source=%s); defaulting to max(component_%s_rmse)=%.4g so every "
+                    "component beats baseline. Pass an explicit baseline (e.g. naive predictor RMSE) "
+                    "to get a real gain-over-naive weighting.",
+                    rmse_source, rmse_source, baseline,
+                )
         else:
-            baseline = float(baseline_train_rmse)
-            if not math.isfinite(baseline):
-                baseline = float(np.max(rmses))
+            baseline = float(baseline_candidate)
 
         gains = np.maximum(0.0, baseline - rmses)
         if gains.sum() <= 0:
@@ -442,8 +495,10 @@ class CompositeCrossTargetEnsemble:
             best_idx = int(np.argmin(rmses))
             logger.warning(
                 "[CompositeCrossTargetEnsemble] no component beats the baseline "
-                "RMSE=%.4g; falling back to single best component '%s' (RMSE=%.4g).",
-                baseline, component_names[best_idx], rmses[best_idx],
+                "RMSE=%.4g (rmse_source=%s, baseline_source=%s); falling back to single best "
+                "component '%s' (RMSE=%.4g).",
+                baseline, rmse_source, baseline_source,
+                component_names[best_idx], rmses[best_idx],
             )
             return component_models[best_idx]
 
@@ -468,6 +523,15 @@ class CompositeCrossTargetEnsemble:
             weights=weights,
             strategy="oof_weighted",
             notes={
+                # N17: scale provenance so downstream readers/operators can tell whether the
+                # ranking + baseline were on the honest OOF scale or the biased train scale, and
+                # where the baseline came from (caller-supplied vs the self-normalising max fallback).
+                "rmse_source": rmse_source,
+                "baseline_source": baseline_source,
+                "baseline": baseline,
+                # Legacy key retained for back-compat (pre-N17 readers / persisted metadata expect
+                # ``baseline_train_rmse`` / ``component_train_rmses``); on the OOF path these now hold
+                # OOF-scale values -- consult ``rmse_source`` to interpret the scale.
                 "baseline_train_rmse": baseline,
                 "component_train_rmses": rmses.tolist(),
                 "best_single_rmse": best_single_rmse,

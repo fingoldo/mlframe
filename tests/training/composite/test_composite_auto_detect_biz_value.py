@@ -259,3 +259,100 @@ def test_cat_detect_empty_df():
 def test_cat_detect_unsupported_raises():
     with pytest.raises(TypeError, match="unsupported df type"):
         detect_cat_columns(42)
+
+
+# ----------------------------------------------------------------------------
+# A24 (2026-06-11): info_bonus must be UNIMODAL, not monotone-increasing.
+# The pre-fix bonus n_unique/(log1p(n_unique)+1) rose without bound, so an
+# ID-like high-cardinality int column outranked a clean moderate-cardinality
+# categorical whenever coverage was comparable -- "ID-like int columns rank
+# first", the exact defect A24 reports.
+# ----------------------------------------------------------------------------
+
+
+def _build_equal_coverage_cat_columns(n_total: int = 200_000):
+    """Build two int columns with IDENTICAL top-10 coverage but different
+    cardinality: a clean 25-level categorical and an ID-like 400-level column.
+
+    Top-10 levels carry 60% of rows in BOTH columns, so ``coverage_top10`` is
+    equal and the detector's ranking is decided ENTIRELY by ``info_bonus``.
+    Every level holds >= the default 20 samples, so both clear the gates.
+    """
+    def realise(n_tail_levels: int, hot_frac: float = 0.60):
+        hot_rows = int(round(n_total * hot_frac))
+        tail_rows = n_total - hot_rows
+        counts = [hot_rows // 10] * 10 + [tail_rows // n_tail_levels] * n_tail_levels
+        return np.repeat(np.arange(len(counts)), counts)
+
+    clean = realise(15)   # 10 hot + 15 tail = 25 levels
+    idlike = realise(390)  # 10 hot + 390 tail = 400 levels
+    m = min(len(clean), len(idlike))
+    return pd.DataFrame({
+        "clean_cat": clean[:m].astype(np.int64),
+        "id_like": idlike[:m].astype(np.int64),
+    })
+
+
+def test_cat_detect_info_bonus_is_unimodal():
+    """The cardinality bonus must peak in the 10-100 'sweet spot' and decay
+    beyond it. The pre-fix monotone shape fails ``bonus(40) > bonus(500)``."""
+    from mlframe.training.composite.discovery.auto_detect import _cat_info_bonus
+
+    peak = 40.0
+    # Rising up to the peak (this half the old monotone shape also satisfied).
+    assert _cat_info_bonus(5, peak) > _cat_info_bonus(2, peak)
+    assert _cat_info_bonus(40, peak) > _cat_info_bonus(5, peak)
+    # Decaying past the peak -- the half the OLD monotone bonus violated.
+    assert _cat_info_bonus(40, peak) > _cat_info_bonus(500, peak), \
+        "info_bonus must decay for ID-like high cardinality (A24)"
+    assert _cat_info_bonus(40, peak) > _cat_info_bonus(1000, peak)
+    # Unique global maximum at the configured peak.
+    grid = [_cat_info_bonus(n, peak) for n in (2, 5, 10, 40, 100, 500, 1000)]
+    assert max(grid) == grid[3], "global max must sit at the sweet-spot peak"
+
+
+def test_cat_detect_clean_categorical_outranks_id_like_at_equal_coverage():
+    """biz_value (A24): with top-10 coverage held EQUAL, a clean 25-category
+    column MUST outrank an ID-like 400-level column. The pre-fix monotone
+    bonus inverted this (id_like score 34.3 vs clean 3.5)."""
+    df = _build_equal_coverage_cat_columns()
+    out = dict(detect_cat_columns(df, max_unique=1000))
+    assert "clean_cat" in out and "id_like" in out
+    # Coverage is engineered identical -> isolates the bonus shape.
+    assert abs(out["clean_cat"]["coverage_top10"] - out["id_like"]["coverage_top10"]) < 1e-9
+    assert out["clean_cat"]["score"] > out["id_like"]["score"], (
+        "clean moderate-cardinality cat must outrank ID-like high-cardinality "
+        f"at equal coverage; got clean={out['clean_cat']['score']:.4f} "
+        f"id_like={out['id_like']['score']:.4f}"
+    )
+
+
+def test_cat_detect_regression_pre_fix_monotone_bonus_inverts_ranking():
+    """Regression pin (A24): the OLD monotone bonus n/(log1p(n)+1) -- applied
+    to the SAME detected (n_unique, coverage_top10) -- ranks the ID-like column
+    FIRST. This test FAILS on the pre-fix logic and documents why the fix is
+    needed; the new unimodal bonus reverses the verdict."""
+    df = _build_equal_coverage_cat_columns()
+    out = dict(detect_cat_columns(df, max_unique=1000))
+    clean, idlike = out["clean_cat"], out["id_like"]
+
+    def _old_monotone_bonus(n_unique: int) -> float:
+        return float(n_unique) / float(np.log1p(n_unique) + 1.0)
+
+    old_clean = clean["coverage_top10"] * _old_monotone_bonus(clean["n_unique"])
+    old_idlike = idlike["coverage_top10"] * _old_monotone_bonus(idlike["n_unique"])
+    # The OLD shape would have ranked the ID-like column first (the bug)...
+    assert old_idlike > old_clean, "pre-fix bonus must inflate the ID-like column"
+    # ...while the SHIPPED detector ranks the clean column first (the fix).
+    assert clean["score"] > idlike["score"]
+
+
+def test_cat_detect_sweet_spot_peak_is_tunable():
+    """The peak is configurable: shifting it moves which cardinality scores
+    highest, so a dataset with very granular categoricals can be retuned."""
+    from mlframe.training.composite.discovery.auto_detect import _cat_info_bonus
+
+    # With a high peak, a 200-level column beats a 20-level column...
+    assert _cat_info_bonus(200, 200.0) > _cat_info_bonus(20, 200.0)
+    # ...but with the default low peak the 20-level column wins.
+    assert _cat_info_bonus(20, 40.0) > _cat_info_bonus(200, 40.0)

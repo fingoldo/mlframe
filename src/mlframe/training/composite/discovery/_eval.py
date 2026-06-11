@@ -54,6 +54,32 @@ def eval_one_transform(
         return _local
 
     fitted_params = transform.fit(y_train[valid], base_train[valid])
+    # T15 (2026-06-10): fitted-params-aware domain refinement. The pre-fit
+    # ``domain_check`` above cannot see learned params (log_y's ``offset``,
+    # centered_ratio's shift ``c`` + eps-floor), so it lets rows through that
+    # are out of the TRUE fitted domain -- e.g. log_y rows with
+    # ``y + offset <= 0`` produce NaN under ``forward(log)``. Re-evaluate the
+    # valid mask now that params exist and drop the newly-invalid rows BEFORE
+    # the residual-std probe / screening forward, so those NaN-T rows never
+    # bias the MI gain (and ``n_train_rows`` reflects the real domain).
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None and isinstance(fitted_params, dict):
+        valid_fitted = np.asarray(_dcf(y_train, base_train, fitted_params), dtype=bool)
+        if valid_fitted.shape == valid.shape and not bool(valid_fitted[valid].all()):
+            valid = valid & valid_fitted
+            valid_frac = float(valid.mean()) if valid.size else 0.0
+            if valid_frac < self.config.min_valid_domain_frac:
+                _local.append(self._reject(
+                    base, transform_name, mi_y_for_base, valid_frac,
+                    reason=(
+                        f"fitted-domain valid_frac={valid_frac:.3f} "
+                        f"< {self.config.min_valid_domain_frac:.3f} "
+                        f"(rows out of domain only after fit set params)"
+                    ),
+                ))
+                return _local
+            if not valid.any():
+                return _local
     # Pack D 2026-05-18: reject identity / near-identity transforms early.
     # Some bivariate transforms can collapse to a constant residual
     # (T = y - const) when the base does not actually carry the
@@ -147,6 +173,17 @@ def eval_one_transform(
         )
     # T on the screening sample (which is a subset of train).
     valid_screen = transform.domain_check(y_screen, base_screen)
+    # T15: apply the same fitted-domain refinement to the screening mask so
+    # ``t_screen`` (mi_t) and ``y_screen[valid_screen]`` (mi_y_compare) score
+    # the SAME row population -- otherwise mi_gain compares MI over different
+    # rows (mi_t excludes NaN-T rows inside the binner, mi_y_compare keeps
+    # them) and the gate sees an apples-to-oranges delta.
+    if _dcf is not None and isinstance(fitted_params, dict):
+        valid_screen_fitted = np.asarray(
+            _dcf(y_screen, base_screen, fitted_params), dtype=bool,
+        )
+        if valid_screen_fitted.shape == valid_screen.shape:
+            valid_screen = valid_screen & valid_screen_fitted
     if valid_screen.sum() < 50:
         _local.append(self._reject(
             base, transform_name, mi_y_for_base, valid_frac,

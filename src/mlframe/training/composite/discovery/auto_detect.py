@@ -292,6 +292,37 @@ def detect_group_column_candidates(
 _CAT_DETECT_DEFAULT_MIN_UNIQUE: int = 2
 _CAT_DETECT_DEFAULT_MAX_UNIQUE: int = 1000
 _CAT_DETECT_DEFAULT_MIN_SAMPLES_PER_CAT: int = 20
+# Cardinality at which the info-bonus peaks (the "sweet spot" the docstring
+# promises to reward over both extremes). 40 sits squarely in the 10-100 band
+# where FHC target-encoding has both enough levels to carry signal and enough
+# samples/level to estimate stable target means. Tunable per dataset.
+_CAT_DETECT_DEFAULT_SWEET_SPOT_PEAK: float = 40.0
+
+
+def _cat_info_bonus(n_unique: int, sweet_spot_peak: float) -> float:
+    """Unimodal cardinality bonus peaking at ``sweet_spot_peak`` distinct levels.
+
+    A24 fix (2026-06-11): the previous ``n_unique / (log1p(n_unique) + 1)`` was
+    monotone-INCREASING, so an ID-like high-cardinality int column (e.g. 500
+    levels that barely clear ``min_samples_per_cat``) scored a far larger bonus
+    than a clean 10-50 category column -- the exact opposite of the documented
+    intent ("rewards 10-100 categories more than 2 or 500"). With coverage held
+    equal it ranked ID-like columns FIRST.
+
+    The corrected shape is a log-scale unimodal curve ``x * exp(1 - x)`` where
+    ``x = log1p(n_unique) / log1p(sweet_spot_peak)``. It rises from ``min_unique``
+    to a single maximum of 1.0 at ``n_unique == sweet_spot_peak`` and decays for
+    larger cardinalities, so genuine moderate-cardinality categoricals outrank
+    both binary columns and ID-like high-cardinality columns. Bounded in (0, 1],
+    which also keeps the multiplicative ``coverage_top10`` factor meaningful
+    instead of being swamped by an unbounded bonus.
+
+    Monotone increasing on ``2..sweet_spot_peak`` (preserves the established
+    ``bonus(5) > bonus(2)`` contract), strictly decreasing beyond the peak.
+    """
+    peak = max(float(sweet_spot_peak), 1.0)
+    x = float(np.log1p(n_unique)) / float(np.log1p(peak))
+    return float(x * np.exp(1.0 - x))
 
 
 def detect_cat_columns(
@@ -301,6 +332,7 @@ def detect_cat_columns(
     min_unique: int = _CAT_DETECT_DEFAULT_MIN_UNIQUE,
     max_unique: int = _CAT_DETECT_DEFAULT_MAX_UNIQUE,
     min_samples_per_cat: int = _CAT_DETECT_DEFAULT_MIN_SAMPLES_PER_CAT,
+    sweet_spot_peak: float = _CAT_DETECT_DEFAULT_SWEET_SPOT_PEAK,
 ) -> list[tuple[str, dict[str, Any]]]:
     """Scan ``df`` for columns that look like categorical features (suitable for
     FHC target_mean / WoE / CatBoostEncoder).
@@ -324,6 +356,11 @@ def detect_cat_columns(
     min_samples_per_cat : int, default 20
         Absolute minimum samples for the SMALLEST category. FHC stability is
         dominated by per-category count, not by relative balance.
+    sweet_spot_peak : float, default 40
+        Cardinality at which the (unimodal) info-bonus peaks. Columns whose
+        ``n_unique`` is near this value get the strongest cardinality bonus;
+        binary columns and ID-like high-cardinality columns are both down-
+        weighted. Keep it inside the FHC-friendly 10-100 band.
 
     Returns
     -------
@@ -417,10 +454,13 @@ def detect_cat_columns(
         top10_count = int(np.sort(counts)[-10:].sum())
         coverage_top10 = top10_count / max(1, len(arr_clean))
 
-        # Score: favor moderate n_unique (too few -> low info; too many -> sparse)
-        # weighted by coverage. The (n_unique / log(n_unique+1)) shape rewards
-        # 10-100 categories more than 2 or 500.
-        info_bonus = float(n_unique) / float(np.log1p(n_unique) + 1.0)
+        # Score: favor moderate n_unique (too few -> low info; too many ->
+        # sparse / ID-like) weighted by coverage. ``_cat_info_bonus`` is a
+        # UNIMODAL log-scale curve peaking at ``sweet_spot_peak`` levels, so a
+        # clean 10-100 category column outranks both binary columns and ID-like
+        # high-cardinality columns (A24 fix: the old monotone shape ranked
+        # ID-like columns first).
+        info_bonus = _cat_info_bonus(n_unique, sweet_spot_peak)
         score = coverage_top10 * info_bonus
 
         results.append((str(col), {

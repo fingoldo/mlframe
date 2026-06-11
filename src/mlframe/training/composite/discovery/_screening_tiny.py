@@ -622,6 +622,18 @@ def _tiny_cv_rmse_y_scale(
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     valid = transform.domain_check(y_train, base_train)
+    # T15: refine with the fitted-params-aware domain (log_y's offset,
+    # centered_ratio's c+eps). Without this, rows that are valid pre-fit but
+    # out of the TRUE fitted domain produce NaN T below -> the non-finite
+    # guard nukes the WHOLE spec's rerank score, silently dropping a spec
+    # that is perfectly valid on its real domain.
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None and isinstance(fitted_params, dict):
+        _valid_fitted = np.asarray(
+            _dcf(y_train, base_train, fitted_params), dtype=bool,
+        )
+        if _valid_fitted.shape == valid.shape:
+            valid = valid & _valid_fitted
     if valid.sum() < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     y_clean = y_train[valid].astype(np.float64)

@@ -116,9 +116,9 @@ def _build_cross_target_ensemble_for_target(
                         kfold=_oof_kfold_mtr, random_state=_oof_random_state,
                     )
             except Exception as _mtr_oof_err:
-                logger.debug(
-                    "[MTR CT_ENSEMBLE] target='%s': honest-OOF NNLS weighting failed (%s); "
-                    "falling back to equal-mean.",
+                logger.warning(
+                    "[MTR CT_ENSEMBLE] target='%s': honest-OOF NNLS weighting failed (%s); forfeiting the "
+                    "benched ~9%% NNLS win and falling back to equal-mean.",
                     _orig_tname, _mtr_oof_err,
                 )
                 _oof_weights = None

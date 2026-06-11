@@ -109,6 +109,13 @@ def residual_dedup_indices(
     Returns
     -------
     (keep_idx, dropped_idx): sorted column indices to keep and to drop. Degenerate / too-few-rows inputs keep all.
+
+    Contract guarantees (pinned by tests/training/composite/test_composite_residual_dedup.py):
+    - The lowest-RMSE member is ALWAYS kept (it is the first candidate considered and is never compared against a stronger sibling).
+    - For any redundant pair, the lower-RMSE (stronger) member survives and the higher-RMSE one is dropped.
+    - ``len(keep_idx)`` is never below ``min_keep``: once the survivor count would hit the floor, remaining candidates are kept in best-RMSE-first order even if redundant (the floor preserves the *count* of the strongest members, not a strictly non-redundant set).
+    - Short-circuits that keep ALL members (no dedup): ``K <= min_keep``; fewer than 3 jointly-finite rows (correlation is undefined); a per-pair NaN correlation is treated as "not redundant".
+    - ``keep_idx`` and ``dropped_idx`` partition ``range(K)`` and never overlap.
     """
     residuals = np.asarray(residuals, dtype=np.float64)
     if residuals.ndim != 2:

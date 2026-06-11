@@ -134,6 +134,7 @@ def run_composite_target_discovery(
     verbose: bool,
     discovery_cache_dir: Any = None,
     group_ids: Any = None,
+    split_config: Any = None,
 ) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
@@ -199,13 +200,28 @@ def run_composite_target_discovery(
         _split_cfg_overrides.get("prefer_group_aware", False)
     )
 
+    # The ACTUAL production splitter is group-aware iff ``split_config.use_groups`` is set AND the suite produced ``group_ids`` (see
+    # _phase_helpers_fit_split.py:288, the single place the real splitter routes through GroupShuffleSplit / StratifiedGroupKFold). This is
+    # distinct from ``_group_aware_recommended`` above, which is only the target-distribution analyzer's HINT (knob_overrides). The tiny-CV
+    # rerank must follow the real splitter: a user who configured a group-aware split WITHOUT the analyzer recommending it previously got a
+    # plain-KFold rerank that promoted per-group memorisers whose trained models then failed the production group-aware test (the documented
+    # prod failure). Gate the rerank on EITHER signal so neither a recommendation-only nor a config-only group-aware setup is missed.
+    # ``setup_configuration`` normalises split_config to a ``TrainingSplitConfig`` object, but accept a raw dict too so a caller that
+    # bypasses the suite boundary (tests, custom drivers) is still honoured rather than silently treated as group-naive.
+    if isinstance(split_config, dict):
+        _split_cfg_use_groups = bool(split_config.get("use_groups", False))
+    else:
+        _split_cfg_use_groups = bool(getattr(split_config, "use_groups", False))
+    _splitter_group_aware = _split_cfg_use_groups and group_ids is not None
+    _group_aware_active = _group_aware_recommended or _splitter_group_aware
+
     # Suite-constant group_ids: coerce once + materialise the filtered slice + length cap; the per-target loop below otherwise pays a fresh
     # ``np.asarray`` + ``np.max`` per regression target inside the tiny-rerank wiring block (group_ids is invariant across targets).
     _grp_arr_hoisted: np.ndarray | None = None
     _grp_filtered_slice: np.ndarray | None = None
     _grp_max_required: int = 0
     if (group_ids is not None
-            and _group_aware_recommended
+            and _group_aware_active
             and filtered_train_idx is not None):
         try:
             _grp_arr_hoisted = np.asarray(group_ids)

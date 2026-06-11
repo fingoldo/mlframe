@@ -431,6 +431,18 @@ def _linear_residual_grouped_fit(
 
     alphas_for_shrink: list[float] = []
     sizes_for_shrink: list[float] = []
+    # Per-group Var(base_g) for the eligible groups, aligned 1:1 with
+    # alphas_for_shrink / sizes_for_shrink. The James-Stein noise proxy for
+    # shrinking OLS *slopes* is Var(α_g) = σ²/(n_g·Var(base_g)); supplying
+    # Var(base_g) makes the shrinkage factor scale-invariant (rescaling base
+    # no longer changes which groups shrink). See _james_stein_shrinkage_factor.
+    base_vars_for_shrink: list[float] = []
+    # Per-group mean(base_g) for the eligible (own-OLS) groups. Needed to
+    # re-centre beta_g when alpha_g is shrunk (see the shrinkage-apply
+    # block below): the per-group OLS guarantees
+    # mean(y_g) = a_g·mean(base_g) + b_g, so any change to a_g must be
+    # absorbed by b_g to keep the per-group residual mean at 0.
+    base_mean_for_shrink: dict[str, float] = {}
 
     for i, g in enumerate(unique_groups):
         g_mask = (inverse_idx == i)
@@ -455,6 +467,10 @@ def _linear_residual_grouped_fit(
         per_group_betas[g_key] = b_g
         alphas_for_shrink.append(a_g)
         sizes_for_shrink.append(float(n_g))
+        base_g64 = base_g.astype(np.float64)
+        base_mean_for_shrink[g_key] = float(np.mean(base_g64))
+        # Var(base_g) drives the scale-invariant JS slope-variance proxy.
+        base_vars_for_shrink.append(float(np.var(base_g64)) if n_g > 1 else 0.0)
         # Accumulate residuals for σ² estimate.
         resid = y_g - a_g * base_g - b_g
         total_resid_sq += float(np.sum(resid * resid))
@@ -468,16 +484,33 @@ def _linear_residual_grouped_fit(
             alpha_global,
             np.asarray(sizes_for_shrink, dtype=np.float64),
             sigma2,
+            base_vars=np.asarray(base_vars_for_shrink, dtype=np.float64),
         )
     else:
         c = 0.0
     # Apply shrinkage to eligible groups (ones that ran their own OLS).
+    # Re-centre beta_g in lockstep: shrinking alpha alone tilts the fitted
+    # line about base=0, so the per-group residual mean drifts to
+    # c·(a_g - alpha_global)·mean(base_g) (manufactured per-group bias).
+    # Because the per-group OLS fixes mean(y_g) = a_g·mean(base_g) + b_g,
+    # the bias-free intercept for the shrunk slope alpha_s is
+    # b_g_new = mean(y_g) - alpha_s·mean(base_g)
+    #         = b_g + (a_g - alpha_s)·mean(base_g)
+    #         = b_g + c·(a_g - alpha_global)·mean(base_g),
+    # which restores mean(y_g - alpha_s·base_g - b_g_new) == 0.
     if c > 0:
         for g_key, a_g in list(per_group_alphas.items()):
             n_g = group_sizes[g_key]
             if n_g < min_group_size:
                 continue
-            per_group_alphas[g_key] = (1.0 - c) * a_g + c * alpha_global
+            alpha_shrunk = (1.0 - c) * a_g + c * alpha_global
+            base_mean_g = base_mean_for_shrink.get(g_key)
+            if base_mean_g is not None:
+                per_group_betas[g_key] = (
+                    per_group_betas[g_key]
+                    + (a_g - alpha_shrunk) * base_mean_g
+                )
+            per_group_alphas[g_key] = alpha_shrunk
 
     return {
         "alpha_global": alpha_global,

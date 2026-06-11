@@ -86,20 +86,44 @@ class TestSignatureDeterministicAcrossProcesses:
 
 class TestRowOrderFingerprintBounded:
     def test_slice_first_digest_identical(self) -> None:
-        """P8: slicing the prefix BEFORE hash_rows must give the same digest as
-        hashing the whole frame then slicing (hash_rows is row-local)."""
+        """P8 + S3: slicing each edge BEFORE hash_rows must give the same digest
+        as hashing the whole frame then slicing (hash_rows is row-local). S3
+        extended the polars path from prefix-only to head + tail, so the
+        reference now folds a bounded tail slice too."""
         rng = np.random.default_rng(3)
         n = 5000
         df = pl.DataFrame({"a": rng.normal(size=n), "b": rng.integers(0, 100, n)})
         # Current (fixed) implementation.
         got = _row_order_fingerprint(df)
-        # Reference: hash whole frame, slice after (the slow pre-fix shape).
-        ref_hashes = df.hash_rows().slice(0, min(df.height, 256)).to_numpy()
+        # Reference: hash whole frame, slice each edge after (the slow pre-fix
+        # shape, now head + tail). Mirrors the production payload assembly.
+        whole = df.hash_rows()
+        n_take = min(df.height, 256)
+        head_hashes = whole.slice(0, n_take).to_numpy()
         import hashlib
-        ref = hashlib.blake2b(
-            np.ascontiguousarray(ref_hashes).tobytes(), digest_size=8
-        ).hexdigest()
-        assert got == ref, "slice-first fingerprint diverged from whole-frame"
+        payload = np.ascontiguousarray(head_hashes).tobytes()
+        if df.height > n_take:
+            n_tail = min(df.height - n_take, 256)
+            tail_hashes = whole.slice(df.height - n_tail, n_tail).to_numpy()
+            payload += b"|" + np.ascontiguousarray(tail_hashes).tobytes()
+        ref = hashlib.blake2b(payload, digest_size=8).hexdigest()
+        assert got == ref, "slice-edges fingerprint diverged from whole-frame"
+
+    def test_polars_tail_reorder_bursts_fingerprint(self) -> None:
+        """S3: a reorder confined to the TAIL of a polars frame must change the
+        fingerprint. Pre-fix the polars path hashed the prefix ONLY, so a
+        tail-only shuffle (disjoint from the head window) was invisible and
+        replayed the stale spec -- the residual blind spot relative to pandas."""
+        n = 5000  # > 256 head window, so head rows are untouched by a tail shuffle
+        base = pl.DataFrame({"a": np.arange(n).astype(float)})
+        # Shuffle ONLY the last 256 rows; the first n-256 rows (covering the
+        # entire head window) stay byte-identical.
+        head_part = base.slice(0, n - 256)
+        tail_part = base.slice(n - 256, 256).sample(fraction=1.0, shuffle=True, seed=11)
+        reordered = pl.concat([head_part, tail_part])
+        assert _row_order_fingerprint(base) != _row_order_fingerprint(reordered), (
+            "polars tail-only reorder must burst the row-order fingerprint"
+        )
 
     def test_prefix_reorder_bursts_fingerprint(self) -> None:
         rng = np.random.default_rng(4)

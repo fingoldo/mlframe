@@ -9,6 +9,8 @@ Semantics of the shim:
 - ``predict(X)``: ``pre_pipeline.transform(X)`` -> ``inner.predict(...)``.
 - ``__sklearn_clone__``: returns a new shim with ``model=clone(self.model)`` and ``pre_pipeline=self.pre_pipeline`` (shared, not cloned). Sharing the fitted pipeline is correct because cloning a Pipeline drops its fitted state, which is exactly what we need to preserve for honest OOF.
 - ``estimator_`` is forwarded from a ``CompositeTargetEstimator`` inner so the OOF composite-path (``clone(model.estimator_)``) keeps working when the composite wrapper is nested inside a shim.
+- ``__sklearn_is_fitted__``: reflects the REAL fit state (the inner model is fitted, whether via ``shim.fit`` or because a pre-fitted inner was passed in). Without it, ``sklearn.check_is_fitted(shim)`` falls back to scanning ``vars(shim)`` for a trailing-underscore attribute -- and the shim never set one in ``fit`` (the ``estimator_`` property is class-level, invisible to ``vars()``), so a *fitted* shim was wrongly reported as NOT fitted, breaking callers that gate on ``check_is_fitted`` (E19). ``fit`` now records ``_shim_fitted`` and the hook also probes the inner so externally-pre-fitted inners report correctly.
+- ``predict_quantile(X, alpha=0.5)``: conditionally delegated (via ``available_if``) whenever the nested member exposes ``predict_quantile`` -- e.g. a quantile-capable ``CompositeTargetEstimator`` or a CatBoost/LightGBM/sklearn quantile regressor. ``X`` is routed through ``pre_pipeline.transform`` exactly like ``predict`` so quantile-stacking components keep their scaling. The method is hidden (``hasattr`` is False) when the inner cannot produce quantiles, so duck-typing probes stay honest (E19).
 """
 from __future__ import annotations
 
@@ -16,8 +18,35 @@ import logging
 from typing import Any
 
 from sklearn.base import BaseEstimator, clone
+from sklearn.exceptions import NotFittedError
+from sklearn.utils.metaestimators import available_if
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
+
+
+def _inner_has_predict_quantile(shim: "PrePipelinePredictShim") -> bool:
+    """``available_if`` predicate: expose ``shim.predict_quantile`` only when the
+    nested member can actually produce quantiles.
+
+    The nested member is the ``estimator_`` forwarded from a
+    ``CompositeTargetEstimator`` (its inner quantile regressor) when one is
+    present, otherwise ``self.model`` directly. Probing ``estimator_`` first
+    matters because a quantile-capable ``CompositeTargetEstimator`` exposes
+    ``predict_quantile`` on the wrapper, not on its raw inner.
+
+    Keeping this conditional (rather than always defining the method) keeps
+    ``hasattr(shim, "predict_quantile")`` honest: callers that duck-type the
+    quantile capability (e.g. ``predict_quantile_ensemble``) get a truthful
+    answer instead of a method that always raises.
+    """
+    model = shim.model
+    if model is None:
+        return False
+    if hasattr(model, "predict_quantile"):
+        return True
+    inner = getattr(model, "estimator_", None)
+    return inner is not None and hasattr(inner, "predict_quantile")
 
 
 class PrePipelinePredictShim(BaseEstimator):
@@ -61,15 +90,63 @@ class PrePipelinePredictShim(BaseEstimator):
         if sample_weight is not None:
             try:
                 self.model.fit(X_in, y, sample_weight=sample_weight, **kwargs)
+                self._shim_fitted = True
                 return self
             except TypeError:
                 # Inner does not accept sample_weight; drop and retry.
                 pass
         self.model.fit(X_in, y, **kwargs)
+        self._shim_fitted = True
         return self
 
     def predict(self, X: Any) -> Any:
         return self.model.predict(self._transform(X))
+
+    @available_if(_inner_has_predict_quantile)
+    def predict_quantile(self, X: Any, alpha: Any = 0.5) -> Any:
+        """Quantile prediction routed through the fitted ``pre_pipeline``.
+
+        Delegates to ``model.predict_quantile`` (the quantile-capable nested
+        member -- typically a ``CompositeTargetEstimator`` or a CatBoost /
+        LightGBM / sklearn quantile regressor) after transforming ``X`` so the
+        quantile component sees the same SCALED features the inner was trained
+        on -- identical routing to :meth:`predict`. ``alpha`` may be a scalar
+        (returns ``(n_samples,)``) or array-like of K levels (returns
+        ``(n_samples, K)``), matching the inner's contract.
+
+        Only present when the nested member supports quantiles (gated by
+        :func:`_inner_has_predict_quantile` via ``available_if``); otherwise the
+        attribute does not exist so ``hasattr(shim, "predict_quantile")`` is
+        ``False`` and duck-typing callers route around it.
+        """
+        return self.model.predict_quantile(self._transform(X), alpha)
+
+    def __sklearn_is_fitted__(self) -> bool:
+        """Report the REAL fit state for ``sklearn.check_is_fitted``.
+
+        The shim is fitted iff its inner ``model`` is fitted -- either because
+        ``shim.fit`` ran (``_shim_fitted``) or because a pre-fitted inner was
+        wrapped (the cross-target ensemble wraps already-trained components and
+        calls ``predict`` without re-calling ``shim.fit``). Defining this hook
+        stops ``check_is_fitted`` from falling back to scanning the always-present
+        ``estimator_`` property, which made an UNFITTED shim look fitted (E19).
+        """
+        if getattr(self, "_shim_fitted", False):
+            return True
+        model = self.model
+        if model is None:
+            return False
+        try:
+            check_is_fitted(model)
+            return True
+        except NotFittedError:
+            return False
+        except (TypeError, ValueError):
+            # Inner does not follow the sklearn fitted-attribute convention
+            # (no trailing-underscore attrs, not a BaseEstimator). Fall back to
+            # the explicit flag: if shim.fit never ran and the inner exposes no
+            # detectable fitted state, treat the shim as unfitted.
+            return False
 
     def __sklearn_clone__(self) -> "PrePipelinePredictShim":
         return type(self)(

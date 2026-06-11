@@ -34,9 +34,15 @@ def siblings():
 def test_predict_method_identity(parent_module, siblings):
     cls = parent_module.CompositeTargetEstimator
     p = siblings["predict"]
-    # ``_predict_unclipped`` / ``predict_pre_clip`` are class-attr bound to the carved sibling (identity preserved).
+    # ``_predict_unclipped`` is a private helper, still class-attr bound to the
+    # carved sibling (identity preserved -- no IDE-discoverability requirement).
     assert cls._predict_unclipped is p._predict_unclipped
-    assert cls.predict_pre_clip is p.predict_pre_clip
+    # DX15: ``predict_pre_clip`` is now an in-body delegating stub (discoverable
+    # to mypy / IDE / help()), so it is intentionally NOT identical to the carved
+    # sibling -- it is declared on the class body and routes THROUGH the sibling.
+    assert "predict_pre_clip" in vars(cls), "predict_pre_clip must be declared on the class body"
+    assert cls.predict_pre_clip is not p.predict_pre_clip
+    assert callable(cls.predict_pre_clip)
 
 
 def test_predict_stubs_delegate_to_sibling(parent_module, siblings):
@@ -79,18 +85,65 @@ def test_predict_stubs_delegate_to_sibling(parent_module, siblings):
     assert out.shape == (n,)
 
 
-def test_update_method_identity(parent_module, siblings):
+def test_update_method_delegates_to_sibling(parent_module, siblings):
+    """DX15: ``update`` / ``get_buffer_state`` are now in-body delegating stubs
+    (discoverable on the class body), so they are intentionally NOT identical to
+    the carved sibling functions; they route THROUGH them. Assert the stubs are
+    declared on the class body and that calling ``update`` reaches the sibling.
+    """
     cls = parent_module.CompositeTargetEstimator
     u = siblings["update"]
-    assert cls.update is u.update
-    assert cls.get_buffer_state is u.get_buffer_state
+    for name in ("update", "get_buffer_state"):
+        assert name in vars(cls), f"{name} must be declared on the class body"
+        assert callable(getattr(cls, name))
+    assert cls.update is not u.update
+    assert cls.get_buffer_state is not u.get_buffer_state
+
+    import pandas as pd
+    from sklearn.linear_model import LinearRegression
+
+    calls = {"update": 0}
+    real_update = u.update
+
+    def spy(self, y_recent, base_recent):
+        calls["update"] += 1
+        return real_update(self, y_recent, base_recent)
+
+    rng = np.random.default_rng(0)
+    n = 80
+    base = rng.normal(10.0, 2.0, size=n)
+    y = base + rng.normal(0.0, 0.5, size=n)
+    X = pd.DataFrame({"b": base})
+    est = cls(
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual",
+        base_column="b",
+        online_refit_enabled=True,
+    )
+    est.fit(X, y)
+
+    monkey = u.update
+    u.update = spy
+    try:
+        est.update(y[:10], base[:10])
+    finally:
+        u.update = monkey
+    assert calls["update"] == 1, "in-body update stub must delegate to sibling _upd.update"
 
 
 def test_utils_require_fitted_identity(parent_module, siblings):
     cls = parent_module.CompositeTargetEstimator
     util = siblings["utils"]
+    # ``_require_fitted`` / ``_require_inner_attr`` are private helpers, still
+    # class-attr bound to the carved sibling (identity preserved).
     assert cls._require_fitted is util._require_fitted
-    assert cls.get_booster is util.get_booster
+    assert cls._require_inner_attr is util._require_inner_attr
+    # DX15: ``get_booster`` is now an in-body delegating stub (discoverable on
+    # the class body), so it is NOT identical to the carved sibling -- it routes
+    # THROUGH it.
+    assert "get_booster" in vars(cls), "get_booster must be declared on the class body"
+    assert cls.get_booster is not util.get_booster
+    assert callable(cls.get_booster)
 
 
 def test_facade_loc_budget(parent_module):

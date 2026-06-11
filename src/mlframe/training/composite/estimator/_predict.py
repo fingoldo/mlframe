@@ -54,6 +54,22 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     # returning all-True for the t_hat row count below.
     if transform.requires_base:
         domain_ok = transform.domain_check(None, base_arr)
+        # T15: refine with the fitted-params-aware base-side domain. The
+        # params-free ``domain_check`` cannot see learned params, so for
+        # ``centered_ratio`` (T = y/(base+c)) a predict row whose
+        # ``base + c`` lands in the near-zero eps-floor band passes the
+        # plain check yet has its denominator silently clamped -> the
+        # inverse no longer recovers y. Flag those rows here so they route
+        # to the domain fallback (y_train_median) instead of a distorted
+        # value. Hook absent (None) on the 30+ params-free transforms ->
+        # this is a no-op and the gate is bit-identical for them.
+        _dcf = getattr(transform, "domain_check_fitted", None)
+        if _dcf is not None:
+            _domain_ok_fitted = np.asarray(
+                _dcf(None, base_arr, params), dtype=bool,
+            )
+            if _domain_ok_fitted.shape == np.asarray(domain_ok).shape:
+                domain_ok = np.asarray(domain_ok) & _domain_ok_fitted
     else:
         domain_ok = None  # sized after t_hat is computed
 

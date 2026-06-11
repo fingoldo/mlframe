@@ -285,6 +285,132 @@ class TestBizValueGroupedBeatsSingle:
 
 
 # ---------------------------------------------------------------------------
+# T8 regression: beta must be re-centred when alpha is JS-shrunk
+# ---------------------------------------------------------------------------
+
+
+class TestShrinkageRecentersBeta:
+    """When James-Stein shrinkage tilts ``alpha_g`` toward the global
+    slope, the per-group intercept ``beta_g`` MUST be re-centred so the
+    per-group training residual mean stays at 0.
+
+    The pre-fix code shrank ``alpha_g`` but left ``beta_g`` at its
+    pre-shrink OLS value. Because the per-group OLS line pivots about
+    ``base = 0`` (not about ``mean(base_g)``), shrinking only the slope
+    moves the line off the group centroid and the per-group residual
+    mean drifts to ``c·(a_g - alpha_global)·mean(base_g)`` -- a
+    manufactured, base-mean-proportional per-group bias.
+
+    This needs K >= 4 groups (JS threshold) AND high within-group noise
+    relative to the slope spread (so ``c > 0`` actually fires) AND a base
+    with a non-zero mean (so the un-re-centred bias is non-zero). The
+    existing 3-group biz_value DGP keeps ``c == 0``, which is exactly why
+    the bug stayed dormant there.
+    """
+
+    def _make_shrinking_dgp(self, n_per_group: int = 120, seed: int = 0):
+        """6 groups, moderately-spread slopes with sizeable within-group
+        noise -> JS PARTIALLY shrinks (0 < c < 1, ~0.54 at seed 0). A
+        partial shrink is the most discriminating case: it proves the
+        beta re-centring scales with ``c·(a_g - alpha_global)``, not just
+        the full-shrink edge. base ~ N(10, 2) so mean(base_g) is far from
+        0 and the un-re-centred bias is large.
+        """
+        rng = np.random.default_rng(seed)
+        true_alphas = [0.30, 0.70, 0.50, 0.90, 0.40, 0.80]
+        ys, bases, groups = [], [], []
+        for i, a in enumerate(true_alphas):
+            b = rng.normal(loc=10.0, scale=2.0, size=n_per_group)
+            # Sizeable noise so per-group slope estimates are uncertain ->
+            # James-Stein shrinks them toward the global slope.
+            y_g = a * b + 1.0 + rng.normal(scale=3.0, size=n_per_group)
+            ys.append(y_g)
+            bases.append(b)
+            groups.extend([f"g{i}"] * n_per_group)
+        return (np.concatenate(ys), np.concatenate(bases),
+                np.asarray(groups))
+
+    def test_shrinkage_actually_fires_on_this_dgp(self) -> None:
+        """Guard the regression: if the DGP stops triggering c > 0 the
+        bias test below would pass vacuously."""
+        y, base, groups = self._make_shrinking_dgp()
+        p = _linear_residual_grouped_fit(y, base, groups=groups)
+        assert p["shrinkage_factor"] > 0.0, (
+            "DGP must trigger James-Stein shrinkage for this regression "
+            f"to be meaningful; got c={p['shrinkage_factor']}"
+        )
+        # A partial shrink (0 < c < 1) is the most discriminating case:
+        # alphas actually move (otherwise re-centring is a no-op) and the
+        # re-centring must scale with c, not just the full-shrink edge.
+        assert 0.0 < p["shrinkage_factor"] < 1.0
+
+    def test_per_group_residual_mean_is_zero_after_shrink(self) -> None:
+        """Core T8 assertion: for every eligible (own-OLS) group, the
+        mean training residual ``mean(y_g - alpha_g·base_g - beta_g)``
+        must be ~0 using the FITTED (post-shrink) alpha/beta. Pre-fix,
+        these means were ``c·(a_g_raw - alpha_global)·mean(base_g)`` and
+        the assertion fails."""
+        y, base, groups = self._make_shrinking_dgp()
+        p = _linear_residual_grouped_fit(y, base, groups=groups)
+        assert p["shrinkage_factor"] > 0.0  # sanity
+        pg_a = p["per_group_alphas"]
+        pg_b = p["per_group_betas"]
+        sizes = p["group_sizes"]
+        min_gs = p["min_group_size"]
+        uniq = np.unique(groups)
+        for g in uniq:
+            g_key = str(g)
+            if sizes[g_key] < min_gs:
+                continue  # global-fallback group: no own OLS to re-centre
+            mask = groups == g
+            resid = y[mask] - pg_a[g_key] * base[mask] - pg_b[g_key]
+            mean_resid = float(np.mean(resid))
+            # Scale tolerance to the target spread; the manufactured bias
+            # is O(c · Δalpha · mean(base)) ~ several units here.
+            assert abs(mean_resid) < 1e-6, (
+                f"group {g_key}: per-group residual mean must be ~0 after "
+                f"JS shrinkage (beta re-centred), got {mean_resid:.6g}"
+            )
+
+    def test_round_trip_still_exact_after_shrink(self) -> None:
+        """Re-centring beta must not break the forward/inverse round
+        trip (forward and inverse share the same alpha/beta)."""
+        y, base, groups = self._make_shrinking_dgp()
+        p = _linear_residual_grouped_fit(y, base, groups=groups)
+        T = _linear_residual_grouped_forward(y, base, p, groups=groups)
+        y_back = _linear_residual_grouped_inverse(T, base, p, groups=groups)
+        np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
+
+    def test_biz_val_recentred_beta_lowers_global_residual_mean_bias(self) -> None:
+        """biz_value: re-centring removes a measurable per-group bias.
+        The RMS of per-group residual means (a direct measure of the
+        manufactured bias) must be near machine-zero with the fix; the
+        pre-fix code leaves it at several target units on this DGP."""
+        y, base, groups = self._make_shrinking_dgp(seed=3)
+        p = _linear_residual_grouped_fit(y, base, groups=groups)
+        pg_a = p["per_group_alphas"]
+        pg_b = p["per_group_betas"]
+        sizes = p["group_sizes"]
+        min_gs = p["min_group_size"]
+        per_group_mean_bias = []
+        for g in np.unique(groups):
+            g_key = str(g)
+            if sizes[g_key] < min_gs:
+                continue
+            mask = groups == g
+            resid = y[mask] - pg_a[g_key] * base[mask] - pg_b[g_key]
+            per_group_mean_bias.append(float(np.mean(resid)))
+        rms_bias = float(np.sqrt(np.mean(np.square(per_group_mean_bias))))
+        # Measured pre-fix on this DGP: rms_bias ~ O(1) target units.
+        # Post-fix it collapses to ~1e-14. Floor well below the pre-fix
+        # value but above FP noise.
+        assert rms_bias < 1e-3, (
+            f"RMS of per-group residual-mean bias must be ~0 after "
+            f"re-centring; got {rms_bias:.6g}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Wrapper integration: CompositeTargetEstimator with group_column
 # ---------------------------------------------------------------------------
 
