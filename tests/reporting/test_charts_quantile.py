@@ -62,6 +62,7 @@ class TestAllowedTokens:
             "RELIABILITY", "COVERAGE", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
             "WIDTH_DIST", "PIT_HIST",
             "QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING",
+            "FAN_CHART",
         })
 
 
