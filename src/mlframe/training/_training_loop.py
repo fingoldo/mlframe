@@ -226,6 +226,22 @@ def _train_model_with_fallback(
         (trained_model, best_iteration) where best_iteration may be None.
     """
     t0_fit = timer()
+    # 0-feature train frame is unfittable: CatBoost raises ``CatBoostError: Input data must have at least one feature``,
+    # XGBoost raises an opaque DMatrix IndexError, and the linear/sklearn estimators raise their own validate_data errors.
+    # The suite-level guard at ``_trainer_train_and_evaluate`` already skips the common FS-empties-everything case, but
+    # any column-dropping step between that check and this fit primitive (or a direct caller) can still arrive 0-feature.
+    # Mirror the empty-FS warning + return ``(None, None)`` so the caller's ``if model is None: skip`` path handles it,
+    # rather than letting the per-backend C++ crash abort the whole suite run.
+    _n_feat = None
+    if train_df is not None and hasattr(train_df, "shape") and len(getattr(train_df, "shape", ())) == 2:
+        _n_feat = train_df.shape[1]
+    if _n_feat == 0:
+        logger.warning(
+            "Skipping %s fit: train frame has 0 features (feature selection / column dropping removed every column). "
+            "Nothing to fit -- the model is skipped instead of crashing the backend.",
+            model_type_name,
+        )
+        return None, None
     # CB-only: reuse a single ``catboost.Pool`` across weight schemas
     # and same-target_type targets by mutating the Pool's label/weight
     # in place instead of letting the sklearn wrapper rebuild from X on
