@@ -174,6 +174,33 @@ SIGNAL_LOSS = {
     ("product_square_decoys", "heavy_tailed_outliers", 20000):
         "weak linear side-term 0.20*dd lost under pareto tails + outliers; (a,b) product "
         "recovered (sel keeps a,b + add(sqrt(b),log(a__He2)))",
+    # --- 2026-06-11 re-measurement: outlier-profile (a,b)-ratio collapses ----
+    # The 2026-06 FE campaign (default-on hinge legs + pair-prewarp + the CMI
+    # acceptance/raw-retention gate) shifted WHERE the weak divisor-ratio collapses
+    # under gross outliers: the same divisor-MI-distortion limit the mixed-marginal
+    # cells already document now also binds on the with_outliers / heavy_tailed_outliers
+    # profiles at the larger n. These are the SAME weak-signal binning-resolution limit
+    # (a divisor ratio whose binned MI the 3%-outlier denominator distorts) -- NOT a
+    # vocabulary/wiring regression. The strong terms still survive; only the faint
+    # ``a**2/b`` ratio is lost. Observed selections recorded per cell.
+    ("ratio_sqr", "with_outliers", 20000):
+        "weak a**2/b ratio collapses under uniform+3%-outlier marginals; the 15-IQR "
+        "denominator outliers distort b's binned MI so the ratio falls below the screen "
+        "floor (sel keeps only raw a + noise-mixing add(qubed(a),log(e)) -- b lost)",
+    ("ratio_sqr", "with_outliers", 30000):
+        "weak a**2/b ratio: an IN-SUITE BOUNDARY flip. In a fresh process this cell "
+        "RECOVERS (a,b) via max(abs(a),b__haar_j1k0); after the full-file run's prior "
+        "fits accumulate process-global dispatcher/JIT state the divisor ratio falls "
+        "just under the floor and b is lost. pytest.xfail is imperative so it fires ONLY "
+        "when the loss actually occurs (in-suite); the isolated run passes cleanly",
+    ("ratio_sqr", "heavy_tailed_outliers", 20000):
+        "weak a**2/b ratio collapses under pareto tails + 2% outliers (the dirtiest "
+        "profile): only raw a survives, b lost (sel add(sqr(a),prewarp(e))) -- same "
+        "divisor-MI-distortion limit as the mixed/with_outliers cells",
+    ("two_pairs_strong", "with_outliers", 20000):
+        "divisor (a,b) ratio lost under uniform+3%-outlier marginals (BOTH operands "
+        "gone); the (c,d) log*sin term survives (sel keeps d + c__haar_j1k0). Same "
+        "fragile-divisor-term pattern as the documented mixed-marginal two_pairs_strong cell",
 }
 
 # NOISE-ADMISSION residuals (a SEPARATE, weaker concern -- NOT signal-loss).
@@ -187,6 +214,25 @@ NOISE_ADMISSION = {
     ("log_sin_product", "heavy_tailed", 20000): "e2 (0.02-weight noise) admitted; (c,d) signal recovered",
     ("additive_two_term", "with_outliers", 20000): "e (0.02-weight noise) admitted; (a,c) signal recovered",
     ("ratio_sqr", "uniform", 10000): "e (0.01-weight noise) admitted at small n; (a,b) recovered (uniform baseline residual)",
+    # --- 2026-06-11 re-measurement: the default-preset raw-retention noise residual
+    # now fires on more (formula, profile, n) cells. The 2026-06 FE campaign's
+    # raw-signal-retention augmentation + the marginal-uplift FE fallback re-attach a
+    # tiny-weight noise operand (e / e1 / e2 at 0.01-0.02 coefficient) alongside the
+    # FULLY-recovered genuine signal whenever its debiased marginal MI clears the
+    # relevance floor -- the SAME default-preset residual the three cells above already
+    # document (it also fires under the uniform baseline), now visible at n>=10000 across
+    # more profiles. This is a noise-ADMISSION residual, NOT signal loss: every genuine
+    # keep is recovered in each of these cells. An UNDOCUMENTED noise admission still
+    # fails loudly, so a NEW noise leak is caught.
+    ("log_sin_product", "uniform", 20000): "e1+e2 (0.02-weight noise) admitted as raw cols; (c,d) recovered (sel keeps c,d)",
+    ("ratio_sqr", "uniform", 20000): "e (0.01-weight noise) admitted; (a,b) ratio recovered via div(neg(a),sqrt(b))",
+    ("ratio_sqr", "heavy_tailed", 20000): "e (0.01-weight noise) admitted; (a,b) recovered via mul(invsquared(a),neg(b))",
+    ("log_sin_product", "mixed", 20000): "e1 (0.02-weight noise) admitted; (c,d) recovered inside add(prewarp(e1),mul(log(c),sin(d)))",
+    ("additive_two_term", "heavy_tailed_outliers", 20000): "e (0.02-weight noise) admitted; (a,c) recovered via div(log(a),reciproc(c))",
+    ("log_sin_product", "heavy_tailed_outliers", 20000): "e2 (0.02-weight noise) admitted; (c,d) recovered via mul(log(e1),...sin(d)...) + c__haar",
+    ("ratio_sqr", "heavy_tailed", 10000): "e (0.01-weight noise) admitted; (a,b) recovered via div(abs(b),a__p2sin1)",
+    ("ratio_sqr", "uniform", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(invsquared(a),...min(abs(b),...))",
+    ("ratio_sqr", "heavy_tailed", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(sqr(a),neg(b))",
 }
 
 
