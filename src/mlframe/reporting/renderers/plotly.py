@@ -39,6 +39,7 @@ from ._kaleido import (  # noqa: F401
     reset_kaleido_oneshot_stats,
     write_image_via_kaleido,
 )
+from ._plotly_interactivity import apply_interactivity, html_config
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +200,13 @@ class PlotlyRenderer:
         if static_legend:
             fig.update_layout(legend=dict(font=dict(size=9), itemsizing="constant",
                                           bgcolor="rgba(255,255,255,0.6)"))
+        apply_interactivity(fig, spec, static_legend=static_legend)
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
         fmt = fmt.lower()
         if fmt == "html":
-            fig.write_html(path, include_plotlyjs="cdn", auto_open=False)
+            fig.write_html(path, include_plotlyjs="cdn", auto_open=False, config=html_config())
         elif fmt == "json":
             with open(path, "w", encoding="utf-8") as f:
                 f.write(fig.to_json())
