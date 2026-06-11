@@ -40,15 +40,20 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
     original column count and order, so cluster indices still map back to the
     caller's feature positions. Numeric columns pass through unchanged.
     """
-    out_cols = {}
-    for col in X.columns:
-        s = X[col]
+    # Iterate POSITIONALLY (``.iloc[:, j]``), not by label: duplicate column names (common after FE expansion -- repeated
+    # lags, one-hot level collisions) make ``X[label]`` return a DataFrame, whose ``.dtype`` access raises. Positional
+    # access always yields a Series, and we rebuild from a list so duplicate labels are preserved in original order.
+    series_list = []
+    for j in range(X.shape[1]):
+        s = X.iloc[:, j]
         if pd.api.types.is_numeric_dtype(s.dtype):
-            out_cols[col] = s
+            series_list.append(np.asarray(s.to_numpy()))
         else:
             codes, _ = pd.factorize(s, use_na_sentinel=True)
-            out_cols[col] = pd.Series(codes, index=s.index, name=col)
-    return pd.DataFrame(out_cols, index=X.index)
+            series_list.append(np.asarray(codes))
+    out = pd.DataFrame(np.column_stack(series_list) if series_list else np.empty((len(X), 0)), index=X.index)
+    out.columns = list(X.columns)
+    return out
 
 
 def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:

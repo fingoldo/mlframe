@@ -291,5 +291,53 @@ def test_group_aware_mrmr_expands_to_cluster_members():
     assert len(wrapper_no_expand.support_) == 1
 
 
+class TestDuplicateColumnNames:
+    """GroupAwareMRMR must not crash on duplicate column labels.
+
+    Duplicate names arise routinely after FE expansion (repeated lags, one-hot level collisions). ``X[label]`` then returns a DataFrame,
+    whose ``.dtype`` access raised ``AttributeError`` inside ``_numeric_codes_frame``. The fix iterates positionally via ``.iloc[:, j]``.
+    """
+
+    @pytest.mark.parametrize("method", ["pearson", "spearman", "su"])
+    def test_redundancy_methods_handle_duplicate_names(self, method):
+        from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+
+        rng = np.random.default_rng(0)
+        n = 300
+        a = rng.standard_normal(n)
+        X = pd.DataFrame(np.c_[a, a + 1e-9 * rng.standard_normal(n), rng.standard_normal(n)])
+        X.columns = ["dup", "dup", "other"]
+        rm = _redundancy_matrix(X, method)
+        assert rm.shape == (3, 3)
+        # The two near-identical "dup" columns are mutually redundant; "other" is not.
+        assert rm[0, 1] > 0.9
+        assert rm[0, 2] < 0.5
+
+    def test_cluster_and_medoid_on_duplicate_names(self):
+        rng = np.random.default_rng(1)
+        n = 300
+        a = rng.standard_normal(n)
+        X = pd.DataFrame(np.c_[a, a + 1e-9 * rng.standard_normal(n), rng.standard_normal(n)])
+        X.columns = ["dup", "dup", "other"]
+        cid = cluster_features_by_correlation(X, threshold=0.9, method="pearson")
+        assert cid[0] == cid[1] and cid[2] != cid[0]
+        med = _cluster_medoids(X, cid, method="pearson")
+        assert sorted(med) == [0, 2]
+
+    def test_fit_expands_duplicate_name_clusters_never_empty(self):
+        rng = np.random.default_rng(3)
+        n = 500
+        sig = rng.standard_normal(n)
+        y = (sig + 0.3 * rng.standard_normal(n) > 0).astype(int)
+        X = pd.DataFrame(np.c_[sig, sig + 1e-6 * rng.standard_normal(n), rng.standard_normal(n), rng.standard_normal(n)])
+        X.columns = ["s", "s", "n", "n"]
+        sel = GroupAwareMRMR(_FakeInner(k=1), corr_threshold=0.9, corr_method="pearson", min_reduction=0.0)
+        sel.fit(X, y)
+        assert len(sel.support_) > 0
+        # The selected signal cluster expands to BOTH duplicate-named members.
+        assert 0 in sel.support_ and 1 in sel.support_
+        assert sel.transform(X).shape[1] == len(sel.support_)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x", "--no-cov"])
