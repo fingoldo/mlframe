@@ -215,6 +215,34 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     else:
         self._feature_names_in_synthesized_ = False
 
+    # EMBEDDING / FREE-TEXT PASSTHROUGH. MI discretisation needs scalar (hashable, orderable) cells; embedding-vector columns (object cells = list/ndarray) and
+    # long free-text columns violate that and would crash the discretiser or mis-bin into a useless ~N-level categorical. Detect them here and EXCLUDE them from
+    # the working frame so the screen / FE / MI never see them, but PASS THEM THROUGH to the transform output unchanged -- the learnable-embedding MLP / recurrent
+    # network (and the ``_encode_emb_text_fit`` boundary encoder) are the correct consumers. ``feature_names_in_`` (set below from the full pre-narrow column list)
+    # still counts them so the sklearn ``n_features_in_`` contract matches the user's input width; the passthrough indices are re-appended to ``support_`` at
+    # fit-end. Default ON (a corrective mechanism; the legacy crash/drop was silently wrong); set ``embedding_passthrough=False`` for the legacy behaviour.
+    self._passthrough_features_ = []
+    if getattr(self, "embedding_passthrough", True) and isinstance(X, pd.DataFrame):
+        from .._mrmr_passthrough import detect_passthrough_columns
+        _emb_cols, _text_cols = detect_passthrough_columns(
+            X,
+            detect_embeddings=getattr(self, "embedding_passthrough_detect_embeddings", True),
+            detect_text=getattr(self, "embedding_passthrough_detect_text", True),
+        )
+        _passthrough = list(_emb_cols) + [c for c in _text_cols if c not in _emb_cols]
+        if _passthrough:
+            self._passthrough_features_ = _passthrough
+            # Column-subset selection shares the underlying column buffers (no row copy) -- RAM-safe on 100+ GB frames. The original full column order is recovered
+            # at fit-end from ``feature_names_in_`` (built from the pre-narrow list below) so the re-appended passthrough indices land at their true positions.
+            _keep_cols = [c for c in (X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)) if c not in set(_passthrough)]
+            self._passthrough_full_columns_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
+            X = X[_keep_cols]
+            if verbose:
+                logger.info(
+                    "MRMR.fit: routing %d non-scalar column(s) THROUGH feature selection unchanged (embeddings=%s, text=%s); they bypass the MI screen and reach the estimator raw.",
+                    len(_passthrough), _emb_cols, _text_cols,
+                )
+
     # 2026-05-31 Layer 23 — hybrid orthogonal-polynomial + MI-greedy FE.
     # When ``fe_hybrid_orth_enable=True``, generate basis_n(z) columns for each
     # numeric input column and MI-rank against y; append the top-K winners
@@ -5335,7 +5363,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _n_dropped,
                 sorted(_shadowed_eng_names),
             )
-    self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
+    # When embedding/text passthrough narrowed X above, ``_all_cols`` lacks the passthrough columns; ``feature_names_in_`` must still reflect the FULL user-facing
+    # input (passthrough columns included, in their original positions) so the sklearn ``n_features_in_`` contract matches transform's input width. The passthrough
+    # indices are re-appended to ``support_`` at fit-end so transform re-emits them.
+    _names_source = getattr(self, "_passthrough_full_columns_", None) if self._passthrough_features_ else None
+    if _names_source is not None:
+        self.feature_names_in_ = [c for c in _names_source if c not in _engineered_names_set]
+    else:
+        self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
 
     # FE AUTO-ESCALATION fitting target (2026-06-10): a RANK transform of the raw
@@ -6884,6 +6919,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # columns come from the recipes list. n_features_ counts BOTH (see assignment below).
     selected_vars = original_indices
 
+    # PASSTHROUGH RE-ATTACH. Embedding/text columns excluded from the MI screen above are re-added to the selected set so transform() emits them unchanged. Their
+    # indices are looked up in ``feature_names_in_`` (which includes them, in original order). Appended AFTER the screen so they never participate in MI/redundancy
+    # but always survive to the estimator (the learnable-embedding network + boundary encoder consume them).
+    if self._passthrough_features_:
+        _existing = set(selected_vars)
+        for _pname in self._passthrough_features_:
+            if _pname in self.feature_names_in_:
+                _pidx = self.feature_names_in_.index(_pname)
+                if _pidx not in _existing:
+                    selected_vars.append(_pidx)
+                    _existing.add(_pidx)
+
     # ---------------------------------------------------------------------------------------------------------------
     # additional_rfecv run
     # ---------------------------------------------------------------------------------------------------------------
@@ -6955,7 +7002,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # observed across seeds 0-4. Breaks the "same random_seed ->
             # identical support_" contract for any user with
             # ``run_additional_rfecv_minutes`` > 0.
-            _sel_names = set(X.columns[selected_vars].tolist())
+            # ``selected_vars`` indexes ``feature_names_in_`` (full, includes passthrough); ``X`` here is the passthrough-narrowed working frame, so map names via
+            # ``feature_names_in_`` rather than ``X.columns[...]`` (positional mismatch when passthrough is active). Passthrough columns are never in the narrowed X
+            # and never enter the RFECV rescue pool below regardless.
+            _sel_names = {self.feature_names_in_[i] for i in selected_vars}
             # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
             # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that
             # aggregate. Excluding them from the rescue pool stops RFECV re-admitting the raw members and re-injecting

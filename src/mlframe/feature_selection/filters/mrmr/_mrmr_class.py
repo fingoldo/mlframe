@@ -2330,6 +2330,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # skip the per-column edge-builder. Most useful for hyperparam sweeps and ablations where
         # the binning input recurs verbatim across runs. See ``mlframe.utils.disk_cache``.
         cache_dir: str = None,
+        # EMBEDDING / FREE-TEXT PASSTHROUGH (default ON). Columns whose cells are embedding vectors (list/ndarray) or long free-text cannot be MI-discretised; when
+        # True they are detected at fit, EXCLUDED from the MI screen / FE candidate set, and PASSED THROUGH to the transform output unchanged so a downstream
+        # learnable-embedding network (PyTorch-Lightning MLP / recurrent) and its ``_encode_emb_text_fit`` boundary encoder consume them end-to-end. Set False for
+        # the legacy behaviour (such columns reach the discretiser and crash / mis-bin). ``*_detect_embeddings`` / ``*_detect_text`` independently gate the two kinds.
+        embedding_passthrough: bool = True,
+        embedding_passthrough_detect_embeddings: bool = True,
+        embedding_passthrough_detect_text: bool = True,
     ):
 
         # checks
@@ -2979,6 +2986,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             # The escape only LOOSENS leg 2 for a candidate that already clears its floor
             # 3x, so a re-fit of any pickle whose pool had no such candidate is byte-identical.
             "fe_engineered_cmi_significance_escape_margin": 3.0,
+            # EMBEDDING / FREE-TEXT PASSTHROUGH (default ON). Old pickles default to the same on contract; a re-fit of any pickle whose X had no non-scalar columns
+            # is byte-identical (the detector finds nothing and never narrows the frame).
+            "embedding_passthrough": True,
+            "embedding_passthrough_detect_embeddings": True,
+            "embedding_passthrough_detect_text": True,
+            # Fitted-attribute mirror: an unpickled pre-feature fit has no passthrough roster; default empty so transform's re-attach loop is a no-op.
+            "_passthrough_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
