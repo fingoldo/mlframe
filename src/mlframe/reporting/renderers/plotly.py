@@ -880,19 +880,20 @@ class PlotlyRenderer:
                          showgrid=False, zeroline=False, showticklabels=False)
 
 
-# Map matplotlib colormap names to plotly's named colorscales (best-effort).
-# plotly supports many of the standard mpl names directly via lowercase.
+# Map matplotlib colormap BASE names to plotly's named colorscales so the plotly backend renders the same scale as matplotlib.
+# Keys are lowercased; the resolver lowercases its input and strips a trailing ``_r`` (reversed), re-appending it to the plotly name.
 _MPL_TO_PLOTLY = {
-    "RdYlBu": "RdYlBu",
-    "RdYlBu_r": "RdYlBu_r",
-    "RdBu": "RdBu",
-    "RdBu_r": "RdBu_r",
+    "rdylbu": "RdYlBu",
+    "rdylgn": "RdYlGn",
+    "rdbu": "RdBu",
+    "reds": "Reds",
+    "blues": "Blues",
+    "greens": "Greens",
     "viridis": "Viridis",
     "plasma": "Plasma",
     "magma": "Magma",
     "inferno": "Inferno",
-    "Blues": "Blues",
-    "Greens": "Greens",
+    "coolwarm": "RdBu_r",  # mpl coolwarm has no plotly twin; RdBu_r is the closest diverging blue-low/red-high match
 }
 
 
@@ -922,10 +923,21 @@ def _rgba(color: str, alpha: float) -> str:
 def _mpl_to_plotly_cmap(name: str) -> str:
     """Map a matplotlib colormap name to a plotly colorscale name.
 
-    Falls back to 'Viridis' for unknown names with a one-time WARN.
+    Case-insensitive (matplotlib resolves names case-insensitively); a trailing ``_r`` is stripped, the base looked up, and ``_r``
+    re-appended so the plotly scale is reversed the same way matplotlib reverses. Falls back to 'Viridis' for genuinely-unknown
+    names with a WARN — the goal is zero warnings for cmaps the charts actually request.
     """
-    if name in _MPL_TO_PLOTLY:
-        return _MPL_TO_PLOTLY[name]
+    key = str(name).lower()
+    reversed_suffix = ""
+    if key.endswith("_r"):
+        key = key[:-2]
+        reversed_suffix = "_r"
+    base = _MPL_TO_PLOTLY.get(key)
+    if base is not None:
+        # XOR the request's reversal with any reversal baked into the mapped name (e.g. coolwarm -> RdBu_r).
+        want_reversed = bool(reversed_suffix) ^ base.endswith("_r")
+        plain = base[:-2] if base.endswith("_r") else base
+        return plain + "_r" if want_reversed else plain
     logger.warning(
         "Unknown colormap %r; falling back to plotly 'Viridis'. "
         "Add the mapping to mlframe.reporting.renderers.plotly._MPL_TO_PLOTLY "

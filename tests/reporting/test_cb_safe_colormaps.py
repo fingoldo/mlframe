@@ -90,6 +90,55 @@ class TestRendererCBDefault:
         assert heatmaps[0].colorscale != blues
 
 
+class TestChartCmapsHavePlotlyMapping:
+    """Every matplotlib colormap the charts request must resolve to a NON-Viridis plotly scale (i.e. the mapping exists),
+    so the plotly HTML matches the matplotlib PNG instead of silently falling back to Viridis."""
+
+    # The set of cmap names passed via colormap=/cmap= across charts/*.py + the heatmap defaults; keep in sync with the charts.
+    CHART_CMAPS = ("Reds", "Blues", "RdYlGn_r", "RdBu_r", "viridis", "RdYlGn", "coolwarm")
+
+    def test_each_chart_cmap_maps_to_non_viridis(self):
+        for name in self.CHART_CMAPS:
+            scale = _mpl_to_plotly_cmap(name)
+            # viridis is the only cmap legitimately allowed to resolve to Viridis; everything else must map to its own scale.
+            if name.lower() != "viridis":
+                assert scale != "Viridis", f"{name!r} silently fell back to Viridis"
+
+    def test_reds_weak_segment_heatmap_maps_to_reds(self):
+        # Pin the error-analysis weak-segment heatmap case that produced the original warning.
+        assert _mpl_to_plotly_cmap("Reds") == "Reds"
+
+    def test_reversed_suffix_resolves_generically(self):
+        assert _mpl_to_plotly_cmap("RdYlGn_r") == "RdYlGn_r"
+        assert _mpl_to_plotly_cmap("RdYlGn") == "RdYlGn"
+        assert _mpl_to_plotly_cmap("Reds_r") == "Reds_r"
+
+    def test_case_insensitive_like_matplotlib(self):
+        assert _mpl_to_plotly_cmap("reds") == "Reds"
+        assert _mpl_to_plotly_cmap("REDS") == "Reds"
+
+    def test_coolwarm_maps_to_closest_diverging(self):
+        assert _mpl_to_plotly_cmap("coolwarm") == "RdBu_r"
+
+    def test_no_fallback_warning_for_audited_cmaps(self, caplog):
+        import logging
+        from mlframe.reporting.renderers import plotly as plotly_mod
+
+        with caplog.at_level(logging.WARNING, logger=plotly_mod.logger.name):
+            for name in self.CHART_CMAPS:
+                _mpl_to_plotly_cmap(name)
+        fallbacks = [r for r in caplog.records if "falling back to plotly 'Viridis'" in r.getMessage()]
+        assert not fallbacks, f"unexpected Viridis fallback warnings: {[r.getMessage() for r in fallbacks]}"
+
+    def test_genuinely_unknown_still_warns_and_falls_back(self, caplog):
+        import logging
+        from mlframe.reporting.renderers import plotly as plotly_mod
+
+        with caplog.at_level(logging.WARNING, logger=plotly_mod.logger.name):
+            assert _mpl_to_plotly_cmap("totally_made_up_cmap") == "Viridis"
+        assert any("falling back to plotly 'Viridis'" in r.getMessage() for r in caplog.records)
+
+
 class TestLinePaletteUnchanged:
     def test_first_ten_are_tab10(self):
         assert LINE_PALETTE[:10] == _TAB10
