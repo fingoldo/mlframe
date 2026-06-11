@@ -166,6 +166,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         For ``ratio`` / ``logratio`` transforms only, auto-compute variance-stabilising sample weights ~ 1/|base| (capped at the 5th percentile) to flatten the heteroscedasticity those targets exhibit under a multiplicative DGP. Default off because it changes the loss; recommended on heavy-tail targets where logratio was already chosen.
     runtime_stats_callback
         Optional callable fired at the end of every ``predict`` with a snapshot of the per-batch counters (``batch_n``, ``batch_domain_violation_rows``, ``batch_y_clip_low_hits``, ``batch_y_clip_high_hits`` plus cumulative-since-fit counters under ``cumulative_*``). Hook into Prometheus / StatsD / DataDog without coupling the wrapper to a metrics library. Errors raised by the callback are logged at DEBUG and swallowed so monitoring failures never poison the predict path.
+    monotone_constraints
+        Optional per-feature monotonicity constraint vector forwarded to the inner GBDT at fit (LightGBM / XGBoost / CatBoost all expose a ``monotone_constraints`` estimator param). Each entry is +1 (non-decreasing), -1 (non-increasing), or 0 (unconstrained). The constraint is enforced on the inner's **T (residual) target**, NOT directly on y. For the ADDITIVE-residual transforms (``linear_residual`` / ``linear_residual_grouped`` / ``linear_residual_multi`` / ``diff``) the inverse adds a base-only term back (``y = T + alpha*base + beta``), so a feature constrained monotone-increasing in T is also monotone-increasing in y at fixed base -- monotonicity in T carries through to y. For non-additive inverses (``ratio`` / ``logratio`` / ``log_y`` / spline-based ``monotonic_residual``) the inverse is a per-row monotone-in-T map, so the SIGN of the monotone relationship is preserved at fixed base but the magnitude is reshaped; treat the constraint as "monotone on the residual scale". The vector length is validated against the **post-drop feature count** -- the number of columns the inner actually trains on, i.e. the wrapper's columns minus any plumbing column dropped before fit (currently the ``group_column`` for grouped transforms). Base columns stay in X and remain constrainable features. Default None (no constraint).
 
     Attributes set at fit
     ---------------------
@@ -202,6 +204,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         online_refit_z_threshold: float = 3.0,
         online_refit_min_buffer_n: int = 200,
         recurrence_continuation: bool = False,
+        monotone_constraints: Sequence[int] | None = None,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
@@ -225,6 +228,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self.drop_invalid_rows = drop_invalid_rows
         self.auto_variance_stabilise = auto_variance_stabilise
         self.runtime_stats_callback = runtime_stats_callback
+        # Per-feature monotonicity, enforced on the T (residual) scale and validated against the post-drop feature count at fit. See the class docstring.
+        self.monotone_constraints = monotone_constraints
 
     # Predict family -- thin in-body delegating stubs so the public predict
     # surface is discoverable to mypy / IDE / help() while the heavy bodies
@@ -774,6 +779,9 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # prototype passed in stays untouched and sklearn.clone() of
         # the wrapper produces a fresh inner.
         estimator = clone(self.base_estimator)
+        # Monotonic-constraint passthrough. ``X_valid`` is the exact frame the inner trains on (group_column already dropped), so its width is the post-drop feature count the constraint must match. Validated here (not in __init__) because the dropped-column set is only known once transform / group_column resolve at fit. See the class docstring for the T-scale semantics.
+        if self.monotone_constraints is not None:
+            self._apply_monotone_constraints(estimator, self._count_feature_columns(X_valid))
         if sample_weight is not None:
             # Signature-gate sample_weight rather than an ``except TypeError``
             # retry. The retry mis-attributed a TypeError raised deep inside a
@@ -882,81 +890,6 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         }
         return self
 
-    @staticmethod
-    def _subset_rows(X: Any, mask: np.ndarray) -> Any:
-        """Row-subset X, preserving the dataframe flavour. Polars / pandas
-        / ndarray supported. Raises TypeError otherwise."""
-        if _is_polars_df(X):
-            # ``_is_polars_df`` only returns True when the module-level
-            # ``pl`` reference is the real polars module, so we can use
-            # it directly without an extra import.
-            return X.filter(pl.Series(mask))
-        if isinstance(X, pd.DataFrame):
-            return X.loc[mask].reset_index(drop=True)
-        if isinstance(X, np.ndarray):
-            return X[mask]
-        raise TypeError(
-            f"CompositeTargetEstimator: unsupported X type {type(X).__name__} for row subsetting."
-        )
-
-    @staticmethod
-    def _drop_columns(X: Any, columns: Sequence[str]) -> Any:
-        """Return ``X`` without ``columns``, preserving frame flavour.
-
-        Used to strip the wrapper's plumbing columns (group_column for
-        grouped transforms) before passing ``X`` to the inner estimator -
-        tree models like LightGBM reject object/string dtypes that the
-        wrapper needs for per-row group lookups.
-
-        Silently no-op for columns not present (the caller may pass
-        columns that were already dropped upstream by feature selection).
-        """
-        # Polars
-        if _is_polars_df(X):
-            present = [c for c in columns if c in X.columns]
-            # ``pl.DataFrame.drop`` is zero-copy (Arrow column projection); the
-            # remaining columns are shared, no row data is materialised.
-            return X.drop(present) if present else X
-        if isinstance(X, pd.DataFrame):
-            present = [c for c in columns if c in X.columns]
-            if not present:
-                # No-op fast path: never touch the frame when nothing is dropped
-                # (the common case once feature-selection already removed the
-                # plumbing column upstream). Returning ``X`` unchanged avoids the
-                # block-consolidating copy ``drop`` would otherwise pay.
-                return X
-            # ``pd.DataFrame.drop(columns=...)`` copies the remaining blocks on
-            # pandas<2 / CoW-off but is a lazy view under pandas>=2 CoW, so a
-            # blind rewrite to ``X.loc[:, keep]`` would copy too (and reorder
-            # columns). Only the single group_column (grouped-transform path) is
-            # dropped here, so the blast radius is bounded.
-            # Under pandas>=2 Copy-on-Write the drop returns a lazy view and the
-            # inner only READS it, so no row data is materialised; under CoW-off
-            # it copies the remaining blocks. Warn on a large frame in the
-            # copying regime so a 100+GB grouped predict does not silently
-            # double RAM -- the caller can enable CoW or pass a polars frame.
-            _cow = False
-            try:
-                _cow = bool(pd.get_option("mode.copy_on_write"))
-            except Exception:
-                _cow = False
-            if not _cow:
-                try:
-                    _sz = int(X.memory_usage(index=False, deep=False).sum())
-                except Exception:
-                    _sz = 0
-                if _sz > 2 * 1024 ** 3:
-                    logger.warning(
-                        "CompositeTargetEstimator: dropping group_column '%s' "
-                        "copies a %.1f GB pandas frame (Copy-on-Write is off). "
-                        "Enable pandas CoW (pd.set_option('mode.copy_on_write', "
-                        "True)) or pass a polars frame for the zero-copy path.",
-                        present[0], _sz / 1024 ** 3,
-                    )
-            return X.drop(columns=present)
-        # ndarray has no columns -> nothing to drop.
-        return X
-
 
 
 # Method rebinding from sibling carves. Done at module bottom so the parent class is fully constructed; identity preserved (parent.X is sibling.X) which keeps isinstance / hasattr / sklearn introspection unchanged.
@@ -970,6 +903,14 @@ from . import _predict as _pred  # noqa: E402
 CompositeTargetEstimator._require_fitted = _utils._require_fitted
 CompositeTargetEstimator._require_inner_attr = _utils._require_inner_attr
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
+# Frame-flavour helpers carved to ``_frame_utils.py`` (1k-LOC limit): all three are flavour-preserving (polars / pandas / ndarray) and bind as staticmethods. ``_subset_rows`` / ``_drop_columns`` are used in ``fit``; ``_count_feature_columns`` backs the monotone-constraint length check.
+from . import _frame_utils as _frame_utils  # noqa: E402
+CompositeTargetEstimator._subset_rows = staticmethod(_frame_utils._subset_rows)
+CompositeTargetEstimator._drop_columns = staticmethod(_frame_utils._drop_columns)
+CompositeTargetEstimator._count_feature_columns = staticmethod(_frame_utils._count_feature_columns)
+# Monotonic-constraint passthrough carved to ``_monotone.py``. ``_apply_monotone_constraints`` takes ``self`` first so it binds as a normal method; reached only from ``fit`` when ``monotone_constraints`` is set.
+from . import _monotone as _monotone  # noqa: E402
+CompositeTargetEstimator._apply_monotone_constraints = _monotone._apply_monotone_constraints
 # Rich Jupyter HTML repr carved to a sibling (transform / base col(s) / headline fitted params / n_train_valid / conformal+CQR state).
 from . import _repr as _repr  # noqa: E402
 CompositeTargetEstimator._repr_html_ = _repr._repr_html_
