@@ -80,6 +80,78 @@ def smoothed_reliability_curve(
     return grid, np.asarray(iso.predict(grid), dtype=np.float64)
 
 
+def standard_ece(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray) -> float:
+    """Standard fixed-bin Expected Calibration Error from per-bin summaries.
+
+    ECE = sum_k (n_k / N) * |conf_k - acc_k|, where ``conf_k`` is the mean predicted probability (``freqs_predicted``),
+    ``acc_k`` the empirical positive rate (``freqs_true``), and ``n_k`` the bin population (``hits``). Empty / non-finite
+    bins are dropped. Returns NaN when no populated finite bin exists. This is biased UPWARD: ``acc_k`` is a finite
+    binomial estimate, so ``|conf_k - acc_k| > 0`` even for a perfectly calibrated model -- see ``debiased_ece``.
+    """
+    fp = np.asarray(freqs_predicted, dtype=np.float64)
+    ft = np.asarray(freqs_true, dtype=np.float64)
+    h = np.asarray(hits, dtype=np.float64)
+    valid = np.isfinite(fp) & np.isfinite(ft) & np.isfinite(h) & (h > 0)
+    if not valid.any():
+        return float("nan")
+    total = float(h[valid].sum())
+    if total <= 0:
+        return float("nan")
+    return float(np.sum(h[valid] * np.abs(fp[valid] - ft[valid])) / total)
+
+
+def debiased_ece(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray) -> float:
+    """Bin-count-bias-corrected ECE (Kumar et al. 2019, "Verified Uncertainty Calibration", debiased estimator).
+
+    Finite-sample binning inflates ECE: within a bin the empirical positive rate ``acc_k`` is a binomial estimate of
+    the true rate, so even under PERFECT calibration ``E[(acc_k - conf_k)^2] = Var(acc_k) = conf_k(1-conf_k)/n_k > 0``
+    and the plug-in ECE reports a spurious positive value that GROWS with the bin count. The debiased estimator works
+    on the squared (L2) scale where the bias is an additive variance term that can be subtracted in closed form:
+
+        ece2_plugin   = sum_k (n_k/N) * (conf_k - acc_k)^2
+        bias_k        = conf_k*(1-conf_k) / n_k          (expected per-bin variance under perfect calibration)
+        ece2_debiased = sum_k (n_k/N) * [ (conf_k - acc_k)^2 - bias_k ]
+        debiased ECE  = sqrt( max(ece2_debiased, 0) )
+
+    Under perfect calibration ``ece2_debiased`` is an UNBIASED estimate of 0 (it averages to zero, modulo the clamp),
+    so the reported value collapses toward 0 and -- unlike the standard ECE -- is roughly stable as the bin count
+    grows. On genuine miscalibration the squared gap dwarfs the O(1/n_k) variance term, so the real error survives.
+
+    Computed from the same per-bin ``(freqs_predicted, freqs_true, hits)`` the reliability binning already produces,
+    O(bins) with no extra full-n pass. Returns NaN when no populated finite bin exists (single-class / all-equal /
+    fewer than the requested bins finite) so the caller can omit the annotation. Singleton bins (n_k == 1) carry no
+    usable variance estimate and are dropped from the correction.
+    """
+    fp = np.asarray(freqs_predicted, dtype=np.float64)
+    ft = np.asarray(freqs_true, dtype=np.float64)
+    h = np.asarray(hits, dtype=np.float64)
+    # n_k == 1 bins give a degenerate variance estimate (the single draw IS acc_k), so exclude them from the correction.
+    valid = np.isfinite(fp) & np.isfinite(ft) & np.isfinite(h) & (h > 1)
+    if not valid.any():
+        return float("nan")
+    total = float(h[valid].sum())
+    if total <= 0:
+        return float("nan")
+    conf = fp[valid]
+    acc = ft[valid]
+    nk = h[valid]
+    sq_gap = (conf - acc) ** 2
+    bias = conf * (1.0 - conf) / nk
+    ece2 = float(np.sum(nk * (sq_gap - bias)) / total)
+    return float(np.sqrt(ece2)) if ece2 > 0.0 else 0.0
+
+
+def _ece_annotation(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray) -> str:
+    """One-line 'ECE=.. ECE_debiased=..' annotation; the debiased term is omitted when it degenerates to NaN."""
+    std = standard_ece(freqs_predicted, freqs_true, hits)
+    if not np.isfinite(std):
+        return ""
+    deb = debiased_ece(freqs_predicted, freqs_true, hits)
+    if np.isfinite(deb):
+        return f"ECE={std:.3f}  ECE_debiased={deb:.3f}"
+    return f"ECE={std:.3f}"
+
+
 def _format_population(n: float) -> str:
     """Compact thousands/millions/billions for inline scatter labels."""
     if n >= 1e9:
@@ -165,6 +237,7 @@ def build_calibration_spec(
     yscale: str = "auto",
     show_wilson_ci: bool = True,
     reliability_smoothed: bool = True,
+    show_ece_annotation: bool = True,
     raw_probs: Optional[np.ndarray] = None,
     raw_labels: Optional[np.ndarray] = None,
 ) -> FigureSpec:
@@ -183,6 +256,11 @@ def build_calibration_spec(
     uncertainty. Bubble area is capped (``MAX_BUBBLE_AREA``) so one dominant bin
     cannot occlude its neighbours, and inline labels auto-disable past
     ``INLINE_LABEL_MAX_BINS`` to avoid label soup at large ``nbins``.
+
+    ``show_ece_annotation`` (default on) annotates the reliability scatter with both the standard fixed-bin ECE and a
+    debiased ECE (Kumar et al. 2019; see ``debiased_ece``), computed from the per-bin summaries. Standard ECE is biased
+    upward by finite-sample binning; the debiased value subtracts the per-bin variance term and reports closer to the
+    truth. The metrics-layer ECE annotation is independent and untouched. Degenerate inputs omit the debiased term.
 
     ``reliability_smoothed`` (default on) overlays a binning-free isotonic calibration curve, fit on the raw
     ``(raw_probs, raw_labels)`` pairs (subsampled to a bounded row count). Unlike the binned bubbles, its shape does
@@ -236,10 +314,18 @@ def build_calibration_spec(
         hi_dist = np.where(np.isfinite(upper), upper - freqs_true, 0.0)
         y_err = (np.clip(lo_dist, 0.0, None), np.clip(hi_dist, 0.0, None))
 
+    # Standard + debiased ECE as a chart-level annotation in the scatter title (the title is rendered by both backends,
+    # so this reaches matplotlib + plotly without touching the renderer layer). The metrics-layer ECE is untouched.
+    scatter_title = plot_title
+    if show_ece_annotation:
+        ann = _ece_annotation(freqs_predicted, freqs_true, hits)
+        if ann:
+            scatter_title = f"{plot_title}\n{ann}" if plot_title else ann
+
     scatter = ScatterPanelSpec(
         x=freqs_predicted,
         y=freqs_true,
-        title=plot_title,
+        title=scatter_title,
         xlabel=label_prob if not show_prob_histogram else "",
         ylabel=label_freq,
         perfect_fit_line=True,
@@ -422,6 +508,8 @@ __all__ = [
     "build_calibration_spec",
     "build_reliability_overlay_spec",
     "smoothed_reliability_curve",
+    "standard_ece",
+    "debiased_ece",
     "wilson_ci",
     "delong_auc_variance",
     "delong_auc_ci",
