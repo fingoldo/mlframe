@@ -1,5 +1,7 @@
 """Layer 101 biz_value: comprehensive full-suite regression + state-of-the-union.
 
+Consolidated verbatim from test_biz_value_mrmr_layer101.py (per audit finding test_code_quality-16).
+
 This is the VERIFICATION layer (no new prod features). It pins three
 end-of-line contracts on top of the 100 prior layers:
 
@@ -258,7 +260,7 @@ def _downstream_auc(m, Xtr, Xte, ytr, yte):
 class TestPriorLayerRoster:
 
     def test_at_least_100_biz_value_modules_on_disk(self):
-        root = Path(__file__).parent
+        root = Path(__file__).parent.parent
         mods = sorted(root.glob("test_biz_value_*.py"))
         # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) still count:
         # each themed submodule is a relocated prior-layer biz_value test module.
@@ -271,7 +273,7 @@ class TestPriorLayerRoster:
         )
 
     def test_layer_family_contiguous_through_100(self):
-        root = Path(__file__).parent
+        root = Path(__file__).parent.parent
         present = sorted(
             int(p.stem.replace("test_biz_value_mrmr_layer", ""))
             for p in root.glob("test_biz_value_mrmr_layer*.py")

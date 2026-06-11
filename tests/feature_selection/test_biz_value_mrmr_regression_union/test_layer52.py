@@ -1,5 +1,7 @@
 """Layer 52 biz_value: COMPREHENSIVE regression + state-of-the-union.
 
+Consolidated verbatim from test_biz_value_mrmr_layer52.py (per audit finding test_code_quality-16).
+
 WHY THIS LAYER
 --------------
 Pure VERIFICATION layer (no new prod features). Layers 1..51 shipped

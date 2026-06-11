@@ -1,5 +1,7 @@
 """Layer 103 biz_value: Param-Oracle <-> kernel_tuning_cache migration POC.
 
+Consolidated verbatim from test_biz_value_mrmr_layer103.py (per audit finding test_code_quality-16).
+
 This layer wires the FIRST kernel_tuning_cache consumer through the
 ParamOracle ("learning to optimize") path, as a proof-of-concept of the
 migration. It pins six contracts:

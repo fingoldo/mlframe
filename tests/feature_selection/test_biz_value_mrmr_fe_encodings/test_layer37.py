@@ -1,4 +1,6 @@
 """Layer 37 biz_value: MISSING-VALUE-AWARE FE -- surface missingness as
+
+Consolidated verbatim from test_biz_value_mrmr_layer37.py (per audit finding test_code_quality-16).
 predictive signal where it carries information (MNAR pattern from Layer 7).
 
 WHY THIS LAYER

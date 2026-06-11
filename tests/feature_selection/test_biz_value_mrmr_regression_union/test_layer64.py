@@ -1,5 +1,7 @@
 """Layer 64 biz_value: COMPREHENSIVE REGRESSION + STATE-OF-THE-UNION.
 
+Consolidated verbatim from test_biz_value_mrmr_layer64.py (per audit finding test_code_quality-16).
+
 Pure VERIFICATION layer (no new prod surface): pins that the full FE
 stack (L21-L63) interoperates cleanly when every knob is enabled at
 once, and that every L56-L63 entry-point module imports without side
@@ -522,7 +524,8 @@ class TestLayerRoster:
         Expected disk roster: 59 ``layerN.py`` (numbers 6..64
         contiguous) + 5 catch-all = 64 biz_value test modules total.
         """
-        this_dir = os.path.dirname(os.path.abspath(__file__))
+        # Module relocated into a themed subpackage; the flat roster lives one level up in tests/feature_selection/.
+        this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         # 1. layerN.py contiguous-roster check.
         matched = sorted(glob.glob(os.path.join(this_dir, _LAYER_TEST_GLOB)))
         rx = re.compile(r"test_biz_value_mrmr_layer(\d+)\.py$")

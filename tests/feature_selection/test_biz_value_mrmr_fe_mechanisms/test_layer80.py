@@ -1,5 +1,7 @@
 """Layer 80 biz_value: SEMI-SUPERVISED orth-poly basis-preprocess fitting.
 
+Consolidated verbatim from test_biz_value_mrmr_layer80.py (per audit finding test_code_quality-16).
+
 Production setup: small labeled pool (200-1000 rows from a cold-start
 acquisition window) plus a much larger unlabeled pool (~2000-100000 rows
 from the same distribution). The current MRMR orth-poly FE family fits

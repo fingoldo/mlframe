@@ -1,5 +1,7 @@
 """Layer 79 biz_value: COMPREHENSIVE STATE-OF-THE-UNION regression test.
 
+Consolidated verbatim from test_biz_value_mrmr_layer79.py (per audit finding test_code_quality-16).
+
 Layer 79 is a verification layer (no new prod features). It pins:
 
 1. Test-suite discoverability: every prior layer (6..78) ships a
@@ -123,7 +125,7 @@ def _build_composite(seed: int, n: int = 2000):
 class TestPriorLayerDiscoverability:
 
     def test_all_prior_layer_modules_present_on_disk(self):
-        root = Path(__file__).parent
+        root = Path(__file__).parent.parent
         # A layer is present if its standalone file exists OR it was consolidated into a themed
         # subpackage (test_biz_value_mrmr_<theme>/), whose submodule docstrings record "...layerNN.py".
         relocated: set[int] = set()
@@ -141,7 +143,7 @@ class TestPriorLayerDiscoverability:
         )
 
     def test_layer_count_matches_expected_78(self):
-        root = Path(__file__).parent
+        root = Path(__file__).parent.parent
         present_set = {
             int(p.stem.replace("test_biz_value_mrmr_layer", ""))
             for p in root.glob("test_biz_value_mrmr_layer*.py")

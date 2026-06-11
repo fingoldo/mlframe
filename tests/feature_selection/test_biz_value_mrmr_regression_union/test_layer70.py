@@ -1,5 +1,7 @@
 """Layer 70 biz_value: COMPREHENSIVE 69-LAYER REGRESSION + COMPOSITE ALL-ON.
 
+Consolidated verbatim from test_biz_value_mrmr_layer70.py (per audit finding test_code_quality-16).
+
 Pure VERIFICATION layer (no new prod surface). Layer 64 already pinned a
 kitchen-sink "every L21-L63 FE knob on" composite; Layer 70 extends the
 roster to L65-L69 (KSG / copula / dCor / auto / ensemble MI scorers) and
@@ -386,7 +388,8 @@ class TestRosterSizeAtLeast69:
 
         Catches the silent-delete / silent-rename regression class.
         """
-        this_dir = os.path.dirname(os.path.abspath(__file__))
+        # Module relocated into a themed subpackage; the flat roster lives one level up in tests/feature_selection/.
+        this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         matched = sorted(glob.glob(
             os.path.join(this_dir, "test_biz_value_mrmr_layer*.py")
         ))

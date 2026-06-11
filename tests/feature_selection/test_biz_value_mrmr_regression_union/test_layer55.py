@@ -152,7 +152,8 @@ class TestLayer55_CumulativeRosterSize:
     """
 
     def test_at_least_54_prior_layer_test_modules_on_disk(self):
-        tests_dir = Path(__file__).parent
+        # This module now lives in a themed subpackage; the roster lives one level up in tests/feature_selection/.
+        tests_dir = Path(__file__).parent.parent
         # Every biz_value mrmr test file in the directory except this one.
         pattern = "test_biz_value_mrmr_*.py"
         all_files = sorted(p.name for p in tests_dir.glob(pattern))
@@ -161,7 +162,7 @@ class TestLayer55_CumulativeRosterSize:
         all_files += sorted(p.name for p in tests_dir.glob("test_biz_value_mrmr_*/test_*.py"))
         prior = [
             n for n in all_files
-            if n != "test_biz_value_mrmr_layer55.py"
+            if n != "test_layer55.py"
         ]
         assert len(prior) >= 54, (
             f"prior biz_value layer test modules on disk = {len(prior)} "

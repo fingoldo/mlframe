@@ -1,5 +1,7 @@
 """Layer 40 biz_value: VERIFY GPU PATH for hybrid FE.
 
+Consolidated verbatim from test_biz_value_mrmr_layer40.py (per audit finding test_code_quality-16).
+
 ``hermite_fe.polyeval_dispatch`` routes polynomial evaluation between
 three backends (``njit`` -- single-thread Horner, ``njit_par`` -- prange
 Horner, ``cuda`` -- cupy RawKernel) based on array length, hardware

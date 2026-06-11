@@ -1,5 +1,7 @@
 """Layer 33 biz_value: K-FOLD TARGET ENCODING for categorical features.
 
+Consolidated verbatim from test_biz_value_mrmr_layer33.py (per audit finding test_code_quality-16).
+
 Validates the new K-fold OOF target-encoding FE stage introduced
 2026-05-31 as the production-grade pattern for medium / high-cardinality
 categorical columns. Naive single-pass mean-of-y per category leaks y

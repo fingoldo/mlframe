@@ -1,5 +1,7 @@
 """Layer 75 biz_value: COMPREHENSIVE 74-LAYER REGRESSION + 8-SCORER COMPARISON BENCHMARK.
 
+Consolidated verbatim from test_biz_value_mrmr_layer75.py (per audit finding test_code_quality-16).
+
 Pure VERIFICATION layer (no new prod surface). Layer 70 pinned the L21-L69
 all-on composite; Layer 75 extends the verification scaffold to L70-L74 and
 ADDS an 8-scorer comparison benchmark across 5 signal-type fixtures.
@@ -575,7 +577,8 @@ class TestRosterAtLeast74:
     """
 
     def test_layer_module_roster_at_least_74(self):
-        this_dir = os.path.dirname(os.path.abspath(__file__))
+        # Module relocated into a themed subpackage; the flat roster lives one level up in tests/feature_selection/.
+        this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         matched = sorted(glob.glob(
             os.path.join(this_dir, "test_biz_value_mrmr_layer*.py")
         ))

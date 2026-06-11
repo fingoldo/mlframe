@@ -1,4 +1,6 @@
 """Layer 91 biz_value: TWO-TIER IT GATES on the four recipe-emitting FE
+
+Consolidated verbatim from test_biz_value_mrmr_layer91.py (per audit finding test_code_quality-16).
 mechanisms (L33 target-encoding, L34 count/freq/cat-num, L37 missingness,
 L38 ratio/grouped-delta/lagged-diff).
 

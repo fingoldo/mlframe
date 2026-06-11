@@ -1,5 +1,7 @@
 """Layer 38 biz_value: CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
 
+Consolidated verbatim from test_biz_value_mrmr_layer38.py (per audit finding test_code_quality-16).
+
 Three patterns every real prod tabular ML pipeline relies on:
 
 * ratio features (debt/income, click/impression, value/cost)

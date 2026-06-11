@@ -1,4 +1,6 @@
 """Layer 97 biz_value: DEFAULT-ON FLIP of the genuinely-safe MRMR mechanism
+
+Consolidated verbatim from test_biz_value_mrmr_layer97.py (per audit finding test_code_quality-16).
 ``fe_local_mi_gate`` (Layer 91 Tier 1).
 
 The gate is a PURE corrective: after a recipe-emitting FE mechanism (L33 target

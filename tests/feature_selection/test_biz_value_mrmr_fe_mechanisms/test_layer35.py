@@ -1,5 +1,7 @@
 """Layer 35 biz_value: END-TO-END VALIDATION of ALL 8 FE mechanisms in concert.
 
+Consolidated verbatim from test_biz_value_mrmr_layer35.py (per audit finding test_code_quality-16).
+
 The FE chain accumulated across Layers 21 / 22 / 23 / 26 / 32 / 33 / 34 now
 supplies eight distinct constructors that MRMR can dispatch from a single
 ``fit``:

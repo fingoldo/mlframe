@@ -1,5 +1,7 @@
 """Layer 78 biz_value: ADAPTIVE-ARITY cross-basis ORTHOGONAL-POLY FE.
 
+Consolidated verbatim from test_biz_value_mrmr_layer78.py (per audit finding test_code_quality-16).
+
 Validates ``hybrid_orth_mi_adaptive_arity_fe`` introduced 2026-06-01
 (sibling module ``_orthogonal_adaptive_arity_fe``). Layers 22 (pair) /
 56 (triplet) / 77 (quadruplet) each fix arity at construction time;

@@ -1,5 +1,7 @@
 """Layer 77 biz_value: 4-WAY (QUADRUPLET) cross-basis ORTHOGONAL-POLY FE.
 
+Consolidated verbatim from test_biz_value_mrmr_layer77.py (per audit finding test_code_quality-16).
+
 Validates ``hybrid_orth_mi_quadruplet_fe`` introduced 2026-06-01 (sibling
 module ``_orthogonal_quadruplet_fe``), extending Layer 22 (pair) and
 Layer 56 (triplet) with a fourth leg:

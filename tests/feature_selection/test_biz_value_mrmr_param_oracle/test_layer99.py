@@ -1,5 +1,7 @@
 """Layer 99 biz_value: META FE-RECOMMENDER -- ~50 opt-in fe_* flags -> 1 auto knob.
 
+Consolidated verbatim from test_biz_value_mrmr_layer99.py (per audit finding test_code_quality-16).
+
 Built ON the Layer-98 Param-Oracle. Two complementary layers:
 
 A. ``recommend_fe_flags_by_rules(X, y)`` -- rule-based cold-start recommender

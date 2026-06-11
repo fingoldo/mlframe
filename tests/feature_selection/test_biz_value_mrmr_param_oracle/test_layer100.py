@@ -1,5 +1,7 @@
 """Layer 100 biz_value: UNIFY scorer-selection under the Param-Oracle.
 
+Consolidated verbatim from test_biz_value_mrmr_layer100.py (per audit finding test_code_quality-16).
+
 Layer 68 (``_orthogonal_scorer_auto_fe``) is the EXPENSIVE per-column
 bootstrap-LCB bake-off over all scorers; Layer 76
 (``_orthogonal_meta_scorer_fe``) is the CHEAP fingerprint -> rule cascade.

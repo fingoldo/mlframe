@@ -1,4 +1,6 @@
 """Layer 36 biz_value: STABILITY-AWARE FE -- bootstrap-aggregate MRMR FE
+
+Consolidated verbatim from test_biz_value_mrmr_layer36.py (per audit finding test_code_quality-16).
 selection (Meinshausen-Buhlmann stability selection applied to the
 hybrid FE pipeline).
 

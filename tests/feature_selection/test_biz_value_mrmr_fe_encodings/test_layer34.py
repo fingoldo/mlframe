@@ -1,5 +1,7 @@
 """Layer 34 biz_value: COUNT + FREQUENCY encoding + CAT x NUM residual.
 
+Consolidated verbatim from test_biz_value_mrmr_layer34.py (per audit finding test_code_quality-16).
+
 Validates the three new categorical FE kernels introduced 2026-05-31 as
 companions to Layer 33's k-fold target encoding:
 
