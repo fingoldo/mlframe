@@ -3175,6 +3175,42 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
 
+        # INPUT-MUTATION ISOLATION (P1, 2026-06-11): ``_fit_impl`` injects temporary
+        # ``targ_*`` columns into the working pandas frame (X.loc[:, target_names] = ...)
+        # AND the FE pipeline appends engineered columns in place (X[name]=..., pd.concat
+        # rebinds, hinge/cat-FE generators). The targ_* injection is reversed in the finally
+        # below, but the engineered FE columns were NEVER removed -- so a caller-supplied
+        # DataFrame came back with ['a','b'] -> ['a','b','a__relu_gt...',...] permanently
+        # appended. This breaks the sklearn fit-must-not-mutate-input contract and, worse,
+        # silently corrupts a frame REUSED across fits: the 2nd fit's FE builds on the 1st
+        # fit's leaked columns -> different post-FE X content -> the _FIT_CACHE / replay
+        # signature misses (wrong selection / no cache hit). Surfaced by
+        # test_replay_fitted_state_isolation.py (A then B fit on the SAME X: A's leaked FE
+        # cols made B's content hash differ -> no cache replay -> arrays not shared/frozen).
+        #
+        # FIX AT THE BOUNDARY (not in the FE-step machinery, which is being actively re-split):
+        # operate on an INTERNAL copy so every downstream append lands on our copy and the
+        # caller's frame is never touched. Polars input is immutable (with_columns returns a
+        # new frame), numpy arrays carry no column index -- neither is mutated by our code, so
+        # only pandas needs isolating. Under pandas >= 3.0 Copy-on-Write (always on) a SHALLOW
+        # copy (deep=False) fully isolates column appends AND in-place cell writes at ~0.02 ms
+        # even on the wide p=299 path (measured), because any write triggers a per-block CoW.
+        # On older pandas without CoW a shallow copy could write through an existing-cell
+        # mutation, so fall back to a deep copy there (~11 ms at n=20k/p=299 -- negligible vs
+        # the multi-minute FE pipeline). Copy ONCE here, not per FE step.
+        if isinstance(X, pd.DataFrame):
+            _cow_on = True
+            try:
+                # ``mode.copy_on_write`` is deprecated in pandas 3.0 (CoW is now always on and the
+                # getter emits Pandas4Warning); swallow that here so a benign capability probe does
+                # not spam a warning on every fit. A removed/raising option => CoW-mandatory build.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    _cow_on = bool(pd.get_option("mode.copy_on_write"))
+            except Exception:
+                _cow_on = True
+            X = X.copy(deep=False) if _cow_on else X.copy(deep=True)
+
         # fe_auto "1-knob" mode. BEFORE the FE stages run,
         # ask the rule recommender which master FE generators match this (X, y)
         # data shape and flip exactly those fe_*_enable flags ON for this fit
