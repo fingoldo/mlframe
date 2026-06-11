@@ -243,6 +243,10 @@ class ReportingConfig(BaseConfig):
     # Per-instance SHAP attribution for the top-K most-confident-wrong predictions (tree models only). Niche +
     # adds render cost beyond the global beeswarm, so OPT-IN; explains WHY a specific costly error happened.
     shap_per_instance: bool = False
+    # Top feature-PAIR SHAP interactions (tree models only). Interaction values are O(F^2) per row -- far costlier
+    # than the main-effect beeswarm -- so OPT-IN and hard row-capped via ``shap_interaction_max_rows``.
+    shap_interactions: bool = False
+    shap_interaction_max_rows: int = 2000
     # Combined single-page HTML index per (model, split) stitching the rendered chart artifacts (PNG refs + plotly
     # fragments); assembly-only, default-on when charts are saved.
     combined_html: bool = True

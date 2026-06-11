@@ -446,6 +446,7 @@ def _render_post_fit_diagnostics(
     from mlframe.reporting.diagnostics_dispatch import (
         build_combined_html_report, render_decile_table_diagnostic, render_decision_curve_diagnostic,
         render_model_card_diagnostic, render_pdp_ice_diagnostic, render_shap_diagnostic,
+        render_shap_interactions_diagnostic, render_shap_per_instance_diagnostic,
         render_slice_finder_diagnostic,
     )
 
@@ -513,6 +514,21 @@ def _render_post_fit_diagnostics(
             metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000),
             top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
         )
+
+    if getattr(cfg, "shap_interactions", False) and model is not None and df is not None:
+        render_shap_interactions_diagnostic(
+            model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
+            metrics_dict=metrics, max_rows=getattr(cfg, "shap_interaction_max_rows", 2000),
+        )
+
+    if getattr(cfg, "shap_per_instance", False) and model is not None and df is not None and y_arr is not None:
+        # Per-instance needs a 1-D score: binary positive-class prob, else the regression prediction.
+        _yscore = _binary_positive_score(probs) if tt == "binary_classification" else (y_pred if task == "regression" else None)
+        if _yscore is not None and len(_yscore) == len(y_arr):
+            render_shap_per_instance_diagnostic(
+                model=model, df=df, y_true=y_arr, y_score=_yscore, feature_names=names,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            )
 
     lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics)
     if lc_panel is not None:

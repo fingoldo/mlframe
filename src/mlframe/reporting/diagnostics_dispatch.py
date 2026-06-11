@@ -619,6 +619,92 @@ def render_shap_diagnostic(
         return False
 
 
+def render_shap_interactions_diagnostic(
+    *,
+    model: Any,
+    df: Any,
+    feature_names: Optional[Sequence[str]],
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    max_rows: int = 2_000,
+    top_pairs: int = 10,
+    seed: int = 0,
+) -> bool:
+    """Top feature-PAIR SHAP interactions (opt-in). Tree models only -- interaction values are O(F^2) per row, so
+    the builder caps rows hard. Best-effort: any failure is logged and never aborts the report."""
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if model is None or df is None or not plot_outputs or not base_path:
+        return False
+    try:
+        from mlframe.reporting.charts.shap_interactions import shap_interaction_summary
+        from mlframe.reporting.charts.shap_panels import is_tree_model
+    except Exception:
+        logger.debug("diagnostics_dispatch: shap unavailable; skipping shap interactions.", exc_info=True)
+        return False
+    if not is_tree_model(model):
+        return False
+    try:
+        res = shap_interaction_summary(
+            model, df, feature_names=list(feature_names) if feature_names else None,
+            max_rows=max_rows, top_pairs=top_pairs, plot_file=base_path + "_shap_interactions.png",
+            plot_outputs=plot_outputs, seed=seed,
+        )
+        ok = bool(res.paths) and res.skipped is None
+        _record(charts, "shap_interactions", ok)
+        for p in res.paths:
+            _record_path(charts, os.path.splitext(p)[0])
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: shap interactions failed; continuing.")
+        _record(charts, "shap_interactions", False)
+        return False
+
+
+def render_shap_per_instance_diagnostic(
+    *,
+    model: Any,
+    df: Any,
+    y_true: Any,
+    y_score: Any,
+    feature_names: Optional[Sequence[str]],
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    k: int = 4,
+    max_explain_rows: int = 2_000,
+    seed: int = 0,
+) -> bool:
+    """Per-instance SHAP attribution for the top-K most-confident-wrong predictions (opt-in). Tree models only;
+    needs a 1-D ``y_score`` (binary positive-class prob or regression prediction). Best-effort: failures logged, never abort."""
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if model is None or df is None or y_true is None or y_score is None or not plot_outputs or not base_path:
+        return False
+    try:
+        from mlframe.reporting.charts.shap_per_instance import shap_worst_errors_explanation
+        from mlframe.reporting.charts.shap_panels import is_tree_model
+    except Exception:
+        logger.debug("diagnostics_dispatch: shap unavailable; skipping shap per-instance.", exc_info=True)
+        return False
+    if not is_tree_model(model):
+        return False
+    try:
+        res = shap_worst_errors_explanation(
+            model, df, y_true, y_score, feature_names=list(feature_names) if feature_names else None,
+            k=k, max_explain_rows=max_explain_rows, plot_file=base_path + "_shap_per_instance.png",
+            plot_outputs=plot_outputs, seed=seed,
+        )
+        ok = bool(res.paths) and res.skipped is None
+        _record(charts, "shap_per_instance", ok)
+        for p in res.paths:
+            _record_path(charts, os.path.splitext(p)[0])
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: shap per-instance failed; continuing.")
+        _record(charts, "shap_per_instance", False)
+        return False
+
+
 def render_model_comparison_diagnostic(
     *,
     per_model: Dict[str, Dict[str, Any]],
