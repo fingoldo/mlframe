@@ -254,6 +254,11 @@ class MatplotlibRenderer:
                 ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-",
                         linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
 
+        if p.overlay_line is not None:
+            ox_grid, oy_grid, olabel = p.overlay_line
+            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color="purple",
+                    linestyle="-", linewidth=1.8, zorder=4, label=olabel)
+
         if p.perfect_fit_line and n > 0:
             # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
             # y constant) and square the panel so y=x is a true 45-degree line.
@@ -275,7 +280,7 @@ class MatplotlibRenderer:
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
-        if p.legend_label or p.perfect_fit_line or p.trend_line or p.highlight_indices is not None:
+        if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.highlight_indices is not None:
             ax.legend(loc="best", fontsize=8, framealpha=0.7)
         if p.grid:
             ax.grid(True, alpha=0.3)

@@ -31,6 +31,53 @@ MAX_BUBBLE_AREA: float = 800.0
 INLINE_LABEL_MAX_BINS: int = 25
 # z for a two-sided 95% Wilson binomial interval.
 _WILSON_Z_95: float = 1.959963984540054
+# Cap on rows fed to the isotonic fit: the curve is read on a small grid, so a subsample of this size gives a
+# visually identical map while keeping the O(n log n) PAVA fit bounded at n>=1e6.
+_SMOOTHED_FIT_MAX_ROWS: int = 100_000
+# Grid resolution at which the smoothed calibration map is evaluated (bin-count-independent by construction).
+_SMOOTHED_GRID_POINTS: int = 100
+# Below this many finite (score, label) rows the smoothed map is too noisy to be meaningful -> skip the overlay.
+_SMOOTHED_MIN_ROWS: int = 50
+
+
+def smoothed_reliability_curve(
+    y_score: np.ndarray,
+    y_true: np.ndarray,
+    *,
+    n_grid: int = _SMOOTHED_GRID_POINTS,
+    max_rows: int = _SMOOTHED_FIT_MAX_ROWS,
+    random_state: int = 0,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Binning-free calibration map via isotonic regression on raw ``(score, label)`` pairs.
+
+    Returns ``(grid, calibrated)`` over a uniform ``[score_min, score_max]`` grid, or ``None`` when the input is
+    degenerate (single class, all-equal scores, or fewer than ``_SMOOTHED_MIN_ROWS`` finite rows). Isotonic gives a
+    monotone, bandwidth-free calibration curve whose shape does not depend on a bin count -- the property the binned
+    reliability points lack. The fit (PAVA) is O(n log n); rows above ``max_rows`` are subsampled since the curve is
+    only read on ``n_grid`` points, so the result is visually identical while bounding the cost at large n.
+    """
+    s = np.asarray(y_score, dtype=np.float64).ravel()
+    t = np.asarray(y_true, dtype=np.float64).ravel()
+    finite = np.isfinite(s) & np.isfinite(t)
+    s, t = s[finite], t[finite]
+    if s.size < _SMOOTHED_MIN_ROWS:
+        return None
+    classes = np.unique(t)
+    if classes.size < 2:
+        return None
+    smin, smax = float(s.min()), float(s.max())
+    if not (smax > smin):
+        return None
+    if s.size > max_rows:
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(s.size, size=max_rows, replace=False)
+        s, t = s[idx], t[idx]
+    from sklearn.isotonic import IsotonicRegression
+
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+    iso.fit(s, t)
+    grid = np.linspace(smin, smax, n_grid)
+    return grid, np.asarray(iso.predict(grid), dtype=np.float64)
 
 
 def _format_population(n: float) -> str:
@@ -117,6 +164,9 @@ def build_calibration_spec(
     figsize: Tuple[float, float] = (12.0, 6.0),
     yscale: str = "auto",
     show_wilson_ci: bool = True,
+    reliability_smoothed: bool = True,
+    raw_probs: Optional[np.ndarray] = None,
+    raw_labels: Optional[np.ndarray] = None,
 ) -> FigureSpec:
     """Build a calibration-report FigureSpec.
 
@@ -133,6 +183,12 @@ def build_calibration_spec(
     uncertainty. Bubble area is capped (``MAX_BUBBLE_AREA``) so one dominant bin
     cannot occlude its neighbours, and inline labels auto-disable past
     ``INLINE_LABEL_MAX_BINS`` to avoid label soup at large ``nbins``.
+
+    ``reliability_smoothed`` (default on) overlays a binning-free isotonic calibration curve, fit on the raw
+    ``(raw_probs, raw_labels)`` pairs (subsampled to a bounded row count). Unlike the binned bubbles, its shape does
+    not depend on the chosen bin count. It is additive (the binned points + Wilson CI + histogram are unchanged) and
+    degrades to no overlay when the raw pairs are absent or degenerate (single class / all-equal scores / too few
+    rows). The suite caller threads ``raw_probs``/``raw_labels`` through; passing only ``freqs_*`` skips the overlay.
     """
     freqs_predicted = np.asarray(freqs_predicted, dtype=np.float64)
     freqs_true = np.asarray(freqs_true, dtype=np.float64)
@@ -164,6 +220,12 @@ def build_calibration_spec(
 
     point_size = _bubble_point_size(hits)
 
+    overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
+    if reliability_smoothed and raw_probs is not None and raw_labels is not None:
+        curve = smoothed_reliability_curve(raw_probs, raw_labels)
+        if curve is not None:
+            overlay_line = (curve[0], curve[1], "smoothed (isotonic)")
+
     # Wilson CI band on the observed frequency per bin: ``freqs_true`` is the per-bin positive rate, ``hits`` its
     # count, so the binomial interval reflects sampling uncertainty (wide where a bin holds few points). The spec
     # carries asymmetric error bars as (lower_distance, upper_distance) from the point; nan-CI bins (n==0) -> 0 dist.
@@ -188,6 +250,7 @@ def build_calibration_spec(
         inline_labels=inline_labels,
         colorbar_label=colorbar_label,
         y_err=y_err,
+        overlay_line=overlay_line,
     )
 
     resolved_yscale = _resolve_yscale(yscale, hits)
@@ -358,6 +421,7 @@ def delong_auc_ci(
 __all__ = [
     "build_calibration_spec",
     "build_reliability_overlay_spec",
+    "smoothed_reliability_curve",
     "wilson_ci",
     "delong_auc_variance",
     "delong_auc_ci",

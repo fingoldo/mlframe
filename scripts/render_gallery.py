@@ -150,13 +150,14 @@ def _b():
     return build_decision_curve_spec(y, score, model_label="synthetic model").figure
 
 
-@entry("binary", "calibration_reliability", "Reliability diagram with Wilson CI bands + population histogram.")
+@entry("binary", "calibration_reliability", "Reliability diagram with Wilson CI bands + binning-free smoothed (isotonic) overlay + population histogram.")
 def _b():
     from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
     from mlframe.reporting.charts.calibration import build_calibration_spec
     y, score = _binary_separable(n=6000)
     fp, ftr, hits = fast_calibration_binning(y.astype(np.int64), score, nbins=15)
-    return build_calibration_spec(fp, ftr, hits, plot_title="Reliability (Wilson CI + population)")
+    return build_calibration_spec(fp, ftr, hits, plot_title="Reliability (Wilson CI + smoothed isotonic)",
+                                  raw_probs=score, raw_labels=y.astype(np.int64))
 
 
 # ---------------------------------------------------------------------------

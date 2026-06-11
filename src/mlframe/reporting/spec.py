@@ -64,6 +64,9 @@ class ScatterPanelSpec:
     highlight_color: str = "red"
     # Robust fit-line overlay drawn beside any y=x line: "theil-sen" or "huber" (None = no trend line).
     trend_line: Optional[Literal["theil-sen", "huber"]] = None
+    # Precomputed line overlay drawn on the same axes as the scatter (e.g. a binning-free smoothed reliability
+    # curve over the binned bubbles): ``(x_grid, y_grid, label)``. Additive; the caller supplies both arrays.
+    overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
 
 
 @dataclass(frozen=True)

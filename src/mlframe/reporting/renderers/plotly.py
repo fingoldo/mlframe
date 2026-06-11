@@ -350,6 +350,15 @@ class PlotlyRenderer:
                     row=row, col=col,
                 )
 
+        if p.overlay_line is not None:
+            ox_grid, oy_grid, olabel = p.overlay_line
+            fig.add_trace(
+                go.Scatter(x=np.asarray(ox_grid), y=np.asarray(oy_grid), mode="lines",
+                           line=dict(color="purple", width=2),
+                           name=olabel, showlegend=True),
+                row=row, col=col,
+            )
+
         if p.perfect_fit_line and n > 0:
             # Span the y=x line over the UNION of both axes so it stays the true diagonal even when prediction
             # collapse (constant y) makes the y-range a single point; scaleanchor squares the panel so y=x is 45deg.
