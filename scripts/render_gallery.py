@@ -614,6 +614,23 @@ def _b():
     return compose_calibration_by_feature_figure(y, score, feature, feature_name="risk_score", n_feature_bins=4)
 
 
+@entry("calibration_heatmap_2d", "calibration_heatmap_2d",
+       "2D calibration-ECE heatmap over a quantile grid of two features. The model is overconfident ONLY in the high-f0 "
+       "AND high-f1 corner (a localized pocket either 1D view averages away); that corner cell lights up red on the "
+       "RdYlGn_r grid while the rest stays green, and the worst-cell ECE + location is the headline.")
+def _b2():
+    from mlframe.reporting.charts.calibration_heatmap_2d import compose_calibration_heatmap_2d_figure
+    n = 60000
+    fx = RNG.normal(0.0, 1.0, size=n)
+    fy = RNG.normal(0.0, 1.0, size=n)
+    base = 1.0 / (1.0 + np.exp(-(0.8 * fx + 0.8 * fy)))
+    y = (RNG.random(n) < base).astype(np.int64)
+    score = base.copy()
+    corner = (fx > np.median(fx)) & (fy > np.median(fy))
+    score[corner] = np.clip(score[corner] + 0.35, 1e-3, 1 - 1e-3)  # overconfident pocket only at the joint high corner
+    return compose_calibration_heatmap_2d_figure(y, score, fx, fy, feat_x_name="f0", feat_y_name="f1", n_bins=5)
+
+
 # ---------------------------------------------------------------------------
 # PDP / ICE
 # ---------------------------------------------------------------------------

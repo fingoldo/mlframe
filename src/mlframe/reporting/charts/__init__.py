@@ -36,6 +36,9 @@ from mlframe.reporting.charts.fairness_calibration import (
 from mlframe.reporting.charts.calibration_by_feature import (
     compose_calibration_by_feature_figure, compute_calibration_by_feature_heterogeneity,
 )
+from mlframe.reporting.charts.calibration_heatmap_2d import (
+    compose_calibration_heatmap_2d_figure, compute_calibration_heatmap_2d,
+)
 from mlframe.reporting.charts.model_comparison import compose_model_comparison_figure
 from mlframe.reporting.charts.model_card import (
     ModelCardVerdict, compose_model_card_figure, model_card_verdict,
@@ -104,6 +107,8 @@ __all__ = [
     "compose_fairness_calibration_figure",
     "compose_calibration_by_feature_figure",
     "compute_calibration_by_feature_heterogeneity",
+    "compose_calibration_heatmap_2d_figure",
+    "compute_calibration_heatmap_2d",
     "compute_subgroup_ece_disparity",
     "compose_model_card_figure",
     "model_card_verdict",

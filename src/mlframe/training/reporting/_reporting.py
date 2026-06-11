@@ -698,6 +698,7 @@ def report_model_perf(
         _reliability_show_ci = getattr(reporting_config, "reliability_show_ci", None)
         _fairness_calibration_charts = getattr(reporting_config, "fairness_calibration_charts", True)
         _calibration_by_feature_charts = getattr(reporting_config, "calibration_by_feature_charts", True)
+        _calibration_heatmap_2d_charts = getattr(reporting_config, "calibration_heatmap_2d_charts", True)
         with phase(
             "report_probabilistic_model_perf",
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),
@@ -724,6 +725,7 @@ def report_model_perf(
                 plot_outputs=plot_outputs,
                 fairness_calibration_charts=_fairness_calibration_charts,
                 calibration_by_feature_charts=_calibration_by_feature_charts,
+                calibration_heatmap_2d_charts=_calibration_heatmap_2d_charts,
             )
     else:
         with phase(

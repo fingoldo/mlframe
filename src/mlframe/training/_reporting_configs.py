@@ -257,6 +257,8 @@ class ReportingConfig(BaseConfig):
     fairness_calibration_charts: bool = True
     # Per-feature calibration for binary targets: reliability + ECE conditioned on quantile bins of the top-importance continuous feature(s), surfacing whether calibration degrades across a feature's range (the max-min "calibration heterogeneity" metric) -- a miscalibration a single pooled reliability curve hides. Default-ON when charts saved AND a feature frame is present; a no-op otherwise.
     calibration_by_feature_charts: bool = True
+    # 2D calibration-ECE heatmap for binary targets: quantile-bin the TOP-2-importance features into a grid and show per-cell |mean(score)-mean(true)| on an RdYlGn_r heatmap, surfacing a LOCALIZED miscalibration pocket at a joint corner (high f0 AND high f1) that the pooled / 1D per-feature views average away. Headline = worst-cell ECE + its (f_x bin, f_y bin) location. Default-ON when charts saved AND a feature frame is present; a no-op otherwise.
+    calibration_heatmap_2d_charts: bool = True
     # Opt-in learning curve (holdout score vs train size). ``None`` / ``enabled=False`` skips it: it is K full refits
     # by construction, the documented cost-gated exception to "cheap diagnostics default on". Set
     # ``LearningCurveConfig(enabled=True)`` (optionally ``warm_start=True`` / ``time_budget_s=...``) to turn it on.

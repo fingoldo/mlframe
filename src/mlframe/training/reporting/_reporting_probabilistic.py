@@ -113,6 +113,7 @@ def report_probabilistic_model_perf(
     reliability_smoothed: bool = True,
     fairness_calibration_charts: bool = True,
     calibration_by_feature_charts: bool = True,
+    calibration_heatmap_2d_charts: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -795,6 +796,14 @@ def report_probabilistic_model_perf(
             plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
         )
 
+    # 2D calibration heatmap: a miscalibration pocket may surface only at a joint corner of the TOP-2 features (high f0
+    # AND high f1) that either 1D per-feature view averages away. Render the ECE grid for the top-2-importance pair.
+    if calibration_heatmap_2d_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
+        _render_calibration_heatmap_2d(
+            df=df, columns=columns, model=model, y_true=targets, pos_score=probs[:, 1],
+            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+        )
+
     return preds, probs
 
 
@@ -913,5 +922,56 @@ def _render_calibration_by_feature(
 
     if metrics is not None and heterogeneity:
         metrics.update(dict(calibration_by_feature_heterogeneity=heterogeneity))
+
+
+def _render_calibration_heatmap_2d(
+    *,
+    df: pd.DataFrame,
+    columns: Sequence[str],
+    model: Any,
+    y_true: np.ndarray | pd.Series,
+    pos_score: np.ndarray,
+    plot_file: str,
+    plot_outputs: str | None,
+    metrics: dict[str, Any] | None,
+) -> None:
+    """Render a 2D calibration-ECE heatmap over the quantile grid of the top-2-importance feature pair (binary target).
+
+    Both features are quantile-binned; per cell ``|mean(score) - mean(true)|`` is shown on an RdYlGn_r grid, with the
+    worst cell + its location as the headline -- a localized over/under-confidence pocket the pooled / 1D views hide.
+    Needs >=2 distinct top-importance features; degenerate columns are skipped without aborting the report.
+    """
+    from mlframe.reporting.charts.calibration_heatmap_2d import (
+        compose_calibration_heatmap_2d_figure, compute_calibration_heatmap_2d,
+    )
+
+    feats = _top_importance_features(model, columns, top_k=2)
+    if len(feats) < 2 or not hasattr(df, "__getitem__"):
+        return
+    fx_name, fy_name = feats[0], feats[1]
+    yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
+    try:
+        cx, cy = df[fx_name], df[fy_name]
+        fx = np.asarray(cx.to_numpy() if hasattr(cx, "to_numpy") else cx, dtype=np.float64).ravel()
+        fy = np.asarray(cy.to_numpy() if hasattr(cy, "to_numpy") else cy, dtype=np.float64).ravel()
+        if fx.shape[0] != yt.shape[0] or fy.shape[0] != yt.shape[0]:
+            return
+        res = compute_calibration_heatmap_2d(yt, pos_score, fx, fy)
+        if metrics is not None and res.get("worst_cell") is not None:
+            metrics.update(dict(calibration_heatmap_2d={
+                "worst_ece": res["worst_ece"], "worst_cell": res["worst_cell"],
+                "median_cell_ece": res["median_cell_ece"], "traffic_light": res["traffic_light"],
+                "feat_x": str(fx_name), "feat_y": str(fy_name),
+            }))
+        spec = compose_calibration_heatmap_2d_figure(
+            yt, pos_score, fx, fy, feat_x_name=str(fx_name), feat_y_name=str(fy_name),
+        )
+        _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
+        base_path = f"{plot_file}_calib2d_{_slugify_class(str(fx_name))}_{_slugify_class(str(fy_name))}"
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+        render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
+    except Exception as e:
+        logger.debug("calibration_heatmap_2d chart skipped: %s", e)
 
 
