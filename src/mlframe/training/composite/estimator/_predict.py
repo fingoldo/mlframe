@@ -72,6 +72,21 @@ def _apply_t_clip(self, t_hat: np.ndarray, params: dict[str, Any]):
     return t_hat, t_low_hits, t_high_hits
 
 
+def _finite_median_fallback(params: dict[str, Any]) -> float:
+    """Resolve the ``y_train_median`` fallback constant to a FINITE value.
+
+    The main ``fit()`` path coerces a non-finite ``y_train_median`` to ``0.0``,
+    but the ``from_fitted_inner`` / discovery path can stash ``float('nan')``
+    when ``y_train`` had no finite values (degenerate domain). Under
+    ``fallback_predict='y_train_median'`` that NaN would be the fill value for
+    every domain-violating / non-finite-inverse row, silently leaking NaN
+    through and breaking the all-finite predict contract. Coerce to ``0.0`` here
+    so the fallback is always finite regardless of which fit path built params.
+    """
+    med = params.get("y_train_median", 0.0)
+    return float(med) if np.isfinite(med) else 0.0
+
+
 def _inverse_with_fallback(
     self, transform, t_hat: np.ndarray, base_arr: np.ndarray,
     domain_ok: np.ndarray, params: dict[str, Any], inverse_kwargs: dict[str, Any],
@@ -105,7 +120,7 @@ def _inverse_with_fallback(
         ).reshape(-1)
         y_hat[domain_ok] = y_hat_valid[domain_ok]
         if self.fallback_predict == "y_train_median":
-            y_hat[~domain_ok] = params["y_train_median"]
+            y_hat[~domain_ok] = _finite_median_fallback(params)
         elif self.fallback_predict == "nan":
             pass  # already NaN
         else:
@@ -120,7 +135,7 @@ def _inverse_with_fallback(
     nonfinite = ~np.isfinite(y_hat)
     if nonfinite.any():
         if self.fallback_predict == "y_train_median":
-            y_hat[nonfinite] = params["y_train_median"]
+            y_hat[nonfinite] = _finite_median_fallback(params)
         # 'nan' fallback: leave as-is (caller opted into NaN sentinels).
         logger.warning(
             "[CompositeTargetEstimator] transform='%s' base='%s': %d row(s) "

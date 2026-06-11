@@ -126,27 +126,32 @@ _Y = 0.5 * _BASE + 1.0 + _RNG.standard_normal(_N) * 0.1
 _GROUPS = (np.arange(_N) // 75).astype(np.int64)
 
 
+# A transform can be base-free (``requires_base=False``) AND grouped
+# (``requires_groups=True``) -- e.g. ``target_encoding_residual`` is driven by
+# category labels, not a numeric base. So the ``requires_groups`` branch MUST be
+# checked BEFORE the ``not requires_base`` shortcut, otherwise the grouped fit is
+# called without its mandatory ``groups`` kwarg and raises.
 def _call_fit(t, y, base):
+    if t.requires_groups:
+        return t.fit(y, base if t.requires_base else None, groups=_GROUPS[: len(y)])
     if not t.requires_base:
         return t.fit(y, None)
-    if t.requires_groups:
-        return t.fit(y, base, groups=_GROUPS[: len(y)])
     return t.fit(y, base)
 
 
 def _call_forward(t, y, base, params):
+    if t.requires_groups:
+        return t.forward(y, base if t.requires_base else None, params, groups=_GROUPS[: len(y)])
     if not t.requires_base:
         return t.forward(y, None, params)
-    if t.requires_groups:
-        return t.forward(y, base, params, groups=_GROUPS[: len(y)])
     return t.forward(y, base, params)
 
 
 def _call_inverse(t, t_hat, base, params):
+    if t.requires_groups:
+        return t.inverse(t_hat, base if t.requires_base else None, params, groups=_GROUPS[: len(t_hat)])
     if not t.requires_base:
         return t.inverse(t_hat, None, params)
-    if t.requires_groups:
-        return t.inverse(t_hat, base, params, groups=_GROUPS[: len(t_hat)])
     return t.inverse(t_hat, base, params)
 
 
