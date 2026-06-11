@@ -41,6 +41,8 @@ Contracts pinned
 
 * ``TestPickleAndClone``: sklearn ``clone`` and ``pickle`` preserve the
   ctor params and the chosen ``(col_a, col_b, basis, degree)`` recipe.
+
+Consolidated verbatim from test_biz_value_mrmr_layer59.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

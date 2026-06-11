@@ -50,6 +50,8 @@ Contracts pinned
 
 * TestPickleAndClone: sklearn-style ``clone`` preserves the new ctor
   params; ``pickle`` round-trips a fitted MRMR with triplet recipes.
+
+Consolidated verbatim from test_biz_value_mrmr_layer56.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

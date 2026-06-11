@@ -29,6 +29,8 @@ Contracts pinned
   preserves appended features and recipe round-trip.
 
 NEVER xfail.
+
+Consolidated verbatim from test_biz_value_mrmr_layer72.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

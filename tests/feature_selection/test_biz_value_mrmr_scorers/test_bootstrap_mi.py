@@ -38,6 +38,8 @@ What the contract classes pin
   ``orth_univariate`` recipes round-trip.
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
+
+Consolidated verbatim from test_biz_value_mrmr_layer62.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

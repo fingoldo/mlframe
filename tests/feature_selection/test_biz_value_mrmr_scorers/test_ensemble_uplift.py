@@ -37,6 +37,8 @@ Contracts pinned
   the Layer 69 ensemble path.
 
 NEVER xfail.
+
+Consolidated verbatim from test_biz_value_mrmr_layer69.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

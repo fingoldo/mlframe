@@ -49,6 +49,8 @@ Contracts pinned
   per-member He_2 (the actual claim of the layer).
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
+
+Consolidated verbatim from test_biz_value_mrmr_layer61.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

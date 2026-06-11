@@ -42,6 +42,8 @@ Contracts pinned
   matches pre-pickle).
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
+
+Consolidated verbatim from test_biz_value_mrmr_layer60.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 
@@ -198,7 +200,7 @@ class TestNoDuplicateSignal:
 
         For comparison: under marginal-MI greedy (Layer 26), at least
         2 of the 4 are typically picked (verified by the parallel
-        ``TestSquareSignalRecovered`` in test_biz_value_mrmr_layer26.py).
+        ``TestSquareSignalRecovered`` in the Layer 26 biz_value module).
         """
         X, y = _build_square_signal(seed)
         m = _make_mrmr(

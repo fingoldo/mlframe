@@ -42,6 +42,8 @@ What the contract classes pin
   to its fit-time value.
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
+
+Consolidated verbatim from test_biz_value_mrmr_layer65.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

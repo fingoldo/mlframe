@@ -25,6 +25,8 @@ Contracts pinned (real numbers, Bayes-feasible fixtures, never xfail):
 * Pickle / clone round-trips the recipes + params.
 
 2026-06-01 Layer 94.
+
+Consolidated verbatim from test_biz_value_mrmr_layer94.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

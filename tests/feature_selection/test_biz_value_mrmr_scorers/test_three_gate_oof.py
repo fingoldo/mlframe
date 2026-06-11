@@ -36,6 +36,8 @@ What the contract classes pin
   recipes round-trip.
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
+
+Consolidated verbatim from test_biz_value_mrmr_layer63.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 
