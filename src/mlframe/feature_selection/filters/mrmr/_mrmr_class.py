@@ -178,6 +178,15 @@ class MRMR(BaseEstimator, TransformerMixin):
     support_ : ndarray of shape (n_features,)
         The mask of selected features.
 
+    degenerate_columns_ : dict
+        Diagnostic surface populated at ``fit``: ``{column -> reason}`` for every
+        pathological input column detected by a cheap O(p) scan, where reason is one of
+        ``"all_nan"`` / ``"constant"`` / ``"duplicate_of:<col>"`` / ``"collinear_with:<col>"``.
+        PURELY DIAGNOSTIC -- it does not remove columns or change which features are
+        selected (the relevance + conditional-MI redundancy gates already handle
+        degenerate columns); it mirrors the sibling selectors' diagnostic attributes so a
+        downstream report / UI can see what the frame contained.
+
     Notes
     -----
     ``cluster_aggregate_enable`` (ON by default; gated so it is a no-op without genuine clusters) turns on clustered-feature aggregation: correlated
@@ -3162,6 +3171,21 @@ class MRMR(BaseEstimator, TransformerMixin):
                     f"MI estimation silently degrades on NaN; drop or impute these rows "
                     f"before fitting."
                 )
+
+        # DEGENERATE-COLUMN DIAGNOSTIC SURFACE. Cheap O(p) scan of the INPUT frame
+        # for pathological columns (all-NaN / constant / exact-duplicate / perfectly-
+        # collinear) recorded into ``degenerate_columns_`` (column -> reason). PURELY
+        # DIAGNOSTIC: the existing relevance gate already drops all-NaN/constant columns
+        # (MI ~ 0) and the conditional-MI redundancy gate already drops duplicate /
+        # collinear columns, byte-identically -- this scan does NOT remove columns or
+        # alter the selection. It mirrors the sibling selectors' diagnostic attributes
+        # so a downstream report / UI can SEE what the frame contained. Wrapped so a
+        # diagnostic failure can never break a fit that would otherwise succeed.
+        try:
+            from .._mrmr_degenerate import audit_degenerate_columns
+            self.degenerate_columns_ = audit_degenerate_columns(X)
+        except Exception:
+            self.degenerate_columns_ = {}
 
         # #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
