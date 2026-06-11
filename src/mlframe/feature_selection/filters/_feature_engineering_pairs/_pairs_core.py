@@ -220,6 +220,16 @@ def check_prospective_fe_pairs(
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
     res = {}
 
+    # Seeded RNG for the external-validation factor subsample below. Pre-fix code used the
+    # process-global ``np.random.choice`` there, which (a) made the choice depend on whatever
+    # had consumed the global numpy RNG earlier in the process (so two fits of the SAME (X, y)
+    # in one session could pick DIFFERENT validation factors -> a different tie-break -> a
+    # different engineered-recipe SET / column NAMES), and (b) raced under the joblib
+    # ``backend="threading"`` chunked path (N workers sharing one global RNG). Derive a local
+    # Generator from ``subsample_seed`` (instance-controlled) so the factor pick is reproducible
+    # from the MRMR seed and thread-safe, mirroring the seeded ``_rng_sub`` and the fleuret LCG fix.
+    _rng_extval = np.random.default_rng(int(subsample_seed))
+
     # SUBSAMPLE-SETUP: when caller asks for subsample_n > 0 AND len(X) exceeds it,
     # build subsampled views of X / classes_y / classes_y_safe / freqs_y. The MI
     # sweep operates on these views; survivor packing always rebuilds at full n.
@@ -1428,9 +1438,14 @@ def check_prospective_fe_pairs(
                         best_valid_mi = -1
                         config = (transformations_pair, bin_func_name, i)
 
-                        external_factors = list(set(numeric_vars_to_consider) - set(raw_vars_pair))
+                        # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
+                        # PYTHONHASHSEED-randomised for str keys, so the candidate order (and hence the
+                        # sampled subset) would differ across processes / fits. Sort to a stable order,
+                        # then sample with the instance-seeded ``_rng_extval`` so the chosen validation
+                        # factors are fully reproducible from the MRMR seed.
+                        external_factors = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
                         if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
-                            external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
+                            external_factors = _rng_extval.choice(external_factors, fe_max_external_validation_factors, replace=False)
 
                         # BATCHED EXTERNAL VALIDATION (2026-06-07): the per-(external_factor x
                         # valid_bin_func) ``discretize_array`` + ``mi_direct`` double loop was the
