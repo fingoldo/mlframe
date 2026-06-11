@@ -162,6 +162,19 @@ def _run_fe_step(
     if verbose >= 2:
         logger.info("Computing prospective FE pairs...")
 
+    # bench-attempt-rejected (2026-06-11, FS backlog #6 surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):
+    # Hypothesis was that a shallow GBM's gain-weighted root->leaf path co-occurrence could propose pure zero-marginal
+    # 3-way synergy triples directly into this FE pool, bypassing the blind univariate top-N seed below. Decisive Stage-1
+    # measurement (n=4000, p=200 iid, y=sign(x7*x42*x113)+0.3*noise; ALL univariate |corr| <= 0.026 and all
+    # pairwise-product |corr| <= 0.026) shows the needle {7,42,113} NEVER surfaces:
+    #   baseline150 / 1000r / extra_trees / colsample0.1 / extra+colsample : needle_rank=None, top-triple recall 0/3.
+    #   best case (depth5 extra_trees 1000r): rank 18778/32947, score 12 vs top ~150 -- still 0/3.
+    # Positive control (same walker) DOES rank a detectable pairwise XOR 0/1640 and a 3-way-with-pairwise-leak needle
+    # 0/766, proving the null is the pure-3way's greedy-invisibility, not a code bug. Tree-path co-occurrence inherits
+    # the greedy blindness it claimed to bypass (consistent with beam-search-useless-for-MRMR: conditional-MI is not
+    # greedy-trappable). The order-3 Westfall-Young maxT floor (#7) is the mandatory rail for a 3-way proposer, but with
+    # no working proposer it ships nothing -- both backlog items rejected/not-built together. A detect-without-enumerate
+    # screen (#9 RFF) is the open non-greedy path to pure 3-way synergy.
     if self.fe_ntop_features:
         numeric_vars_to_consider = selected_vars[: self.fe_ntop_features]
     else:
