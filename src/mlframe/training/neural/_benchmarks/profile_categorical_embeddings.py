@@ -3,11 +3,17 @@
 Profiles a full fit+predict of ``PytorchLightningRegressor`` with ``cat_features`` on a representative shape (n=20000, 6 cat cols + 10 numeric,
 3 epochs CPU). Run:  PYTHONPATH=<worktree>/src python -m mlframe.training.neural._benchmarks.profile_categorical_embeddings
 
-Conclusion (2026-06-08, this hardware): the categorical hotspots are NOT actionable. ``CategoricalEmbedding.forward`` is a per-cat Python loop
-over a handful of columns (k=6) doing one ``nn.Embedding`` gather each -- it never appears in the top cumulative frames; the wall is dominated by
-Lightning's training loop + DataLoader + the trunk GEMMs (the same hotspots as the no-cat MLP). The fit-boundary ``_factorize_cats_fit`` runs ONCE
-per fit (``pd.factorize`` per cat column, vectorised) and is sub-millisecond at this shape -- profiling it standalone shows <1 ms, dwarfed by the
-per-epoch cost. No numba/cupy ladder is warranted (k is tiny, the gather is already a fused torch kernel, and the factorize is a one-shot setup).
+Conclusion (this hardware, n=20000 / 6 cat + 10 numeric / 3 epochs CPU; warm, 3-run mean): the categorical hotspots are NOT actionable. The three
+cat-specific frames sum to under 2% of the fit+predict wall, well below the project's >5%-of-wall / >10ms actionability bar:
+  * ``CategoricalEmbedding.forward`` -- 239 calls, ~1.4% cumulative (~0.12-0.17s). Its own body is a tiny per-cat Python loop over k=6 columns; the
+    time inside it is all fused torch primitives the gather genuinely needs -- ``torch.embedding`` (the lookup), ``.long()`` cast, ``clamp_`` (unknown-row
+    safety), and the final ``torch.cat``. There is no wasted Python overhead to strip and no per-element kernel to write (k is tiny, embedding is already fused).
+  * ``_apply_cat_codes`` -- runs ONCE per predict, ~0.30% (~0.03s): vectorised ``Series.map`` + reorder, sub-millisecond per cat column.
+  * ``_factorize_cats_fit`` -- runs ONCE per fit, ~0.15% (~0.01s): ``pd.factorize`` per cat column, vectorised one-shot setup.
+The wall is dominated by the SAME frames as a no-cat MLP -- ``run_backward`` (~0.33s tottime), the Adam step (~0.12s), the trunk ``linear`` GEMMs (~0.10s),
+dropout, and Lightning's per-step hook dispatch. No numba/cupy ladder is warranted: the only cat-side compute is one fused embedding gather over k=6 leading
+columns plus a one-shot factorize. Re-profile only if k grows by an order of magnitude (then the per-cat Python loop in ``forward`` could be vectorised across
+tables) or if the factorize moves into a per-batch path (it must stay a one-shot fit-boundary setup).
 """
 from __future__ import annotations
 
