@@ -59,4 +59,4 @@ cProfile after confirms `searchsorted` is gone from the hexbin path entirely; re
 `scripts/bench_regression_largen_render.py --n 1000000 5000000 10000000 --repeats 3 [--profile]`
 
 ## Commit
-<filled after commit>
+5b610a7a -- perf(reporting): O(n) uniform binning for large-n regression hexbin + resid-vs-pred
