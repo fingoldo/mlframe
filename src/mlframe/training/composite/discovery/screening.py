@@ -342,19 +342,74 @@ def _prebin_feature_columns(
     q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
     binned = np.empty((n_rows, n_cols), dtype=code_dtype)
     for j in range(n_cols):
-        col = feature_matrix[:, j]
-        col_finite = np.isfinite(col)
-        if col_finite.sum() < 5 * nbins:
-            binned[:, j] = -1
-            continue
-        # nanquantile drops NaN but not inf; on an all-finite column np.quantile is bit-identical and faster, so take it in the common case.
-        cut = np.quantile(col, q_edges) if col_finite.all() else np.nanquantile(col, q_edges)
-        col_idx = np.full(n_rows, -1, dtype=code_dtype)
-        col_idx[col_finite] = np.searchsorted(
-            cut, col[col_finite], side="right",
-        ).astype(code_dtype)
-        np.clip(col_idx, 0, nbins - 1, out=col_idx, where=col_idx >= 0)
-        binned[:, j] = col_idx
+        binned[:, j] = _prebin_one_column(
+            feature_matrix[:, j], q_edges=q_edges, nbins=nbins, code_dtype=code_dtype,
+        )
+    return binned
+
+
+def _prebin_one_column(
+    col: np.ndarray, *, q_edges: np.ndarray, nbins: int, code_dtype: np.dtype,
+) -> np.ndarray:
+    """Bin ONE float column into int codes (0..nbins-1, -1 for non-finite).
+
+    The exact per-column body lifted out of :func:`_prebin_feature_columns` so
+    the eager (whole-matrix) and lazy (one-column-at-a-time) prebin paths run
+    BYTE-IDENTICAL quantile + searchsorted + clip code -- guaranteeing the lazy
+    code matrix is bit-identical to the eager one, not merely "equivalent".
+
+    ``q_edges`` is the shared ``linspace(0,1,nbins+1)[1:-1]`` quantile grid; the
+    caller computes it ONCE and reuses it across columns. ``col`` must be a
+    contiguous float array of the screen sample's length."""
+    col_finite = np.isfinite(col)
+    if col_finite.sum() < 5 * nbins:
+        return np.full(col.shape[0], -1, dtype=code_dtype)
+    # nanquantile drops NaN but not inf; on an all-finite column np.quantile is bit-identical and faster, so take it in the common case.
+    cut = np.quantile(col, q_edges) if col_finite.all() else np.nanquantile(col, q_edges)
+    col_idx = np.full(col.shape[0], -1, dtype=code_dtype)
+    col_idx[col_finite] = np.searchsorted(
+        cut, col[col_finite], side="right",
+    ).astype(code_dtype)
+    np.clip(col_idx, 0, nbins - 1, out=col_idx, where=col_idx >= 0)
+    return col_idx
+
+
+def _prebin_feature_columns_lazy(
+    df: Any, cols: Sequence[str], rows: np.ndarray, *, nbins: int,
+) -> np.ndarray:
+    """Lazy sibling of :func:`_prebin_feature_columns` for a DataFrame carrier.
+
+    Pulls ONE column at a time from ``df`` (via :func:`_extract_column_array`
+    on the SAMPLED ``rows``), bins it, writes only the int16/int32 codes into the
+    output buffer, and lets the transient float32 column fall out of scope before
+    the next is pulled. The whole ``(len(rows), F)`` float32 feature matrix is
+    therefore NEVER materialised -- peak extra RAM is one column
+    (``O(len(rows))``) instead of the full ``(len(rows), F)`` plane.
+
+    BIT-IDENTICAL to ``_prebin_feature_columns(_build_feature_matrix(df, cols,
+    rows))``: each column is binned by the SHARED :func:`_prebin_one_column`
+    kernel on the SAME extracted float32 values, so the resulting code matrix
+    matches the eager path element-for-element. Only the float-matrix transient
+    is avoided -- the numerics are untouched.
+
+    100GB-frame rule: ``rows`` is the small MI-screen sample (``mi_sample_n``),
+    and the only float allocation alive at any instant is one sampled column, so
+    even a 4M x 500 polars frame never builds the (n, F) float plane. The eager
+    path stays the default for ndarray carriers / where the float matrix is also
+    consumed downstream (dedup / knn); the caller size-gates the dispatch."""
+    code_dtype = _prebin_code_dtype(nbins)
+    n_rows = int(np.asarray(rows).shape[0])
+    n_cols = len(cols)
+    if n_rows < 5 * nbins:
+        return np.full((n_rows, n_cols), -1, dtype=code_dtype)
+    q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+    binned = np.empty((n_rows, n_cols), dtype=code_dtype)
+    for j, c in enumerate(cols):
+        col = _extract_column_array(df, c, rows=rows)
+        binned[:, j] = _prebin_one_column(
+            col, q_edges=q_edges, nbins=nbins, code_dtype=code_dtype,
+        )
+        del col  # drop the float32 transient before pulling the next column.
     return binned
 
 
