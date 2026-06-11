@@ -31,6 +31,7 @@ from ._pairs_gates import (
     _FE_MARGINAL_UPLIFT_MIN_RATIO,
     _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO,
     _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT,
+    _FE_REJECTION_RESULT_KEY,
     _GATE_MED_SPECS_RESULT_KEY,
     _GATE_MED_UNARY,
     _PREWARP_SPECS_RESULT_KEY,
@@ -208,6 +209,14 @@ def check_prospective_fe_pairs(
     # seeds, genuine_ab 10/10 -> 8/10). Default False (opt-in); see the full numbers + rationale
     # on ``MRMR.fe_mm_debias_prevalence``. False == legacy raw-plug-in ratio (byte-reproduction).
     fe_mm_debias_prevalence: bool = False,
+    # REJECTION-LEDGER out-param (additive, 2026-06-11). When a list is passed, every pair
+    # the per-pair acceptance gate REJECTS (joint-prevalence floor AND the marginal-uplift /
+    # joint-recovery fallback both declined) appends one record dict carrying the operands,
+    # the winning binary operator, the observed best_mi/pair_mi ratio, the prevalence
+    # threshold, and the marginal-uplift diagnostics -- all values the gate ALREADY computed,
+    # no recompute. The caller (``_mrmr_fe_step``) drains it into ``self``'s fe rejection
+    # ledger. ``None`` (default) = legacy behaviour, no records captured.
+    rejection_ledger_out: list | None = None,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -220,6 +229,12 @@ def check_prospective_fe_pairs(
     # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
     res = {}
+    # REJECTION-LEDGER local accumulator (additive, 2026-06-11): per-pair acceptance-gate
+    # drops collect here, then are exported via BOTH the ``rejection_ledger_out`` side channel
+    # (serial / threading path) AND the reserved ``res`` key (survives the loky-parallel path,
+    # where the caller's list cannot be mutated cross-process). Records carry only values the
+    # gate already computed -- no recompute.
+    _rejection_records: list = []
 
     # Seeded RNG for the external-validation factor subsample below. Pre-fix code used the
     # process-global ``np.random.choice`` there, which (a) made the choice depend on whatever
@@ -1397,6 +1412,48 @@ def check_prospective_fe_pairs(
                         f"admitting the genuine synergy pair."
                     )
 
+        # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
+        # to DROP -- the joint-prevalence floor declined AND both the prewarp and the
+        # marginal-uplift (abs-MAD / joint-recovery) fallbacks declined. Attribute to whichever
+        # floor it primarily missed: the engineered-MI prevalence floor (the 0.97 floor the
+        # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
+        # prewarp/uplift path declined for another reason) tag the marginal-uplift floor.
+        # All values were already computed above (no recompute).
+        if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept):
+            try:
+                _rej_thr = float(fe_min_engineered_mi_prevalence) * (1.0 if num_fs_steps < 1 else 1.025)
+                _rej_op = None
+                if best_config is not None:
+                    try:
+                        _rej_op = best_config[1]  # binary func name of the best engineered form
+                    except Exception:
+                        _rej_op = None
+                if not _passes_joint_gate:
+                    _rej_rec = {
+                        "gate": "engineered_mi_prevalence",
+                        "candidate": str(raw_vars_pair),
+                        "operands": tuple(raw_vars_pair),
+                        "operator": _rej_op,
+                        "observed": float(_gate_ratio),
+                        "threshold": _rej_thr,
+                        "reason": "best_mi_over_pair_mi_below_floor",
+                    }
+                else:
+                    _rej_rec = {
+                        "gate": "marginal_uplift_floor",
+                        "candidate": str(raw_vars_pair),
+                        "operands": tuple(raw_vars_pair),
+                        "operator": _rej_op,
+                        "observed": float(_gate_ratio),
+                        "threshold": _rej_thr,
+                        "reason": "marginal_uplift_and_prewarp_declined",
+                    }
+                _rejection_records.append(_rej_rec)
+                if rejection_ledger_out is not None:
+                    rejection_ledger_out.append(_rej_rec)
+            except Exception:
+                pass
+
         if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept:  # Best transformation is good enough
 
             # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
@@ -1802,5 +1859,9 @@ def check_prospective_fe_pairs(
         if gate_med_specs_out is not None:
             gate_med_specs_out.update(_fitted_medians)
         res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
+
+    # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
+    if _rejection_records:
+        res[_FE_REJECTION_RESULT_KEY] = _rejection_records
 
     return res

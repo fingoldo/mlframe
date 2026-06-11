@@ -85,6 +85,12 @@ _GATE_MED_UNARY = "gate_med"
 # result dict (loky-parallel recovery path). Distinct from the prewarp key.
 _GATE_MED_SPECS_RESULT_KEY = ("__gate_med_specs__", -1, -1)
 
+# Reserved (never-colliding, length-3) key under which ``check_prospective_fe_pairs``
+# returns the PER-GATE REJECTION LEDGER records (additive, 2026-06-11). A list of small
+# dicts, one per pair the per-pair acceptance gate dropped. Survives the loky-parallel
+# path (per-chunk lists merged by the caller). Distinct from the prewarp / gate-med keys.
+_FE_REJECTION_RESULT_KEY = ("__fe_rejection_records__", -1, -1)
+
 
 def _occupied_k(codes: np.ndarray) -> int:
     """Number of OCCUPIED (non-empty) ordinal bins in a 1-D code array -- the same

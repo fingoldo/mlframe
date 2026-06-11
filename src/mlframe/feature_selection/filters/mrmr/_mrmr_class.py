@@ -2869,6 +2869,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Legacy pickles default to ``None`` and the empty predictor log;
             # the next fit() repopulates from the live greedy run.
             "fe_provenance_": None,
+            # Per-gate FE REJECTION LEDGER (the rejection side of fe_provenance_):
+            # a DataFrame (one row per rejected FE candidate-per-gate) + its raw record
+            # list. Legacy pickles default to None / [] and the next fit() repopulates.
+            "fe_rejection_ledger_": None,
+            "_fe_rejection_records_": [],
             "_predictors_log_": (),
             # Produced-recipes audit ledger: every EngineeredRecipe the FE stages emitted this fit (pre-screen). fe_provenance_ reads it so the audit / pickle-replay paths recover which mechanism
             # produced each engineered column even when the greedy CMI screen dropped it. Legacy pickles default to [] and the next fit() repopulates from the live FE run.
@@ -3382,6 +3387,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             # ledger. Pure metadata; never mutates the selection result.
             from .._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
             _pop_prov(self)
+            # populate ``fe_rejection_ledger_`` -- the rejection side of the provenance
+            # surface: one row per FE candidate a gate dropped (which gate + the margin).
+            # Pure metadata built from the records ``_run_fe_step`` accumulated; never
+            # mutates the selection result.
+            from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
+            _pop_rej(self)
             self._print_fit_summary()
             return result
         finally:

@@ -32,6 +32,7 @@ from .._mrmr_fe_step_helpers import (
     run_cluster_aggregate_emission,
 )
 from .._gradient_interaction_seeder import propose_gradient_interaction_pairs
+from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 from ._helpers import _non_numeric_column_indices, _synergy_bootstrap_can_supply_pool
 
 
@@ -579,6 +580,17 @@ def _run_fe_step(
                         prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                         for var in raw_vars_pair:
                             vars_usage_counter[var] += 1
+                    else:
+                        # REJECTION LEDGER (additive): a zero-individual-MI (XOR-branch) pair was
+                        # dropped because its MM-debiased joint MI did not clear the order-2 max-T
+                        # permutation null floor. Record observed=joint MI vs threshold=floor.
+                        _record_fe_rejection(
+                            self, gate="order2_maxt_floor",
+                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                            observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                            reason=("xor_zero_marginal_below_maxt" if pair_mi > 0 else "xor_zero_pair_mi"),
+                            step=int(num_fs_steps),
+                        )
                     continue
                 # SYNERGY pairs (>=1 bootstrap-added operand) must clear a STRICTER
                 # uplift bar than selected-selected pairs: their operands are
@@ -598,7 +610,9 @@ def _run_fe_step(
                 # permutation-null max as well, rejecting best-of-p chance-max noise
                 # pairs the per-pair prevalence bar misses. No-op when floor==0.0.
                 # ``_pair_mi_floor_cmp`` is the MM-debiased joint MI (IRON RULE, see above).
-                if pair_mi > ind_elems_mi_sum * _prev_thresh and _pair_mi_floor_cmp >= _pair_maxt_floor:
+                _passes_prevalence = pair_mi > ind_elems_mi_sum * _prev_thresh
+                _passes_maxt = _pair_mi_floor_cmp >= _pair_maxt_floor
+                if _passes_prevalence and _passes_maxt:
                     uplift = pair_mi / ind_elems_mi_sum
                     if verbose >= 2:
                         logger.info(
@@ -608,6 +622,27 @@ def _run_fe_step(
                     prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                     for var in raw_vars_pair:
                         vars_usage_counter[var] += 1
+                else:
+                    # REJECTION LEDGER (additive): the pair failed the marginal pair-MI prevalence
+                    # pre-screen and/or the order-2 max-T null floor. Attribute to whichever leg
+                    # failed (prevalence first -- it is the primary screen the session diagnoses).
+                    if not _passes_prevalence:
+                        # observed = joint MI; threshold = marginal-sum * prevalence bar.
+                        _record_fe_rejection(
+                            self, gate="marginal_pair_mi_prescreen",
+                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                            observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
+                            reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
+                            step=int(num_fs_steps),
+                        )
+                    else:
+                        # prevalence passed but the MM-debiased joint MI missed the max-T floor.
+                        _record_fe_rejection(
+                            self, gate="order2_maxt_floor",
+                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                            observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                            reason="below_maxt_floor", step=int(num_fs_steps),
+                        )
 
     # SIGNED INTERACTION-INFORMATION ROUTING (2026-06-09, backlog idea #8). Among the
     # pairs that PASSED the ratio gate + order-2 maxT floor above, separate genuine
@@ -1035,7 +1070,7 @@ def _run_fe_step(
             # ``sub(prewarp(informative_3),prewarp(noise_5))`` with informative_3's spec
             # dropped). Fix: MERGE each chunk's reserved spec payload into the
             # accumulators DURING the merge loop, before ``update`` overwrites the key.
-            from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
+            from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
             for next_dict in dicts:
                 _pw_chunk = next_dict.pop(_PREWARP_SPECS_RESULT_KEY, None)
                 if _pw_chunk:
@@ -1043,6 +1078,18 @@ def _run_fe_step(
                 _gm_chunk = next_dict.pop(_GATE_MED_SPECS_RESULT_KEY, None)
                 if _gm_chunk:
                     _gate_med_specs.update(_gm_chunk)
+                # REJECTION LEDGER (additive): drain each chunk's per-pair-gate drops.
+                _rej_chunk = next_dict.pop(_FE_REJECTION_RESULT_KEY, None)
+                if _rej_chunk:
+                    for _rr in _rej_chunk:
+                        _record_fe_rejection(
+                            self, gate=_rr.get("gate", "engineered_mi_prevalence"),
+                            candidate=_rr.get("candidate"), operands=_rr.get("operands"),
+                            operator=_rr.get("operator"),
+                            observed=_rr.get("observed", float("nan")),
+                            threshold=_rr.get("threshold", float("nan")),
+                            reason=_rr.get("reason", ""), step=int(num_fs_steps),
+                        )
                 prospective_additions.update(next_dict)
 
         # Extract any reserved pre-warp / gate-med spec entry the SERIAL path may have
@@ -1050,7 +1097,7 @@ def _run_fe_step(
         # also carries the reserved key) and merge it, so the pair loop below never
         # treats it as a ``raw_vars_pair``. The joblib branch already drained the key
         # per-chunk above; this pop is then a harmless no-op.
-        from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
+        from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
         _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
         if _pw_from_res:
             _prewarp_specs.update(_pw_from_res)
@@ -1058,6 +1105,19 @@ def _run_fe_step(
         _gm_from_res = prospective_additions.pop(_GATE_MED_SPECS_RESULT_KEY, None)
         if _gm_from_res:
             _gate_med_specs.update(_gm_from_res)
+        # REJECTION LEDGER (additive): drain the SERIAL path's per-pair-gate drops (the
+        # joblib branch already drained per-chunk above, so this pop is then a no-op).
+        _rej_from_res = prospective_additions.pop(_FE_REJECTION_RESULT_KEY, None)
+        if _rej_from_res:
+            for _rr in _rej_from_res:
+                _record_fe_rejection(
+                    self, gate=_rr.get("gate", "engineered_mi_prevalence"),
+                    candidate=_rr.get("candidate"), operands=_rr.get("operands"),
+                    operator=_rr.get("operator"),
+                    observed=_rr.get("observed", float("nan")),
+                    threshold=_rr.get("threshold", float("nan")),
+                    reason=_rr.get("reason", ""), step=int(num_fs_steps),
+                )
 
         # CONDITIONAL-MI REDUNDANCY GATE (strategy S5, 2026-06-08). The PRINCIPLED,
         # constant-free replacement for the hardcoded ``fe_min_engineered_mi_prevalence``
@@ -1122,6 +1182,27 @@ def _run_fe_step(
                         "CMI-redundancy gate: dropped %d/%d engineered survivors as redundant "
                         "given the admitted engineered support (TAU=%.3f): %s",
                         len(_cmi_dropped), len(_cmi_cands), _retain, sorted(_cmi_dropped),
+                    )
+                # REJECTION LEDGER (additive): the CMI gate already returns a per-name
+                # ``_diag`` dict carrying observed CMI, the permutation floor, the relative
+                # bar and the reason -- harvest it for the dropped names (no recompute).
+                for _dn in _cmi_dropped:
+                    _d = _diag.get(_dn, {}) if isinstance(_diag, dict) else {}
+                    _reason = str(_d.get("reason", "redundant"))
+                    # Pick the bar this candidate actually missed: below_floor -> the perm
+                    # floor (observed = cmi); below_rel_bar -> the relative bar (observed =
+                    # debiased excess). Margin = observed - threshold (negative => missed).
+                    if _reason == "redundant_below_floor":
+                        _obs = _d.get("cmi", float("nan"))
+                        _thr = _d.get("floor", float("nan"))
+                    else:
+                        _obs = _d.get("cmi_excess", float("nan"))
+                        _thr = _d.get("rel_bar", float("nan"))
+                    _record_fe_rejection(
+                        self, gate="cmi_redundancy",
+                        candidate=str(_dn), operands=None, operator="engineered",
+                        observed=_obs, threshold=_thr, reason=_reason,
+                        step=int(num_fs_steps),
                     )
 
         # Apply the CMI-redundancy drops to ``prospective_additions`` IN PLACE so the
@@ -1535,6 +1616,7 @@ def _run_fe_step(
             try:
                 from .._fe_stability_vote import confirm_recipes_cross_fold
 
+                _vote_diag: dict = {}
                 _failed_eng = confirm_recipes_cross_fold(
                     recipes=engineered_recipes,
                     X=X,
@@ -1545,7 +1627,19 @@ def _run_fe_step(
                     quorum=float(getattr(self, "fe_stability_vote_quorum", 0.6)),
                     rng=np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)),
                     verbose=int(verbose),
+                    diagnostics_out=_vote_diag,
                 )
+                # REJECTION LEDGER (additive): record each recipe the cross-fold vote
+                # dropped, with observed=folds-passed vs threshold=quorum bar (need_eff).
+                for _fn in _failed_eng:
+                    _vd = _vote_diag.get(_fn, {})
+                    _record_fe_rejection(
+                        self, gate="stability_vote",
+                        candidate=str(_fn), operands=_vd.get("src_names"), operator="engineered",
+                        observed=_vd.get("passes", float("nan")),
+                        threshold=_vd.get("need_eff", float("nan")),
+                        reason="below_quorum", step=int(num_fs_steps),
+                    )
                 if _failed_eng:
                     # Drop the failed engineered names from selected_vars (by cols-index)
                     # and from the recipe dict so neither support_ nor _engineered_recipes_

@@ -5463,6 +5463,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
     engineered_recipes: dict = {}
+    # PER-GATE FE REJECTION LEDGER (additive, 2026-06-11): reset the per-fit raw-record list so
+    # ``_run_fe_step`` accumulates the gate drops of every FE step this fit. fe_rejection_ledger_
+    # is built from it at fit-end. Stays empty when FE produced no rejected candidates.
+    self._fe_rejection_records_ = []
     # Layer 23: seed engineered_recipes with hybrid orthogonal-poly recipes
     # built above (before the screening loop). The end-of-fit remap routes
     # any selected_vars_name matching a key here into _engineered_recipes_.

@@ -182,6 +182,10 @@ MRMR.partial_fit = _partial_fit_func
 from .._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
 MRMR.get_fe_report = _get_fe_report_func
 
+# Per-gate FE rejection ledger accessor (the rejection side of get_fe_report).
+from .._fe_rejection_ledger import get_fe_rejection_report as _get_fe_rejection_report_func  # noqa: E402
+MRMR.get_fe_rejection_report = _get_fe_rejection_report_func
+
 # Semi-supervised fit helper -- importable from the ``mrmr`` namespace so callers can
 # ``from mlframe.feature_selection.filters.mrmr import fit_with_unlabeled`` without reaching into the sibling path.
 from .._semi_supervised_fe import fit_with_unlabeled  # noqa: E402,F401

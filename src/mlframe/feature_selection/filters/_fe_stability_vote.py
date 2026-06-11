@@ -137,6 +137,12 @@ def confirm_recipes_cross_fold(
     quorum: float = 0.6,
     rng: Optional[np.random.Generator] = None,
     verbose: int = 0,
+    # REJECTION-LEDGER out-param (additive, 2026-06-11): when a dict is passed, the voter
+    # records ``{eng_name -> {"passes", "evaluated", "need_eff", "src_names"}}`` for every
+    # FAILED recipe so the caller can append a per-gate rejection record with the real margin
+    # (passes vs the quorum bar) WITHOUT recomputing the vote. Pure-record; never changes which
+    # recipes fail. ``None`` (default) = legacy behaviour, no diagnostics captured.
+    diagnostics_out: Optional[dict] = None,
 ) -> set:
     """Vote each ``unary_binary`` recipe across K held-out folds; return the
     set of engineered names that FAILED the quorum (caller drops them).
@@ -315,6 +321,13 @@ def confirm_recipes_cross_fold(
         need_eff = need if evaluated == k else int(math.ceil(q * evaluated))
         if passes < need_eff:
             failed.add(eng_name)
+            if diagnostics_out is not None:
+                diagnostics_out[eng_name] = {
+                    "passes": int(passes),
+                    "evaluated": int(evaluated),
+                    "need_eff": int(need_eff),
+                    "src_names": src,
+                }
             if verbose:
                 logger.info(
                     "Stability vote: DROPPED engineered '%s' -- cleared the held-out uplift "
