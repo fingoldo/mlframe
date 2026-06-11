@@ -13,11 +13,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from types import SimpleNamespace
+
 from mlframe.reporting.diagnostics_dispatch import (
     build_combined_html_report,
     render_calibration_drift_diagnostic,
     render_decision_curve_diagnostic,
     render_model_comparison_diagnostic,
+    render_model_comparison_from_suite,
     render_pdp_ice_diagnostic,
     render_shap_diagnostic,
     render_slice_finder_diagnostic,
@@ -187,6 +190,45 @@ def test_model_comparison_skips_single_model(tmp_path, binary_frame):
     assert render_model_comparison_diagnostic(
         per_model={"only": {"y_true": y, "y_score": score, "metrics": {}}},
         task_type="binary", plot_outputs=PNG, base_path=str(tmp_path / "cmp"), metrics_dict=md,
+    ) is False
+
+
+def _suite_entry(y, score, auc):
+    """Mirror the suite's per-model SimpleNamespace record shape (test_target / test_probs / nested metrics)."""
+    probs = np.column_stack([1.0 - score, score])
+    return SimpleNamespace(
+        model=SimpleNamespace(),
+        test_target=y,
+        test_probs=probs,
+        test_preds=None,
+        metrics={"test": {1: {"roc_auc": auc}, "charts": {"saved": []}}},
+    )
+
+
+def test_model_comparison_from_suite_renders_for_two_models(tmp_path, binary_frame):
+    df, y, score, _ts = binary_frame
+    rng = np.random.default_rng(2)
+    weak = np.clip(score + rng.normal(0, 0.3, len(score)), 0, 1)
+    entries = [
+        _suite_entry(y, score, 0.85),
+        _suite_entry(y, weak, 0.60),
+    ]
+    base = str(tmp_path / "tgt")
+    md = {}
+    ok = render_model_comparison_from_suite(
+        model_entries=entries, target_type="binary_classification",
+        plot_outputs=PNG, base_path=base, metrics_dict=md,
+    )
+    assert ok and _png_exists(base + "_model_comparison")
+    assert "model_comparison" in md["charts"]["saved"]
+
+
+def test_model_comparison_from_suite_skips_single_model(tmp_path, binary_frame):
+    df, y, score, _ts = binary_frame
+    md = {}
+    assert render_model_comparison_from_suite(
+        model_entries=[_suite_entry(y, score, 0.85)], target_type="binary_classification",
+        plot_outputs=PNG, base_path=str(tmp_path / "tgt"), metrics_dict=md,
     ) is False
 
 

@@ -617,6 +617,80 @@ def render_model_comparison_diagnostic(
         return False
 
 
+def _entry_score(entry: Any) -> Optional[np.ndarray]:
+    """Per-row scalar test-split score from a suite model entry: positive-class proba, else point prediction."""
+    probs = getattr(entry, "test_probs", None)
+    if probs is not None:
+        arr = np.asarray(probs)
+        if arr.ndim == 2 and arr.shape[1] == 2:
+            return arr[:, 1].astype(np.float64)
+        if arr.ndim == 1:
+            return arr.astype(np.float64)
+    preds = getattr(entry, "test_preds", None)
+    if preds is not None:
+        p = np.asarray(preds)
+        if p.ndim == 1:
+            return p.astype(np.float64)
+    return None
+
+
+def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
+    """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard."""
+    out: Dict[str, float] = {}
+    if not isinstance(metrics, dict):
+        return out
+    for k, v in metrics.items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[str(k)] = float(v)
+        elif isinstance(v, dict):
+            for k2, v2 in v.items():
+                if isinstance(v2, (int, float)) and not isinstance(v2, bool):
+                    out.setdefault(str(k2), float(v2))
+    return out
+
+
+def render_model_comparison_from_suite(
+    *,
+    model_entries: Sequence[Any],
+    target_type: str,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    metric: Optional[str] = None,
+    seed: int = 0,
+) -> bool:
+    """Assemble a per-target leaderboard from the suite's returned per-model entries and render it.
+
+    ``model_entries`` are the ``SimpleNamespace`` records the suite returns under ``models[target_type][name]``
+    (each carries ``test_target`` / ``test_probs`` / ``test_preds`` + ``metrics``). Default-ON contract: renders only
+    when >=2 entries carry a usable test score on the same task. The composer subsamples internally, so assembly is
+    bounded regardless of n. This is the post-all-models hook the suite finalize calls once per target.
+    """
+    per_model: Dict[str, Dict[str, Any]] = {}
+    for i, e in enumerate(model_entries or []):
+        yt = getattr(e, "test_target", None)
+        ys = _entry_score(e)
+        if yt is None or ys is None:
+            continue
+        yt = np.asarray(yt).ravel()
+        m = min(len(yt), len(ys))
+        if m == 0:
+            continue
+        name = str(getattr(e, "model_name", None) or type(getattr(e, "model", None)).__name__ or f"model_{i}")
+        if name in per_model:
+            name = f"{name}_{i}"
+        per_model[name] = {
+            "y_true": yt[:m], "y_score": ys[:m],
+            "metrics": _flat_scalar_metrics(getattr(e, "metrics", {}).get("test") if isinstance(getattr(e, "metrics", None), dict) else None),
+        }
+    tt = (target_type or "").lower()
+    task = "binary" if tt == "binary_classification" else ("regression" if "regress" in tt else tt)
+    return render_model_comparison_diagnostic(
+        per_model=per_model, task_type=task, plot_outputs=plot_outputs, base_path=base_path,
+        metrics_dict=metrics_dict, metric=metric, seed=seed,
+    )
+
+
 def build_combined_html_report(
     *,
     base_path: str,
@@ -701,6 +775,7 @@ __all__ = [
     "render_target_acf_diagnostic",
     "render_shap_diagnostic",
     "render_model_comparison_diagnostic",
+    "render_model_comparison_from_suite",
     "build_combined_html_report",
     "DIAG_ROW_CAP",
     "DIAG_MAX_FEATURES",
