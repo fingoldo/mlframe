@@ -492,6 +492,30 @@ def _render_post_fit_diagnostics(
                 y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             )
 
+    if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and y_arr.ndim == 1:
+        from mlframe.reporting._risk_coverage_diagnostic import render_risk_coverage_diagnostic
+        if tt == "binary_classification":
+            _bs = _binary_positive_score(probs)
+            if _bs is not None and len(_bs) == len(y_arr):
+                render_risk_coverage_diagnostic(
+                    y_true=y_arr, y_score=_bs, task="binary", plot_outputs=plot_outputs,
+                    base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
+                )
+        elif tt == "multiclass_classification" and probs is not None:
+            _proba = np.asarray(probs, dtype=np.float64)
+            if _proba.ndim == 2 and _proba.shape[0] == len(y_arr):
+                render_risk_coverage_diagnostic(
+                    y_true=y_arr, y_score=_proba, task="multiclass", plot_outputs=plot_outputs,
+                    base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
+                )
+        elif task == "regression" and y_pred is not None and len(y_pred) == len(y_arr):
+            # Confidence proxy: negative distance from the prediction's own mean (central preds = more typical = more certain).
+            conf = -np.abs(y_pred - float(np.mean(y_pred)))
+            render_risk_coverage_diagnostic(
+                y_true=y_arr, y_score=y_pred, task="regression", confidence=conf, plot_outputs=plot_outputs,
+                base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
+            )
+
     if getattr(cfg, "model_card", True) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
         # Card is defined for binary + regression; multiclass/multilabel have no single positive-class score.

@@ -254,6 +254,8 @@ class ReportingConfig(BaseConfig):
     decile_table: bool = True
     # One-glance per-(model, split) model card: header metrics + traffic-light verdict + mini sparklines. Default-ON when charts saved; reuses the split's y_true + scores/preds.
     model_card: bool = True
+    # Risk-coverage (selective prediction): accuracy/error as you abstain on the least-confident cases vs a random-rejection reference; AURC + accuracy@80% headline. Default-ON for binary/multiclass when scores present; single argsort + cumulative pass.
+    risk_coverage_charts: bool = True
     # Cross-split overfit panel per model (grouped headline-metric bars + delta table + verdict), rendered once all splits exist. Default-ON when >=2 usable splits.
     split_comparison_charts: bool = True
     # CUSUM change-point on standardized regression residuals; catches a sustained mean shift per-bucket residual_vs_time misses. Default-ON for regression when timestamps cover the split.

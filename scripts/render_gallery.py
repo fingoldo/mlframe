@@ -203,6 +203,20 @@ def _b():
     return build_decision_curve_spec(y, score, model_label="synthetic model").figure
 
 
+@entry("risk_coverage", "risk_coverage",
+       "Risk-coverage (selective prediction): accuracy rises as you abstain on the least-confident cases; gap over the flat random-rejection line is the value of confidence-ranked deferral.")
+def _b():
+    from mlframe.reporting.charts.risk_coverage import build_risk_coverage_spec
+    rng = np.random.default_rng(20260611)
+    n = 8000
+    y = rng.integers(0, 2, n)
+    conf = rng.uniform(0.0, 1.0, n)
+    correct = rng.uniform(0, 1, n) < (0.45 + 0.54 * conf)
+    pred = np.where(correct, y, 1 - y)
+    score = np.where(pred == 1, 0.5 + 0.5 * conf, 0.5 - 0.5 * conf)
+    return build_risk_coverage_spec(y, score, task="binary", model_label="synthetic model").figure
+
+
 @entry("binary", "calibration_reliability", "Reliability diagram with Wilson CI bands + binning-free smoothed (isotonic) overlay + bootstrap 95% band (significant-fraction annotation) + standard & debiased ECE annotation + population histogram.")
 def _b():
     from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
