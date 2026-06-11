@@ -33,7 +33,11 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         raise RuntimeError(
             "CompositeTargetEstimator.update: online_refit_enabled is False. Set it to True in __init__ to enable streaming refit."
         )
-    if self.transform_name not in ("linear_residual",):
+    # E23: linear_residual_robust shares the {alpha, beta} param shape and the
+    # forward/inverse of linear_residual, so the closed-form streaming refit
+    # applies to it too (the streaming refit recomputes alpha/beta by OLS on
+    # the recent buffer -- the robust trim only matters at the initial fit).
+    if self.transform_name not in ("linear_residual", "linear_residual_robust"):
         raise NotImplementedError(
             f"streaming alpha refit only supported for 'linear_residual'; got transform_name={self.transform_name!r}. Other transforms have transform-specific params (eps for ratio, mad_eff for logratio, per-bin medians for quantile_residual, etc.) that don't fit the closed-form alpha/beta refit pattern."
         )
@@ -72,6 +76,35 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         # Update params in-place. The wrapper's predict() reads these on every call so the next predict will use the drifted alpha / beta.
         self.fitted_params_["alpha"] = new_alpha
         self.fitted_params_["beta"] = new_beta
+        # E13: refresh the y-clip envelope + median + T-clip from the RECENT
+        # (drifted) buffer. The alpha/beta-only refit left these at their
+        # pre-drift train values, so a drift-corrected prediction that moved
+        # into the new regime was clipped back toward the DEAD regime by the
+        # stale envelope -- defeating the correction.
+        try:
+            from . import _y_train_clip_bounds
+            from ..transforms import get_transform
+            _by = np.asarray(self._buffer_y_, dtype=np.float64)
+            _bb = np.asarray(self._buffer_base_, dtype=np.float64)
+            _finy = np.isfinite(_by)
+            if int(_finy.sum()) >= 10:
+                self.fitted_params_["y_train_median"] = float(np.median(_by[_finy]))
+                _lo, _hi = _y_train_clip_bounds(_by[_finy])
+                self.fitted_params_["y_clip_low"] = _lo
+                self.fitted_params_["y_clip_high"] = _hi
+                _t = get_transform(self.transform_name).forward(_by, _bb, self.fitted_params_)
+                _tf = _t[np.isfinite(_t)]
+                if _tf.size >= 10:
+                    _med_t = float(np.median(_tf))
+                    _mad_t = float(np.median(np.abs(_tf - _med_t))) * 1.4826
+                    if _mad_t > 0:
+                        self.fitted_params_["t_clip_low"] = _med_t - 10.0 * _mad_t
+                        self.fitted_params_["t_clip_high"] = _med_t + 10.0 * _mad_t
+        except Exception as _env_err:
+            logger.warning(
+                "[CompositeTargetEstimator.update] envelope refresh after drift "
+                "refit failed (%s); kept the pre-drift clip bounds.", _env_err,
+            )
         logger.info(
             "[CompositeTargetEstimator.update] streaming refit fired (z=%.2f > %.2f). alpha %.4f -> %.4f, beta %.4f -> %.4f. buffer_n=%d",
             info["z_score"], self.online_refit_z_threshold,

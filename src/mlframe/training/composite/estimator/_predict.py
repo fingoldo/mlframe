@@ -336,15 +336,29 @@ def predict_quantile(
     else:
         base_arr = None
 
+    # E6/DX3: grouped-transform parity with predict(). The grouped inverse needs
+    # per-row group labels, and the inner must NOT see the (string) group_column.
+    inverse_kwargs: dict[str, Any] = {}
+    X_for_inner = X
+    if transform.requires_groups:
+        if not self.group_column:
+            raise ValueError(
+                f"CompositeTargetEstimator.predict_quantile: transform "
+                f"'{self.transform_name}' requires groups but group_column is "
+                f"not configured."
+            )
+        inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
+        X_for_inner = self._drop_columns(X, [self.group_column])
+
     alpha_is_scalar = np.isscalar(alpha)
     try:
         t_raw = np.asarray(
-            inner.predict_quantile(X, alpha), dtype=np.float64,
+            inner.predict_quantile(X_for_inner, alpha), dtype=np.float64,
         )
     except TypeError:
         # Some libs name the kwarg differently (e.g. quantile=, q=).
         t_raw = np.asarray(
-            inner.predict_quantile(X, alpha=alpha), dtype=np.float64,
+            inner.predict_quantile(X_for_inner, alpha=alpha), dtype=np.float64,
         )
 
     if base_arr is None:
@@ -358,13 +372,13 @@ def predict_quantile(
     high = params.get("y_clip_high", float("inf"))
     if alpha_is_scalar:
         t_q = t_raw.reshape(-1)
-        y_q = transform.inverse(t_q, base_arr, params)
+        y_q = transform.inverse(t_q, base_arr, params, **inverse_kwargs)
         return np.clip(y_q, low, high)
 
     if t_raw.ndim == 1:
         # Inner emits per-alpha 1-D and was called with a vector -- broadcast
         # against the single base column we already extracted (which is 1-D).
-        y_q = transform.inverse(t_raw, base_arr, params)
+        y_q = transform.inverse(t_raw, base_arr, params, **inverse_kwargs)
         return np.clip(y_q, low, high).reshape(-1, 1)
     if t_raw.ndim != 2:
         raise ValueError(
@@ -373,6 +387,6 @@ def predict_quantile(
     # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
     cols: list[np.ndarray] = []
     for k in range(t_raw.shape[1]):
-        y_col = transform.inverse(t_raw[:, k], base_arr, params)
+        y_col = transform.inverse(t_raw[:, k], base_arr, params, **inverse_kwargs)
         cols.append(np.clip(y_col, low, high))
     return np.column_stack(cols)
