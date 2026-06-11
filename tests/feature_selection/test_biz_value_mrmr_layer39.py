@@ -36,6 +36,7 @@ from __future__ import annotations
 import gc
 import importlib
 import os
+import re
 import sys
 import time
 import warnings
@@ -298,7 +299,9 @@ class TestMemoryBound:
 
 
 def _discover_prior_layer_modules():
-    """Locate every ``test_biz_value_mrmr_layer<N>.py`` in this directory."""
+    """Locate every ``test_biz_value_mrmr_layer<N>.py`` in this directory plus the
+    relocated themed consolidation subpackages (``test_biz_value_mrmr_<theme>/test_*.py``).
+    """
     here = Path(__file__).parent
     out = []
     for p in sorted(here.glob("test_biz_value_mrmr_layer*.py")):
@@ -306,7 +309,17 @@ def _discover_prior_layer_modules():
         if p.name == Path(__file__).name:
             continue
         mod_name = f"tests.feature_selection.{p.stem}"
-        out.append((mod_name, p))
+        out.append((mod_name, p, mod_name))
+    # Layers consolidated into themed subpackages are imported once per ORIGINAL layer number so the
+    # import-smoke keeps per-layer granularity (the submodule docstrings record "...layerNN.py").
+    for p in sorted(here.glob("test_biz_value_mrmr_*/test_*.py")):
+        mod_name = f"tests.feature_selection.{p.parent.name}.{p.stem}"
+        layers = sorted(set(re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8"))), key=int)
+        if layers:
+            for n in layers:
+                out.append((mod_name, p, f"{mod_name}::layer{n}"))
+        else:
+            out.append((mod_name, p, mod_name))
     return out
 
 
@@ -320,8 +333,8 @@ class TestPriorLayerImportSmoke:
     items" failure mode (which masquerades as a pass in CI).
     """
 
-    @pytest.mark.parametrize("mod_name,path", _LAYER_MODULES,
-                             ids=[m for m, _ in _LAYER_MODULES])
+    @pytest.mark.parametrize("mod_name,path", [(m, p) for m, p, _ in _LAYER_MODULES],
+                             ids=[i for _, _, i in _LAYER_MODULES])
     def test_prior_layer_module_imports(self, mod_name, path):
         # Force a fresh import so a previously-imported (and possibly
         # stale) cached module does not mask a current breakage. Snapshot
@@ -357,5 +370,5 @@ class TestPriorLayerRosterSize:
         assert len(_LAYER_MODULES) >= 33, (
             f"Discovered only {len(_LAYER_MODULES)} prior-layer biz_value "
             f"test modules; expected >= 33. Modules found: "
-            f"{[m for m, _ in _LAYER_MODULES]}"
+            f"{[m for m, _, _ in _LAYER_MODULES]}"
         )

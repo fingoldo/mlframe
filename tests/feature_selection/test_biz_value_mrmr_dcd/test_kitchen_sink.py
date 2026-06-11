@@ -1,61 +1,6 @@
-"""Layer 49 biz_value: realistic kitchen-sink benchmark for DCD (L41-L48).
+"""DCD consolidation: Layer 49 biz_value: realistic kitchen-sink benchmark for DCD (L41-L48).
 
-WHY THIS LAYER
---------------
-Layers 41-48 added incremental DCD machinery -- cluster_members_ accessor
-(L41), recipe wiring (L42), swap-method bake-off / auto (L43-L44),
-auto-distance (L45-L46), auto-tau via bimodality detection (L47), and
-post-hoc hierarchy (L48). Each landed with a focused unit fixture proving
-the targeted contract. None of those probes answered the cumulative
-question: "on realistic, plausibly-redundant data, does DCD-default
-actually shrink support without losing predictive metric, and does DCD-
-with-auto-everything do even better?"
-
-LAYER 49 IS A BENCHMARK, NOT A NEW FEATURE
-------------------------------------------
-Four synthetic scenarios spanning the dominant production-redundancy
-patterns:
-
-  A. Sensor mesh: 5 latents x 3 noisy sensors + 5 pure-noise fillers.
-     y depends on a weighted combination of all 5 latents. DCD should
-     recover 5 sub-clusters (one per latent) and shrink support 9 -> 5.
-     Post-hoc hierarchy (L48) may surface depending on noise level.
-
-  B. Financial covariates: revenue/cost/profit/margin + 7 derived
-     columns + 2 noise. y depends on margin. The redundancy is
-     algebraic (profit=revenue-cost, margin=profit/revenue, ...). DCD
-     should collapse the margin cluster, the profit cluster, and the
-     cost cluster.
-
-  C. Image-embedding-like: 50 features, only 8 carry signal across
-     2 latents; the other 42 are mildly correlated Gaussian noise.
-     y is a linear combination of the 2 latent dims. With tau loose
-     enough, DCD should collapse the 4-of-z1 + 4-of-z2 signal
-     features into 2 anchors.
-
-  D. Mixed cat + num: cat_a/cat_b/cat_c all encode the same latent
-     region (with different label spellings); 10 numeric (2 carry
-     signal). DCD should cluster the cat duplicates via the cat-FE
-     kway aggregate.
-
-CONTRACTS (per scenario)
-------------------------
-  S1: DCD-on support_size <= DCD-off support_size (no growth).
-  S2: DCD-auto support_size <= DCD-on support_size (auto >= default win).
-  S3: DCD-on downstream LogReg AUC does not regress >0.02 vs DCD-off.
-  S4: DCD-auto downstream LogReg AUC does not regress >0.02 vs DCD-off.
-  S5 (A, B): hierarchy or DCD per-cluster recovery actually identifies
-     the underlying latent groups.
-  S6 (A): hierarchy_levels[1] is populated on the L48 default tau.
-
-NEVER xfail. Real numbers; per-scenario probe (D:/Temp/probe_l49_metrics.py)
-locked the thresholds at >=0.02 metric slack to absorb 3-fold-CV variance.
-
-WHY 4 SCENARIOS instead of 1 omnibus
--------------------------------------
-Per-scenario isolation makes the failure mode obvious: "DCD shrank C from
-8 to 2 but the metric dropped 0.05" points immediately at the C
-noise-correlation lever, while a single omnibus would average it away.
+Consolidated verbatim from test_biz_value_mrmr_layer49.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

@@ -37,6 +37,7 @@ contract and must be fixed in prod, not masked.
 from __future__ import annotations
 
 import os
+import re
 import time
 import warnings
 from pathlib import Path
@@ -274,13 +275,20 @@ class TestPriorLayerRoster:
             if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
         )
         assert present, "no test_biz_value_mrmr_layer<N>.py modules found"
-        assert max(present) >= 100, (
-            f"highest layer module should be >= 100, got {max(present)}"
+        # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) still count as
+        # present: each submodule docstring records its source layer numbers ("...layerNN.py").
+        relocated: set[int] = set()
+        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
+            for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
+                relocated.add(int(n))
+        present_all = set(present) | relocated
+        assert max(present_all) >= 100, (
+            f"highest layer module should be >= 100, got {max(present_all)}"
         )
         # The 6..100 range is the shipped contiguous family; allow a handful of
         # intentionally-skipped numbers but flag a wholesale drift.
         expected = set(range(6, 101))
-        missing = sorted(expected - set(present))
+        missing = sorted(expected - present_all)
         assert len(missing) <= 6, (
             f"too many gaps in the layer family (missing {missing}); a layer "
             f"module was likely dropped"

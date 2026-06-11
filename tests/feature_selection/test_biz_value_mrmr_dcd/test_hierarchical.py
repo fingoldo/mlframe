@@ -1,45 +1,6 @@
-"""Layer 48 biz_value: HIERARCHICAL POST-HOC CLUSTERING over DCD anchors.
+"""DCD consolidation: Layer 48 biz_value: HIERARCHICAL POST-HOC CLUSTERING over DCD anchors.
 
-WHY THIS LAYER
---------------
-DCD is greedy: each feature joins exactly ONE cluster (the first
-anchor whose pair SU passes ``tau_cluster``). Genuine data is often
-hierarchical: ``temp_sensor_1`` very-closely tracks ``temp_sensor_2``
-(sub-cluster), and both moderately track ``humidity_sensor_1``
-(super-cluster). The greedy single-anchor rule cannot surface the
-super-cluster.
-
-LAYER 48 IMPROVEMENT
---------------------
-Post-fit analyser ``build_cluster_hierarchy(dcd_summary, X,
-super_tau, max_levels)``:
-
-  - Walks the anchors that DCD already discovered (level 0).
-  - Computes pair SU between every pair of level-N anchors via the
-    same ``pair_su`` codepath the live DCD uses.
-  - Merges anchors with pairwise SU > ``super_tau`` into level-(N+1)
-    super-clusters (connected components).
-  - Recurses up to ``max_levels``.
-  - Returns ``{level: {super_anchor: [sub_anchors]}}``.
-
-Exposed on ``MRMR.cluster_hierarchy_`` after fit. Pure additive metadata:
-no effect on ``support_`` / ``transform`` / DCD decisions.
-
-CONTRACTS
----------
-- C1: Synthetic 2-super-cluster x 3-sub-cluster data produces a level-1
-  hierarchy reflecting the super-structure.
-- C2: Flat / independent data produces ``hierarchy_ == {}`` (no super
-  ties detected).
-- C3: ``cluster_hierarchy_`` survives ``pickle`` round-trip and
-  ``clone`` (sklearn-style fitted-attribute discipline).
-- C4: Regression on Layers 41 and 47 contracts (``cluster_members_``
-  and ``tau_calibration`` keys intact).
-- C5: ``build_cluster_hierarchy(None, ...)`` and on an empty
-  ``cluster_anchors_names`` map both return ``{}`` cleanly (no raise).
-- C6: Deterministic across two runs of the same fit + analyser call.
-
-NEVER xfail.
+Consolidated verbatim from test_biz_value_mrmr_layer48.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

@@ -1,58 +1,6 @@
-"""Layer 45 biz_value: DCD anchor refinement (member-swap branch).
+"""DCD consolidation: Layer 45 biz_value: DCD anchor refinement (member-swap branch).
 
-WHY THIS LAYER
---------------
-Pre-Layer-45 DCD's swap path was binary: keep the anchor, or replace it
-with a candidate aggregate. The anchor itself was simply whichever
-feature got picked first by the greedy MRMR loop. When that first pick
-was a marginal cluster member (e.g. a noisy spike that won the round
-on pure-MI dominance before redundancy correction kicked in), the
-aggregate was built around the wrong reference and the swap either
-underfired or fired with a sub-optimal sign alignment, leaving CMI on
-the table.
-
-LAYER 45 IMPROVEMENT
---------------------
-``evaluate_swap_candidate`` now also computes the conditional MI of every
-cluster member against ``Selected − {anchor}`` and surfaces the best one.
-The decision has THREE exclusive branches:
-
-  A. ``branch="none"``       — anchor's CMI dominates; no swap fires.
-  B. ``branch="member"``     — a cluster member's CMI dominates the
-                                 anchor's AND the aggregate's. The anchor
-                                 index in ``selected_vars`` is replaced
-                                 by the member index. No aggregate column
-                                 is built, no EngineeredRecipe is
-                                 registered, no permutation null is run
-                                 (the member is an already-discretised
-                                 column the rest of the pipeline trusts).
-  C. ``branch="aggregate"``  — the aggregate's CMI dominates both the
-                                 anchor's and every member's. Existing
-                                 behaviour, including the permutation
-                                 null on the rep.
-
-The branch is recorded in ``swap_log[*]["branch"]`` and on the returned
-``SwapDecision.branch`` field.
-
-CONTRACTS
----------
-- C1: Scenario A (anchor already best) — no swap_log entry written,
-  ``n_swaps == 0``.
-- C2: Scenario B (member > anchor and > aggregate) — exactly one
-  swap_log entry, ``branch == "member"``, ``aggregate_name == ""``,
-  ``new_col_idx`` is the original member column index (NOT a fresh
-  appended index). ``selected_vars`` contains the member, not the
-  original anchor.
-- C3: Scenario C (aggregate dominates) — existing path, ``branch ==
-  "aggregate"``, ``aggregate_name`` starts with ``_dcd_pc1_`` (or the
-  pinned-method prefix), ``new_col_idx`` is the post-append column
-  index. Bit-identical with Layer 44 master on aggregate-dominated
-  clusters.
-- C4: Default-ON (no opt-in flag). Existing aggregate-swap behaviour
-  preserved when the aggregate genuinely wins.
-- C5: NO-REGRESSION vs Layers 41/42/43/44 / L12 / L27 / L35.
-
-NEVER xfail.
+Consolidated verbatim from test_biz_value_mrmr_layer45.py (per audit finding test_code_quality-16).
 """
 from __future__ import annotations
 

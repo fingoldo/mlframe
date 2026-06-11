@@ -34,6 +34,7 @@ contract above breaks, the underlying bug must be fixed before merge.
 from __future__ import annotations
 
 import importlib
+import re
 import time
 import warnings
 from pathlib import Path
@@ -123,14 +124,20 @@ class TestPriorLayerDiscoverability:
 
     def test_all_prior_layer_modules_present_on_disk(self):
         root = Path(__file__).parent
+        # A layer is present if its standalone file exists OR it was consolidated into a themed
+        # subpackage (test_biz_value_mrmr_<theme>/), whose submodule docstrings record "...layerNN.py".
+        relocated: set[int] = set()
+        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
+            for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
+                relocated.add(int(n))
         missing = [
             n for n in _PRIOR_LAYERS
-            if not (root / f"test_biz_value_mrmr_layer{n}.py").exists()
+            if not (root / f"test_biz_value_mrmr_layer{n}.py").exists() and n not in relocated
         ]
         assert not missing, (
             f"prior-layer test modules absent: {missing}; the file tree "
             f"under tests/feature_selection/ must hold "
-            f"test_biz_value_mrmr_layer<N>.py for every N in {_PRIOR_LAYERS}"
+            f"test_biz_value_mrmr_layer<N>.py (or a themed subpackage) for every N in {_PRIOR_LAYERS}"
         )
 
     def test_layer_count_matches_expected_78(self):
