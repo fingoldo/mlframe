@@ -293,6 +293,11 @@ from .ranking import CompositeRankEstimator  # noqa: E402,F401
 from .panel import CompositePanelEstimator  # noqa: E402,F401
 from .extremes import TailCompositeEstimator  # noqa: E402,F401
 
+# Missing-aware composite, OOF feature generator, spec stability selection.
+from .missing import MissingAwareComposite  # noqa: E402,F401
+from .suite_features import CompositeFeatureGenerator  # noqa: E402,F401
+from .discovery._stability import stability_select_specs  # noqa: E402,F401
+
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
 from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
@@ -338,6 +343,7 @@ __all__ = [
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
     "CompositeRankEstimator", "CompositePanelEstimator", "TailCompositeEstimator",
+    "MissingAwareComposite", "CompositeFeatureGenerator", "stability_select_specs",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
