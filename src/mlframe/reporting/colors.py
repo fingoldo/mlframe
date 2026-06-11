@@ -37,9 +37,9 @@ PERFECT_FIT_LINE = "green"
 NORMAL_OVERLAY = "red"
 ZERO_LINE = "green"
 
-# Discrete categorical palette (10 colors). Matches matplotlib tab10
-# which plotly aliases via `qualitative.Plotly` -- visually similar
-# but not identical; cross-backend renderings won't pixel-match here.
+# Discrete categorical palette. First 10 are matplotlib tab10 (kept stable so existing snapshots don't shift); the next
+# 10 extend to the full tab20 set so classes stop colliding before K=20. Plotly aliases tab10 via ``qualitative.Plotly``
+# (visually similar, not identical) -- cross-backend renderings won't pixel-match here.
 LINE_PALETTE: Tuple[str, ...] = (
     "#1f77b4",  # tab:blue
     "#ff7f0e",  # tab:orange
@@ -51,6 +51,16 @@ LINE_PALETTE: Tuple[str, ...] = (
     "#7f7f7f",  # tab:gray
     "#bcbd22",  # tab:olive
     "#17becf",  # tab:cyan
+    "#aec7e8",  # tab20 light blue
+    "#ffbb78",  # tab20 light orange
+    "#98df8a",  # tab20 light green
+    "#ff9896",  # tab20 light red
+    "#c5b0d5",  # tab20 light purple
+    "#c49c94",  # tab20 light brown
+    "#f7b6d2",  # tab20 light pink
+    "#c7c7c7",  # tab20 light gray
+    "#dbdb8d",  # tab20 light olive
+    "#9edae5",  # tab20 light cyan
 )
 
 
