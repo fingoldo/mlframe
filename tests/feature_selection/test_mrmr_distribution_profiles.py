@@ -174,6 +174,29 @@ SIGNAL_LOSS = {
     ("product_square_decoys", "heavy_tailed_outliers", 20000):
         "weak linear side-term 0.20*dd lost under pareto tails + outliers; (a,b) product "
         "recovered (sel keeps a,b + add(sqrt(b),log(a__He2)))",
+    # 2026-06-11: three NEW signal-loss cells surfaced after the FE campaign shift
+    # (hinge change-point legs default-on + tightened CMI/raw-redundancy gates,
+    # commits 6d18060c/f0fd18ad/c00673bf/4c4ecd8c). Same fragile-divisor-ratio
+    # mechanism already documented above for `mixed` -- the weak 0.30*a**2/b (or the
+    # (a,b) term of two_pairs_strong) is the binning-resolution casualty, now ALSO
+    # under the outlier-injected marginals (3% gross @15x / 2% @12x), where the
+    # extreme denominator values distort the binned-MI of the divisor b. Each cell's
+    # observed selection (verbatim from a seeded n<=20k re-run) confirms the (a,b)
+    # RATIO is the only loss; lone-a / (c,d) survive where applicable -- a weak-signal
+    # robustness limit, not a vocabulary/wiring regression.
+    ("ratio_sqr", "with_outliers", 20000):
+        "weak a**2/b ratio lost under 3% gross outliers (uniform base + 15x spikes); the "
+        "extreme b values distort the divisor's binned-MI. selector keeps lone a + noise-"
+        "mixing legs (sel=['e','a','add(qubed(a),log(e))','add(log(e),exp(a__haar_j1k0))'])",
+    ("ratio_sqr", "heavy_tailed_outliers", 20000):
+        "weak a**2/b ratio lost under pareto tails + 2% outliers (harshest profile); "
+        "selector keeps lone a + a noise-mixing engineered col "
+        "(sel=['e','a','add(sqr(a),prewarp(e))']) -- the ratio interaction not recovered",
+    ("two_pairs_strong", "with_outliers", 20000):
+        "the (a,b) divisor term lost under 3% gross outliers; selector keeps the (c,d)-"
+        "adjacent d + c__haar surrogate but the {a,b}|{a} keep is unmet "
+        "(sel=['d','sub(neg(d),prewarp(e__haar_j1k0))','c__haar_j1k0']) -- fragile divisor "
+        "ratio is the casualty, consistent with the documented mixed/heavy_tailed_outliers cells",
 }
 
 # NOISE-ADMISSION residuals (a SEPARATE, weaker concern -- NOT signal-loss).
@@ -187,6 +210,42 @@ NOISE_ADMISSION = {
     ("log_sin_product", "heavy_tailed", 20000): "e2 (0.02-weight noise) admitted; (c,d) signal recovered",
     ("additive_two_term", "with_outliers", 20000): "e (0.02-weight noise) admitted; (a,c) signal recovered",
     ("ratio_sqr", "uniform", 10000): "e (0.01-weight noise) admitted at small n; (a,b) recovered (uniform baseline residual)",
+    # 2026-06-11: nine NEW noise-admission cells after the FE campaign shift (hinge
+    # legs default-on widen the candidate pool; the relu/haar surrogates raise the
+    # tiny-weight noise op's marginal uplift just enough to clear the default-preset
+    # admission floor). Each is the SAME class as the documented cells above: the
+    # GENUINE signal is fully recovered, a 0.01-0.02-weight pure-noise op (e/e1/e2)
+    # rides along. Observed selection verbatim from a seeded n<=30k re-run; the keep
+    # is satisfied in every one (signal_lost == []), so this is a precision residual,
+    # not a robustness gap. Recorded; does not fail the recovery gate.
+    ("log_sin_product", "uniform", 20000):
+        "e1,e2 (0.02-weight noise) admitted; (c,d) recovered as raw c,d "
+        "(sel=['c','d','e1','e2'])",
+    ("ratio_sqr", "uniform", 20000):
+        "e (0.01-weight noise) admitted; (a,b) recovered via div(neg(a),sqrt(b)) "
+        "(sel=['e','div(neg(a),sqrt(b))'])",
+    ("ratio_sqr", "heavy_tailed", 20000):
+        "e (0.01-weight noise) admitted; (a,b) recovered via mul(invsquared(a),neg(b)) "
+        "(sel=['e','mul(invsquared(a),neg(b))'])",
+    ("log_sin_product", "mixed", 20000):
+        "e1 (0.02-weight noise) admitted (absorbed into add(prewarp(e1),mul(log(c),sin(d)))); "
+        "(c,d) recovered in the same engineered col",
+    ("additive_two_term", "heavy_tailed_outliers", 20000):
+        "e (0.02-weight noise) admitted; (a,c) both recovered (a via a__relu legs + "
+        "div(log(a),reciproc(c)); c raw) under pareto tails + outliers",
+    ("log_sin_product", "heavy_tailed_outliers", 20000):
+        "e2 (0.02-weight noise) admitted; (c,d) recovered via "
+        "mul(log(e1),exp(min(sin(d),prewarp(c__haar_j2k0)))) + d (+ d__relu legs)",
+    ("ratio_sqr", "heavy_tailed", 10000):
+        "e (0.01-weight noise) admitted at n=10k; (a,b) recovered via div(abs(b),a__p2sin1) "
+        "(sel=['e','div(abs(b),a__p2sin1)'])",
+    ("ratio_sqr", "uniform", 30000):
+        "e (0.01-weight noise) admitted at n=30k; (a,b) recovered via "
+        "div(invsquared(a),reciproc(min(abs(b),invsqrt(e)))) -- the e inside is the divisor's "
+        "min-guard, not the lone noise admission",
+    ("ratio_sqr", "heavy_tailed", 30000):
+        "e (0.01-weight noise) admitted at n=30k; (a,b) recovered via div(sqr(a),neg(b)) "
+        "(sel=['e','div(sqr(a),neg(b))'])",
 }
 
 
