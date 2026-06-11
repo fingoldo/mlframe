@@ -1514,6 +1514,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in X.columns
                         if c not in _hybrid_already_appended
                     ]
+                # Orthogonal/polynomial bootstrap FE converts operands to float; a raw categorical / string column would raise
+                # "could not convert string to float" and (via the broad except below) silently drop the entire bootstrap-stable pass.
+                # Scope to numeric/raw columns the same way the conditional-FE families do, instead of swallowing the failure.
+                _boot_cols = _orth_fe_numeric_cols(X, _boot_cols)
                 _boot_degrees = tuple(int(d) for d in getattr(
                     self, "fe_hybrid_orth_degrees", (2, 3),
                 ))

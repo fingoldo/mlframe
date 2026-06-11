@@ -396,6 +396,45 @@ class TestEnableAppendsEngineered:
         )
 
 
+class TestCategoricalDoesNotSwallowBootstrap:
+    """Regression: a raw categorical / string column in X must NOT make the bootstrap-stable FE raise
+    "could not convert string to float" and fall into the broad warn-and-continue path. The numeric bootstrap
+    FE must scope to numeric columns (like the conditional-FE families) and still produce engineered columns."""
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_categorical_frame_still_appends_engineered(self, seed, caplog):
+        import logging
+
+        X, y = _build_quadratic_signal(seed, n=2000)
+        rng = np.random.default_rng(int(seed))
+        X = X.copy()
+        X["cat"] = pd.Series(rng.choice(["A", "B", "C"], size=len(X))).astype("category")
+        X["strcol"] = rng.choice(["p", "q"], size=len(X))
+        m = _make_mrmr(
+            fe_hybrid_orth_bootstrap_enable=True,
+            fe_hybrid_orth_bootstrap_n_boot=10,
+            fe_hybrid_orth_bootstrap_sample_fraction=0.8,
+            fe_hybrid_orth_degrees=(2, 3),
+            fe_hybrid_orth_basis="hermite",
+            fe_hybrid_orth_top_k=3,
+        )
+        with caplog.at_level(logging.WARNING):
+            m.fit(X, y)
+        boot_warns = [r for r in caplog.records if "bootstrap-stable FE raised" in r.getMessage()]
+        assert not boot_warns, (
+            f"seed={seed}: categorical column must not trigger the bootstrap warn-and-continue band-aid; "
+            f"got {[r.getMessage() for r in boot_warns]}"
+        )
+        added = list(getattr(m, "hybrid_orth_features_", []) or [])
+        assert added, (
+            f"seed={seed}: bootstrap-stable FE must still append engineered column(s) on a categorical-bearing "
+            f"frame (numeric cols scoped, cat dropped); got {added}"
+        )
+        assert any(c == "x1__He2" or c.startswith("x1__") for c in added), (
+            f"seed={seed}: the He_2(x1) winner must survive categorical scoping; got {added}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Contract 6: pickle / clone preserve the ctor + recipes round-trip
 # ---------------------------------------------------------------------------
