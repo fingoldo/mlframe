@@ -38,12 +38,12 @@ class NeuralNetStrategy(ModelPipelineStrategy):
     @property
     def requires_encoding(self) -> bool:
         return not self.use_learnable_cat_embeddings
-    # NOTE: the estimator CAN self-encode embedding/text columns at its fit/predict boundary (NeuralEmbeddingTextEncoder
-    # via _encode_emb_text_fit), but ``supports_*`` is deliberately left False (inherited) until the FS layer can pass
-    # non-scalar embedding ``List`` columns THROUGH (MRMR's discretiser/selector can't process ndarray cells -- it raises
-    # "unhashable type: 'numpy.ndarray'" / column-bookkeeping errors). Flipping these True without that passthrough
-    # regresses MRMR+embedding+neural combos to a crash. The boundary encoder still applies whenever such columns DO
-    # reach the estimator (e.g. direct estimator use / a non-FS path).
+    # The estimator self-encodes embedding/text columns at its fit/predict boundary (NeuralEmbeddingTextEncoder via _encode_emb_text_fit), and MRMR now routes
+    # non-scalar embedding (object cells = list/ndarray) + free-text columns THROUGH the MI screen unchanged (embedding_passthrough, default ON). With both ends
+    # wired, the suite routes such columns to the network instead of dropping them in _get_or_create_tier_dataframes (which excludes them only when the strategy
+    # does NOT support them).
+    supports_text_features = True
+    supports_embedding_features = True
     supports_native_multiclass = True
     supports_native_multilabel = True
     supports_native_ranking = True
@@ -191,6 +191,10 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
     cache_key = "recurrent"
     requires_scaling = True
     requires_imputation = True
+    # Same end-to-end embedding/text path as NeuralNetStrategy: the recurrent estimator self-encodes via _encode_emb_text_fit and MRMR passes the non-scalar columns
+    # through, so the suite routes them to the aux tabular block instead of dropping them.
+    supports_text_features = True
+    supports_embedding_features = True
     supports_native_multiclass = True
     supports_native_multilabel = True
 
