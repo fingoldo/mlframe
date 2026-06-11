@@ -114,6 +114,11 @@ def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
     assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"
     assert "calibration_drift" in joined, f"calibration-drift not saved; files={files}"
     assert "target_acf" in joined, f"target ACF/PACF not saved; files={files}"
+    # Loop-17 integration: decile gain/lift table + per-(model, split) model card default-on for binary.
+    assert "decile_table" in joined, f"decile table not saved; files={files}"
+    assert "model_card" in joined, f"model card not saved; files={files}"
+    # Per-model cross-split overfit panel rendered once all splits exist (>=2 usable splits).
+    assert "split_comparison" in joined, f"split-comparison panel not saved; files={files}"
     # Combined single-page HTML index stitched from the artifacts.
     html = [f for f in files if f.endswith("_report.html")]
     assert html, f"combined HTML report not saved; files={files}"
@@ -182,6 +187,10 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     assert "weak_slices" in joined, f"slice-finder not saved; files={files}"
     assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"
     assert "target_acf" in joined, f"target ACF/PACF not saved; files={files}"
+    # Loop-17 integration: regression model card + CUSUM residual change-point (timestamps cover the split).
+    assert "model_card" in joined, f"model card not saved; files={files}"
+    assert "cusum_drift" in joined, f"CUSUM residual-drift not saved; files={files}"
+    assert "split_comparison" in joined, f"split-comparison panel not saved; files={files}"
     html = [f for f in files if f.endswith("_report.html")]
     assert html, f"combined HTML report not saved; files={files}"
     saved_acc = _collect_charts_acc(metadata) + _collect_charts_acc(models)
@@ -223,6 +232,8 @@ def test_multiclass_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     files = _saved_chart_files(data_dir)
     joined = " ".join(files)
     assert "multiclass_panels" in joined, f"multiclass panel grid not saved; files={files}"
+    # Loop-17 integration: CONFUSION_MARGINS is now a default multiclass panel token (rendered inside the grid file).
+    assert "CONFUSION_MARGINS" in ReportingConfig().multiclass_panels, "CONFUSION_MARGINS missing from default multiclass_panels"
     # Model/preds-based diagnostics default-on regardless of class count.
     assert "pdp_ice" in joined, f"PDP/ICE not saved; files={files}"
     assert "weak_slices" in joined, f"slice-finder not saved; files={files}"
@@ -328,3 +339,55 @@ def test_learning_curve_off_by_default(tmp_path, reporting_cfg):
     )
     files = _saved_chart_files(data_dir)
     assert not any("learning_curve" in f for f in files), f"learning curve rendered while off by default; files={files}"
+
+
+def test_multiclass_confusion_margins_panel_in_default_grid():
+    """Loop-17: CONFUSION_MARGINS is wired into the default multiclass template and renders as a real panel."""
+    from mlframe.reporting.charts.multiclass import compose_multiclass_figure
+    from mlframe.training.configs import ReportingConfig as _RC
+
+    template = _RC().multiclass_panels
+    assert "CONFUSION_MARGINS" in template
+    rng = np.random.default_rng(0)
+    n, k = 300, 3
+    y_true = rng.integers(0, k, n)
+    logits = rng.normal(0, 1, (n, k))
+    logits[np.arange(n), y_true] += 1.5
+    proba = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
+    spec = compose_multiclass_figure(y_true, proba, classes=list(range(k)), panels_template=template)
+    titles = [getattr(p, "title", "") for row in spec.panels for p in row if p is not None]
+    assert any("upport" in t or "argin" in t.lower() or "onfusion" in t.lower() for t in titles), (
+        f"CONFUSION_MARGINS panel not present in default multiclass grid; titles={titles}"
+    )
+
+
+@pytest.mark.slow
+def test_ensemble_prediction_stability_renders_default_on(tmp_path):
+    """Loop-17: a >=2-member mlframe ensemble run stamps member_test_preds and finalize renders the stability panel."""
+    pytest.importorskip("lightgbm")
+    pytest.importorskip("catboost")
+    df = _make_frame(900, binary=True)
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
+    data_dir = str(tmp_path)
+    cfg = ReportingConfig(
+        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        # Trim the per-split diagnostics so the run is fast and isolates the ensemble panel.
+        pdp_ice=False, slice_finder=False, shap_panels=False, decision_curve=False,
+        calibration_drift=False, target_acf=False, decile_table=False, model_card=False,
+    )
+    models, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="diag_ens",
+        model_name="lgb_cb_ens",
+        features_and_targets_extractor=fte,
+        mlframe_models=["lgb", "cb"],
+        hyperparams_config=get_cpu_config("lgb", 40),
+        reporting_config=cfg,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=True,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
+        verbose=0,
+    )
+    files = _saved_chart_files(data_dir)
+    joined = " ".join(files)
+    assert "prediction_stability" in joined, f"ensemble prediction-stability panel not saved; files={files}"

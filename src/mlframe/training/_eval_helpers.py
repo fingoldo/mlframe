@@ -546,6 +546,7 @@ def _compute_split_metrics(
         subgroups=subgroups,
         idx=idx,
         split_timestamps=split_timestamps,
+        reporting_config=reporting_config,
     )
     return preds, probs, columns
 
@@ -565,6 +566,7 @@ def _render_split_diagnostics(
     subgroups,
     idx,
     split_timestamps,
+    reporting_config=None,
 ):
     """Render the per-split error-analysis + temporal-drift diagnostics default-ON and attach the worst-K table.
 
@@ -647,6 +649,7 @@ def _render_split_diagnostics(
             timestamps=split_ts, task=task, plot_outputs=plot_outputs,
             base_path=split_plot_file, metrics_dict=metrics_dict,
             feature_names=feature_names, metric="mse",
+            cusum_drift=getattr(reporting_config, "cusum_drift", True),
         )
     elif split_ts is not None and task == "classification" and probs is not None:
         probs_arr = np.asarray(probs)

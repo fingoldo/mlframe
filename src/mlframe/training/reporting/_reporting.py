@@ -431,8 +431,9 @@ def _render_post_fit_diagnostics(
     names, importances = _ranked_feature_names(metrics, model, columns)
 
     from mlframe.reporting.diagnostics_dispatch import (
-        build_combined_html_report, render_decision_curve_diagnostic, render_pdp_ice_diagnostic,
-        render_shap_diagnostic, render_slice_finder_diagnostic,
+        build_combined_html_report, render_decile_table_diagnostic, render_decision_curve_diagnostic,
+        render_model_card_diagnostic, render_pdp_ice_diagnostic, render_shap_diagnostic,
+        render_slice_finder_diagnostic,
     )
 
     # 1-D point prediction for the error-based slice finder (binary uses the positive-class probability).
@@ -441,6 +442,9 @@ def _render_post_fit_diagnostics(
         _bs = _binary_positive_score(probs)
         if _bs is not None:
             y_pred = _bs
+
+    # Split label for the model card: the per-split plot_file is suffixed ``_<split>`` (val / test / train / oof / ...).
+    _split = os.path.basename(plot_file).rsplit("_", 1)[-1] if plot_file else "test"
 
     if getattr(cfg, "pdp_ice", True) and y_arr is not None:
         render_pdp_ice_diagnostic(
@@ -466,6 +470,29 @@ def _render_post_fit_diagnostics(
             render_decision_curve_diagnostic(
                 y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             )
+
+    if getattr(cfg, "decile_table", True) and tt == "binary_classification" and y_arr is not None:
+        _bs = _binary_positive_score(probs)
+        if _bs is not None and len(_bs) == len(y_arr):
+            render_decile_table_diagnostic(
+                y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            )
+
+    if getattr(cfg, "model_card", True) and y_arr is not None:
+        _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
+        # Card is defined for binary + regression; multiclass/multilabel have no single positive-class score.
+        if _mc_task == "regression" and y_pred is not None and len(y_pred) == len(y_arr):
+            render_model_card_diagnostic(
+                task="regression", y_true=y_arr, y_pred=y_pred, plot_outputs=plot_outputs,
+                base_path=plot_file, metrics_dict=metrics, model_name=model_name_for_title(target_type), split=_split,
+            )
+        elif _mc_task == "binary":
+            _bs = _binary_positive_score(probs)
+            if _bs is not None and len(_bs) == len(y_arr):
+                render_model_card_diagnostic(
+                    task="binary", y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs,
+                    base_path=plot_file, metrics_dict=metrics, model_name=model_name_for_title(target_type), split=_split,
+                )
 
     if getattr(cfg, "shap_panels", True) and model is not None and df is not None:
         render_shap_diagnostic(

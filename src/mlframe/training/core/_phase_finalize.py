@@ -414,6 +414,103 @@ def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
         logger.info("[model_comparison] rendered %d per-target leaderboard(s).", _n)
 
 
+def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
+    """Render the per-model cross-split overfit panel once a model carries >=2 usable splits.
+
+    One panel per (target, name, entry) -- unlike the leaderboard this is per-MODEL, not per-target. Best-effort;
+    a render failure never blocks finalize. The composer subsamples internally so assembly stays bounded.
+    """
+    data_dir = getattr(ctx, "data_dir", "") or ""
+    if not data_dir or not getattr(ctx, "save_charts", False):
+        return
+    _cfg = getattr(ctx, "reporting_config", None)
+    if _cfg is None:
+        _configs_root = getattr(ctx, "configs", None)
+        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
+    if _cfg is not None and not getattr(_cfg, "split_comparison_charts", True):
+        return
+    plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
+    if not plot_outputs:
+        return
+    from mlframe.reporting.diagnostics_dispatch import render_split_comparison_from_suite
+    _n = 0
+    for _tt, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                _mn = str(getattr(_entry, "model_name", None) or type(getattr(_entry, "model", None)).__name__ or f"model_{_i}")
+                _base = join(
+                    data_dir, "charts", slugify(ctx.target_name), slugify(ctx.model_name),
+                    slugify(str(_tt).lower()), slugify(str(_tname)), slugify(_mn),
+                )
+                try:
+                    os.makedirs(os.path.dirname(_base), exist_ok=True)
+                    if render_split_comparison_from_suite(
+                        entry=_entry, target_type=str(_tt), plot_outputs=plot_outputs,
+                        base_path=_base, metrics_dict=ctx.metadata, model_name=_mn,
+                    ):
+                        _n += 1
+                except Exception as _sc_err:
+                    logger.warning("[split_comparison] render failed for %s/%s/%s: %s", _tt, _tname, _mn, _sc_err)
+    if _n and getattr(ctx, "verbose", 0):
+        logger.info("[split_comparison] rendered %d per-model overfit panel(s).", _n)
+
+
+def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
+    """Render the ensemble member-disagreement panel for any entry that stashed an ``(n, n_members)`` member matrix.
+
+    The ensembling scorer stamps ``entry.member_test_preds`` when it combined >=2 members; this renders the spread /
+    spread-vs-mean / uncertainty-calibration panels from it. Default-on; skipped cheaply when no ensemble entry exists.
+    """
+    data_dir = getattr(ctx, "data_dir", "") or ""
+    if not data_dir or not getattr(ctx, "save_charts", False):
+        return
+    _cfg = getattr(ctx, "reporting_config", None)
+    if _cfg is None:
+        _configs_root = getattr(ctx, "configs", None)
+        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
+    if _cfg is not None and not getattr(_cfg, "prediction_stability", True):
+        return
+    plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
+    if not plot_outputs:
+        return
+    from mlframe.reporting.diagnostics_dispatch import render_prediction_stability_diagnostic
+    _n = 0
+    for _tt, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                # Ensemble entries arrive as the (namespace, train_df, val_df, test_df) tuple from train_and_evaluate_model.
+                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+                _mp = getattr(_e, "member_test_preds", None)
+                if _mp is None:
+                    continue
+                _model = getattr(_e, "model", None)
+                _mn = str(getattr(_e, "model_name", None) or (type(_model).__name__ if _model is not None else f"ensemble_{_i}"))
+                _yt = getattr(_e, "test_target", None)
+                _base = join(
+                    data_dir, "charts", slugify(ctx.target_name), slugify(ctx.model_name),
+                    slugify(str(_tt).lower()), slugify(str(_tname)), slugify(_mn),
+                )
+                try:
+                    os.makedirs(os.path.dirname(_base), exist_ok=True)
+                    if render_prediction_stability_diagnostic(
+                        member_preds=_mp, y_true=_yt, plot_outputs=plot_outputs,
+                        base_path=_base, metrics_dict=ctx.metadata,
+                    ):
+                        _n += 1
+                except Exception as _ps_err:
+                    logger.warning("[prediction_stability] render failed for %s/%s/%s: %s", _tt, _tname, _mn, _ps_err)
+    if _n and getattr(ctx, "verbose", 0):
+        logger.info("[prediction_stability] rendered %d ensemble member-disagreement panel(s).", _n)
+
+
 def finalize_suite(ctx: TrainingContext) -> dict:
     """Aggregate fairness reports, save metadata, emit phase/rendering summaries, surface selected features.
 
@@ -500,6 +597,18 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _render_model_comparison_leaderboards(ctx)
     except Exception as _mc_err:
         logger.warning("[model_comparison] leaderboard pass failed: %s", _mc_err)
+
+    # Per-model cross-split overfit panel (train/val/test headline deltas + verdict); default-on, best-effort.
+    try:
+        _render_split_comparison_panels(ctx)
+    except Exception as _sc_err:
+        logger.warning("[split_comparison] panel pass failed: %s", _sc_err)
+
+    # Ensemble member-disagreement panel from the stashed (n, n_members) test matrix; default-on, best-effort.
+    try:
+        _render_prediction_stability_panels(ctx)
+    except Exception as _ps_err:
+        logger.warning("[prediction_stability] panel pass failed: %s", _ps_err)
 
     # Honest-estimator diagnostics aggregator: stamps bootstrap CI per metric, categorical PSI drift, calibration plot, and the provenance disposition table into metadata so the persisted blob carries the four artefacts. Gated by ReportingConfig.honest_estimator_diagnostics (default True). Failures must not block the save.
     _reporting_cfg = getattr(ctx, "reporting_config", None)

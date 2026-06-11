@@ -358,6 +358,26 @@ def _process_single_ensemble_method(
         predictions=predictions_cfg,
     )
 
+    # Stash the per-member test-split predictions as an (n_rows, n_members) matrix so the suite finalize can render the
+    # ensemble prediction-stability (member-disagreement) panel. Test arrays already materialised above; for
+    # classification members carry probs (positive-class column), for regression the point preds.
+    try:
+        _cols = []
+        for _p in _test_preds:
+            if _p is None:
+                continue
+            _a = np.asarray(_p, dtype=np.float64)
+            if _a.ndim == 2 and _a.shape[1] == 2:
+                _a = _a[:, 1]
+            _cols.append(_a.ravel())
+        if len(_cols) >= 2:
+            _w = min(c.shape[0] for c in _cols)
+            # train_and_evaluate_model returns (entry_namespace, train_df, val_df, test_df); stamp the namespace.
+            _entry_ns = next_ens_results[0] if isinstance(next_ens_results, tuple) else next_ens_results
+            _entry_ns.member_test_preds = np.column_stack([c[:_w] for c in _cols])
+    except Exception:
+        pass
+
     conf_results = None
     if uncertainty_quantile:
         if target is not None:

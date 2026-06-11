@@ -57,6 +57,27 @@ def _save_spec(spec, plot_outputs: str, base_path: str) -> bool:
         return False
 
 
+def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
+    """Save a raw matplotlib Figure (builders that emit a Figure, not a FigureSpec) to ``base_path.png`` when png is requested.
+
+    Mirrors the matplotlib renderer's on-disk name so ``build_combined_html_report`` can stitch it. Returns True on success.
+    """
+    if "png" not in (plot_outputs or "").lower():
+        return False
+    try:
+        fig.savefig(base_path + ".png", bbox_inches="tight")
+        try:
+            import matplotlib.pyplot as plt
+
+            plt.close(fig)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
+        return False
+
+
 def _column_names(frame: Any) -> Optional[List[str]]:
     cols = getattr(frame, "columns", None)
     if cols is None:
@@ -240,6 +261,7 @@ def render_target_drift_diagnostics(
     seed: int = 0,
     calibration_drift: bool = True,
     target_acf: bool = True,
+    cusum_drift: bool = True,
 ) -> None:
     """Render the per-target temporal-drift + adversarial-validation diagnostics, each accounted.
 
@@ -283,6 +305,19 @@ def render_target_drift_diagnostics(
                 except Exception:
                     logger.exception("diagnostics_dispatch: residual_vs_time failed; continuing.")
                     _record(charts, "residual_vs_time", False)
+                # CUSUM change-point catches a SUSTAINED residual mean shift that per-bucket residual_vs_time misses.
+                if cusum_drift:
+                    try:
+                        from mlframe.reporting.charts.drift import cusum_residual_drift
+
+                        spec = cusum_residual_drift(yt[:m], yp[:m], ts[:m])
+                        ok = _save_spec(spec, plot_outputs, base_path + "_cusum_drift")
+                        _record(charts, "cusum_drift", ok)
+                        if ok:
+                            _record_path(charts, base_path + "_cusum_drift")
+                    except Exception:
+                        logger.exception("diagnostics_dispatch: cusum_drift failed; continuing.")
+                        _record(charts, "cusum_drift", False)
             try:
                 higher_is_better = metric not in ("mse", "brier")
                 spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
@@ -737,6 +772,197 @@ def build_combined_html_report(
         return None
 
 
+def render_decile_table_diagnostic(
+    *,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    n_deciles: int = 10,
+) -> bool:
+    """Binary decile gain/lift/KS table figure (the tabular complement to the GAIN curve). Default-ON for binary targets.
+
+    A single O(n log n) score sort inside the builder; skips cheaply on a single-class target or absent score.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path:
+        return False
+    yt = np.asarray(y_true).ravel()
+    ys = np.asarray(y_score, dtype=np.float64).ravel()
+    m = min(len(yt), len(ys))
+    if m == 0:
+        return False
+    try:
+        from mlframe.reporting.charts.binary import binary_decile_table_figure
+
+        fig = binary_decile_table_figure(yt[:m], ys[:m], n_deciles=n_deciles)
+        out = base_path + "_decile_table"
+        ok = _save_figure(fig, plot_outputs, out)
+        _record(charts, "decile_table", ok)
+        if ok:
+            _record_path(charts, out)
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: decile_table failed; continuing.")
+        _record(charts, "decile_table", False)
+        return False
+
+
+def render_model_card_diagnostic(
+    *,
+    task: str,
+    y_true: np.ndarray,
+    y_score: Optional[np.ndarray] = None,
+    y_pred: Optional[np.ndarray] = None,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    model_name: str = "model",
+    split: str = "test",
+) -> bool:
+    """One-glance per-(model, split) model card. Default-ON when charts are saved; reuses the split's y_true + scores/preds.
+
+    ``task`` is ``"binary"``/``"classification"`` (needs ``y_score``) or ``"regression"`` (needs ``y_pred``).
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path or y_true is None:
+        return False
+    yt = np.asarray(y_true).ravel()
+    if yt.size == 0:
+        return False
+    try:
+        from mlframe.reporting.charts.model_card import compose_model_card_figure
+
+        spec = compose_model_card_figure(
+            task=task, y_true=yt,
+            y_score=None if y_score is None else np.asarray(y_score, dtype=np.float64).ravel(),
+            y_pred=None if y_pred is None else np.asarray(y_pred).ravel(),
+            model_name=model_name, split=split,
+        )
+        out = base_path + "_model_card"
+        ok = _save_spec(spec, plot_outputs, out)
+        _record(charts, "model_card", ok)
+        if ok:
+            _record_path(charts, out)
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: model_card failed; continuing.")
+        _record(charts, "model_card", False)
+        return False
+
+
+def render_prediction_stability_diagnostic(
+    *,
+    member_preds: np.ndarray,
+    y_true: Optional[np.ndarray] = None,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    seed: int = 0,
+) -> bool:
+    """Ensemble member-disagreement panels. Default-ON when an ``(n_rows, n_members)`` matrix with >=2 members is present.
+
+    The composer subsamples its scatter internally; skips cheaply when fewer than 2 members are supplied.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path or member_preds is None:
+        return False
+    mp = np.asarray(member_preds, dtype=np.float64)
+    if mp.ndim != 2 or mp.shape[1] < 2:
+        return False
+    try:
+        from mlframe.reporting.charts.prediction_stability import compose_prediction_stability_figure
+
+        yt = None if y_true is None else np.asarray(y_true, dtype=np.float64).ravel()[: mp.shape[0]]
+        spec = compose_prediction_stability_figure(mp, y_true=yt, seed=seed)
+        out = base_path + "_prediction_stability"
+        ok = _save_spec(spec, plot_outputs, out)
+        _record(charts, "prediction_stability", ok)
+        if ok:
+            _record_path(charts, out)
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: prediction_stability failed; continuing.")
+        _record(charts, "prediction_stability", False)
+        return False
+
+
+def _split_entry_arrays(entry: Any, split: str, task: str) -> Optional[Dict[str, np.ndarray]]:
+    """Pull ``{y_true, y_score|y_pred}`` for one split from a suite model entry, or None when that split is absent."""
+    yt = getattr(entry, f"{split}_target", None)
+    if yt is None:
+        return None
+    yt = np.asarray(yt).ravel()
+    if yt.size == 0:
+        return None
+    if task == "regression":
+        preds = getattr(entry, f"{split}_preds", None)
+        if preds is None:
+            return None
+        yp = np.asarray(preds).ravel()
+        m = min(len(yt), len(yp))
+        return {"y_true": yt[:m], "y_pred": yp[:m]} if m else None
+    probs = getattr(entry, f"{split}_probs", None)
+    ys: Optional[np.ndarray] = None
+    if probs is not None:
+        arr = np.asarray(probs)
+        if arr.ndim == 2 and arr.shape[1] == 2:
+            ys = arr[:, 1].astype(np.float64)
+        elif arr.ndim == 1:
+            ys = arr.astype(np.float64)
+    if ys is None:
+        preds = getattr(entry, f"{split}_preds", None)
+        if preds is not None and np.asarray(preds).ndim == 1:
+            ys = np.asarray(preds).astype(np.float64)
+    if ys is None:
+        return None
+    m = min(len(yt), len(ys))
+    return {"y_true": yt[:m], "y_score": ys[:m]} if m else None
+
+
+def render_split_comparison_from_suite(
+    *,
+    entry: Any,
+    target_type: str,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    model_name: str = "model",
+    seed: int = 0,
+) -> bool:
+    """Cross-split overfit panel for ONE model, assembled from the entry's per-split arrays. Default-ON when >=2 usable splits.
+
+    ``entry`` is the suite ``SimpleNamespace`` record carrying ``{train,val,test}_{target,probs,preds}``.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if not plot_outputs or not base_path or entry is None:
+        return False
+    tt = (target_type or "").lower()
+    task = "regression" if "regress" in tt else ("binary" if tt == "binary_classification" else "classification")
+    per_split: Dict[str, Any] = {}
+    for split in ("train", "val", "test"):
+        arrs = _split_entry_arrays(entry, split, task)
+        if arrs is not None:
+            per_split[split] = arrs
+    if len(per_split) < 2:
+        return False
+    try:
+        from mlframe.reporting.charts.split_comparison import compose_split_comparison_figure
+
+        spec = compose_split_comparison_figure(per_split, task, model_name=model_name, seed=seed)
+        out = base_path + "_split_comparison"
+        ok = _save_spec(spec, plot_outputs, out)
+        _record(charts, "split_comparison", ok)
+        if ok:
+            _record_path(charts, out)
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: split_comparison failed; continuing.")
+        _record(charts, "split_comparison", False)
+        return False
+
+
 def render_target_dist_overlay(
     *,
     y_true_by_split: Dict[str, np.ndarray],
@@ -776,6 +1002,10 @@ __all__ = [
     "render_shap_diagnostic",
     "render_model_comparison_diagnostic",
     "render_model_comparison_from_suite",
+    "render_decile_table_diagnostic",
+    "render_model_card_diagnostic",
+    "render_prediction_stability_diagnostic",
+    "render_split_comparison_from_suite",
     "build_combined_html_report",
     "DIAG_ROW_CAP",
     "DIAG_MAX_FEATURES",
