@@ -267,6 +267,10 @@ from .conformal import conformal_quantile  # noqa: E402,F401
 from .cv import PurgedTimeSeriesSplit, make_purged_cv  # noqa: E402,F401
 from .discovery._leakage import detect_base_target_leakage  # noqa: E402,F401
 
+# Unified explainability report + composite-vs-raw meta-stacker.
+from .report import composite_report  # noqa: E402,F401
+from .meta import CompositeOrRawStacker  # noqa: E402,F401
+
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
 from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
@@ -306,6 +310,7 @@ __all__ = [
     "suggest_discovery_config", "discover_and_wrap", "DiscoverAndWrapResult",
     "explain_prediction", "attribution_summary", "CompositeDriftMonitor",
     "PurgedTimeSeriesSplit", "make_purged_cv", "detect_base_target_leakage",
+    "composite_report", "CompositeOrRawStacker",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
