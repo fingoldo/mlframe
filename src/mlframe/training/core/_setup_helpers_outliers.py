@@ -34,6 +34,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _columns_with_nan(df_: Any) -> list[str]:
+    """Names of columns containing NaN/null, via a cheap per-column null-count (no whole-frame copy)."""
+    try:
+        if pl is not None and isinstance(df_, pl.DataFrame):
+            # polars distinguishes null from NaN; OD-intolerant detectors choke on BOTH, so check
+            # null-count OR (for float cols) any-NaN. Both are one-row aggregates -- no frame copy.
+            exprs = []
+            for name, dt in df_.schema.items():
+                e = pl.col(name).null_count().gt(0)
+                if dt.is_float():
+                    e = e | pl.col(name).is_nan().any()
+                exprs.append(e.alias(name))
+            row = df_.select(exprs).row(0)
+            return [name for name, bad in zip(df_.columns, row) if bad]
+        if hasattr(df_, "isna"):
+            na = df_.isna().any()
+            return [str(name) for name, has in na.items() if bool(has)]
+    except (ValueError, TypeError, AttributeError):
+        return []
+    return []
+
+
 def _apply_outlier_detection_global(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame | None,
@@ -93,12 +115,20 @@ def _apply_outlier_detection_global(
         # Narrowed from bare ``Exception`` so typo/programmer-error attributes raise loudly. The
         # graceful-skip rationale only applies to runtime data issues (NaN inputs, dtype, missing
         # dep, OOM) - not to misconfigured detector classes that should fail fast at fit time.
+        # Name the NaN-bearing columns so the operator knows exactly which features need imputing
+        # (cheap per-column null-count scan, never a whole-frame copy).
+        _nan_cols = _columns_with_nan(_train_numeric)
+        _nan_hint = (
+            f" NaN-bearing column(s): {', '.join(_nan_cols[:20])}{' ...' if len(_nan_cols) > 20 else ''}."
+            if _nan_cols
+            else ""
+        )
         logger.error(
             "Outlier detector %s raised during fit/predict on train: %s. Skipping outlier "
             "detection for this run; train_df / val_df returned unfiltered. Wrap the detector "
             "in sklearn.pipeline.Pipeline([SimpleImputer(), %s]) to keep OD active when the "
-            "input frame may contain NaN.",
-            type(outlier_detector).__name__, _od_exc, type(outlier_detector).__name__,
+            "input frame may contain NaN.%s",
+            type(outlier_detector).__name__, _od_exc, type(outlier_detector).__name__, _nan_hint,
         )
         return train_df, val_df, train_idx, val_idx, None, None
     train_od_idx = is_inlier == 1

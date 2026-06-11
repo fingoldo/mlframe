@@ -630,8 +630,17 @@ def _apply_pre_pipeline_transforms(
                             # falls back to the original reference. Logged at debug because the
                             # standard sklearn fitted attributes are all copyable.
                             pre_pipeline.__dict__[_k] = _v
-                except Exception as _state_err:
-                    logger.debug("pre_pipeline cache state transfer skipped: %s", _state_err)
+                except (AttributeError, TypeError) as _state_err:
+                    # Whole-transfer failure (e.g. ``fitted_cached`` has no ``__dict__`` -- a
+                    # ``__slots__``-only object). Unlike the per-attribute fallback above, this
+                    # leaves ``pre_pipeline`` with NO fitted state, so the caller's predict-time
+                    # ``transform`` will raise NotFittedError. Surface at WARNING -- a real
+                    # incomplete state transfer must not be hidden at debug level.
+                    logger.warning(
+                        "pre_pipeline cache state transfer FAILED (%s: %s); pre_pipeline left "
+                        "without fitted state -- predict-time transform may raise NotFittedError",
+                        type(_state_err).__name__, _state_err,
+                    )
             if verbose:
                 logger.info("Reusing pre_pipeline fit-transform from cache " "(same train_df + structurally identical pipeline).")
             shape_str = f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}" if hasattr(train_df_cached, "shape") else ""

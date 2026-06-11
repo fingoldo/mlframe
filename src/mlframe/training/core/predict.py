@@ -5,6 +5,7 @@ import glob
 import logging
 import os
 import pickle as _pickle
+import weakref
 from collections import defaultdict
 from copy import deepcopy
 from os.path import exists, join
@@ -149,14 +150,19 @@ def _is_polars_native_model(model_obj: Any) -> bool:
 
 
 def _ensure_pandas_view(df: Any, view_cache: dict) -> Any:
-    """Return a pandas view of ``df``. If ``df`` is already pandas, returned as-is. If polars, the converted view is cached in ``view_cache`` keyed by ``id(df)`` so repeated calls on the same source frame within one predict call pay one conversion."""
+    """Return a pandas view of ``df``. If pandas, returned as-is. If polars, the converted view is cached so repeated calls on the same source frame pay one conversion.
+
+    The cache is keyed by ``id(df)`` but each entry also stores a weakref to the source frame. CPython recycles ``id()`` once an object is GC'd, so a transient polars frame freed mid-call can hand its address to an unrelated later frame; keying on ``id`` alone would then serve the freed frame's STALE pandas view for different data. On lookup we verify the stored weakref still resolves to the SAME live object and treat a dead/mismatched ref as a miss, so a recycled id can never return wrong data."""
     if not isinstance(df, pl.DataFrame):
         return df
     _src_id = id(df)
-    _view = view_cache.get(_src_id)
-    if _view is None:
-        _view = get_pandas_view_of_polars_df(df)
-        view_cache[_src_id] = _view
+    _entry = view_cache.get(_src_id)
+    if _entry is not None:
+        _ref, _view = _entry
+        if _ref() is df:
+            return _view
+    _view = get_pandas_view_of_polars_df(df)
+    view_cache[_src_id] = (weakref.ref(df), _view)
     return _view
 
 
