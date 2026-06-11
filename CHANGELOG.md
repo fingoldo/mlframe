@@ -1,6 +1,7 @@
 # Changelog
 
 ## [Unreleased]
+- Investigated (no behavioral change): large-n FE-search cProfile at n=100k/p=40 single-thread (total tottime 1133.7s) shows NO single mlframe hotspot >25% (top 10.3%); work spreads across discretization / FE pair-search / permutation-null / info_theory, all already njit/prange with kernel_tuning_cache dispatchers -- perf is mature at large-n; no actionable numba/cupy dispatcher win. Documented so it is not re-profiled (wave-2 W10 bench-reject).
 
 ### Investigated (no behavioral change)
 
