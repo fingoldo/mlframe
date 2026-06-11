@@ -67,3 +67,39 @@ def test_skill_weighting_on_runs_and_reports_weights():
     w = info["model_weights"]
     assert set(w) == {"tree", "linear", "distance"}
     assert all(v >= 0.05 for v in w.values()), f"weights below the floor: {w}"
+
+
+def test_shadow_augmented_matrix_shared_across_panel_members():
+    """Orchestration invariant: the shadow seed depends only on the trial (random_state + tr), not the model,
+    so every panel member must receive the IDENTICAL [X | shadow] matrix per trial. The hoist that builds each
+    augmented matrix once and reuses it across the panel is bit-identical only if this holds -- pin it so a
+    future per-model shadow reintroduction (or a model-dependent seed) is caught."""
+    pytest.importorskip("sklearn")
+    from sklearn.base import BaseEstimator, RegressorMixin
+    from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
+
+    seen: dict[str, list[np.ndarray]] = {}
+
+    class _Recorder(BaseEstimator, RegressorMixin):
+        def __init__(self, tag="a"):
+            self.tag = tag
+
+        def fit(self, X, y):
+            seen.setdefault(self.tag, []).append(np.asarray(X).copy())
+            self.feature_importances_ = np.zeros(np.asarray(X).shape[1])
+            return self
+
+        def predict(self, X):
+            return np.zeros(np.asarray(X).shape[0])
+
+    rng = np.random.default_rng(7)
+    X = pd.DataFrame({f"f{i}": rng.standard_normal(300) for i in range(6)})
+    y = pd.Series(rng.standard_normal(300))
+    panel = {"a": _Recorder(tag="a"), "b": _Recorder(tag="b"), "c": _Recorder(tag="c")}
+    heterogeneous_relevance_vote(X, y, classification=False, models=panel, n_shadow_trials=3, random_state=0)
+
+    assert set(seen) == {"a", "b", "c"} and all(len(v) == 3 for v in seen.values())
+    for tr in range(3):
+        ref = seen["a"][tr]
+        assert np.array_equal(seen["b"][tr], ref), f"trial {tr}: member b saw a different shadow than a"
+        assert np.array_equal(seen["c"][tr], ref), f"trial {tr}: member c saw a different shadow than a"

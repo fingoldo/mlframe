@@ -114,13 +114,19 @@ def heterogeneous_relevance_vote(
     yv = np.asarray(y)
     P = Xv.shape[1]
     panel = models if models is not None else _default_panel(classification)
+    # The shadow seed (random_state + tr) is model-INDEPENDENT, so every panel member redraws the same
+    # n_shadow_trials shadow matrices from scratch. Build each [X | shadow] once and reuse across the panel:
+    # bit-identical (same seed -> same permutation), removing (n_models-1)/n_models of the shadow work.
+    augmented = []
+    for tr in range(n_shadow_trials):
+        rng = np.random.default_rng(random_state + tr)
+        shadow = np.column_stack([rng.permutation(Xv[:, j]) for j in range(P)])
+        augmented.append(np.hstack([Xv, shadow]))
     passes, weights = [], []
     for est in panel.values():
         hits = np.zeros(P)
         for tr in range(n_shadow_trials):
-            rng = np.random.default_rng(random_state + tr)
-            shadow = np.column_stack([rng.permutation(Xv[:, j]) for j in range(P)])
-            imp = _importance(est, np.hstack([Xv, shadow]), yv, random_state=random_state + tr)
+            imp = _importance(est, augmented[tr], yv, random_state=random_state + tr)
             thr = np.percentile(imp[P:], percentile)
             hits += (imp[:P] > thr).astype(float)
         passes.append((hits / max(1, n_shadow_trials) >= per_model_hit_frac).astype(float))
