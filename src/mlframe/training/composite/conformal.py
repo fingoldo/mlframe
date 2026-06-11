@@ -343,3 +343,163 @@ def predict_interval_mondrian(self, X, groups, alpha=0.1):
     lo_b = params.get("y_clip_low", float("-inf"))
     hi_b = params.get("y_clip_high", float("inf"))
     return np.clip(lower, lo_b, hi_b), np.clip(upper, lo_b, hi_b)
+
+
+def weighted_conformal_quantile(
+    residuals: np.ndarray, weights: np.ndarray, alpha: float,
+) -> float:
+    """Tibshirani-et-al. weighted split-conformal radius under covariate shift.
+
+    Provenance / formula. When the test covariate law ``P_test`` differs from the
+    calibration law ``P_cal`` (covariate shift), the calibration residuals are no
+    longer exchangeable with the test residual, so the plain order statistic
+    (:func:`conformal_quantile`) mis-covers. Tibshirani, Barber, Candes &
+    Ramdas (2019) restore validity by tilting each calibration point ``i`` by its
+    importance weight ``w_i = dP_test/dP_cal(x_i)``: the radius is the smallest
+    ``r`` such that the NORMALISED weighted mass of ``{|R_i| <= r}`` reaches
+    ``1 - alpha``, where the normalisation includes the test point's own weight
+    ``w_{n+1}`` carrying an atom at ``+inf``:
+
+        p_i = w_i / (sum_j w_j + w_{n+1}),   p_{n+1} = w_{n+1} / (sum_j w_j + w_{n+1})
+        r   = inf{ |R_(k)| : sum_{|R_i| <= |R_(k)|} p_i >= 1 - alpha }
+
+    Because the ``+inf`` atom holds mass ``p_{n+1}``, when ``p_{n+1} > alpha`` no
+    finite residual can accumulate ``1-alpha`` and the radius is ``+inf`` -- the
+    valid-but-uninformative band, exactly mirroring the unweighted tiny-n
+    contract. Uniform weights collapse this to the unweighted finite-sample
+    quantile (the ``+1`` correction is the test-point self-weight atom).
+
+    Description. Compute the cumulative normalised weight over residuals sorted
+    by magnitude; the radius is the first magnitude whose cumulative mass (plus
+    nothing -- the inf atom sits last) reaches ``1-alpha``. ``w_{n+1}`` defaults
+    to the mean calibration weight (the natural self-weight for an unseen test
+    point drawn from ``P_test``); pass it explicitly for a per-test-point exact
+    band. Non-finite residuals are dropped with their weights; negative or
+    non-finite weights raise.
+    """
+    r = np.abs(np.asarray(residuals, dtype=np.float64).reshape(-1))
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if w.shape[0] != r.shape[0]:
+        raise ValueError(
+            f"weighted_conformal_quantile: {w.shape[0]} weights for "
+            f"{r.shape[0]} residuals"
+        )
+    if not (0.0 < alpha < 1.0):
+        raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
+    finite = np.isfinite(r) & np.isfinite(w)
+    r, w = r[finite], w[finite]
+    if w.size and (w < 0).any():
+        raise ValueError("weighted_conformal_quantile: weights must be >= 0")
+    total_cal = float(w.sum())
+    if r.size == 0 or total_cal <= 0.0:
+        return float("inf")
+    # Self-weight of the (unseen) test point: mean calibration weight is the
+    # natural choice when no per-test weight is supplied.
+    w_test = total_cal / float(w.size)
+    denom = total_cal + w_test
+    order = np.argsort(r, kind="mergesort")
+    r_sorted = r[order]
+    cum = np.cumsum(w[order]) / denom
+    target = 1.0 - alpha
+    # First magnitude whose cumulative normalised mass reaches 1-alpha. If the
+    # test-atom mass (w_test/denom) exceeds alpha, the cum never reaches target
+    # -> +inf (valid, uninformative).
+    hit = np.searchsorted(cum, target, side="left")
+    if hit >= r_sorted.shape[0]:
+        return float("inf")
+    return float(r_sorted[hit])
+
+
+def _resolve_weights(weights, X_cal, n: int) -> np.ndarray:
+    """Coerce ``weights`` (array OR callable density-ratio estimator) to a length
+    ``n`` float64 vector of importance weights ``w_i = dP_test/dP_cal(x_i)``.
+
+    A callable is invoked as ``weights(X_cal)`` and may return an ndarray / list
+    / pandas / polars Series; an array-like is taken as-is. Never copies a frame
+    -- the callable owns any narrow column reads it needs. Raises on a length
+    mismatch so a mis-aligned weight vector is caught at calibration.
+    """
+    w = weights(X_cal) if callable(weights) else weights
+    if hasattr(w, "to_numpy"):
+        w = w.to_numpy()
+    w = np.asarray(w, dtype=np.float64).reshape(-1)
+    if w.shape[0] != n:
+        raise ValueError(
+            f"weights resolved to {w.shape[0]} entries but {n} rows were expected"
+        )
+    return w
+
+
+def calibrate_conformal_weighted(self, X_cal, y_cal, alpha=0.1, weights=None):
+    """Weighted (covariate-shift) split-conformal calibration.
+
+    Under covariate shift the plain band (:func:`calibrate_conformal`) mis-covers
+    because the calibration and test covariate laws differ. This computes the
+    WEIGHTED empirical quantile of the absolute calibration residuals
+    (:func:`weighted_conformal_quantile`), each calibration row ``i`` tilted by
+    its importance weight ``w_i = dP_test/dP_cal(x_i)``, restoring marginal
+    coverage ``>= 1-alpha`` under the shifted test law (Tibshirani et al. 2019).
+
+    ``weights`` accepts EITHER an array-like (one weight per calibration row) OR
+    a callable density-ratio estimator invoked as ``weights(X_cal)``; the latter
+    lets a fitted ``P_test/P_cal`` classifier supply the ratios at calibration
+    time. ``X_cal`` / ``y_cal`` MUST be rows the inner never trained on. Stores
+    ``self._weighted_conformal_q_[round(alpha, 6)]`` and returns ``self``.
+    ``alpha`` may be a scalar or an iterable of levels. ``weights=None`` (uniform)
+    reduces exactly to the unweighted finite-sample band.
+    """
+    if not hasattr(self, "estimator_"):
+        from sklearn.exceptions import NotFittedError
+        raise NotFittedError(
+            "CompositeTargetEstimator.calibrate_conformal_weighted called before fit."
+        )
+    y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
+    y_pred = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
+    if y_pred.shape[0] != y_true.shape[0]:
+        raise ValueError(
+            "calibrate_conformal_weighted: predict produced "
+            f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}"
+        )
+    residuals = y_true - y_pred
+    n = residuals.shape[0]
+    if weights is None:
+        w = np.ones(n, dtype=np.float64)
+    else:
+        w = _resolve_weights(weights, X_cal, n)
+    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    if not hasattr(self, "_weighted_conformal_q_") or self._weighted_conformal_q_ is None:
+        self._weighted_conformal_q_ = {}
+    for a in alphas:
+        self._weighted_conformal_q_[round(float(a), 6)] = weighted_conformal_quantile(
+            residuals, w, float(a),
+        )
+    self._conformal_n_cal_ = int(np.isfinite(residuals).sum())
+    return self
+
+
+def predict_interval_weighted(self, X, alpha=0.1):
+    """Return covariate-shift-corrected ``(lower, upper)`` y-scale intervals of
+    marginal coverage ``>= 1 - alpha`` under the shifted test law.
+
+    Requires a prior :func:`calibrate_conformal_weighted` at this ``alpha``. The
+    band is ``predict(X) +/- q_w`` where ``q_w`` is the weighted calibration
+    radius; clipped to the same train envelope as the point estimate so the
+    interval never claims an unphysical value.
+    """
+    key = round(float(alpha), 6)
+    q = getattr(self, "_weighted_conformal_q_", {}) or {}
+    if key not in q:
+        raise RuntimeError(
+            f"predict_interval_weighted: no weighted conformal radius calibrated "
+            f"for alpha={alpha}. Call calibrate_conformal_weighted(X_cal, y_cal, "
+            f"alpha={alpha}, weights=...) on a held-out set first "
+            f"(calibrated levels: {sorted(q.keys())})."
+        )
+    radius = q[key]
+    point = np.asarray(self.predict(X), dtype=np.float64).reshape(-1)
+    lower = point - radius
+    upper = point + radius
+    params = getattr(self, "fitted_params_", {}) or {}
+    lo_b = params.get("y_clip_low", float("-inf"))
+    hi_b = params.get("y_clip_high", float("inf"))
+    return np.clip(lower, lo_b, hi_b), np.clip(upper, lo_b, hi_b)

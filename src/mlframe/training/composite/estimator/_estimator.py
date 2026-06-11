@@ -958,6 +958,8 @@ from ..conformal import (  # noqa: E402
     predict_interval_cqr as _predict_interval_cqr,
     calibrate_conformal_mondrian as _calibrate_conformal_mondrian,
     predict_interval_mondrian as _predict_interval_mondrian,
+    calibrate_conformal_weighted as _calibrate_conformal_weighted,
+    predict_interval_weighted as _predict_interval_weighted,
 )
 CompositeTargetEstimator.calibrate_conformal = _calibrate_conformal
 CompositeTargetEstimator.predict_interval = _predict_interval
@@ -970,6 +972,11 @@ CompositeTargetEstimator.predict_interval_cqr = _predict_interval_cqr
 # unseen / too-small groups.
 CompositeTargetEstimator.calibrate_conformal_mondrian = _calibrate_conformal_mondrian
 CompositeTargetEstimator.predict_interval_mondrian = _predict_interval_mondrian
+# Weighted (covariate-shift) conformal: Tibshirani et al. importance-weighted
+# band that restores marginal coverage >= 1-alpha when the test covariate law
+# differs from the calibration law (weights = dP_test/dP_cal, array or callable).
+CompositeTargetEstimator.calibrate_conformal_weighted = _calibrate_conformal_weighted
+CompositeTargetEstimator.predict_interval_weighted = _predict_interval_weighted
 
 # The public methods (``predict`` / ``predict_quantile`` / ``predict_pre_clip``
 # / ``update`` / ``get_buffer_state`` / ``get_booster``) and the sklearn-convention
