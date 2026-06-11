@@ -217,3 +217,88 @@ def _mrmr_cache_bytes_total() -> int:
     """Sum of state bytes across every cached MRMR instance in MRMR._FIT_CACHE."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     return sum(_mrmr_instance_state_size_bytes(_v) for _v in MRMR._FIT_CACHE.values())
+
+
+# Cap the stored screening-matrix footprint (rows). The replay state is a per-fit
+# diagnostic substrate; on the 8GB-shared box a multi-million-row binned matrix
+# would be wasteful. A few thousand rows give a stable bootstrap frequency.
+MAX_STABILITY_REPLAY_ROWS = 4000
+
+
+def _build_stability_replay_state(
+    self, *, data, cols, nbins, target_indices, selected_vars, engineered_recipes,
+) -> None:
+    """Persist a compact REPLAY substrate for ``MRMR.selection_stability_report``.
+
+    Stores (a) the already-discretised candidate bin codes (target column excluded)
+    row-subsampled to ``MAX_STABILITY_REPLAY_ROWS``, (b) the target codes, (c) the
+    per-candidate selection outcome mask, and (d) for each ``unary_binary``
+    engineered recipe the frozen engineered + source-operand bin codes so recipe
+    survival can be replayed with the #15 held-out uplift-gate statistic. No copy
+    of the raw frame, no recipe re-application: bootstrap resampling reads these
+    frozen bins only -- the #15 "replay not refit" contract.
+    """
+    data = np.asarray(data)
+    n_rows = int(data.shape[0])
+    n_cols = int(data.shape[1])
+    if n_rows < 2 or n_cols < 2:
+        self._stability_replay_state_ = None
+        return
+
+    t_idx = int(np.asarray(target_indices).ravel()[0])
+    cols = list(cols)
+    sel_set = set(int(v) for v in np.asarray(selected_vars, dtype=np.intp).ravel())
+
+    cand_cols = [c for c in range(n_cols) if c != t_idx]
+    cand_names = [str(cols[c]) for c in cand_cols]
+    selected_mask = np.array([c in sel_set for c in cand_cols], dtype=bool)
+
+    rng = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0))
+    if n_rows > MAX_STABILITY_REPLAY_ROWS:
+        row_idx = np.sort(rng.choice(n_rows, size=MAX_STABILITY_REPLAY_ROWS, replace=False))
+    else:
+        row_idx = np.arange(n_rows)
+
+    cand_codes = np.ascontiguousarray(
+        data[np.ix_(row_idx, cand_cols)], dtype=np.int32
+    )
+    y_codes = np.ascontiguousarray(data[row_idx, t_idx], dtype=np.int32)
+
+    # Per-recipe frozen bin codes for the unary_binary survival replay. ``data``
+    # already carries every engineered column the screen scored, keyed by name in
+    # ``cols``; the recipe's source operands are likewise present (raw or nested).
+    name_to_col = {str(nm): c for c, nm in enumerate(cols)}
+    _recipes = engineered_recipes or {}
+    if isinstance(_recipes, (list, tuple)):
+        _recipes = {getattr(r, "name", str(i)): r for i, r in enumerate(_recipes)}
+    recipe_replay: dict = {}
+    for nm, r in _recipes.items():
+        if getattr(r, "kind", None) != "unary_binary":
+            continue
+        eng_c = name_to_col.get(str(nm))
+        if eng_c is None:
+            continue
+        src = tuple(getattr(r, "src_names", ()) or ())
+        a_c = name_to_col.get(str(src[0])) if len(src) >= 1 else None
+        b_c = name_to_col.get(str(src[1])) if len(src) >= 2 else None
+        _rx = getattr(r, "extra", None) or {}
+        alt = any(
+            _k in _rx for _k in (
+                "prewarp_a_coef", "prewarp_b_coef",
+                "gate_med_a_median", "gate_med_b_median",
+            )
+        )
+        recipe_replay[str(nm)] = {
+            "eng_codes": np.ascontiguousarray(data[row_idx, eng_c], dtype=np.int32),
+            "a_codes": None if a_c is None else np.ascontiguousarray(data[row_idx, a_c], dtype=np.int32),
+            "b_codes": None if b_c is None else np.ascontiguousarray(data[row_idx, b_c], dtype=np.int32),
+            "alt": bool(alt),
+        }
+
+    self._stability_replay_state_ = {
+        "cand_codes": cand_codes,
+        "cand_names": cand_names,
+        "selected_mask": selected_mask,
+        "y_codes": y_codes,
+        "recipe_replay": recipe_replay,
+    }

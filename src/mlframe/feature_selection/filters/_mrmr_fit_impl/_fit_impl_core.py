@@ -45,7 +45,7 @@ in the sibling _helpers.py.
 """
 
 
-from ._helpers import _dispatch_default_scorer, _mrmr_cache_bytes_total, _orth_fe_numeric_cols
+from ._helpers import _dispatch_default_scorer, _mrmr_cache_bytes_total, _orth_fe_numeric_cols, _build_stability_replay_state
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
@@ -6949,6 +6949,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # type`` because a float array can't index. Integer dtype makes the empty
     # slice a valid no-op on both the DataFrame and the ndarray paths.
     self.support_ = np.array(selected_vars, dtype=np.int64)
+
+    # SELECTION-STABILITY REPLAY STATE (backlog W3, 2026-06-11). Store a compact slice of the
+    # already-discretised screening matrix ``data`` + the target codes + the per-column selection
+    # outcome so ``MRMR.selection_stability_report(n_boot=K)`` can recompute per-feature selection-
+    # frequency by REPLAY (K cheap marginal-MI sweeps over the frozen bins) without refitting MRMR --
+    # the #15 "replay not refit" trick applied to a user-facing confidence readout. Subsample rows to
+    # cap the stored footprint (8GB-shared box); the bins are frozen so resampling rows is leak-free.
+    try:
+        _build_stability_replay_state(
+            self, data=data, cols=cols, nbins=nbins,
+            target_indices=target_indices, selected_vars=selected_vars,
+            engineered_recipes=engineered_recipes,
+        )
+    except Exception as _stab_exc:  # never let the diagnostic accessor break a fit
+        self._stability_replay_state_ = None
+        if verbose:
+            logger.info("Stability replay-state capture skipped (%s: %s).", type(_stab_exc).__name__, _stab_exc)
 
     # ROSTER RECONCILIATION (2026-06-04): the per-stage engineered rosters (``hybrid_orth_features_``, ``_adaptive_fourier_features_``, the Layer-33/34/37/38/87+ family lists) are
     # populated as each FE stage APPENDS its columns, but the MRMR screen / accuracy gate / dedup then drop a subset before support is finalised. ``self._engineered_features_`` is the

@@ -192,6 +192,12 @@ MRMR.get_unlabeled_recipe_kinds = _get_unlabeled_recipe_kinds_func
 from .._fe_rejection_ledger import get_fe_rejection_report as _get_fe_rejection_report_func  # noqa: E402
 MRMR.get_fe_rejection_report = _get_fe_rejection_report_func
 
+# One-call SELECTION-STABILITY / CONFIDENCE report (W3): per-feature selection-frequency +
+# per-recipe survival-frequency, computed by REPLAY of the cheap MI screen on K bootstrap
+# resamples of the stored binned screening matrix -- no MRMR refit (the #15 replay-not-refit trick).
+from .._mrmr_stability_report import selection_stability_report as _selection_stability_report_func  # noqa: E402
+MRMR.selection_stability_report = _selection_stability_report_func
+
 # One-call human-readable explanation: assembles fe_provenance_ (survivors) + fe_rejection_ledger_
 # (binding gate) + _fe_recommended_flags_ (Layer-99 chosen flags) into a one-screen narrative.
 from .._mrmr_explain import explain_selection as _explain_selection_func  # noqa: E402
