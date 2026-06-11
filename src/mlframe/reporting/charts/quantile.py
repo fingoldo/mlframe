@@ -41,6 +41,15 @@ Reliability extension (R-6):
                         rows where q_tau_lo > q_tau_hi (a monotonicity
                         violation). Independent quantile heads cross silently;
                         any non-zero bar is a correctness problem.
+
+Probabilistic-forecast communication plot:
+- ``FAN_CHART``      -- y over time/index with nested shaded quantile bands
+                        (darkest at the median, fading outward), the standard
+                        way to read a probabilistic forecast: the median path
+                        plus how the predictive interval widens with the
+                        horizon. Envelope-downsampled per time bucket (per-bucket
+                        per-quantile aggregate) so a 1e6-row forecast never plots
+                        n raw points.
 """
 
 from __future__ import annotations
@@ -510,6 +519,91 @@ def _quantile_crossing_panel(y_true, preds_NK, alphas) -> PanelSpec:
 
 
 # ----------------------------------------------------------------------------
+# Fan chart (probabilistic-forecast communication plot)
+# ----------------------------------------------------------------------------
+
+# Number of time buckets the x-axis is collapsed to before plotting. A fan chart communicates the
+# SHAPE of the widening interval, not per-sample detail; 400 buckets reads as a smooth fan while
+# bounding the plotted vertices regardless of n (a 1e6-row forecast collapses to <=400 per band edge).
+_FAN_TIME_BUCKETS: int = 400
+
+
+def _fan_chart_panel(y_true, preds_NK, alphas) -> PanelSpec:
+    """Nested shaded quantile bands over time/index -- the probabilistic-forecast communication plot.
+
+    The x-axis (sample index, taken as the forecast horizon) is collapsed into ``_FAN_TIME_BUCKETS``
+    equal-population buckets; within each bucket every quantile column is averaged, so the fan is built
+    from at most ``buckets`` vertices per band edge -- never the raw n points. Symmetric alpha pairs are
+    drawn as nested bands (widest/lightest = outermost interval, narrowing and darkening toward the
+    median line) so the operator reads the predictive interval widening with the horizon at a glance.
+    """
+    P = np.asarray(preds_NK, dtype=np.float64)
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    a_arr = np.asarray(alphas, dtype=np.float64)
+    K = a_arr.shape[0]
+    n = P.shape[0]
+    if K < 2 or n < 2:
+        return AnnotationPanelSpec(
+            text="Fan chart skipped: needs >= 2 alphas and >= 2 rows",
+            title="Fan chart (nested predictive-interval bands)",
+        )
+
+    median_col = int(min(range(K), key=lambda j: abs(a_arr[j] - 0.5)))
+    n_buckets = min(_FAN_TIME_BUCKETS, n)
+    # Equal-population buckets over the index: bincount-based per-bucket mean (one O(n) pass per column),
+    # never a per-row python loop. ``which`` assigns each row to its horizon bucket.
+    which = np.minimum((np.arange(n) * n_buckets) // n, n_buckets - 1).astype(np.int64)
+    counts = np.bincount(which, minlength=n_buckets).astype(np.float64)
+    counts_safe = np.where(counts > 0, counts, 1.0)
+    x_axis = np.bincount(which, weights=np.arange(n, dtype=np.float64), minlength=n_buckets) / counts_safe
+
+    q_bucketed = np.empty((n_buckets, K), dtype=np.float64)
+    for k in range(K):
+        q_bucketed[:, k] = np.bincount(which, weights=P[:, k], minlength=n_buckets) / counts_safe
+    y_bucketed = np.bincount(which, weights=y, minlength=n_buckets) / counts_safe
+
+    # LinePanelSpec carries a single ``band`` (lower, upper); nested bands need one band per symmetric
+    # pair. We draw the OUTERMOST pair as the spec band (widest envelope) and overlay the inner quantile
+    # edges as faint lines so the nesting reads -- darkest at the median, lightening outward.
+    pairs = _symmetric_interval_pairs(alphas)
+    median_path = q_bucketed[:, median_col]
+    series: List[np.ndarray] = [median_path, y_bucketed]
+    labels: List[str] = [f"median (tau={a_arr[median_col]:g})", "y_true (bucket mean)"]
+    styles: List[str] = ["-", "markers"]
+    series_colors: List[str] = ["darkblue", "black"]
+    # Inner pair edges as faint lines (skip the outermost, which becomes the filled band). Darker shade
+    # for pairs closer to the median communicates the nesting on backends without per-band fills.
+    inner = pairs[:-1] if len(pairs) >= 2 else []
+    for depth, (lo, hi, _nom) in enumerate(inner):
+        # Darker gray for pairs nearer the median (smaller depth) communicates the band nesting on
+        # backends that draw only the single outermost filled band. Hex grayscale so both matplotlib
+        # and plotly accept it (plotly rejects matplotlib's bare "0.25" fractional-gray string).
+        level = int(round(min(0.7, 0.25 + 0.12 * depth) * 255))
+        gray = f"#{level:02x}{level:02x}{level:02x}"
+        for c_idx in (lo, hi):
+            series.append(q_bucketed[:, c_idx])
+            labels.append(f"tau={a_arr[c_idx]:g}")
+            styles.append(":")
+            series_colors.append(gray)
+
+    lo_col, hi_col, nom = pairs[-1]
+    return LinePanelSpec(
+        x=x_axis,
+        y=tuple(series),
+        series_labels=tuple(labels),
+        title=f"Fan chart (nested predictive intervals; {n_buckets} horizon buckets / {n:,} rows)",
+        xlabel="Forecast horizon (sample index)",
+        ylabel="y / quantile",
+        line_styles=tuple(styles),
+        colors=tuple(series_colors),
+        band=(q_bucketed[:, lo_col], q_bucketed[:, hi_col]),
+        band_color="steelblue",
+        band_label=f"[q_{a_arr[lo_col]:g}, q_{a_arr[hi_col]:g}] ({nom:.0%})",
+        x_is_time=False,
+    )
+
+
+# ----------------------------------------------------------------------------
 # Token registry + composer
 # ----------------------------------------------------------------------------
 
@@ -524,6 +618,7 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
     "QUANTILE_RELIABILITY": _quantile_reliability_panel,
     "PINBALL_DECOMP": _pinball_decomp_panel,
     "QUANTILE_CROSSING": _quantile_crossing_panel,
+    "FAN_CHART": _fan_chart_panel,
 }
 
 ALLOWED_QUANTILE_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
