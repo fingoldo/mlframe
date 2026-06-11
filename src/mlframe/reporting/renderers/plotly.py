@@ -352,6 +352,20 @@ class PlotlyRenderer:
                     row=row, col=col,
                 )
 
+        if p.overlay_band is not None:
+            bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
+            fig.add_trace(
+                go.Scatter(x=bx, y=blo, mode="lines", line=dict(width=0),
+                           showlegend=False, hoverinfo="skip"),
+                row=row, col=col,
+            )
+            fig.add_trace(
+                go.Scatter(x=bx, y=bhi, mode="lines", line=dict(width=0),
+                           fill="tonexty", fillcolor="rgba(128,0,128,0.18)",
+                           name="curve 95% band", showlegend=True, hoverinfo="skip"),
+                row=row, col=col,
+            )
+
         if p.overlay_line is not None:
             ox_grid, oy_grid, olabel = p.overlay_line
             fig.add_trace(

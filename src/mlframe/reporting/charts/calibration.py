@@ -38,6 +38,11 @@ _SMOOTHED_FIT_MAX_ROWS: int = 100_000
 _SMOOTHED_GRID_POINTS: int = 100
 # Below this many finite (score, label) rows the smoothed map is too noisy to be meaningful -> skip the overlay.
 _SMOOTHED_MIN_ROWS: int = 50
+# Rows fed to the bootstrap band: band width is n-driven, so a cap bounds the B isotonic refits' cost without
+# changing the band materially (it widens slightly, conservatively). Smaller than the point-fit cap on purpose.
+_BAND_MAX_ROWS: int = 50_000
+# Bootstrap resamples for the band; isotonic refit is cheap, so ~150 gives stable 2.5/97.5 percentiles inside ~1.4s at the cap.
+_BAND_N_BOOT: int = 150
 # Tight probability-axis range for the reliability scatter / shared histogram: a hair past [0, 1] for marker edges.
 _PROB_AXIS_RANGE: Tuple[float, float] = (-0.02, 1.02)
 
@@ -80,6 +85,69 @@ def smoothed_reliability_curve(
     iso.fit(s, t)
     grid = np.linspace(smin, smax, n_grid)
     return grid, np.asarray(iso.predict(grid), dtype=np.float64)
+
+
+def bootstrap_reliability_band(
+    y_score: np.ndarray,
+    y_true: np.ndarray,
+    *,
+    n_grid: int = _SMOOTHED_GRID_POINTS,
+    n_boot: int = _BAND_N_BOOT,
+    max_rows: int = _BAND_MAX_ROWS,
+    random_state: int = 0,
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, float]]:
+    """Bootstrap 95% confidence band around the smoothed isotonic reliability curve.
+
+    Resamples the ``(score, label)`` rows with replacement ``n_boot`` times, refits isotonic each time, evaluates every
+    refit on the SHARED ``[score_min, score_max]`` grid, then takes the 2.5/97.5 percentiles per grid point. Returns
+    ``(grid, lower, upper, significant_fraction)`` where ``significant_fraction`` is the share of the grid on which the
+    band EXCLUDES the perfect-fit diagonal (``y == score``) -- i.e. where the miscalibration is statistically real
+    rather than sampling noise. The point Wilson CIs answer this per bin; this band answers it for the whole curve.
+
+    Returns ``None`` on the same degenerate inputs the point curve skips (single class / all-equal scores / fewer than
+    ``_SMOOTHED_MIN_ROWS`` finite rows) so the caller omits the band but keeps the curve. The band is n-driven, so the
+    rows are capped at ``max_rows`` first (the cap bounds the B refits' cost; a smaller n only widens the band, which is
+    conservative). One RNG is reused for the subsample AND every resample, so the result is deterministic under
+    ``random_state``. The resample index gather is vectorised; the only python-level loop is the B isotonic fits.
+    """
+    s = np.asarray(y_score, dtype=np.float64).ravel()
+    t = np.asarray(y_true, dtype=np.float64).ravel()
+    finite = np.isfinite(s) & np.isfinite(t)
+    s, t = s[finite], t[finite]
+    if s.size < _SMOOTHED_MIN_ROWS:
+        return None
+    if np.unique(t).size < 2:
+        return None
+    smin, smax = float(s.min()), float(s.max())
+    if not (smax > smin):
+        return None
+    rng = np.random.default_rng(random_state)
+    if s.size > max_rows:
+        s, t = (lambda i: (s[i], t[i]))(rng.choice(s.size, size=max_rows, replace=False))
+    from sklearn.isotonic import IsotonicRegression
+
+    n = s.size
+    grid = np.linspace(smin, smax, n_grid)
+    curves = np.empty((n_boot, n_grid), dtype=np.float64)
+    idx = rng.integers(0, n, size=(n_boot, n))  # one vectorised draw of all B resample index rows
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+    for b in range(n_boot):
+        sel = idx[b]
+        sb, tb = s[sel], t[sel]
+        # An all-one-class or all-equal-score resample has no monotone signal; reuse the full-sample fit for that row
+        # so a degenerate draw cannot collapse the percentile band to a flat line.
+        if np.unique(tb).size < 2 or sb.max() <= sb.min():
+            iso.fit(s, t)
+        else:
+            iso.fit(sb, tb)
+        curves[b] = iso.predict(grid)
+    lower = np.percentile(curves, 2.5, axis=0)
+    upper = np.percentile(curves, 97.5, axis=0)
+    # Significant where the whole band lies off the diagonal: either entirely above (lower > grid) or entirely below
+    # (upper < grid). Anywhere the band straddles ``y == score`` the deviation is within sampling noise.
+    excludes = (lower > grid) | (upper < grid)
+    significant_fraction = float(np.mean(excludes))
+    return grid, lower, upper, significant_fraction
 
 
 def standard_ece(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray) -> float:
@@ -239,6 +307,7 @@ def build_calibration_spec(
     yscale: str = "auto",
     show_wilson_ci: bool = True,
     reliability_smoothed: bool = True,
+    reliability_band: bool = True,
     show_ece_annotation: bool = True,
     raw_probs: Optional[np.ndarray] = None,
     raw_labels: Optional[np.ndarray] = None,
@@ -269,6 +338,12 @@ def build_calibration_spec(
     not depend on the chosen bin count. It is additive (the binned points + Wilson CI + histogram are unchanged) and
     degrades to no overlay when the raw pairs are absent or degenerate (single class / all-equal scores / too few
     rows). The suite caller threads ``raw_probs``/``raw_labels`` through; passing only ``freqs_*`` skips the overlay.
+
+    ``reliability_band`` (default on, requires the smoothed overlay) shades a bootstrap 95% confidence band around the
+    smoothed curve (``bootstrap_reliability_band``) so a reader can tell whether the curve's departure from the diagonal
+    is statistically real vs sampling noise. It also annotates the fraction of the score range on which the band
+    EXCLUDES the diagonal ("miscal. significant on X% of range"). Same degenerate-input guard as the curve: a single
+    class / all-equal scores / too few rows omits the band but keeps the curve.
     """
     freqs_predicted = np.asarray(freqs_predicted, dtype=np.float64)
     freqs_true = np.asarray(freqs_true, dtype=np.float64)
@@ -301,10 +376,18 @@ def build_calibration_spec(
     point_size = _bubble_point_size(hits)
 
     overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
+    overlay_band: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+    band_annotation = ""
     if reliability_smoothed and raw_probs is not None and raw_labels is not None:
         curve = smoothed_reliability_curve(raw_probs, raw_labels)
         if curve is not None:
             overlay_line = (curve[0], curve[1], "smoothed (isotonic)")
+            if reliability_band:
+                band = bootstrap_reliability_band(raw_probs, raw_labels)
+                if band is not None:
+                    bgrid, blo, bhi, sig_frac = band
+                    overlay_band = (bgrid, blo, bhi)
+                    band_annotation = f"miscal. significant on {sig_frac*100:.0f}% of range"
 
     # Wilson CI band on the observed frequency per bin: ``freqs_true`` is the per-bin positive rate, ``hits`` its
     # count, so the binomial interval reflects sampling uncertainty (wide where a bin holds few points). The spec
@@ -323,6 +406,8 @@ def build_calibration_spec(
         ann = _ece_annotation(freqs_predicted, freqs_true, hits)
         if ann:
             scatter_title = f"{plot_title}\n{ann}" if plot_title else ann
+    if band_annotation:
+        scatter_title = f"{scatter_title}\n{band_annotation}" if scatter_title else band_annotation
 
     scatter = ScatterPanelSpec(
         x=freqs_predicted,
@@ -339,6 +424,7 @@ def build_calibration_spec(
         colorbar_label=colorbar_label,
         y_err=y_err,
         overlay_line=overlay_line,
+        overlay_band=overlay_band,
         # Both axes are probabilities on [0, 1]; pin a tight range so the population-sized bubble markers cannot drive
         # autoscale past the data. Not squared: the diagonal spans corner-to-corner at any aspect, so the scatter fills
         # the panel width and aligns with the population histogram below (no empty left gutter).
@@ -517,6 +603,7 @@ __all__ = [
     "build_calibration_spec",
     "build_reliability_overlay_spec",
     "smoothed_reliability_curve",
+    "bootstrap_reliability_band",
     "standard_ece",
     "debiased_ece",
     "wilson_ci",

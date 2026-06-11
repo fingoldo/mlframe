@@ -1,0 +1,21 @@
+reporting: bootstrap confidence band around the smoothed reliability curve
+
+Per-bin Wilson CIs say whether a single bin's deviation is real; they do not
+answer whether the calibration curve's overall departure from the diagonal is
+statistically real vs sampling noise. Add a bootstrap 95% band around the
+smoothed isotonic curve plus a derived significance read.
+
+- bootstrap_reliability_band: B=150 isotonic refits on with-replacement
+  resamples (rows capped at 50k since band width is n-driven), 2.5/97.5
+  percentiles per shared-grid point, one reused RNG for determinism. Returns
+  the band plus the significant-fraction (share of range where the band
+  excludes the diagonal). Degenerate inputs (single class / all-equal scores
+  / <50 finite rows) omit the band and keep the curve.
+- ScatterPanelSpec.overlay_band rendered as a shaded fill by both backends;
+  scatter title gains "miscal. significant on X% of range". Default-on with
+  the smoothed overlay; reliability_band=False disables.
+
+biz_value (n=40000): calibrated significant-fraction 0.07 vs miscalibrated
+0.91; band narrows with n (width 0.129@2k -> 0.045@40k). cProfile ~1.39s at
+the cap. New tests in tests/reporting/test_calibration_bootstrap_band.py;
+gallery binary/calibration_reliability.png refreshed.

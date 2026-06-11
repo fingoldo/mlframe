@@ -67,6 +67,10 @@ class ScatterPanelSpec:
     # Precomputed line overlay drawn on the same axes as the scatter (e.g. a binning-free smoothed reliability
     # curve over the binned bubbles): ``(x_grid, y_grid, label)``. Additive; the caller supplies both arrays.
     overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
+    # Shaded confidence band around ``overlay_line`` (e.g. a bootstrap CI on the smoothed reliability curve):
+    # ``(x_grid, lower, upper)`` on the same x-grid as the overlay line. Lets a reader judge whether the curve's
+    # deviation from the diagonal is statistically real vs sampling noise. Additive; None = no band.
+    overlay_band: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
     # Explicit axis limits ``(lo, hi)``. When set they override the data-driven limits a perfect-fit panel computes.
     xlim: Optional[Tuple[float, float]] = None
     ylim: Optional[Tuple[float, float]] = None

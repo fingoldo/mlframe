@@ -272,6 +272,11 @@ class MatplotlibRenderer:
                 ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-",
                         linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
 
+        if p.overlay_band is not None:
+            bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
+            ax.fill_between(bx, blo, bhi, color="purple", alpha=0.18, zorder=3,
+                            linewidth=0, label="curve 95% band")
+
         if p.overlay_line is not None:
             ox_grid, oy_grid, olabel = p.overlay_line
             ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color="purple",
@@ -311,7 +316,8 @@ class MatplotlibRenderer:
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
-        if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.highlight_indices is not None:
+        if (p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None
+                or p.overlay_band is not None or p.highlight_indices is not None):
             ax.legend(loc="best", fontsize=8, framealpha=0.7)
         if p.grid:
             ax.grid(True, alpha=0.3)
