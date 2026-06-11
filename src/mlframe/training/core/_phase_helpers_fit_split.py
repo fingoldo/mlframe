@@ -305,12 +305,14 @@ def _phase_train_val_test_split(
             except ImportError:
                 _has_multilabel_iterstrat = False
             if not _has_multilabel_iterstrat:
-                logger.info(
+                logger.warning(
                     "Bucket-stratify: 2-D (multilabel) stratify_y + groups; "
                     "iterative-stratification not installed. Splitter will "
-                    "fall back to GroupShuffleSplit; multilabel proportions "
-                    "across train/val/test not enforced. "
-                    "pip install iterative-stratification to enable.",
+                    "stratify on a derived 1-D composite label-combination id "
+                    "(joint balance preserved) when feasible, else fall back to "
+                    "GroupShuffleSplit with NO multilabel proportion guarantee. "
+                    "pip install iterative-stratification for exact "
+                    "MultilabelStratifiedGroupKFold.",
                 )
         else:
             logger.info(

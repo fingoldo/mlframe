@@ -621,15 +621,59 @@ def make_train_test_split(
                 except ImportError:
                     _multilabel_group_strat = False
                 if not _multilabel_group_strat:
-                    logger.info(
-                        "make_train_test_split: multilabel stratify_y + groups "
-                        "supplied but iterative-stratification not installed. "
-                        "Falling back to GroupShuffleSplit (groups precedence). "
-                        "pip install iterative-stratification to enable "
-                        "MultilabelStratifiedGroupKFold."
-                    )
-                    _strat_groups_active = False
-                    stratify_y = None
+                    # iterative-stratification absent: rather than drop ALL
+                    # stratification (the pre-fix behaviour silently degraded to
+                    # GroupShuffleSplit, losing every label's balance), derive a
+                    # single 1-D composite class id from the K label columns and
+                    # route through sklearn StratifiedGroupKFold. This preserves
+                    # the JOINT label-combination balance across splits while
+                    # keeping whole groups together. Gated on the derived
+                    # cardinality being small enough for StratifiedGroupKFold
+                    # (>=2 distinct ids, each appearing on >=2 groups); otherwise
+                    # fall back to plain GroupShuffleSplit and WARN that multilabel
+                    # proportions are not enforced.
+                    _derived_ok = False
+                    try:
+                        _, _derived_ids = np.unique(_strat_arr, axis=0, return_inverse=True)
+                        _derived_ids = np.asarray(_derived_ids).ravel()
+                        _du = np.unique(_derived_ids)
+                        # Per-class group counts: StratifiedGroupKFold needs each
+                        # class spread over enough groups to place it in every fold.
+                        _grp_arr = np.asarray(groups)
+                        _min_groups_per_class = min(
+                            int(np.unique(_grp_arr[_derived_ids == _c]).shape[0]) for _c in _du
+                        ) if len(_du) else 0
+                        if 2 <= len(_du) <= 200 and _min_groups_per_class >= 2:
+                            stratify_y = _derived_ids
+                            _derived_ok = True
+                            logger.warning(
+                                "make_train_test_split: multilabel stratify_y + groups but "
+                                "iterative-stratification not installed; stratifying on a derived "
+                                "1-D composite label-combination id (%d classes) via "
+                                "StratifiedGroupKFold instead of dropping stratification. Per-label "
+                                "marginals are NOT individually enforced (only the joint combination "
+                                "is); pip install iterative-stratification for exact multilabel "
+                                "MultilabelStratifiedGroupKFold.",
+                                len(_du),
+                            )
+                    except Exception as _derive_err:
+                        logger.warning(
+                            "make_train_test_split: derived-label fallback for multilabel+groups "
+                            "failed (%s: %s); dropping stratification.",
+                            type(_derive_err).__name__, _derive_err,
+                        )
+                    if not _derived_ok:
+                        logger.warning(
+                            "make_train_test_split: multilabel stratify_y + groups supplied but "
+                            "iterative-stratification not installed AND a derived composite label "
+                            "is unusable (too many combinations or too few groups per class). "
+                            "Falling back to GroupShuffleSplit -- MULTILABEL CLASS PROPORTIONS ARE "
+                            "NOT PRESERVED across train/val/test; rare labels may be absent from a "
+                            "split. pip install iterative-stratification to enable "
+                            "MultilabelStratifiedGroupKFold.",
+                        )
+                        _strat_groups_active = False
+                        stratify_y = None
 
         if stratify_y is not None and timestamps is not None:
             logger.warning(

@@ -33,8 +33,11 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def _split_train_val(X, y, val_size: float, random_state: int):
+def _split_train_val(X, y, val_size: float, random_state: int | None):
     from sklearn.model_selection import train_test_split
+    # ``random_state=None`` deliberately falls through to sklearn's global RNG so the
+    # internal ES split varies with the outer seed instead of being pinned to a fixed
+    # constant; an explicitly-passed integer keeps the split reproducible for that seed.
     return train_test_split(X, y, test_size=val_size, random_state=random_state)
 
 
@@ -91,7 +94,9 @@ class PartialFitESWrapper:
     val_size
         Fraction of train data held out for ES val (when ``X_val``/``y_val`` not supplied).
     random_state
-        Seed for the internal train/val split when one is needed.
+        Seed for the internal train/val split when one is needed. ``None`` (default) lets
+        the split vary with the outer seed; callers pass their suite seed so ES is
+        reproducible per-seed and independent across seeds rather than pinned to a constant.
     max_iter
         For ``partial_fit``: max number of epochs (each = one full pass over the train set).
         For dichotomic search: ignored; the search uses ``budget_param`` bounds instead.
@@ -116,7 +121,7 @@ class PartialFitESWrapper:
         patience: int = 10,
         min_delta: float = 0.0,
         val_size: float = 0.15,
-        random_state: int = 42,
+        random_state: int | None = None,
         max_iter: int = 200,
         is_classification: bool = False,
         budget_param: str | None = None,
@@ -139,7 +144,9 @@ class PartialFitESWrapper:
         self.patience = int(patience)
         self.min_delta = float(min_delta)
         self.val_size = float(val_size)
-        self.random_state = int(random_state)
+        # Keep ``None`` as-is (varies the internal ES split with the outer seed); only
+        # coerce an explicitly-passed seed to int for reproducibility.
+        self.random_state = None if random_state is None else int(random_state)
         self.max_iter = int(max_iter)
         self.is_classification = bool(is_classification)
         self.budget_param = budget_param

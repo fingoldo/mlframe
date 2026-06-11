@@ -597,6 +597,22 @@ def _setup_eval_set(
     if model_category is None or model_category not in eval_set_configs:
         return
 
+    # Defensive non-empty val assertion. A 0-row val silently disables early stopping
+    # (the booster fits to max_iter on a degenerate / empty eval_set). Outlier detection
+    # now raises on val-collapse, but a 0-row val can still reach here from a different
+    # source (aging-limit, sequential split, drift filter). Surface it with an actionable
+    # error from ANY source instead of training without a working ES signal.
+    if val_df is not None:
+        _n_val = val_df.shape[0] if hasattr(val_df, "shape") else len(val_df)
+        if _n_val == 0:
+            raise ValueError(
+                f"_setup_eval_set received a 0-row validation set for model_category "
+                f"'{model_category}'. A 0-row eval_set silently disables early stopping. "
+                f"The val collapsed upstream (outlier detection, trainset_aging_limit, "
+                f"sequential/drift split). Investigate the split / filter pipeline OR "
+                f"loosen the knob that emptied val."
+            )
+
     # Historical 0-row val skip in _setup_eval_set removed 2026-04-28
     # (batch 4). The original empty-val window came from outlier
     # detection rejecting almost every val row; that's now guarded at
@@ -746,6 +762,7 @@ def maybe_wrap_for_partial_fit_es(
     y_val: Any,
     is_classification: bool,
     behavior_kwargs: dict[str, Any] | None = None,
+    random_state: int | None = None,
 ) -> tuple[Any, bool]:
     """Wrap a non-native-ES sklearn model in ``PartialFitESWrapper`` when feasible.
 
@@ -761,6 +778,9 @@ def maybe_wrap_for_partial_fit_es(
     behavior_kwargs
         Optional dict carrying ``TrainingBehaviorConfig`` ES knobs (worsening_enabled,
         worsening_coeff, worsening_min_iters, patience, max_iter) forwarded to the wrapper.
+    random_state
+        Outer suite seed forwarded to the wrapper's internal train/val ES split so ES is
+        reproducible per-seed and independent across seeds. ``None`` lets the split vary.
     """
     if model_obj is None or X_val is None or y_val is None:
         return model_obj, False
@@ -786,6 +806,7 @@ def maybe_wrap_for_partial_fit_es(
         min_delta=float(kw.pop("min_delta", 0.0)),
         max_iter=int(kw.pop("max_iter", 200)),
         is_classification=is_classification,
+        random_state=random_state,
         budget_param=budget_param,
         budget_min=int(kw.pop("budget_min", 1)),
         budget_max=int(kw.pop("budget_max", 1000)),

@@ -576,6 +576,7 @@ def train_and_evaluate_model(
                 X_val=val_df, y_val=val_target,
                 is_classification=("Classifier" in (model_type_name or "")),
                 behavior_kwargs=_behavior_kwargs,
+                random_state=int(oof_random_seed),
             )
         else:
             _wrapped, _did_wrap = None, False
