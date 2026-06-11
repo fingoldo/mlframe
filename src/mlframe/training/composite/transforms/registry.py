@@ -125,6 +125,12 @@ from .extended import (
     _smoothing_spline_residual_forward,
     _smoothing_spline_residual_inverse,
 )
+from .categorical import (
+    _target_encoding_residual_domain,
+    _target_encoding_residual_fit,
+    _target_encoding_residual_forward,
+    _target_encoding_residual_inverse,
+)
 from .unary import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
@@ -757,5 +763,30 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "``linear_residual_multi``)."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "target_encoding_residual": Transform(
+        name="target_encoding_residual",
+        forward=_target_encoding_residual_forward,
+        inverse=_target_encoding_residual_inverse,
+        fit=_target_encoding_residual_fit,
+        domain_check=_target_encoding_residual_domain,
+        description=(
+            "High-cardinality categorical target-encoding residual: "
+            "T = y - smoothed_category_mean(cat) where the per-category mean is "
+            "an empirical-Bayes / additive-smoothing estimate shrinking each "
+            "category mean toward the global mean by strength ``a`` "
+            "(enc[g] = (sum_y[g] + a*global_mean)/(count[g] + a)). Inverse "
+            "y_hat = T_hat + smoothed_category_mean(cat). Means are fitted "
+            "TRAIN-ONLY; unseen categories at predict fall back to the global "
+            "mean. The smoothing strength ``a`` keeps a tiny category from "
+            "overfitting its lone y; for leakage-sensitive discovery the "
+            "category mean should ideally be OUT-OF-FOLD. Reuses the "
+            "``group_column`` plumbing (the category column is the groups "
+            "array); ``requires_base=False`` since the encoding is "
+            "category-driven, not base-driven."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
+        requires_base=False,
     ),
 }

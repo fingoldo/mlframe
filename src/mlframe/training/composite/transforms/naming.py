@@ -61,6 +61,7 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "reciprocal_residual": "recipr",
     "geometric_mean_residual": "gmean",
     "pairwise_interaction_residual": "interact",
+    "target_encoding_residual": "tgtenc",
 }
 
 
