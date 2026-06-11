@@ -141,3 +141,84 @@ def test_end_to_end_real_audit_surfaces_changepoint(tmp_path):
     base = os.path.join(str(tmp_path), "t_e2e")
     render_and_save(spec, parse_plot_output_dsl("matplotlib[png]+plotly[html]"), base)
     assert any(os.scandir(str(tmp_path)))
+
+
+# ----------------------------------------------------------------------------
+# Target ACF / PACF panels
+# ----------------------------------------------------------------------------
+
+import warnings  # noqa: E402
+
+from mlframe.reporting.charts.temporal import (  # noqa: E402
+    ALLOWED_TEMPORAL_PANEL_TOKENS, compose_target_acf_figure,
+)
+from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec  # noqa: E402
+
+
+def _ar1_series(n: int, phi: float, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    e = rng.standard_normal(n)
+    y = np.zeros(n)
+    for i in range(1, n):
+        y[i] = phi * y[i - 1] + e[i]
+    return y
+
+
+class TestTargetAcfPacf:
+    def test_tokens_registered(self):
+        assert ALLOWED_TEMPORAL_PANEL_TOKENS == frozenset({"TARGET_ACF", "TARGET_PACF"})
+
+    def test_acf_pacf_shape(self):
+        y = _ar1_series(5000, 0.5, seed=0)
+        fig = compose_target_acf_figure(y)
+        panels = [p for row in fig.panels for p in row if p is not None]
+        assert len(panels) == 2
+        for panel in panels:
+            assert isinstance(panel, BarPanelSpec)
+            assert panel.hline is not None
+            assert len(panel.categories) <= 50
+
+    def test_unknown_token_raises(self):
+        with pytest.raises(ValueError, match="Unknown temporal panel tokens"):
+            compose_target_acf_figure(np.zeros(100), panels_template="TARGET_ACF BOGUS")
+
+    def test_constant_series_annotates(self):
+        fig = compose_target_acf_figure(np.full(500, 3.0))
+        panels = [p for row in fig.panels for p in row if p is not None]
+        assert all(isinstance(p, AnnotationPanelSpec) for p in panels)
+
+    def test_biz_val_target_acf_ar1_lag1_above_band(self):
+        """AR(1) target (phi=0.7) MUST show a lag-1 ACF bar above the Bartlett band, >= 5x the band."""
+        y = _ar1_series(8000, 0.7, seed=1)
+        fig = compose_target_acf_figure(y, panels_template="TARGET_ACF")
+        panel = [p for row in fig.panels for p in row if p is not None][0]
+        lag1 = float(panel.values[0])
+        band = panel.hline[0]
+        assert lag1 >= 0.55, f"AR(1) lag-1 ACF should be >= 0.55, got {lag1:.3f}"
+        assert lag1 >= 5.0 * band
+
+    def test_biz_val_target_pacf_cuts_off_after_lag1(self):
+        """AR(1) target: PACF MUST spike at lag 1 (~0.7) then collapse inside the band at lag >= 2.
+
+        This is the diagnostic verdict that distinguishes AR(1) from higher-order serial structure:
+        the PACF cut-off after lag 1 says one lagged feature captures all the serial information.
+        """
+        y = _ar1_series(8000, 0.7, seed=2)
+        fig = compose_target_acf_figure(y, panels_template="TARGET_PACF")
+        panel = [p for row in fig.panels for p in row if p is not None][0]
+        band = panel.hline[0]
+        pacf1 = float(panel.values[0])
+        pacf_rest = np.abs(panel.values[1:5])
+        assert pacf1 >= 0.55, f"PACF lag-1 should be >= 0.55, got {pacf1:.3f}"
+        # Lags 2..5 should sit at or just past the band edge, i.e. far below the lag-1 spike.
+        assert np.all(pacf_rest < 0.5 * pacf1), "PACF must cut off after lag 1 for an AR(1) target"
+
+    def test_acf_pacf_render(self, tmp_path):
+        y = _ar1_series(3000, 0.6, seed=3)
+        spec = compose_target_acf_figure(y)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]+plotly[html]"),
+                            os.path.join(str(tmp_path), "acfpacf"))
+        assert os.path.exists(tmp_path / "acfpacf.matplotlib.png")
+        assert os.path.exists(tmp_path / "acfpacf.plotly.html")

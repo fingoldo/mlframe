@@ -62,7 +62,9 @@ def acf_fft(x: np.ndarray, nlags: int = MAX_ACF_LAGS) -> Tuple[np.ndarray, int]:
     acov = np.fft.irfft(f * np.conjugate(f), n=nfft)[: k + 1]
     acov /= n
     if acov[0] <= 0.0:
-        return np.zeros(k, dtype=np.float64), n
+        # Zero variance (constant series after centring): autocorrelation is undefined -> empty so the
+        # panel emits an honest annotation rather than a row of spurious zero bars.
+        return np.zeros(0, dtype=np.float64), n
     return (acov[1:] / acov[0]), n
 
 

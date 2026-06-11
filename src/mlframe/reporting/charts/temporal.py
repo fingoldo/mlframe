@@ -11,15 +11,32 @@ Renders the full temporal-audit diagnostic via the spec vocabulary:
 All series share the full (kept + dropped) timeline; the kept line and
 the dropped markers carry NaN at the other's positions so each draws only
 where it has data (matplotlib + plotly both skip NaN).
+
+Target serial-structure panels (token-based composer):
+- ``TARGET_ACF``  -- target autocorrelation by lag with Bartlett +-bounds.
+                     A decaying ACF reveals trend / momentum the model can
+                     exploit via a lagged feature.
+- ``TARGET_PACF`` -- target partial autocorrelation by lag with the same
+                     bounds. The PACF cuts off at the AR order, so a single
+                     lag-1 spike that then drops to ~0 says "an AR(1) lag is
+                     all the serial information there is".
 """
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+from mlframe.reporting.charts._acf import (
+    MAX_ACF_LAGS, acf_fft, pacf_levinson, significance_band,
+)
+from mlframe.reporting.charts._layout import (
+    figsize_for_grid, pack_panels, parse_panel_template,
+)
+from mlframe.reporting.spec import (
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, LinePanelSpec, PanelSpec,
+)
 
 
 def _median_gap(x_axis: np.ndarray) -> Any:
@@ -137,4 +154,113 @@ def build_temporal_audit_spec(
     )
 
 
-__all__ = ["build_temporal_audit_spec"]
+# ----------------------------------------------------------------------------
+# Target serial-structure panels (ACF / PACF)
+# ----------------------------------------------------------------------------
+
+
+def _target_acf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec:
+    """Target autocorrelation by lag with Bartlett white-noise +-bounds (hline).
+
+    A decaying ACF means the target carries momentum / trend a lagged feature could exploit; a flat ACF
+    inside the band is serially-independent (a lagged feature would add nothing). FFT autocovariance with
+    the series tail-capped and the lag count capped so it stays bounded at n>=1e6.
+    """
+    acf_lags, n_used = acf_fft(y, nlags=nlags)
+    if acf_lags.size == 0:
+        return AnnotationPanelSpec(
+            text="Target ACF skipped: needs >= 2 finite points with non-zero variance",
+            title="Target autocorrelation (Bartlett band)",
+        )
+    band = significance_band(n_used)
+    lags = np.arange(1, acf_lags.size + 1)
+    sig = int(np.sum(np.abs(acf_lags) > band))
+    return BarPanelSpec(
+        categories=tuple(str(int(l)) for l in lags),
+        values=acf_lags.astype(np.float64),
+        title=f"Target ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond +-{band:.3f})",
+        xlabel="Lag",
+        ylabel="Autocorrelation",
+        colors=("steelblue",),
+        hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
+    )
+
+
+def _target_pacf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec:
+    """Target partial autocorrelation by lag with Bartlett +-bounds (hline).
+
+    The PACF isolates the direct lag-k effect with the intervening lags partialled out; it cuts off at
+    the AR order, so a single lag-1 spike that drops to ~0 says the target is AR(1) (one lagged feature
+    captures the serial information). Durbin-Levinson over the capped ACF -- O(nlags^2), never over n.
+    """
+    pacf_lags, n_used = pacf_levinson(y, nlags=nlags)
+    if pacf_lags.size == 0:
+        return AnnotationPanelSpec(
+            text="Target PACF skipped: needs >= 2 finite points with non-zero variance",
+            title="Target partial autocorrelation (Bartlett band)",
+        )
+    band = significance_band(n_used)
+    lags = np.arange(1, pacf_lags.size + 1)
+    sig = int(np.sum(np.abs(pacf_lags) > band))
+    return BarPanelSpec(
+        categories=tuple(str(int(l)) for l in lags),
+        values=pacf_lags.astype(np.float64),
+        title=f"Target PACF (n={n_used:,}; {sig} of {pacf_lags.size} lags beyond +-{band:.3f})",
+        xlabel="Lag",
+        ylabel="Partial autocorrelation",
+        colors=("seagreen",),
+        hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
+    )
+
+
+_TOKEN_BUILDERS: Dict[str, Callable] = {
+    "TARGET_ACF": _target_acf_panel,
+    "TARGET_PACF": _target_pacf_panel,
+}
+
+ALLOWED_TEMPORAL_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
+
+DEFAULT_TEMPORAL_TARGET_PANELS = "TARGET_ACF TARGET_PACF"
+
+
+def compose_target_acf_figure(
+    y: np.ndarray,
+    *,
+    panels_template: str = DEFAULT_TEMPORAL_TARGET_PANELS,
+    nlags: int = MAX_ACF_LAGS,
+    suptitle: str = "",
+    max_cols: int = 2,
+    cell_width: float = 6.0,
+    cell_height: float = 4.0,
+) -> FigureSpec:
+    """Build a target ACF/PACF FigureSpec from a panel template.
+
+    ``y`` is the 1-D target series in temporal order (the audit's per-bin rate, or the raw target). The
+    ACF/PACF are computed on the (tail-capped, mean-centred) series; the white-noise band uses the
+    post-cap length so it matches the bars.
+    """
+    y_arr = np.asarray(y).ravel()
+    tokens = parse_panel_template(panels_template)
+    unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
+    if unknown:
+        raise ValueError(
+            f"Unknown temporal panel tokens {unknown}. "
+            f"Allowed: {sorted(ALLOWED_TEMPORAL_PANEL_TOKENS)}"
+        )
+    panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y_arr, nlags=nlags) for tok in tokens]
+    grid = pack_panels(panels, max_cols=max_cols)
+    n_rows = len(grid)
+    n_cols = max_cols if grid else 0
+    return FigureSpec(
+        suptitle=suptitle,
+        panels=grid,
+        figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+    )
+
+
+__all__ = [
+    "build_temporal_audit_spec",
+    "ALLOWED_TEMPORAL_PANEL_TOKENS",
+    "DEFAULT_TEMPORAL_TARGET_PANELS",
+    "compose_target_acf_figure",
+]
