@@ -767,6 +767,39 @@ def _render_shap() -> Tuple[str, List[str]]:
         return _placeholder_png("shap_panels", "shap_error", "SHAP render raised; see _errors.log.")
 
 
+def _render_shap_interactions() -> Tuple[str, List[str]]:
+    """Render the SHAP feature-pair interaction summary (top-pairs bar + heatmap) on a planted f0*f1 interaction."""
+    out_dir = GALLERY / "shap_interactions"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import shap  # noqa: F401
+    except Exception as e:
+        return _placeholder_png("shap_interactions", "shap_unavailable", f"SHAP not installed ({type(e).__name__}); interaction summary skipped.")
+    try:
+        import pandas as pd
+        from sklearn.ensemble import GradientBoostingClassifier
+        from mlframe.reporting.charts.shap_interactions import shap_interaction_summary
+        n, K = 2000, 6
+        names = [f"f{i}" for i in range(K)]
+        X = RNG.normal(0.0, 1.0, size=(n, K))
+        logit = 2.5 * (X[:, 0] * X[:, 1]) + 0.2 * X[:, 2]
+        y = (1.0 / (1.0 + np.exp(-logit)) > RNG.random(n)).astype(int)
+        Xdf = pd.DataFrame(X, columns=names)
+        model = GradientBoostingClassifier(n_estimators=100, max_depth=3, random_state=0).fit(Xdf, y)
+        base = out_dir / "shap_interactions"
+        res = shap_interaction_summary(model, Xdf, plot_file=str(base) + ".png", plot_outputs="matplotlib[png]", top_pairs=10)
+        rels = [str(Path(p).relative_to(GALLERY)).replace(os.sep, "/") for p in res.paths]
+        if not rels:
+            return _placeholder_png("shap_interactions", "shap_int_skipped", f"SHAP interactions produced no figures: {res.skipped}")
+        return "ok", rels
+    except Exception:
+        ERRORS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with ERRORS_LOG.open("a", encoding="ascii", errors="ignore") as f:
+            f.write("=== shap_interactions/shap_interactions ===\n")
+            f.write(traceback.format_exc() + "\n")
+        return _placeholder_png("shap_interactions", "shap_int_error", "SHAP interaction render raised; see _errors.log.")
+
+
 def _placeholder_png(category: str, name: str, message: str) -> Tuple[str, List[str]]:
     """Write a simple text-note PNG so the gallery slot is never empty."""
     import matplotlib.pyplot as plt
@@ -859,6 +892,14 @@ def main() -> int:
         nm = Path(rel).stem
         rendered.append(("shap_panels", nm, shap_desc, rel))
     print(f"[{shap_status.upper()}] shap_panels ({len(shap_rels)} file(s))")
+
+    heartbeat(f"render {total}/{total}: shap_interactions")
+    si_status, si_rels = _render_shap_interactions()
+    si_desc = "SHAP feature-pair interaction summary: top-pairs bar + interaction-strength heatmap."
+    for rel in si_rels:
+        nm = Path(rel).stem
+        rendered.append(("shap_interactions", nm, si_desc, rel))
+    print(f"[{si_status.upper()}] shap_interactions ({len(si_rels)} file(s))")
 
     _write_index(rendered)
     heartbeat(f"done: rendered={len(rendered)} failed={len(failed)}")
