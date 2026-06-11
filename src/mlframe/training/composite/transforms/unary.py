@@ -124,6 +124,67 @@ def cbrt_y_domain(y: np.ndarray) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------
+# signed_power_y -- Tweedie-style signed power: T = sign(y) * |y|^p with p
+# fitted to minimise |skew(T)| on train (a small 1-D grid search). Inverse
+# y = sign(T) * |T|^(1/p). Generalises ``cbrt_y`` (fixed p=1/3): the fitted
+# exponent adapts the tail-compression strength to the actual skew of the
+# target, so a strongly right-skewed y (e.g. lognormal duration / cost) maps
+# to a near-symmetric T that an RMSE-trained downstream model fits cleanly.
+# ----------------------------------------------------------------------
+
+_SIGNED_POWER_GRID: np.ndarray = np.linspace(0.1, 0.9, 17)
+"""Candidate exponents for the fit-time skew-minimising 1-D search. Bounded to (0, 1): p<1 compresses heavy tails; p=1 is identity; p above 1 would expand tails (never the skew-reducing choice for a heavy-tailed y). The 0.1 floor keeps the inverse exponent 1/p finite and bounded (<=10)."""
+
+_SIGNED_POWER_FIT_SUBSAMPLE: int = 100_000
+"""Cap the rows used to estimate skew per grid point. Skew is a distributional statistic; 100k draws pin it to far below the grid step's effect, and the cap bounds the 17 ``|y|^p`` pows (the fit hotspot) at ~70ms regardless of n -- vs ~950ms on a full 1M-row scan. Forward/inverse still run on the full array; only the exponent search subsamples."""
+
+
+def signed_power_y_fit(y: np.ndarray) -> Dict[str, Any]:
+    """Fit the power ``p`` by minimising the absolute skew of ``T = sign(y) * |y|^p`` over ``_SIGNED_POWER_GRID``.
+
+    The grid search is robust and cheap (17 forward evals on the finite train slice) and avoids the local-minima / boundary-gradient pitfalls a continuous optimiser hits on the |skew| objective. Falls back to ``p=1.0`` (identity) when fewer than 3 finite rows are available to estimate skew. On large train sets the skew estimate is taken on a stride-subsample of ``_SIGNED_POWER_FIT_SUBSAMPLE`` rows (skew converges long before that; bounds the per-fit pow cost).
+    """
+    arr = np.asarray(y, dtype=np.float64)
+    finite = arr[np.isfinite(arr)]
+    if finite.size < 3:
+        return {"p": 1.0}
+    if finite.size > _SIGNED_POWER_FIT_SUBSAMPLE:
+        stride = finite.size // _SIGNED_POWER_FIT_SUBSAMPLE
+        finite = finite[::stride]
+    sign = np.sign(finite)
+    absval = np.abs(finite)
+    best_p = 1.0
+    best_skew = np.inf
+    for p in _SIGNED_POWER_GRID:
+        t = sign * absval ** p
+        std = float(t.std())
+        if std <= 0.0:
+            continue
+        m = float(t.mean())
+        skew = abs(float((((t - m) / std) ** 3).mean()))
+        if skew < best_skew:
+            best_skew = skew
+            best_p = float(p)
+    return {"p": best_p}
+
+
+def signed_power_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    p = float(params["p"])
+    arr = np.asarray(y, dtype=np.float64)
+    return np.sign(arr) * np.abs(arr) ** p
+
+
+def signed_power_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    p = float(params["p"])
+    arr = np.asarray(t, dtype=np.float64)
+    return np.sign(arr) * np.abs(arr) ** (1.0 / p)
+
+
+def signed_power_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    return np.isfinite(np.asarray(y, dtype=np.float64))
+
+
+# ----------------------------------------------------------------------
 # log_y -- shifted log; ``offset`` fitted so min(y_train) + offset > 0.
 # ----------------------------------------------------------------------
 
@@ -450,6 +511,7 @@ def chain_multi_stage_inverse(
 
 __all__ = [
     "cbrt_y_fit", "cbrt_y_forward", "cbrt_y_inverse", "cbrt_y_domain",
+    "signed_power_y_fit", "signed_power_y_forward", "signed_power_y_inverse", "signed_power_y_domain",
     "log_y_fit", "log_y_forward", "log_y_inverse", "log_y_domain",
     "yeo_johnson_y_fit", "yeo_johnson_y_forward", "yeo_johnson_y_inverse", "yeo_johnson_y_domain",
     "quantile_normal_y_fit", "quantile_normal_y_forward", "quantile_normal_y_inverse", "quantile_normal_y_domain",

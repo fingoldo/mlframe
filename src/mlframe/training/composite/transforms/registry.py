@@ -138,6 +138,10 @@ from .unary import (
     quantile_normal_y_fit as _qn_y_fit_raw,
     quantile_normal_y_forward as _qn_y_forward_raw,
     quantile_normal_y_inverse as _qn_y_inverse_raw,
+    signed_power_y_domain as _sp_y_domain_raw,
+    signed_power_y_fit as _sp_y_fit_raw,
+    signed_power_y_forward as _sp_y_forward_raw,
+    signed_power_y_inverse as _sp_y_inverse_raw,
     yeo_johnson_y_domain as _yj_y_domain_raw,
     yeo_johnson_y_fit as _yj_y_fit_raw,
     yeo_johnson_y_forward as _yj_y_forward_raw,
@@ -217,6 +221,10 @@ _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a = _ma
 _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _make_unary_registry_adapter(
     _qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw,
     lambda y: _qn_y_domain_raw(y),
+)
+_sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
+    _sp_y_fit_raw, _sp_y_forward_raw, _sp_y_inverse_raw,
+    lambda y: _sp_y_domain_raw(y),
 )
 
 
@@ -470,6 +478,24 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Compresses heavy tails without breaking sign -- particularly "
             "useful when an upstream bivariate composite has absorbed the "
             "dominant feature but the residual is still Laplace-leptokurtic."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    "signed_power_y": Transform(
+        name="signed_power_y",
+        forward=_sp_forward_a,
+        inverse=_sp_inverse_a,
+        fit=_sp_fit_a,
+        domain_check=_sp_domain_a,
+        description=(
+            "Tweedie-style signed power unary y-transform: T = sign(y) * |y|^p "
+            "with p fitted at fit-time to minimise |skew(T)| over a 1-D grid in "
+            "[0.1, 0.9]. Inverse y = sign(T) * |T|^(1/p). Defined for all real y. "
+            "Generalises ``cbrt_y`` (fixed p=1/3): the fitted exponent adapts the "
+            "tail-compression strength to the target's actual skew, mapping a "
+            "strongly right-skewed y (lognormal duration / cost / count) to a "
+            "near-symmetric T that RMSE-trained downstream models fit cleanly."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_base=False,

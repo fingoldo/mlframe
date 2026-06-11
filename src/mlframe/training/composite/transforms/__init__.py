@@ -249,6 +249,10 @@ from .unary import (  # noqa: E402,F401
     quantile_normal_y_forward as _qn_y_forward_raw,
     quantile_normal_y_inverse as _qn_y_inverse_raw,
     quantile_normal_y_domain as _qn_y_domain_raw,
+    signed_power_y_fit as _sp_y_fit_raw,
+    signed_power_y_forward as _sp_y_forward_raw,
+    signed_power_y_inverse as _sp_y_inverse_raw,
+    signed_power_y_domain as _sp_y_domain_raw,
     chain_bivariate_then_unary_fit as _chain_fit_raw,
     chain_bivariate_then_unary_forward as _chain_forward_raw,
     chain_bivariate_then_unary_inverse as _chain_inverse_raw,
@@ -316,6 +320,7 @@ from .registry import (  # noqa: E402,F401
     _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a,
     _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a,
     _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a,
+    _sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a,
     _centered_ratio_domain_fitted,
 )
 from .naming import (  # noqa: E402,F401

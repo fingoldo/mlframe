@@ -42,6 +42,7 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "frac_diff": "fdiff",
     # Unary y-transforms (no base segment in the composite name).
     "cbrt_y": "cbrtY",
+    "signed_power_y": "spowY",
     "log_y": "logY",
     "yeo_johnson_y": "yjY",
     "quantile_normal_y": "qnY",

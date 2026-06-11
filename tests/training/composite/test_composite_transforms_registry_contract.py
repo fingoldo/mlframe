@@ -55,6 +55,7 @@ _TRANSFORM_RTOL: dict[str, float] = {
     "rolling_quantile_ratio": 1e-6,
     "y_quantile_clip": 1.0,  # clips by definition; inverse is identity in [q_lo, q_hi]
     "cbrt_y": 1e-8,
+    "signed_power_y": 1e-6,  # fitted p; 1/p up to 10 amplifies tail float error
     "log_y": 1e-8,
     "yeo_johnson_y": 1e-6,
     "quantile_normal_y": 0.5,  # spline-based, lossy at edges

@@ -275,11 +275,13 @@ def _y_quantile_clip_inverse(
 
 
 def _y_quantile_clip_domain(
-    y: np.ndarray | None, base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray | None,
 ) -> np.ndarray:
     if y is None:
-        return np.isfinite(base) | ~np.isfinite(base)  # all True
-    return np.isfinite(y)
+        # ``y_quantile_clip`` is ``requires_base=False`` and ignores ``base``; at predict-time the wrapper passes ``base=None``, so size the all-True mask from whichever array is present (never call ``np.isfinite`` on ``None``).
+        n = len(base) if base is not None and hasattr(base, "__len__") else 1
+        return np.ones(n, dtype=bool)
+    return np.isfinite(np.asarray(y, dtype=np.float64))
 
 
 # ----------------------------------------------------------------------
