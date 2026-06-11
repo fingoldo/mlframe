@@ -334,6 +334,176 @@ def _render_training_curves(
             _charts.setdefault("failed", []).append("training_curve")
 
 
+def _binary_positive_score(probs) -> np.ndarray | None:
+    """Pull the positive-class probability column from a proba matrix / 1-D score, else None."""
+    if probs is None:
+        return None
+    arr = np.asarray(probs)
+    if arr.ndim == 2 and arr.shape[1] == 2:
+        return arr[:, 1]
+    if arr.ndim == 1:
+        return arr
+    if arr.ndim == 2 and arr.shape[1] == 1:
+        return arr.ravel()
+    return None
+
+
+def _ranked_feature_names(metrics, model, columns) -> tuple[list[str] | None, list[float] | None]:
+    """Best-effort (names, importances) for PDP ranking: prefer the report's FI dict, else the model's native source."""
+    names = list(columns) if columns is not None and len(columns) > 0 else None
+    if not names:
+        return None, None
+    fi_dict = metrics.get("feature_importances") if isinstance(metrics, dict) else None
+    if isinstance(fi_dict, dict):
+        return names, [float(fi_dict.get(c, 0.0)) for c in names]
+    native = getattr(model, "feature_importances_", None)
+    if native is not None and len(native) == len(names):
+        return names, [float(v) for v in native]
+    return names, None
+
+
+def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metrics, metadata_target_name="learning_curve"):
+    """Opt-in learning curve: refit a fresh clone of ``model`` on log-spaced train-size prefixes; store + render.
+
+    Returns the ``FigureSpec`` panel (or None when skipped). Uses ``sklearn.clone`` for the estimator factory and the
+    task-appropriate sklearn scorer. K full refits by construction -- only invoked when ``lc_cfg.enabled``.
+    """
+    if lc_cfg is None or not getattr(lc_cfg, "enabled", False):
+        return None
+    if model is None or df is None or not columns:
+        return None
+    try:
+        from sklearn.base import clone
+        from sklearn.metrics import get_scorer
+
+        from mlframe.training.diagnostics import compute_learning_curve, learning_curve_panel
+
+        tt = (target_type or "").lower()
+        if "regress" in tt:
+            scorer_name, higher_is_better = "r2", True
+        else:
+            scorer_name, higher_is_better = "roc_auc", True
+        scorer = get_scorer(scorer_name)
+        X = df[list(columns)] if hasattr(df, "__getitem__") else df
+        base = clone(model)
+        result = compute_learning_curve(
+            lambda: clone(base), X, np.asarray(targets).ravel(),
+            sizes=lc_cfg.sizes, scorer=scorer, holdout=lc_cfg.holdout, n_jobs=lc_cfg.n_jobs,
+            warm_start=lc_cfg.warm_start, random_state=lc_cfg.random_state,
+            time_budget_s=lc_cfg.time_budget_s, score_repeats=lc_cfg.score_repeats,
+            scorer_name=scorer_name, higher_is_better=higher_is_better,
+        )
+        if isinstance(metrics, dict):
+            from dataclasses import asdict, is_dataclass
+
+            metrics.setdefault("learning_curve", {})
+            metrics["learning_curve"] = asdict(result) if is_dataclass(result) else result
+        return learning_curve_panel(result)
+    except Exception:
+        logger.exception("learning_curve diagnostic failed; continuing.")
+        return None
+
+
+def _render_post_fit_diagnostics(
+    *,
+    targets,
+    model,
+    df,
+    columns,
+    preds,
+    probs,
+    target_type,
+    plot_file,
+    plot_outputs,
+    metrics,
+    reporting_config,
+):
+    """Fire the model/preds-based standalone diagnostics default-ON (PDP, slice-finder, decision-curve, SHAP, learning
+    curve) and stitch the combined HTML index. Each is gated by a ``ReportingConfig`` knob and skips cheaply when its
+    inputs are absent; failures are swallowed (additive panels never abort a run). RAM-safe via the orchestrators.
+    """
+    if not plot_file or not plot_outputs or reporting_config is None:
+        return
+    cfg = reporting_config
+    tt = (target_type or "").lower()
+    task = "regression" if "regress" in tt else "classification"
+    y_arr = np.asarray(targets).ravel() if targets is not None else None
+    names, importances = _ranked_feature_names(metrics, model, columns)
+
+    from mlframe.reporting.diagnostics_dispatch import (
+        build_combined_html_report, render_decision_curve_diagnostic, render_pdp_ice_diagnostic,
+        render_shap_diagnostic, render_slice_finder_diagnostic,
+    )
+
+    # 1-D point prediction for the error-based slice finder (binary uses the positive-class probability).
+    y_pred = np.asarray(preds).ravel() if preds is not None else None
+    if tt == "binary_classification":
+        _bs = _binary_positive_score(probs)
+        if _bs is not None:
+            y_pred = _bs
+
+    if getattr(cfg, "pdp_ice", True) and y_arr is not None:
+        render_pdp_ice_diagnostic(
+            model=model, df=df, feature_names=names, feature_importances=importances,
+            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            top_features=getattr(cfg, "pdp_top_features", 4), sample=getattr(cfg, "pdp_sample", 2000),
+            grid=getattr(cfg, "pdp_grid", 20),
+        )
+
+    if (
+        getattr(cfg, "slice_finder", True) and df is not None
+        and y_arr is not None and y_pred is not None and y_arr.ndim == 1
+        and len(y_pred) == len(y_arr)
+    ):
+        render_slice_finder_diagnostic(
+            df=df, y_true=y_arr, y_pred=y_pred, task=task, feature_names=names,
+            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+        )
+
+    if getattr(cfg, "decision_curve", True) and tt == "binary_classification" and y_arr is not None:
+        _bs = _binary_positive_score(probs)
+        if _bs is not None and len(_bs) == len(y_arr):
+            render_decision_curve_diagnostic(
+                y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            )
+
+    if getattr(cfg, "shap_panels", True) and model is not None and df is not None:
+        render_shap_diagnostic(
+            model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
+            metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000),
+            top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
+        )
+
+    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics)
+    if lc_panel is not None:
+        try:
+            from mlframe.reporting.output import parse_plot_output_dsl
+            from mlframe.reporting.renderers import render_and_save
+
+            base = plot_file + "_learning_curve"
+            render_and_save(lc_panel, parse_plot_output_dsl(plot_outputs), base)
+            if isinstance(metrics, dict):
+                _c = metrics.setdefault("charts", {"saved": [], "failed": []})
+                _c.setdefault("saved", []).append("learning_curve")
+                _c.setdefault("paths", []).append(base)
+        except Exception:
+            logger.exception("learning_curve render failed; continuing.")
+
+    # Combined single-page HTML index stitching every chart artifact recorded for this (model, split).
+    if getattr(cfg, "combined_html", True) and isinstance(metrics, dict):
+        paths = metrics.get("charts", {}).get("paths", [])
+        if paths:
+            build_combined_html_report(
+                base_path=plot_file, chart_paths=paths, plot_outputs=plot_outputs,
+                title=f"{model_name_for_title(target_type)} report".strip(), metrics_dict=metrics,
+            )
+
+
+def model_name_for_title(target_type) -> str:
+    """Short report-title tag from the target_type (combined-HTML page heading)."""
+    return (str(target_type) if target_type else "Model")
+
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -658,6 +828,15 @@ def report_model_perf(
             )
         if metrics is not None:
             metrics.update({"feature_importances": feature_importances})
+
+    # Standalone post-fit diagnostics (PDP/ICE, slice-finder, decision-curve, SHAP, learning curve) + combined HTML.
+    # Placed after the FI block so the importance ranking is available for PDP feature selection.
+    with phase("render_post_fit_diagnostics"):
+        _render_post_fit_diagnostics(
+            targets=targets, model=model, df=df, columns=columns, preds=preds, probs=probs,
+            target_type=target_type, plot_file=plot_file, plot_outputs=plot_outputs,
+            metrics=metrics, reporting_config=reporting_config,
+        )
 
     return preds, probs
 

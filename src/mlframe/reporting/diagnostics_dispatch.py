@@ -238,12 +238,16 @@ def render_target_drift_diagnostics(
     feature_names: Optional[Sequence[str]] = None,
     metric: str = "roc_auc",
     seed: int = 0,
+    calibration_drift: bool = True,
+    target_acf: bool = True,
 ) -> None:
     """Render the per-target temporal-drift + adversarial-validation diagnostics, each accounted.
 
     ``psi_heatmap`` + ``residual_vs_time`` + ``metric_over_time`` fire when ``timestamps`` cover the split (same gate as
     the temporal target audit); ``adversarial_validation`` fires when train + test (or train + val) feature frames are
-    available. All builders cap their own compute, so 100GB frames stay safe (column-view histograms, 200k/side fit).
+    available. When timestamps cover the split, ``calibration_drift`` (classification) + ``target_acf`` also emit
+    default-on (both cheap: O(n) warmed njit / FFT-capped). All builders cap their own compute, so 100GB frames stay
+    safe (column-view histograms, 200k/side fit).
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if not plot_outputs or not base_path:
@@ -287,6 +291,19 @@ def render_target_drift_diagnostics(
             except Exception:
                 logger.exception("diagnostics_dispatch: metric_over_time failed; continuing.")
                 _record(charts, "metric_over_time", False)
+
+            # Calibration drift over time -- classification only (y_pred is the positive-class probability here).
+            if calibration_drift and task != "regression":
+                render_calibration_drift_diagnostic(
+                    y_true=yt[:m], y_score=yp[:m], timestamps=ts[:m],
+                    plot_outputs=plot_outputs, base_path=base_path, metrics_dict=metrics_dict,
+                )
+            # Target serial-dependence ACF/PACF on the time-ordered target.
+            if target_acf:
+                render_target_acf_diagnostic(
+                    y_true=yt[:m], timestamps=ts[:m],
+                    plot_outputs=plot_outputs, base_path=base_path, metrics_dict=metrics_dict,
+                )
 
     if train_frame is not None and (test_frame is not None or val_frame is not None):
         try:
