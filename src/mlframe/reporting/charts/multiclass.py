@@ -55,6 +55,76 @@ def _class_color(idx: int) -> str:
     return _TAB20[idx % len(_TAB20)]
 
 
+# Above this K the per-class ROC/PR/reliability overlays put K curves in one panel: slow to compute (K sklearn fits)
+# and unreadable spaghetti. Past it the composer renders only the OVERLAY_TOP_N worst-by-AUC classes + a macro-average.
+_OVERLAY_MAX_CLASSES: int = 12
+_OVERLAY_TOP_N: int = 8
+
+
+def _ova_auc_all_classes(yt_pos: np.ndarray, proba: np.ndarray) -> np.ndarray:
+    """One-vs-rest AUC for every class at once via the rank (Mann-Whitney) identity -- one argsort per column.
+
+    Selecting the worst-N classes needs an AUC for all K, but K separate sklearn ``roc_auc_score`` calls are the very
+    cost the top-N switch exists to avoid. The rank-sum AUC over the shared subsample is a single vectorised pass that
+    matches sklearn within display precision; classes with no positives/negatives return NaN (sorted last as "best").
+    """
+    K = proba.shape[1]
+    n = yt_pos.shape[0]
+    out = np.full(K, np.nan, dtype=np.float64)
+    if n == 0:
+        return out
+    valid = yt_pos >= 0
+    for k in range(K):
+        col = proba[:, k]
+        finite = np.isfinite(col) & valid
+        scores = col[finite]
+        pos = (yt_pos[finite] == k)
+        n_pos = int(pos.sum())
+        n_neg = scores.shape[0] - n_pos
+        if n_pos == 0 or n_neg == 0:
+            continue
+        ranks = _avg_ranks(scores)  # tie-averaged ranks, fully vectorised
+        rank_sum_pos = ranks[pos].sum()
+        out[k] = (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+    return out
+
+
+def _avg_ranks(scores: np.ndarray) -> np.ndarray:
+    """Tie-averaged ranks (1-based) of ``scores``, fully vectorised (the ``scipy.stats.rankdata`` 'average' method).
+
+    Sort once; rank ties get the mean rank of their run so the rank-sum AUC matches sklearn on discrete / clipped
+    (0/1-saturated) probability columns. No Python per-run loop -- the run boundaries are found with a single diff.
+    """
+    n = scores.shape[0]
+    # Within-tie ordering is irrelevant (tied runs all collapse to one average rank), so the faster quicksort is fine.
+    order = np.argsort(scores)
+    sorted_scores = scores[order]
+    dense = np.empty(n, dtype=np.intp)
+    dense[0] = 0
+    if n > 1:
+        np.cumsum(sorted_scores[1:] != sorted_scores[:-1], out=dense[1:])
+    # For each distinct value, the average of its 1-based ordinal ranks is (first_ord + last_ord + 2)/2.
+    counts = np.bincount(dense)
+    last_ord = np.cumsum(counts)            # 1-based last ordinal per group
+    first_ord = last_ord - counts + 1       # 1-based first ordinal per group
+    group_avg = (first_ord + last_ord) / 2.0
+    ranks = np.empty(n, dtype=np.float64)
+    ranks[order] = group_avg[dense]
+    return ranks
+
+
+def _select_overlay_classes(yt_pos: np.ndarray, proba: np.ndarray, top_n: int) -> np.ndarray:
+    """Indices of the ``top_n`` WORST classes by one-vs-rest AUC (lowest AUC = hardest = most worth showing).
+
+    NaN AUC (degenerate one-vs-rest split) sorts as "best" so a class with no defined curve never displaces a class
+    with a genuine low AUC. Returned ascending in class index so the legend reads in a stable order.
+    """
+    auc = _ova_auc_all_classes(yt_pos, proba)
+    order = np.argsort(np.where(np.isnan(auc), np.inf, auc), kind="stable")
+    chosen = order[: min(top_n, len(order))]
+    return np.sort(chosen)
+
+
 def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndarray:
     """Indices of a class-stratified subsample of size ~``cap`` (all rows if n <= cap).
 
@@ -215,7 +285,8 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
     )
 
 
-def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True) -> LinePanelSpec:
+def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True,
+               class_subset=None) -> LinePanelSpec:
     """Per-class ROC curves overlaid (one-vs-rest).
 
     Curve vertices AND the legend AUC come from one class-stratified subsample (cap
@@ -223,6 +294,10 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
     class (~5s @2M/K=10) for a number the 200-pt display can't distinguish from the
     stratified estimate, so AUC is taken via ``auc(fpr, tpr)`` on the same subsample.
     ``sub`` may be a precomputed shared subsample index (composer passes one for all panels).
+
+    ``class_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those class
+    indices and appends a macro-average curve over the SAME subset, so K=100 shows ~8 readable curves + macro instead
+    of 100 overlapping ones -- a speed win (8 sklearn fits, not 100) and a readability win.
 
     ``show_auc_ci`` (default on) appends a 95% DeLong confidence interval to each class's
     AUC legend label. DeLong is the closed-form O(n log n) AUC-variance estimator -- no
@@ -234,34 +309,42 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
     from mlframe.reporting.charts.calibration import delong_auc_ci
 
     K = len(classes)
+    draw_idx = list(range(K)) if class_subset is None else [int(k) for k in class_subset]
     labels: List[str] = []
     x_grid = np.linspace(0.0, 1.0, 200)
     interpolated: List[np.ndarray] = []
+    colors: List[str] = []
     yt = np.asarray(y_true)
-    # One shared class-stratified subsample for all K curves -- recomputing it per class
+    # One shared class-stratified subsample for all curves -- recomputing it per class
     # (full-n unique/flatnonzero x K) dominated the panel; stratifying on the true class
     # keeps every one-vs-rest ratio intact.
     if sub is None:
         sub = _stratified_subsample(yt, _CURVE_SUBSAMPLE_CAP, seed=0)
     yt_s = yt[sub]
     proba_s = y_proba[sub]
-    for k in range(K):
+    valid_curves: List[np.ndarray] = []
+    for k in draw_idx:
         bin_y = (yt_s == k).astype(np.int8)
         col = proba_s[:, k]
         # roc_curve rejects non-finite scores; a single class or an all-NaN proba column has no defined curve.
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not np.isfinite(col).any():
             interpolated.append(np.full_like(x_grid, np.nan))
             labels.append(f"{classes[k]} (n/a)")
+            colors.append(_class_color(k))
             continue
         finite = np.isfinite(col)
         bin_y, col = bin_y[finite], col[finite]
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y):
             interpolated.append(np.full_like(x_grid, np.nan))
             labels.append(f"{classes[k]} (n/a)")
+            colors.append(_class_color(k))
             continue
         fpr, tpr, _ = roc_curve(bin_y, col)
         roc_auc = auc(fpr, tpr)
-        interpolated.append(np.interp(x_grid, fpr, tpr))
+        curve = np.interp(x_grid, fpr, tpr)
+        interpolated.append(curve)
+        valid_curves.append(curve)
+        colors.append(_class_color(k))
         if show_auc_ci:
             # DeLong CI from the same stratified subsample (the displayed AUC's data); closed-form, no extra sort cost
             # beyond two midrank argsorts the panel would not otherwise pay.
@@ -270,19 +353,34 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
         else:
             labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
+    series = [chance] + interpolated
+    series_labels = ["chance"] + labels
+    styles = [":"] + ["-"] * len(interpolated)
+    line_colors = ["gray"] + colors
+    if class_subset is not None:
+        # Macro-average TPR over the drawn classes anchors the truncated overlay to a population-level summary.
+        macro = np.nanmean(np.vstack(valid_curves), axis=0) if valid_curves else np.full_like(x_grid, np.nan)
+        macro_auc = float(auc(x_grid, macro)) if valid_curves else float("nan")
+        series.append(macro)
+        series_labels.append(f"macro-avg (AUC={macro_auc:.3f})")
+        styles.append("--")
+        line_colors.append("black")
+    title = "Per-class ROC (one-vs-rest)"
+    if class_subset is not None:
+        title = f"Per-class ROC: {len(draw_idx)} of {K} classes (worst by AUC) + macro-avg"
     return LinePanelSpec(
         x=x_grid,
-        y=tuple([chance] + interpolated),
-        series_labels=tuple(["chance"] + labels),
-        title="Per-class ROC (one-vs-rest)",
+        y=tuple(series),
+        series_labels=tuple(series_labels),
+        title=title,
         xlabel="False Positive Rate",
         ylabel="True Positive Rate",
-        line_styles=tuple([":"] + ["-"] * K),
-        colors=tuple(["gray"] + [_class_color(i) for i in range(K)]),
+        line_styles=tuple(styles),
+        colors=tuple(line_colors),
     )
 
 
-def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> LinePanelSpec:
+def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_subset=None) -> LinePanelSpec:
     """Per-class precision-recall curves overlaid (one-vs-rest).
 
     Curve vertices AND the legend AP come from one class-stratified subsample (the full-n
@@ -290,15 +388,21 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Line
     can't resolve). Each class gets a dotted no-skill (prevalence) baseline at P =
     positive-rate, so a curve hugging its own prevalence line reads as no better than
     always-positive.
+
+    ``class_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those class
+    indices and appends a macro-average PR curve, so large K shows ~8 readable curves + macro instead of K.
     """
     from sklearn.metrics import average_precision_score, precision_recall_curve
 
     K = len(classes)
+    draw_idx = list(range(K)) if class_subset is None else [int(k) for k in class_subset]
     x_grid = np.linspace(0.0, 1.0, 200)
     interpolated: List[np.ndarray] = []
     baselines: List[np.ndarray] = []
     labels: List[str] = []
     baseline_labels: List[str] = []
+    draw_colors: List[str] = []
+    valid_curves: List[np.ndarray] = []
     yt = np.asarray(y_true)
     n_valid = int((yt >= 0).sum())
     # Shared class-stratified subsample for all K curves (see _roc_panel).
@@ -306,11 +410,12 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Line
         sub = _stratified_subsample(yt, _CURVE_SUBSAMPLE_CAP, seed=0)
     yt_s = yt[sub]
     proba_s = y_proba[sub]
-    for k in range(K):
+    for k in draw_idx:
         bin_full = int((yt == k).sum())                              # full-n prevalence numerator
         bin_y = (yt_s == k).astype(np.int8)
         col = proba_s[:, k]
         finite = np.isfinite(col)
+        draw_colors.append(_class_color(k))
         # No positives, or an all-NaN proba column -> no defined PR curve (sklearn rejects non-finite scores).
         if bin_full == 0 or not finite.any() or int(bin_y[finite].sum()) == 0:
             interpolated.append(np.full_like(x_grid, np.nan))
@@ -322,36 +427,61 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Line
         ap = average_precision_score(bin_yf, colf)                   # stratified-subsample AP
         precision, recall, _ = precision_recall_curve(bin_yf, colf)
         order = np.argsort(recall)
-        interpolated.append(np.interp(x_grid, recall[order], precision[order]))
+        curve = np.interp(x_grid, recall[order], precision[order])
+        interpolated.append(curve)
+        valid_curves.append(curve)
         labels.append(f"{classes[k]} (AP={ap:.3f})")
         prevalence = float(bin_full) / max(1, n_valid)               # no-skill precision (full-n)
         baselines.append(np.full_like(x_grid, prevalence))
         baseline_labels.append("")
+    n_drawn = len(draw_idx)
+    series = list(interpolated)
+    series_labels = list(labels)
+    styles = ["-"] * n_drawn
+    line_colors = list(draw_colors)
+    if class_subset is not None:
+        macro = np.nanmean(np.vstack(valid_curves), axis=0) if valid_curves else np.full_like(x_grid, np.nan)
+        series.append(macro)
+        series_labels.append("macro-avg")
+        styles.append("--")
+        line_colors.append("black")
+    series += baselines
+    series_labels += baseline_labels
+    styles += [":"] * n_drawn
+    line_colors += list(draw_colors)
+    title = "Per-class precision-recall"
+    if class_subset is not None:
+        title = f"Per-class PR: {n_drawn} of {K} classes (worst by AUC) + macro-avg"
     return LinePanelSpec(
         x=x_grid,
-        y=tuple(interpolated + baselines),
-        series_labels=tuple(labels + baseline_labels),
-        title="Per-class precision-recall",
+        y=tuple(series),
+        series_labels=tuple(series_labels),
+        title=title,
         xlabel="Recall",
         ylabel="Precision",
-        line_styles=tuple(["-"] * K + [":"] * K),
-        colors=tuple([_class_color(i) for i in range(K)] + [_class_color(i) for i in range(K)]),
+        line_styles=tuple(styles),
+        colors=tuple(line_colors),
     )
 
 
-def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> LinePanelSpec:
+def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_subset=None) -> LinePanelSpec:
     """Per-class reliability curves overlaid (small-multiples-as-overlay).
 
     For each class k, bin predictions into deciles, plot mean predicted
     P(y=k) vs observed P(y=k|bin). Perfect calibration = y=x diagonal.
+
+    ``class_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those class
+    indices and appends a macro-average reliability curve, so large K stays readable.
     """
     K = len(classes)
+    draw_idx = list(range(K)) if class_subset is None else [int(k) for k in class_subset]
     n_bins = 10
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     x_grid = (edges[:-1] + edges[1:]) / 2
 
     series: List[np.ndarray] = []
     labels: List[str] = []
+    colors: List[str] = []
     yt = np.asarray(y_true)
     # Reliability curves are per-bin means, so a shared class-stratified subsample
     # estimates each bin within display precision and bounds the per-class O(N) digitize.
@@ -359,7 +489,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Lin
         sub = _stratified_subsample(yt, _CURVE_SUBSAMPLE_CAP, seed=0)
     yt_s = yt[sub]
     proba_s = y_proba[sub]
-    for k in range(K):
+    for k in draw_idx:
         proba_k = proba_s[:, k]
         true_k = (yt_s == k).astype(np.float64)
         bin_idx = np.clip(np.digitize(proba_k, edges[1:-1]), 0, n_bins - 1)
@@ -372,17 +502,32 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Lin
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
         labels.append(str(classes[k]))
-    # Plus the perfect-calibration diagonal as the first series.
+        colors.append(_class_color(k))
     diag = x_grid.copy()
+    all_series = [diag] + series
+    all_labels = ["perfect"] + labels
+    styles = [":"] + ["-"] * len(series)
+    all_colors = ["green"] + colors
+    if class_subset is not None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # a bin empty in every drawn class -> all-NaN column is fine
+            macro = np.nanmean(np.vstack(series), axis=0) if series else np.full(n_bins, np.nan)
+        all_series.append(macro)
+        all_labels.append("macro-avg")
+        styles.append("--")
+        all_colors.append("black")
+    title = "Per-class reliability curves"
+    if class_subset is not None:
+        title = f"Per-class reliability: {len(draw_idx)} of {K} classes (worst by AUC) + macro-avg"
     return LinePanelSpec(
         x=x_grid,
-        y=tuple([diag] + series),
-        series_labels=tuple(["perfect"] + labels),
-        title="Per-class reliability curves",
+        y=tuple(all_series),
+        series_labels=tuple(all_labels),
+        title=title,
         xlabel="Mean predicted P(y=k)",
         ylabel="Observed P(y=k | bin)",
-        line_styles=tuple([":"] + ["-"] * K),
-        colors=tuple(["green"] + [_class_color(i) for i in range(K)]),
+        line_styles=tuple(styles),
+        colors=tuple(all_colors),
     )
 
 
@@ -506,6 +651,8 @@ def compose_multiclass_figure(
     max_cols: int = 2,
     cell_width: float = 6.0,
     cell_height: float = 4.0,
+    overlay_max_classes: int = _OVERLAY_MAX_CLASSES,
+    overlay_top_n: int = _OVERLAY_TOP_N,
 ) -> FigureSpec:
     """Build a multiclass quality FigureSpec from a panel template.
 
@@ -518,6 +665,11 @@ def compose_multiclass_figure(
         for the full vocabulary.
     suptitle : figure suptitle (model identity).
     max_cols : grid width (default 2).
+    overlay_max_classes : above this K the per-class ROC / PR / reliability OVERLAY panels render only the
+        ``overlay_top_n`` worst-by-AUC classes plus a macro-average curve instead of all K (both a speed win --
+        fewer sklearn fits / artists -- and a readability win, since K=50/100 curves are unreadable spaghetti). At
+        K <= this threshold every class still renders (no behaviour change for typical K).
+    overlay_top_n : number of worst-by-AUC classes drawn on the overlay panels when K exceeds the threshold.
     """
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -584,18 +736,27 @@ def compose_multiclass_figure(
     # panel; the per-panel default would recompute the full-n unique once per token.
     shared_sub = _stratified_subsample(np.asarray(y_true_pos), _CURVE_SUBSAMPLE_CAP, seed=0)
     _SUB_TOKENS = {"ROC", "PR_CURVES", "CALIB_GRID", "PROB_DIST"}
+    _OVERLAY_TOKENS = {"ROC", "PR_CURVES", "CALIB_GRID"}
+    # Past the threshold the per-class overlay panels would draw K spaghetti curves (K sklearn fits); restrict them
+    # to the worst-by-AUC classes + a macro-average. Selection is computed ONCE on the shared subsample and reused.
+    K = len(classes)
+    class_subset = None
+    if K > overlay_max_classes and overlay_top_n < K:
+        class_subset = _select_overlay_classes(
+            np.asarray(y_true_pos)[shared_sub], y_proba[shared_sub], overlay_top_n)
     panels: List[PanelSpec] = []
     for tok in tokens:
         kw = {"y_pred": y_pred_pos}
         if tok in _SUB_TOKENS:
             kw["sub"] = shared_sub
+        if tok in _OVERLAY_TOKENS and class_subset is not None:
+            kw["class_subset"] = class_subset
         panels.append(_TOKEN_BUILDERS[tok](y_true_pos, y_proba, classes, **kw))
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0
     # Scale cell width with K so K-class confusion / per-class legends stay legible;
     # the fixed 6.0 squeezes labels past ~6 classes. Capped so very large K stays bounded.
-    K = len(classes)
     eff_cell_width = max(cell_width, min(12.0, cell_width + 0.5 * max(0, K - 6)))
     return FigureSpec(
         suptitle=suptitle,

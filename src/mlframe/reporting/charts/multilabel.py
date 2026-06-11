@@ -25,6 +25,7 @@ Token catalogue (all 7):
 
 from __future__ import annotations
 
+import warnings
 from typing import Callable, Dict, List, Sequence
 
 import numpy as np
@@ -37,6 +38,64 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
+
+
+# Above this K the per-label ROC / reliability overlays put K curves in one panel: slow (K sklearn fits) and unreadable.
+# Past it the composer draws only the OVERLAY_TOP_N worst-by-AUC labels + a macro-average.
+_OVERLAY_MAX_LABELS: int = 12
+_OVERLAY_TOP_N: int = 8
+
+
+def _per_label_auc(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
+    """Per-label one-vs-rest AUC via the rank (Mann-Whitney) identity -- one argsort per column, ties averaged.
+
+    Selecting the worst-N labels needs an AUC for all K; K sklearn calls are the cost the top-N switch avoids. NaN for
+    a degenerate (all-pos / all-neg / all-NaN) column so it never displaces a label with a genuine low AUC.
+    """
+    K = y_true.shape[1]
+    out = np.full(K, np.nan, dtype=np.float64)
+    for k in range(K):
+        col = y_proba[:, k]
+        finite = np.isfinite(col)
+        scores = col[finite]
+        pos = (y_true[finite, k] == 1)
+        n_pos = int(pos.sum())
+        n_neg = scores.shape[0] - n_pos
+        if n_pos == 0 or n_neg == 0:
+            continue
+        ranks = _avg_ranks(scores)
+        rank_sum_pos = ranks[pos].sum()
+        out[k] = (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+    return out
+
+
+def _avg_ranks(scores: np.ndarray) -> np.ndarray:
+    """Tie-averaged ranks (1-based) of ``scores``, fully vectorised (matches ``scipy.stats.rankdata`` 'average').
+
+    Tie averaging is required so the rank-sum AUC matches sklearn on clipped (0/1-saturated) probability columns,
+    which are dense with ties. Run boundaries come from a single diff, not a Python per-run loop.
+    """
+    n = scores.shape[0]
+    order = np.argsort(scores)  # within-tie order irrelevant (tied runs collapse to one average rank)
+    sorted_scores = scores[order]
+    dense = np.empty(n, dtype=np.intp)
+    dense[0] = 0
+    if n > 1:
+        np.cumsum(sorted_scores[1:] != sorted_scores[:-1], out=dense[1:])
+    counts = np.bincount(dense)
+    last_ord = np.cumsum(counts)
+    first_ord = last_ord - counts + 1
+    group_avg = (first_ord + last_ord) / 2.0
+    ranks = np.empty(n, dtype=np.float64)
+    ranks[order] = group_avg[dense]
+    return ranks
+
+
+def _select_overlay_labels(y_true: np.ndarray, y_proba: np.ndarray, top_n: int) -> np.ndarray:
+    """Indices of the ``top_n`` WORST labels by AUC (lowest = hardest); NaN AUC sorts as best. Ascending order."""
+    auc = _per_label_auc(y_true, y_proba)
+    order = np.argsort(np.where(np.isnan(auc), np.inf, auc), kind="stable")
+    return np.sort(order[: min(top_n, len(order))])
 
 
 # ----------------------------------------------------------------------------
@@ -86,18 +145,26 @@ def _pr_f1_panel(y_true, y_proba, labels) -> BarPanelSpec:
     )
 
 
-def _roc_panel(y_true, y_proba, labels) -> LinePanelSpec:
-    """Per-label ROC curves overlaid."""
+def _roc_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
+    """Per-label ROC curves overlaid.
+
+    ``label_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those label
+    indices and appends a macro-average curve, so large K shows ~8 readable curves + macro instead of K spaghetti.
+    """
     from sklearn.metrics import roc_curve, auc
 
     K = y_true.shape[1]
+    draw_idx = list(range(K)) if label_subset is None else [int(k) for k in label_subset]
     x_grid = np.linspace(0.0, 1.0, 200)
     series: List[np.ndarray] = []
     series_labels: List[str] = []
-    for k in range(K):
+    colors: List[str] = []
+    valid_curves: List[np.ndarray] = []
+    for k in draw_idx:
         bin_y = y_true[:, k].astype(np.int8)
         col = y_proba[:, k]
         finite = np.isfinite(col)
+        colors.append(line_color(k))
         # roc_curve rejects non-finite scores; a single class or all-NaN proba column has no defined curve.
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not finite.any():
             series.append(np.full_like(x_grid, np.nan))
@@ -110,32 +177,53 @@ def _roc_panel(y_true, y_proba, labels) -> LinePanelSpec:
             continue
         fpr, tpr, _ = roc_curve(bin_yf, colf)
         roc_auc = auc(fpr, tpr)
-        series.append(np.interp(x_grid, fpr, tpr))
+        curve = np.interp(x_grid, fpr, tpr)
+        series.append(curve)
+        valid_curves.append(curve)
         series_labels.append(f"{labels[k]} (AUC={roc_auc:.3f})")
-    # Chance diagonal (TPR == FPR) anchors AUC=0.5 so curves below it read as worse-than-random.
     chance = x_grid.copy()
+    all_series = [chance] + series
+    all_labels = ["chance"] + series_labels
+    styles = [":"] + ["-"] * len(series)
+    all_colors = ["gray"] + colors
+    if label_subset is not None:
+        macro = np.nanmean(np.vstack(valid_curves), axis=0) if valid_curves else np.full_like(x_grid, np.nan)
+        macro_auc = float(auc(x_grid, macro)) if valid_curves else float("nan")
+        all_series.append(macro)
+        all_labels.append(f"macro-avg (AUC={macro_auc:.3f})")
+        styles.append("--")
+        all_colors.append("black")
+    title = "Per-label ROC"
+    if label_subset is not None:
+        title = f"Per-label ROC: {len(draw_idx)} of {K} labels (worst by AUC) + macro-avg"
     return LinePanelSpec(
         x=x_grid,
-        y=tuple([chance] + series),
-        series_labels=tuple(["chance"] + series_labels),
-        title="Per-label ROC",
+        y=tuple(all_series),
+        series_labels=tuple(all_labels),
+        title=title,
         xlabel="False Positive Rate",
         ylabel="True Positive Rate",
-        line_styles=tuple([":"] + ["-"] * K),
-        colors=tuple(["gray"] + [line_color(i) for i in range(K)]),
+        line_styles=tuple(styles),
+        colors=tuple(all_colors),
     )
 
 
-def _calib_grid_panel(y_true, y_proba, labels) -> LinePanelSpec:
-    """Per-label reliability curves overlaid."""
+def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
+    """Per-label reliability curves overlaid.
+
+    ``label_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those label
+    indices and appends a macro-average reliability curve, so large K stays readable.
+    """
     K = y_true.shape[1]
+    draw_idx = list(range(K)) if label_subset is None else [int(k) for k in label_subset]
     n_bins = 10
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     x_grid = (edges[:-1] + edges[1:]) / 2
 
     series: List[np.ndarray] = []
     series_labels: List[str] = []
-    for k in range(K):
+    colors: List[str] = []
+    for k in draw_idx:
         proba_k = y_proba[:, k]
         true_k = y_true[:, k].astype(np.float64)
         bin_idx = np.clip(np.digitize(proba_k, edges[1:-1]), 0, n_bins - 1)
@@ -147,16 +235,32 @@ def _calib_grid_panel(y_true, y_proba, labels) -> LinePanelSpec:
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
         series_labels.append(str(labels[k]))
+        colors.append(line_color(k))
     diag = x_grid.copy()
+    all_series = [diag] + series
+    all_labels = ["perfect"] + series_labels
+    styles = [":"] + ["-"] * len(series)
+    all_colors = ["green"] + colors
+    if label_subset is not None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # a bin empty in every drawn label -> all-NaN column is fine
+            macro = np.nanmean(np.vstack(series), axis=0) if series else np.full(n_bins, np.nan)
+        all_series.append(macro)
+        all_labels.append("macro-avg")
+        styles.append("--")
+        all_colors.append("black")
+    title = "Per-label reliability"
+    if label_subset is not None:
+        title = f"Per-label reliability: {len(draw_idx)} of {K} labels (worst by AUC) + macro-avg"
     return LinePanelSpec(
         x=x_grid,
-        y=tuple([diag] + series),
-        series_labels=tuple(["perfect"] + series_labels),
-        title="Per-label reliability",
+        y=tuple(all_series),
+        series_labels=tuple(all_labels),
+        title=title,
         xlabel="Mean predicted P(label)",
         ylabel="Observed P(label | bin)",
-        line_styles=tuple([":"] + ["-"] * K),
-        colors=tuple(["green"] + [line_color(i) for i in range(K)]),
+        line_styles=tuple(styles),
+        colors=tuple(all_colors),
     )
 
 
@@ -433,10 +537,17 @@ def compose_multilabel_figure(
     max_cols: int = 2,
     cell_width: float = 6.0,
     cell_height: float = 4.0,
+    overlay_max_labels: int = _OVERLAY_MAX_LABELS,
+    overlay_top_n: int = _OVERLAY_TOP_N,
 ) -> FigureSpec:
     """Build a multilabel quality FigureSpec from a panel template.
 
     y_true / y_proba: (N, K) binary / probability matrices.
+
+    overlay_max_labels : above this K the per-label ROC / reliability OVERLAY panels render only the
+        ``overlay_top_n`` worst-by-AUC labels plus a macro-average curve instead of all K (a speed win -- fewer
+        sklearn fits / artists -- and a readability win). At K <= this threshold every label still renders.
+    overlay_top_n : number of worst-by-AUC labels drawn on the overlay panels when K exceeds the threshold.
     """
     y_true = np.asarray(y_true)
     y_proba = np.asarray(y_proba, dtype=np.float64)
@@ -457,9 +568,17 @@ def compose_multilabel_figure(
             f"Unknown multilabel panel tokens {unknown}. "
             f"Allowed: {sorted(ALLOWED_MULTILABEL_PANEL_TOKENS)}"
         )
-    panels: List[PanelSpec] = [
-        _TOKEN_BUILDERS[tok](y_true, y_proba, labels) for tok in tokens
-    ]
+    K = y_true.shape[1]
+    _OVERLAY_TOKENS = {"ROC", "CALIB_GRID"}
+    label_subset = None
+    if K > overlay_max_labels and overlay_top_n < K:
+        label_subset = _select_overlay_labels(y_true, y_proba, overlay_top_n)
+    panels: List[PanelSpec] = []
+    for tok in tokens:
+        kw = {}
+        if tok in _OVERLAY_TOKENS and label_subset is not None:
+            kw["label_subset"] = label_subset
+        panels.append(_TOKEN_BUILDERS[tok](y_true, y_proba, labels, **kw))
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0

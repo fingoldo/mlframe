@@ -209,6 +209,23 @@ def _b():
     )
 
 
+@entry("multiclass", "multiclass_largeK",
+       "Large-K (K=40): per-class ROC / PR / reliability overlays auto-switch to the 8 worst-by-AUC classes + a macro-average instead of 40 spaghetti curves.")
+def _b():
+    from mlframe.reporting.charts.multiclass import compose_multiclass_figure
+    K = 40
+    y, proba, classes = _multiclass_data(n=20_000, K=K)
+    # Wipe the signal on a few classes so their one-vs-rest AUC is low and they surface as the drawn "worst" curves.
+    for h in (4, 17, 29, 36):
+        proba[:, h] = RNG.random(proba.shape[0])
+    proba /= proba.sum(axis=1, keepdims=True)
+    return compose_multiclass_figure(
+        y, proba, classes,
+        panels_template="CONFUSION ROC PR_CURVES CALIB_GRID",
+        suptitle=f"Multiclass diagnostics (K={K}): overlays show 8 worst-by-AUC classes + macro-avg",
+    )
+
+
 # ---------------------------------------------------------------------------
 # MULTILABEL
 # ---------------------------------------------------------------------------
