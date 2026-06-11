@@ -703,6 +703,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # feature never exceeds 8.3% of the weakest genuine one); 0.15 sits in the middle
         # with ~2x margin both sides. Larger = stricter (drops more as redundant).
         fe_engineered_cmi_retain_frac: float = 0.15,
+        # Strong-significance escape margin for the ``conditional_mi`` acceptance. A candidate
+        # whose observed CMI clears its OWN conditional-permutation floor by at least this
+        # MULTIPLICATIVE margin is admitted even when its debiased excess is below the relative
+        # (TAU) bar. Prevents the FALSE REJECT of a genuinely complementary but individually
+        # WEAKER feature (independent of the admitted support, but adding an order-of-magnitude
+        # less information than a strong incumbent): with one strong seed the TAU bar becomes a
+        # large absolute threshold and would otherwise drop such a feature as "redundant".
+        # A truly redundant feature's CMI collapses to ~its floor (cmi/floor ~1) so the escape
+        # opens no false-ADMIT path. Set <= 1 to disable (pure two-leg behaviour). 3.0 sits with
+        # ~2x margin on both sides of the measured redundant (<=1.4x) vs genuine (>=20x) gap.
+        fe_engineered_cmi_significance_escape_margin: float = 3.0,
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
