@@ -637,6 +637,31 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
 }
 
 
+def register_chain_provenance(chain_name: str, residual_name: str, unary_name: str) -> None:
+    """Register a formula builder + description for a DYNAMICALLY composed
+    auto-chain transform (residual stage then tail-unary stage), composing both
+    from the two stages' static entries. auto-chain registers its composed
+    Transform into the live registry at fit time; this keeps that transform
+    self-describing so it appears in provenance/reports with a real formula
+    instead of the opaque generic stub (and satisfies the coverage invariant
+    that every registered transform has provenance)."""
+    if chain_name in _TRANSFORM_FORMULA_BUILDERS:
+        return
+    res_desc = _TRANSFORM_DESCRIPTIONS.get(residual_name, residual_name)
+    un_desc = _TRANSFORM_DESCRIPTIONS.get(unary_name, unary_name)
+    _TRANSFORM_DESCRIPTIONS[chain_name] = (
+        f"two-stage chain -- {un_desc}, applied to the residual that {res_desc}"
+    )
+
+    def _builder(t: str, b: str, p: dict, _r: str = residual_name, _u: str = unary_name) -> tuple[str, str]:
+        return (
+            f"T = {_u}( {_r}({t}, {b}) )  (residual then tail-compression)",
+            f"y_hat = {_r}^-1( {_u}^-1(T_hat) )",
+        )
+
+    _TRANSFORM_FORMULA_BUILDERS[chain_name] = _builder
+
+
 def _registered_transform_names() -> frozenset[str]:
     """Live registry keys, lazily imported (no import-time coupling; the
     registry is only needed for the formula-coverage meta-test and graceful

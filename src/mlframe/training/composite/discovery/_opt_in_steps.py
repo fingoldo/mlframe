@@ -189,8 +189,12 @@ def _run_auto_chain(
             )
             continue
         for cand in chains:
-            # Register the composed transform so name-based lookup resolves it.
+            # Register the composed transform so name-based lookup resolves it,
+            # plus its provenance so the chain self-describes in reports (and is
+            # not a coverage gap now that auto-chaining is default-ON).
             _TRANSFORMS_REGISTRY.setdefault(cand.chain_name, cand.transform)
+            from ..provenance import register_chain_provenance
+            register_chain_provenance(cand.chain_name, cand.residual_name, cand.unary_name)
             spec = CompositeSpec(
                 name=compose_target_name(target_col, cand.chain_name, base_col),
                 target_col=target_col,
