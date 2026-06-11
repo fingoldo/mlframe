@@ -94,6 +94,44 @@ def _per_query_ndcg10(
     return vals
 
 
+DEFAULT_BOOTSTRAP_B: int = 1_000
+# Bootstrap over QUERIES is bounded by the per-resample mean over a (B, n_queries) gather; cap n_queries per resample
+# so a million-query LTR draws a representative subsample rather than a full (1000, 1e6) gather (4e9 cells / 32 GB).
+_BOOTSTRAP_QUERY_CAP: int = 50_000
+
+
+def bootstrap_ndcg_ci(
+    per_query_ndcg: np.ndarray,
+    *,
+    n_boot: int = DEFAULT_BOOTSTRAP_B,
+    alpha: float = 0.05,
+    seed: int = 0,
+) -> Tuple[float, float, float]:
+    """Bootstrap percentile CI for the mean per-query NDCG, resampling QUERIES (the independent unit).
+
+    Returns ``(mean, lower, upper)`` of the per-query NDCG over the ``1-alpha`` percentile bootstrap. Resampling is the
+    correct unit here -- queries, not rows -- because rows within a query are dependent. Fully vectorised: one
+    ``(n_boot, n_eff)`` integer gather of resampled query indices, ``mean(axis=1)``, then two percentiles; no python
+    bootstrap loop. ``n_eff`` is capped at ``_BOOTSTRAP_QUERY_CAP`` so a huge query count subsamples per resample
+    (the CI narrows with the true query count, which the cap preserves up to its bound). NaN-bracket when no valid query.
+    """
+    vals = np.asarray(per_query_ndcg, dtype=np.float64)
+    vals = vals[~np.isnan(vals)]
+    nq = vals.size
+    if nq == 0:
+        return float("nan"), float("nan"), float("nan")
+    if nq == 1:
+        return float(vals[0]), float(vals[0]), float(vals[0])
+    rng = np.random.default_rng(seed)
+    n_eff = min(nq, _BOOTSTRAP_QUERY_CAP)
+    # Resample n_eff query indices WITH replacement per bootstrap; one (n_boot, n_eff) gather, mean across queries.
+    idx = rng.integers(0, nq, size=(n_boot, n_eff))
+    boot_means = vals[idx].mean(axis=1)
+    lo = float(np.percentile(boot_means, 100.0 * alpha / 2.0))
+    hi = float(np.percentile(boot_means, 100.0 * (1.0 - alpha / 2.0)))
+    return float(vals.mean()), lo, hi
+
+
 def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
     """Mean NDCG@k across queries, k=1..max_per_query.
 
@@ -133,10 +171,12 @@ def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) 
     per_q = ndcg10[(sizes >= 2) & ~np.isnan(ndcg10)]
     if per_q.size == 0:
         per_q = np.array([0.0])
+    # Bootstrap-over-queries 95% CI on the mean: the violin shows the spread, this brackets how well the MEAN is pinned.
+    mean, lo, hi = bootstrap_ndcg_ci(per_q)
     return ViolinPanelSpec(
         groups=(per_q,),
         group_labels=(f"all queries (n={per_q.size})",),
-        title=f"Per-query NDCG@10 (mean={np.mean(per_q):.3f})",
+        title=f"Per-query NDCG@10 (mean={mean:.3f}, 95% CI [{lo:.3f}, {hi:.3f}])",
         xlabel="",
         ylabel="NDCG@10",
     )
@@ -166,14 +206,17 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
     means: List[float] = []
     for b in np.unique(bin_idx):
         m = bin_idx == b
-        lo, hi = int(2 ** b), int(2 ** (b + 1)) - 1
-        label = f"{lo}" if lo == hi else f"{lo}-{hi}"
-        categories.append(f"{label} (n={int(m.sum()):_})")
-        means.append(float(np.mean(vals_v[m])))
+        lo_sz, hi_sz = int(2 ** b), int(2 ** (b + 1)) - 1
+        label = f"{lo_sz}" if lo_sz == hi_sz else f"{lo_sz}-{hi_sz}"
+        # Per-bin bootstrap-over-queries 95% CI: a wide bracket on a sparse bin flags its mean is not yet pinned down.
+        bmean, blo, bhi = bootstrap_ndcg_ci(vals_v[m])
+        categories.append(f"{label} (n={int(m.sum()):_}, CI[{blo:.2f},{bhi:.2f}])")
+        means.append(bmean)
+    omean, olo, ohi = bootstrap_ndcg_ci(vals_v)
     return BarPanelSpec(
         categories=tuple(categories),
         values=np.asarray(means),
-        title="Mean NDCG@10 by query size (small groups inflate NDCG)",
+        title=f"Mean NDCG@10 by query size (small groups inflate NDCG; overall 95% CI [{olo:.3f}, {ohi:.3f}])",
         xlabel="Query size (docs per query, log2 bins)",
         ylabel="Mean NDCG@10",
         xtick_rotation=30.0,
@@ -472,4 +515,6 @@ def compose_ltr_figure(
 __all__ = [
     "ALLOWED_LTR_PANEL_TOKENS",
     "compose_ltr_figure",
+    "bootstrap_ndcg_ci",
+    "DEFAULT_BOOTSTRAP_B",
 ]

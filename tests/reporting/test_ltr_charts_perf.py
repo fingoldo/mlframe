@@ -300,10 +300,11 @@ class TestNDCGByQSizePanel:
         st, ss, gs = _iter_group_slices(yt, ys, gid)
         from mlframe.metrics.ranking import _per_query_ndcg_kernel as _k
         n_valid = int(np.sum(~np.isnan(_k(st, ss, gs, 10))))
-        # Each category label carries "(n=<count>)"; counts sum to n_valid queries.
+        # Each category label carries "(n=<count>, CI[lo,hi])"; the count is the token right after "n=" up to the
+        # comma, and the per-bin counts sum to n_valid queries.
         total = 0
         for cat in panel.categories:
-            n_str = cat.split("n=")[1].rstrip(")").replace("_", "")
+            n_str = cat.split("n=")[1].split(",")[0].rstrip(")").replace("_", "")
             total += int(n_str)
         assert total == n_valid
 
