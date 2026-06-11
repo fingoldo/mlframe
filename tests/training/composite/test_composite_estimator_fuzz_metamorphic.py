@@ -47,9 +47,18 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.transforms import get_transform, list_transforms
 
-# Quiet the wrapper's INFO-level domain-drop / T-clip chatter so a 1000-iter
-# fuzz does not flood the captured log. Errors still surface as exceptions.
-logging.getLogger("mlframe.training.composite").setLevel(logging.CRITICAL)
+@pytest.fixture(autouse=True)
+def _quiet_composite_logger():
+    """Quiet the wrapper's INFO/WARNING domain-drop / T-clip chatter so the fuzz
+    does not flood the captured log -- snapshot + RESTORE the level so caplog
+    warning-assertion tests in other modules are not polluted by a global mute.
+    """
+    lg = logging.getLogger("mlframe.training.composite")
+    prev = lg.level
+    lg.setLevel(logging.CRITICAL)
+    yield
+    lg.setLevel(prev)
+
 
 sklearn_ensemble = pytest.importorskip("sklearn.ensemble")
 HistGradientBoostingRegressor = sklearn_ensemble.HistGradientBoostingRegressor
