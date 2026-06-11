@@ -266,6 +266,13 @@ from .conformal import conformal_quantile  # noqa: E402,F401
 # GLM-family composite (log-link Poisson / Gamma / Tweedie residual over a base mean).
 from .glm import CompositeGLMEstimator  # noqa: E402,F401
 
+# Multi-output composite: one CompositeTargetEstimator per column of a vector
+# target (n, K), each with its own transform + base; predict returns (n, K).
+from .multi_output import (  # noqa: E402,F401
+    CompositeMultiOutputEstimator,
+    make_per_column_specs,
+)
+
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
 # would otherwise pull in. Direct ``from ...composite import <submodule>`` and
@@ -275,6 +282,7 @@ __all__ = [
     # estimators / discovery / ensemble
     "CompositeTargetEstimator", "CompositeClassificationEstimator",
     "CompositeGLMEstimator",
+    "CompositeMultiOutputEstimator", "make_per_column_specs",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
