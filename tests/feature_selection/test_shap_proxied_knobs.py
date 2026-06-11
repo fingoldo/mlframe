@@ -66,7 +66,7 @@ def test_su_seeded_top_k_caps_kept_pairs_to_strongest():
     """``su_seeded_top_k`` bounds how many synergistic pairs survive the SNR gate. On a two-pair bed
     where BOTH clear the default gate, ``top_k=1`` keeps ONLY the higher-synergy pair, ``top_k=8`` keeps
     both. This is the SU-synergy screen ``su_synergy_screen`` consumes ``su_seeded_top_k`` directly."""
-    from mlframe.feature_selection._shap_proxy_interactions import su_synergy_screen
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import su_synergy_screen
 
     X, y = _two_interaction_pairs(n=6000, p_noise=30, seed=0, strong=3.0, weak=2.0)
 
@@ -324,7 +324,7 @@ def test_active_learning_budget_caps_refinement_model_count():
 def test_su_seeded_snr_z_screen_level_gate_monotonic_fast():
     """FAST (no model): the SNR-gate ``su_seeded_snr_z`` is monotone at the screen level -- a higher
     ``snr_z`` can only ever keep a SUBSET of the pairs a lower ``snr_z`` keeps. Runs under MLFRAME_FAST."""
-    from mlframe.feature_selection._shap_proxy_interactions import su_synergy_screen
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import su_synergy_screen
 
     X, y = _two_interaction_pairs(n=4000, p_noise=20, seed=0, strong=3.0, weak=2.0)
 

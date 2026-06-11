@@ -75,6 +75,29 @@ def test_serial_parallel_agree():
     assert {frozenset(c) for _, c in serial[:5]} == {frozenset(c) for _, c in par[:5]}
 
 
+def test_brute_force_n_chunks_bit_identical_to_default():
+    """The HW-aware ``n_chunks=None`` default (``2 * NUMBA_NUM_THREADS``) must be BIT-identical to the
+    legacy 8-chunk fan-out AND to other chunk counts: chunking only partitions the combo enumeration, so
+    every subset's loss and the deterministic ``_merge_topn`` are unchanged. Pins the invariant the
+    many-core speedup relies on -- a future "just bump n_chunks" cannot silently move a selection."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import _resolve_brute_force_n_chunks, brute_force_top_n
+
+    rng = np.random.default_rng(7)
+    phi = rng.normal(size=(220, 11))
+    base = np.full(220, 0.05)
+    margin = base + phi[:, [1, 4, 8]].sum(axis=1)
+    y = (1.0 / (1.0 + np.exp(-margin)) > rng.random(220)).astype(float)
+
+    kw = dict(classification=True, metric="brier", max_card=8, top_n=12)
+    default = brute_force_top_n(phi, base, y, parallel=True, **kw)
+    assert _resolve_brute_force_n_chunks() >= 8
+    for nc in (8, 16, 32, 64):
+        forced = brute_force_top_n(phi, base, y, parallel=True, n_chunks=nc, **kw)
+        assert forced == default, f"n_chunks={nc} diverged from the HW-aware default (must be bit-identical)"
+    serial = brute_force_top_n(phi, base, y, parallel=False, **kw)
+    assert serial == default
+
+
 def test_total_subsets_count():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import total_subsets
 

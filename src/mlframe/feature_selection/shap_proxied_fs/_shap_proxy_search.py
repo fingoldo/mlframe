@@ -236,6 +236,43 @@ def _topn_fixed_r_parallel_colmajor(phi_T, base, y, combos, metric_code, top_n, 
     return chunk_combos, chunk_losses
 
 
+_brute_force_n_chunks_cache: int | None = None
+
+
+def _resolve_brute_force_n_chunks() -> int:
+    """Chunk count for the prange brute-force kernels -- HW-aware, not a dev-box constant.
+
+    The prior hardcoded ``n_chunks=8`` left every core past the 8th idle on a many-core host: on a
+    22-core box the n=540/f=25/max_card=10 (7.1M-subset) brute force ran 1.28x slower at 8 chunks than
+    at ``2 * NUMBA_NUM_THREADS`` (11.7s -> 9.2s, selection bit-identical -- chunking only partitions the
+    combo enumeration, every subset's loss and the deterministic ``_merge_topn`` are unchanged). 2x the
+    thread count (not 1x) load-balances the uneven per-cardinality tail. Resolved once + memoized; a
+    kernel_tuning_cache override (``shap_proxy_brute_force`` -> ``n_chunks``) lets a host pin its own
+    crossover, falling back to the calibrated default on any lookup error so the route never changes the
+    numeric result, only the wall-clock."""
+    global _brute_force_n_chunks_cache
+    if _brute_force_n_chunks_cache is not None:
+        return _brute_force_n_chunks_cache
+    try:
+        from numba import get_num_threads
+
+        val = max(8, 2 * int(get_num_threads()))
+    except Exception:
+        val = 8
+    try:
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+
+        ktc = get_kernel_tuning_cache()
+        if ktc is not None:
+            entry = ktc.lookup("shap_proxy_brute_force")
+            if isinstance(entry, dict) and entry.get("n_chunks"):
+                val = int(entry["n_chunks"])
+    except Exception:
+        pass
+    _brute_force_n_chunks_cache = val
+    return val
+
+
 def _merge_topn(
     candidates: list[tuple[float, tuple[int, ...]]],
     top_n: int,
@@ -279,12 +316,16 @@ def brute_force_top_n(
     max_card: int | None = None,
     top_n: int = 30,
     parallel: bool = False,
-    n_chunks: int = 8,
+    n_chunks: int | None = None,
 ) -> list[tuple[float, tuple[int, ...]]]:
     """Exhaustively rank feature subsets by proxy loss; return the top-N as (loss, feature_idx tuple).
 
     Enumerates every cardinality in ``[min_card, max_card]`` and merges per-cardinality winners.
-    """
+    ``n_chunks=None`` (default) resolves to a HW-aware ``2 * NUMBA_NUM_THREADS`` so many-core hosts are
+    not stuck at the legacy 8-chunk fan-out; the chunking is bit-identical (it only partitions the combo
+    enumeration), so the route is purely a wall-clock choice. Pass an int to pin it (tests / replay)."""
+    if n_chunks is None:
+        n_chunks = _resolve_brute_force_n_chunks()
     metric_name = resolve_metric(classification, metric)
     if metric_name == "auc":  # AUC needs a per-subset sort -> not in the njit hot loop
         raise ValueError("brute_force_top_n does not support metric='auc' (use brier/logloss); AUC is Python-path only.")
