@@ -22,6 +22,18 @@ from mlframe.reporting.output import (
 )
 from mlframe.reporting.auto_dispatch import render_multi_target_panels
 from mlframe.reporting.catalog import available_panels, describe_available_panels
+from mlframe.reporting.report_html import ChartEntry, build_combined_report
+from mlframe.reporting.charts import (
+    build_calibration_drift_spec,
+    build_decision_curve_spec,
+    calibration_drift,
+    compose_model_comparison_figure,
+    compose_pdp_figure,
+    compose_target_acf_figure,
+    find_weak_slices,
+    is_tree_model,
+    shap_summary_and_dependence,
+)
 
 __all__ = [
     "PlotOutputSpec",
@@ -30,4 +42,15 @@ __all__ = [
     "render_multi_target_panels",
     "available_panels",
     "describe_available_panels",
+    "ChartEntry",
+    "build_combined_report",
+    "compose_pdp_figure",
+    "compose_model_comparison_figure",
+    "build_decision_curve_spec",
+    "find_weak_slices",
+    "shap_summary_and_dependence",
+    "is_tree_model",
+    "calibration_drift",
+    "build_calibration_drift_spec",
+    "compose_target_acf_figure",
 ]
