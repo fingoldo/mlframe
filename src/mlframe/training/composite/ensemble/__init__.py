@@ -902,4 +902,10 @@ def compute_oof_holdout_predictions(
 
 from ._cross_target import CompositeCrossTargetEnsemble  # noqa: F401, E402
 from ._calibration import OutputCalibrator, fit_output_calibrator  # noqa: F401, E402
+from ._stackers import (  # noqa: F401, E402
+    META_STACKER_KINDS,
+    build_meta_stack_ensemble,
+    fit_gbm_meta_stacker,
+    fit_ridge_meta_stacker,
+)
 

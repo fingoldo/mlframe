@@ -588,6 +588,37 @@ class CompositeCrossTargetEnsemble:
         preds_matrix = np.column_stack([p for p, _ in ok])
         weights = np.array([w for _, w in ok], dtype=np.float64)
 
+        # Meta-stack strategies (meta_ridge / meta_gbm): a fitted meta-model maps the (n, K) per-component prediction
+        # matrix to the blended output non-linearly. This branch only fires when ``_meta_model`` is attached (the
+        # ``build_meta_stack_ensemble`` path); when it is absent the predict path below is byte-for-byte the legacy linear
+        # blend, so the default NNLS / oof_weighted / mean ensembles stay bit-identical.
+        _meta = getattr(self, "_meta_model", None)
+        if _meta is not None:
+            if len(surviving_idx) == len(self.component_models):
+                _raw = np.asarray(_meta.predict(preds_matrix), dtype=np.float64).reshape(-1)
+                return self._apply_output_calibration(_raw)
+            # A component dropped out at predict time. The meta-model expects the full K-column design it was fit on; we
+            # cannot drop a column without changing its input space. Reconstruct the full matrix, filling the missing
+            # column with that component's OOF/train mean (a neutral, deterministic stand-in), so predict stays a pure
+            # function of the inputs. This is a graceful degradation, NOT a refit.
+            n_rows = preds_matrix.shape[0]
+            full = np.empty((n_rows, len(self.component_models)), dtype=np.float64)
+            _means = getattr(self, "_meta_col_means", None)
+            for col, p in enumerate(per_component):
+                if p is not None:
+                    full[:, col] = p
+                elif _means is not None and col < len(_means):
+                    full[:, col] = float(_means[col])
+                else:
+                    full[:, col] = 0.0
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; filling missing "
+                "meta-stacker columns with per-component means (graceful degradation, no refit).",
+                self.strategy, len(self.component_models) - len(surviving_idx), len(self.component_models),
+            )
+            _raw = np.asarray(_meta.predict(full), dtype=np.float64).reshape(-1)
+            return self._apply_output_calibration(_raw)
+
         if not getattr(self, "is_convex", True):
             # Non-convex strategies (linear_stack, nnls_stack): weights are the raw solver output,
             # possibly negative (Ridge) or with arbitrary sum (NNLS). When every component is present
@@ -658,6 +689,9 @@ class CompositeCrossTargetEnsemble:
             raise ValueError(
                 f"_blend_oof_matrix: matrix has shape {M.shape}; expected (n, {len(self.component_models)})."
             )
+        _meta = getattr(self, "_meta_model", None)
+        if _meta is not None:
+            return np.asarray(_meta.predict(M), dtype=np.float64).reshape(-1)
         w = np.asarray(self.weights, dtype=np.float64)
         if not getattr(self, "is_convex", True):
             intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
