@@ -201,10 +201,17 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         online_refit_buffer_n: int = 10_000,
         online_refit_z_threshold: float = 3.0,
         online_refit_min_buffer_n: int = 200,
+        recurrence_continuation: bool = False,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
         self.base_column = base_column
+        # Opt-in: for the LEFT-RECURRENT transforms (ewma_residual / frac_diff /
+        # rolling_quantile_ratio) seed the predict-time inverse from the train-
+        # TAIL state instead of the train mean, so a predict batch that continues
+        # the training series is not biased on its first ~k rows. Default OFF
+        # keeps predict stateless (a fresh batch is not assumed to follow train).
+        self.recurrence_continuation = recurrence_continuation
         # Rolling-buffer streaming alpha refit. When ``online_refit_enabled=True``, the wrapper carries a rolling buffer of last-N (y, base) observations across ``update()`` calls; each update runs ``streaming_alpha_check_and_refit`` and, when |z| > threshold, updates ``self.fitted_params_["alpha"]`` / ``["beta"]`` in-place so subsequent predict() calls use the drift-corrected coefficients. Default OFF: stateful estimators break sklearn.clone() (cloned instance starts with empty buffer) so the flag is explicit opt-in. The buffer fields use trailing underscore (``self._buffer_y_``) to mark runtime-only state; sklearn.clone() ignores those.
         self.online_refit_enabled = online_refit_enabled
         self.online_refit_buffer_n = online_refit_buffer_n
@@ -835,6 +842,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "n_train_valid": int(y_train.size),
             "n_train_invalid": n_invalid,
         }
+        # Recurrence-continuation seeding: a fitted (persisted) decision read by
+        # the recurrent inverse, so a fresh CompositeTargetEstimator stays
+        # stateless unless the caller explicitly opted in.
+        if getattr(self, "recurrence_continuation", False):
+            self.fitted_params_["recurrence_continuation"] = True
         # Best-effort feature names (pandas / polars). Narrowed except: an ndarray X legitimately lacks ``.columns`` (AttributeError); anything else (e.g. a polars frame whose column iteration raises) is anomalous and should surface, not silently swallow under bare Exception.
         try:
             self.feature_names_in_ = list(X.columns)

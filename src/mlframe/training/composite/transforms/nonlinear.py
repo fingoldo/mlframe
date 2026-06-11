@@ -514,7 +514,25 @@ def _ewma_residual_fit(
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     finite = _finite_mask if _finite_mask is not None else np.isfinite(base_f)
     anchor = float(np.mean(base_f[finite])) if finite.any() else 0.0
-    return {"k": k, "anchor": anchor}
+    # tail_anchor is the EWMA state at the LAST train row -- the recency-correct
+    # seed for a predict batch that CONTINUES the training series. Opt-in via the
+    # estimator's recurrence_continuation flag; the default mean ``anchor`` keeps
+    # predict stateless (a fresh batch is not assumed to follow train).
+    tail_anchor = anchor
+    if finite.any():
+        _trace = _ewma_compute(base_f, k, anchor)
+        _tf = _trace[np.isfinite(_trace)]
+        if _tf.size:
+            tail_anchor = float(_tf[-1])
+    return {"k": k, "anchor": anchor, "tail_anchor": tail_anchor}
+
+
+def _ewma_anchor(params: dict[str, Any]) -> float:
+    """Mean anchor by default; the train-tail state when the estimator opted into
+    recurrence-continuation seeding (streaming a continuation of the train series)."""
+    if params.get("recurrence_continuation") and "tail_anchor" in params:
+        return float(params["tail_anchor"])
+    return float(params["anchor"])
 def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
     """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), keeping the recursion well-defined on rows the upstream domain check did not yet flag. Single-spec public API; routes through :func:`_ewma_dispatch` so a future force-override or HW-tuned threshold can replace the default njit path without touching every caller. Numba kernel ~300x over pure Python on n=1M; pure-Python fallback otherwise.
     """
@@ -730,7 +748,7 @@ def _ewma_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     return np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
-        base, int(params["k"]), float(params["anchor"]),
+        base, int(params["k"]), _ewma_anchor(params),
     )
 def _ewma_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
@@ -820,7 +838,17 @@ def _frac_diff_fit(
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     finite = _finite_mask if _finite_mask is not None else np.isfinite(y_f)
     anchor = float(np.mean(y_f[finite])) if finite.any() else 0.0
-    return {"d": d, "lags": lags, "anchor": anchor, "weights": _frac_diff_weights(d, lags).tolist()}
+    # tail_anchor pads the pre-window history from the LAST ``lags`` train rows
+    # (recency-correct seed for a continuation predict batch) instead of the
+    # whole-train mean. Opt-in via recurrence_continuation; default stays mean.
+    tail_anchor = anchor
+    _yt = y_f[finite]
+    if _yt.size:
+        tail_anchor = float(np.mean(_yt[-lags:]))
+    return {
+        "d": d, "lags": lags, "anchor": anchor, "tail_anchor": tail_anchor,
+        "weights": _frac_diff_weights(d, lags).tolist(),
+    }
 def _frac_diff_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
@@ -839,7 +867,7 @@ def _frac_diff_inverse(
     """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc. Routes through :func:`_frac_diff_inverse_compute` -> :func:`_frac_diff_inverse_dispatch` so kernel_tuning_cache + env-var force-override choose the backend; default keeps the scalar njit kernel (~260x over pure Python on n=1M, lags=30)."""
     lags = int(params["lags"])
     weights = np.ascontiguousarray(np.asarray(params["weights"], dtype=np.float64))
-    anchor = float(params["anchor"])
+    anchor = _ewma_anchor(params)  # mean by default, train-tail when opted in
     t_f = np.ascontiguousarray(np.asarray(t_hat, dtype=np.float64).reshape(-1))
     return _frac_diff_inverse_compute(t_f, lags, weights, anchor)
 def _frac_diff_domain(
