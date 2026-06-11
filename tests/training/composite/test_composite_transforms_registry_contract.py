@@ -45,6 +45,7 @@ _TRANSFORM_RTOL: dict[str, float] = {
     "linear_residual_multi": 1e-9,
     "linear_residual_grouped": 1e-9,
     "linear_residual_robust": 1e-9,
+    "theilsen_residual": 1e-9,
     "ratio": 1e-9,
     "logratio": 5e-1,  # MAD soft-cap clips extreme values
     "median_residual": 1.0,  # per-bin median lookup, not invertible row-wise

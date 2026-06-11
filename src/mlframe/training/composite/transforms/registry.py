@@ -66,6 +66,7 @@ from .linear import (
     _linear_residual_multi_forward,
     _linear_residual_multi_inverse,
     _linear_residual_robust_fit,
+    _theilsen_residual_fit,
     _logratio_domain,
     _logratio_fit,
     _logratio_forward,
@@ -367,6 +368,26 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "(alpha, beta) are fitted. Bench (1M rows, 5% Cauchy outliers): "
             "0.12s, alpha err 0.01%, beta err 2.40% -- vs plain OLS 95% beta err "
             "and Huber/RANSAC/LAD 30-80x slower for similar accuracy."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "theilsen_residual": Transform(
+        name="theilsen_residual",
+        forward=_linear_residual_forward,
+        inverse=_linear_residual_inverse,
+        fit=_theilsen_residual_fit,
+        domain_check=_linear_residual_domain,
+        description=(
+            "High-breakdown robust variant of linear_residual via Theil-Sen: "
+            "alpha = median over point-pairs of (y_j - y_i)/(base_j - base_i), "
+            "beta = median(y - alpha*base). Tolerates ~29% gross outliers in "
+            "EITHER y or base without the OLS-seed fragility of "
+            "linear_residual_robust (whose trimming starts from an OLS pass a "
+            "clustered outlier mass can already drag). Forward / inverse "
+            "identical to linear_residual once (alpha, beta) are fitted. "
+            "Theil-Sen is O(n^2) in pairs; for large n the pairwise-slope "
+            "computation is subsampled to a fixed-seed random pair set capped "
+            "at _THEILSEN_MAX_PAIRS, keeping the breakdown robustness."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),

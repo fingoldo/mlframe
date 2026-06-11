@@ -33,6 +33,7 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "logratio": "logr",
     "linear_residual": "linres",
     "linear_residual_robust": "linresR",
+    "theilsen_residual": "tsres",
     "linear_residual_multi": "linresM",
     "linear_residual_grouped": "linresG",
     "quantile_residual": "qres",

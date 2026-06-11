@@ -38,6 +38,7 @@ from . import (  # noqa: E402
     _LINRES_ROBUST_MAD_K,
     _LINRES_ROBUST_MIN_KEEP_FRAC,
     _MULTI_BASE_COND_NUMBER_MAX,
+    _THEILSEN_MAX_PAIRS,
 )
 
 
@@ -201,6 +202,78 @@ def _linear_residual_robust_fit(
     # Pass 2: OLS on the inlier set.
     sw2 = None if sample_weight is None else np.asarray(sample_weight)[keep]
     return _linear_residual_fit(y[keep], base[keep], sample_weight=sw2)
+def _theilsen_residual_fit(
+    y: np.ndarray, base: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Theil-Sen (median-of-pairwise-slopes) robust line fit.
+
+    The slope ``alpha`` is the median of the pairwise slopes
+    ``(y_j - y_i) / (base_j - base_i)`` over all point pairs ``i < j``; the
+    intercept ``beta`` is the median of ``y - alpha * base``. Both are
+    high-breakdown estimators (~29.3% breakdown for the slope), so up to
+    ~29% of the rows can be gross outliers in EITHER ``y`` or ``base``
+    without corrupting the fit -- unlike OLS (``linear_residual``, breakdown
+    0%) or the one-shot trimmed-LS (``linear_residual_robust``, which still
+    seeds from an OLS pass that a clustered outlier mass can already drag).
+
+    Returns the same ``{"alpha", "beta"}`` dict as
+    :func:`_linear_residual_fit`, so the shared ``linear_residual``
+    forward / inverse / domain functions apply unchanged.
+
+    Complexity. Theil-Sen is O(n^2) in the number of point pairs. For large
+    ``n`` we cap the work at ``_THEILSEN_MAX_PAIRS`` by drawing a random
+    subsample of pairs with a fixed-seed generator (deterministic across
+    runs / processes). The subsampled estimator is the standard scalable
+    Theil-Sen variant and keeps the breakdown-point robustness; only the
+    finite-sample slope variance grows slightly versus the full O(n^2) fit.
+    ``sample_weight`` is accepted for API symmetry but does NOT reweight the
+    median (weighting a median is ill-defined for small clusters); it is
+    ignored here, matching the per-group OLS weight handling.
+    """
+    n = len(y)
+    if n < 2:
+        return {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
+
+    y_f = y.astype(np.float64)
+    base_f = base.astype(np.float64)
+    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    if not finite.all():
+        y_f = y_f[finite]
+        base_f = base_f[finite]
+    n = y_f.size
+    if n < 2:
+        return {"alpha": 0.0, "beta": float(np.mean(y_f)) if n > 0 else 0.0}
+
+    # Full pair count is n*(n-1)/2. Subsample when it exceeds the cap.
+    total_pairs = n * (n - 1) // 2
+    rng = np.random.default_rng(0)
+    if total_pairs <= _THEILSEN_MAX_PAIRS:
+        i_idx, j_idx = np.triu_indices(n, k=1)
+    else:
+        # Draw random ordered index pairs and reject self-pairs. A small
+        # oversample factor compensates for the rejected diagonal so we end
+        # up with ~_THEILSEN_MAX_PAIRS usable pairs in one pass.
+        m = int(_THEILSEN_MAX_PAIRS * 1.05) + 1
+        i_idx = rng.integers(0, n, size=m)
+        j_idx = rng.integers(0, n, size=m)
+        keep = i_idx != j_idx
+        i_idx = i_idx[keep][:_THEILSEN_MAX_PAIRS]
+        j_idx = j_idx[keep][:_THEILSEN_MAX_PAIRS]
+
+    db = base_f[j_idx] - base_f[i_idx]
+    dy = y_f[j_idx] - y_f[i_idx]
+    # Drop pairs with (near-)tied base (vertical slope / 0/0); the median
+    # over the remaining finite slopes is the Theil-Sen estimate.
+    valid = np.abs(db) > 0.0
+    slopes = dy[valid] / db[valid]
+    slopes = slopes[np.isfinite(slopes)]
+    if slopes.size == 0:
+        # Degenerate: base is (near-)constant -> no slope information.
+        return {"alpha": 0.0, "beta": float(np.median(y_f))}
+    alpha = float(np.median(slopes))
+    beta = float(np.median(y_f - alpha * base_f))
+    return {"alpha": alpha, "beta": beta}
 def _linear_residual_multi_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,

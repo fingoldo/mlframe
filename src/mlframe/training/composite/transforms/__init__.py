@@ -193,6 +193,9 @@ _LINRES_ROBUST_MAD_K: float = 3.0
 _LINRES_ROBUST_MIN_KEEP_FRAC: float = 0.5
 """Safety: if the MAD-trim would drop more than (1 - this) of rows, fall back to plain OLS. Protects against pathological all-outlier targets where MAD is too small and trimming becomes destructive."""
 
+_THEILSEN_MAX_PAIRS: int = 1_000_000
+"""Cap on the number of (i, j) point pairs used by the Theil-Sen slope estimate. Theil-Sen is O(n^2) in the number of pairs; above this cap a random subsample of pairs is drawn (seeded for determinism) so the fit stays bounded on large-n targets while keeping the breakdown-point robustness."""
+
 # Condition-number gate above which joint OLS is considered unstable
 # and the multi-base transform falls back to zero-alpha + intercept.
 # 30 is the conventional threshold (Belsley/Kuh/Welsch); above that,
@@ -289,6 +292,7 @@ from .linear import (  # noqa: E402,F401
     _linear_residual_inverse, _linear_residual_multi_domain,
     _linear_residual_multi_fit, _linear_residual_multi_forward,
     _linear_residual_multi_inverse, _linear_residual_robust_fit,
+    _theilsen_residual_fit,
     _logratio_domain, _logratio_fit, _logratio_forward, _logratio_inverse,
 )
 from .nonlinear import (  # noqa: E402,F401

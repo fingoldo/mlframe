@@ -206,6 +206,8 @@ _TRANSFORM_DESCRIPTIONS: dict[str, str] = {
                         "fitted linear contribution of the base feature"),
     "linear_residual_robust": ("predicts the residual after subtracting an "
                               "outlier-robust (trimmed-LS) linear contribution of the base"),
+    "theilsen_residual": ("predicts the residual after subtracting a high-breakdown "
+                         "robust (Theil-Sen median-of-slopes) linear contribution of the base"),
     "linear_residual_multi": ("predicts the residual after subtracting a fitted "
                              "linear combination of several base features"),
     "linear_residual_grouped": ("predicts the residual after subtracting a "
@@ -516,6 +518,17 @@ def _f_linear_residual_robust(t: str, b: str, p: dict) -> tuple[str, str]:
     return _f_linear_residual(t, b, p)
 
 
+def _f_theilsen_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    # Same forward/inverse algebra as linear_residual once the Theil-Sen
+    # (median-of-pairwise-slopes) alpha + median-intercept beta are fitted.
+    alpha = float(p.get("alpha", 0.0))
+    beta = float(p.get("beta", 0.0))
+    return (
+        f"T = {t} - {alpha:.4g} * {b} - ({beta:.4g})  (alpha=Theil-Sen median slope)",
+        f"y_hat = T_hat + {alpha:.4g} * {b} + ({beta:.4g})",
+    )
+
+
 def _f_chain_linres_cbrt(t: str, b: str, p: dict) -> tuple[str, str]:
     bp = p.get("bivariate_params", {}) or {}
     alpha = _fmt(bp.get("alpha"))
@@ -594,6 +607,7 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
     "logratio": _f_logratio,
     "linear_residual": _f_linear_residual,
     "linear_residual_robust": _f_linear_residual_robust,
+    "theilsen_residual": _f_theilsen_residual,
     "linear_residual_multi": _f_linear_residual_multi,
     "linear_residual_grouped": _f_linear_residual_grouped,
     "quantile_residual": _f_quantile_residual,
