@@ -293,6 +293,17 @@ def _run_fe_step(
     #      zero-marginal product x3*x400 (rank #0/2000, jMI 1.51). The "smooth/rotated interactions trees
     #      miss" argument applies to the GBM seeder's AXIS-ALIGNED trees (#6/#21), NOT to the joint-MI sweep
     #      that #9 was meant to replace.
+    # RE-CONFIRMED (2026-06-11, cycle-10) on the 3-WAY trees-miss case. Cycle-5 proved the #6 GBM
+    # seeder is GREEDY-BLIND to pure 3-way synergy (sign(x7*x42*x113)+0.3noise, n=4000/p=200, needle
+    # rank 0/3), so RFF was re-attempted as the last open NON-GREEDY path. Decisive A/B/C
+    # (D:/Temp/cycle10_rff_results.md): (A) 2-way x3*x400 p=500 R=4000 -> support recall 0->0 (needle
+    # NEVER drawn, P(hit)~1.9%); (B) 3-way p=200 R=8000 sparse-3 -> support recall 0->0 (needle NEVER
+    # drawn, P(hit)~0.36%); (C) pure-noise -> 0 promoted (floor holds). When the needle support is
+    # INJECTED, the uplift DOES score it (3-way covered uplift 0.0224 > additive baseline 0.0077 and >
+    # all 2-subsets ~0) -- so the scorer is NOT greedy-blind to 3-way; the wall is purely COVERAGE.
+    # 0.95-recall of ONE needle needs ~623k draws (2-way) / ~6.56M (3-way) == ~85x the full
+    # deterministic enumeration cost in BOTH regimes. Pure 3-way stays UNREACHED: trees are
+    # greedy-blind, RFF is coverage-blind; only direct order-3 enumeration (raise the cap) recovers it.
     # The correct fix for "needle missed when p > fe_synergy_screen_max_features" is to RAISE/relax that cap
     # (and its fe_synergy_max_sweep_cost n*p^2 budget): the direct all-pairs joint-MI bootstrap recovers
     # both the zero-marginal and the smooth needle DETERMINISTICALLY and ~17x cheaper at p<=1000 (full sweep
