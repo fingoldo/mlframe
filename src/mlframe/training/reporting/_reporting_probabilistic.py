@@ -112,6 +112,7 @@ def report_probabilistic_model_perf(
     reliability_show_ci: bool | None = None,
     reliability_smoothed: bool = True,
     fairness_calibration_charts: bool = True,
+    calibration_by_feature_charts: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -785,6 +786,15 @@ def report_probabilistic_model_perf(
                 plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
             )
 
+    # Per-feature calibration: a pooled reliability curve can hide miscalibration that varies with a continuous
+    # feature (calibrated for low values, overconfident for high). Render reliability+ECE conditioned on the
+    # top-importance feature(s) for binary targets. Default-ON when charts are saved AND a feature frame is present.
+    if calibration_by_feature_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
+        _render_calibration_by_feature(
+            df=df, columns=columns, model=model, y_true=targets, pos_score=probs[:, 1],
+            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+        )
+
     return preds, probs
 
 
@@ -839,5 +849,69 @@ def _render_fairness_calibration(
 
     if metrics is not None and disparities:
         metrics.update(dict(fairness_calibration_disparity=disparities))
+
+
+def _top_importance_features(model: Any, columns: Sequence[str], top_k: int) -> list[str]:
+    """Top-k feature names by the model's ``feature_importances_``, aligned to ``columns``. Empty when unavailable."""
+    imp = getattr(model, "feature_importances_", None)
+    if imp is None:
+        return []
+    imp = np.asarray(imp, dtype=np.float64).ravel()
+    cols = list(columns)
+    if imp.shape[0] != len(cols) or not np.isfinite(imp).any():
+        return []
+    order = np.argsort(imp)[::-1][:top_k]
+    return [cols[i] for i in order]
+
+
+def _render_calibration_by_feature(
+    *,
+    df: pd.DataFrame,
+    columns: Sequence[str],
+    model: Any,
+    y_true: np.ndarray | pd.Series,
+    pos_score: np.ndarray,
+    plot_file: str,
+    plot_outputs: str | None,
+    metrics: dict[str, Any] | None,
+) -> None:
+    """Render per-feature calibration (reliability + ECE by feature quantile bin) for the top-importance features.
+
+    The top-1..2 features by ``model.feature_importances_`` are pulled from ``df`` as continuous columns; each yields
+    a small-multiples reliability figure + an ECE-vs-feature-bin line + the max-min "calibration heterogeneity"
+    metric. Non-numeric / missing columns and degenerate features are skipped per feature so one bad column never
+    aborts the report.
+    """
+    from mlframe.reporting.charts.calibration_by_feature import (
+        compose_calibration_by_feature_figure, compute_calibration_by_feature_heterogeneity,
+    )
+
+    feats = _top_importance_features(model, columns, top_k=2)
+    if not feats or not hasattr(df, "__getitem__"):
+        return
+    yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
+    _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
+    heterogeneity: dict[str, Any] = {}
+
+    for fname in feats:
+        try:
+            col = df[fname]
+            fv = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
+            fv = np.asarray(fv, dtype=np.float64).ravel()  # NaN for non-numeric; dropped downstream
+            if fv.shape[0] != yt.shape[0]:
+                continue
+            het = compute_calibration_by_feature_heterogeneity(yt, pos_score, fv)
+            heterogeneity[str(fname)] = het
+            spec = compose_calibration_by_feature_figure(yt, pos_score, fv, feature_name=str(fname))
+            _slug = _slugify_class(str(fname))
+            base_path = f"{plot_file}_calibfeat_{_slug}"
+            from mlframe.reporting.output import parse_plot_output_dsl
+            from mlframe.reporting.renderers import render_and_save
+            render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
+        except Exception as e:
+            logger.debug("calibration_by_feature chart for %r skipped: %s", fname, e)
+
+    if metrics is not None and heterogeneity:
+        metrics.update(dict(calibration_by_feature_heterogeneity=heterogeneity))
 
 

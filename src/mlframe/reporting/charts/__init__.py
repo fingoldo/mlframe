@@ -33,6 +33,9 @@ from mlframe.reporting.charts.drift import (
 from mlframe.reporting.charts.fairness_calibration import (
     compose_fairness_calibration_figure, compute_subgroup_ece_disparity,
 )
+from mlframe.reporting.charts.calibration_by_feature import (
+    compose_calibration_by_feature_figure, compute_calibration_by_feature_heterogeneity,
+)
 from mlframe.reporting.charts.model_comparison import compose_model_comparison_figure
 from mlframe.reporting.charts.model_card import (
     ModelCardVerdict, compose_model_card_figure, model_card_verdict,
@@ -99,6 +102,8 @@ __all__ = [
     "pdp_2d_panel",
     "compose_model_comparison_figure",
     "compose_fairness_calibration_figure",
+    "compose_calibration_by_feature_figure",
+    "compute_calibration_by_feature_heterogeneity",
     "compute_subgroup_ece_disparity",
     "compose_model_card_figure",
     "model_card_verdict",

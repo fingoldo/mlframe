@@ -598,6 +598,22 @@ def _b():
     return compose_fairness_calibration_figure(y, score_mis, labels)
 
 
+@entry("calibration_by_feature", "calibration_by_feature",
+       "Per-feature calibration: reliability + ECE conditioned on quantile bins of a continuous feature. The model is "
+       "calibrated for low feature values but overconfident for high ones, so the per-bin ECE line climbs across the "
+       "feature range and the max-min heterogeneity metric trips red -- a miscalibration a single pooled curve hides.")
+def _b():
+    from mlframe.reporting.charts.calibration_by_feature import compose_calibration_by_feature_figure
+    n = 16000
+    feature = RNG.normal(0.0, 1.0, size=n)
+    score = RNG.random(n)
+    y = (RNG.random(n) < score).astype(np.int64)
+    # Overconfident only where the feature is high (concave warp on the upper half) -> calibration degrades with feature.
+    high = feature > np.median(feature)
+    score[high] = np.clip(score[high] ** 0.3, 1e-3, 1 - 1e-3)
+    return compose_calibration_by_feature_figure(y, score, feature, feature_name="risk_score", n_feature_bins=4)
+
+
 # ---------------------------------------------------------------------------
 # PDP / ICE
 # ---------------------------------------------------------------------------
