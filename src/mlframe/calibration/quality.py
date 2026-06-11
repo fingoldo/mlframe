@@ -13,6 +13,7 @@ from __future__ import annotations
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +330,38 @@ def show_classifier_calibration(
 # ---------------------------------------------------------------------------------------------------------------
 
 
+def build_pit_diagram_spec(
+    pit_values: np.ndarray,
+    *,
+    caption: str = "",
+    bins: int = 20,
+    figsize: tuple = (15, 5),
+):
+    """Build the single-source PIT-diagram FigureSpec (density histogram + KS-vs-uniform title).
+
+    Same PIT histogram the binary ``PIT`` panel renders; kept here so ``plot_pit_diagram``
+    routes through the renderer pipeline instead of a standalone pyplot figure.
+    """
+    from mlframe.reporting.spec import FigureSpec, HistogramPanelSpec
+
+    pit_values = np.clip(np.asarray(pit_values, dtype=np.float64), 0.0, 1.0)
+    ks_stat = kolmogorov_smirnov_statistic(pit_values) if len(pit_values) else float("nan")
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    heights, _ = np.histogram(pit_values, bins=edges, density=True)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    title = (caption + " " if caption else "") + f"PIT Diagram (KS-vs-uniform={ks_stat:.4f})"
+    panel = HistogramPanelSpec(
+        values=heights,
+        bin_centers=centers,
+        bin_width=float(edges[1] - edges[0]),
+        title=title,
+        xlabel="PIT value",
+        ylabel="Density",
+        density=False,
+    )
+    return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
+
+
 def plot_pit_diagram(
     predicted_probs: np.ndarray = None,
     true_labels: np.ndarray = None,
@@ -337,6 +370,7 @@ def plot_pit_diagram(
     bins: int = 20,
     figsize: tuple = (15, 5),
     plot_file: str = "",
+    plot_outputs: str = "",
 ):
     """
     Plots a Probability Integral Transform (PIT) diagram for binary predictions.
@@ -346,39 +380,45 @@ def plot_pit_diagram(
         true_labels (array-like): Binary true labels (0 or 1).
         bins (int): Number of bins for the histogram.
         plot_file (str): when set, save the figure here (``.png`` appended if no extension).
+        plot_outputs (str): optional plot-output DSL (e.g. ``"matplotlib[png] + plotly[html]"``);
+            overrides ``plot_file``'s single-format inference when supplied.
 
-    The figure is always closed afterwards (no pyplot-registry leak) and shown only on an
-    interactive backend.
+    Routes through the spec pipeline (``build_pit_diagram_spec`` + the renderer) so the PIT
+    histogram shares the single binary-PIT implementation rather than a standalone pyplot
+    figure. The renderer closes its figure afterwards and shows only on an interactive backend.
     """
-
     if pit_values is None:
-        # Ensure inputs are numpy arrays
         predicted_probs = np.asarray(predicted_probs)
         true_labels = np.asarray(true_labels)
-
-        # Compute PIT values
         pit_values = np.where(true_labels == 1, predicted_probs, 1 - predicted_probs)
 
-    ks_stat = kolmogorov_smirnov_statistic(pit_values)
-    caption += f" PIT Diagram. KS={ks_stat:.4f}"
+    from mlframe.reporting.output import parse_plot_output_dsl
+    from mlframe.reporting.renderers import render_and_save
 
-    fig = plt.figure(figsize=figsize)
-    plt.hist(pit_values, bins=bins, range=(0, 1), density=True, alpha=0.75, edgecolor="black", color="skyblue")
-    plt.axhline(1, color="green", linestyle="--", label="Perfect calibration")
-    plt.xlabel("Predicted probs CDF")
-    plt.ylabel("Frequency")
-    plt.title(caption)
-    plt.legend()
-    plt.grid(True, linestyle="--", alpha=0.7)
+    spec = build_pit_diagram_spec(pit_values, caption=caption, bins=bins, figsize=figsize)
 
-    if plot_file:
-        import os as _os
-        _root, _ext = _os.path.splitext(plot_file)
-        fig.savefig(plot_file if _ext else plot_file + ".png", bbox_inches="tight")
+    if plot_outputs:
+        outputs = parse_plot_output_dsl(plot_outputs)
+        base = os.path.splitext(plot_file)[0] if plot_file else "pit_diagram"
+    elif plot_file:
+        root, ext = os.path.splitext(plot_file)
+        fmt = ext.lstrip(".").lower() or "png"
+        outputs = parse_plot_output_dsl(f"matplotlib[{fmt}]")
+        base = root or "pit_diagram"
+    else:
+        # No on-disk target: render via matplotlib and show only when interactive (no-op on Agg).
+        outputs = parse_plot_output_dsl("matplotlib[png]")
+        base = ""
 
-    from mlframe.metrics.calibration import _close_unless_interactive, _show_plots_unless_agg
-    _was_shown = _show_plots_unless_agg()
-    _close_unless_interactive(fig, was_shown=_was_shown)
+    if base:
+        render_and_save(spec, outputs, base)
+    else:
+        from mlframe.reporting.renderers import get_renderer
+        from mlframe.metrics.calibration import _close_unless_interactive, _show_plots_unless_agg
+        renderer = get_renderer("matplotlib")
+        fig = renderer.render(spec)
+        was_shown = _show_plots_unless_agg()
+        _close_unless_interactive(fig, was_shown=was_shown)
 
 
 def kolmogorov_smirnov_statistic(pit_values):
