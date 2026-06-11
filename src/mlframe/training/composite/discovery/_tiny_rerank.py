@@ -216,11 +216,17 @@ def _tiny_model_rerank(
         """
         base_screen_local, x_matrix_local = _per_base_cache[spec.base_column]
         transform = get_transform(spec.transform_name)
-        # Auto-detect monotone base (lag features, timestamps) and switch
-        # this spec's tiny-CV to TimeSeriesSplit. Random K-fold on a lag
-        # base leaks future->past, over-rating ``linres-lag1``-style
-        # specs.
-        base_t_aware = bool(_is_monotone_nondecreasing(base_screen_local))
+        # Switch this spec's tiny-CV to TimeSeriesSplit when the data is
+        # temporal. Random K-fold on time-correlated rows leaks future->past,
+        # over-rating ``linres-lag1``-style specs. Prefer the EXPLICIT signal:
+        # when fit() time-ordered the screening sample (caller passed
+        # time_ordering), every spec is time-aware regardless of base shape --
+        # the canonical non-monotone lag(y) base is exactly the case the
+        # base-monotonicity heuristic (the None-time fallback) missed.
+        base_t_aware = bool(
+            getattr(self, "_screen_time_ordered_", False)
+            or _is_monotone_nondecreasing(base_screen_local)
+        )
         fam_rmses: dict[str, float] = {}
         per_seed_by_family: dict[str, np.ndarray] = {}
         per_bin_first_local: Optional[np.ndarray] = None
@@ -447,7 +453,10 @@ def _tiny_model_rerank(
                     self.config, "deterministic_screening_models", False,
                 ),
                 return_per_bin=True, n_bins=per_bin_n_bins,
-                time_aware=bool(_is_monotone_nondecreasing(base_screen)),
+                time_aware=bool(
+                    getattr(self, "_screen_time_ordered_", False)
+                    or _is_monotone_nondecreasing(base_screen)
+                ),
                 groups=_groups_screen,
             )
             if isinstance(result, tuple):
@@ -478,11 +487,14 @@ def _tiny_model_rerank(
         use_wilcoxon = bool(getattr(
             self.config, "use_wilcoxon_gate", False,
         ))
-        # Time-aware raw-y baseline: switch to TimeSeriesSplit folds
-        # iff any spec's base is monotone-non-decreasing. Keeps
-        # raw-vs-composite tiny-CVs apples-to-apples when a lag base
-        # already forced time-aware folds on the composite side.
-        _any_base_monotone = any(
+        # Time-aware raw-y baseline: TimeSeriesSplit folds when the data is
+        # temporal, so the raw-vs-composite tiny-CVs stay apples-to-apples.
+        # Explicit time_ordering (screen sorted by fit) forces it for ALL
+        # specs; otherwise fall back to "any spec's base is monotone". Using
+        # the same predicate as the per-spec side (base_t_aware) avoids the
+        # A4 cross-scheme mismatch where a monotone base put the raw baseline
+        # on TSS while non-monotone specs were scored on shuffled KFold.
+        _any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or any(
             _is_monotone_nondecreasing(
                 _per_base_cache.get(spec.base_column, (None, None))[0]
             )

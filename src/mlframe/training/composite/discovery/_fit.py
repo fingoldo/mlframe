@@ -156,6 +156,7 @@ def fit(
     train_idx: np.ndarray,
     val_idx: np.ndarray | None = None,
     test_idx: np.ndarray | None = None,
+    time_ordering: Any = None,
 ) -> "CompositeTargetDiscovery":  # noqa: F821 -- forward ref to parent class
     """Discover composite-target specs.
 
@@ -175,6 +176,15 @@ def fit(
     val_idx, test_idx
         Stored on the instance for later integrity checks; never
         touched during fit.
+    time_ordering
+        Optional per-row sortable key (timestamps / a monotone index)
+        aligned to ``df`` rows. When given, the MI-screening sample is
+        SORTED by time so the tiny-model CV uses a forward-walk
+        (TimeSeriesSplit) instead of a shuffled K-fold -- the canonical
+        ``lag(y)`` base is non-monotone so the old base-monotonicity
+        heuristic never fired and the screen leaked future->past on
+        temporal data. ``None`` keeps the legacy base-monotonicity
+        auto-detection.
     """
     if not self.config.enabled:
         self.specs_: list[CompositeSpec] = []
@@ -327,6 +337,32 @@ def fit(
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
     train_idx_screen = train_idx[sample_idx]
+
+    # M6 time-awareness: when the caller supplies an explicit ``time_ordering``,
+    # SORT the screening sample into time order so the downstream tiny-model CV
+    # is a genuine forward-walk (TimeSeriesSplit). The old heuristic inferred
+    # time-awareness from base MONOTONICITY, which never fires for the canonical
+    # non-monotone ``lag(y)`` base -> shuffled K-fold leaked future->past on
+    # temporal data. Sorting once here makes every per-spec / raw-baseline /
+    # stepwise tiny-CV time-correct without per-call ordering logic.
+    self._screen_time_ordered_ = False
+    if time_ordering is not None:
+        try:
+            _time_all = np.asarray(time_ordering)
+            if _time_all.shape[0] >= int(np.max(train_idx_screen)) + 1:
+                _time_screen = _time_all[train_idx_screen]
+                # NaT/NaN-safe stable sort: non-finite/unsortable keys keep
+                # their original relative order at the front.
+                _order = np.argsort(_time_screen, kind="stable")
+                train_idx_screen = train_idx_screen[_order]
+                sample_idx = sample_idx[_order]
+                self._screen_time_ordered_ = True
+        except (TypeError, ValueError, IndexError) as _to_err:
+            logger.warning(
+                "[CompositeTargetDiscovery] time_ordering supplied but could "
+                "not order the screening sample (%s); falling back to "
+                "base-monotonicity time detection.", _to_err,
+            )
     y_screen = y_full[train_idx_screen]
 
     # Bin-MI floors every value to 0.0 when the screening sample has fewer than

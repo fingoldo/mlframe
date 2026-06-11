@@ -580,11 +580,33 @@ def run_composite_target_discovery(
                             )),
                         )
                     else:
+                        # M6: extract the chronological-order column (if the
+                        # user named one) so discovery sorts the screening
+                        # sample into a forward-walk instead of leaking
+                        # future->past on temporal data via shuffled K-fold.
+                        _time_ordering = None
+                        _tcol = getattr(_disc_cfg, "time_column", None)
+                        if _tcol:
+                            try:
+                                if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
+                                    if hasattr(_disc_df, "get_column"):  # polars
+                                        _time_ordering = _disc_df.get_column(_tcol).to_numpy()
+                                    else:  # pandas
+                                        _time_ordering = _disc_df[_tcol].to_numpy()
+                            except Exception as _tc_err:
+                                logger.warning(
+                                    "[CompositeTargetDiscovery] time_column='%s' "
+                                    "could not be extracted (%s); discovery falls "
+                                    "back to base-monotonicity time detection.",
+                                    _tcol, _tc_err,
+                                )
+                                _time_ordering = None
                         _disc = _disc_instance.fit(
                             df=_disc_df,
                             target_col=_tname_disc,
                             feature_cols=_disc_feature_cols,
                             train_idx=_disc_train_idx,
+                            time_ordering=_time_ordering,
                         )
                 except Exception as _disc_err:
                     logger.warning(

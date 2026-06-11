@@ -34,6 +34,16 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     enabled: bool = False
 
+    # Optional name of a chronological-order column (timestamp / monotone index)
+    # in the training frame. When set, discovery SORTS the MI-screening sample
+    # by this column so the tiny-model CV is a forward-walk (TimeSeriesSplit)
+    # instead of a shuffled K-fold -- the canonical ``lag(y)`` base is
+    # non-monotone, so the legacy base-monotonicity heuristic never detected
+    # temporal data and the screen leaked future->past. None keeps the legacy
+    # auto-detection. Auto-detection of a likely time column (when this is None)
+    # is wired separately via ``time_series_transforms_enabled``.
+    time_column: Optional[str] = None
+
     # Base candidate selection.
     # - "auto": rank all numeric features by structural MI gain
     #   (MI(y - LinearFit(x), X \ {x}) on train) and take the top

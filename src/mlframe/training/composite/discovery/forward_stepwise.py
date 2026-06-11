@@ -42,6 +42,7 @@ def forward_stepwise_multi_base(
     # efficient random split). Callers with confirmed non-temporal data can pass time_aware=False.
     time_aware: bool = True,
     cv_splitter: Any = None,
+    groups: np.ndarray | None = None,
     cv_selector_mode: str = "mean",
     cv_selector_alpha: float = 1.0,
     cv_selector_confidence: float = 0.9,
@@ -112,20 +113,61 @@ def forward_stepwise_multi_base(
         """Return ``(aggregated_score, per_fold_rmses)`` so callers can persist the full table
         when ``cv_persist_fold_scores=True``. ``cv_selector_mode='mean'`` is bit-identical to
         the original ``float(np.mean(fold_rmses))`` path."""
-        if not base_names:
-            # No bases -> predict mean of y; RMSE = std(y).
-            sentinel = float(np.std(y))
-            return sentinel, [sentinel]
-        # All names are guaranteed to be in ``candidates`` by the validation above.
-        base_matrix = np.column_stack([candidates[n] for n in base_names])
+        _n = int(y.size)
+        _groups_eff = None
+        if groups is not None:
+            _g = np.asarray(groups)
+            if _g.shape[0] == _n and np.unique(_g).size >= 2:
+                _groups_eff = _g
+        _use_groups = False
         if cv_splitter is not None:
             kf = cv_splitter
         elif time_aware:
             kf = TimeSeriesSplit(n_splits=int(cv_folds))
+        elif _groups_eff is not None:
+            # A19: group-aware CV so a per-group-CONSTANT base cannot show a
+            # phantom gain from rows of the same group spanning train+val.
+            # n_splits capped at the group count (A10: silent GroupKFold->KFold
+            # when n_groups<cv_folds is avoided by clamping instead).
+            from sklearn.model_selection import GroupKFold
+            kf = GroupKFold(n_splits=max(2, min(int(cv_folds), int(np.unique(_groups_eff).size))))
+            _use_groups = True
         else:
             kf = KFold(n_splits=int(cv_folds), shuffle=True, random_state=int(random_state))
+
+        def _iter_splits():
+            if _use_groups:
+                return kf.split(np.arange(_n), groups=_groups_eff)
+            return kf.split(np.arange(_n))
+        if not base_names:
+            # Zero-base baseline = CV-RMSE of the train-fold-MEAN predictor over
+            # the SAME folds the candidates use, NOT the full-sample std. Under
+            # TimeSeriesSplit on trending y the train-fold mean lags the val
+            # fold, so full-sample std understated the no-base error and
+            # inflated the first base's apparent gain (A29).
+            fold0: list[float] = []
+            _y_all_finite = y[np.isfinite(y)]
+            _global_mu = float(np.mean(_y_all_finite)) if _y_all_finite.size else 0.0
+            for _tr0, _va0 in _iter_splits():
+                _ytr0 = y[_tr0][np.isfinite(y[_tr0])]
+                _mu0 = float(np.mean(_ytr0)) if _ytr0.size else _global_mu
+                _d0 = y[_va0] - _mu0
+                _f0 = np.isfinite(_d0)
+                if _f0.sum():
+                    fold0.append(float(np.sqrt(np.mean(_d0[_f0] * _d0[_f0]))))
+            if not fold0:
+                sentinel = float(np.std(_y_all_finite)) if _y_all_finite.size else 0.0
+                return sentinel, [sentinel]
+            agg0 = aggregate_fold_scores(
+                fold0, mode=cv_selector_mode, direction="min",
+                alpha=cv_selector_alpha, confidence=cv_selector_confidence,
+                quantile_level=cv_selector_quantile_level,
+            )
+            return agg0, fold0
+        # All names are guaranteed to be in ``candidates`` by the validation above.
+        base_matrix = np.column_stack([candidates[n] for n in base_names])
         fold_rmses: list[float] = []
-        for train_idx, val_idx in kf.split(np.arange(y.size)):
+        for train_idx, val_idx in _iter_splits():
             # Fit OLS y ~ base_matrix on TRAIN.
             params = _linear_residual_multi_fit(y[train_idx], base_matrix[train_idx])
             # Standard OLS prediction on VAL: y_hat = base @ alphas + beta. This is the OLS fit's val performance -- the right metric for "does adding this base reduce hold-out RMSE?" -- NOT the forward-then-inverse roundtrip which is a tautology that recovers y exactly.
