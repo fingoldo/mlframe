@@ -970,6 +970,9 @@ from . import _predict as _pred  # noqa: E402
 CompositeTargetEstimator._require_fitted = _utils._require_fitted
 CompositeTargetEstimator._require_inner_attr = _utils._require_inner_attr
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
+# Rich Jupyter HTML repr carved to a sibling (transform / base col(s) / headline fitted params / n_train_valid / conformal+CQR state).
+from . import _repr as _repr  # noqa: E402
+CompositeTargetEstimator._repr_html_ = _repr._repr_html_
 
 # Split-conformal prediction intervals. Bound from ``composite/conformal.py``
 # (which imports nothing from estimator, so no cycle). calibrate_conformal(X_cal,
