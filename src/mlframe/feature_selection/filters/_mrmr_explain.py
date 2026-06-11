@@ -41,6 +41,23 @@ _GATE_TO_HINT_KNOB: dict[str, str] = {
     "ledger_capped": "(diagnostic) raise FE_REJECTION_LEDGER_CAP -- the ledger truncated, this is not a real gate",
 }
 
+# Per-gate one-band relaxation delta, used by the WHAT-IF-FLIP preview. A "one band"
+# is the additive step by which a user would loosen the gate's threshold; the ledger
+# records ``margin = observed - threshold``, so loosening the threshold by ``delta``
+# re-admits every recorded candidate with ``margin > -delta``. Bands are sized to the
+# gate's natural scale: ratio gates (prevalence) step in ~0.10 ratio; CMI / uplift /
+# maxT step in ~0.05 of their measured unit. The mapped knob name (for the narrative)
+# is the canonical fe_* flag the user would actually turn.
+_GATE_TO_FLIP_BAND: dict[str, tuple[str, float]] = {
+    "engineered_mi_prevalence": ("fe_min_engineered_mi_prevalence (0.90 -> 0.80)", 0.10),
+    "marginal_pair_mi_prescreen": ("fe_synergy_min_prevalence (1.5 -> 1.4)", 0.10),
+    "order2_maxt_floor": ("order-2 maxT null floor (one band)", 0.05),
+    "marginal_uplift_floor": ("marginal-uplift floor (one band)", 0.05),
+    "cmi_redundancy": ("CMI redundancy tolerance (one band)", 0.05),
+    "stability_vote": ("cross-fold stability quorum (one fold)", 1.0),
+}
+
+
 # Hard cap on the assembled report so it always fits under ~1 screen. Survivor / ledger
 # detail beyond these row budgets is summarised, never dumped in full.
 _MAX_SURVIVOR_ROWS = 12
@@ -77,13 +94,35 @@ def _survivor_section(mrmr_self: Any) -> str:
         f"Surviving features: {n_total} selected ({n_eng} engineered, {n_total - n_eng} raw).",
         f"  engineered recipe kinds: {kinds_str}",
     ]
-    # name the top survivors so a user can eyeball the actual columns.
-    head = prov.head(_MAX_SURVIVOR_ROWS)
-    named = ", ".join(
-        f"{r.feature_name}[{r.origin}]" for r in head.itertuples(index=False)
-    )
+    # PER-FEATURE MI/gain ATTRIBUTION: order survivors by their MRMR gain to y (the
+    # selection score the greedy screen already stored in ``mrmr_gain``) so the user
+    # sees WHICH survivors carry the signal. Gain is non-NaN for selected columns;
+    # screened-out produced columns carry NaN and are excluded from the attribution
+    # roster. Falls back to provenance order when no gains are recorded.
+    # NOTE: the helper gain column MUST NOT start with an underscore -- ``itertuples``
+    # rewrites leading-underscore / invalid-identifier column names to positional
+    # ``_N``, which would make ``getattr(row, ...)`` silently miss the gain.
+    if "mrmr_gain" in prov.columns:
+        gains = pd.to_numeric(prov["mrmr_gain"], errors="coerce")
+        ranked = prov.assign(gain_attr=gains)
+        scored = ranked[ranked["gain_attr"].notna()].sort_values("gain_attr", ascending=False)
+        roster = scored if not scored.empty else ranked
+    else:
+        roster = prov.assign(gain_attr=float("nan"))
+    head = roster.head(_MAX_SURVIVOR_ROWS)
+
+    def _attr(row: Any) -> str:
+        g = getattr(row, "gain_attr", float("nan"))
+        try:
+            gv = float(g)
+        except (TypeError, ValueError):
+            gv = float("nan")
+        gain_str = f" gain={gv:.4f}" if gv == gv else ""  # NaN-safe
+        return f"{row.feature_name}[{row.origin}]{gain_str}"
+
+    named = ", ".join(_attr(r) for r in head.itertuples(index=False))
     suffix = "" if n_total <= _MAX_SURVIVOR_ROWS else f", ... (+{n_total - _MAX_SURVIVOR_ROWS} more)"
-    lines.append(f"  e.g.: {named}{suffix}")
+    lines.append(f"  by MI/gain attribution: {named}{suffix}")
     return "\n".join(lines)
 
 
@@ -122,6 +161,40 @@ def _recommender_section(mrmr_self: Any) -> str:
     return "FE recommender (Layer-99) chose fe_* flags: " + ", ".join(chosen)
 
 
+def _whatif_section(mrmr_self: Any, binding_gate: str | None) -> str:
+    """WHAT-IF-FLIP preview: how many ledger candidates a one-band relaxation re-admits.
+
+    PURE COUNT over the recorded ledger -- NO refit. For the binding gate (and any other
+    gate that maps to an fe_* knob), relaxing the threshold by the gate's one-band ``delta``
+    re-admits exactly the recorded candidates whose ``margin > -delta`` (margin == observed
+    - threshold; loosening threshold by delta shifts the bar so a candidate that missed by
+    up to ``delta`` now clears). The preview reports that count per knob.
+    """
+    led = getattr(mrmr_self, "fe_rejection_ledger_", None)
+    if led is None or not isinstance(led, pd.DataFrame) or led.empty:
+        return "What-if-flip: ledger empty -- no relaxation would re-admit anything this fit."
+    gate_col = led["gate"].astype(str)
+    margin_col = pd.to_numeric(led["margin"], errors="coerce")
+    lines: list[str] = []
+    # Lead with the binding gate, then any other recorded gate that maps to a knob.
+    ordered = []
+    if binding_gate is not None and binding_gate in _GATE_TO_FLIP_BAND:
+        ordered.append(binding_gate)
+    for g in led.groupby(gate_col).size().sort_values(ascending=False).index:
+        if g in _GATE_TO_FLIP_BAND and g not in ordered:
+            ordered.append(g)
+    for gate in ordered:
+        knob, delta = _GATE_TO_FLIP_BAND[gate]
+        mask = gate_col.eq(gate) & (margin_col > -delta)
+        n_readmit = int(mask.sum())
+        lines.append(f"  relaxing {knob} would re-admit {n_readmit} candidate(s) at margin > -{delta:g} [{gate}]")
+        if len(lines) >= 3:  # keep under 1.5 screens
+            break
+    if not lines:
+        return "What-if-flip: no recorded gate maps to a relaxable fe_* knob this fit."
+    return "What-if-flip preview (count over ledger, no refit):\n" + "\n".join(lines)
+
+
 def _hint_line(binding_gate: str | None, mrmr_self: Any) -> str:
     """One-line actionable hint mapping the binding gate to the knob to relax."""
     if binding_gate is None:
@@ -154,6 +227,10 @@ def explain_selection(mrmr_self: Any) -> str:
     except Exception as exc:  # pragma: no cover
         recommender = f"FE recommender: (unavailable: {type(exc).__name__})."
     try:
+        whatif = _whatif_section(mrmr_self, binding_gate)
+    except Exception as exc:  # pragma: no cover
+        whatif = f"What-if-flip: (unavailable: {type(exc).__name__})."
+    try:
         hint = _hint_line(binding_gate, mrmr_self)
     except Exception as exc:  # pragma: no cover
         hint = f"Hint: (unavailable: {type(exc).__name__})."
@@ -163,6 +240,7 @@ def explain_selection(mrmr_self: Any) -> str:
             "=== MRMR.explain_selection() ===",
             survivors,
             rejections,
+            whatif,
             recommender,
             hint,
         ]
