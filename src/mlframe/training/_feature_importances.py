@@ -79,7 +79,8 @@ def _permutation_feature_importances(
     n_repeats: int = _PERM_FI_N_REPEATS,
     max_samples: int = _PERM_FI_MAX_SAMPLES,
     random_state: int = _PERM_FI_RANDOM_STATE,
-) -> Optional[np.ndarray]:
+    return_std: bool = False,
+) -> Optional[np.ndarray] | Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Permutation importance for estimators without native FI / coef.
 
     Falls back to ``sklearn.inspection.permutation_importance`` on a
@@ -87,6 +88,11 @@ def _permutation_feature_importances(
     the supplied X (wrong column set, optional dep missing) so the
     caller logs + omits the chart rather than crashing the whole
     report.
+
+    ``return_std=True`` returns ``(mean, std)`` so the FI chart can draw
+    per-feature error-bar whiskers; ``std`` is the per-repeat dispersion
+    from ``permutation_importance``. The None failure case becomes
+    ``(None, None)`` to keep the tuple shape stable for the caller.
     """
     # 2026-05-27: ensemble aggregator entries (EnsARITHM/HARM/MEDIAN/...)
     # arrive here with ``model=None`` because the per-member voting
@@ -95,24 +101,25 @@ def _permutation_feature_importances(
     # object implementing 'fit'. Got None instead." Short-circuit with a
     # DEBUG-level note (was WARN, which spammed the log 6 times per
     # target -- once per ensemble flavour).
+    _fail = (lambda: (None, None)) if return_std else (lambda: None)
     if model is None:
         logger.debug(
             "permutation_importance skipped: model is None (ensemble "
             "aggregator without sklearn-style estimator surface)."
         )
-        return None
+        return _fail()
     try:
         from sklearn.inspection import permutation_importance
     except Exception:
         logger.warning("permutation_importance unavailable; skipping FI for non-native estimator.")
-        return None
+        return _fail()
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
         y_arr = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
     except Exception:
-        return None
+        return _fail()
     if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[0] != y_arr.shape[0]:
-        return None
+        return _fail()
     n = X_arr.shape[0]
     if n > max_samples:
         rng = np.random.default_rng(random_state)
@@ -172,8 +179,12 @@ def _permutation_feature_importances(
             )
     except Exception as exc:
         logger.warning("permutation_importance failed (%s); skipping FI.", exc)
-        return None
-    return np.asarray(result.importances_mean, dtype=np.float64)
+        return _fail()
+    mean = np.asarray(result.importances_mean, dtype=np.float64)
+    if return_std:
+        std = np.asarray(getattr(result, "importances_std", np.zeros_like(mean)), dtype=np.float64)
+        return mean, std
+    return mean
 
 
 def _cuda_batched_permutation_importance(
@@ -185,7 +196,8 @@ def _cuda_batched_permutation_importance(
     max_samples: int = _PERM_FI_MAX_SAMPLES,
     chunk_size: int = 16,
     random_state: int = _PERM_FI_RANDOM_STATE,
-) -> Optional[np.ndarray]:
+    return_std: bool = False,
+) -> Optional[np.ndarray] | Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """GPU-batched permutation importance for a torch.nn.Module.
 
     Strategy: ship X to CUDA once, then for each (feature, repeat)
@@ -224,19 +236,20 @@ def _cuda_batched_permutation_importance(
     repeat) write is the best simple implementation on the bench
     GPU. Re-bench on different hardware before re-attempting.
     """
+    _fail = (lambda: (None, None)) if return_std else (lambda: None)
     try:
         import torch
     except Exception:
-        return None
+        return _fail()
     if not torch.cuda.is_available():
-        return None
+        return _fail()
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
         y_arr = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
     except Exception:
-        return None
+        return _fail()
     if X_arr.ndim != 2 or X_arr.shape[0] != y_arr.shape[0]:
-        return None
+        return _fail()
     n, n_features = X_arr.shape
     if n > max_samples:
         rng_sub = np.random.default_rng(random_state)
@@ -254,10 +267,11 @@ def _cuda_batched_permutation_importance(
             baseline_pred = net(X_t).reshape(-1).cpu().numpy().astype(np.float64)
     except Exception as exc:
         logger.warning("cuda-batched FI setup failed (%s); falling back.", exc)
-        return None
+        return _fail()
     from sklearn.metrics import r2_score
     baseline_score = float(r2_score(y_arr, baseline_pred))
     importances = np.zeros(n_features, dtype=np.float64)
+    importances_std = np.zeros(n_features, dtype=np.float64)
     try:
         with torch.no_grad():
             for chunk_start in range(0, n_features, chunk_size):
@@ -276,15 +290,19 @@ def _cuda_batched_permutation_importance(
                         offset = (slot * n_repeats + r) * n
                         scores[r] = r2_score(y_arr, preds[offset:offset + n])
                     importances[j] = baseline_score - scores.mean()
+                    # baseline_score is constant, so the per-repeat importance dispersion is just std(scores).
+                    importances_std[j] = float(scores.std())
     except Exception as exc:
         logger.warning("cuda-batched FI inner loop failed (%s); falling back.", exc)
-        return None
+        return _fail()
     finally:
         try:
             net.to("cpu")
             torch.cuda.empty_cache()
         except Exception:
             pass
+    if return_std:
+        return importances, importances_std
     return importances
 
 
@@ -429,7 +447,8 @@ def get_model_feature_importances(
     X: np.ndarray | pd.DataFrame | None = None,
     y: np.ndarray | pd.Series | None = None,
     nn_fi_method: str = "auto",
-) -> Optional[Union[np.ndarray, pd.DataFrame]]:
+    return_std: bool = False,
+) -> Optional[Union[np.ndarray, pd.DataFrame]] | Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Extract feature importances from a trained model.
 
@@ -472,6 +491,8 @@ def get_model_feature_importances(
     """
     inner = _unwrap_estimator_chain(model)
     feature_importances: Optional[np.ndarray] = None
+    # Per-feature dispersion (permutation / CUDA-permutation only); native tree-gain / coef have none.
+    feature_importances_std: Optional[np.ndarray] = None
     if hasattr(inner, "feature_importances_"):
         feature_importances = np.asarray(inner.feature_importances_)
     elif hasattr(inner, "coef_"):
@@ -606,16 +627,16 @@ def get_model_feature_importances(
                 )
                 if (net is not None and _n_feats is not None
                         and _n_feats >= _CUDA_PERM_MIN_FEATURES):
-                    feature_importances = _cuda_batched_permutation_importance(net, X, y)
+                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)
                 if feature_importances is None:
-                    feature_importances = _permutation_feature_importances(model, X, y)
+                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
         elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
-            feature_importances = _cuda_batched_permutation_importance(net, X, y)
+            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)
             if feature_importances is None:
                 logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
-                feature_importances = _permutation_feature_importances(model, X, y)
+                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
         elif X is not None and y is not None:
-            feature_importances = _permutation_feature_importances(model, X, y)
+            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
 
     if feature_importances is not None:
         feature_importances = np.asarray(feature_importances, dtype=np.float64)
@@ -626,10 +647,16 @@ def get_model_feature_importances(
                 "FI length mismatch: %d values vs %d columns; skipping.",
                 feature_importances.size, len(columns),
             )
-            return None
+            return (None, None) if return_std else None
+        if feature_importances_std is not None:
+            feature_importances_std = np.asarray(feature_importances_std, dtype=np.float64)
+            if feature_importances_std.shape != feature_importances.shape:
+                feature_importances_std = None
         if return_df:
             feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
 
+    if return_std:
+        return feature_importances, feature_importances_std
     return feature_importances
 
 
@@ -676,8 +703,8 @@ def plot_model_feature_importances(
     np.ndarray or None
         Feature importances array, or None if extraction failed.
     """
-    feature_importances = get_model_feature_importances(
-        model=model, columns=columns, X=X, y=y, nn_fi_method=nn_fi_method,
+    feature_importances, feature_importances_std = get_model_feature_importances(
+        model=model, columns=columns, X=X, y=y, nn_fi_method=nn_fi_method, return_std=True,
     )
 
     if feature_importances is not None:
@@ -692,6 +719,7 @@ def plot_model_feature_importances(
                 n=num_factors,
                 show_plots=show_plots,
                 max_zero_fi_to_plot=max_zero_fi_to_plot,
+                importances_std=feature_importances_std,
             )
         except (ValueError, AttributeError, IndexError, TypeError):
             logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)

@@ -68,3 +68,66 @@ def test_permutation_fi_still_warns_on_genuine_failure(caplog) -> None:
     # No assertion here; this test exists so the None-model fix above
     # cannot accidentally regress into a blanket silent-skip on all
     # failures.
+
+
+def test_permutation_fi_return_std_tuple_shape_on_none_model() -> None:
+    """return_std=True keeps a stable (None, None) tuple on the short-circuit path."""
+    from mlframe.training._feature_importances import _permutation_feature_importances
+
+    X = np.random.default_rng(0).standard_normal((40, 4))
+    y = np.random.default_rng(1).standard_normal(40)
+    out = _permutation_feature_importances(None, X, y, return_std=True)
+    assert out == (None, None)
+
+
+def test_permutation_fi_return_std_yields_dispersion() -> None:
+    """return_std=True returns a per-feature std aligned to the mean (INV-22 whisker source)."""
+    from sklearn.neighbors import KNeighborsRegressor
+
+    from mlframe.training._feature_importances import _permutation_feature_importances
+
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((300, 4))
+    y = X[:, 0] * 2.0 + rng.standard_normal(300) * 0.1
+    model = KNeighborsRegressor(n_neighbors=5).fit(X, y)
+    mean, std = _permutation_feature_importances(model, X, y, return_std=True, n_repeats=4, random_state=0)
+    assert mean is not None and std is not None
+    assert mean.shape == (4,) and std.shape == (4,)
+    assert np.all(std >= 0.0)
+    # n_repeats>1 on a noisy estimator must produce some nonzero dispersion.
+    assert np.any(std > 0.0)
+
+
+def test_get_model_feature_importances_return_std_for_permutation_model() -> None:
+    """get_model_feature_importances(return_std=True) surfaces the permutation std.
+
+    KNeighborsRegressor has neither feature_importances_ nor coef_, so it routes
+    through the permutation fallback; the std must reach the caller for the chart."""
+    from sklearn.neighbors import KNeighborsRegressor
+
+    from mlframe.training._feature_importances import get_model_feature_importances
+
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((300, 3))
+    y = X[:, 1] * 1.5 + rng.standard_normal(300) * 0.1
+    model = KNeighborsRegressor(n_neighbors=5).fit(X, y)
+    cols = ["a", "b", "c"]
+    fi, std = get_model_feature_importances(model, cols, X=X, y=y, return_std=True)
+    assert fi is not None and std is not None
+    assert fi.shape == (3,) and std.shape == (3,)
+    assert np.all(std >= 0.0)
+
+
+def test_get_model_feature_importances_native_path_std_is_none() -> None:
+    """Native tree-gain FI carries no dispersion -> std is None under return_std=True."""
+    from sklearn.ensemble import RandomForestRegressor
+
+    from mlframe.training._feature_importances import get_model_feature_importances
+
+    rng = np.random.default_rng(2)
+    X = rng.standard_normal((200, 3))
+    y = X[:, 0] * 2.0 + rng.standard_normal(200) * 0.1
+    model = RandomForestRegressor(n_estimators=10, random_state=0).fit(X, y)
+    fi, std = get_model_feature_importances(model, ["a", "b", "c"], return_std=True)
+    assert fi is not None
+    assert std is None

@@ -187,3 +187,80 @@ def test_plot_feature_importance_no_log_when_log_fi_false(caplog):
         plot_feature_importance(fi, cols, kind="t", show_plots=False, plot_file="", log_fi=False, log_top_n=10)
     fi_log_records = [r for r in caplog.records if "[FI top" in r.getMessage()]
     assert fi_log_records == [], f"log_fi=False must suppress FI text log; got {fi_log_records}"
+
+
+# ----------------------------------------------------------------------------
+# importances_std whiskers (INV-22): permutation dispersion must reach the bars
+# ----------------------------------------------------------------------------
+
+
+def _capture_barh_xerr(monkeypatch):
+    """Spy on Axes.barh so we can inspect the xerr it actually receives.
+
+    plot_feature_importance closes its figure before returning, so the rendered
+    BarContainer is not retrievable afterwards; capturing the draw call is the
+    behavioral proxy for "the std reached the bars as error whiskers".
+    """
+    import matplotlib.axes as _maxes
+    real_barh = _maxes.Axes.barh
+    seen = {}
+
+    def _spy(self, *args, **kwargs):
+        seen["xerr"] = kwargs.get("xerr")
+        container = real_barh(self, *args, **kwargs)
+        seen["has_errorbar"] = getattr(container, "errorbar", None) is not None
+        return container
+
+    monkeypatch.setattr(_maxes.Axes, "barh", _spy)
+    return seen
+
+
+def test_plot_feature_importance_renders_xerr_whiskers_when_std_given(monkeypatch, tmp_path):
+    """When importances_std is supplied, the FI bars get an xerr error bar (whiskers).
+
+    On pre-fix code plot_feature_importance has no importances_std parameter, so
+    passing it raises TypeError; and even threaded, the barh call carried no xerr,
+    so seen['xerr'] would be None. This test catches both."""
+    plt.close("all")
+    fi = np.array([0.2, 0.7, 0.05, 0.4, 0.1])
+    std = np.array([0.05, 0.30, 0.01, 0.10, 0.02])
+    cols = ["a", "b", "c", "d", "e"]
+    seen = _capture_barh_xerr(monkeypatch)
+    plot_feature_importance(
+        fi, cols, kind="t", show_plots=False, plot_file=str(tmp_path / "fi.png"),
+        log_fi=False, importances_std=std,
+    )
+    assert seen.get("xerr") is not None, "importances_std must reach ax.barh as xerr"
+    assert seen["has_errorbar"], "barh BarContainer must carry an errorbar (whiskers)"
+    # The whiskers must be aligned to the picked + signed-sorted bars and non-negative.
+    xerr = np.asarray(seen["xerr"], dtype=float)
+    assert xerr.shape[0] == len(cols)
+    assert np.all(xerr >= 0.0)
+    assert np.any(xerr > 0.0)
+
+
+def test_plot_feature_importance_no_xerr_when_std_absent(monkeypatch, tmp_path):
+    """Native tree-gain / coef importances pass no std -> no whiskers (xerr stays None)."""
+    plt.close("all")
+    fi = np.array([0.2, 0.7, 0.05, 0.4])
+    cols = ["a", "b", "c", "d"]
+    seen = _capture_barh_xerr(monkeypatch)
+    plot_feature_importance(
+        fi, cols, kind="t", show_plots=False, plot_file=str(tmp_path / "fi.png"), log_fi=False,
+    )
+    assert seen.get("xerr") is None, "no std -> barh must not receive xerr"
+    assert not seen.get("has_errorbar", False)
+
+
+def test_plot_feature_importance_ignores_misaligned_std(monkeypatch, tmp_path):
+    """A std array whose shape does not match feature_importances is ignored, not crashed."""
+    plt.close("all")
+    fi = np.array([0.2, 0.7, 0.05, 0.4])
+    bad_std = np.array([0.1, 0.2])  # wrong length
+    cols = ["a", "b", "c", "d"]
+    seen = _capture_barh_xerr(monkeypatch)
+    plot_feature_importance(
+        fi, cols, kind="t", show_plots=False, plot_file=str(tmp_path / "fi.png"),
+        log_fi=False, importances_std=bad_std,
+    )
+    assert seen.get("xerr") is None, "misaligned std must be dropped, not forwarded"

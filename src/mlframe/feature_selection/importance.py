@@ -130,6 +130,7 @@ def plot_feature_importance(
     log_top_n: int = _FI_LOG_DEFAULT_TOP_N,
     log_fi: bool = True,
     max_zero_fi_to_plot: int = _FI_DEFAULT_MAX_ZERO,
+    importances_std: np.ndarray | None = None,
 ):
     """Plot + log top-N feature importances.
 
@@ -139,6 +140,12 @@ def plot_feature_importance(
         Per-feature importance scores aligned to ``columns``.
     columns : Sequence
         Feature names; ``len(columns)`` may be 0 (uses integer index).
+    importances_std : np.ndarray, optional
+        Per-feature importance dispersion aligned to ``columns`` (e.g. the
+        per-repeat std from permutation / CUDA-permutation importance). When
+        supplied, drawn as horizontal error-bar whiskers on the bars so the
+        reader sees which importances are stable vs noise. Native tree-gain /
+        coef importances carry no dispersion, so this stays None for them.
     kind : str
         Display label (e.g. ``"XGBRegressor y"``). Goes into the
         plot title AND the text log line.
@@ -243,6 +250,13 @@ def plot_feature_importance(
         _abs_order = _abs_order[np.argsort(feature_importances[_abs_order])]
         _picked_fi = feature_importances[_abs_order]
         _picked_cols = np.array(columns)[_abs_order]
+        # Align the dispersion to the SAME picked + signed-sorted order as the bars so each
+        # whisker sits on its own bar. Non-finite / negative entries -> 0 (errorbar rejects them).
+        _picked_std = None
+        if importances_std is not None:
+            _std_arr = np.asarray(importances_std, dtype=np.float64)
+            if _std_arr.shape == feature_importances.shape:
+                _picked_std = np.clip(np.nan_to_num(_std_arr[_abs_order], nan=0.0), 0.0, None)
         # 2026-05-13 (user request): match the perf-chart aesthetic --
         # translucent matplotlib-default blue bars + light-alpha grid +
         # explicit zero reference line. Pre-fix the FI plot used solid
@@ -252,6 +266,8 @@ def plot_feature_importance(
             range(len(_abs_order)), _picked_fi,
             align="center", alpha=0.7,
             color="tab:blue", edgecolor="tab:blue",
+            xerr=_picked_std if _picked_std is not None else None,
+            error_kw={"ecolor": "0.3", "elinewidth": 0.8, "capsize": 2} if _picked_std is not None else None,
         )
         ax.set(yticks=range(len(_abs_order)), yticklabels=_picked_cols)
         ax.set_title(f"{kind} feature importances", fontsize=11)
