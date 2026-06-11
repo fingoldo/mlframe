@@ -196,6 +196,8 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
     histogram = uniform sharpness; right-skewed = some inputs cause
     the model to widen drastically.
     """
+    from mlframe.reporting.charts._sampling import prebin_histogram
+
     P = np.asarray(preds_NK, dtype=np.float64)
     widths = P[:, -1] - P[:, 0]
     # Degenerate: all rows have the same width (e.g. linear quantile
@@ -207,12 +209,17 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
     bins = min(30, max(1, n_unique))
     a_hi = f"{float(alphas[-1]):g}"
     a_lo = f"{float(alphas[0]):g}"
+    mean_w = float(widths.mean()) if widths.size else 0.0
+    max_w = float(widths.max()) if widths.size else 0.0
+    heights, centers, width = prebin_histogram(widths, bins, True)
     return HistogramPanelSpec(
-        values=widths,
+        values=heights if centers is not None else widths,
         bins=bins,
+        bin_centers=centers,
+        bin_width=width,
         title=(
             f"Width(q_{a_hi} - q_{a_lo}) "
-            f"(mean={widths.mean():.3f}, max={widths.max():.3f})"
+            f"(mean={mean_w:.3f}, max={max_w:.3f})"
         ),
         xlabel=f"Interval width (q_{a_hi} - q_{a_lo})",
         ylabel="Density",
@@ -317,6 +324,7 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     placeholder rather than a fake [0.0] histogram (which read as a degenerate calibrated PIT).
     """
     from mlframe.metrics.quantile import pit_values
+    from mlframe.reporting.charts._sampling import prebin_histogram
 
     if len(alphas) < 3:
         return AnnotationPanelSpec(
@@ -324,12 +332,16 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
             title="PIT histogram",
         )
     pit = pit_values(y_true, preds_NK, alphas)
+    mean = float(pit.mean()) if pit.size else 0.0
+    heights, centers, width = prebin_histogram(pit, 20, True)
     return HistogramPanelSpec(
-        values=pit,
+        values=heights if centers is not None else pit,
         bins=20,
+        bin_centers=centers,
+        bin_width=width,
         title=(
             f"PIT histogram (uniform = calibrated; "
-            f"mean={pit.mean():.3f})"
+            f"mean={mean:.3f})"
         ),
         xlabel="PIT value",
         ylabel="Density",

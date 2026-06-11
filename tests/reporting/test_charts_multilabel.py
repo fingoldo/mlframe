@@ -121,25 +121,28 @@ class TestPanelTypes:
         assert int(panel.values[0].sum()) == n
         assert int(panel.values[1].sum()) == n
 
-    def test_jaccard_dist_returns_histogram(self, synth_3label):
+    def test_jaccard_dist_returns_prebinned_histogram(self, synth_3label):
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="JACCARD_DIST")
         panel = spec.panels[0][0]
         assert isinstance(panel, HistogramPanelSpec)
-        # Jaccard ∈ [0, 1].
-        assert panel.values.min() >= 0.0
-        assert panel.values.max() <= 1.0
-        assert len(panel.values) == y.shape[0]
+        # Pre-binned at spec-build: spec carries O(bins) data, not length-n raw values.
+        assert panel.bin_centers is not None and panel.bin_width is not None
+        assert len(panel.values) == len(panel.bin_centers) <= 20
+        # Jaccard bin centers span [0, 1].
+        assert panel.bin_centers.min() >= 0.0
+        assert panel.bin_centers.max() <= 1.0
 
-    def test_hamming_dist_returns_histogram(self, synth_4label):
+    def test_hamming_dist_returns_prebinned_histogram(self, synth_4label):
         y, p, lbl = synth_4label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="HAMMING_DIST")
         panel = spec.panels[0][0]
         assert isinstance(panel, HistogramPanelSpec)
-        # Hamming ∈ {0..K}.
-        assert panel.values.min() >= 0.0
-        assert panel.values.max() <= y.shape[1]
-        assert len(panel.values) == y.shape[0]
+        assert panel.bin_centers is not None and panel.bin_width is not None
+        assert len(panel.values) == len(panel.bin_centers)
+        # Hamming ∈ {0..K}: bin centers stay within that range.
+        assert panel.bin_centers.min() >= 0.0
+        assert panel.bin_centers.max() <= y.shape[1]
 
 
 # ----------------------------------------------------------------------------

@@ -256,16 +256,22 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
     """
     from mlframe.metrics.ranking import _per_query_mrr_kernel
 
+    from ._sampling import prebin_histogram
+
     sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(
         y_true, y_score, group_ids, shared)
     rrs_raw = _per_query_mrr_kernel(sorted_y_true, sorted_y_score, group_starts)
     rrs = np.where(np.isnan(rrs_raw), 0.0, rrs_raw)
     if rrs.size == 0:
         rrs = np.array([0.0])
+    mrr = float(np.mean(rrs))
+    heights, centers, width = prebin_histogram(rrs, 20, True)
     return HistogramPanelSpec(
-        values=rrs,
+        values=heights if centers is not None else rrs,
         bins=20,
-        title=f"Per-query Reciprocal Rank (MRR={np.mean(rrs):.3f})",
+        bin_centers=centers,
+        bin_width=width,
+        title=f"Per-query Reciprocal Rank (MRR={mrr:.3f})",
         xlabel="Reciprocal rank (1 = first hit at top)",
         ylabel="Density",
         density=True,

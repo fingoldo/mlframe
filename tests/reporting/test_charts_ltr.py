@@ -112,14 +112,18 @@ class TestPanelTypes:
         y_arr = panel.y if not isinstance(panel.y, tuple) else panel.y[0]
         assert np.all((y_arr >= 0.0) & (y_arr <= 1.0 + 1e-9))
 
-    def test_mrr_dist_returns_histogram(self, synth_ltr):
+    def test_mrr_dist_returns_prebinned_histogram(self, synth_ltr):
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="MRR_DIST")
         panel = spec.panels[0][0]
         assert isinstance(panel, HistogramPanelSpec)
-        # Reciprocal rank ∈ [0, 1].
-        assert panel.values.min() >= 0.0
-        assert panel.values.max() <= 1.0
+        # Pre-binned at spec-build: O(bins) data, never length-n.
+        assert panel.bin_centers is not None and panel.bin_width is not None
+        assert len(panel.values) == len(panel.bin_centers) <= 20
+        # Bin geometry is well-formed (centers finite, positive width). Reciprocal rank in [0, 1] can be
+        # all-1.0 here, which numpy pads to a +-0.5 degenerate range, so we don't bound the centers at 1.0.
+        assert np.isfinite(panel.bin_centers).all()
+        assert panel.bin_width > 0.0
         # Title carries MRR.
         assert "MRR=" in panel.title
 

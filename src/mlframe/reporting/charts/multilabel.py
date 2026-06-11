@@ -221,14 +221,19 @@ def _jaccard_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     upstream) so the kernel JIT-compiles once and caches.
     """
     from ._jaccard_kernel import jaccard_rows
+    from ._sampling import prebin_histogram
 
     y_t_arr = np.ascontiguousarray(np.asarray(y_true), dtype=np.int8)
     y_p_arr = np.ascontiguousarray(np.asarray(y_proba), dtype=np.float32)
     jaccards = jaccard_rows(y_t_arr, y_p_arr)
+    mean = float(jaccards.mean()) if jaccards.size else 0.0
+    heights, centers, width = prebin_histogram(jaccards, 20, True)
     return HistogramPanelSpec(
-        values=jaccards,
+        values=heights if centers is not None else jaccards,
         bins=20,
-        title=f"Per-row Jaccard (mean={jaccards.mean():.3f})",
+        bin_centers=centers,
+        bin_width=width,
+        title=f"Per-row Jaccard (mean={mean:.3f})",
         xlabel="Jaccard score",
         ylabel="Density",
         density=True,
@@ -237,12 +242,19 @@ def _jaccard_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
 
 def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     """Per-row Hamming distance distribution."""
+    from ._sampling import prebin_histogram
+
     y_pred = (y_proba >= 0.5).astype(np.int8)
     hamming = (y_true != y_pred).sum(axis=1).astype(np.float64)
+    mean = float(hamming.mean()) if hamming.size else 0.0
+    n_bins = int(y_true.shape[1]) + 1
+    heights, centers, width = prebin_histogram(hamming, n_bins, True)
     return HistogramPanelSpec(
-        values=hamming,
-        bins=int(y_true.shape[1]) + 1,
-        title=f"Per-row Hamming distance (mean={hamming.mean():.3f})",
+        values=heights if centers is not None else hamming,
+        bins=n_bins,
+        bin_centers=centers,
+        bin_width=width,
+        title=f"Per-row Hamming distance (mean={mean:.3f})",
         xlabel="Hamming distance (# disagreements)",
         ylabel="Density",
         density=True,

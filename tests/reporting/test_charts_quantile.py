@@ -102,21 +102,24 @@ class TestPanelTypes:
         # y_true is rendered as markers, not a connected line.
         assert panel.line_styles[1] == "markers"
 
-    def test_width_dist_returns_histogram(self, synth_qr_3alpha):
+    def test_width_dist_returns_prebinned_histogram(self, synth_qr_3alpha):
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="WIDTH_DIST")
         panel = spec.panels[0][0]
         assert isinstance(panel, HistogramPanelSpec)
-        # Constant predictions -> width = 2.563 everywhere (degenerate
-        # histogram; not a problem for the spec, just for visual reading).
-        assert panel.values.shape == (len(y),)
+        # Constant predictions -> width is the same everywhere (a single degenerate bin); the spec carries the
+        # pre-binned form, so values are O(bins), never length-n.
+        assert panel.bin_centers is not None and panel.bin_width is not None
+        assert len(panel.values) == len(panel.bin_centers)
+        assert len(panel.values) < len(y)
 
-    def test_pit_hist_returns_histogram(self, synth_qr_5alpha):
+    def test_pit_hist_returns_prebinned_histogram(self, synth_qr_5alpha):
         y, p, alphas = synth_qr_5alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="PIT_HIST")
         panel = spec.panels[0][0]
         assert isinstance(panel, HistogramPanelSpec)
-        assert panel.values.shape == (len(y),)
+        assert panel.bin_centers is not None and panel.bin_width is not None
+        assert len(panel.values) == len(panel.bin_centers) <= 20
         assert "PIT" in panel.title
 
     def test_pit_hist_placeholder_when_K_lt_3(self, synth_qr_3alpha):
