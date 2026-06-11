@@ -966,6 +966,17 @@ CompositeTargetEstimator._require_fitted = _utils._require_fitted
 CompositeTargetEstimator._require_inner_attr = _utils._require_inner_attr
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
 
+# M8: split-conformal prediction intervals. Bound from ``composite/conformal.py``
+# (which imports nothing from estimator, so no cycle). calibrate_conformal(X_cal,
+# y_cal, alpha) fits the radius from a held-out set; predict_interval(X, alpha)
+# returns the (lower, upper) y-scale band of marginal coverage >= 1-alpha.
+from ..conformal import (  # noqa: E402
+    calibrate_conformal as _calibrate_conformal,
+    predict_interval as _predict_interval,
+)
+CompositeTargetEstimator.calibrate_conformal = _calibrate_conformal
+CompositeTargetEstimator.predict_interval = _predict_interval
+
 # DX15: the public methods (``predict`` / ``predict_quantile`` / ``predict_pre_clip``
 # / ``update`` / ``get_buffer_state`` / ``get_booster``) and the sklearn-convention
 # properties (``feature_importances_`` / ``coef_`` / ``intercept_`` / ``booster_`` /

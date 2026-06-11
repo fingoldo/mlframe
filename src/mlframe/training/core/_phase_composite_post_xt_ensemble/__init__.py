@@ -292,9 +292,14 @@ def _build_cross_target_ensemble_for_target(
                     _b_val = _b_primary[filtered_val_idx]
                 except Exception:
                     _b_val = None
-            _base_full_per_spec[_spec_for_oof["base_column"]] = _b_filtered
+            # I6: key by the UNIQUE spec name, not base_column. A multi-base
+            # spec and a single-base spec sharing the same PRIMARY base column
+            # otherwise collide (last writer wins), so the other spec's OOF
+            # refit raised a base-width mismatch and was silently excluded.
+            # Bit-identical when no collision (name <-> base_column is 1:1).
+            _base_full_per_spec[_spec_for_oof["name"]] = _b_filtered
             if _b_val is not None:
-                _base_val_per_spec[_spec_for_oof["base_column"]] = _b_val
+                _base_val_per_spec[_spec_for_oof["name"]] = _b_val
         # Build the spec-or-None list parallel to components.
         _component_specs: list[dict[str, Any] | None] = []
         for _name in _component_names:

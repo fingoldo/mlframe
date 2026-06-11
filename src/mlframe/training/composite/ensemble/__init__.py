@@ -268,7 +268,7 @@ def _compute_oof_with_external_holdout(
                 if spec is None:
                     raise ValueError("composite component with no spec")
                 base_full = base_train_full_per_spec.get(
-                    spec["base_column"],
+                    spec.get("name") or spec.get("base_column"),
                 )
                 if base_full is None:
                     raise ValueError(
@@ -520,7 +520,7 @@ def compute_oof_holdout_predictions(
                     if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
                             raise ValueError("composite component with no spec")
-                        base_full = base_train_full_per_spec.get(spec["base_column"])
+                        base_full = base_train_full_per_spec.get(spec.get("name") or spec.get("base_column"))
                         if base_full is None:
                             raise ValueError(
                                 f"missing base column '{spec['base_column']}'"
@@ -530,8 +530,18 @@ def compute_oof_holdout_predictions(
                         valid = transform.domain_check(y_stack, base_stack)
                         if valid.sum() < 10:
                             raise ValueError("too few valid rows after domain filter")
+                        # N6: re-fit the transform params on THIS fold's train
+                        # rows so alpha/beta/MAD do not see the held-out fold
+                        # (spec["fitted_params"] were fit on the FULL train, incl.
+                        # this fold's holdout -> mild OOF optimism). Fall back to
+                        # the global params when the transform cannot 1-D-refit
+                        # (e.g. multi-base needs the K-column matrix).
+                        try:
+                            _fold_params = transform.fit(y_stack[valid], base_stack[valid])
+                        except Exception:
+                            _fold_params = spec["fitted_params"]
                         t_stack = transform.forward(
-                            y_stack[valid], base_stack[valid], spec["fitted_params"],
+                            y_stack[valid], base_stack[valid], _fold_params,
                         )
                         inner_clone = clone(inner.estimator_)
                         if isinstance(X_stack_t, pd.DataFrame):
@@ -577,7 +587,7 @@ def compute_oof_holdout_predictions(
                             transform_name=spec["transform_name"],
                             base_column=spec["base_column"],
                             base_columns=_base_columns,
-                            transform_fitted_params=spec["fitted_params"],
+                            transform_fitted_params=_fold_params,
                             y_train=y_stack[valid],
                         )
                         preds = wrapped.predict(X_holdout_t)
@@ -771,7 +781,7 @@ def compute_oof_holdout_predictions(
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
                 if spec is None:
                     raise ValueError("composite component with no spec")
-                base_full = base_train_full_per_spec.get(spec["base_column"])
+                base_full = base_train_full_per_spec.get(spec.get("name") or spec.get("base_column"))
                 if base_full is None:
                     raise ValueError(
                         f"missing base column '{spec['base_column']}' for OOF"
@@ -782,8 +792,13 @@ def compute_oof_holdout_predictions(
                 # Drop invalid rows from stack_train; the inner trains only on rows where T is finite.
                 if valid.sum() < 10:
                     raise ValueError("too few valid rows after domain filter")
+                # N6: per-fold transform refit (see the kfold branch).
+                try:
+                    _fold_params = transform.fit(y_stack[valid], base_stack[valid])
+                except Exception:
+                    _fold_params = spec["fitted_params"]
                 t_stack = transform.forward(
-                    y_stack[valid], base_stack[valid], spec["fitted_params"],
+                    y_stack[valid], base_stack[valid], _fold_params,
                 )
                 inner_clone = clone(inner.estimator_)
                 if isinstance(X_stack_t, pd.DataFrame):
@@ -816,7 +831,7 @@ def compute_oof_holdout_predictions(
                     transform_name=spec["transform_name"],
                     base_column=spec["base_column"],
                     base_columns=_base_columns,
-                    transform_fitted_params=spec["fitted_params"],
+                    transform_fitted_params=_fold_params,
                     y_train=y_stack[valid],
                 )
                 preds = wrapped.predict(X_holdout_t)
