@@ -169,6 +169,38 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     monotone_constraints
         Optional per-feature monotonicity constraint vector forwarded to the inner GBDT at fit (LightGBM / XGBoost / CatBoost all expose a ``monotone_constraints`` estimator param). Each entry is +1 (non-decreasing), -1 (non-increasing), or 0 (unconstrained). The constraint is enforced on the inner's **T (residual) target**, NOT directly on y. For the ADDITIVE-residual transforms (``linear_residual`` / ``linear_residual_grouped`` / ``linear_residual_multi`` / ``diff``) the inverse adds a base-only term back (``y = T + alpha*base + beta``), so a feature constrained monotone-increasing in T is also monotone-increasing in y at fixed base -- monotonicity in T carries through to y. For non-additive inverses (``ratio`` / ``logratio`` / ``log_y`` / spline-based ``monotonic_residual``) the inverse is a per-row monotone-in-T map, so the SIGN of the monotone relationship is preserved at fixed base but the magnitude is reshaped; treat the constraint as "monotone on the residual scale". The vector length is validated against the **post-drop feature count** -- the number of columns the inner actually trains on, i.e. the wrapper's columns minus any plumbing column dropped before fit (currently the ``group_column`` for grouped transforms). Base columns stay in X and remain constrainable features. Default None (no constraint).
 
+    Common Usage
+    ------------
+    Basic residual fit (model learns ``T = y - base``; inverse re-adds the base)::
+
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        est = CompositeTargetEstimator(
+            base_estimator=HistGradientBoostingRegressor(),
+            transform_name="diff", base_column="lag",
+        )
+        est.fit(X, y)
+        yhat = est.predict(X)                       # y-scale point prediction
+
+    Quantiles + a conformal interval (calibrate on held-out rows only)::
+
+        est.predict_quantile(X, alpha=[0.1, 0.5, 0.9])     # (n, 3) y-scale
+        est.calibrate_conformal(X_val, y_val, alpha=0.1)
+        lo, hi = est.predict_interval(X, alpha=0.1)        # marginal coverage >= 0.9
+
+    As a sklearn Pipeline step via the factory, or post-hoc around a fitted inner::
+
+        from mlframe.training.composite import make_composite_regressor
+        reg = make_composite_regressor(HistGradientBoostingRegressor(),
+                                       transform_name="diff", base_column="lag")
+        wrapped = CompositeTargetEstimator.from_fitted_inner(
+            fitted_inner, transform_name="diff", base_column="lag",
+            transform_fitted_params={}, y_train=y,
+        )
+
+    See ``docs/composite_targets_guide.md`` for the full surface (discovery,
+    GLM / classification / multi-output composites, CQR / Mondrian intervals,
+    monotonic constraints, provenance).
+
     Attributes set at fit
     ---------------------
     fitted_params_
