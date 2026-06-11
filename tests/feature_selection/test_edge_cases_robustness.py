@@ -101,11 +101,28 @@ def test_mrmr_single_feature_X_returns_that_feature():
         pytest.skip(f"selector requires >=2 features: {exc}")
 
     assert mrmr.n_features_in_ == 1
-    # Exactly one feature selected, and it is "only".
-    assert mrmr.n_features_ <= 1
+    # The single raw signal-bearing column is selected (support_ indexes the
+    # input pool, so it stays [0] regardless of any FE appended downstream).
     names = _support_names(mrmr)
-    if names:
-        assert names == ["only"]
+    assert names == ["only"], f"the 1 input column must be selected; got {names}"
+    # REFRAMED (2026-06-11): the stale ``n_features_ <= 1`` predates hinge change-
+    # point FE going default-on (``fe_hinge_enable=True``). ``n_features_`` counts
+    # the TRANSFORM output width, not the selected-support size; the univariate
+    # hinge stage is INDEPENDENT of ``fe_max_steps`` (separate opt-in knob, by
+    # design) so it can append leak-free ``only__relu_*`` legs even at
+    # ``fe_max_steps=0``. For ``y = (signal > 0)`` (a step at signal=0) the hinge's
+    # held-out-R^2 gate genuinely admits a slope-change leg -- a real shipped win,
+    # not noise. Measured here: n_features_ == 3 = raw + 2 relu legs. Assert the
+    # honest contract instead: every OUTPUT column is either the raw "only" or a
+    # leak-free hinge leg DERIVED from "only" (named ``only__*``); nothing foreign
+    # is fabricated from a 1-column frame.
+    out = mrmr.transform(X)
+    out_cols = list(out.columns) if hasattr(out, "columns") else list(mrmr.get_feature_names_out())
+    assert "only" in out_cols, f"raw column must survive transform; got {out_cols}"
+    for c in out_cols:
+        assert c == "only" or c.startswith("only"), (
+            f"every output column from a 1-column X must derive from 'only'; got {c}"
+        )
 
 
 # ---------------------------------------------------------------------------
