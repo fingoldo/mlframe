@@ -696,6 +696,7 @@ def report_model_perf(
         # spec field lands so the Wilson band renders).
         _calib_binning = getattr(reporting_config, "calibration_binning", None)
         _reliability_show_ci = getattr(reporting_config, "reliability_show_ci", None)
+        _fairness_calibration_charts = getattr(reporting_config, "fairness_calibration_charts", True)
         with phase(
             "report_probabilistic_model_perf",
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),
@@ -719,6 +720,8 @@ def report_model_perf(
                 plot_dpi=plot_dpi,
                 calibration_binning=_calib_binning,
                 reliability_show_ci=_reliability_show_ci,
+                plot_outputs=plot_outputs,
+                fairness_calibration_charts=_fairness_calibration_charts,
             )
     else:
         with phase(

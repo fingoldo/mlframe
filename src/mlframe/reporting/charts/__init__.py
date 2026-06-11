@@ -30,6 +30,9 @@ from mlframe.reporting.charts.decision_curve import (
 from mlframe.reporting.charts.drift import (
     adversarial_validation, metric_over_time, psi_heatmap, residual_vs_time,
 )
+from mlframe.reporting.charts.fairness_calibration import (
+    compose_fairness_calibration_figure, compute_subgroup_ece_disparity,
+)
 from mlframe.reporting.charts.model_comparison import compose_model_comparison_figure
 from mlframe.reporting.charts.model_card import (
     ModelCardVerdict, compose_model_card_figure, model_card_verdict,
@@ -95,6 +98,8 @@ __all__ = [
     "pdp_panel",
     "pdp_2d_panel",
     "compose_model_comparison_figure",
+    "compose_fairness_calibration_figure",
+    "compute_subgroup_ece_disparity",
     "compose_model_card_figure",
     "model_card_verdict",
     "compose_split_comparison_figure",

@@ -111,6 +111,7 @@ def report_probabilistic_model_perf(
     calibration_binning: str | None = None,
     reliability_show_ci: bool | None = None,
     reliability_smoothed: bool = True,
+    fairness_calibration_charts: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -775,6 +776,68 @@ def report_probabilistic_model_perf(
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
 
+        # Per-subgroup reliability + ECE: equal accuracy across groups does not imply equal calibration, so render a
+        # calibration-fairness figure per group feature for binary targets. Default-ON when charts are saved AND a
+        # plot DSL is active; a no-op for multiclass / when no plot dir is configured.
+        if fairness_calibration_charts and plot_file and probs.shape[1] == 2:
+            _render_fairness_calibration(
+                subgroups=subgroups, subset_index=subset_index, y_true=targets, pos_score=probs[:, 1],
+                plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+            )
+
     return preds, probs
+
+
+def _render_fairness_calibration(
+    *,
+    subgroups: dict[str, Any],
+    subset_index: np.ndarray | None,
+    y_true: np.ndarray | pd.Series,
+    pos_score: np.ndarray,
+    plot_file: str,
+    plot_outputs: str | None,
+    metrics: dict[str, Any] | None,
+) -> None:
+    """Render a per-subgroup calibration-fairness figure per group feature (binary positive-class score).
+
+    For each fairness group feature, slice the per-row group labels for THIS split (``bins.loc[subset_index]``) and
+    compose the per-group reliability overlay + per-group ECE bar + max-min disparity gap. Failures are logged and
+    skipped per feature so one bad group feature never aborts the report.
+    """
+    from mlframe.reporting.charts.fairness_calibration import (
+        compose_fairness_calibration_figure, compute_subgroup_ece_disparity,
+    )
+
+    yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
+    _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
+    disparities: dict[str, Any] = {}
+
+    for group_name, group_params in subgroups.items():
+        if group_name in ("**ORDER**", "**RANDOM**"):
+            continue  # robustness pseudo-groups, not sensitive features
+        try:
+            bins = group_params.get("bins") if isinstance(group_params, dict) else None
+            if bins is None:
+                continue
+            if subset_index is not None and hasattr(bins, "loc"):
+                bins = bins.loc[subset_index]
+            labels = bins.to_numpy() if hasattr(bins, "to_numpy") else np.asarray(bins)
+            if labels.shape[0] != yt.shape[0]:
+                continue
+            disparity = compute_subgroup_ece_disparity(yt, pos_score, labels)
+            disparities[group_name] = disparity
+            spec = compose_fairness_calibration_figure(
+                yt, pos_score, labels, title=f"Calibration fairness by {group_name}",
+            )
+            _slug = _slugify_class(str(group_name))
+            base_path = f"{plot_file}_faircal_{_slug}"
+            from mlframe.reporting.output import parse_plot_output_dsl
+            from mlframe.reporting.renderers import render_and_save
+            render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
+        except Exception as e:
+            logger.debug("fairness_calibration chart for %r skipped: %s", group_name, e)
+
+    if metrics is not None and disparities:
+        metrics.update(dict(fairness_calibration_disparity=disparities))
 
 

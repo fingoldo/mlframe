@@ -253,6 +253,8 @@ class ReportingConfig(BaseConfig):
     cusum_drift: bool = True
     # Ensemble member-disagreement panels (spread histogram + spread-vs-mean + uncertainty calibration). Default-ON when an ensemble exposes >=2 member predictions, else skipped.
     prediction_stability: bool = True
+    # Per-subgroup reliability small-multiples + per-group ECE for binary targets when fairness subgroups are present: surfaces whether the model is calibrated EQUALLY across groups (equal accuracy != equal calibration) via the max-min ECE disparity gap + traffic-light. Default-ON when charts saved AND subgroups configured; a no-op otherwise.
+    fairness_calibration_charts: bool = True
     # Opt-in learning curve (holdout score vs train size). ``None`` / ``enabled=False`` skips it: it is K full refits
     # by construction, the documented cost-gated exception to "cheap diagnostics default on". Set
     # ``LearningCurveConfig(enabled=True)`` (optionally ``warm_start=True`` / ``time_budget_s=...``) to turn it on.

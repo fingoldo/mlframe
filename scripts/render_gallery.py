@@ -583,6 +583,21 @@ def _b():
     return find_weak_slices(pd.DataFrame(X, columns=names), yt, yp, task="regression", max_arity=2).figure
 
 
+@entry("fairness_calibration", "fairness_calibration",
+       "Per-subgroup reliability overlay + per-group ECE bar; max-min ECE gap as a calibration-fairness disparity (one group deliberately miscalibrated).")
+def _b():
+    from mlframe.reporting.charts.fairness_calibration import compose_fairness_calibration_figure
+    n = 12000
+    g = RNG.integers(0, 3, n)
+    score = RNG.random(n)
+    y = (RNG.random(n) < score).astype(np.int64)
+    # Group 2 is made overconfident (concave score warp) -> high ECE while groups 0/1 stay calibrated.
+    score_mis = score.copy()
+    score_mis[g == 2] = np.clip(score[g == 2] ** 0.35, 1e-3, 1 - 1e-3)
+    labels = np.array(["region_A", "region_B", "region_C"])[g]
+    return compose_fairness_calibration_figure(y, score_mis, labels)
+
+
 # ---------------------------------------------------------------------------
 # PDP / ICE
 # ---------------------------------------------------------------------------
