@@ -74,6 +74,32 @@ def _estimator_fit_accepts_sample_weight(estimator: Any) -> bool:
         return False
     return _callable_accepts_param(fit_fn, "sample_weight")
 
+
+def _carry_forward_fill(arr: "np.ndarray", keep: "np.ndarray") -> "np.ndarray":
+    """Return a copy of ``arr`` (1-D) with the rows where ``keep`` is False
+    replaced by the last preceding kept value (carry-forward); any leading
+    not-kept rows back-fill from the first kept value.
+
+    Called with ``keep = np.isfinite(arr)`` to keep a time-recurrent forward
+    well-defined and row-position-preserving across a domain-filtered gap: a
+    non-finite recurrent input would otherwise poison the convolution / EWMA /
+    window on the neighbouring valid rows. Carry-forward is the standard
+    time-series gap-fill and matches the missing-value anchor the recurrent
+    forwards already use. When every row is kept the result equals the input.
+    """
+    a = np.asarray(arr, dtype=np.float64).reshape(-1).copy()
+    n = a.size
+    if n == 0 or bool(keep.all()):
+        return a
+    # Forward-fill the source index: idx[i] = last position <= i that is kept.
+    idx = np.where(keep, np.arange(n), -1)
+    np.maximum.accumulate(idx, out=idx)
+    # Leading not-kept rows (idx still -1) back-fill from the first kept row.
+    first_kept = int(np.argmax(keep)) if bool(keep.any()) else 0
+    idx[idx < 0] = first_kept
+    return a[idx]
+
+
 try:
     import polars as pl
     _HAS_POLARS = True
@@ -193,44 +219,13 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self.online_refit_buffer_n = online_refit_buffer_n
         self.online_refit_z_threshold = online_refit_z_threshold
         self.online_refit_min_buffer_n = online_refit_min_buffer_n
-        # Grouped-transform support. When the configured ``transform_name``
-        # resolves to a transform with ``requires_groups=True`` (currently
-        # only ``linear_residual_grouped``), the wrapper extracts a 1-D
-        # groups ndarray from this column and passes it as a kwarg to
-        # fit / forward / inverse. None for ungrouped transforms; the
-        # wrapper validates the pair at fit-time and raises a clear
-        # error if a grouped transform is configured without group_column.
+        # Grouped / multi-base / variance-stabilise / callback knobs -- see the
+        # class docstring Parameters section for the full semantics of each.
         self.group_column = group_column
-        # Multi-base support. ``base_columns`` is the canonical multi-column path used by
-        # ``linear_residual_multi`` and any future multi-base transform.
-        # When None and ``base_column`` is non-empty, falls back to a
-        # single-element tuple so legacy callers continue to work
-        # unchanged. When both are passed, ``base_columns`` wins (the
-        # single-column ``base_column`` is treated as a legacy alias
-        # for back-compat).
         self.base_columns = base_columns
         self.fallback_predict = fallback_predict
         self.drop_invalid_rows = drop_invalid_rows
-        # When transform is ratio/logratio and
-        # caller doesn't provide explicit sample_weight, auto-compute
-        # variance-stabilising weights ~ 1/|base| (capped) to flatten
-        # heteroscedasticity that ratio/logratio targets exhibit
-        # (residuals on T-scale scale with |base| under multiplicative
-        # DGP; LightGBM minimising MSE on T over-fits to the high-
-        # variance regime). Default off -- opt-in because it changes
-        # the loss; recommended on heavy-tail targets where logratio
-        # was already chosen.
         self.auto_variance_stabilise = auto_variance_stabilise
-        # Optional callback fired at the end of every ``predict`` call
-        # with a snapshot of the per-batch counters. Use to hook into
-        # Prometheus / StatsD / DataDog without coupling the wrapper
-        # to a metrics library. The callback receives a dict with
-        # keys ``batch_n``, ``batch_domain_violation_rows``,
-        # ``batch_y_clip_low_hits``, ``batch_y_clip_high_hits``,
-        # plus the cumulative-since-fit counters under
-        # ``cumulative_*``. Errors raised by the callback are logged
-        # at DEBUG and swallowed -- monitoring failures must never
-        # poison the predict path.
         self.runtime_stats_callback = runtime_stats_callback
 
     # ------------------------------------------------------------------
@@ -396,31 +391,20 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             y_train_median = float(np.median(y_train[finite]))
             y_clip_low, y_clip_high = _y_train_clip_bounds(y_train[finite])
 
-        # T-scale clip bounds. On the from_fitted_inner route we don't have
-        # direct T_train access -- caller passed y_train + transform_fitted_params.
-        #
-        # E10 fix: for UNARY transforms (``requires_base=False`` -- log_y,
-        # cbrt_y, yeo_johnson_y, quantile_normal_y, y_quantile_clip) the
-        # T-scale is a fitted function of y ALONE (e.g. log_y: T = log(y+offset)),
-        # so T_train is OFFSET from 0. The old code built a symmetric
-        # ``+/-10*std(y)`` envelope CENTERED AT 0, which mis-centers every unary
-        # transform whose T is offset (log_y T~log(median(y)+offset) is far from
-        # 0): the in-distribution T_hat then clips flat to a constant on one side.
-        # Because the unary forward needs no base, we can reconstruct the EXACT
-        # T_train here via ``transform.forward(y, zeros, params)`` and apply the
-        # identical MAD-based envelope the .fit() path uses (median(T)+/-10*MAD,
-        # widened to the observed [T_min, T_max]).
-        #
-        # For BASE-dependent transforms base is genuinely unavailable on this
-        # route, so we keep the conservative ``+/-10*y_std`` proxy; that envelope
-        # is symmetric-about-0 and the core additive-residual transforms
-        # (diff / linear_residual: T = y - alpha*base - beta) have T centered
-        # near 0 by OLS construction, so the centering is appropriate there.
-        #
-        # ``finite`` is a boolean mask, so ``finite.size`` is len(y_train) -- the
-        # gate must count FINITE values (mirror the .fit() path, which sizes the
-        # already-filtered finite array). Using .size let a mostly-NaN y_train
-        # estimate the T-clip envelope from as few as 2 unrepresentative points.
+        # T-scale clip bounds. This route has no direct T_train (caller passed
+        # y_train + params). For UNARY transforms (``requires_base=False``: log_y,
+        # cbrt_y, yeo_johnson_y, quantile_normal_y, y_quantile_clip) the T-scale
+        # is a fitted function of y ALONE, so T_train is OFFSET from 0; a symmetric
+        # ``+/-10*std(y)`` band centered at 0 mis-centers it and clips the
+        # in-distribution T_hat flat. The unary forward needs no base, so we
+        # reconstruct the EXACT T_train via ``transform.forward(y, zeros, params)``
+        # and apply the same MAD envelope the .fit() path uses (median(T)+/-10*MAD,
+        # widened to the observed [T_min, T_max]). For BASE-dependent transforms
+        # base is unavailable here, so we keep the conservative ``+/-10*y_std``
+        # proxy -- correct because the additive-residual cores (diff /
+        # linear_residual) have T centered near 0 by OLS construction.
+        # The gate counts FINITE values (``finite.sum()``), mirroring .fit(); using
+        # ``finite.size`` let a mostly-NaN y_train estimate the band from ~2 points.
         t_clip_low, t_clip_high = float("-inf"), float("inf")
         if int(finite.sum()) >= 10:
             _transform = get_transform(transform_name)
@@ -470,18 +454,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "t_clip_low": t_clip_low,
             "t_clip_high": t_clip_high,
         }
-        # Inherit feature_names_in_ from the already-fitted inner. The
-        # __init__ path captures it via .fit() (line 618); the
-        # from_fitted_inner path must mirror that so predict-side
-        # ``predict_from_models`` can resolve the wrapper's expected
-        # column list via getattr(model, "feature_names_in_"). Without it
-        # the predict-side column-subset / df_pre_pipeline fallback path
-        # (predict.py:1168-1194) skips, and the wrapper is fed the
-        # post-extensions pca-only / svd-only frame while its inner
-        # CatBoost/LGB/XGB was trained on the raw-plus-extension frame.
-        # CatBoost then raises ``At position 0 should be feature with
-        # name x0 (found pca0)``. Surfaced by fuzz iter-340 (composite +
-        # PCA) / iter-79 family (composite + TruncatedSVD).
+        # Inherit feature_names_in_ from the already-fitted inner so the
+        # predict-side column-subset fallback can resolve the wrapper's expected
+        # columns; without it the wrapper is fed the post-extensions pca/svd-only
+        # frame while its inner was trained on the raw-plus-extension frame, and
+        # CatBoost raises a feature-name mismatch (fuzz iter-340 composite+PCA).
         _inner_names = getattr(fitted_inner, "feature_names_in_", None)
         if _inner_names is None:
             _inner_names = getattr(fitted_inner, "feature_names_", None)
@@ -517,6 +494,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "domain_violation_rows": 0,
             "y_clip_low_hits": 0,
             "y_clip_high_hits": 0,
+            "t_clip_low_hits": 0,
+            "t_clip_high_hits": 0,
         }
         # Stamp the construction-source flag so __sklearn_clone__ can refuse cloning a wrapper whose fitted state lives outside the __init__ signature. sklearn.base.clone() would otherwise return a silent unfitted shell and the first predict() call on the clone would raise NotFittedError mid-pipeline. The legitimate clone-on-unfitted-spec flow (sklearn.Pipeline, GridSearchCV) goes through __init__ and never trips this flag.
         instance._built_via_from_fitted_inner = True
@@ -727,9 +706,42 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform_forward_kwargs: dict[str, Any] = (
             {"groups": groups_train} if groups_train is not None else {}
         )
-        t_train = transform.forward(
-            y_train, base_train, transform_params, **transform_forward_kwargs,
-        )
+        if getattr(transform, "recurrent", False) and not bool(valid.all()):
+            # Time-recurrent forward (ewma_residual / rolling_quantile_ratio /
+            # frac_diff): each output row depends on its NEIGHBOURS in the row
+            # sequence, so compacting away domain-violating rows before the forward
+            # shifts every later / windowed row's state and T near a filtered gap
+            # would differ from predict-time T (predict never compacts -- it routes
+            # violating rows to the fallback). We run the forward over the FULL
+            # sequence (positions preserved) and mask after. NON-FINITE recurrent
+            # inputs (NaN base / NaN y) are carry-forward-filled so a single NaN
+            # cannot poison neighbouring valid rows; FINITE entries dropped for an
+            # unrelated reason (e.g. NaN y at a finite-base row under ewma) are
+            # KEPT, because predict's forward also consumes the real value there --
+            # so we fill on FINITENESS, not on the valid mask. Bit-identical to the
+            # compacted path when no row is dropped, so we branch only when it is.
+            y_seq = _carry_forward_fill(y_arr, np.isfinite(y_arr))
+            if transform.requires_base:
+                if base_arr.ndim == 1:
+                    base_seq: Any = _carry_forward_fill(
+                        base_arr, np.isfinite(base_arr),
+                    )
+                else:
+                    base_seq = np.column_stack(
+                        [_carry_forward_fill(base_arr[:, j],
+                                             np.isfinite(base_arr[:, j]))
+                         for j in range(base_arr.shape[1])]
+                    )
+            else:
+                base_seq = base_arr
+            t_full = transform.forward(
+                y_seq, base_seq, transform_params, **transform_forward_kwargs,
+            )
+            t_train = np.asarray(t_full, dtype=np.float64).reshape(-1)[valid]
+        else:
+            t_train = transform.forward(
+                y_train, base_train, transform_params, **transform_forward_kwargs,
+            )
 
         # Sanity: T must be finite or the inner estimator will choke.
         if not np.all(np.isfinite(t_train)):
@@ -740,18 +752,13 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             )
 
         # Subset X to valid rows. Branch on type so we don't pull
-        # pandas APIs on polars frames. Wrapper passes through whatever
-        # frame the caller provided to the inner estimator; if the
-        # inner doesn't accept that frame type (e.g. LightGBM 4.5 +
-        # sklearn 1.6 on polars), the caller is responsible for the
-        # conversion BEFORE reaching the wrapper. mlframe strategies
-        # already do this at the suite level. We must not silently
-        # materialise large polars frames -- that defeats the whole
-        # zero-copy Arrow path on multi-GB datasets.
-        # No-copy passthrough when every row passes domain_check (the common
-        # case). _subset_rows copies the whole frame even on an all-True mask
-        # (polars .filter / pandas .loc+reset_index / ndarray fancy-index all
-        # materialise), which on a 100+ GB frame doubles peak RAM for nothing.
+        # pandas APIs on polars frames. The wrapper passes the caller's frame
+        # flavour straight through to the inner; if the inner rejects that type
+        # (e.g. LightGBM 4.5 + sklearn 1.6 on polars) the caller must convert at
+        # the suite boundary -- we never silently materialise a large polars frame
+        # (that defeats the zero-copy Arrow path on multi-GB data). No-copy
+        # passthrough when every row passes domain_check (the common case);
+        # _subset_rows would copy the whole frame even on an all-True mask.
         X_valid = X if bool(valid.all()) else self._subset_rows(X, valid)
         # For grouped transforms, the group_column is metadata for the
         # transform (per-row alpha lookup) and is commonly non-numeric
@@ -765,14 +772,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             sample_weight = np.asarray(sample_weight)[valid]
         elif (getattr(self, "auto_variance_stabilise", False)
                 and self.transform_name in ("ratio", "logratio")):
-            # Auto-compute variance-stabilising weights for ratio/logratio.
-            # For multiplicative DGP, residual variance scales with
-            # |base|. Weight ~ 1/|base| (capped at the 5th percentile
-            # to avoid blow-up on near-zero base) flattens it.
-            # ``base_train`` is already filtered to valid rows (line 471);
-            # re-applying the full-length ``valid`` mask here would either
-            # IndexError (when some rows were dropped) or be a misleading
-            # no-op (when none were).
+            # Variance-stabilising weights for ratio/logratio: under a
+            # multiplicative DGP residual variance scales with |base|, so
+            # weight ~ 1/|base| (floored at the 5th percentile to avoid blow-up
+            # on near-zero base) flattens it. ``base_train`` is already filtered
+            # to valid rows, so re-applying ``valid`` here would IndexError.
             base_valid = base_train.astype(np.float64)
             abs_base = np.abs(base_valid)
             floor_q = float(np.quantile(
@@ -823,17 +827,12 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             )
             y_train_median = 0.0
 
-        # T-scale clip bounds. Inner predict() can blow out far past the
-        # T-train envelope on heavy-tail residual targets (observed in prod:
-        # XGB reg:pseudohubererror with un-calibrated
-        # huber_slope=1.0 produced T_hat in [-50, +340] for T_train in
-        # [-50, +50]; the additive inverse then pushed y_hat 340 above
-        # the train envelope and the y-clip only catches the part outside
-        # [y_min, y_max], not the wildly-extrapolated middle).
-        # T-clip BEFORE inverse uses MAD-scaled bounds (median(T) +/- 10*MAD)
-        # so the in-distribution mass is unaffected while gross blow-up
-        # is bounded. MAD-based to be robust to a few outlying T values
-        # in the train fold itself.
+        # T-scale clip bounds. Inner predict() can blow out far past the T-train
+        # envelope on heavy-tail residual targets (prod: un-calibrated XGB Huber
+        # produced T_hat in [-50,+340] for T_train in [-50,+50]; the y-clip only
+        # catches the part outside [y_min,y_max], not the extrapolated middle).
+        # T-clip BEFORE inverse uses MAD-scaled bounds (median(T) +/- 10*MAD), so
+        # in-distribution mass is unaffected while gross blow-up is bounded.
         t_finite = t_train[np.isfinite(t_train)]
         if t_finite.size >= 10:
             t_med = float(np.median(t_finite))
@@ -891,6 +890,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "domain_violation_rows": 0,
             "y_clip_low_hits": 0,
             "y_clip_high_hits": 0,
+            "t_clip_low_hits": 0,
+            "t_clip_high_hits": 0,
         }
         return self
 
@@ -937,17 +938,12 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                 # plumbing column upstream). Returning ``X`` unchanged avoids the
                 # block-consolidating copy ``drop`` would otherwise pay.
                 return X
-            # E12 (perf, FUTURE -- deferred, needs a before/after RAM/wall bench
-            # per perf-measure-first which cannot be run in this isolated pass):
-            # ``pd.DataFrame.drop(columns=...)`` materialises a copy of the
-            # remaining blocks on pandas<2 / CoW-off. Under pandas>=2 with
-            # Copy-on-Write the result is a lazy view (no copy until a write that
-            # never happens here), so the hot-path cost is config-dependent and a
-            # blind rewrite to ``X.loc[:, keep]`` would NOT be an improvement (it
-            # copies too) and could change column ordering. Only the group_column
-            # (a single column, grouped-transform path only) is ever dropped here,
-            # so the blast radius is bounded. A measured CoW-gated no-copy variant
-            # is tracked as E12 for a benchmark-capable session.
+            # ``pd.DataFrame.drop(columns=...)`` copies the remaining blocks on
+            # pandas<2 / CoW-off but is a lazy view under pandas>=2 CoW, so a
+            # blind rewrite to ``X.loc[:, keep]`` would copy too (and reorder
+            # columns) -- a measured CoW-gated no-copy variant needs a bench.
+            # Only the single group_column (grouped-transform path) is dropped
+            # here, so the blast radius is bounded.
             return X.drop(columns=present)
         # ndarray has no columns -> nothing to drop.
         return X

@@ -1,6 +1,8 @@
 """Predict family for ``CompositeTargetEstimator``: ``_predict_unclipped``, ``predict_pre_clip``, ``predict``, ``predict_quantile``.
 
-Carved out of ``_composite_target_estimator.py`` to keep the parent below the 1k-line monolith threshold. Functions here become bound methods on ``CompositeTargetEstimator`` at the parent's bottom via direct class-attribute assignment. Behavioural identity is preserved bit-for-bit.
+Carved out of ``_composite_target_estimator.py`` to keep the parent below the 1k-line monolith threshold. Functions here become bound methods on ``CompositeTargetEstimator`` at the parent's bottom via direct class-attribute assignment.
+
+The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallback, and the runtime-stats / callback recording are factored into module-level helpers (``_compute_base_domain_ok`` / ``_apply_t_clip`` / ``_inverse_with_fallback`` / ``_record_runtime_stats``) so the point-predict and quantile-predict paths share one implementation and gate NaN / out-of-domain bases identically.
 """
 from __future__ import annotations
 
@@ -14,6 +16,179 @@ from . import _extract_groups
 from ..transforms import get_transform
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_base_domain_ok(transform, base_arr: np.ndarray, params: dict[str, Any]):
+    """Predict-time base-side domain mask for a ``requires_base`` transform.
+
+    Mirrors the gate ``_predict_unclipped`` builds: the params-free
+    ``domain_check`` (with ``y=None`` at predict, base-side conditions only)
+    refined by the optional fitted-params-aware ``domain_check_fitted`` hook so
+    rows whose learned denominator / offset lands in an eps-clamped band route
+    to the fallback instead of a distorted inverse.
+
+    Returns a 1-D boolean ndarray; absent ``domain_check_fitted`` (the 30+
+    params-free transforms) leaves the gate bit-identical to the plain check.
+    """
+    domain_ok = np.asarray(transform.domain_check(None, base_arr))
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None:
+        _domain_ok_fitted = np.asarray(_dcf(None, base_arr, params), dtype=bool)
+        if _domain_ok_fitted.shape == domain_ok.shape:
+            domain_ok = domain_ok & _domain_ok_fitted
+    return domain_ok
+
+
+def _apply_t_clip(self, t_hat: np.ndarray, params: dict[str, Any]):
+    """Clip ``t_hat`` to the fitted T-train envelope BEFORE the inverse.
+
+    Heavy-tail composite targets (observed in prod on XGB) can blow predictions
+    far outside the T-train envelope; the post-inverse y-clip only catches what
+    falls outside the y-train range, missing the wildly-extrapolated middle.
+    T-clip here bounds the blow-up at its source while leaving in-distribution T
+    untouched. NaN-only batches and missing bounds (legacy fitted_params without
+    ``t_clip_*``) are no-ops.
+
+    Returns ``(t_hat_maybe_clipped, t_low_hits, t_high_hits)``. The hit counts
+    are surfaced to ``runtime_stats_`` / the callback by callers so the clip is
+    observable without scraping logs.
+    """
+    t_clip_low = params.get("t_clip_low", float("-inf"))
+    t_clip_high = params.get("t_clip_high", float("+inf"))
+    t_low_hits = t_high_hits = 0
+    if np.isfinite(t_clip_low) or np.isfinite(t_clip_high):
+        t_low_hits = int(np.sum(t_hat < t_clip_low))
+        t_high_hits = int(np.sum(t_hat > t_clip_high))
+        if t_low_hits or t_high_hits:
+            t_hat = np.clip(t_hat, t_clip_low, t_clip_high)
+            logger.warning(
+                "[CompositeTargetEstimator] T-clip applied transform='%s' "
+                "base='%s': %d row(s) below %.4g, %d row(s) above %.4g. "
+                "Inner predict produced T-scale outliers (likely Huber-slope "
+                "miscalibration or extreme-tail blow-up).",
+                self.transform_name, self.base_column,
+                t_low_hits, t_clip_low, t_high_hits, t_clip_high,
+            )
+    return t_hat, t_low_hits, t_high_hits
+
+
+def _inverse_with_fallback(
+    self, transform, t_hat: np.ndarray, base_arr: np.ndarray,
+    domain_ok: np.ndarray, params: dict[str, Any], inverse_kwargs: dict[str, Any],
+) -> np.ndarray:
+    """Invert ``t_hat`` on domain-valid rows; route the rest to the fallback.
+
+    Domain-violating rows get ``y_train_median`` (or NaN under
+    ``fallback_predict='nan'``); a transform inverse that produces NaN/inf even
+    on a domain-valid row (Yeo-Johnson saturation, logratio exp-overflow) is
+    routed to the same fallback so a single poisoned row never leaks through.
+    Shared by ``_predict_unclipped`` and ``predict_quantile`` so both paths gate
+    NaN/out-of-domain bases identically.
+    """
+    if domain_ok.all():
+        y_hat = np.asarray(
+            transform.inverse(t_hat, base_arr, params, **inverse_kwargs),
+            dtype=np.float64,
+        ).reshape(-1)
+    else:
+        y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
+        # Inverse on valid rows only; placeholder base for invalid rows is
+        # irrelevant since we overwrite immediately. domain_ok is (n,);
+        # base_arr is (n,) single-base or (n,K) multi-base, so broadcast the
+        # row mask along the column axis (a flat np.where would raise a
+        # (n,) vs (n,K) broadcast ValueError for K>=2).
+        mask = domain_ok if base_arr.ndim == 1 else domain_ok[:, None]
+        base_safe = np.where(mask, base_arr, 1.0)
+        y_hat_valid = np.asarray(
+            transform.inverse(t_hat, base_safe, params, **inverse_kwargs),
+            dtype=np.float64,
+        ).reshape(-1)
+        y_hat[domain_ok] = y_hat_valid[domain_ok]
+        if self.fallback_predict == "y_train_median":
+            y_hat[~domain_ok] = params["y_train_median"]
+        elif self.fallback_predict == "nan":
+            pass  # already NaN
+        else:
+            raise ValueError(
+                f"CompositeTargetEstimator: unknown fallback_predict "
+                f"'{self.fallback_predict}'; choose 'y_train_median' or 'nan'."
+            )
+
+    # General non-finite guard: a transform inverse can produce NaN/inf even on
+    # a domain-valid row. np.clip cannot repair NaN, so a single poisoned row
+    # would otherwise leak straight through. Route to the same fallback.
+    nonfinite = ~np.isfinite(y_hat)
+    if nonfinite.any():
+        if self.fallback_predict == "y_train_median":
+            y_hat[nonfinite] = params["y_train_median"]
+        # 'nan' fallback: leave as-is (caller opted into NaN sentinels).
+        logger.warning(
+            "[CompositeTargetEstimator] transform='%s' base='%s': %d row(s) "
+            "inverted to non-finite y; routed to fallback_predict='%s'.",
+            self.transform_name, self.base_column,
+            int(nonfinite.sum()), self.fallback_predict,
+        )
+    return y_hat
+
+
+# Runtime-stats keys that accumulate across predict calls. Listed once so
+# legacy fitted instances (built before a key existed) can be back-filled to 0
+# on first use rather than KeyError-ing on the ``+=`` update.
+_RUNTIME_STAT_KEYS = (
+    "predict_calls", "predict_rows_total", "domain_violation_rows",
+    "y_clip_low_hits", "y_clip_high_hits", "t_clip_low_hits", "t_clip_high_hits",
+)
+
+
+def _record_runtime_stats(
+    self, n: int, n_violation: int, low_hits: int, high_hits: int,
+    t_low_hits: int, t_high_hits: int,
+) -> None:
+    """Accumulate per-batch counters into ``runtime_stats_`` and fire the callback.
+
+    Shared by ``predict`` and ``predict_quantile`` so both surface the same
+    observability payload -- including the T-clip hit counts that were
+    previously logged at WARNING every batch then discarded. Missing keys (a
+    pre-T-clip-stats fitted instance unpickled after this change) are seeded to
+    0 so the ``+=`` never KeyErrors. The callback's failures are logged at DEBUG
+    and swallowed -- monitoring must never break inference.
+    """
+    rs = self.runtime_stats_
+    for _k in _RUNTIME_STAT_KEYS:
+        rs.setdefault(_k, 0)
+    rs["predict_calls"] += 1
+    rs["predict_rows_total"] += n
+    rs["domain_violation_rows"] += n_violation
+    rs["y_clip_low_hits"] += low_hits
+    rs["y_clip_high_hits"] += high_hits
+    rs["t_clip_low_hits"] += t_low_hits
+    rs["t_clip_high_hits"] += t_high_hits
+
+    cb = getattr(self, "runtime_stats_callback", None)
+    if cb is not None:
+        try:
+            cb({
+                "transform_name": self.transform_name,
+                "base_column": self.base_column,
+                "batch_n": n,
+                "batch_domain_violation_rows": n_violation,
+                "batch_y_clip_low_hits": low_hits,
+                "batch_y_clip_high_hits": high_hits,
+                "batch_t_clip_low_hits": t_low_hits,
+                "batch_t_clip_high_hits": t_high_hits,
+                "cumulative_predict_calls": rs["predict_calls"],
+                "cumulative_predict_rows_total": rs["predict_rows_total"],
+                "cumulative_domain_violation_rows": rs["domain_violation_rows"],
+                "cumulative_y_clip_low_hits": rs["y_clip_low_hits"],
+                "cumulative_y_clip_high_hits": rs["y_clip_high_hits"],
+                "cumulative_t_clip_low_hits": rs["t_clip_low_hits"],
+                "cumulative_t_clip_high_hits": rs["t_clip_high_hits"],
+            })
+        except Exception as cb_err:
+            logger.debug(
+                "[CompositeTargetEstimator] runtime_stats_callback failed: %s",
+                cb_err,
+            )
 
 
 def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
@@ -52,24 +227,12 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     # (no base) we delegate to the transform's own domain_check on
     # ``y=None, base=None`` which the registry adapter handles by
     # returning all-True for the t_hat row count below.
+    # Base-side domain mask. T15: the params-free ``domain_check`` cannot see
+    # learned params, so ``_compute_base_domain_ok`` refines it with the
+    # fitted-params-aware hook where present (centered_ratio's eps-floored
+    # denominator) and is bit-identical for the 30+ params-free transforms.
     if transform.requires_base:
-        domain_ok = transform.domain_check(None, base_arr)
-        # T15: refine with the fitted-params-aware base-side domain. The
-        # params-free ``domain_check`` cannot see learned params, so for
-        # ``centered_ratio`` (T = y/(base+c)) a predict row whose
-        # ``base + c`` lands in the near-zero eps-floor band passes the
-        # plain check yet has its denominator silently clamped -> the
-        # inverse no longer recovers y. Flag those rows here so they route
-        # to the domain fallback (y_train_median) instead of a distorted
-        # value. Hook absent (None) on the 30+ params-free transforms ->
-        # this is a no-op and the gate is bit-identical for them.
-        _dcf = getattr(transform, "domain_check_fitted", None)
-        if _dcf is not None:
-            _domain_ok_fitted = np.asarray(
-                _dcf(None, base_arr, params), dtype=bool,
-            )
-            if _domain_ok_fitted.shape == np.asarray(domain_ok).shape:
-                domain_ok = np.asarray(domain_ok) & _domain_ok_fitted
+        domain_ok = _compute_base_domain_ok(transform, base_arr, params)
     else:
         domain_ok = None  # sized after t_hat is computed
 
@@ -105,29 +268,10 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
         self.estimator_.predict(X_for_inner), dtype=np.float64,
     ).reshape(-1)
 
-    # T-scale clip BEFORE inverse. Heavy-tail composite targets
-    # (observed in prod on XGB) can blow predictions
-    # 30x outside the T-train envelope; the post-inverse y-clip
-    # only catches what falls outside the y-train range, missing
-    # the wildly-extrapolated middle. T-clip here bounds the
-    # blow-up at its source while leaving in-distribution T
-    # predictions untouched. NaN-only batches and missing bounds
-    # (legacy fitted_params without t_clip_*) are no-ops.
-    t_clip_low = params.get("t_clip_low", float("-inf"))
-    t_clip_high = params.get("t_clip_high", float("+inf"))
-    if (np.isfinite(t_clip_low) or np.isfinite(t_clip_high)):
-        t_low_hits = int(np.sum(t_hat < t_clip_low))
-        t_high_hits = int(np.sum(t_hat > t_clip_high))
-        if t_low_hits or t_high_hits:
-            t_hat = np.clip(t_hat, t_clip_low, t_clip_high)
-            logger.warning(
-                "[CompositeTargetEstimator] T-clip applied transform='%s' "
-                "base='%s': %d row(s) below %.4g, %d row(s) above %.4g. "
-                "Inner predict produced T-scale outliers (likely Huber-slope "
-                "miscalibration or extreme-tail blow-up).",
-                self.transform_name, self.base_column,
-                t_low_hits, t_clip_low, t_high_hits, t_clip_high,
-            )
+    # T-scale clip BEFORE inverse (shared with predict_quantile). The hit
+    # counts are returned so predict() can surface them in runtime_stats_ /
+    # the callback instead of discarding them to a per-batch WARNING.
+    t_hat, t_low_hits, t_high_hits = _apply_t_clip(self, t_hat, params)
 
     # Unary transforms have no base column at predict-time; size the
     # placeholder + domain mask to match t_hat. Inverse ignores the
@@ -136,53 +280,19 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
         base_arr = np.zeros_like(t_hat)
         domain_ok = np.ones_like(t_hat, dtype=bool)
 
-    # Apply inverse only on valid rows; fill the rest with fallback.
-    if domain_ok.all():
-        y_hat = transform.inverse(t_hat, base_arr, params, **inverse_kwargs)
-    else:
-        y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
-        # Inverse on valid rows only; placeholder base for invalid rows is
-        # irrelevant since we overwrite immediately. domain_ok is (n,);
-        # base_arr is (n,) single-base or (n,K) multi-base, so broadcast the
-        # row mask along the column axis (a flat np.where would raise a
-        # (n,) vs (n,K) broadcast ValueError for K>=2).
-        mask = domain_ok if base_arr.ndim == 1 else domain_ok[:, None]
-        base_safe = np.where(mask, base_arr, 1.0)
-        y_hat_valid = transform.inverse(
-            t_hat, base_safe, params, **inverse_kwargs,
-        )
-        y_hat[domain_ok] = y_hat_valid[domain_ok]
-        # Fallback for invalid rows.
-        if self.fallback_predict == "y_train_median":
-            y_hat[~domain_ok] = params["y_train_median"]
-        elif self.fallback_predict == "nan":
-            pass  # already NaN
-        else:
-            raise ValueError(
-                f"CompositeTargetEstimator: unknown fallback_predict "
-                f"'{self.fallback_predict}'; choose 'y_train_median' or 'nan'."
-            )
-
-    # General non-finite guard: a transform inverse can produce NaN/inf even
-    # on a domain-valid row (e.g. Yeo-Johnson saturating past its asymptote,
-    # logratio exp-overflow). np.clip cannot repair NaN, so a single poisoned
-    # row would otherwise leak straight through predict()/predict_pre_clip.
-    # Route non-finite outputs to the same fallback as domain violations.
-    nonfinite = ~np.isfinite(y_hat)
-    if nonfinite.any():
-        if self.fallback_predict == "y_train_median":
-            y_hat[nonfinite] = params["y_train_median"]
-        # 'nan' fallback: leave as-is (caller opted into NaN sentinels).
-        logger.warning(
-            "[CompositeTargetEstimator] transform='%s' base='%s': %d row(s) "
-            "inverted to non-finite y; routed to fallback_predict='%s'.",
-            self.transform_name, self.base_column,
-            int(nonfinite.sum()), self.fallback_predict,
-        )
+    # Apply inverse only on valid rows; fill the rest with the fallback, with
+    # the non-finite guard. Shared with predict_quantile so both paths gate
+    # NaN/out-of-domain bases identically.
+    y_hat = _inverse_with_fallback(
+        self, transform, t_hat, base_arr, domain_ok, params, inverse_kwargs,
+    )
 
     n_violation = int((~domain_ok).sum())
     n_rows = int(t_hat.size)
-    meta = {"params": params, "n_violation": n_violation, "n_rows": n_rows}
+    meta = {
+        "params": params, "n_violation": n_violation, "n_rows": n_rows,
+        "t_low_hits": t_low_hits, "t_high_hits": t_high_hits,
+    }
     return y_hat, n_rows, meta
 
 
@@ -202,7 +312,7 @@ def predict(self, X: Any) -> np.ndarray:
     y_hat, n, meta = self._predict_unclipped(X)
     params = meta["params"]
     n_violation = meta["n_violation"]
-    t_hat_size = meta["n_rows"]
+    n = meta["n_rows"]
 
     # Post-inverse y-clip. Prediction outside the train envelope is
     # almost always exp() / division blow-up; clip and count for
@@ -214,39 +324,13 @@ def predict(self, X: Any) -> np.ndarray:
     if low_hits or high_hits:
         y_hat = np.clip(y_hat, low, high)
 
-    # Update runtime_stats_ cumulatively.
-    n = t_hat_size
-    rs = self.runtime_stats_
-    rs["predict_calls"] += 1
-    rs["predict_rows_total"] += n
-    rs["domain_violation_rows"] += n_violation
-    rs["y_clip_low_hits"] += low_hits
-    rs["y_clip_high_hits"] += high_hits
-
-    # Optional metrics callback (Prometheus / StatsD / DataDog hook).
-    # Failures are logged at DEBUG and swallowed -- monitoring must
-    # never break inference.
-    cb = getattr(self, "runtime_stats_callback", None)
-    if cb is not None:
-        try:
-            cb({
-                "transform_name": self.transform_name,
-                "base_column": self.base_column,
-                "batch_n": n,
-                "batch_domain_violation_rows": n_violation,
-                "batch_y_clip_low_hits": low_hits,
-                "batch_y_clip_high_hits": high_hits,
-                "cumulative_predict_calls": rs["predict_calls"],
-                "cumulative_predict_rows_total": rs["predict_rows_total"],
-                "cumulative_domain_violation_rows": rs["domain_violation_rows"],
-                "cumulative_y_clip_low_hits": rs["y_clip_low_hits"],
-                "cumulative_y_clip_high_hits": rs["y_clip_high_hits"],
-            })
-        except Exception as cb_err:
-            logger.debug(
-                "[CompositeTargetEstimator] runtime_stats_callback failed: %s",
-                cb_err,
-            )
+    # Accumulate counters + fire the callback. The T-clip hit counts (computed
+    # inside _predict_unclipped) flow through here so they are observable in
+    # runtime_stats_ / the callback rather than only in a per-batch WARNING.
+    _record_runtime_stats(
+        self, n, n_violation, low_hits, high_hits,
+        meta["t_low_hits"], meta["t_high_hits"],
+    )
     return y_hat
 
 
@@ -278,6 +362,13 @@ def predict_quantile(
 
     For ``ratio`` with mixed-sign base raises ``NotImplementedError``
     rather than silently swap the high / low quantiles.
+
+    Domain / clip parity with ``predict``: rows whose base fails the base-side
+    domain check (NaN / out-of-domain) route to the ``fallback_predict`` value
+    instead of returning a silent NaN quantile, the inner T-quantile is T-clipped
+    to the fitted envelope before the inverse, and the per-batch counters
+    (domain violations, T-clip hits) accumulate into ``runtime_stats_`` and fire
+    the ``runtime_stats_callback``.
     """
     if not hasattr(self, "estimator_"):
         raise NotFittedError(
@@ -361,8 +452,18 @@ def predict_quantile(
             inner.predict_quantile(X_for_inner, alpha=alpha), dtype=np.float64,
         )
 
+    # Base-side domain mask (parity with predict). A NaN / out-of-domain base
+    # otherwise yields a silent NaN quantile; instead route those rows through
+    # the same fallback predict() uses. Unary transforms have no base, so all
+    # rows are in-domain and the placeholder base is ignored by the inverse.
+    n_rows = int(t_raw.shape[0])
     if base_arr is None:
-        base_arr = np.zeros(t_raw.shape[0], dtype=np.float64)
+        base_arr = np.zeros(n_rows, dtype=np.float64)
+        domain_ok = np.ones(n_rows, dtype=bool)
+    elif transform.requires_base:
+        domain_ok = _compute_base_domain_ok(transform, base_arr, params)
+    else:
+        domain_ok = np.ones(n_rows, dtype=bool)
 
     # Preserve quantile dimensionality: scalar alpha -> 1-D (n_samples,);
     # array alpha -> 2-D (n_samples, K). Flattening unconditionally would
@@ -370,23 +471,44 @@ def predict_quantile(
     # vector and destroy the predictive interval downstream blenders need.
     low = params.get("y_clip_low", float("-inf"))
     high = params.get("y_clip_high", float("inf"))
+
+    def _invert_one(t_col: np.ndarray) -> np.ndarray:
+        """T-clip (parity with predict) + domain-aware inverse + y-clip for one
+        quantile level. Accumulates the T-clip hits into the closure totals."""
+        nonlocal _t_low_total, _t_high_total
+        t_clipped, _tl, _th = _apply_t_clip(self, t_col.reshape(-1), params)
+        _t_low_total += _tl
+        _t_high_total += _th
+        y_col = _inverse_with_fallback(
+            self, transform, t_clipped, base_arr, domain_ok, params, inverse_kwargs,
+        )
+        return np.clip(y_col, low, high)
+
+    _t_low_total = _t_high_total = 0
+    n_violation = int((~domain_ok).sum())
+
     if alpha_is_scalar:
-        t_q = t_raw.reshape(-1)
-        y_q = transform.inverse(t_q, base_arr, params, **inverse_kwargs)
-        return np.clip(y_q, low, high)
+        y_q = _invert_one(t_raw)
+        _record_runtime_stats(
+            self, n_rows, n_violation, 0, 0, _t_low_total, _t_high_total,
+        )
+        return y_q
 
     if t_raw.ndim == 1:
         # Inner emits per-alpha 1-D and was called with a vector -- broadcast
         # against the single base column we already extracted (which is 1-D).
-        y_q = transform.inverse(t_raw, base_arr, params, **inverse_kwargs)
-        return np.clip(y_q, low, high).reshape(-1, 1)
+        y_q = _invert_one(t_raw).reshape(-1, 1)
+        _record_runtime_stats(
+            self, n_rows, n_violation, 0, 0, _t_low_total, _t_high_total,
+        )
+        return y_q
     if t_raw.ndim != 2:
         raise ValueError(
             f"CompositeTargetEstimator.predict_quantile: inner returned ndim={t_raw.ndim}; expected 1 or 2."
         )
     # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
-    cols: list[np.ndarray] = []
-    for k in range(t_raw.shape[1]):
-        y_col = transform.inverse(t_raw[:, k], base_arr, params, **inverse_kwargs)
-        cols.append(np.clip(y_col, low, high))
+    cols = [_invert_one(t_raw[:, k]) for k in range(t_raw.shape[1])]
+    _record_runtime_stats(
+        self, n_rows, n_violation, 0, 0, _t_low_total, _t_high_total,
+    )
     return np.column_stack(cols)

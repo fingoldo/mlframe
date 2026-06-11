@@ -245,7 +245,6 @@ def _compute_oof_with_external_holdout(
     base_train_full_per_spec: dict[str, np.ndarray],
     external_holdout_X: Any,
     external_holdout_y: np.ndarray,
-    external_holdout_base_per_spec: dict[str, np.ndarray],
     sample_weight: np.ndarray | None,
     full_key: tuple | None,
     group_ids: np.ndarray | None = None,
@@ -253,6 +252,8 @@ def _compute_oof_with_external_holdout(
     """Fit each component clone on full train, predict on caller-supplied external holdout (typically the suite's val split).
 
     Mirrors the per-component branch in :func:`compute_oof_holdout_predictions` but skips the internal train/holdout slicing.
+
+    Holdout-side base columns are NOT taken as an argument: the ``CompositeTargetEstimator`` wrapper re-extracts its base column from ``external_holdout_X`` itself during ``predict``, so a parallel per-spec holdout-base dict would be dead weight (the train-side ``base_train_full_per_spec`` is still needed because it drives the transform.forward that produces the T values the inner is re-fit on).
     """
     y_train_full = y_train_full.astype(np.float64)
     holdout_cols: list[np.ndarray] = []
@@ -418,7 +419,7 @@ def compute_oof_holdout_predictions(
 
     Split strategy:
 
-    - **External holdout** (preferred when ``external_holdout_X`` is supplied): fit each component clone on the FULL train, predict on the caller-provided external frame (the suite's val split). Eliminates the train-tail-vs-test distribution mismatch that biases NNLS weights on group-aware splits of strong-AR targets (observed in prod: train-tail lag_predict RMSE 15.18 vs test 11.58 - NNLS underweights the dominant baseline because it looks bad on the train-tail). Caller must provide parallel base columns via ``external_holdout_base_per_spec`` for composite components.
+    - **External holdout** (preferred when ``external_holdout_X`` is supplied): fit each component clone on the FULL train, predict on the caller-provided external frame (the suite's val split). Eliminates the train-tail-vs-test distribution mismatch that biases NNLS weights on group-aware splits of strong-AR targets (observed in prod: train-tail lag_predict RMSE 15.18 vs test 11.58 - NNLS underweights the dominant baseline because it looks bad on the train-tail). Composite components do NOT need a parallel holdout base array: the ``CompositeTargetEstimator`` wrapper re-extracts its base column directly from ``external_holdout_X`` at predict time, so the holdout-side base is read from the frame itself (a separate per-spec base dict would be dead weight).
     - ``time_ordering`` provided and monotone-non-decreasing OR ``time_ordering`` is ``None`` but rows are otherwise detected to be time-ordered: take the trailing ``holdout_frac`` slice as the holdout (past-only train, future holdout) -- the analogue of a single ``sklearn.model_selection.TimeSeriesSplit`` fold.
     - Otherwise: random shuffle by ``random_state`` (legacy behaviour).
 
@@ -426,6 +427,8 @@ def compute_oof_holdout_predictions(
     ----------
     kfold
         When > 1, perform K-fold OOF prediction instead of a single holdout slice. Each fold contributes its hold-out predictions; the concatenated (n_train, K) matrix is returned in natural row order. ``kfold=1`` preserves the legacy single-split behaviour. Random-shuffle only (time-aware K-fold remains the single-split trailing slice).
+    external_holdout_base_per_spec
+        Accepted for back-compat but UNUSED. Earlier docstrings called it REQUIRED for external-holdout composite components; that was wrong. The ``CompositeTargetEstimator`` wrapper re-extracts its base column from ``external_holdout_X`` itself at predict time, so no parallel holdout-base dict is consulted. Callers may keep passing it (it is silently ignored); new callers should omit it.
 
     Returns
     -------
@@ -671,6 +674,11 @@ def compute_oof_holdout_predictions(
     if (external_holdout_X is not None
             and external_holdout_y is not None
             and len(external_holdout_y) > 0):
+        # external_holdout_base_per_spec is intentionally NOT forwarded: the
+        # CompositeTargetEstimator wrapper re-extracts its base column from
+        # external_holdout_X at predict time, so a parallel holdout-base dict
+        # is unused. The public param is retained for back-compat (callers may
+        # still pass it) but has no effect.
         return _compute_oof_with_external_holdout(
             component_models=component_models,
             component_names=component_names,
@@ -680,9 +688,6 @@ def compute_oof_holdout_predictions(
             base_train_full_per_spec=base_train_full_per_spec,
             external_holdout_X=external_holdout_X,
             external_holdout_y=np.asarray(external_holdout_y, dtype=np.float64),
-            external_holdout_base_per_spec=(
-                external_holdout_base_per_spec or {}
-            ),
             sample_weight=sample_weight,
             full_key=_full_key,
             group_ids=group_ids,

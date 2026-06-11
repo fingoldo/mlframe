@@ -5,12 +5,97 @@ Carved out of ``_composite_target_estimator.py`` to keep the parent below the 1k
 from __future__ import annotations
 
 import logging
-from collections import deque
 from typing import Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+class _RingBuffer:
+    """Fixed-capacity float64 FIFO ring buffer for the streaming-refit window.
+
+    The previous implementation appended new rows to a ``collections.deque`` of
+    boxed Python floats (``deque.extend(arr.tolist())``) and rebuilt the whole
+    window into a fresh ndarray (``np.asarray(deque)``) on EVERY ``update`` call
+    -- O(buffer_n) Python boxing + unboxing per call even when the cheap drift
+    z-check immediately short-circuits.
+
+    Here the storage is a single preallocated ``np.empty(capacity)`` array plus a
+    head index and a live count, so an append copies only the NEW rows
+    (O(new_rows), fully vectorised, no per-element boxing). The drift check reads
+    a contiguous FIFO-ordered view materialised into a SECOND preallocated array
+    that is reused across calls rather than reallocated each time. Oldest-first
+    (FIFO) eviction at capacity matches the old ``deque(maxlen=...)`` semantics
+    exactly, including the over-long-batch case (a single append larger than the
+    capacity keeps only its last ``capacity`` rows).
+    """
+
+    __slots__ = ("_store", "_view", "_head", "_count", "capacity")
+
+    def __init__(self, capacity: int) -> None:
+        self.capacity = max(int(capacity), 1)
+        # Storage ring + a reusable contiguous-view scratch, both float64 so the
+        # drift check never has to allocate or up-cast.
+        self._store = np.empty(self.capacity, dtype=np.float64)
+        self._view = np.empty(self.capacity, dtype=np.float64)
+        self._head = 0  # index of the oldest live row within ``_store``
+        self._count = 0  # number of live rows (<= capacity)
+
+    def __len__(self) -> int:
+        return self._count
+
+    def append(self, arr: np.ndarray) -> None:
+        """Append new rows (FIFO), evicting oldest beyond ``capacity``.
+
+        Copies only the (clipped) incoming rows into the ring -- O(new_rows),
+        never O(buffer_n). An incoming batch longer than ``capacity`` keeps only
+        its trailing ``capacity`` rows, matching ``deque(maxlen=capacity)``.
+        """
+        cap = self.capacity
+        m = int(arr.size)
+        if m == 0:
+            return
+        if m >= cap:
+            # The new batch alone overflows the window: keep only its tail and
+            # reset the ring so the contiguous view starts at index 0.
+            self._store[:] = arr[m - cap:]
+            self._head = 0
+            self._count = cap
+            return
+        # Write ``m`` rows starting at the current tail, wrapping the ring.
+        tail = (self._head + self._count) % cap
+        first = min(m, cap - tail)
+        self._store[tail:tail + first] = arr[:first]
+        if first < m:
+            self._store[: m - first] = arr[first:]
+        new_count = self._count + m
+        if new_count > cap:
+            # Overwrote the oldest rows -- advance the head past the evicted ones.
+            self._head = (self._head + (new_count - cap)) % cap
+            self._count = cap
+        else:
+            self._count = new_count
+
+    def contiguous(self) -> np.ndarray:
+        """Return the live window in FIFO (oldest-first) order, contiguous.
+
+        Materialises into the reused ``_view`` scratch (no per-call allocation):
+        when the live window does not wrap the ring this is a single slice copy;
+        when it wraps it is two slice copies. The result is a length-``count``
+        view of ``_view`` -- callers must treat it as read-only / transient.
+        """
+        cap = self.capacity
+        n = self._count
+        head = self._head
+        end = head + n
+        if end <= cap:
+            self._view[:n] = self._store[head:end]
+        else:
+            first = cap - head
+            self._view[:first] = self._store[head:]
+            self._view[first:n] = self._store[: end - cap]
+        return self._view[:n]
 
 
 def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
@@ -45,27 +130,33 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         raise RuntimeError(
             "CompositeTargetEstimator.update called before fit (no fitted_params_ to refit)."
         )
-    # Lazy-init the rolling buffers on first update.
+    # Lazy-init the preallocated ring buffers on first update. The trailing
+    # underscore marks runtime-only state that sklearn.clone() drops (cloned
+    # estimators start with an empty buffer).
     if not hasattr(self, "_buffer_y_"):
-        self._buffer_y_ = deque(maxlen=int(self.online_refit_buffer_n))
-        self._buffer_base_ = deque(maxlen=int(self.online_refit_buffer_n))
+        self._buffer_y_ = _RingBuffer(int(self.online_refit_buffer_n))
+        self._buffer_base_ = _RingBuffer(int(self.online_refit_buffer_n))
     y_arr = np.asarray(y_recent, dtype=np.float64).reshape(-1)
     base_arr = np.asarray(base_recent, dtype=np.float64).reshape(-1)
     if y_arr.size != base_arr.size:
         raise ValueError(
             f"CompositeTargetEstimator.update: y_recent ({y_arr.size} rows) and base_recent ({base_arr.size} rows) must have equal length."
         )
-    self._buffer_y_.extend(y_arr.tolist())
-    self._buffer_base_.extend(base_arr.tolist())
+    # Append only the new rows (O(new_rows)); the heavy whole-buffer unboxing of
+    # the old deque path is gone -- the drift check reads a contiguous view.
+    self._buffer_y_.append(y_arr)
+    self._buffer_base_.append(base_arr)
     buffer_n = len(self._buffer_y_)
     # Lazy import to break the composite_estimator <-> composite_streaming
     # cycle (composite_streaming lazy-imports _linear_residual_fit from
     # composite, which re-exports CompositeTargetEstimator from us).
     from ..streaming import streaming_alpha_check_and_refit
-    # Run drift check; the helper handles the buffer-too-small case.
+    # Run drift check; the helper handles the buffer-too-small case. The
+    # contiguous views are FIFO-ordered (oldest head, newest tail) so the
+    # change-point scan sees the dead regime first and the live regime last.
     new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-        np.asarray(self._buffer_y_, dtype=np.float64),
-        np.asarray(self._buffer_base_, dtype=np.float64),
+        self._buffer_y_.contiguous(),
+        self._buffer_base_.contiguous(),
         current_alpha=float(self.fitted_params_.get("alpha", 0.0)),
         current_beta=float(self.fitted_params_.get("beta", 0.0)),
         z_threshold=float(self.online_refit_z_threshold),
@@ -84,8 +175,8 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         try:
             from . import _y_train_clip_bounds
             from ..transforms import get_transform
-            _by = np.asarray(self._buffer_y_, dtype=np.float64)
-            _bb = np.asarray(self._buffer_base_, dtype=np.float64)
+            _by = np.asarray(self._buffer_y_.contiguous(), dtype=np.float64)
+            _bb = np.asarray(self._buffer_base_.contiguous(), dtype=np.float64)
             _finy = np.isfinite(_by)
             if int(_finy.sum()) >= 10:
                 self.fitted_params_["y_train_median"] = float(np.median(_by[_finy]))
@@ -117,7 +208,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
 
 
 def get_buffer_state(self) -> dict[str, Any]:
-    """Diagnostic: returns the current rolling-buffer state without exposing the deque internals to callers.
+    """Diagnostic: returns the current rolling-buffer state without exposing the ring-buffer internals to callers.
 
     Useful for monitoring / unit tests. Returns ``{"buffer_n": int, "buffer_full": bool, "alpha_current": float, "beta_current": float}``.
     """

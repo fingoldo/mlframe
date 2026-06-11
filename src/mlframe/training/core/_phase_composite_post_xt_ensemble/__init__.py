@@ -204,8 +204,13 @@ def _build_cross_target_ensemble_for_target(
     _y_full_for_rmse = target_by_type.get(_tt_e, {}).get(_orig_tname)
 
     def _compute_train_rmse_proxy() -> np.ndarray:
-        """Full-train predict per component -> y-scale RMSE proxy. Median-fills
-        non-finite. Deferred when honest OOF will replace it (see below)."""
+        """Full-train predict per component -> y-scale RMSE proxy.
+
+        A component whose train-predict fails keeps a NaN here so the caller
+        drops it from the pool entirely (zero ensemble weight). Imputing the
+        failed row with the median of the survivors would instead grant the
+        broken component mid-pack weight on a fabricated score.
+        """
         _rmses: list[float] = []
         if _y_full_for_rmse is not None:
             _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
@@ -218,17 +223,33 @@ def _build_cross_target_ensemble_for_target(
                 except Exception as _rmse_err:
                     logger.warning(
                         "[CompositeCrossTargetEnsemble] could not score "
-                        "component '%s' on train: %s. Skipping in "
-                        "ensemble weighting.", _name, _rmse_err,
+                        "component '%s' on train: %s. Dropping it from "
+                        "ensemble weighting (zero weight, not median).",
+                        _name, _rmse_err,
                     )
                     _rmses.append(float("nan"))
         else:
             _rmses = [float("nan")] * len(_components)
-        _arr = np.asarray(_rmses, dtype=np.float64)
-        _fin = np.isfinite(_arr)
-        if _fin.any() and not _fin.all():
-            _arr[~_fin] = float(np.median(_arr[_fin]))
-        return _arr
+        return np.asarray(_rmses, dtype=np.float64)
+
+    def _drop_unscored_from_pool(_rmses: np.ndarray):
+        """Filter the component pool to the rows with a finite train-RMSE.
+
+        A component that failed to predict on train (NaN proxy) is excluded so
+        it never reaches ``from_train_metrics`` (which raises on non-finite
+        rmses) and never earns ensemble weight on a fabricated score. Returns
+        the (components, names, rmses) triple restricted to the finite subset;
+        all-finite input passes through unchanged.
+        """
+        _fin = np.isfinite(_rmses)
+        if _fin.all():
+            return list(_components), list(_component_names), _rmses
+        _keep = [int(_i) for _i in np.flatnonzero(_fin)]
+        return (
+            [_components[_i] for _i in _keep],
+            [_component_names[_i] for _i in _keep],
+            _rmses[_keep],
+        )
 
     # If oof_holdout_frac > 0, the honest holdout REPLACES the train-RMSE proxy
     # (re-fit on 1-frac, predict on frac), so computing the proxy first is a
@@ -238,6 +259,8 @@ def _build_cross_target_ensemble_for_target(
         composite_target_discovery_config, "oof_holdout_frac", 0.0,
     ))
     _defer_train_proxy = _oof_frac > 0.0 and _y_full_for_rmse is not None
+    _oof_components = _components
+    _oof_names = _component_names
     if _defer_train_proxy:
         _rmse_arr = np.ones(len(_components), dtype=np.float64)
     else:
@@ -249,11 +272,20 @@ def _build_cross_target_ensemble_for_target(
                 _orig_tname,
             )
             return
+        # Drop any component whose train-predict failed (NaN proxy) so it gets
+        # zero weight rather than a median-imputed mid-pack score.
+        _oof_components, _oof_names, _rmse_arr = _drop_unscored_from_pool(_rmse_arr)
+        if len(_oof_components) < 2:
+            logger.info(
+                "[CompositeCrossTargetEnsemble] target='%s': only %d "
+                "component(s) scored on train after dropping failed "
+                "predicts; ensemble skipped.",
+                _orig_tname, len(_oof_components),
+            )
+            return
     _oof_y_full = _y_full_for_rmse
     _oof_pred_matrix = None
     _oof_y_holdout = None
-    _oof_components = _components
-    _oof_names = _component_names
     _oof_rmses = _rmse_arr  # train-RMSE proxy by default
     if _oof_frac > 0.0 and _oof_y_full is not None:
         # Per-spec base matrix on filtered_train_df rows for transform.forward inside the OOF helper. Multi-base specs (linear_residual_multi from forward-stepwise auto-promotion) need the FULL (n, 1+K) matrix whose column count matches the fitted alphas.
@@ -529,6 +561,18 @@ def _build_cross_target_ensemble_for_target(
                     "[CompositeCrossTargetEnsemble] target='%s': honest OOF "
                     "produced no matrix and no component scored on train; "
                     "ensemble skipped.", _orig_tname,
+                )
+                return
+            # Drop any component whose train-predict failed (NaN proxy). No OOF
+            # matrix exists on this fallback path, so the pool lists carry the
+            # full set; restrict them to the scored subset for zero-weight.
+            _oof_components, _oof_names, _rmse_arr = _drop_unscored_from_pool(_rmse_arr)
+            if len(_oof_components) < 2:
+                logger.info(
+                    "[CompositeCrossTargetEnsemble] target='%s': only %d "
+                    "component(s) scored on train after dropping failed "
+                    "predicts; ensemble skipped.",
+                    _orig_tname, len(_oof_components),
                 )
                 return
             _oof_rmses = _rmse_arr
