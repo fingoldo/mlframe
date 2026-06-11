@@ -79,6 +79,7 @@ def _recipe_clears_fold(
     src_b_codes: Optional[np.ndarray],
     y_codes: np.ndarray,
     prevalence: float,
+    alt_acceptance: bool = False,
 ) -> bool:
     """Whether ``eng_codes`` clears the held-out uplift gate on one fold.
 
@@ -90,10 +91,30 @@ def _recipe_clears_fold(
     operand was an engineered parent whose raw column is not directly available);
     a missing operand contributes 0 to the marginal sum, matching the in-fit
     treatment of a zero-MI operand.
+
+    ``alt_acceptance`` (2026-06-11): the recipe was admitted in-fit via the
+    ALTERNATIVE acceptance path -- the per-operand learned PRE-WARP uplift gate or
+    the gate_med path -- NOT the elementary ``eng_mi > sum_marg`` joint-prevalence
+    gate. A prewarp recipe is a 1-D summary of a 2-D NON-monotone product whose
+    whole reason for its dedicated acceptance path is that it CANNOT beat the raw
+    operand marginal sum (the elementary library is representationally blind to the
+    non-monotone inner); applying the ``eng_mi > sum_marg`` bar here would
+    STRUCTURALLY drop every genuine prewarp recovery. For these recipes the
+    held-out confirmation is the SAME signal test the prewarp gate uses -- the
+    engineered column must carry genuine information about y -- so any positive
+    held-out MI clears (the marginal-sum comparison does not apply). Empirically
+    this only becomes load-bearing once a SECOND unary_binary recipe exists (the
+    voter is a <2-recipe no-op otherwise); the auto-escalation residual complement
+    introduced that second recipe and wrongly dropped the genuine prewarp capture.
     """
     eng_mi = _marginal_mi(eng_codes, y_codes)
     if eng_mi <= 0.0:
         return False
+    if alt_acceptance:
+        # Prewarp / gate_med alternative-acceptance recipe: genuine positive
+        # held-out MI is the confirmation (the elementary marginal-sum bar does
+        # not apply -- see docstring).
+        return True
     sum_marg = 0.0
     if src_a_codes is not None:
         sum_marg += _marginal_mi(src_a_codes, y_codes)
@@ -241,6 +262,19 @@ def confirm_recipes_cross_fold(
         src = tuple(getattr(recipe, "src_names", ()) or ())
         src_a = src[0] if len(src) >= 1 else None
         src_b = src[1] if len(src) >= 2 else None
+        # ALTERNATIVE-ACCEPTANCE recipe detection (2026-06-11): a recipe whose
+        # operand used the learned ``prewarp`` (or ``gate_med``) pseudo-unary was
+        # admitted in-fit via the prewarp-uplift / gate alternative path, NOT the
+        # elementary ``eng_mi > sum_marg`` gate -- so it must not be voted against
+        # that bar (see ``_recipe_clears_fold``). The fit-time spec is persisted
+        # flat in ``recipe.extra`` as ``prewarp_<side>_coef`` / ``gate_med_<side>_median``.
+        _rx = getattr(recipe, "extra", None) or {}
+        _alt_acceptance = any(
+            _k in _rx for _k in (
+                "prewarp_a_coef", "prewarp_b_coef",
+                "gate_med_a_median", "gate_med_b_median",
+            )
+        )
         passes = 0
         evaluated = 0
         for idx in folds:
@@ -270,6 +304,7 @@ def confirm_recipes_cross_fold(
                 src_b_codes=b_codes,
                 y_codes=y_fold,
                 prevalence=1.0,
+                alt_acceptance=_alt_acceptance,
             ):
                 passes += 1
         # No fold could be evaluated (replay failed everywhere) -> leave admitted.
