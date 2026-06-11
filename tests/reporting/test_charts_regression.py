@@ -249,6 +249,73 @@ def test_resid_vs_pred_band_parity_vs_per_call_percentile():
     assert np.max(np.abs(new_q75 - np.array(ref_q75))) < 1e-12
 
 
+def test_uniform_bin_index_matches_searchsorted_and_digitize_incl_ulp_edges():
+    """``_uniform_bin_index`` must be bit-identical to numpy's searchsorted/digitize binning -- even for values nudged a
+    few ULP around interior edges, where a bare arithmetic floor slips one bin off. Pins the edge-correction so a future
+    "just floor it" simplification (which silently mis-bins on-edge points) cannot slip through.
+    """
+    from mlframe.reporting.charts.regression import _uniform_bin_index
+
+    fails = 0
+    for seed in range(120):
+        rng = np.random.default_rng(seed)
+        lo = rng.uniform(-500.0, 500.0)
+        hi = lo + rng.uniform(0.01, 1000.0)
+        nb = int(rng.integers(2, 90))
+        edges = np.linspace(lo, hi, nb + 1)
+        kind = seed % 4
+        n = int(rng.integers(50, 2000))
+        if kind == 0:
+            v = rng.uniform(lo, hi, n)
+        elif kind == 1:  # discrete / ties
+            v = np.clip(rng.integers(int(lo), int(hi) + 1, n).astype(float), lo, hi)
+        elif kind == 2:  # exactly on edges
+            v = rng.choice(edges, n)
+        else:  # ULP-nudged around edges
+            base = rng.choice(edges, n)
+            v = base.copy()
+            for k in range(n):
+                d = int(rng.choice([-1, 0, 1]))
+                v[k] = np.nextafter(base[k], base[k] + d) if d else base[k]
+            v = np.clip(v, lo, hi)
+        ref_ss = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, nb - 1)
+        ref_dg = np.clip(np.digitize(v, edges[1:-1]), 0, nb - 1)
+        got = _uniform_bin_index(v, edges, nb)
+        if not (np.array_equal(ref_ss, got) and np.array_equal(ref_dg, got)):
+            fails += 1
+    assert fails == 0, f"{fails}/120 seeds diverged from searchsorted/digitize binning"
+
+
+def test_hist2d_uniform_bit_identical_to_numpy_incl_ulp_edges():
+    """``_hist2d_uniform`` must equal ``np.histogram2d(..., bins=[edges, edges])[0]`` cell-for-cell on uniform edges.
+
+    Covers continuous, discrete/tied, on-edge, and ULP-nudged inputs. Pins the visual-equivalence contract: the
+    log-density heatmap drawn from the fast binning is identical to the numpy-binned one.
+    """
+    from mlframe.reporting.charts.regression import _hist2d_uniform
+
+    for seed in range(60):
+        rng = np.random.default_rng(seed)
+        lo = rng.uniform(-100.0, 100.0)
+        hi = lo + rng.uniform(0.01, 500.0)
+        bins = int(rng.integers(5, 100))
+        edges = np.linspace(lo, hi, bins + 1)
+        n = int(rng.integers(100, 4000))
+        kind = seed % 3
+        if kind == 0:
+            xp = rng.uniform(lo, hi, n)
+            yp = rng.uniform(lo, hi, n)
+        elif kind == 1:
+            xp = np.clip(rng.integers(int(lo), int(hi) + 1, n).astype(float), lo, hi)
+            yp = np.clip(rng.integers(int(lo), int(hi) + 1, n).astype(float), lo, hi)
+        else:
+            xp = rng.choice(edges, n)
+            yp = rng.choice(edges, n)
+        ref, _, _ = np.histogram2d(xp, yp, bins=[edges, edges])
+        got = _hist2d_uniform(xp, yp, edges, bins)
+        assert np.array_equal(ref, got), f"seed={seed} kind={kind}: hist2d cells diverge ({int((ref != got).sum())} cells)"
+
+
 def test_biz_val_resid_vs_pred_flat_band_when_homoscedastic():
     """Homoscedastic counterpart: constant-variance residuals keep the band ~uniform (ratio near 1), Spearman ~ 0.
 
