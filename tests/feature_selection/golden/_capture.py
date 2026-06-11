@@ -76,7 +76,7 @@ def capture_intermediate(mrmr, scenario_name: str, seed: int) -> dict[str, Any]:
 def save_snapshot(snap: dict[str, Any], target_dir: Path) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{snap['scenario']}.json"
-    path.write_text(ororjson.dumps(snap, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode().decode(), encoding="utf-8")
+    path.write_text(orjson.dumps(snap, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode(), encoding="utf-8")
     return path
 
 

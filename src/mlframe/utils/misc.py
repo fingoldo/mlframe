@@ -63,6 +63,48 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
             pass
 
 
+import contextlib
+import functools
+
+
+def rng_hygienic_fit(fit_method):
+    """Decorator wrapping a selector ``fit`` so it does not leave the caller's
+    process-global ``numpy`` / ``random`` RNG mutated. Within-fit determinism is
+    bit-identical (any internal seeding still runs); the global stream is restored
+    on return. Apply to selectors whose fit internally seeds or draws from the
+    global RNG (the FS global-``np.random`` bug class)."""
+    @functools.wraps(fit_method)
+    def _wrapped(self, *args, **kwargs):
+        with preserve_global_rng():
+            return fit_method(self, *args, **kwargs)
+    return _wrapped
+
+
+@contextlib.contextmanager
+def preserve_global_rng():
+    """Snapshot the process-global ``numpy`` + ``random`` RNG state on entry and
+    restore it on exit (success OR exception).
+
+    Library fit paths that internally call :func:`set_random_seed` (to make any
+    sub-estimator with ``random_state=None`` reproducible WITHIN the fit) must
+    not leave the caller's global RNG clobbered afterwards -- that is the exact
+    hygiene violation ``set_random_seed``'s own docstring warns against. Wrap the
+    fit body in this context manager: the internal seeding still runs (so the
+    selection output is bit-identical), but the caller's ``np.random`` /
+    ``random`` stream resumes untouched. numpy + random cover essentially all
+    sibling-code RNG sharing; cupy/numba/torch global state is not restored here
+    (rarely shared cross-library, and snapshotting it is disproportionately
+    costly).
+    """
+    np_state = np.random.get_state()
+    py_state = random.getstate()
+    try:
+        yield
+    finally:
+        np.random.set_state(np_state)
+        random.setstate(py_state)
+
+
 def get_pipeline_last_element(clf) -> object:
     for elem_name, elem in clf.named_steps.items():
         pass

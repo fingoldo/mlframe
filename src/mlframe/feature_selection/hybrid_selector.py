@@ -27,6 +27,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.misc import rng_hygienic_fit
+
 
 # Tree-member feature-engineering operators applied per co-occurrence pair (a, b). "mul" is the product; the rich
 # operators (absdiff/signed/ratio) recover NON-product interaction signal a bilinear term cannot linearize (measured:
@@ -354,6 +356,7 @@ class HybridSelector:
         return [c for c in dict.fromkeys(expanded) if c in X.columns]
 
     # ------------------------------------------------------------------ fit / transform
+    @rng_hygienic_fit
     def fit(self, X, y):
         # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.

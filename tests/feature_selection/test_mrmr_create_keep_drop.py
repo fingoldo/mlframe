@@ -73,7 +73,23 @@ SEED = 42
 # generous slack so a slow first-JIT case never trips the global 60s timeout.
 FIT_TIMEOUT = 300
 
-_PROGRESS = r"D:/Temp/ckd_suite_progress.txt"
+def _artifact_path(name: str) -> str:
+    """In-repo (env-overridable) path for liveness/ledger artifacts. The previous
+    hardcoded ``D:/Temp/...`` silently vanished on any box without a D: drive
+    (CLAUDE.md bans D:/Temp as an artifact home). Override with
+    MLFRAME_TEST_ARTIFACT_DIR."""
+    base = os.environ.get(
+        "MLFRAME_TEST_ARTIFACT_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "_artifacts"),
+    )
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        pass
+    return os.path.join(base, name)
+
+
+_PROGRESS = _artifact_path("ckd_suite_progress.txt")
 
 
 def _checkpoint(msg: str) -> None:
@@ -1018,17 +1034,21 @@ def _dump_ledger():
     """At session teardown, dump the full create/keep/drop ledger so the harness
     has the complete pass/fail data even when pytest exits non-zero."""
     yield
+    ledger_path = _artifact_path("ckd_suite_ledger.json")
     try:
         import orjson
 
         payload = orjson.dumps(_LEDGER, option=orjson.OPT_INDENT_2)
-        with open(r"D:/Temp/ckd_suite_ledger.json", "wb") as fh:
+        with open(ledger_path, "wb") as fh:
             fh.write(payload)
-    except Exception:
+    except Exception as exc:
         try:
             import json
+            import warnings
 
-            with open(r"D:/Temp/ckd_suite_ledger.json", "w", encoding="utf-8") as fh:
+            warnings.warn(f"ckd ledger orjson dump failed ({exc!r}); using json fallback")
+            with open(ledger_path, "w", encoding="utf-8") as fh:
                 json.dump(_LEDGER, fh, indent=2)
-        except Exception:
-            pass
+        except Exception as exc2:
+            import warnings
+            warnings.warn(f"ckd ledger dump failed entirely: {exc2!r}")

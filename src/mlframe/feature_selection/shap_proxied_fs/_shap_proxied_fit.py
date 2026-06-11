@@ -17,6 +17,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_adaptive_prescreen_width
+from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class ShapProxiedFitMixin:
         raise ValueError(f"Unknown optimizer={optimizer!r}")
 
     # ------------------------------------------------------------------ fit
+    @rng_hygienic_fit
     def fit(self, X, y):
         import time
         from contextlib import contextmanager

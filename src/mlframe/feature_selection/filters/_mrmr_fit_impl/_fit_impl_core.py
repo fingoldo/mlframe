@@ -4617,7 +4617,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cond_uplift = measure_feature_uplift(
                     _base_probe, _eng_probe, _y_probe, classification=_gate_classif, seed=_gate_seed,
                 )
-                if _cond_uplift < _FE_UPLIFT_MIN:
+                # Fail-open: None == probe could not measure (degenerate / exception);
+                # keep the candidate rather than silently dropping it. Only a genuine
+                # MEASURED sub-threshold uplift evicts.
+                if _cond_uplift is not None and _cond_uplift < _FE_UPLIFT_MIN:
                     _gate_drop.append(_gc)
                     _gate_drop_set.add(_gc)
             if _gate_drop:
