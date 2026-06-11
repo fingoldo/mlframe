@@ -112,6 +112,7 @@ from .transforms import (  # noqa: E402,F401
     _FRAC_DIFF_DEFAULT_LAGS,
     _ROLLING_QUANTILE_DEFAULT_K,
     _TRANSFORMS_REGISTRY,
+    TRANSFORMS_REGISTRY,
     TRANSFORM_NAME_SHORT,
     compose_target_name,
     get_transform,
@@ -261,3 +262,38 @@ from ..configs import CompositeTargetDiscoveryConfig  # noqa: E402,F401
 # prediction interval helper -- the two FUTURE extensions.
 from .classification import CompositeClassificationEstimator  # noqa: E402,F401
 from .conformal import conformal_quantile  # noqa: E402,F401
+
+# Curated public surface for ``from ...composite import *`` -- excludes the
+# submodule names + stdlib leakage (logging / annotations) that bare star-import
+# would otherwise pull in. Direct ``from ...composite import <submodule>`` and
+# any underscore-prefixed internal symbol still resolve; __all__ governs only
+# the star-import set.
+__all__ = [
+    # estimators / discovery / ensemble
+    "CompositeTargetEstimator", "CompositeClassificationEstimator",
+    "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
+    "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
+    "DiscoveryCache",
+    # transforms + registry
+    "Transform", "get_transform", "list_transforms", "TRANSFORMS_REGISTRY",
+    "compose_target_name", "is_composite_target_name", "TRANSFORM_NAME_SHORT",
+    "TAG_CORE", "TAG_EXTENDED", "TAG_REGRESSION", "generate_interaction_bases",
+    # uncertainty
+    "conformal_quantile",
+    # ensemble / OOF / stacking
+    "compute_oof_holdout_predictions", "composite_oof_predictions",
+    "composite_predictions_as_feature", "predict_quantile_ensemble",
+    "stacking_aware_gate",
+    # discovery helpers
+    "forward_stepwise_multi_base", "detect_group_column_candidates",
+    "detect_time_column_candidates", "sort_df_by_time_column",
+    "residual_dedup_indices", "residual_correlation_matrix",
+    "max_off_diagonal_correlation", "bayesian_alpha_fit",
+    "bayesian_alpha_fit_bootstrap", "streaming_alpha_check_and_refit",
+    "derive_seeds",
+    # cache / provenance / reporting
+    "data_signature", "make_discovery_cache_key", "env_signature",
+    "detect_gpu_in_use", "report_to_markdown",
+    # errors
+    "DomainViolationError", "UnknownTransformError",
+]
