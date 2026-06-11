@@ -916,9 +916,31 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             # ``pd.DataFrame.drop(columns=...)`` copies the remaining blocks on
             # pandas<2 / CoW-off but is a lazy view under pandas>=2 CoW, so a
             # blind rewrite to ``X.loc[:, keep]`` would copy too (and reorder
-            # columns) -- a measured CoW-gated no-copy variant needs a bench.
-            # Only the single group_column (grouped-transform path) is dropped
-            # here, so the blast radius is bounded.
+            # columns). Only the single group_column (grouped-transform path) is
+            # dropped here, so the blast radius is bounded.
+            # Under pandas>=2 Copy-on-Write the drop returns a lazy view and the
+            # inner only READS it, so no row data is materialised; under CoW-off
+            # it copies the remaining blocks. Warn on a large frame in the
+            # copying regime so a 100+GB grouped predict does not silently
+            # double RAM -- the caller can enable CoW or pass a polars frame.
+            _cow = False
+            try:
+                _cow = bool(pd.get_option("mode.copy_on_write"))
+            except Exception:
+                _cow = False
+            if not _cow:
+                try:
+                    _sz = int(X.memory_usage(index=False, deep=False).sum())
+                except Exception:
+                    _sz = 0
+                if _sz > 2 * 1024 ** 3:
+                    logger.warning(
+                        "CompositeTargetEstimator: dropping group_column '%s' "
+                        "copies a %.1f GB pandas frame (Copy-on-Write is off). "
+                        "Enable pandas CoW (pd.set_option('mode.copy_on_write', "
+                        "True)) or pass a polars frame for the zero-copy path.",
+                        present[0], _sz / 1024 ** 3,
+                    )
             return X.drop(columns=present)
         # ndarray has no columns -> nothing to drop.
         return X
