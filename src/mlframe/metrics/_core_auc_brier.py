@@ -147,11 +147,8 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     the stable-sort guarantee -- safe for bootstrap / monte-carlo
     callers where tie-breaking determinism is immaterial.
     """
-    # **kwargs absorbs sklearn's unexpected params. Explicitly reject sample_weight rather than silently ignoring it.
-    if "sample_weight" in kwargs and kwargs["sample_weight"] is not None:
-        raise NotImplementedError(
-            "fast_roc_auc does not support sample_weight; use sklearn.metrics.roc_auc_score"
-        )
+    # **kwargs absorbs sklearn's extra params (sklearn's scorer forwards sample_weight when the caller fits with weights).
+    sample_weight = kwargs.get("sample_weight")
 
     if isinstance(y_true, (pd.Series, pl.Series)):
         y_true = y_true.to_numpy()
@@ -160,6 +157,13 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
+    if sample_weight is not None:
+        if isinstance(sample_weight, (pd.Series, pl.Series)):
+            sample_weight = sample_weight.to_numpy()
+        sample_weight = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        return fast_numba_auc_weighted(
+            y_true=np.asarray(y_true, dtype=np.float64), y_score=y_score, sample_weight=sample_weight, desc_score_indices=desc_score_indices
+        )
     return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
@@ -187,6 +191,41 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
         return auc / tmp
     else:
         # Single-class data: ROC AUC is undefined
+        return np.nan
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def fast_numba_auc_weighted(
+    y_true: np.ndarray, y_score: np.ndarray, sample_weight: np.ndarray, desc_score_indices: np.ndarray
+) -> float:
+    """Weighted ROC AUC via the same tie-aware trapezoidal scan as ``fast_numba_auc_nonw``.
+
+    Equivalent to ``sklearn.metrics.roc_auc_score(..., sample_weight=w)``: each sample contributes its weight to the
+    cumulative true/false-positive mass rather than a unit count. Reduces to the unweighted kernel when all weights are 1.
+    """
+    y_score = y_score[desc_score_indices]
+    y_true = y_true[desc_score_indices]
+    w = sample_weight[desc_score_indices]
+
+    last_counted_fps = 0.0
+    last_counted_tps = 0.0
+    tps = 0.0
+    fps = 0.0
+    auc = 0.0
+
+    l = len(y_true) - 1
+    for i in range(l + 1):
+        wi = w[i]
+        tps += y_true[i] * wi
+        fps += (1.0 - y_true[i]) * wi
+        if i == l or y_score[i + 1] != y_score[i]:
+            auc += (fps - last_counted_fps) * (last_counted_tps + tps)
+            last_counted_fps = fps
+            last_counted_tps = tps
+    tmp = tps * fps * 2.0
+    if tmp > 0:
+        return auc / tmp
+    else:
         return np.nan
 
 
