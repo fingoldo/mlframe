@@ -13,6 +13,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 import pandas as pd
+from pandas.api.extensions import ExtensionDtype
 from numpy.polynomial.hermite import hermval
 
 from pyutilz.pythonlib import sort_dict_by_value
@@ -290,6 +291,14 @@ def check_prospective_fe_pairs(
     # concern; the MRMR estimator never holds a reference to it).
     _extval_raw_col_cache: dict = {}
 
+    def _densify_nullable(_arr):
+        """Cast a pandas nullable extension array (Int64/Float64/boolean + pd.NA) to a plain
+        float64 ndarray (pd.NA -> np.nan) so the numba/numpy unary-transform kernels can type it.
+        No-op for ordinary numpy float64/int64 input -- only ExtensionArrays are converted."""
+        if isinstance(getattr(_arr, "dtype", None), ExtensionDtype):
+            return _arr.to_numpy(dtype=np.float64, na_value=np.nan)
+        return _arr
+
     def _extval_raw_col(_var):
         """Memoised operand-values ndarray for var ``_var`` (cols-space index).
 
@@ -313,7 +322,7 @@ def check_prospective_fe_pairs(
             return _extval_raw_col_cache[_var]
         if _var in original_cols:
             if isinstance(X, pd.DataFrame):
-                _vals = X.iloc[:, original_cols[_var]].values
+                _vals = _densify_nullable(X.iloc[:, original_cols[_var]].values)
             else:
                 _vals = X[:, original_cols[_var]].to_numpy()
             _extval_raw_col_cache[_var] = _vals
@@ -340,7 +349,9 @@ def check_prospective_fe_pairs(
             if _vals is None:
                 try:
                     if isinstance(X, pd.DataFrame):
-                        _vals = X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
+                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (
+                            X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
+                        )
                     elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
                         _vals = X[_name].to_numpy()  # polars
                     else:

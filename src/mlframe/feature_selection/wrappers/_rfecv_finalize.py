@@ -223,3 +223,42 @@ def _finalize_fit_results(
             self._selected_cols_cache = [col for col, selected in zip(self.feature_names_in_, support) if selected]
         else:
             self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
+
+    _persist_fitted_estimators(self, estimator=estimator, fitted_estimators=fitted_estimators, verbose=verbose)
+
+
+def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):
+    """Persist the fitted estimators + a required-features/metrics summary to ``self.estimators_save_path`` (documented ctor knob).
+
+    Layout (per the ctor docstring): each fitted estimator -> ``join(save_path, estimator_type_name, "{key}.dump")``; the kept feature
+    list and achieved CV metrics -> ``join(save_path, "required_features.dump")``. No-op when ``estimators_save_path`` is unset (default).
+    """
+    save_path = getattr(self, "estimators_save_path", None)
+    if not save_path:
+        return
+
+    import os
+    import joblib
+
+    from sklearn.pipeline import Pipeline
+
+    try:
+        os.makedirs(save_path, exist_ok=True)
+
+        required_features = list(self._selected_cols_cache) if self._selected_cols_cache is not None else []
+        summary = {
+            "required_features": required_features,
+            "n_features": int(getattr(self, "n_features_", len(required_features))),
+            "cv_results": getattr(self, "cv_results_", None),
+        }
+        joblib.dump(summary, os.path.join(save_path, "required_features.dump"))
+
+        if getattr(self, "keep_estimators", False) and fitted_estimators:
+            estimator_type = type(estimator.steps[-1][1]).__name__ if isinstance(estimator, Pipeline) else type(estimator).__name__
+            est_dir = os.path.join(save_path, estimator_type)
+            os.makedirs(est_dir, exist_ok=True)
+            for key, est in fitted_estimators.items():
+                joblib.dump(est, os.path.join(est_dir, f"{key}.dump"))
+    except Exception as exc:
+        if verbose:
+            logger.warning("RFECV: estimators_save_path persistence failed (%s); continuing.", exc)

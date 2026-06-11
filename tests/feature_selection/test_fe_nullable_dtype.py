@@ -359,22 +359,13 @@ def test_fit_produced_recipes_replay_on_nullable_transform_frame(dtype):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("dtype", _NULLABLE_DTYPES)
-@pytest.mark.xfail(
-    reason="PROD BUG: MRMR(fe_max_steps>=1).fit raises 'TypeError: Cannot "
-    "interpret 'Float64Dtype()' as a data type' on a pandas nullable frame -- "
-    "check_prospective_fe_pairs feeds a FloatingArray into the unary-transform "
-    "njit kernel and the numpy fallback hits np.issubdtype(Float64Dtype(), "
-    "np.floating). The FE-pair path must densify the nullable column "
-    "(.to_numpy(dtype=float, na_value=nan)) before transforming.",
-    strict=False,
-)
 def test_mrmr_fe_on_completes_and_recovers_signal_on_nullable_frame(dtype):
-    """CORRECT behaviour pinned for the FE-ON path on a nullable frame: fit should
-    complete AND recover the ``(a, b)`` synergy pair, exactly as the FE-OFF path
-    already does. Currently xfails because the FE-pair kernel cannot type a pandas
-    nullable array (see xfail reason). When prod densifies the nullable frame in
-    ``check_prospective_fe_pairs``, this flips to xpass and the recovery assertion
-    holds.
+    """FE-ON path on a nullable frame: fit completes AND recovers the ``(a, b)``
+    synergy pair, exactly as the FE-OFF path does. ``check_prospective_fe_pairs``
+    densifies pandas nullable operands (Int64/Float64 + pd.NA -> float64 with NaN)
+    at the operand-materialisation boundary before they reach the unary-transform
+    kernels, so the prior ``TypeError: Cannot interpret 'Float64Dtype()' as a data
+    type`` no longer occurs.
     """
     _df_f64, df_null, y = _build_nullable_synergy(dtype, n=2000)
     m = MRMR(
@@ -394,4 +385,43 @@ def test_mrmr_fe_on_completes_and_recovers_signal_on_nullable_frame(dtype):
     assert rec == set(_SIGNAL_PAIR), (
         f"{dtype}: FE-on fit must recover the (a,b) pair on a nullable frame; "
         f"got {sorted(rec)}."
+    )
+
+
+def test_fe_pair_materialise_densifies_int64_nullable_operand_no_typeerror():
+    """Regression: a 2-col ``Int64`` frame with ``pd.NA`` + FE on must NOT raise
+    ``TypeError: Cannot interpret 'Int64Dtype()' as a data type``. The FE-pair
+    operand-materialisation boundary densifies the nullable column to float64
+    (pd.NA -> NaN) before the unary-transform kernel, so the fit completes and the
+    ``(a, b)`` signal survives."""
+    rng = np.random.default_rng(11)
+    n = 2000
+    a = rng.integers(1, 40, n).astype(np.float64)
+    b = rng.integers(1, 40, n).astype(np.float64)
+    y_bin = ((a ** 2 / b) > np.median(a ** 2 / b)).astype(np.int64)
+
+    df = pd.DataFrame({"a": a, "b": b})
+    df["a"] = df["a"].astype("Int64")
+    df["b"] = df["b"].astype("Int64")
+    df.loc[[3, 17, 42, 99], "a"] = pd.NA
+    df.loc[[5, 23, 71], "b"] = pd.NA
+    assert str(df["a"].dtype) == "Int64"
+    assert bool(df[["a", "b"]].isna().any().any())
+
+    m = MRMR(
+        full_npermutations=3,
+        baseline_npermutations=2,
+        fe_max_steps=2,
+        fe_npermutations=3,
+        verbose=0,
+        n_jobs=1,
+        random_seed=11,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        m.fit(df, pd.Series(y_bin, name="y"))  # pre-fix: TypeError in check_prospective_fe_pairs
+
+    rec = _recovered_signal(list(m.get_feature_names_out()))
+    assert rec == set(_SIGNAL_PAIR), (
+        f"Int64-nullable FE-on fit must recover the (a,b) pair; got {sorted(rec)}."
     )

@@ -60,6 +60,23 @@ def test_rescue_transform_pickle_and_support_consistency():
     assert list(m2.transform(X.iloc[:10]).columns) == list(Z.columns)
 
 
+def test_varargs_ctor_get_params_and_clone_preserve_tree_rescue_params():
+    """The forwarding ``*args/**kwargs`` ctor must not hide the tree-rescue params from sklearn introspection:
+    get_params reports them, set_params/clone round-trip a non-default one. Pre-fix this raised RuntimeError."""
+    from sklearn.base import clone
+
+    sel = MRMRTreeRescued(tree_rescue_top_k=7, verbose=0)
+    params = sel.get_params(deep=False)
+    for name in ("tree_rescue", "tree_rescue_top_k", "tree_rescue_min_p", "tree_rescue_min_ratio",
+                 "tree_rescue_min_features", "tree_rescue_n_estimators", "tree_rescue_max_depth"):
+        assert name in params, f"get_params must expose {name}"
+    assert params["tree_rescue_top_k"] == 7
+    cloned = clone(sel)
+    assert cloned.get_params(deep=False)["tree_rescue_top_k"] == 7, "clone must preserve a non-default tree-rescue param"
+    cloned.set_params(tree_rescue_top_k=13)
+    assert cloned.tree_rescue_top_k == 13
+
+
 @pytest.mark.timeout(300)
 def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
     from sklearn.model_selection import train_test_split

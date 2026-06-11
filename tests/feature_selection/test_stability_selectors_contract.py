@@ -222,18 +222,14 @@ class TestMRMRTreeRescuedContract:
         assert Xt.shape[0] == X.shape[0]
         assert Xt.shape[1] == sel.support_.size
 
-    @pytest.mark.xfail(
-        reason="PROD BUG: MRMRTreeRescued.__init__ uses *args/**kwargs varargs; "
-               "sklearn clone/get_params/set_params raise RuntimeError. Base MRMR "
-               "has an explicit signature and clones fine.",
-        strict=False,
-        raises=RuntimeError,
-    )
     def test_clone_get_params_set_params_round_trip(self):
+        """``_get_param_names`` reports MRMR's params + the tree-rescue params, so sklearn clone /
+        get_params / set_params round-trip despite the varargs-forwarding ctor."""
         sel = _make_mrmr_tree_rescued()
         sel.set_params(tree_rescue_top_k=15)
         params = sel.get_params(deep=False)
         assert params["tree_rescue_top_k"] == 15
+        assert "verbose" in params  # a forwarded MRMR param is visible too
         cloned = clone(sel)
         assert cloned.get_params(deep=False)["tree_rescue_top_k"] == 15
 

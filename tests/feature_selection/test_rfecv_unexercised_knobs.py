@@ -450,16 +450,11 @@ def test_keep_estimators_populates_estimators_dict_per_fold():
         assert re.fullmatch(r"\d+_\d+(?:_e\d+)?", str(k)), f"unexpected estimator key: {k!r}"
 
 
-@pytest.mark.xfail(reason="PROD BUG: estimators_save_path / required_features.dump documented at "
-                          "_rfecv.py:216-218 but never implemented in the refactored fit path "
-                          "(no dump call anywhere); the knob is silently inert.",
-                   strict=False)
 def test_estimators_save_path_writes_dump_files(tmp_path):
     """The ctor docstring (``_rfecv.py:216-218``) promises that with ``estimators_save_path`` set
     the fitted estimators are written to ``join(save_path, estimator_type_name, ...dump)`` and a
-    ``required_features.dump`` summary is written. The refactored fit path has NO such dump call
-    (grep across the package finds none), so no file is ever produced -- this test pins the
-    DOCUMENTED behavior and xfails on the current inert implementation."""
+    ``required_features.dump`` summary is written. ``_persist_fitted_estimators`` now implements
+    that layout; this test pins both the estimator dumps and the required-features summary."""
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=6)
     Xdf, ys = as_df(X, y)
     r = RFECV(estimator=_logreg(), **_base_kwargs(
@@ -469,6 +464,31 @@ def test_estimators_save_path_writes_dump_files(tmp_path):
     files = glob.glob(os.path.join(str(tmp_path), "**", "*.dump"), recursive=True)
     assert files, "estimators_save_path produced no .dump files"
     assert os.path.exists(os.path.join(str(tmp_path), "required_features.dump"))
+
+
+def test_estimators_save_path_required_features_dump_is_loadable_and_lists_support(tmp_path):
+    """Regression for the silently-inert estimators_save_path knob: required_features.dump must exist,
+    be joblib-loadable, and list EXACTLY the fitted support columns; a no-path fit writes nothing."""
+    import joblib
+
+    X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=6)
+    Xdf, ys = as_df(X, y)
+
+    r = RFECV(estimator=_logreg(), **_base_kwargs(
+        max_refits=3, keep_estimators=True, estimators_save_path=str(tmp_path)))
+    r.fit(Xdf, ys)
+
+    summary_path = os.path.join(str(tmp_path), "required_features.dump")
+    assert os.path.exists(summary_path)
+    summary = joblib.load(summary_path)
+    assert list(summary["required_features"]) == _selected_names(r)
+
+    # A no-path fit must write nothing (default behavior unchanged, no stray I/O).
+    no_path_dir = tmp_path / "untouched"
+    no_path_dir.mkdir()
+    r2 = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=3, keep_estimators=True))
+    r2.fit(Xdf, ys)
+    assert not glob.glob(os.path.join(str(no_path_dir), "**", "*.dump"), recursive=True)
 
 
 # ---------------------------------------------------------------------------
