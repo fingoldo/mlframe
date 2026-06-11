@@ -89,6 +89,17 @@ def build_unary_base_context(
         # build in ``_fit.py``); unary specs share this single sentinel context.
         _mi_y_compare_memo={},
         _mi_y_compare_memo_lock=threading.Lock(),
+        # Per-unary-spec result memo. A ``requires_base=False`` transform's whole
+        # evaluation (fit, forward, ``MI(T_unary, X_full)``, ``mi_gain``) is
+        # base-independent, so its candidate result depends ONLY on the transform
+        # (its fit is deterministic on the fixed full-train rows). Memoise the
+        # finished candidate keyed by ``transform_name`` so any second call for
+        # the SAME unary -- the per-base fallback when the sentinel context is
+        # unavailable, or a re-dispatch -- reuses the bit-identical result rather
+        # than recomputing the (per-feature, full-X) MI from scratch. Guarded by a
+        # lock because ``eval_one_transform`` runs concurrently from the pool.
+        _unary_result_memo={},
+        _unary_result_memo_lock=threading.Lock(),
     )
 
 
@@ -240,7 +251,58 @@ def eval_one_transform(
     """Returns 0 or 1 candidate dict for one (base, transform) pair.
 
     Pulls per-base arrays from ``base_contexts[base]`` (read-only once setup completes). Writes go to the returned list, never to the enclosing ``candidates`` list, so calling this concurrently from a thread pool is safe.
+
+    Unary (``requires_base=False``) fast path: a unary transform's entire result
+    is base-independent (its fit + ``MI(T_unary, X_full)`` never read ``base``),
+    so the FIRST evaluation is memoised on its context keyed by ``transform_name``
+    and any later call for the same unary returns the bit-identical cached result
+    WITHOUT recomputing the (per-feature, full-X) MI. This is what makes a unary's
+    ``MI(T_unary, X)`` cost O(1 spec) rather than O(bases) even on the per-base
+    fallback path (the normal sentinel routing already dedups via the work-list,
+    but the memo also guards the fallback + any re-dispatch and pins the win).
     """
+    if not transform.requires_base:
+        _uctx = base_contexts[base]
+        _memo = _uctx.get("_unary_result_memo")
+        if _memo is not None:
+            _memo_lock = _uctx.get("_unary_result_memo_lock")
+            with _memo_lock:
+                _cached = _memo.get(transform_name)
+            if _cached is not None:
+                # Return a fresh shallow copy of the cached candidate list so the
+                # caller's downstream in-place mutations (e.g. the FDR ``kept`` /
+                # ``fdr_dropped`` flags stamped in ``_fit.py``) on one call never
+                # leak into another call's view of the same memoised entry.
+                return [dict(_c) for _c in _cached]
+            _result = _eval_one_transform_impl(
+                self, base, transform_name, transform,
+                base_contexts=base_contexts, y_train=y_train,
+                y_screen=y_screen, target_col=target_col,
+            )
+            with _memo_lock:
+                # First writer wins; a concurrent second compute produced the
+                # bit-identical result, so either entry is equivalent.
+                _memo.setdefault(transform_name, [dict(_c) for _c in _result])
+            return _result
+    return _eval_one_transform_impl(
+        self, base, transform_name, transform,
+        base_contexts=base_contexts, y_train=y_train,
+        y_screen=y_screen, target_col=target_col,
+    )
+
+
+def _eval_one_transform_impl(
+    self,
+    base: str,
+    transform_name: str,
+    transform,
+    *,
+    base_contexts: dict,
+    y_train: np.ndarray,
+    y_screen: np.ndarray,
+    target_col: str,
+) -> list[dict[str, Any]]:
+    """Core per-(base, transform) evaluation body (see :func:`eval_one_transform`)."""
     _ctx = base_contexts[base]
     base_train = _ctx["base_train"]
     base_screen = _ctx["base_screen"]
