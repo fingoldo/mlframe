@@ -26,6 +26,24 @@ from unittest import mock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_cc_major_memo():
+    """Snapshot/restore the process-global ``dispatch._CC_MAJOR_CACHE`` around
+    every test here. dispatch.py memoises the GPU cc_major (perf commit f858046e,
+    drop per-call nvidia-smi); on a real-GPU host that memo pins the host's true
+    cc_major, so the ``gpu_capability_summary`` mocks below would be IGNORED and
+    every simulated-cc case would read the host routing. Reset to None before each
+    test (mock re-probes a fresh value) and restore the host value after so a real
+    probe isn't leaked across the suite."""
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
+    saved = dispatch._CC_MAJOR_CACHE
+    dispatch._CC_MAJOR_CACHE = None
+    try:
+        yield
+    finally:
+        dispatch._CC_MAJOR_CACHE = saved
+
+
 @pytest.mark.parametrize("cc_major,expected_variant", [
     (5, "shared"),   # Maxwell
     (6, "shared"),   # Pascal (host's actual HW)

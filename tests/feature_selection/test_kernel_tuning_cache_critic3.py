@@ -117,16 +117,30 @@ def test_hw_aware_fallback_routes_per_cc_major(cc_major, expected_block_size):
     """Fallback hits the cc-major table when the kernel_tuning_cache is empty."""
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
 
-    with mock.patch.object(
-        dispatch, "_get_cache", return_value=False,
-    ):
-        with mock.patch(
-            "pyutilz.system.gpu_dispatch.gpu_capability_summary",
-            return_value={
-                "cc_major": cc_major, "cc_minor": 0, "name": "MockGPU",
-            },
+    # ISOLATION (2026-06-11): dispatch.py now memoises the GPU cc_major in the
+    # process-global ``_CC_MAJOR_CACHE`` (perf commit f858046e -- drop per-call
+    # nvidia-smi). On a real-GPU host an earlier probe (or another test) pins that
+    # cache to the host's true cc_major, so the mocked ``gpu_capability_summary``
+    # below is NEVER consulted and every parametrize case returns the host routing
+    # (cc6 -> block_size=512) -- the cc7/8/9 cases then wrongly read 512. Reset the
+    # memo to None before AND after so the mock drives a fresh probe, and the host
+    # value isn't leaked to later tests. (Pre-memo this test exercised a live probe
+    # every call, so no reset was needed; the memo made the global a test pollutant.)
+    _saved_cc = dispatch._CC_MAJOR_CACHE
+    dispatch._CC_MAJOR_CACHE = None
+    try:
+        with mock.patch.object(
+            dispatch, "_get_cache", return_value=False,
         ):
-            r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=25)
+            with mock.patch(
+                "pyutilz.system.gpu_dispatch.gpu_capability_summary",
+                return_value={
+                    "cc_major": cc_major, "cc_minor": 0, "name": "MockGPU",
+                },
+            ):
+                r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=25)
+    finally:
+        dispatch._CC_MAJOR_CACHE = _saved_cc
     assert r["block_size"] == expected_block_size, (
         f"cc {cc_major} expected block_size={expected_block_size}, got {r}"
     )
@@ -137,12 +151,18 @@ def test_hw_aware_fallback_large_joint_routes_to_global():
     the global kernel regardless of cc_major."""
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
 
-    with mock.patch.object(dispatch, "_get_cache", return_value=False):
-        with mock.patch(
-            "pyutilz.system.gpu_dispatch.gpu_capability_summary",
-            return_value={"cc_major": 6, "cc_minor": 1, "name": "M"},
-        ):
-            r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=8192)
+    # Same _CC_MAJOR_CACHE memo isolation as test_hw_aware_fallback_routes_per_cc_major.
+    _saved_cc = dispatch._CC_MAJOR_CACHE
+    dispatch._CC_MAJOR_CACHE = None
+    try:
+        with mock.patch.object(dispatch, "_get_cache", return_value=False):
+            with mock.patch(
+                "pyutilz.system.gpu_dispatch.gpu_capability_summary",
+                return_value={"cc_major": 6, "cc_minor": 1, "name": "M"},
+            ):
+                r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=8192)
+    finally:
+        dispatch._CC_MAJOR_CACHE = _saved_cc
     assert r["kernel_variant"] == "global"
 
 
@@ -177,20 +197,51 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     regions = at.ensure_joint_hist_tuning(force=True)
     assert regions, "sweep returned no regions"
 
-    # Read the persisted JSON.
-    from pyutilz.performance.kernel_tuning.cache import cache_path
-    path = cache_path()
-    assert os.path.isfile(path), f"sweep did not persist {path}"
-    with open(path, "rb") as f:
+    # REFRAMED (2026-06-11): the legacy assertion read the monolithic
+    # ``cache_path()`` file (``<dir>/<hw>.json`` with a top-level ``schema_version``
+    # and a ``kernels`` map). The Phase-D v3 migration (commits 52f26d1f / 84d65923 /
+    # 0379cd4f) moved persistence to IMMUTABLE PER-KERNEL files under
+    # ``host_cache_dir()`` (``<dir>/<hw>/<kernel_slug>/<...>.json``) and STOPPED
+    # writing the monolith -- ``cache_path``'s own docstring now states "the v3
+    # storage no longer writes this file". So the old ``os.path.isfile(cache_path())``
+    # could never hold. Verify the SAME schema contract against the v3 layout: the
+    # per-kernel file exists with schema_version==3, kernel_name=="joint_hist_batched",
+    # axes==["n_samples","joint_size"], and the standard region keys.
+    from pyutilz.performance.kernel_tuning.cache import host_cache_dir
+    import glob
+    kernel_files = glob.glob(
+        os.path.join(host_cache_dir(), "joint_hist_batched", "*.json")
+    )
+    assert kernel_files, (
+        f"sweep did not persist a joint_hist_batched per-kernel file under "
+        f"{host_cache_dir()} (found: {os.listdir(host_cache_dir())})"
+    )
+    with open(kernel_files[0], "rb") as f:
         data = orjson.loads(f.read())
-    assert data["schema_version"] == 2  # v2: code-versioned, categorical axes (was 1)
-    assert "joint_hist_batched" in data["kernels"]
-    entry = data["kernels"]["joint_hist_batched"]
+    assert data["schema_version"] == 3  # v3: immutable per-kernel files (was monolithic v2)
+    assert data["kernel_name"] == "joint_hist_batched"
+    entry = data["entry"]
     assert entry["axes"] == ["n_samples", "joint_size"]
     for r in entry["regions"]:
-        # Each region has the standard keys.
-        for k in ("n_samples_max", "joint_size_max", "kernel_variant", "block_size"):
-            assert k in r, f"region missing {k}: {r}"
+        # The PRIMARY (constrained) region carries the full key set; the trailing
+        # catch-all region may null some axis bounds. Assert the standard keys on
+        # the region(s) that have them (every region must at least name a variant).
+        assert "kernel_variant" in r and "block_size" in r, f"region missing core keys: {r}"
+    primary = entry["regions"][0]
+    for k in ("n_samples_max", "joint_size_max", "kernel_variant", "block_size"):
+        assert k in primary, f"primary region missing {k}: {primary}"
+
+    # Functional contract: a FRESH cache reload returns the persisted regions
+    # (the real point of persistence, layout-independent).
+    from mlframe.feature_selection.filters._kernel_tuning import (
+        _reset_for_tests as _reset2,
+        get_kernel_tuning_cache,
+    )
+    _reset2()
+    reloaded = get_kernel_tuning_cache()
+    assert reloaded is not None and reloaded.get_regions("joint_hist_batched"), (
+        "persisted joint_hist_batched regions did not survive a fresh cache reload"
+    )
 
 
 # --------------------------------------------------------------------------
