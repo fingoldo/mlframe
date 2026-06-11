@@ -1,0 +1,395 @@
+[
+    {
+        "file":  "src/mlframe/training/composite/ensemble/_cross_target.py",
+        "implemented":  [
+                            "N17"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_ensemble.py::TestTrainMetricsWeights::test_oof_rmses_with_train_scale_baseline_does_not_spuriously_fall_back",
+                            "tests/training/composite/test_composite_ensemble.py::TestTrainMetricsWeights::test_oof_rmses_with_oof_baseline_is_scale_consistent",
+                            "tests/training/composite/test_composite_ensemble.py::TestTrainMetricsWeights::test_train_path_with_train_baseline_unchanged"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  754
+    },
+    {
+        "file":  "src/mlframe/training/composite/discovery/auto_detect.py",
+        "implemented":  [
+                            "A24"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_auto_detect_biz_value.py::test_cat_detect_info_bonus_is_unimodal",
+                            "tests/training/composite/test_composite_auto_detect_biz_value.py::test_cat_detect_clean_categorical_outranks_id_like_at_equal_coverage",
+                            "tests/training/composite/test_composite_auto_detect_biz_value.py::test_cat_detect_regression_pre_fix_monotone_bonus_inverts_ranking",
+                            "tests/training/composite/test_composite_auto_detect_biz_value.py::test_cat_detect_sweet_spot_peak_is_tunable"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  474
+    },
+    {
+        "file":  "src/mlframe/training/composite/ensemble/stacking.py",
+        "implemented":  [
+                            "DX12"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupKeepBestFirst::test_redundant_pair_keeps_lower_rmse_member",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupKeepBestFirst::test_lowest_rmse_member_always_kept",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupKeepBestFirst::test_keep_drop_partition_range",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupMinKeepFloor::test_floor_never_drops_below_min_keep",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupMinKeepFloor::test_k_at_or_below_min_keep_short_circuits",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupMinKeepFloor::test_single_member_kept",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupNaNRowGuard::test_too_few_finite_rows_keeps_all",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupNaNRowGuard::test_nan_rows_masked_not_member_dropping",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupNaNRowGuard::test_constant_member_not_dropped",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupContract::test_oof_length_mismatch_raises",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupContract::test_no_redundancy_keeps_all",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupContract::test_threshold_controls_aggressiveness",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupContract::test_returned_indices_are_python_int",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupContract::test_public_and_direct_imports_are_same_function",
+                            "tests/training/composite/test_composite_residual_dedup.py::TestResidualDedupProductionShape::test_pred_minus_y_residual_dedup_matches_caller"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  218
+    },
+    {
+        "file":  "src/mlframe/training/composite/cache.py",
+        "implemented":  [
+                            "S3",
+                            "S18",
+                            "S25"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_cache_future.py::TestS25VersionFoldedUnconditionally::test_signature_folds_mlframe_version_without_library_versions",
+                            "tests/training/composite/test_composite_cache_future.py::TestS25VersionFoldedUnconditionally::test_signature_changes_when_mlframe_version_bumps_no_library_versions",
+                            "tests/training/composite/test_composite_cache_future.py::TestS25VersionFoldedUnconditionally::test_signature_changes_when_schema_version_bumps",
+                            "tests/training/composite/test_composite_cache_future.py::TestS25VersionFoldedUnconditionally::test_library_versions_still_folded_on_top",
+                            "tests/training/composite/test_composite_cache_future.py::TestS18EvictionAccountingAndSweep::test_eviction_size_cap_counts_sidecar",
+                            "tests/training/composite/test_composite_cache_future.py::TestS18EvictionAccountingAndSweep::test_clear_sweeps_orphan_tmp_and_lock",
+                            "tests/training/composite/test_composite_cache_future.py::TestS18EvictionAccountingAndSweep::test_eviction_sweeps_aged_orphan_tmp",
+                            "tests/training/composite/test_composite_cache_future.py::TestS18EvictionAccountingAndSweep::test_eviction_preserves_fresh_inflight_tmp",
+                            "tests/training/composite/test_composite_cache_signature_audit.py::TestRowOrderFingerprintBounded::test_polars_tail_reorder_bursts_fingerprint"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  567
+    },
+    {
+        "file":  "src/mlframe/training/composite/estimator/_utils.py",
+        "implemented":  [
+                            "E8"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_estimator_attr_hasattr_trap_future.py::test_linreg_inner_missing_attr_is_not_advertised",
+                            "tests/training/composite/test_composite_estimator_attr_hasattr_trap_future.py::test_linreg_inner_missing_attr_raises_attributeerror",
+                            "tests/training/composite/test_composite_estimator_attr_hasattr_trap_future.py::test_getattr_with_default_returns_default_not_none_value",
+                            "tests/training/composite/test_composite_estimator_attr_hasattr_trap_future.py::test_linreg_inner_present_attrs_exposed",
+                            "tests/training/composite/test_composite_estimator_attr_hasattr_trap_future.py::test_tree_inner_feature_importances_exposed",
+                            "tests/training/composite/test_composite_estimator_attr_hasattr_trap_future.py::test_prefit_access_raises_notfittederror"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  130
+    },
+    {
+        "file":  "src/mlframe/training/composite/post_shim.py",
+        "implemented":  [
+                            "E19"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_post_shim.py::TestShimIsFitted::test_unfitted_shim_is_not_fitted",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimIsFitted::test_fitted_shim_reports_fitted",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimIsFitted::test_pre_fitted_inner_without_shim_fit_reports_fitted",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimIsFitted::test_clone_of_fitted_shim_is_not_fitted",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimPredictQuantile::test_quantile_hidden_when_inner_lacks_it",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimPredictQuantile::test_quantile_exposed_when_inner_supports_it",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimPredictQuantile::test_quantile_exposed_when_composite_wrapper_supports_it",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimPredictQuantile::test_quantile_routes_through_pre_pipeline",
+                            "tests/training/composite/test_composite_post_shim.py::TestShimPredictQuantile::test_quantile_scalar_vs_array_alpha_shapes"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  165
+    },
+    {
+        "file":  "src/mlframe/training/composite/provenance.py",
+        "implemented":  [
+                            "S12"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_every_registered_transform_has_a_formula_builder",
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_every_registered_transform_has_a_description",
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_registered_transform_never_renders_generic_stub",
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_biz_linear_residual_family_interpolates_alpha_beta",
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_biz_unary_and_chain_formulas_carry_their_fitted_state",
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_unknown_transform_still_falls_back_to_generic_stub",
+                            "tests/training/composite/test_provenance_formula_coverage_future.py::test_original_four_branches_are_bit_identical"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  751
+    },
+    {
+        "file":  "src/mlframe/training/composite/estimator/_estimator.py",
+        "implemented":  [
+                            "E7",
+                            "E10",
+                            "E11",
+                            "DX15"
+                        ],
+        "deferred":  [
+                         {
+                             "id":  "E12",
+                             "why":  "Perf-only pandas X.drop copy elimination needs a before/after RAM/wall benchmark (perf-measure-first) that cannot be run reliably in this isolated pass; CoW behaviour is pandas-version/config dependent and a blind X.loc[:,keep] rewrite also copies + reorders columns. Did the SAFE part: added a no-op fast-path that returns X unchanged when nothing is dropped (the common post-feature-selection case, avoids the consolidating copy), documented polars drop is zero-copy, and left a tracked E12 note for a benchmark-capable session."
+                         }
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_estimator_future.py::TestE7SampleWeightSignatureGate::test_deep_typeerror_in_weight_aware_inner_propagates_no_retry",
+                            "tests/training/composite/test_estimator_future.py::TestE7SampleWeightSignatureGate::test_weight_aware_inner_receives_sample_weight",
+                            "tests/training/composite/test_estimator_future.py::TestE7SampleWeightSignatureGate::test_weight_unaware_inner_falls_back_cleanly",
+                            "tests/training/composite/test_estimator_future.py::TestE10FromFittedInnerUnaryTClip::test_unary_t_clip_centered_on_true_T_not_zero",
+                            "tests/training/composite/test_estimator_future.py::TestE10FromFittedInnerUnaryTClip::test_biz_value_in_distribution_roundtrip_not_clipped_flat",
+                            "tests/training/composite/test_estimator_future.py::TestE10FromFittedInnerUnaryTClip::test_base_dependent_transform_keeps_symmetric_proxy",
+                            "tests/training/composite/test_estimator_future.py::TestE11GroupedNFeaturesInvariant::test_grouped_n_features_in_matches_feature_names_in",
+                            "tests/training/composite/test_estimator_future.py::TestE11GroupedNFeaturesInvariant::test_ungrouped_n_features_in_unchanged",
+                            "tests/training/composite/test_estimator_future.py::TestE11GroupedNFeaturesInvariant::test_n_features_in_none_pre_fit",
+                            "tests/training/composite/test_estimator_future.py::TestDX15InBodySurface::test_method_defined_in_class_body",
+                            "tests/training/composite/test_estimator_future.py::TestDX15InBodySurface::test_property_defined_in_class_body",
+                            "tests/training/composite/test_estimator_future.py::TestDX15InBodySurface::test_in_body_property_still_delegates"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  951
+    },
+    {
+        "file":  "src/mlframe/training/composite/streaming.py",
+        "implemented":  [
+                            "S7",
+                            "S8"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_composite_streaming_future.py::TestLevelShiftDrift::test_pure_level_shift_triggers_refit",
+                            "tests/training/composite/test_composite_streaming_future.py::TestLevelShiftDrift::test_alpha_only_zscore_would_not_fire_on_level_shift",
+                            "tests/training/composite/test_composite_streaming_future.py::TestLevelShiftDrift::test_slope_drift_still_labelled_drift_detected",
+                            "tests/training/composite/test_composite_streaming_future.py::TestLevelShiftDrift::test_no_drift_when_both_coefs_match",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointDetection::test_detects_break_on_mixed_buffer",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointDetection::test_no_break_on_homogeneous_buffer",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointDetection::test_on_scan_matches_brute_force",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointDetection::test_ols_helper_matches_polyfit",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointAwareRefit::test_biz_value_change_point_refit_beats_whole_buffer",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointAwareRefit::test_change_point_disabled_is_legacy_full_buffer",
+                            "tests/training/composite/test_composite_streaming_future.py::TestChangePointAwareRefit::test_homogeneous_buffer_uses_full_window"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  299
+    },
+    {
+        "file":  "src/mlframe/training/composite/transforms/naming.py",
+        "implemented":  [
+                            "T20"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_naming_future.py::test_strict_parse_rejects_malformed_names",
+                            "tests/training/composite/test_naming_future.py::test_strict_parse_accepts_real_composites",
+                            "tests/training/composite/test_naming_future.py::test_non_composite_names_not_detected",
+                            "tests/training/composite/test_naming_future.py::test_compose_roundtrips_through_strict_parse",
+                            "tests/training/composite/test_naming_future.py::test_ambiguous_three_token_user_columns_documented"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  197
+    },
+    {
+        "file":  "src/mlframe/training/composite/transforms/linear.py",
+        "implemented":  [
+                            "T8"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/test_composite_linear_residual_grouped.py::TestShrinkageRecentersBeta::test_shrinkage_actually_fires_on_this_dgp",
+                            "tests/training/test_composite_linear_residual_grouped.py::TestShrinkageRecentersBeta::test_per_group_residual_mean_is_zero_after_shrink",
+                            "tests/training/test_composite_linear_residual_grouped.py::TestShrinkageRecentersBeta::test_round_trip_still_exact_after_shrink",
+                            "tests/training/test_composite_linear_residual_grouped.py::TestShrinkageRecentersBeta::test_biz_val_recentred_beta_lowers_global_residual_mean_bias"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  547
+    },
+    {
+        "file":  "src/mlframe/training/core/_phase_composite_post.py",
+        "implemented":  [
+                            "I2"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/test_i2_raw_only_ct_ensemble_mixed_suite_future.py::test_mixed_suite_ar_skipped_sibling_gets_ct_ensemble",
+                            "tests/training/test_i2_raw_only_ct_ensemble_mixed_suite_future.py::test_all_raw_only_suite_still_synthesises",
+                            "tests/training/test_i2_raw_only_ct_ensemble_mixed_suite_future.py::test_synthesis_does_not_mutate_metadata_specs",
+                            "tests/training/test_i2_raw_only_ct_ensemble_mixed_suite_future.py::test_knob_off_disables_synthesis"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  294
+    },
+    {
+        "file":  "src/mlframe/training/composite/transforms/nonlinear.py",
+        "implemented":  [
+                            "T7",
+                            "T10",
+                            "T11"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t7_js_factor_is_scale_invariant_in_base_unit",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t7_grouped_fit_shrinkage_scale_invariant_end_to_end",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t7_js_factor_degenerate_base_var_floor",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t10_continuous_midn_base_keeps_full_knots",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t10_biz_val_more_knots_better_var_explained_on_curvy_target",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t10_discrete_base_caps_at_cardinality",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t11_rolling_median_matches_pandas_reference",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t11_even_k_tail_not_constant_filled",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t11_window_wider_than_array_no_raise",
+                            "tests/training/composite/test_nonlinear_transforms_future.py::test_t11_nan_input_matches_pandas_skip_semantics"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  945
+    },
+    {
+        "file":  "src/mlframe/training/composite/transforms/registry.py",
+        "implemented":  [
+                            "T15"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_domain_check_fitted_future.py::test_params_dependent_transform_has_fitted_domain_hook",
+                            "tests/training/composite/test_domain_check_fitted_future.py::test_params_free_transforms_leave_hook_unset",
+                            "tests/training/composite/test_domain_check_fitted_future.py::test_log_y_fitted_domain_catches_below_offset_rows",
+                            "tests/training/composite/test_domain_check_fitted_future.py::test_centered_ratio_fitted_domain_catches_eps_band_rows_predict",
+                            "tests/training/composite/test_domain_check_fitted_future.py::test_rerank_finite_when_params_from_subsample_not_covering_train",
+                            "tests/training/composite/test_domain_check_fitted_future.py::test_biz_centered_ratio_predict_eps_band_routes_to_fallback"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  743
+    },
+    {
+        "file":  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/_phase_composite_post_xt_mtr_oof.py",
+        "implemented":  [
+                            "I7"
+                        ],
+        "deferred":  [
+                         {
+                             "id":  "I7",
+                             "why":  "Cheap-partial (WARNING-visibility on all 3 forfeiture exits + the previously-silent non-finite path) IMPLEMENTED. The FULL per-component-exclusion fix (drop the failing component, NNLS-weight the rest) is deferred per the finding: it changes the return contract (caller _post_xt_ensemble_mtr.py injects weights shaped to ALL components) and must be re-validated against bench_mtr_nnls_oof.py, which cannot run in this CUDA-crash environment."
+                         }
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_mtr_oof_observability_future.py::test_fold_refit_failure_warns_and_returns_none",
+                            "tests/training/composite/test_mtr_oof_observability_future.py::test_nonfinite_oof_warns_and_returns_none",
+                            "tests/training/composite/test_mtr_oof_observability_future.py::test_too_few_components_is_silent",
+                            "tests/training/composite/test_mtr_oof_observability_future.py::test_too_few_rows_is_silent",
+                            "tests/training/composite/test_mtr_oof_observability_future.py::test_success_path_is_silent_and_returns_weights"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  112
+    },
+    {
+        "file":  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/_post_xt_ensemble_mtr.py",
+        "implemented":  [
+
+                        ],
+        "deferred":  [
+                         {
+                             "id":  "I20",
+                             "why":  "Reserved for another worker (in exclude set I6,I20,N6,T13,T24,E13); not implemented."
+                         },
+                         {
+                             "id":  "I7",
+                             "why":  "Not assigned to this file: its file field is _phase_composite_post_xt_mtr_oof.py (sibling module, another worker). It only references _post_xt_ensemble_mtr.py:265 as the caller it must stay compatible with."
+                         }
+                     ],
+        "tests_added":  [
+
+                        ],
+        "import_ok":  true,
+        "tests_green":  "n/a",
+        "loc_after":  299
+    },
+    {
+        "file":  "src/mlframe/training/core/_phase_composite_discovery.py",
+        "implemented":  [
+                            "I11"
+                        ],
+        "deferred":  [
+                         {
+                             "id":  "I13",
+                             "why":  "Both audit-prescribed fixes are out-of-isolation-scope: (a) a y= kwarg into CompositeTargetDiscovery.fit is a cross-file contract change touching fit/fit_stacked/fit_stacked_on_residual + screening/eval/auto-base (target_col must be a frame column today); (b) mutate-and-restore reintroduces the exact in-place target-column leak the current pd.concat path was deliberately written to prevent (documented at lines 36-47), is fragile under fragmented BlockManager, and needs a 100GB-frame before/after RAM benchmark per perf-measure-first that cannot run on this host. No bit-identical sub-fix exists; the safe-part-only change would be a risky half-change, which the task forbids."
+                         }
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_discovery_group_aware_splitter_future.py::test_group_aware_splitter_config_activates_rerank_without_recommendation",
+                            "tests/training/composite/test_discovery_group_aware_splitter_future.py::test_group_aware_splitter_accepts_dict_split_config",
+                            "tests/training/composite/test_discovery_group_aware_splitter_future.py::test_no_group_signal_keeps_rerank_group_naive",
+                            "tests/training/composite/test_discovery_group_aware_splitter_future.py::test_recommendation_still_activates_rerank_without_split_config"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  703
+    },
+    {
+        "file":  "src/mlframe/training/core/_phase_composite_wrapping.py",
+        "implemented":  [
+                            "I15"
+                        ],
+        "deferred":  [
+
+                     ],
+        "tests_added":  [
+                            "tests/training/composite/test_watchdog_multibase_future.py::TestMultiBaseWatchdogFires::test_watchdog_warns_when_multibase_predict_corrupted",
+                            "tests/training/composite/test_watchdog_multibase_future.py::TestMultiBaseWatchdogQuietOnHappyPath::test_watchdog_quiet_on_consistent_multibase"
+                        ],
+        "import_ok":  true,
+        "tests_green":  true,
+        "loc_after":  733
+    }
+]

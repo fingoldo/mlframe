@@ -1,0 +1,482 @@
+[
+    {
+        "id":  "E7",
+        "severity":  "P2",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_estimator.py",
+        "line":  494,
+        "reason":  "TypeError-based sample_weight retry at 3 sites (_estimator.py:494-504,572-582; post_shim.py:62-68) mis-attributes deep TypeErrors as \u0027no sample_weight support\u0027 -\u003e silent unweighted training. Correct fix is signature-gating via has_fit_parameter/inspect.signature, a behavior change needing a test matrix.",
+        "patch":  ""
+    },
+    {
+        "id":  "E8",
+        "severity":  "P2",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_utils.py",
+        "line":  27,
+        "reason":  "feature_importances_/coef_/intercept_/booster_ still use getattr(inner, attr, None), so a fitted inner lacking the attr yields hasattr==True with value None (hasattr-trap). Switching to a no-default raise is a behavior change that can break callers relying on None; needs a deliberate change + tests.",
+        "patch":  ""
+    },
+    {
+        "id":  "E10",
+        "severity":  "P2",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_estimator.py",
+        "line":  282,
+        "reason":  "from_fitted_inner reconstructs the T-clip as symmetric +/-10*std(y) (centered at 0), mis-centering unary transforms (log_y/cbrt_y/yeo_johnson_y) whose T is offset from 0 -\u003e in-distribution T_hat clipped flat. Fix recomputes T_train via transform.forward(y,zeros,params) + MAD logic; numerics change needing a biz_value regression.",
+        "patch":  ""
+    },
+    {
+        "id":  "E11",
+        "severity":  "P2",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_estimator.py",
+        "line":  638,
+        "reason":  "For grouped transforms feature_names_in_ includes group_column (F) but n_features_in_ delegates to the inner fit on F-1 cols, breaking the sklearn invariant. Fix must rework the class-level n_features_in_ property to prefer a stored wrapper value across both fit and from_fitted_inner routes; not a one-liner (instance attr cannot shadow the class property).",
+        "patch":  ""
+    },
+    {
+        "id":  "E12",
+        "severity":  "P2",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_estimator.py",
+        "line":  540,
+        "reason":  "_drop_columns uses pandas X.drop which materialises a full copy per grouped predict on 100+GB frames; CoW/lazy-subset fix requires a before/after benchmark per perf-measure-first.",
+        "patch":  ""
+    },
+    {
+        "id":  "E17",
+        "severity":  "LOW",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_predict.py",
+        "line":  106,
+        "reason":  "T-clip hits (t_low_hits/t_high_hits) are logged at WARNING every batch then discarded; not in runtime_stats_/callback. Adds callback-payload keys + a warn-throttle (contract change), better as a deliberate change.",
+        "patch":  ""
+    },
+    {
+        "id":  "E19",
+        "severity":  "LOW",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/post_shim.py",
+        "line":  75,
+        "reason":  "shim estimator_ property returns the unfitted inner pre-fit so check_is_fitted(shim) passes on an unfitted shim; shim also delegates only fit/predict, dropping predict_quantile for a quantile-capable nested member. Adds __sklearn_is_fitted__ + conditional quantile delegation; small feature, deliberate.",
+        "patch":  ""
+    },
+    {
+        "id":  "E21",
+        "severity":  "LOW",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "tests/test_sklearn_compliance_composite.py",
+        "line":  104,
+        "reason":  "Compliance matrix exercises only diff/pandas/LinearRegression; uncovered rows (unary/multi-base/grouped/polars/quantile/fallback) are exactly where E3/E6 crash. Test expansion (parametrize _make + clone/get_params/fit/predict per row).",
+        "patch":  ""
+    },
+    {
+        "id":  "E22",
+        "severity":  "LOW",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_update.py",
+        "line":  54,
+        "reason":  "update() boxes the whole deque to PyFloats via .tolist() and rebuilds two ndarrays every call even when the z-check short-circuits. Preallocated float64 ring-buffer redesign needs a benchmark (perf-measure-first).",
+        "patch":  ""
+    },
+    {
+        "id":  "E23",
+        "severity":  "LOW",
+        "dim":  "estimator",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_update.py",
+        "line":  36,
+        "reason":  "update() allowlist is (\u0027linear_residual\u0027,) only; linear_residual_robust shares forward/inverse and the {alpha,beta} param shape (registry.py:286-301) so the closed-form refit applies. Extending it + choosing robust-fit-on-buffer is a behavior choice needing a biz_value/test.",
+        "patch":  ""
+    },
+    {
+        "id":  "T7",
+        "severity":  "P2",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/transforms/nonlinear.py",
+        "line":  "174-183",
+        "reason":  "James-Stein sigma2 proxy drops the Var(base_g) term (OLS slope variance is sigma2/(n_g*Var(base))), making the shrinkage factor unit-dependent. Real, but changing the proxy shifts which groups shrink -\u003e needs a biz_value/regression measurement, not a blind edit.",
+        "patch":  ""
+    },
+    {
+        "id":  "T8",
+        "severity":  "P2",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/transforms/linear.py",
+        "line":  "525-530",
+        "reason":  "After shrinking alpha_g the code never re-centres beta_g, so the per-group residual mean drifts from 0 (manufactured per-group bias). Fix changes residualisation numerics and needs the \u0027residual mean ~=0 after shrink\u0027 biz_value test to pin both sides.",
+        "patch":  ""
+    },
+    {
+        "id":  "T10",
+        "severity":  "P2",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/transforms/nonlinear.py",
+        "line":  "417-421",
+        "reason":  "Auto-knot rule n_unique//200 conflates cardinality with discreteness -\u003e continuous bases on small/mid n get 3-5 knots instead of 12 and underfit. Re-tuning the divisor/predicate alters fitted splines on real configs; threshold change needs a benchmark.",
+        "patch":  ""
+    },
+    {
+        "id":  "T11",
+        "severity":  "P2",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/transforms/nonlinear.py",
+        "line":  "822-834",
+        "reason":  "_rolling_median bottleneck path diverges from pandas fallback (even-k off-by-one everywhere; odd-k tail constant-filled), so rolling_quantile_ratio T is non-reproducible across envs. Fixing the shift + truncated-centred tail medians changes T-values and needs a backend-parity test across even/odd k + boundaries; docstring claim \u0027consistent with min_periods=1 semantics\u0027 (line 822) is false and must be corrected in the same change.",
+        "patch":  ""
+    },
+    {
+        "id":  "T15",
+        "severity":  "P2",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/transforms/registry.py",
+        "line":  "182",
+        "reason":  "Fitted-params-dependent domains are unenforceable: the pre-fit gate (discovery/_eval.py:44) can\u0027t see offset/c, so log_y screen rows below -offset NaN and T5\u0027s base+c\u003c=0 rows pass as valid. Fix = new domain_check_fitted(y,base,params) hook on the Transform contract + wiring in screening/eval -- contract extension.",
+        "patch":  ""
+    },
+    {
+        "id":  "T20",
+        "severity":  "LOW",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/transforms/naming.py",
+        "line":  "91-117",
+        "reason":  "is_composite_target_name substring match (-diff-,-ratio-,-spline-,...) false-positives plausible user columns (price-diff-7d, debt-ratio-q). Strict parsing must stay robust to both short-alias and legacy __-format names -\u003e behaviour change with pickle-compat surface, not a trivial safe edit.",
+        "patch":  ""
+    },
+    {
+        "id":  "T25",
+        "severity":  "LOW",
+        "dim":  "transforms",
+        "category":  null,
+        "file":  "tests/training/composite/test_biz_val_composite_transforms.py",
+        "line":  "1",
+        "reason":  "Adversarial round-trip/parity coverage missing for the whole bug class. The RESOLVE_NOW items (T4/T5/T6/T9/T14) MUST ship their own regression tests in the same change; the remaining adversarial suite (YJ-asymptote, bottleneck parity for T11, grouped residual-mean for T8, mixed-scale non-fallback) is broader than this safe pass -\u003e FUTURE.",
+        "patch":  ""
+    },
+    {
+        "id":  "D8",
+        "severity":  "P2",
+        "dim":  "discovery_core",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/_fit.py",
+        "line":  "504,569,631,655,740,832",
+        "reason":  "report_ kept=True is frozen at the eps gate; later alpha-drift/linres-collapse/rerank drops and multi-base name-swaps make report() actively misleading vs its \u0027all evaluated candidates with reasons\u0027 contract. Real, but the fix is a reconciliation pass (per-gate drop reasons + synthetic upgrade rows) plus tests - not a safe micro-fix.",
+        "patch":  ""
+    },
+    {
+        "id":  "D10",
+        "severity":  "P2",
+        "dim":  "discovery_core",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/_fit.py",
+        "line":  "355-397",
+        "reason":  "The mi_y per-base recompute is ALREADY fixed (lines 387-397 derive each base\u0027s mean via _aggregate_mi_per_feature(np.delete(_per_feat_y_full,...))). The remaining np.delete full-matrix copies kept alive for all bases need an exclude_col param threaded into _mi_to_target_prebinned plus a RAM/bench check - out of scope for a quick safe pass.",
+        "patch":  ""
+    },
+    {
+        "id":  "D21",
+        "severity":  "LOW",
+        "dim":  "discovery_core",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/_eval.py",
+        "line":  "162",
+        "reason":  "A ~0.99-correlated sibling left in X_remaining inflates mi_y_compare while contributing little to mi_t, biasing mi_gain DOWN (conservative, no leak) for exactly the lag-family bases most likely genuine. Optional accuracy improvement gated on auto_base_dedup_corr_threshold; needs a per-base column mask (ties to D10 exclude-col) + biz_value measurement.",
+        "patch":  ""
+    },
+    {
+        "id":  "A24",
+        "severity":  "P2",
+        "dim":  "discovery_adv",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/auto_detect.py",
+        "line":  "402-403",
+        "reason":  "info_bonus=n_unique/(log1p(n_unique)+1) is monotone-increasing, contradicting its comment; ID-like int columns rank first. Fix = unimodal bonus or sparsity penalty -\u003e needs a benchmark to set the peak/threshold + a biz_value test.",
+        "patch":  ""
+    },
+    {
+        "id":  "A34",
+        "severity":  "P2",
+        "dim":  "discovery_adv",
+        "category":  null,
+        "file":  "tests/training/test_residual_stacked_suite_integration.py",
+        "line":  "1",
+        "reason":  "Test gap for stacked pass-2 suite TRAINING (would catch A6/A7) + wilcoxon-power floor (A2, now resolved) + multiseed-under-monotone variation (A3, now resolved). Pass-2 training tests can only land alongside the A6/A7 FUTURE fixes; the A2/A3 regression tests should land with confirmation of those resolved items.",
+        "patch":  ""
+    },
+    {
+        "id":  "S3",
+        "severity":  "P2",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/cache.py",
+        "line":  "150-184",
+        "reason":  "Real residual blind spot: polars prefix-only (no tail), pandas still n_edge=8. Widening invalidates the on-disk digest and needs a coverage/cost decision on edge size; document as a known sampling blind spot. Not a quick safe edit.",
+        "patch":  ""
+    },
+    {
+        "id":  "S7",
+        "severity":  "P2",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/streaming.py",
+        "line":  "84-110",
+        "reason":  "Drift detector tests alpha only; a pure intercept/level-shift drift never refits yet biases every prediction. Needs a beta/Chow test + a biz_value synthetic (pure-level-shift must refit) + a measured threshold.",
+        "patch":  ""
+    },
+    {
+        "id":  "S8",
+        "severity":  "P2",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/streaming.py",
+        "line":  "76-105",
+        "reason":  "Refit uses the FULL rolling buffer (pre+post-drift mixed) -\u003e lagged blend biased toward the dead regime. Fix is change-point detection (two-segment SSE split) -- an algorithmic change needing measurement.",
+        "patch":  ""
+    },
+    {
+        "id":  "S9",
+        "severity":  "P2",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_update.py",
+        "line":  "54-64",
+        "reason":  "extend(y_arr.tolist()) boxes + np.asarray(deque) unboxes the whole 10k buffer every update -- O(buffer_n) Python work per call. Ring-buffer rewrite is a perf refactor needing a benchmark.",
+        "patch":  ""
+    },
+    {
+        "id":  "S12",
+        "severity":  "P2",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/provenance.py",
+        "line":  "183-240",
+        "reason":  "Formula/description table covers 4 of ~36 registered transforms; the rest render a generic stub, contradicting the \u0027reproduce the inverse without source\u0027 promise. Right fix is a registry-driven formula field (or extending the dict to the alpha/beta family + chains) -- an extension.",
+        "patch":  ""
+    },
+    {
+        "id":  "S18",
+        "severity":  "LOW",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/cache.py",
+        "line":  "823,978,855-974",
+        "reason":  "Eviction total_bytes counts only *.pkl while _discovery_cache_bytes_total counts .pkl+.pkl.sha256 (cap vs reported footprint disagree); orphan *.tmp / .lru.lock never swept by eviction or clear(). Needs a reconcile decision + an age-threshold sweep (the clear() tmp/lock sweep sub-part is cheap but the accounting fix needs a direction choice).",
+        "patch":  ""
+    },
+    {
+        "id":  "S25",
+        "severity":  "LOW",
+        "dim":  "state",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/cache.py",
+        "line":  "450-487,100-110",
+        "reason":  "compute_config_signature_v1 folds versions only when library_versions is passed (defaults None); the module recipe (100-110) never mentions it, so a docstring-following R\u0026D user builds keys with no code-version component -\u003e stale spec replay across mlframe upgrades. Needs a _DISCOVERY_CACHE_SCHEMA_VERSION constant + mlframe.__version__ folded unconditionally + bump discipline + cache-invalidation note.",
+        "patch":  ""
+    },
+    {
+        "id":  "N9",
+        "severity":  "P2",
+        "dim":  "ensemble",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/ensemble/__init__.py",
+        "line":  "296,735-736",
+        "reason":  "external_holdout_base_per_spec is accepted (296), passed through (735-736), documented as required (487) but never read in _compute_oof_with_external_holdout (verified). Wiring it as the missing-base fallback (turns silent component drops into successful predictions) is a real feature; deleting it removes a fallback contract the suite already builds data for. Either way is out-of-scope for a safe micro-pass.",
+        "patch":  ""
+    },
+    {
+        "id":  "N17",
+        "severity":  "P2",
+        "dim":  "ensemble",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/ensemble/_cross_target.py",
+        "line":  "391-398,472-474",
+        "reason":  "from_train_metrics keeps a caller-passed train-scale baseline when ranking OOF rmses (only overrides when baseline_oof_rmse exists); train RMSE \u003c OOF RMSE so gains shrink/go negative -\u003e spurious single-best fallbacks vs an apples-to-oranges benchmark. Fixing the baseline scale changes weighting numerics (selection-altering) -\u003e needs care; the notes-relabel (rmse_source=\u0027oof\u0027|\u0027train\u0027) is the safe sub-fix to land alongside it.",
+        "patch":  ""
+    },
+    {
+        "id":  "N28",
+        "severity":  "P2",
+        "dim":  "ensemble",
+        "category":  null,
+        "file":  "tests/training/composite/test_composite_ensemble_oof_hygiene_audit.py",
+        "line":  "whole-file",
+        "reason":  "Verified the hygiene-audit test covers N1/N2/N3 only. Still missing: group_ids+sample_weight together, a pin for the non-monotone-time downgrade, and the cache-key holdout_frac collision (N7). These tests ship with their fixes; N7/N19/N21 are FUTURE and the group+sw test pairs with the N7 cache-key landing, so they belong with the corresponding fix commits, not this safe pass.",
+        "patch":  ""
+    },
+    {
+        "id":  "P10",
+        "severity":  "P2",
+        "dim":  "perf",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/_tiny_rerank.py",
+        "line":  "521-549",
+        "reason":  "Per-base raw per-bin refit is bin_var-independent, but per_bin_n_bins=0 (OFF by default) and the fix needs a _tiny_cv_rmse_raw_y(bin_vars=dict) contract change + per-fold-prediction plumbing. Out of scope for a safe quick pass.",
+        "patch":  ""
+    },
+    {
+        "id":  "P11",
+        "severity":  "P2",
+        "dim":  "perf",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/_screening_tiny.py",
+        "line":  "594",
+        "reason":  "early_stop_threshold is genuinely dead-wired (always inf; no src caller passes it). Behavior is currently correct, just misses the 30-66% serial-fold saving. Activating it requires reordering _tiny_model_rerank to compute the raw baseline before the per-spec loop + a regression test - a restructure, not a micro-guard.",
+        "patch":  ""
+    },
+    {
+        "id":  "P14",
+        "severity":  "P2",
+        "dim":  "perf",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/_fit.py",
+        "line":  "535",
+        "reason":  "Alpha-drift loop (535) and alpha~1-collapse loop (644) re-extract full base columns, but self._auto_base_pool[s.base_column] (set at 367 = base_full[train_idx]) already holds them; idx1/idx2 = train_idx[:half]/train_idx[half:], so the drift gathers are pool[:half]/pool[half:]/pool. Bit-identical (same float32 values).",
+        "patch":  "Drift loop ~535: add pooled fast-path bt = self._auto_base_pool.get(s.base_column); if bt is not None use bt[:half] for the idx1 fit, bt[half:] for idx2, and bt where base_full[train_idx] is used (base_t); else fall back to the existing _extract_column_array(df, s.base_column) + idx1/idx2/train_idx indexing. Collapse loop 644: base_train = self._auto_base_pool.get(s.base_column); if None, base_train = _extract_column_array(df, s.base_column)[train_idx]. Bit-identical, no copy."
+    },
+    {
+        "id":  "P15",
+        "severity":  "P2",
+        "dim":  "perf",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/discovery/screening.py",
+        "line":  "294",
+        "reason":  "int64-\u003eint16 prebin codes is bit-identical on MI values (with int32/int64 upcast in _mi_from_binned_pair combo) but spans 3 sites (screening.py 294/296 + _auto_base.py 403-422 + combo widening) and the finding itself requires a gather/bincount benchmark to confirm the cache-effect speedup. Needs measurement.",
+        "patch":  ""
+    },
+    {
+        "id":  "DX6",
+        "severity":  "P2",
+        "dim":  "dx",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/__init__.py",
+        "line":  "99-258",
+        "reason":  "No __all__, 96 underscore re-exports, read-only TRANSFORMS_REGISTRY proxy not re-exported. Adding __all__ + re-export reshapes the public star-import surface across many callers; needs a deliberate surface decision + test, not a quick safe pass. DX21 is the cheap subset.",
+        "patch":  ""
+    },
+    {
+        "id":  "DX12",
+        "severity":  "P2",
+        "dim":  "dx",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/ensemble/stacking.py",
+        "line":  "84-137",
+        "reason":  "residual_dedup_indices is production-wired (CT-ensemble build) with zero tests; keep-best-first logic + min_keep floor + NaN-row guard can silently regress. Writing the 4 proposed tests is real test work (new file + fixtures), not a quick safe code edit. Queue as test-debt.",
+        "patch":  ""
+    },
+    {
+        "id":  "DX15",
+        "severity":  "LOW",
+        "dim":  "dx",
+        "category":  null,
+        "file":  "src/mlframe/training/composite/estimator/_estimator.py",
+        "line":  "692-717",
+        "reason":  "update/get_buffer_state/predict_pre_clip/get_booster + 5 delegated properties still runtime-bound (701-717), invisible to mypy/help(). Adding in-body stubs + class-body property wrappers is a broader surface change with rebinding-order risk; out of scope for a quick safe pass.",
+        "patch":  ""
+    },
+    {
+        "id":  "DX18",
+        "severity":  "LOW",
+        "dim":  "dx",
+        "category":  null,
+        "file":  "tests/test_docs_examples_smoke.py",
+        "line":  "24-25",
+        "reason":  "Docs smoke test pins only CompositeTargetEstimator; composite_targets.md/tutorial symbols (CompositeTargetDiscoveryConfig, CompositeSpec, report_to_markdown, MLFRAME_DISABLE_COMPOSITE) unpinned despite the test\u0027s docstring claiming tutorial coverage. New test additions = test work; queue it.",
+        "patch":  ""
+    },
+    {
+        "id":  "DX19",
+        "severity":  "LOW",
+        "dim":  "dx",
+        "category":  null,
+        "file":  "src/mlframe/training/_composite_target_discovery_config.py",
+        "line":  "17",
+        "reason":  "94-field config with no generated knob reference; dict-config acceptance undocumented. Headline deliverable is a scripts/ doc generator + doc-drift test (tooling/architectural) -\u003e out of scope for a quick pass. (1-line dict-config docstring note is DOC-able but not the main fix.)",
+        "patch":  ""
+    },
+    {
+        "id":  "I2",
+        "severity":  "P1",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_post.py",
+        "line":  "199-217",
+        "reason":  "CONFIRMED real: raw-only CT_ENSEMBLE synthesis still gates on the GLOBALLY-empty specs dict (not composite_specs_by_target_type), so in a mixed suite an extreme-AR-skipped target (no specs entry) gets no lag-floor ensemble while a discovered sibling has specs. Fix = per-target fill of empty [] specs for every regression target with trained models; behavior change touching synthesis + per-target loop, needs a multi-target regression test. Not a quick safe guard.",
+        "patch":  ""
+    },
+    {
+        "id":  "I7",
+        "severity":  "P2",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/_phase_composite_post_xt_mtr_oof.py",
+        "line":  "73-77",
+        "reason":  "CONFIRMED: any single component fold failure / non-finite returns None for the whole MTR weighting (-\u003e equal-mean, forfeiting the benched ~9% win), all logged at DEBUG. Per-component exclusion changes the return contract (caller at _post_xt_ensemble_mtr.py:265 injects weights shaped to ALL components) and must re-validate against bench_mtr_nnls_oof.py -- architectural, not a quick guard. Cheap partial available: bump the three log sites (lines 74,85 + __init__.py:133-139) to WARNING.",
+        "patch":  ""
+    },
+    {
+        "id":  "I11",
+        "severity":  "P2",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_discovery.py",
+        "line":  "198-215",
+        "reason":  "CONFIRMED: group-aware tiny-rerank is gated on the analyzer RECOMMENDATION (knob_overrides.split_config.prefer_group_aware) not the ACTUAL splitter config; a user who supplies group_ids + a group-aware splitter without the analyzer recommending it gets plain-KFold rerank (the documented prod failure). Fix needs a real \u0027splitter was group-aware\u0027 flag threaded from the suite boundary -- wiring/architectural, not a local guard.",
+        "patch":  ""
+    },
+    {
+        "id":  "I13",
+        "severity":  "P2",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_discovery.py",
+        "line":  "48-59",
+        "reason":  "pd.concat([sub, target_series], axis=1) copies blocks under pandas\u003c3 / no-CoW -- a full peak-RAM duplication of the (100+GB-convention) train frame per regression target. Real, but the prescribed fixes (mutate-and-restore try/finally, or a y= kwarg into CompositeTargetDiscovery.fit) change a deliberately-anti-mutation path and need a before/after RAM measurement per perf-measure-first. Out of scope for a safe quick pass.",
+        "patch":  ""
+    },
+    {
+        "id":  "I15",
+        "severity":  "P2",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_wrapping.py",
+        "line":  "546-600",
+        "reason":  "CONFIRMED: both watchdog blocks build a 1-D base from the single base_column; for linear_residual_multi (in _ADDITIVE_TRANSFORMS, :548) inverse/forward need the (n,1+K) matrix -\u003e ValueError swallowed at DEBUG (:587,:650) -\u003e ZERO watchdog coverage for the spec family most prone to wrapper-math bugs. Fix = build the multi-column base in both blocks + a new regression test that corrupts a multi-base wrapper and asserts the WARNING fires. Test-gap + 2-site matrix build, beyond a one-line guard.",
+        "patch":  ""
+    },
+    {
+        "id":  "I20",
+        "severity":  "LOW",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/_post_xt_ensemble_mtr.py",
+        "line":  "267-288",
+        "reason":  "CONFIRMED parity gaps vs single-target: (a) MTR ensemble is APPENDED into models[tt][orig_tname] (:281) not a dedicated _CT_ENSEMBLE__{name} key -\u003e it appears alongside its own component siblings (votenrank/per-entry tables misread it); (b) SimpleNamespace lacks metrics={} (single-target sets it at __init__.py:880); (c) no ensembles_chosen[\u0027cross_target\u0027] stamp. (a) is a registration-shape change needing downstream save/predict verification; (b)/(c) are cheap but best landed with (a).",
+        "patch":  ""
+    },
+    {
+        "id":  "I23",
+        "severity":  "LOW",
+        "dim":  "integration",
+        "category":  null,
+        "file":  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py",
+        "line":  "243-245",
+        "reason":  "_arr[~_fin] = median(finite) imputes a component whose train predict FAILED with the MEDIAN RMSE -\u003e from_train_metrics grants it mid-pack weight on the fallback path. Safer = impute max(finite) (worst) or drop. Only reachable on the double-failure path (OOF failed AND component scoring failed); changing imputation alters fallback weights so wants a small eyeball/bench before flipping. Low reach, low value-per-risk for the quick pass.",
+        "patch":  ""
+    }
+]

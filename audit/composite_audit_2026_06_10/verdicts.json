@@ -1,0 +1,257 @@
+[
+    {
+        "id":  "E1",
+        "verdict":  "CONFIRMED",
+        "severity":  "P0",
+        "note":  "Verified: domain_check returns (n,) (linear.py:388 np.all axis=1), _extract_base_matrix returns (n,K); np.where((n,),(n,K),1.0) is a guaranteed broadcast ValueError for K\u003e=2 (K!=n). Fallback branch fires on any non-finite base cell at predict; multi-base wrappers wired in _phase_composite_wrapping:298-309. Crash in the designed fallback path.",
+        "dim":  "estimator"
+    },
+    {
+        "id":  "E2",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: hook passes _y_full_arr (full y) at :155-161; y_clip Q001/Q999 + y_train_median + t_clip=10*y_std all derive from it; entry.model mutated at :167; _run_composite_target_wrapping:286 \u0027continue\u0027 on isinstance CompositeTargetEstimator, so the promised re-fit never runs. Contract violation vs from_fitted_inner docstring; mild but real holdout contamination of reported test metrics.",
+        "dim":  "estimator"
+    },
+    {
+        "id":  "E3",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: predict_quantile:259-260 extracts base unconditionally; unary transforms have base_column=\u0027\u0027 -\u003e _resolve_base_columns()==() -\u003e _extract_base_matrix raises \u0027base_columns is empty\u0027 (estimator/__init__.py:161). _predict_unclipped branches on requires_base at :36; predict_quantile lacks the branch. Crash for all requires_base=False transforms.",
+        "dim":  "estimator"
+    },
+    {
+        "id":  "E4",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: _estimator.py:532 unconditional _subset_rows; polars .filter / pandas .loc+reset_index / ndarray bool-index all copy even on all-True mask, contradicting RAM comments at 526-531 and CLAUDE.md CRITICAL rule. Exposure: ensemble OOF refit + direct fit() callers (suite main path uses from_fitted_inner). One-line gate fix.",
+        "dim":  "estimator"
+    },
+    {
+        "id":  "E5",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: post_shim.py:44-48 \u0027except Exception: return X\u0027 swallows all transform errors. Comment marks it deliberate (defer to inner\u0027s error), but defense fails when raw X is shape-compatible: scaled-feature linear/MLP inner silently predicts garbage inside NNLS stack. Duplicate _transform_via in ensemble/__init__.py:53-63 (finding cited 48-56, minor line drift).",
+        "dim":  "estimator"
+    },
+    {
+        "id":  "T1",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Repro: _yj_inverse_numpy(lam=2.1994, t=-5.11)=NaN; lam\u003c0/lam\u003e2 reachable (fit clips to [-2,4]; lognormal fits lam=-0.87, negated lognormal 2.80). T-clip (med+10MAD=2.31) crosses asymptote 1.15 so a passing t_hat=1.73 inverts to NaN; np.clip(nan)=nan; predict() has no isfinite guard. Minor detail off: plain lognormal fits lam\u003c0, not 2.1994 вЂ” mechanism unaffected. yeo_johnson_y + both YJ chains are in the default list.",
+        "dim":  "transforms"
+    },
+    {
+        "id":  "T2",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Repro: independent b1~N(0,1), b2~N(0,1e6) -\u003e cond=9.9e5, collinear_fallback=True, alphas=[0,0]; even scale ratio 40 trips the 30 gate (cond=39.4). linear.py:313 computes col_norms but never equilibrates columns before SVD (BKW requires unit-norm); grep confirms collinear_fallback is set but read by no caller; multi_base_enabled=True default.",
+        "dim":  "transforms"
+    },
+    {
+        "id":  "T3",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Repro: y=5sin(b)+N(0,0.1), n=3000 -\u003e s=10102 (claim 9990), residual std 1.835 vs 0.1 noise floor, 70.3% variance absorbed (claim 70%). extended.py:359 sets s=m*std(yc_avg); scipy s bounds residual SS so correct scale is m*var(noise) -\u003e residual std ~ sqrt(std(signal)), decoupled from noise. smoothing_spline_residual is in the default discovery list; severity P1 consistent with audit\u0027s rating of silent missed-win bugs (cf. D3).",
+        "dim":  "transforms"
+    },
+    {
+        "id":  "D1",
+        "verdict":  "ADJUSTED",
+        "severity":  "P1",
+        "note":  "Mechanism fully reproduced: mean-impute dilutes corr by sqrt(1-f); f=3e-5 y-copy gives 0.9999885 \u003c 0.99999 and passes; scalar _safe_corr=1.0 would drop. But end-to-end shipped leak NOT demonstrated: degenerate-T specs fail hard eps_mi_gain gate (_fit.py:469-472) and the stepwise route is blocked by D3\u0027s NaN bug. P1 now; escalates to P0 if D3 fixed alone - fix together.",
+        "dim":  "discovery_core"
+    },
+    {
+        "id":  "D2",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "iter_transform (__init__.py:160-170) extracts only spec.base_column; _linear_residual_multi_forward raises ValueError (repro\u0027d, linear.py:364) for K\u003e1. multi_base_enabled=True default + linear_residual in default transforms makes specs reachable. Consumers at ensemble/__init__.py:439/674/879 stack extra_base_columns; export_specs comment documents the bug class. No multi-base iter_transform test exists.",
+        "dim":  "discovery_core"
+    },
+    {
+        "id":  "D3",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Repro\u0027d: pool arrays raw (_fit.py:351,696); NaN seed -\u003e LinAlgError -\u003e blanket except _fit.py:725 keeps single-base (generic WARN); finite seed + NaN candidate carrying true signal -\u003e cond=inf collinear fallback, never accepted, fully silent; finite control promotes. Lag bases thus disable default-ON promotion. Minor overstatements only: 738 param-poisoning unreachable (accepted bases necessarily finite); seed case warns, not silent.",
+        "dim":  "discovery_core"
+    },
+    {
+        "id":  "N1",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Group branch returns mask-SCATTERED fit rows (_carve_inner_eval_split:285 via _slice_rows(X, fit_mask)); all five call sites (431-434, 463-465, 703, 868-871, 902-904) prefix-slice sw[:len(y_fit)]. Suite threads both sample_weight and group_ids (xt_ensemble:321-329, 383-391). Lengths match so it is silent. No test pins alignment.",
+        "dim":  "ensemble"
+    },
+    {
+        "id":  "N2",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "kfold composite branch fits with no eval_set (line 670) while raw (698-707), single-split composite (863-875) and external (422-438) all carve one. ES inner raises ValueError -\u003e per-component except at 713-719 silently excludes it each fold. oof_holdout_source default IS \u0027kfold\u0027 (config:826), so default-mode ensembles lose every ES composite component.",
+        "dim":  "ensemble"
+    },
+    {
+        "id":  "N3",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Outer split is plain shuffled KFold (617-618) or rng.permutation (791-794) regardless of group_ids; group_ids only feed the inner ES carve (690-697, 816-823). Same-group rows span refit-train/holdout, inflating the OOF surface that NNLS weights + dummy-floor gate consume. The inner-carve docstring (242-248) itself documents +25% prod impact of group-blind splits.",
+        "dim":  "ensemble"
+    },
+    {
+        "id":  "N4",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Mechanics confirmed: non-monotone OR any-NaT time_ordering fails _is_monotone_nondecreasing (isfinite at 178) -\u003e random shuffle with no log (only the monotone case logs). But the fallback is documented in the docstring (\u0027Otherwise: random shuffle, legacy\u0027), and default kfold mode drops the time signal explicitly with INFO (xt_ensemble:349); only reachable with non-default oof_holdout_source=\u0027train_tail\u0027 (or external_val fallback). Missing WARN + argsort is a fair improvement; P1 leak overstates default exposure.",
+        "dim":  "ensemble"
+    },
+    {
+        "id":  "N5",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "df.copy() (deep) at feature_stacking.py:73 confirmed. But helper is opt-in: composite_feature_stacking_enabled defaults False and the suite explicitly \u0027does not auto-attach\u0027 (_phase_composite_discovery.py:666-673); one call per attach, docstring contracts non-mutation, and the big-frame convention (polars) takes the cheap with_columns branch. Size-gate fix per repo convention is justified, but P1 \u0027hot path\u0027 framing is overstated.",
+        "dim":  "ensemble"
+    },
+    {
+        "id":  "S1",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Reproduced: object-array tobytes() hashes PyObject* addresses at cache.py:362/423/164-175. Polars sig differs WITHIN one process (str cols re-materialize); pandas sig differs across processes. (TypeError,ValueError) fallback dead (mixed-head tobytes succeeds). Prod passes ALL cols (core/_phase_composite_discovery.py:162 вЂ” note \u0027core/\u0027 in path). Not in audit notes. Cache silently never hits on real frames; fails safe (recompute), so P1 not P0.",
+        "dim":  "state"
+    },
+    {
+        "id":  "S2",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Reproduced: cache.py:156 df.hash_rows() scans the WHOLE frame + allocs N*8B u64 to keep 256 values; slice-first verified bit-identical (polars 1.41.2), 44x faster at 2M rows, O(N) scaling. In-code \u0027bounded-cost fingerprint\u0027 comment is wrong (only payload is bounded). P1 held: per-signature full pass + multi-GB transient alloc on the 100GB-frame workloads this module targets, paid on every cache lookup.",
+        "dim":  "state"
+    },
+    {
+        "id":  "P1",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Mechanism verified: default bin+no-bootstrap (config:309,535) makes _eval.py:162 x_screen_valid dead (only read at 170/188/226, all non-default branches); _x_pb_valid:164 bool-mask always copies. But waste is a minor fraction of the per-item prebinned-MI call (int64 slice+5 passes dominate) вЂ” P2 not P1.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P2",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "screening.py:317 fb_f=feature_binned[finite] copies full int64 matrix even when finite.all() (typical: y/t targets finite); 330-331 gather col_b/t_idx per column even when col_valid.all(). Sits inside the dominant prebinned-MI kernel (~65 calls/fit incl. mi_t per work item). Both gates bit-identical.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P3",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Verified: _fit.py:355-358 np.delete copies f32+int64 matrices per base; 370-373 recomputes _mi_to_target_prebinned(y_screen) per base though per-column MI is base-invariant; _mi_per_feature_y_fixed hoist precedent exists (screening.py:356, used in _auto_base:211). But mi_y is only K=3 of ~65 MI calls + ~1.8GB one-off churn вЂ” P2.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P4",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: tiny_rerank_n_jobs=0 default (config:364) -\u003e auto min(n_specs,cpu) threads (_tiny_rerank.py:287-295,299); inner LGBM/XGB hardcode n_jobs=-1 (_screening_tiny.py:144,161); the set_params(n_jobs=1) cap (294-296,646-648) fires only when fold n_jobs\u003e1, default tiny_model_n_jobs=1 -\u003e never. Real oversubscription on dominant phase.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P5",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: _tiny_rerank.py:171-184 builds per-unique-base matrices via _build_feature_matrix (full df column extraction each); raw baseline rebuilds x_full at 430-432. _fit.py:334+355 already uses build-once+np.delete for the same need. B+1 redundant extraction passes over a 4M-row frame; np.delete fix bit-identical.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P6",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: screening.py:64 to_numpy().astype(f32) materialises full N-row column; callers slice to screen sample after (__init__.py:368, _tiny_rerank.py:175,180-182). Repo precedent confirmed: cache.py CACHE-P0-1 (lines 320-324,362,407) replaced same pattern with col.gather(idx). gather-then-cast is value-identical.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P7",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: _filter.py:79 needed_bytes covers ONLY the column_stack (cap 30% avail, line 38,88); _safe_abs_corr_all (screening.py:142,148-149) then allocates X_f (bool-mask copies even all-finite), X_dev, X_dev*X_dev вЂ” 3 extra full-size temps -\u003e peak ~4x the budgeted alloc, defeating the sampler\u0027s OOM guard.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "P8",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: cache.py:156 df.hash_rows().slice(0,256) вЂ” O(NxC) full-frame hash + N-row u64 alloc per data_signature call (line 235), keeping 256 hashes; docstring:137-138 claims bounded cost. hash_rows is row-local so slice-first is digest-identical. Undermines CACHE-P0-1 gather optimisation on 100+GB target frames.",
+        "dim":  "perf"
+    },
+    {
+        "id":  "(unparsed:integration)",
+        "verdict":  "UNPARSED",
+        "note":  "agent returned null"
+    },
+    {
+        "id":  "(unparsed:dx)",
+        "verdict":  "UNPARSED",
+        "note":  "agent returned null"
+    },
+    {
+        "id":  "A1",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: _build_tiny_model LGBM n_jobs=-1 (_screening_tiny.py:144); fold-level cap only fires when tiny_model_n_jobs\u003e1 (default 1); config default tiny_rerank_n_jobs=0=auto -\u003e min(n_specs,cpu) threads (_tiny_rerank.py:287-303) each running all-core LGBM fits. Oversubscription real on default path; cap missing at rerank level.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A2",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Math confirmed: scipy wilcoxon n=3 all-negative diffs gives p=0.125\u003e0.05, so gate is unpassable at default n_seed_repeats=3; no validator. BUT the Wilcoxon block sits inside require_beats_raw_baseline (default False), so it needs TWO opt-ins, and rejections are logged at INFO with p-values вЂ” not fully silent. Real validator gap, P2.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A3",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Verified: multiseed wrapper varies only random_state (_screening_tiny.py:433); GroupKFold/TSS ignore it; default families (lightgbm,linear) seed-invariant without subsampling -\u003e 3 identical repeats at default n_seed_repeats=3. Group-aware reranks (wired in prod path) pay 3x on the dominant Phase B. Wilcoxon pseudo-replication part is opt-in. Contradicts audit-notes \u0027independent across seeds\u0027 claim.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A4",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Logic confirmed: single global _any_base_monotone flag (_tiny_rerank.py:443-449) sets TSS for the raw baseline while non-monotone specs were scored with shuffled KFold (per-spec base_t_aware at :207). BUT the whole raw-baseline block requires require_beats_raw_baseline=True (default False) вЂ” opt-in, so P2 not P1.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A5",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Code confirmed: _tiny_cv_rmse_y_scale drops domain-invalid rows (:604-609); raw baseline keeps all finite-y rows; min_valid_domain_frac=0.7 allows 30% divergence. BUT the raw-vs-composite gate is opt-in (require_beats_raw_baseline=False default); default-path impact is only cross-spec rank bias when transforms have restrictive domains. P2.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A6",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Mechanism confirmed: _oof_* cols exist only in local df_aug; _build_full_column_from_splits silently continues on missing cols (_misc_helpers.py:172) -\u003e all-NaN base -\u003e domain all-False -\u003e _ct_t_full stays ALL-NaN (median impute has no finite train rows), not \u0027constant T\u0027. All-NaN target ships to per-target loop. Opt-in (use_stacked_discovery=False default, benchmark says keep off). P2.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A7",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Fully confirmed: wired at _phase_composite_discovery.py:508-520; suite :587-637 applies forward(raw _y_arr, base, params) with params fit on y-pass1_pred; discovered_on_residual set via object.__setattr__ (_stacked.py:305) and read nowhere (grep: 2 hits, both in _stacked.py); docstring contradicts wiring. Opt-in flag (default False) -\u003e P2.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A8",
+        "verdict":  "ADJUSTED",
+        "severity":  "P2",
+        "note":  "Confirmed: X_train slice built inside the top_specs loop (_stacked.py:77-93), invariant per iteration; sibling fit_stacked_on_residual hoists it (:209-226). But rebinding frees the prior copy, so it\u0027s \u003c=3 sequential rebuilds + transient 2-slice overlap, not 3x peak RAM; loop capped at stacked_max_pass1_specs=3; opt-in feature. Hoist is the right fix; P2 perf.",
+        "dim":  "discovery_adv"
+    },
+    {
+        "id":  "A9",
+        "verdict":  "CONFIRMED",
+        "severity":  "P1",
+        "note":  "Confirmed: no finite mask in _cv_rmse_with_folds (forward_stepwise.py:105-144) or _linear_residual_multi_fit (linear.py:285-356); _auto_base_pool stores raw train slices (_fit.py:350). Reproduced: lstsq raises LinAlgError on NaN (K=1 seed -\u003e blanket except _fit.py:725 keeps single-base, WARN logged so not fully silent); K\u003e=2 SVD raise -\u003e cond=inf -\u003e alphas=0 fallback, candidate never wins. Default-ON promotion dead on NaN lag bases. Same root cause as D3 (discovery_core) вЂ” dedupe.",
+        "dim":  "discovery_adv"
+    }
+]
