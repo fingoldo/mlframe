@@ -44,9 +44,9 @@ def bench_proxy_vs_honest(X, y):
     """Time one proxy subset-eval vs one honest retrain on the same subset."""
     from sklearn.model_selection import train_test_split
 
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
-    from mlframe.feature_selection._shap_proxy_objective import subset_loss
-    from mlframe.feature_selection._shap_proxy_revalidate import _honest_loss
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import subset_loss
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import _honest_loss
 
     model = make_default_estimator(classification=True)
     Xs, Xh, ys, yh = train_test_split(X, y, test_size=0.25, random_state=0, stratify=y)

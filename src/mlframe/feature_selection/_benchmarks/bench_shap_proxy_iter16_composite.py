@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 
 from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import proxy_trust_guard
 
 
 def _heartbeat(msg: str) -> None:

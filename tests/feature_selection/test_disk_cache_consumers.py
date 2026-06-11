@@ -36,7 +36,7 @@ def _make_clf_data(n=200, f=12, seed=0):
 
 def test_compute_shap_matrix_default_no_cache_behaviour_unchanged():
     """``cache_dir=None`` -> identical phi/base vs the legacy call path."""
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _make_clf_data()
     tpl = make_default_estimator(classification=True, random_state=0)
@@ -65,7 +65,7 @@ def test_compute_shap_matrix_cache_hit_returns_identical(tmp_path: Path):
     in-test data (n<1000, f<32) the per-fold fit is already ~150ms and competes with the
     cache I/O overhead, producing noisy multipliers unsuited to a CI gate.
     """
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _make_clf_data(n=400, f=16)
     tpl = make_default_estimator(classification=True, random_state=0)
@@ -95,7 +95,7 @@ def test_compute_shap_matrix_per_fold_fit_cache_populated(tmp_path: Path):
     """First call with ``cache_dir`` populates BOTH the outer ``shap_phi_`` entry and one
     ``oof_fold_fit_`` entry per (fold, model) combination (iter83). The per-fold cache nests
     inside the outer phi cache and is consulted only when the outer key misses."""
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _make_clf_data(n=300, f=10)
     tpl = make_default_estimator(classification=True, random_state=0)
@@ -128,7 +128,7 @@ def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
     own (X_tr, y_tr) slice are all unchanged because rng=7 and n_splits=3 reproduce the same
     splits). The phi matrix on the held-out rows must be byte-identical to the first call's --
     the cached boosters produce identical TreeSHAP attributions."""
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _make_clf_data(n=300, f=10)
     tpl = make_default_estimator(classification=True, random_state=0)
@@ -179,7 +179,7 @@ def test_compute_shap_matrix_per_fold_cache_invalidates_on_template_change(tmp_p
     Changing the booster template (different n_estimators) flips both the outer key AND every
     per-fold key, so a NEW set of ``oof_fold_fit_`` entries is written. The first call's entries
     remain alongside the new ones (cache never auto-evicts)."""
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _make_clf_data(n=300, f=10)
     cache_dir = tmp_path / "shap_cache"
@@ -214,7 +214,7 @@ def test_compute_shap_matrix_per_fold_cache_invalidates_on_template_change(tmp_p
 def test_compute_shap_matrix_rng_state_matches_after_hit(tmp_path: Path):
     """Cache hit must advance ``rng`` by the SAME number of draws the miss path did,
     so downstream stages that share the rng see identical bits regardless of hit/miss."""
-    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _make_clf_data()
     tpl = make_default_estimator(classification=True, random_state=0)

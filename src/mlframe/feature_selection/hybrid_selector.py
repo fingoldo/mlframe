@@ -310,7 +310,7 @@ class HybridSelector:
         # relevant column is covered (the pure-selection case) -- otherwise let the shap member recompute cleanly.
         if artifacts is not None:
             try:
-                from mlframe.feature_selection._shap_proxy_precomputed import restrict_artifacts
+                from mlframe.feature_selection.shap_proxied_fs import restrict_artifacts
                 names = list(artifacts.get("feature_names", []))
                 if relevant and all(c in names for c in relevant):
                     precomputed = restrict_artifacts(artifacts, [names.index(c) for c in relevant])

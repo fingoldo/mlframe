@@ -30,20 +30,20 @@ class ShapProxiedFitMixin:
         kw = dict(classification=self.classification, metric=self.metric,
                   max_card=self.max_features, top_n=self.top_n)
         if optimizer == "bruteforce":
-            from mlframe.feature_selection._shap_proxy_search import brute_force_top_n
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
             return brute_force_top_n(phi, base, y, min_card=self.min_features,
                                      parallel=(phi.shape[1] >= 14), **kw)
         if optimizer == "bruteforce_gpu":
-            from mlframe.feature_selection._shap_proxy_gpu import brute_force_top_n_gpu, gpu_available
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu, gpu_available
 
             if gpu_available():
                 return brute_force_top_n_gpu(phi, base, y, min_card=self.min_features, **kw)
             logger.warning("ShapProxiedFS: use_gpu requested but no CUDA device; falling back to numba brute force.")
-            from mlframe.feature_selection._shap_proxy_search import brute_force_top_n
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
             return brute_force_top_n(phi, base, y, min_card=self.min_features, parallel=True, **kw)
-        from mlframe.feature_selection import _shap_proxy_heuristics as H
+        from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 
         if optimizer == "beam":
             return H.beam_search(phi, base, y, beam_width=self.beam_width, min_card=self.min_features, **kw)
@@ -60,7 +60,7 @@ class ShapProxiedFitMixin:
         if optimizer == "annealing":
             return H.simulated_annealing(phi, base, y, rng=self._rng, **kw)
         if optimizer == "gradient":
-            from mlframe.feature_selection._shap_proxy_gradient import gradient_top_n
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n
 
             return gradient_top_n(phi, base, y, classification=self.classification, metric=self.metric,
                                   random_state=int(self.random_state), top_n=self.top_n)
@@ -72,7 +72,7 @@ class ShapProxiedFitMixin:
         import time
         from contextlib import contextmanager
 
-        from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
         # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set
         # ``self._stage_timings`` to a dict before calling fit and each stage's seconds land in it; a
@@ -188,7 +188,7 @@ class ShapProxiedFitMixin:
         # warning and returns None so the prefilter falls back to legacy
         # behaviour. The diagnostic block is always surfaced under
         # ``report['precomputed_used']`` so callers can confirm which path ran.
-        from mlframe.feature_selection._shap_proxy_precomputed import (
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_precomputed import (
             align_precomputed_to_X, su_to_prefilter_keep,
         )
         _precomputed_aligned, _precomputed_report = align_precomputed_to_X(
@@ -221,7 +221,7 @@ class ShapProxiedFitMixin:
         # double-booster work AND keeps the lever's win on warm runs.
         effective_prefilter_top = self.prefilter_top
         if self.shap_prefilter_enabled and self.prefilter_top is not None:
-            from mlframe.feature_selection._shap_proxy_shap_prefilter import (
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import (
                 resolve_shap_prefilter_top)
 
             sp_top = (self.shap_prefilter_top if self.shap_prefilter_top is not None
@@ -237,7 +237,7 @@ class ShapProxiedFitMixin:
                 user_prefilter_top=int(self.prefilter_top))
         working_cols = np.arange(n_features)
         if effective_prefilter_top is not None and n_features > effective_prefilter_top:
-            from mlframe.feature_selection._shap_proxy_prefilter import (
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
                 _default_stage1_keep, prefilter_columns, resolve_prefilter_method)
 
             # iter33 SHAP-aware stage-A tightening: when ``shap_prefilter`` shrinks
@@ -256,7 +256,7 @@ class ShapProxiedFitMixin:
                     self.prefilter_method, n_features=n_features,
                     n_rows=int(X_search.shape[0]))
                 if _resolved == "two_stage":
-                    from mlframe.feature_selection._shap_proxy_shap_prefilter import (
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import (
                         resolve_shap_aware_stage1_keep)
 
                     effective_stage1_keep = resolve_shap_aware_stage1_keep(
@@ -304,7 +304,7 @@ class ShapProxiedFitMixin:
                 # gate clears no pair. The kept pairs (by original column name) drive the post-search
                 # sparse interaction objective. Skipped when the prefilter kept everything already.
                 if self.su_seeded_interactions and len(working_cols) < n_features:
-                    from mlframe.feature_selection._shap_proxy_interactions import su_synergy_screen
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import su_synergy_screen
 
                     with _stage("su_seeded_interactions"):
                         # ISOLATED rng (NOT self._rng): the screen's permutation-null shuffles must not
@@ -367,7 +367,7 @@ class ShapProxiedFitMixin:
         do_cluster = self.cluster_features is True or (
             self.cluster_features == "auto" and n_features > self.cluster_auto_threshold)
         if do_cluster:
-            from mlframe.feature_selection._shap_proxy_cluster import (
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import (
                 build_unit_matrix, cluster_correlated_features, cluster_summary)
 
             with _stage("clustering"):
@@ -409,7 +409,7 @@ class ShapProxiedFitMixin:
 
                 _cluster_bins_source = "n/a"
                 if effective_backend == "su":
-                    from mlframe.feature_selection._shap_proxy_cluster_su import (
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
                         cluster_correlated_features_su,
                     )
 
@@ -517,7 +517,7 @@ class ShapProxiedFitMixin:
         effective_brute_force_cap = self.brute_force_max_features
         adaptive_info: Optional[dict] = None
         if want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
-            from mlframe.feature_selection._shap_proxy_explain import compute_phi_rank_stability
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_phi_rank_stability
 
             stability = compute_phi_rank_stability(
                 per_fold_phi_mean, top_k=2 * max(self.brute_force_max_features, 40))
@@ -544,7 +544,7 @@ class ShapProxiedFitMixin:
         _su_screen_info: dict = {}
         _su_rescue_proxy_idx: set[int] = set()
         if self.su_seeded_interactions and phi.shape[1] >= 2:
-            from mlframe.feature_selection._shap_proxy_interactions import su_synergy_screen
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import su_synergy_screen
 
             with _stage("su_seeded_interactions"):
                 proxy_names = [str(c) for c in X_proxy.columns]
@@ -629,7 +629,7 @@ class ShapProxiedFitMixin:
         # SHAP-interaction coalition value and let honest re-validation arbitrate. Bounded to a small
         # proxy width (post pre-screen); tensor is O(P^2).
         if self.interaction_aware and phi.shape[1] <= self.max_interaction_features:
-            from mlframe.feature_selection._shap_proxy_interactions import (
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
                 compute_interaction_tensor, interaction_top_n)
 
             X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
@@ -655,7 +655,7 @@ class ShapProxiedFitMixin:
         # columns. Runs at ANY phi width (no max_interaction_features gate). When the screen kept no
         # pair this whole block is skipped (the SNR-gate no-op).
         if self.su_seeded_interactions:
-            from mlframe.feature_selection._shap_proxy_interactions import (
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
                 sparse_interaction_candidates)
 
             with _stage("su_seeded_interactions"):
@@ -737,7 +737,7 @@ class ShapProxiedFitMixin:
         # the ablation and as refine's starting base) -- the cache returns those identical floats
         # without a duplicate fit. Random-seeded re-validation fits get distinct seeds, never wrongly
         # merged. Numerically identical to the uncached path (deterministic model on fixed data).
-        from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import HonestLossCache
 
         honest_cache = HonestLossCache()
         # iter80: extend iter79's disk-cache wiring through the honest-retrain stages
@@ -754,7 +754,7 @@ class ShapProxiedFitMixin:
 
         # Proxy-trust diagnostic (proxy ranks units; honest retrains on member columns).
         if self.trust_guard:
-            from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import proxy_trust_guard
 
             # Stratified-anchor prior (opt-in via ``trust_guard_stratified_anchors``): when the
             # prefilter cached an F-score vector (two_stage / univariate paths), aggregate it into
@@ -771,7 +771,7 @@ class ShapProxiedFitMixin:
             # detected inside ``proxy_trust_guard`` and degrades to uniform with a warning.
             unit_f_scores = None
             if self.trust_guard_stratified_anchors:
-                from mlframe.feature_selection._shap_proxy_prefilter import get_cached_f_scores
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import get_cached_f_scores
 
                 f_scores_orig = get_cached_f_scores(report.get("prefilter"))
                 if f_scores_orig is not None:
@@ -829,7 +829,7 @@ class ShapProxiedFitMixin:
         # penalty (#7). Focuses the retrain budget on subsets that are honestly-best AND stable.
         score = np.array([c[0] for c in candidates], dtype=np.float64)  # raw proxy loss
         if self.use_bias_corrector and self.trust_guard and report.get("trust", {}).get("_corrector_data"):
-            from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy_many
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy_many
 
             cd = report["trust"]["_corrector_data"]
             corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
@@ -839,7 +839,7 @@ class ShapProxiedFitMixin:
                 score = corrector.predict(score, cards, redund)
                 report["bias_corrector"] = dict(applied=True, n_anchors=len(cd["proxy"]))
         if self.uncertainty_penalty > 0 and phi_var is not None:
-            from mlframe.feature_selection._shap_proxy_objective import subset_uncertainty_many
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import subset_uncertainty_many
 
             unc = subset_uncertainty_many(phi_var, [c[1] for c in candidates])
             score = score + self.uncertainty_penalty * unc
@@ -891,7 +891,7 @@ class ShapProxiedFitMixin:
             cdata = report.get("trust", {}).get("_corrector_data")
             with _stage("revalidation"):
                 if self.active_learning and cdata:
-                    from mlframe.feature_selection._shap_proxy_revalidate import active_learning_revalidate
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import active_learning_revalidate
 
                     budget = self.active_learning_budget or self.top_n
                     best_idx, ranked, n_eval = active_learning_revalidate(
@@ -902,7 +902,7 @@ class ShapProxiedFitMixin:
                     report["revalidation"] = dict(ranked=ranked[: self.top_n],
                                                   active_learning=dict(n_evaluated=n_eval, budget=budget))
                 else:
-                    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
                     best_idx, ranked, baseline = revalidate_top_n(
                         candidates, model_template, X_search, y_search, X_hold, y_hold,
@@ -922,7 +922,7 @@ class ShapProxiedFitMixin:
 
         # Importance-top-k ablation (unique-value gate vs plain SHAP importance).
         if self.run_importance_ablation and best_idx and not _budget_exhausted():
-            from mlframe.feature_selection._shap_proxy_revalidate import importance_topk_ablation
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import importance_topk_ablation
 
             with _stage("importance_ablation"):
                 report["importance_ablation"] = importance_topk_ablation(
@@ -936,8 +936,8 @@ class ShapProxiedFitMixin:
         else:
             member_cols = sorted(int(i) for i in best_idx)
         if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1 and not _budget_exhausted():
-            from mlframe.feature_selection._shap_proxy_objective import resolve_metric
-            from mlframe.feature_selection._shap_proxy_revalidate import (
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import (
                 _honest_loss, _open_disk_cache, within_cluster_refine,
             )
 

@@ -3794,7 +3794,7 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         )
         # Drive the actual align_precomputed_to_X function with the sentinel
         # to verify the expected branch is reached.
-        from mlframe.feature_selection._shap_proxy_precomputed import (
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_precomputed import (
             align_precomputed_to_X,
         )
         import pandas as pd

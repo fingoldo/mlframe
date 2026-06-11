@@ -48,8 +48,8 @@ def _informative_names(roles):
 
 def time_prefilter_stage(method, X, y, roles, *, prefilter_top, seed=0):
     """Time ``prefilter_columns`` (the isolated stage) and score PRE-FILTER recall of informatives."""
-    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
-    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import prefilter_columns
 
     model = make_default_estimator(classification=True, random_state=seed)
     yf = np.asarray(y, dtype=np.float64)
