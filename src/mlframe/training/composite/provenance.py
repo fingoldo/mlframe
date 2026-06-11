@@ -639,6 +639,79 @@ def _format_transform_formulas(
     )
 
 
+# Ordered (substring, gate-label) pairs used to classify a rejection ``reason``
+# string into the named discovery gate that produced it. First match wins, so
+# more-specific markers precede generic ones. Lets the decision-trail table show
+# *which* gate dropped each candidate at a glance without parsing free text.
+_GATE_MARKERS: tuple[tuple[str, str], ...] = (
+    ("forbidden_pattern", "name-filter"),
+    ("non_numeric", "dtype-filter"),
+    ("insufficient_finite_rows", "finite-rows"),
+    ("constant_or_near_constant", "constant"),
+    ("forbidden_base_corr", "leak-guard"),
+    ("BH-FDR", "fdr"),
+    ("bootstrap p", "fdr"),
+    ("mi_gain", "mi-gain"),
+    ("eps", "mi-gain"),
+    ("valid_domain_frac", "domain"),
+    ("raw_baseline", "raw-baseline"),
+    ("tiny", "tiny-cv"),
+    ("rmse", "tiny-cv"),
+    ("alpha", "alpha-drift"),
+    ("collapse", "collapse"),
+    ("gate", "tiny-cv"),
+)
+
+
+def _classify_gate(reason: str) -> str:
+    """Map a rejection ``reason`` string to the named gate that produced it.
+
+    Pure substring routing over :data:`_GATE_MARKERS` (case-insensitive,
+    first-match-wins). Returns ``"?"`` for an empty / unrecognised reason so
+    the decision-trail column is never blank.
+    """
+    if not reason:
+        return "kept"
+    low = reason.lower()
+    for marker, label in _GATE_MARKERS:
+        if marker.lower() in low:
+            return label
+    return "other"
+
+
+def _fmt_metric(value: Any, fmt: str = "{:.4f}") -> str:
+    """Format an optional numeric cell, rendering missing / non-finite as a dash.
+
+    Keeps the metrics matrix readable when a spec carries a metric (tiny-CV
+    RMSE, raw-baseline delta) that another spec does not.
+    """
+    if value is None:
+        return "-"
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if not np.isfinite(f):
+        return "-"
+    return fmt.format(f)
+
+
+def _spec_metric(
+    name: str, attr: str, spec: Any, extra: dict[str, Any] | None,
+) -> Any:
+    """Resolve one per-spec metric, preferring an explicit ``spec_metrics``
+    override, then a same-named attribute on the spec, else ``None``.
+
+    ``extra`` is the caller-supplied ``spec_metrics[name]`` mapping (e.g.
+    ``{"tiny_cv_rmse": 0.31, "raw_delta": -0.04}``); discovery already has
+    these numbers from the tiny-model rerank but does not store them on the
+    frozen :class:`CompositeSpec`, so they ride in via this side channel.
+    """
+    if extra is not None and attr in extra:
+        return extra[attr]
+    return getattr(spec, attr, None)
+
+
 def report_to_markdown(
     *,
     target_col: str,
@@ -646,6 +719,7 @@ def report_to_markdown(
     failures: Sequence[dict[str, Any]] = (),
     ensemble_metadata: dict[str, Any] | None = None,
     random_state: int | None = None,
+    spec_metrics: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Render a stakeholder-ready Markdown report for one target's
     composite-target discovery output.
@@ -654,15 +728,26 @@ def report_to_markdown(
 
     1. Summary line: target name, count of kept specs, count of rejected.
     2. Discovered specs table with mi_y / mi_t / mi_gain / valid_frac.
-    3. Per-spec audit paragraph (one per spec).
-    4. Rejected candidates table with reason.
-    5. Ensemble metadata if provided.
+    3. Metrics matrix: one row per spec / rejected candidate with
+       mi_gain, raw-baseline delta, tiny-CV RMSE, kept/rejected + reason.
+    4. Decision trail: which gate each rejected candidate failed.
+    5. Per-spec audit paragraph (one per spec).
+    6. Rejected candidates table with reason.
+    7. Ensemble metadata if provided.
+
+    ``spec_metrics`` is an optional ``{spec_name: {metric: value}}`` side
+    channel for per-spec numbers the frozen :class:`CompositeSpec` does not
+    carry (``raw_delta`` = composite-vs-raw-baseline tiny-CV RMSE delta,
+    negative is better; ``tiny_cv_rmse`` = the composite's own tiny-CV RMSE
+    on the y-scale). Missing metrics render as a dash, so callers without
+    the rerank numbers still get a valid report.
 
     All user-controlled strings (column names, target names) are NOT
     HTML-escaped in this version because Markdown is plain text by
     default; if the caller renders to HTML elsewhere they should
     escape there.
     """
+    spec_metrics = spec_metrics or {}
     lines: list[str] = []
     lines.append(f"# Composite-target discovery report: `{target_col}`")
     lines.append("")
@@ -683,6 +768,69 @@ def report_to_markdown(
                 f"{spec.valid_domain_frac:.1%} | {spec.n_train_rows} |"
             )
         lines.append("")
+
+    # Metrics matrix + decision trail: kept specs AND rejected candidates in one
+    # at-a-glance view, so a user sees WHY each candidate survived or was dropped.
+    if specs or failures:
+        lines.append("## Metrics matrix")
+        lines.append("")
+        lines.append(
+            "Per-candidate decision metrics. `raw_delta` is composite-vs-raw-baseline "
+            "tiny-CV RMSE (negative = composite wins); `tiny_cv_rmse` is the "
+            "composite's own y-scale tiny-CV RMSE. `-` = metric not recorded."
+        )
+        lines.append("")
+        lines.append(
+            "| name | status | mi_gain | raw_delta | tiny_cv_rmse | gate | reason |"
+        )
+        lines.append(
+            "|------|--------|---------|-----------|--------------|------|--------|"
+        )
+        for spec in specs:
+            extra = spec_metrics.get(spec.name)
+            raw_delta = _spec_metric(spec.name, "raw_delta", spec, extra)
+            tiny_rmse = _spec_metric(spec.name, "tiny_cv_rmse", spec, extra)
+            lines.append(
+                f"| `{spec.name}` | kept | {spec.mi_gain:+.4f} | "
+                f"{_fmt_metric(raw_delta, '{:+.4f}')} | "
+                f"{_fmt_metric(tiny_rmse)} | gate-passed | - |"
+            )
+        for f in failures:
+            name = f.get("name") or (
+                f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}"
+            )
+            extra = spec_metrics.get(name)
+            reason = f.get("reason", "")
+            mi_gain = f.get("mi_gain")
+            raw_delta = extra.get("raw_delta") if extra else f.get("raw_delta")
+            tiny_rmse = extra.get("tiny_cv_rmse") if extra else f.get("tiny_cv_rmse")
+            lines.append(
+                f"| `{name}` | rejected | {_fmt_metric(mi_gain, '{:+.4f}')} | "
+                f"{_fmt_metric(raw_delta, '{:+.4f}')} | "
+                f"{_fmt_metric(tiny_rmse)} | {_classify_gate(reason)} | {reason or '-'} |"
+            )
+        lines.append("")
+
+        if failures:
+            lines.append("## Decision trail")
+            lines.append("")
+            lines.append(
+                "Which gate each rejected candidate failed (first failing gate)."
+            )
+            lines.append("")
+            lines.append("| candidate | failed_gate | detail |")
+            lines.append("|-----------|-------------|--------|")
+            for f in failures:
+                name = f.get("name") or (
+                    f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}"
+                )
+                reason = f.get("reason", "")
+                lines.append(
+                    f"| `{name}` | {_classify_gate(reason)} | {reason or '-'} |"
+                )
+            lines.append("")
+
+    if specs:
         lines.append("## Per-spec audit")
         lines.append("")
         for spec in specs:

@@ -237,3 +237,73 @@ class TestReportToMarkdown:
         assert "oof_weighted" in md
         assert "0.4" in md
         assert "0.6" in md
+
+
+# ----------------------------------------------------------------------
+# report_to_markdown: metrics matrix + decision trail (richer UX)
+# ----------------------------------------------------------------------
+
+
+class TestMetricsMatrixAndDecisionTrail:
+    def test_metrics_matrix_renders_for_kept_spec(self) -> None:
+        spec = _make_spec(mi_gain=0.33)
+        md = report_to_markdown(
+            target_col="TVT", specs=[spec],
+            spec_metrics={spec.name: {"raw_delta": -0.05, "tiny_cv_rmse": 0.42}},
+        )
+        assert "## Metrics matrix" in md
+        # mi_gain, raw_delta, tiny_cv_rmse columns + the kept status + values.
+        assert "raw_delta" in md and "tiny_cv_rmse" in md
+        assert "+0.3300" in md  # mi_gain
+        assert "-0.0500" in md  # raw_delta
+        assert "0.4200" in md   # tiny_cv_rmse
+        assert "kept" in md and "gate-passed" in md
+
+    def test_metrics_matrix_dashes_missing_metrics(self) -> None:
+        spec = _make_spec()
+        md = report_to_markdown(target_col="TVT", specs=[spec])
+        # No spec_metrics supplied -> raw_delta / tiny_cv_rmse render as a dash.
+        assert "## Metrics matrix" in md
+        assert "-" in md  # ascii dash placeholder present
+
+    def test_decision_trail_classifies_gate(self) -> None:
+        md = report_to_markdown(
+            target_col="TVT", specs=[],
+            failures=[
+                {"base_column": "x1", "transform_name": "ratio",
+                 "reason": "valid_domain_frac=0.42 < 0.7"},
+                {"base_column": "x2", "transform_name": "diff",
+                 "reason": "mi_gain=0.0010 <= eps=0.0050", "mi_gain": 0.001},
+            ],
+        )
+        assert "## Decision trail" in md
+        assert "domain" in md     # gate for valid_domain_frac reason
+        assert "mi-gain" in md    # gate for the mi_gain reason
+        # Rejected rows also appear in the metrics matrix with their reason.
+        assert "rejected" in md
+        assert "valid_domain_frac=0.42" in md
+
+    def test_decision_trail_absent_when_no_failures(self) -> None:
+        md = report_to_markdown(target_col="TVT", specs=[_make_spec()])
+        assert "## Decision trail" not in md
+
+    def test_classify_gate_routing(self) -> None:
+        from mlframe.training.composite.provenance import _classify_gate
+        assert _classify_gate("") == "kept"
+        assert _classify_gate("mi_gain=0.01 <= eps=0.05") == "mi-gain"
+        assert _classify_gate("valid_domain_frac=0.4 < 0.7") == "domain"
+        assert _classify_gate("BH-FDR: bootstrap p=0.3") == "fdr"
+        assert _classify_gate("forbidden_base_corr_threshold") == "leak-guard"
+        assert _classify_gate("some unknown reason") == "other"
+
+    def test_matrix_uses_failure_inline_metrics(self) -> None:
+        md = report_to_markdown(
+            target_col="TVT", specs=[],
+            failures=[{
+                "name": "TVT__ratio__x1", "base_column": "x1",
+                "transform_name": "ratio", "reason": "raw_baseline not beaten",
+                "mi_gain": 0.20, "raw_delta": 0.03, "tiny_cv_rmse": 0.55,
+            }],
+        )
+        assert "+0.2000" in md and "+0.0300" in md and "0.5500" in md
+        assert "raw-baseline" in md  # gate classification for the reason
