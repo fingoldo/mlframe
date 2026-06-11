@@ -183,16 +183,18 @@ def screen_predictors(
     # the pool, and floors order-1 selection at the q-th quantile of that
     # distribution - the chance ceiling for THIS pool. SELF-GATING: tiny at small
     # p (keeps weak genuine signals), large at high p (rejects the noise cloud).
-    # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the target-over-split gate
-    # (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
-    # (log-normal) regression target the supervised MDLP binner over-splits into many bins (~30) while features bin to ~5, lifting pure-noise columns past the abs/rel gain
-    # floors after the genuine signals are picked. The gate fires ONLY when the target is over-split (nbins_y large vs feature nbins, the plug-in-bias source) AND the (X,y)
-    # joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool like sklearn diabetes (nbins_y=53 but ~1.2 rows per joint cell at
-    # n=331) keeps the floor OFF and preserves its 10 weak features. See ``target_oversplit_floor_applies`` in ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables.
+    # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the high-cardinality-target
+    # gate (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
+    # (log-normal) regression target whose quantile binning yields a high-cardinality target (~10 equal-frequency bins, matching feature cardinality), lifting pure-noise columns
+    # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins -- a continuous
+    # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool
+    # like sklearn diabetes (nbins_y=10 but ~3.3 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (~25-50 rows per joint cell)
+    # fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See ``target_oversplit_floor_applies`` in
+    # ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables.
     screen_fdr_null_permutations: int = 25,
     screen_fdr_null_quantile: float = 0.95,
     screen_fdr_min_features: int = 30,
-    screen_fdr_target_oversplit_ratio: float = 3.0,
+    screen_fdr_target_oversplit_ratio: float = 1.0,
     screen_fdr_min_rows_per_joint_cell: float = 8.0,
     # When MRMR.fit re-screens after a feature-engineering step (confirm-rescreen
     # loop), the DCDState from the prior pass is threaded back in here so cluster

@@ -47,33 +47,37 @@ def target_oversplit_floor_applies(
     y_index: int,
     n: int,
     *,
-    oversplit_ratio: float = 3.0,
+    oversplit_ratio: float = 1.0,
     min_rows_per_joint_cell: float = 8.0,
 ) -> bool:
     """Return ``True`` when the maxT noise floor should fire on a NARROW pool because the target is plug-in-bias-inflated AND the floor is itself statistically reliable.
 
     The wide-pool gate (``len(pool) >= screen_fdr_min_features``) catches embedding / TF-IDF matrices where best-of-p selection bias dominates. It MISSES a different
-    finite-sample-bias regime that surfaces on narrow tabular pools: a heavy-tailed (log-normal) regression target that the supervised MDLP binner OVER-SPLITS into many
-    bins (~30) while the features bin to ~5. The plug-in MI bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` then lifts pure-noise columns past the abs/rel gain floors AFTER the
-    genuine signals are picked, so a noise column leaks in even though the pool is only ~9 columns wide.
+    finite-sample-bias regime that surfaces on narrow tabular pools: a heavy-tailed (log-normal) regression target whose continuous quantile binning yields a HIGH-CARDINALITY
+    target (~10 equal-frequency bins) while the noise features bin to the same ~10 levels. The plug-in MI bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` then lifts pure-noise columns
+    past the abs/rel gain floors AFTER the genuine signals are picked, so a noise column leaks in even though the pool is only ~9 columns wide.
 
-    A blunt pool-size drop cannot separate this from a dense weak-signal regression pool (e.g. sklearn diabetes: 10 genuine-but-weak features) where the SAME narrow pool
-    must keep ALL features -- dropping the size gate there over-prunes 10 -> 2 and regresses R^2. The discriminator is the TARGET, expressed via two cheap, already-computed
-    bin counts:
+    HISTORY: the original gate (2026-06-04) keyed ``over-split`` on ``nbins_y >= 3 * median(nbins_x)`` because the then-default adaptive ``nbins_strategy="mdlp"`` OVER-SPLIT
+    the heavy-tailed target into ~30 bins (vs feat ~5). The 2026-06-10 TARGET REBIN GUARD (``_mrmr_fit_impl/_fit_impl_core.py``) re-bins the target back to the legacy
+    equal-frequency ``quantization_nbins`` (~10) encoding -- correct, because supervised MDLP on the injected target is self-referential and degrades MI sensitivity -- but
+    that removed the ~30-bin over-split signature, so the ``ratio>=3`` gate stopped firing in production and the lognormal noise re-leaked. The plug-in-bias mechanism that
+    admits noise is unchanged (the maxT floor still cleanly separates signal >> floor > noise at nbins_y=10); only the *gate predicate* was keyed on a binning artifact the
+    rebin guard now removes. The discriminator is the TARGET, expressed via two cheap, already-computed bin counts:
 
-    * **over-split** -- ``nbins_y >= oversplit_ratio * median(nbins_x)``. The MDLP binner has split the target into many more bins than the features carry, which is the
-      precondition for the ``(nbins_x-1)*(nbins_y-1)/(2n)`` plug-in bias to materially inflate noise MI. Heavy-tailed lognormal trips this (nbins_y~30 vs feat~5, ratio ~6);
-      a linear / bimodal regression target (nbins_y~10-14 vs feat~5, ratio ~2) and any low-cardinality classification target (nbins_y in {2,3}) do NOT.
+    * **high-cardinality target** -- ``nbins_y >= oversplit_ratio * median(nbins_x)`` with ``oversplit_ratio=1.0``: the target carries at least as many levels as the features.
+      A continuous (regression) target quantile-binned to ``quantization_nbins`` (~10, matching feature cardinality) trips this; a low-cardinality CLASSIFICATION target
+      (nbins_y in {2,3} << feat ~5-10) does NOT -- there the plug-in bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` is small and the few target classes carry no over-fit headroom.
 
     * **reliable** -- ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell``. The maxT floor is the q-quantile of the per-shuffle MAX corrected plug-in MI; when the
       (X, y) contingency table averages well under a handful of rows per cell the plug-in MI is itself dominated by finite-sample variance, so the floor explodes and would
-      prune genuine weak signal. Diabetes (n=331, nbins_y=53, feat=5 -> ~1.2 rows per joint cell) FAILS this predicate -- so the floor stays OFF there and the legacy
-      narrow-pool behaviour (no floor) is preserved exactly, keeping its 10 weak features. Lognormal (n=2500 -> ~16 rows per joint cell) passes, so the floor is trustworthy
-      and fires.
+      prune genuine weak signal. THIS predicate is the real safety rail separating the lognormal WIN from the diabetes NO-REGRESSION: at the production quantile-10 binning
+      diabetes (n=330, nbins_y=10, feat=10 -> 3.3 rows per joint cell) FAILS it, so the floor stays OFF and its 10 weak features survive; lognormal (n=2500, nbins_y=10,
+      feat=10 -> ~25-50 rows per joint cell) passes, so the floor is trustworthy and fires, rejecting the 6 noise columns (max noise corrected-MI ~0.005 < floor ~0.006-0.007
+      while the 3 signals score 0.025-0.53).
 
-    Both predicates must hold. The defaults (``oversplit_ratio=3.0``, ``min_rows_per_joint_cell=8.0``) sit with comfortable margin between the fire / no-fire cases measured
-    across the regression + classification benchmark suite (lognormal over-split ratio ~6 and ~16 rows/cell vs the nearest no-fire cases: california_housing ratio 1.5,
-    diabetes 1.2 rows/cell). Returns ``False`` on a degenerate pool (n too small, single-class target, no scorable feature) so the caller can treat it as "floor off".
+    Both predicates must hold. The defaults (``oversplit_ratio=1.0``, ``min_rows_per_joint_cell=8.0``) sit with comfortable margin between the fire / no-fire cases measured at
+    the production equal-frequency binning (lognormal ~25-50 rows/cell vs diabetes 3.3 rows/cell). Returns ``False`` on a degenerate pool (n too small, single-class target,
+    no scorable feature) so the caller can treat it as "floor off".
     """
     if n < 8:
         return False
@@ -94,8 +98,12 @@ def target_oversplit_floor_applies(
     median_feat_nbins = float(np.median(feat_nbins))
     if median_feat_nbins < 1.0:
         return False
-    over_split = nbins_y >= float(oversplit_ratio) * median_feat_nbins
-    if not over_split:
+    # High-cardinality target: nbins_y at least matches the feature cardinality (a continuous
+    # regression target), distinguishing it from a low-card classification target whose few
+    # classes carry negligible plug-in-bias headroom. (Pre-rebin-guard this keyed on a 3x MDLP
+    # over-split; the 2026-06-10 target-rebin guard removed that signature -- see docstring.)
+    high_cardinality_target = nbins_y >= float(oversplit_ratio) * median_feat_nbins
+    if not high_cardinality_target:
         return False
     rows_per_joint_cell = n / (nbins_y * median_feat_nbins)
     return rows_per_joint_cell >= float(min_rows_per_joint_cell)
