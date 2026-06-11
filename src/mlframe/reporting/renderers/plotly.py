@@ -375,8 +375,11 @@ class PlotlyRenderer:
             )
             y_range = list(p.ylim) if p.ylim is not None else [lo, hi]
             x_range = list(p.xlim) if p.xlim is not None else [lo, hi]
-            fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0,
-                             range=y_range, row=row, col=col)
+            if p.equal_aspect:
+                # Square the panel so y=x is 45deg; probability-vs-probability (calibration) skips this so the panel
+                # fills its cell width and aligns with the population histogram below.
+                fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0, row=row, col=col)
+            fig.update_yaxes(range=y_range, row=row, col=col)
             fig.update_xaxes(range=x_range, row=row, col=col)
         else:
             if p.xlim is not None:

@@ -340,9 +340,11 @@ def build_calibration_spec(
         y_err=y_err,
         overlay_line=overlay_line,
         # Both axes are probabilities on [0, 1]; pin a tight range so the population-sized bubble markers cannot drive
-        # autoscale past the data and waste horizontal width (equal aspect is then squared via the box, not the data).
+        # autoscale past the data. Not squared: the diagonal spans corner-to-corner at any aspect, so the scatter fills
+        # the panel width and aligns with the population histogram below (no empty left gutter).
         xlim=_PROB_AXIS_RANGE,
         ylim=_PROB_AXIS_RANGE,
+        equal_aspect=False,
     )
 
     resolved_yscale = _resolve_yscale(yscale, hits)

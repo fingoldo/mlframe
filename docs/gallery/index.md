@@ -3,7 +3,7 @@
 Every chart / diagnostic in the mlframe reporting subsystem, rendered to PNG on synthetic
 data chosen to make each chart meaningful. Regenerate with `python scripts/render_gallery.py`.
 
-Total images: 32 across 17 categories.
+Total images: 37 across 18 categories.
 
 ## Contents
 
@@ -17,6 +17,7 @@ Total images: 32 across 17 categories.
 - [drift](#drift)
 - [calibration_drift](#calibration-drift)
 - [error_analysis](#error-analysis)
+- [prediction_stability](#prediction-stability)
 - [slice_finder](#slice-finder)
 - [pdp_ice](#pdp-ice)
 - [model_comparison](#model-comparison)
@@ -47,6 +48,12 @@ ROC, PR, score distribution, KS, threshold sweep, gain, PIT.
 
 ![binary_full](binary/binary_full.png)
 
+### decile_table
+
+Credit-scoring decile gain/lift table: per-decile response / cumulative-gain / lift / cumulative-KS (top deciles highlighted, TOTAL row).
+
+![decile_table](binary/decile_table.png)
+
 ### decision_curve
 
 Decision-curve analysis: model net-benefit vs treat-all / treat-none policies.
@@ -55,7 +62,7 @@ Decision-curve analysis: model net-benefit vs treat-all / treat-none policies.
 
 ### calibration_reliability
 
-Reliability diagram with Wilson CI bands + population histogram.
+Reliability diagram with Wilson CI bands + binning-free smoothed (isotonic) overlay + standard & debiased ECE annotation + population histogram.
 
 ![calibration_reliability](binary/calibration_reliability.png)
 
@@ -80,6 +87,18 @@ Regression model card: RMSE/MAE/R2/bias headline + verdict + mini residual-vs-pr
 Normalized confusion, confused pairs, per-class P/R/F1, per-class ROC (DeLong CI), reliability, prob dist, top-k.
 
 ![multiclass_full](multiclass/multiclass_full.png)
+
+### confusion_margins
+
+Confusion heatmap flanked by class-support margins: right bar = per-true-class support, top bar = per-predicted-class volume. On an imbalanced + majority-biased synthetic the dominant class's support bar towers over the minorities and its predicted-volume bar exceeds its support, revealing imbalance + over-prediction at a glance.
+
+![confusion_margins](multiclass/confusion_margins.png)
+
+### multiclass_largeK
+
+Large-K (K=40): per-class ROC / PR / reliability overlays auto-switch to the 8 worst-by-AUC classes + a macro-average instead of 40 spaghetti curves.
+
+![multiclass_largeK](multiclass/multiclass_largeK.png)
 
 ## multilabel
 
@@ -118,6 +137,12 @@ Population Stability Index per feature per time bucket vs baseline (drifted feat
 Regression residual mean +/- std per time bin: bias drift + variance drift over time.
 
 ![residual_vs_time](drift/residual_vs_time.png)
+
+### cusum_residual_drift
+
+Two-sided tabular CUSUM of standardized residuals: a sustained mean shift trips the control limit (change-point marked).
+
+![cusum_residual_drift](drift/cusum_residual_drift.png)
 
 ### metric_over_time
 
@@ -164,6 +189,14 @@ Per-split overlaid density histograms of target and predictions (train p01/p99 e
 Per-subgroup metric bars with a global-reference line (worst-first).
 
 ![segments_bar](error_analysis/segments_bar.png)
+
+## prediction_stability
+
+### prediction_stability
+
+Ensemble member-disagreement: per-row spread histogram, spread-vs-mean scatter, uncertainty calibration (mean |error| rises with disagreement).
+
+![prediction_stability](prediction_stability/prediction_stability.png)
 
 ## slice_finder
 
@@ -245,8 +278,8 @@ SHAP beeswarm + dependence plots for a small tree model.
 
 ![shap_shap_dependence_2_f2](shap_panels/shap_shap_dependence_2_f2.png)
 
-### shap_shap_dependence_3_f4
+### shap_shap_dependence_3_f3
 
 SHAP beeswarm + dependence plots for a small tree model.
 
-![shap_shap_dependence_3_f4](shap_panels/shap_shap_dependence_3_f4.png)
+![shap_shap_dependence_3_f3](shap_panels/shap_shap_dependence_3_f3.png)

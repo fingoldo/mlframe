@@ -67,11 +67,14 @@ class ScatterPanelSpec:
     # Precomputed line overlay drawn on the same axes as the scatter (e.g. a binning-free smoothed reliability
     # curve over the binned bubbles): ``(x_grid, y_grid, label)``. Additive; the caller supplies both arrays.
     overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
-    # Explicit axis limits ``(lo, hi)``. When set they override the data-driven limits a perfect-fit panel computes;
-    # the equal-aspect square is then kept by adjusting the box (not the data limits) so large bubble markers cannot
-    # drive matplotlib's autoscale past the data range (the reliability scatter pins a tight probability range here).
+    # Explicit axis limits ``(lo, hi)``. When set they override the data-driven limits a perfect-fit panel computes.
     xlim: Optional[Tuple[float, float]] = None
     ylim: Optional[Tuple[float, float]] = None
+    # Force a square panel (equal data->display scaling) so the y=x line is a true 45-degree diagonal. Regression
+    # pred-vs-true needs this (both axes share the target's units). A calibration reliability scatter does NOT: both
+    # axes are probabilities on [0,1], so the y=x diagonal spans corner-to-corner at any aspect -- set False there to
+    # let the panel fill its cell width and align with the population histogram below it.
+    equal_aspect: bool = True
 
 
 @dataclass(frozen=True)

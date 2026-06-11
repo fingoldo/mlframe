@@ -109,12 +109,28 @@ class MatplotlibRenderer:
             gs_kwargs["width_ratios"] = list(spec.col_width_ratios)
         gs = fig.add_gridspec(rows, cols, **gs_kwargs)
 
+        col_axes: dict[int, list] = {}
+        axes_grid: list[list] = []
+        for r, row in enumerate(spec.panels):
+            row_axes = []
+            for c, panel in enumerate(row):
+                if panel is None:
+                    row_axes.append(None)
+                    continue
+                ax = fig.add_subplot(gs[r, c])
+                row_axes.append(ax)
+                col_axes.setdefault(c, []).append(ax)
+            axes_grid.append(row_axes)
+
+        # A colorbar attached to a single axes shrinks only that axes; when a shared-x panel (calibration histogram)
+        # sits below the scatter, anchor the bar across the whole column so both data axes keep the same width.
         for r, row in enumerate(spec.panels):
             for c, panel in enumerate(row):
                 if panel is None:
                     continue
-                ax = fig.add_subplot(gs[r, c])
-                self._render_panel(ax, panel, fig)
+                ax = axes_grid[r][c]
+                cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
+                self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
 
         if spec.suptitle:
             fig.suptitle(spec.suptitle, fontsize=spec.suptitle_fontsize)
@@ -168,9 +184,9 @@ class MatplotlibRenderer:
     # Per-panel dispatch
     # ------------------------------------------------------------------
 
-    def _render_panel(self, ax, panel, fig) -> None:
+    def _render_panel(self, ax, panel, fig, cbar_axes=None) -> None:
         if isinstance(panel, ScatterPanelSpec):
-            self._scatter(ax, panel, fig)
+            self._scatter(ax, panel, fig, cbar_axes=cbar_axes)
         elif isinstance(panel, HistogramPanelSpec):
             self._histogram(ax, panel)
         elif isinstance(panel, HeatmapPanelSpec):
@@ -199,7 +215,7 @@ class MatplotlibRenderer:
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-    def _scatter(self, ax, p: ScatterPanelSpec, fig) -> None:
+    def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         import matplotlib
         x = np.asarray(p.x)
         y = np.asarray(p.y)
@@ -267,7 +283,11 @@ class MatplotlibRenderer:
             lo = float(min(np.min(x), np.min(y)))
             hi = float(max(np.max(x), np.max(y)))
             ax.plot([lo, hi], [lo, hi], "g--", label="Perfect fit")
-            if p.xlim is not None or p.ylim is not None:
+            if not p.equal_aspect:
+                # Probability-vs-probability (calibration): the diagonal spans corner-to-corner at any aspect, so let
+                # the panel fill its cell width and align with the histogram below; xlim/ylim are applied just after.
+                pass
+            elif p.xlim is not None or p.ylim is not None:
                 # Explicit limits given: "datalim" would discard set_xlim to satisfy equal aspect (large bubble
                 # markers then drive x far past the data); "box" keeps the fixed limits and squares via the box.
                 ax.set_aspect("equal", "box")
@@ -285,7 +305,7 @@ class MatplotlibRenderer:
                 ax.text(lx, ly, txt, fontsize=8, ha="right", va="bottom")
 
         if p.colorbar_label and color_arr is not None:
-            cbar = fig.colorbar(sc, ax=ax)
+            cbar = fig.colorbar(sc, ax=(cbar_axes if cbar_axes is not None else ax))
             cbar.set_label(p.colorbar_label)
 
         ax.set_xlabel(p.xlabel)
