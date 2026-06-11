@@ -33,6 +33,7 @@ def _is_polars_df(x: Any) -> bool:
 
 from ..estimator import CompositeTargetEstimator, _y_train_clip_bounds
 from ..transforms import get_transform
+from ._corr_numba import safe_abs_corr_all_dispatch as _safe_abs_corr_all_dispatch
 
 if TYPE_CHECKING:
     from ..transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
@@ -135,7 +136,26 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
 def _safe_abs_corr_all(
     y: np.ndarray, X: np.ndarray,
 ) -> np.ndarray:
-    """Vectorised ``|corr(y, X[:, j])|`` for all j in one pass.
+    """Vectorised ``|corr(y, X[:, j])|`` for all j, size-aware backend dispatch.
+
+    Public entry point: for large feature matrices (``n >= 20k`` AND ``F >= 64``,
+    per the numba ladder) this dispatches to a ``numba.njit(parallel=True)`` kernel
+    (``_corr_numba.safe_abs_corr_all_dispatch``) that walks each column in registers
+    with no (n, F) centred temporary; small inputs use the numpy reference below
+    (``_safe_abs_corr_all_numpy``). The kernel is numerically equivalent to the
+    reference within ~1e-9 everywhere and ~1e-12 in the near-1 leak-threshold region
+    (borderline columns re-decided with the exact numpy primitive -- see
+    ``_corr_numba``). See ``_benchmarks/bench_safe_corr_dispatch.py`` for numbers.
+    """
+    return _safe_abs_corr_all_dispatch(
+        y, X, reference_fn=_safe_abs_corr_all_numpy,
+    )
+
+
+def _safe_abs_corr_all_numpy(
+    y: np.ndarray, X: np.ndarray,
+) -> np.ndarray:
+    """Vectorised numpy reference for ``|corr(y, X[:, j])|`` over all columns.
 
     Single matrix op gives 2.2x over the per-column loop on dense
     inputs (200 features x 80K rows: 558ms vs 1220ms). Returns 0.0
@@ -343,6 +363,7 @@ def _mi_per_feature_prebinned(
     target: np.ndarray,
     *,
     nbins: int,
+    exclude_col: int | None = None,
 ) -> np.ndarray | None:
     """Per-feature MI(target, feature_binned[:, j]) vector (length F).
 
@@ -352,11 +373,25 @@ def _mi_per_feature_prebinned(
     one column) can compute this vector ONCE and derive ``mi_y`` per base by
     excluding the base's column, instead of re-binning + re-MI'ing the shared
     columns per base.
+
+    ``exclude_col`` (optional column index): when set, the returned vector spans
+    every column EXCEPT that one -- i.e. it is bit-identical to passing
+    ``np.delete(feature_binned, exclude_col, axis=1)`` but WITHOUT materialising
+    the deleted (n, F-1) matrix copy. The per-column loop simply skips
+    ``exclude_col`` and packs the survivors in the same ``[0..k-1, k+1..]`` order
+    ``np.delete`` would produce, so each survivor's MI is computed from the exact
+    same column and the result is identical element-for-element. This lets a
+    base-loop caller hold the full prebinned matrix once and derive each base's
+    ``mi_y`` by exclusion with zero per-base matrix allocation.
     """
     if feature_binned.shape[0] == 0 or feature_binned.shape[1] == 0:
         return None
     if feature_binned.shape[0] != target.shape[0]:
         return None
+    n_cols_in = feature_binned.shape[1]
+    drop = exclude_col if (exclude_col is not None and 0 <= exclude_col < n_cols_in) else None
+    if drop is not None and n_cols_in == 1:
+        return None  # excluding the only column leaves an empty feature set.
     # Gate the size check on target-finite only; the per-column inner loop
     # handles its own -1 sentinel masking (a COLUMN-0-NaN early return would
     # zero MI for the whole batch silently).
@@ -376,22 +411,28 @@ def _mi_per_feature_prebinned(
     t_edges = np.nanquantile(t_f, qs)
     t_idx = np.searchsorted(t_edges, t_f, side="right").astype(np.int64)
     np.clip(t_idx, 0, nbins - 1, out=t_idx)
-    per_feat = np.empty(fb_f.shape[1], dtype=np.float64)
+    out_len = fb_f.shape[1] - (1 if drop is not None else 0)
+    per_feat = np.empty(out_len, dtype=np.float64)
+    out_j = 0  # write cursor into the survivor vector (skips ``drop``).
     for j in range(fb_f.shape[1]):
+        if drop is not None and j == drop:
+            continue
         col_b = fb_f[:, j]
         # Filter out -1 sentinel (non-finite feature rows) for this column
         col_valid = col_b >= 0
         n_cv = int(col_valid.sum())
         if n_cv < 5 * nbins:
-            per_feat[j] = 0.0
+            per_feat[out_j] = 0.0
+            out_j += 1
             continue
         # Skip the two per-column gathers when the column has no sentinel.
         if n_cv == col_b.shape[0]:
-            per_feat[j] = _mi_from_binned_pair(col_b, t_idx, nbins=nbins)
+            per_feat[out_j] = _mi_from_binned_pair(col_b, t_idx, nbins=nbins)
         else:
-            per_feat[j] = _mi_from_binned_pair(
+            per_feat[out_j] = _mi_from_binned_pair(
                 col_b[col_valid], t_idx[col_valid], nbins=nbins,
             )
+        out_j += 1
     return per_feat
 
 
@@ -403,12 +444,35 @@ def _aggregate_mi_per_feature(per_feat: np.ndarray | None, aggregation: str) -> 
     return float(np.mean(per_feat))
 
 
+def _aggregate_mi_per_feature_excluding(
+    per_feat: np.ndarray | None, aggregation: str, exclude_col: int,
+) -> float:
+    """Aggregate ``per_feat`` over every entry EXCEPT ``exclude_col``.
+
+    Bit-identical to ``_aggregate_mi_per_feature(np.delete(per_feat, exclude_col),
+    aggregation)`` but builds the survivor subset via a boolean mask rather than
+    ``np.delete``. ``per_feat[mask]`` yields the exact same contiguous
+    ``[0..k-1, k+1..]`` ordering ``np.delete`` produces, so ``np.sum`` / ``np.mean``
+    over it reduce in identical order (FP-associativity preserved). The mask
+    subset is a tiny length-F vector; the win is dropping the redundant
+    ``np.delete`` call that the base-loop ran twice per base.
+    """
+    if per_feat is None or per_feat.size == 0:
+        return 0.0
+    if not (0 <= exclude_col < per_feat.size):
+        return _aggregate_mi_per_feature(per_feat, aggregation)
+    mask = np.ones(per_feat.size, dtype=bool)
+    mask[exclude_col] = False
+    return _aggregate_mi_per_feature(per_feat[mask], aggregation)
+
+
 def _mi_to_target_prebinned(
     feature_binned: np.ndarray,
     target: np.ndarray,
     *,
     nbins: int,
     aggregation: str = "mean",
+    exclude_col: int | None = None,
 ) -> float:
     """MI between pre-binned feature columns and ``target``.
 
@@ -416,8 +480,14 @@ def _mi_to_target_prebinned(
     integer bin indices (0..nbins-1, -1 for non-finite rows) with the
     SAME number of rows as ``target``.  Only the target is binned here
     (once), saving the per-column quantile + searchsorted cost.
+
+    ``exclude_col`` (optional): aggregate over every feature column EXCEPT this
+    one without allocating an ``np.delete``-d (n, F-1) matrix copy -- the
+    per-feature loop skips it in place. Bit-identical to pre-deleting the column.
     """
-    per_feat = _mi_per_feature_prebinned(feature_binned, target, nbins=nbins)
+    per_feat = _mi_per_feature_prebinned(
+        feature_binned, target, nbins=nbins, exclude_col=exclude_col,
+    )
     return _aggregate_mi_per_feature(per_feat, aggregation)
 
 
@@ -650,6 +720,7 @@ from ._screening_tiny import (  # noqa: F401, E402
     _tiny_cv_rmse_y_scale_multiseed,
     _tiny_cv_rmse_raw_y_multiseed,
     _per_bin_rmse,
+    _per_bin_from_fold_preds,
     _tiny_cv_rmse_y_scale,
 )
 
