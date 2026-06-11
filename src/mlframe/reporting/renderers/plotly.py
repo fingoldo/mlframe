@@ -373,9 +373,16 @@ class PlotlyRenderer:
                            name="Perfect fit", showlegend=True),
                 row=row, col=col,
             )
+            y_range = list(p.ylim) if p.ylim is not None else [lo, hi]
+            x_range = list(p.xlim) if p.xlim is not None else [lo, hi]
             fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0,
-                             range=[lo, hi], row=row, col=col)
-            fig.update_xaxes(range=[lo, hi], row=row, col=col)
+                             range=y_range, row=row, col=col)
+            fig.update_xaxes(range=x_range, row=row, col=col)
+        else:
+            if p.xlim is not None:
+                fig.update_xaxes(range=list(p.xlim), row=row, col=col)
+            if p.ylim is not None:
+                fig.update_yaxes(range=list(p.ylim), row=row, col=col)
 
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
@@ -453,6 +460,8 @@ class PlotlyRenderer:
                     row=row, col=col,
                 )
 
+        if p.xlim is not None:
+            fig.update_xaxes(range=list(p.xlim), row=row, col=col)
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid,
                          type="log" if p.yscale == "log" else "linear")

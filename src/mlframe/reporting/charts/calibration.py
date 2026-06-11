@@ -38,6 +38,8 @@ _SMOOTHED_FIT_MAX_ROWS: int = 100_000
 _SMOOTHED_GRID_POINTS: int = 100
 # Below this many finite (score, label) rows the smoothed map is too noisy to be meaningful -> skip the overlay.
 _SMOOTHED_MIN_ROWS: int = 50
+# Tight probability-axis range for the reliability scatter / shared histogram: a hair past [0, 1] for marker edges.
+_PROB_AXIS_RANGE: Tuple[float, float] = (-0.02, 1.02)
 
 
 def smoothed_reliability_curve(
@@ -337,6 +339,10 @@ def build_calibration_spec(
         colorbar_label=colorbar_label,
         y_err=y_err,
         overlay_line=overlay_line,
+        # Both axes are probabilities on [0, 1]; pin a tight range so the population-sized bubble markers cannot drive
+        # autoscale past the data and waste horizontal width (equal aspect is then squared via the box, not the data).
+        xlim=_PROB_AXIS_RANGE,
+        ylim=_PROB_AXIS_RANGE,
     )
 
     resolved_yscale = _resolve_yscale(yscale, hits)
@@ -358,6 +364,7 @@ def build_calibration_spec(
         ylabel=label_histogram,
         yscale=resolved_yscale if resolved_yscale in ("linear", "log") else "linear",
         density=False,
+        xlim=_PROB_AXIS_RANGE,  # share the scatter's probability range so the populations line up under their bins
     )
 
     return FigureSpec(

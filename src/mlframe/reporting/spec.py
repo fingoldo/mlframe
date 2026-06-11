@@ -67,6 +67,11 @@ class ScatterPanelSpec:
     # Precomputed line overlay drawn on the same axes as the scatter (e.g. a binning-free smoothed reliability
     # curve over the binned bubbles): ``(x_grid, y_grid, label)``. Additive; the caller supplies both arrays.
     overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
+    # Explicit axis limits ``(lo, hi)``. When set they override the data-driven limits a perfect-fit panel computes;
+    # the equal-aspect square is then kept by adjusting the box (not the data limits) so large bubble markers cannot
+    # drive matplotlib's autoscale past the data range (the reliability scatter pins a tight probability range here).
+    xlim: Optional[Tuple[float, float]] = None
+    ylim: Optional[Tuple[float, float]] = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,8 @@ class HistogramPanelSpec:
     # centers instead of computing histogram bins.
     bin_centers: Optional[np.ndarray] = None
     bin_width: Optional[float] = None  # required when bin_centers given
+    # Explicit x-axis range ``(lo, hi)``; lets a shared-x calibration histogram align to the scatter's probability range.
+    xlim: Optional[Tuple[float, float]] = None
 
 
 @dataclass(frozen=True)

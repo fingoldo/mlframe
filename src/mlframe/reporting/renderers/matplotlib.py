@@ -267,9 +267,18 @@ class MatplotlibRenderer:
             lo = float(min(np.min(x), np.min(y)))
             hi = float(max(np.max(x), np.max(y)))
             ax.plot([lo, hi], [lo, hi], "g--", label="Perfect fit")
-            ax.set_xlim(lo, hi)
-            ax.set_ylim(lo, hi)
-            ax.set_aspect("equal", "datalim")
+            if p.xlim is not None or p.ylim is not None:
+                # Explicit limits given: "datalim" would discard set_xlim to satisfy equal aspect (large bubble
+                # markers then drive x far past the data); "box" keeps the fixed limits and squares via the box.
+                ax.set_aspect("equal", "box")
+            else:
+                ax.set_xlim(lo, hi)
+                ax.set_ylim(lo, hi)
+                ax.set_aspect("equal", "datalim")
+        if p.xlim is not None:
+            ax.set_xlim(*p.xlim)
+        if p.ylim is not None:
+            ax.set_ylim(*p.ylim)
 
         if p.inline_labels:
             for lx, ly, txt in p.inline_labels:
@@ -345,6 +354,8 @@ class MatplotlibRenderer:
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
         ax.set_yscale(p.yscale)
+        if p.xlim is not None:
+            ax.set_xlim(*p.xlim)
         if p.grid:
             ax.grid(True, alpha=0.3)
 

@@ -168,6 +168,28 @@ class TestAutoYscaleHistogram:
         )
         assert hist_ax.get_yscale() == "linear"
 
+    def test_reliability_prob_axis_tight_after_draw(self, binned_data, tmp_path):
+        from mlframe.reporting.charts.calibration import _PROB_AXIS_RANGE, build_calibration_spec
+        from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        from mlframe.reporting.spec import HistogramPanelSpec, ScatterPanelSpec
+
+        fp, ft, h = binned_data
+        spec = build_calibration_spec(fp, ft, h, show_prob_histogram=True)
+        scatter = spec.panels[0][0]
+        assert isinstance(scatter, ScatterPanelSpec)
+        assert scatter.xlim == _PROB_AXIS_RANGE and scatter.ylim == _PROB_AXIS_RANGE
+        hist = spec.panels[1][0]
+        assert isinstance(hist, HistogramPanelSpec) and hist.xlim == _PROB_AXIS_RANGE
+
+        fig = MatplotlibRenderer().render(spec)
+        # savefig forces a canvas draw; the aspect-driven re-autoscale used to widen x to ~[-0.5, 1.5] here.
+        fig.savefig(str(tmp_path / "reliability.png"), dpi=60)
+        scatter_ax = next(ax for ax in fig.axes if ax.get_ylabel() == "Observed Frequency")
+        lo, hi = scatter_ax.get_xlim()
+        assert -0.05 <= lo and hi <= 1.05, f"reliability x-axis over-padded: ({lo}, {hi})"
+        ylo, yhi = scatter_ax.get_ylim()
+        assert -0.05 <= ylo and yhi <= 1.05, f"reliability y-axis over-padded: ({ylo}, {yhi})"
+
     def test_explicit_log_overrides_auto(self, uniform_hits, tmp_path):
         fp, ft, h = uniform_hits
         plot_file = str(tmp_path / "force_log.png")
