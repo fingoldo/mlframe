@@ -281,6 +281,9 @@ from .discovery._base_engineering import engineer_temporal_bases  # noqa: E402,F
 from .bagging import BaggedCompositeEstimator  # noqa: E402,F401
 from .survival import CompositeSurvivalEstimator  # noqa: E402,F401
 
+# Dependency-light serving export of a fitted composite.
+from .serving import export_serving_spec, load_serving_spec  # noqa: E402,F401
+
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
 from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
@@ -323,6 +326,7 @@ __all__ = [
     "composite_report", "CompositeOrRawStacker",
     "CompositeDistributionEstimator", "optimize_composite", "composite_model_card",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
+    "export_serving_spec", "load_serving_spec",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
