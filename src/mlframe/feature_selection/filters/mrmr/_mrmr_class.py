@@ -3267,6 +3267,11 @@ class MRMR(BaseEstimator, TransformerMixin):
                     if _on and not bool(getattr(self, _flag, False)):
                         _fe_auto_restore[_flag] = getattr(self, _flag, False)
                         setattr(self, _flag, True)
+                # Persist the recommender's CHOSEN flags as a fit-only attribute so
+                # ``explain_selection()`` can narrate WHICH fe_* generators Layer-99 turned
+                # on for this fit. Pure metadata; the live flags are still restored in the
+                # finally block, so constructor-arg semantics stay stable.
+                self._fe_recommended_flags_ = dict(sorted(_rec_flags.items()))
                 if _fe_auto_restore:
                     logger.info(
                         "[MRMR] fe_auto=True -> enabled FE generators for this fit: %s",

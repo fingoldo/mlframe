@@ -186,6 +186,11 @@ MRMR.get_fe_report = _get_fe_report_func
 from .._fe_rejection_ledger import get_fe_rejection_report as _get_fe_rejection_report_func  # noqa: E402
 MRMR.get_fe_rejection_report = _get_fe_rejection_report_func
 
+# One-call human-readable explanation: assembles fe_provenance_ (survivors) + fe_rejection_ledger_
+# (binding gate) + _fe_recommended_flags_ (Layer-99 chosen flags) into a one-screen narrative.
+from .._mrmr_explain import explain_selection as _explain_selection_func  # noqa: E402
+MRMR.explain_selection = _explain_selection_func
+
 # Semi-supervised fit helper -- importable from the ``mrmr`` namespace so callers can
 # ``from mlframe.feature_selection.filters.mrmr import fit_with_unlabeled`` without reaching into the sibling path.
 from .._semi_supervised_fe import fit_with_unlabeled  # noqa: E402,F401
