@@ -24,10 +24,18 @@ MEASURED VERDICT (n=4000, default-style budget fe_smart_polynom_iters=15..20):
   F-POLY   corr ~0    FAIL*   corr 0.97  PASS  (sel R^2 0.95)         eng=0    FAIL*
   F-OSC    corr ~0    FAIL*   corr 0.95  PASS  (degree-6 default)     corr 0.67 PARTIAL
 
-  (* the F-POLY/UNB and F-POLY/hybrid cells, and F-OSC/UNB, are TRUE-NEGATIVE
-  pins: those paths structurally cannot represent the non-monotone inner, so
-  they correctly engineer nothing. Only the smart_polynom ORTH path is expected
-  to recover.)
+  (* the F-POLY/UNB and F-POLY/hybrid cells, and F-OSC/UNB, WERE TRUE-NEGATIVE
+  pins: those base paths structurally cannot represent the non-monotone inner on
+  their own. As of the default-on FE AUTO-ESCALATION (2026-06-10,
+  ``fe_auto_escalation_enable``, ``_fe_auto_escalation.py``) they now DO recover:
+  the escalation detects the unrecovered high-MI pair and engineers an
+  orthogonal-poly product cell -- ``esc_poly_hermite_mul(a,b)`` at |corr| ~0.736
+  for F-POLY (both UNB and hybrid), ``esc_poly_laguerre_mul(a,b)`` at |corr|
+  ~0.964 for F-OSC. Those three cells are RE-FRAMED below from negatives into
+  positive capability pins, each with a paired ``escalation OFF`` control that
+  re-asserts the old negative -- proving the recovery is attributable to the
+  escalation, not the base search or noise. Only the smart_polynom ORTH path
+  reaches the highest fidelity (corr ~0.97).)
 
 THE FIX (2026-06-02) that turned the F-POLY smart_polynom cell from the
 historical FAIL (corr ~0.003, eng=0) into corr 0.97 / downstream Ridge R^2 0.95:
@@ -175,6 +183,26 @@ def _unb():
                 fe_pair_prewarp_enable=False, **_LEAN)
 
 
+def _unb_no_escalation():
+    # Elementary unary/binary search with FE auto-escalation OFF: isolates the
+    # base search's intrinsic (true-negative) behaviour on a non-representable
+    # inner, so the escalation recovery is attributable, not baked into the base.
+    return MRMR(verbose=0, n_jobs=1, random_seed=0,
+                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
+                fe_pair_prewarp_enable=False, fe_auto_escalation_enable=False,
+                **_LEAN)
+
+
+def _orth_hybrid_pair_no_escalation():
+    # Fixed-cell hybrid orthogonal-pair path with FE auto-escalation OFF.
+    return MRMR(verbose=0, n_jobs=1, random_seed=0,
+                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=True,
+                fe_hybrid_orth_pair_enable=True, fe_hybrid_orth_degrees=(2, 3, 4),
+                fe_hybrid_orth_pair_max_degree=4, fe_hybrid_orth_top_k=8,
+                fe_pair_prewarp_enable=False, fe_auto_escalation_enable=False,
+                **_LEAN)
+
+
 def _unb_prewarp():
     # Elementary unary/binary search WITH the production-default prewarp on.
     return MRMR(verbose=0, n_jobs=1, random_seed=0,
@@ -232,18 +260,52 @@ def test_fmono_control_orth_polynom_recovers():
 # F-POLY boundary: non-monotone polynomial inner -> ALL paths fail at default
 # settings. This is the falsifiable pin of the negative result.
 # ---------------------------------------------------------------------------
-def test_fpoly_unary_binary_fails_to_recover():
-    """No single library unary equals a**3-2a, so the unary/binary pair search
-    cannot represent P(a) and finds no feature correlated with P(a)*Q(b).
-    Measured |corr| ~= 0; pinned < 0.30 (well below the 0.80 the method hits
-    when the inner distortion is representable)."""
+def test_fpoly_unary_binary_recovers_via_auto_escalation():
+    """RECOVERY via AUTO-ESCALATION (capability win, 2026-06-10, default ON):
+    no single library unary equals ``a**3-2a``, so the ELEMENTARY unary/binary
+    pair search (prewarp off, smart_polynom off) cannot itself represent
+    ``P(a)`` -- and historically this cell was a TRUE-NEGATIVE pin (corr ~0).
+
+    The default-on FE auto-escalation (``fe_auto_escalation_enable``,
+    ``_fe_auto_escalation.py``) now detects the unrecovered high-MI pair and
+    escalates it through an orthogonal-poly product cell, engineering
+    ``esc_poly_hermite_mul(a,b)`` correlated with the true ``P(a)*Q(b)`` signal.
+    Measured |corr| ~= 0.736; pinned >= 0.65 with margin.
+
+    This converts the former negative into a positive capability pin. The
+    recovery is ATTRIBUTABLE to the escalation, not the elementary search: the
+    ``_unb_no_escalation`` control below (escalation OFF, same config) does NOT
+    reach this level -- it only finds a weak relu-threshold artifact
+    (|corr| ~0.49), well short of the escalated 0.736."""
     df, y, true = _make_poly()
     fs = _fit(_unb, df, y)
+    name, corr = _best_engineered_corr(fs, df, true)
+    assert name is not None, "F-POLY/UNB auto-escalation engineered nothing"
+    assert corr >= 0.65, (
+        f"F-POLY/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.65 "
+        f"({name}); the auto-escalation recovery of the non-monotone inner "
+        f"regressed"
+    )
+
+
+def test_fpoly_unary_binary_no_recovery_with_escalation_off():
+    """GATED TRUE-NEGATIVE control: with FE auto-escalation OFF the elementary
+    unary/binary path (prewarp off, smart_polynom off) does NOT recover the
+    non-monotone ``P(a)*Q(b)`` inner -- it engineers at most a weak
+    relu-threshold artifact. Measured |corr| ~= 0.49; pinned < 0.60, strictly
+    below the escalated 0.736 of
+    ``test_fpoly_unary_binary_recovers_via_auto_escalation``.
+
+    This preserves the original true-negative (the elementary search structurally
+    cannot represent the inner) AND proves the recovery in the companion test is
+    attributable to the auto-escalation, not the base search or noise."""
+    df, y, true = _make_poly()
+    fs = _fit(_unb_no_escalation, df, y)
     _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.30, (
-        f"F-POLY/UNB unexpectedly recovered |corr|={corr:.3f} ({_name}); "
-        f"the elementary unary/binary path (prewarp off) was expected to fail "
-        f"on the non-monotone inner"
+    assert corr < 0.60, (
+        f"F-POLY/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} "
+        f"({_name}); with escalation off the elementary unary/binary path was "
+        f"expected to fail on the non-monotone inner"
     )
 
 
@@ -306,24 +368,48 @@ def test_fpoly_orth_smart_polynom_default_recovers(basis):
     )
 
 
-def test_fpoly_orth_hybrid_pair_default_does_not_recover():
-    """TRUE-NEGATIVE pin: the hybrid orthogonal-pair path (fixed low-degree
-    cross-basis cells like ``T2(a)*T1(b)``, a SEPARATE code path from the
-    smart_polynom CMA/ALS optimiser; prewarp OFF) does not recover F-POLY -- its
-    fixed bilinear cells cannot express the full ``cheb_3(a)*cheb_2(b)`` product
-    (verified: with prewarp off, downstream Ridge R^2 stays at the raw baseline
-    in ``test_fpoly_downstream_score_stuck_at_raw_baseline_for_true_negative_paths``).
-    Pinned < 0.30 so a future accidental coupling that made it spuriously
-    "recover" is caught.
+def test_fpoly_orth_hybrid_pair_recovers_via_auto_escalation():
+    """RECOVERY via AUTO-ESCALATION (capability win, 2026-06-10, default ON):
+    the hybrid orthogonal-pair path's fixed low-degree bilinear cells (e.g.
+    ``T2(a)*T1(b)``) cannot themselves express the full
+    ``cheb_3(a)*cheb_2(b)`` product -- historically a TRUE-NEGATIVE pin
+    (corr ~0).
 
-    Recovery on F-POLY is the job of the smart_polynom path
-    (``test_fpoly_orth_smart_polynom_default_recovers``) and of prewarp
-    (``test_fpoly_unary_binary_prewarp_recovers``), not this one."""
+    The default-on FE auto-escalation now escalates the unrecovered high-MI pair
+    to an orthogonal-poly product cell, engineering ``esc_poly_hermite_mul(a,b)``
+    correlated with the true ``P(a)*Q(b)`` signal. Measured |corr| ~= 0.736;
+    pinned >= 0.65 with margin.
+
+    The recovery is ATTRIBUTABLE to the escalation: the
+    ``_orth_hybrid_pair_no_escalation`` control below (escalation OFF, same
+    config) does NOT reach this level (only the weak relu artifact, |corr| ~0.49).
+    A higher-fidelity recovery is still the smart_polynom path's job
+    (``test_fpoly_orth_smart_polynom_default_recovers``, corr ~0.97)."""
     df, y, true = _make_poly()
     fs = _fit(_orth_hybrid_pair, df, y)
+    name, corr = _best_engineered_corr(fs, df, true)
+    assert name is not None, "F-POLY/hybrid-orth auto-escalation engineered nothing"
+    assert corr >= 0.65, (
+        f"F-POLY/hybrid-orth+auto-escalation best engineered |corr|={corr:.3f} "
+        f"< 0.65 ({name}); the auto-escalation recovery regressed"
+    )
+
+
+def test_fpoly_orth_hybrid_pair_no_recovery_with_escalation_off():
+    """GATED TRUE-NEGATIVE control: with FE auto-escalation OFF the hybrid
+    orthogonal-pair path's fixed bilinear cells do NOT recover the full
+    ``cheb_3(a)*cheb_2(b)`` product -- only the weak relu-threshold artifact
+    (|corr| ~0.49). Pinned < 0.60, strictly below the escalated 0.736.
+
+    Preserves the original true-negative (the fixed cells structurally cannot
+    express the product) and proves the companion recovery is attributable to the
+    auto-escalation, not the hybrid path itself."""
+    df, y, true = _make_poly()
+    fs = _fit(_orth_hybrid_pair_no_escalation, df, y)
     _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.30, (
-        f"F-POLY/hybrid-orth-pair unexpectedly recovered |corr|={corr:.3f} ({_name})"
+    assert corr < 0.60, (
+        f"F-POLY/hybrid-orth (escalation OFF) unexpectedly recovered "
+        f"|corr|={corr:.3f} ({_name})"
     )
 
 
@@ -369,38 +455,53 @@ def test_fpoly_downstream_score_recovers_for_smart_polynom():
     )
 
 
-def test_fpoly_downstream_score_stuck_at_raw_baseline_for_true_negative_paths():
-    """TRUE-NEGATIVE pin: the paths that structurally cannot represent the
-    non-monotone inner -- the ELEMENTARY unary/binary function search and the
-    fixed-cell hybrid-orth pair, both with prewarp OFF -- leave downstream 5-fold
-    Ridge R^2 at the all-raw baseline (~0.22), far below the true-signal fit
-    (~1.0). Pins the business cost of those paths' representational limit
-    (recovery is the smart_polynom path's job, and the prewarp augmentation
-    recovers too -- both asserted separately).
+def test_fpoly_downstream_score_recovers_for_true_negative_paths_via_escalation():
+    """END-TO-END RECOVERY via AUTO-ESCALATION (capability win, 2026-06-10,
+    default ON): the paths that on their own cannot represent the non-monotone
+    inner -- the ELEMENTARY unary/binary search and the fixed-cell hybrid-orth
+    pair (both prewarp OFF) -- historically left downstream 5-fold Ridge R^2 at
+    the all-raw baseline (~0.22). The default-on FE auto-escalation now escalates
+    the unrecovered pair to ``esc_poly_hermite_mul(a,b)``, lifting downstream
+    R^2 to ~0.67 (measured) -- a material gain over raw, attributable to the
+    escalation.
 
-    NOTE both makers set ``fe_pair_prewarp_enable=False``: prewarp (default on)
-    is a separate compose-then-expand mechanism that DOES recover F-POLY via
-    ``mul(prewarp(a),prewarp(b))`` on either path, so it is disabled here to
-    measure these two paths' intrinsic limit (the recovery is pinned by
-    ``test_fpoly_unary_binary_prewarp_recovers``)."""
+    The lift is escalation-driven: the ``escalation OFF`` control below leaves
+    R^2 at ~0.43 (only the weak relu artifact), strictly below the escalated
+    ~0.67 and still far below the true-signal fit (~1.0) -- the base paths'
+    representational limit persists once escalation is removed. Higher-fidelity
+    recovery (R^2 ~0.95) remains the smart_polynom path's job
+    (``test_fpoly_downstream_score_recovers_for_smart_polynom``)."""
     df, y, true = _make_poly()
     raw_r2 = _ridge_r2(df.values, y)
     true_r2 = _ridge_r2(np.asarray(true), y)
     assert true_r2 > 0.95, f"sanity: true-signal Ridge R^2={true_r2:.3f} should be ~1.0"
     assert raw_r2 < 0.5, f"sanity: all-raw Ridge R^2={raw_r2:.3f} should be low"
 
-    for label, maker in [("UNB", _unb), ("hybrid-orth", _orth_hybrid_pair)]:
+    for label, maker, maker_off in [
+        ("UNB", _unb, _unb_no_escalation),
+        ("hybrid-orth", _orth_hybrid_pair, _orth_hybrid_pair_no_escalation),
+    ]:
         fs = _fit(maker, df, y)
         sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
-        # Margin 0.10 absorbs an occasional weak-but-useless engineered column.
-        assert sel_r2 <= raw_r2 + 0.10, (
-            f"F-POLY/{label} downstream R^2={sel_r2:.3f} materially beats raw "
-            f"baseline {raw_r2:.3f}: a true-negative path now rescues F-POLY -- "
-            f"if intended, move it to the recovery assertions."
+        fs_off = _fit(maker_off, df, y)
+        off_r2 = _ridge_r2(np.asarray(fs_off.transform(df)), y)
+        # Escalation lifts downstream materially over the all-raw baseline ...
+        assert sel_r2 >= raw_r2 + 0.30, (
+            f"F-POLY/{label}+escalation downstream R^2={sel_r2:.3f} did not lift "
+            f"over raw baseline {raw_r2:.3f}; the escalation recovery regressed"
         )
-        assert sel_r2 < true_r2 - 0.4, (
-            f"F-POLY/{label} downstream R^2={sel_r2:.3f} approached the "
-            f"true-signal R^2 {true_r2:.3f}; this path was expected to fail."
+        # ... and the lift is attributable to the escalation (beats escalation OFF).
+        assert sel_r2 >= off_r2 + 0.15, (
+            f"F-POLY/{label}+escalation R^2={sel_r2:.3f} did not beat the "
+            f"escalation-OFF baseline {off_r2:.3f}; the lift is not attributable "
+            f"to the auto-escalation"
+        )
+        # GATED TRUE-NEGATIVE: with escalation off these base paths stay below the
+        # true-signal fit -- their representational limit persists.
+        assert off_r2 < true_r2 - 0.4, (
+            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} "
+            f"approached the true-signal R^2 {true_r2:.3f}; the base path was "
+            f"expected to fall short without escalation."
         )
 
 
@@ -500,26 +601,67 @@ def test_fpoly_recovery_is_real_and_warm_start_is_the_lever():
 # F-OSC boundary: oscillatory inner. UNB fails; the hybrid-orth pair path
 # PARTIALLY recovers (a genuine positive worth pinning).
 # ---------------------------------------------------------------------------
-def test_fosc_unary_binary_fails_to_recover():
-    """sin(a**2) is not a single library unary and is non-monotone -> the
-    unary/binary path finds nothing. Measured |corr| ~= 0; pinned < 0.30."""
+def test_fosc_unary_binary_recovers_via_auto_escalation():
+    """RECOVERY via AUTO-ESCALATION (capability win, 2026-06-10, default ON):
+    ``sin(a**2)`` is not a single library unary and is non-monotone, so the
+    elementary unary/binary path finds nothing itself -- historically a
+    TRUE-NEGATIVE pin (corr ~0).
+
+    The default-on FE auto-escalation escalates the unrecovered high-MI pair to
+    an orthogonal-poly product cell, engineering ``esc_poly_laguerre_mul(a,b)``
+    correlated with the true ``sin(a**2)*b`` signal. Measured |corr| ~= 0.964;
+    pinned >= 0.85 with margin.
+
+    The recovery is ATTRIBUTABLE to the escalation: the
+    ``test_fosc_unary_binary_no_recovery_with_escalation_off`` control (escalation
+    OFF, same config) engineers nothing (corr ~0)."""
     df, y, true = _make_osc()
     fs = _fit(_unb, df, y)
+    name, corr = _best_engineered_corr(fs, df, true)
+    assert name is not None, "F-OSC/UNB auto-escalation engineered nothing"
+    assert corr >= 0.85, (
+        f"F-OSC/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.85 "
+        f"({name}); the auto-escalation recovery of the oscillatory inner regressed"
+    )
+
+
+def test_fosc_unary_binary_no_recovery_with_escalation_off():
+    """GATED TRUE-NEGATIVE control: with FE auto-escalation OFF the elementary
+    unary/binary path engineers nothing usable for the oscillatory
+    ``sin(a**2)*b`` inner. Measured |corr| ~= 0; pinned < 0.30, far below the
+    escalated 0.964.
+
+    Preserves the original true-negative and proves the companion recovery is
+    fully attributable to the auto-escalation."""
+    df, y, true = _make_osc()
+    fs = _fit(_unb_no_escalation, df, y)
     _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.30, f"F-OSC/UNB unexpectedly recovered |corr|={corr:.3f} ({_name})"
+    assert corr < 0.30, (
+        f"F-OSC/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} "
+        f"({_name})"
+    )
 
 
 def test_fosc_hybrid_orth_pair_partially_recovers_and_beats_unb():
     """On the oscillatory boundary the hybrid orthogonal-poly PAIR path (the
-    bilinear cross-basis cell, e.g. T2(a)*T1(b)) PARTIALLY recovers the signal
-    where the unary/binary path does not. Measured |corr| ~= 0.66 for hybrid-orth
-    vs ~0 for unary/binary; pinned hybrid >= 0.45 AND hybrid > unb + 0.30."""
+    bilinear cross-basis cell, e.g. T2(a)*T1(b)) INTRINSICALLY PARTIALLY recovers
+    the signal where the unary/binary path does not. Measured |corr| ~= 0.66 for
+    hybrid-orth vs ~0 for unary/binary; pinned hybrid >= 0.45 AND hybrid >
+    unb + 0.30.
+
+    Both fits run with FE auto-escalation OFF: the default-on auto-escalation
+    (2026-06-10) escalates BOTH paths' unrecovered pair to the same
+    ``esc_poly_laguerre_mul(a,b)`` (|corr| ~0.96 -- see
+    ``test_fosc_unary_binary_recovers_via_auto_escalation``), which would collapse
+    this comparison (both paths equal). Disabling escalation isolates the hybrid
+    path's INTRINSIC bilinear partial-recovery advantage over the elementary
+    search, which is what this test pins."""
     df, y, true = _make_osc()
 
-    fs_unb = _fit(_unb, df, y)
+    fs_unb = _fit(_unb_no_escalation, df, y)
     _n_unb, corr_unb = _best_engineered_corr(fs_unb, df, true)
 
-    fs_hyb = _fit(_orth_hybrid_pair, df, y)
+    fs_hyb = _fit(_orth_hybrid_pair_no_escalation, df, y)
     name_hyb, corr_hyb = _best_engineered_corr(fs_hyb, df, true)
 
     assert name_hyb is not None, "F-OSC/hybrid-orth engineered nothing"
