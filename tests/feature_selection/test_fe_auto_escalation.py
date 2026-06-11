@@ -111,13 +111,23 @@ def test_escalation_silent_when_library_capture_is_exact():
     assert not [nm for nm in recipes if nm.startswith("esc_")]
 
 
-def test_biz_val_escalation_completes_underdelivering_he3_capture():
-    """``y = He3(x0)*x1``: the default prewarp capture IS admitted but measurably
-    INCOMPLETE (held-out R^2 ~0.80 of ~0.99 achievable; ~0.40 nats leftover CMI beyond
-    its 10-bin code), so the UNDERDELIVERY trigger must escalate the pair. The
-    proposers fit the binned-mean RESIDUAL given the capture, so anything admitted
-    must carry GENUINELY MISSING signal: the combined held-out R^2 vs the true signal
-    must strictly improve on the default capture alone (and never degrade)."""
+def test_biz_val_escalation_skips_complete_he3_capture():
+    """``y = He3(x0)*x1``: the per-operand pre-warp ALS captures the degree-3
+    non-monotone inner ESSENTIALLY EXACTLY (held-out R^2 ~1.0 of the true signal),
+    so this pair is NOT underdelivering and the escalation trigger must LEAVE IT
+    ALONE -- there is no residual signal for a complement to add.
+
+    HISTORY: before the 2026-06-11 continuous-y ALS-reconstruction-target fix the
+    He3 capture was throttled to held-out R^2 ~0.80 because the prewarp ALS fit
+    against the coarse 10-bin equal-frequency target codes the 2026-06-10
+    target-rebin guard produces (the reconstruction is a least-squares solve and the
+    binned codes cost it the degree-3 tail). That regression made the capture LOOK
+    underdelivering and the escalation fired to backfill the lost ~0.20 R^2. With
+    the ALS now reconstructing against the CONTINUOUS y the capture is complete, so
+    the correct behaviour is the same as the He2 leg-3 control: a completely captured
+    pair is never escalated, and no ``esc_`` complement is admitted (it would carry
+    no genuine missing signal). The MI screen / gates still see the binned codes --
+    only the ALS reconstruction target changed."""
     import numpy.linalg as la
 
     from mlframe.feature_selection.filters.mrmr import MRMR
@@ -128,9 +138,13 @@ def test_biz_val_escalation_completes_underdelivering_he3_capture():
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any("prewarp(x0)" in nm for nm in recipes), f"default prewarp should stay: {list(recipes)}"
-    assert any(
-        ("x0", "x1") in (h.get("eligible_pairs") or []) for h in sel.fe_escalation_history_
-    ), "the underdelivery trigger must escalate the incomplete He3 capture"
+    # A COMPLETELY captured pair must never be escalated (same contract as the He2
+    # leg-3 control): the continuous-y ALS makes the He3 capture complete, so the
+    # (x0, x1) pair must NOT appear in any escalation round's eligible_pairs.
+    for h in getattr(sel, "fe_escalation_history_", []) or []:
+        assert ("x0", "x1") not in (h.get("eligible_pairs") or []), (
+            "a COMPLETELY captured He3 pair must never be escalated"
+        )
 
     Xt = rng.normal(size=(4000, 6))
     out = sel.transform(pd.DataFrame(Xt, columns=df.columns))
@@ -143,15 +157,20 @@ def test_biz_val_escalation_completes_underdelivering_he3_capture():
         coef, *_ = la.lstsq(A, truth, rcond=None)
         return float(1.0 - (truth - A @ coef).var() / truth.var())
 
-    esc_cols = [c for c in out.columns if c.startswith("esc_")]
     pre_cols = [c for c in out.columns if "prewarp" in c and not c.startswith("esc_")]
     r2_default = _r2(pre_cols)
-    r2_combined = _r2(pre_cols + esc_cols)
-    assert r2_combined >= r2_default - 1e-9, "escalation must never degrade the capture"
-    assert esc_cols, "the residual-fit escalation should admit a complementary feature here"
-    assert r2_combined >= r2_default + 0.001, (
-        f"the escalated feature must add GENUINE held-out R^2 beyond the default capture "
-        f"(default={r2_default:.4f}, combined={r2_combined:.4f})"
+    # The capture alone must reach near-exact held-out reconstruction (the recovered
+    # ~1.0; was throttled to ~0.80 under the target-rebin regression).
+    assert r2_default >= 0.95, (
+        f"the continuous-y prewarp ALS should capture He3 essentially exactly "
+        f"(held-out R^2={r2_default:.4f}); a low value means the ALS reconstruction "
+        f"target regressed back to the coarse binned codes"
+    )
+    # No esc complement was needed for x0*x1; if one was admitted at all it must not
+    # have been for the already-complete He3 pair.
+    esc_cols = [c for c in out.columns if c.startswith("esc_") and ("x0" in c and "x1" in c)]
+    assert not esc_cols, (
+        f"no escalation complement should target the already-complete He3 pair: {esc_cols}"
     )
 
 

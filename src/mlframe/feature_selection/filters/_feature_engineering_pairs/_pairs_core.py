@@ -122,6 +122,17 @@ def check_prospective_fe_pairs(
     # so behaviour on data that does not need it is byte-identical.
     prewarp_enable: bool = False,
     prewarp_y: np.ndarray | None = None,
+    # PREWARP ALS RECONSTRUCTION TARGET (2026-06-11). The rank-1 ALS warp fit /
+    # held-out validation / winning-spec reconstruction is a least-squares solve
+    # of ``y ~ f(a)*g(b)``; its fidelity depends on the RESOLUTION of the target it
+    # reconstructs. The 2026-06-10 target-rebin guard coarsens ``classes_y`` to the
+    # 10-bin equal-frequency screening codes (correctly -- the MI screen/gates need
+    # the faithful coarse codes), but feeding those binned codes to the ALS dropped
+    # the F-POLY non-monotone product reconstruction |corr| 0.97 -> 0.88. When the
+    # CONTINUOUS target is threaded here it drives the ALS fit/validate/score ONLY;
+    # the MI screen + every gate keep using ``classes_y`` codes. None -> legacy
+    # behaviour (ALS reconstructs against ``classes_y``).
+    prewarp_y_continuous: np.ndarray | None = None,
     prewarp_basis: str = "chebyshev",
     prewarp_max_degree: int = 4,
     # Minimum ratio (best-prewarp-MI / best-nonprewarp-MI) for the alternative
@@ -392,7 +403,13 @@ def check_prospective_fe_pairs(
     _prewarp_y_eff = None
     if _prewarp_active:
         from ..hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
-        _pw_y = np.asarray(prewarp_y)
+        # The ALS reconstruction target: prefer the CONTINUOUS y when supplied (it
+        # is the faithful least-squares target; the binned ``classes_y`` codes the
+        # target-rebin guard produces are for the MI screen, not for reconstructing
+        # a continuous f(a)*g(b)). Fall back to ``classes_y`` codes when no
+        # continuous target was threaded (legacy / non-numeric / multi-output y).
+        _pw_y_src = prewarp_y_continuous if prewarp_y_continuous is not None else prewarp_y
+        _pw_y = np.asarray(_pw_y_src)
         if _use_subsample and _pw_y.shape[0] == _full_n_rows:
             _pw_y = _pw_y[_sample_idx]
         _prewarp_y_eff = np.ascontiguousarray(_pw_y, dtype=np.float64)

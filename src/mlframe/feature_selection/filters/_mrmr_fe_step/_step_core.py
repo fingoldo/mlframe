@@ -861,6 +861,16 @@ def _run_fe_step(
         # per operand; ``_prewarp_specs`` collects the fitted coeffs (by cols-space
         # var index) for leak-safe recipe construction. Default OFF.
         _prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
+        # CONTINUOUS ALS RECONSTRUCTION TARGET (2026-06-11): the raw continuous y
+        # stashed by ``_fit_impl`` so the rank-1 ALS warp reconstructs against the
+        # faithful continuous target instead of the coarse target-rebin-guard codes.
+        # Aligned to the FE-step row count (full-n; ``check_prospective_fe_pairs``
+        # handles any internal subsample). None -> ALS falls back to ``classes_y``.
+        _prewarp_y_cont = None
+        if _prewarp_enable:
+            _pwc = getattr(self, "_fe_prewarp_y_continuous_", None)
+            if _pwc is not None and len(_pwc) == len(classes_y):
+                _prewarp_y_cont = _pwc
         _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
         _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
         _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
@@ -948,6 +958,7 @@ def _run_fe_step(
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 prewarp_enable=_prewarp_enable,
                 prewarp_y=classes_y if _prewarp_enable else None,
+                prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
                 prewarp_basis=_prewarp_basis,
                 prewarp_max_degree=_prewarp_max_degree,
                 prewarp_uplift_threshold=_prewarp_uplift,
@@ -1032,6 +1043,7 @@ def _run_fe_step(
                         subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                         prewarp_enable=_prewarp_enable,
                         prewarp_y=classes_y if _prewarp_enable else None,
+                        prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
                         prewarp_basis=_prewarp_basis,
                         prewarp_max_degree=_prewarp_max_degree,
                         prewarp_uplift_threshold=_prewarp_uplift,

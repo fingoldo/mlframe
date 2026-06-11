@@ -5393,6 +5393,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     except Exception:
         self._fe_escalation_y_rank_ = None
 
+    # PREWARP ALS RECONSTRUCTION TARGET (2026-06-11): stash the RAW CONTINUOUS y so
+    # the pair-search rank-1 ALS warp reconstructs against the faithful continuous
+    # target rather than the coarse equal-frequency screening codes the target-rebin
+    # guard (above) produces. The guard correctly coarsens ``classes_y`` for the MI
+    # screen/gates, but a least-squares f(a)*g(b) reconstruction loses fidelity on a
+    # non-monotone product when fit to 10-bin codes (measured |corr| 0.97 -> 0.88).
+    # Unlike the escalation rank-y this is the raw VALUES (the supervised MDLP-quality
+    # signal the ALS needs; rank-y only recovered 0.88 -> 0.88 in benchmarking). Same
+    # leak-safety: a fit-time supervised target whose emitted recipe stays a
+    # closed-form function of x. Deleted at fit end (transient, keeps the pickle slim).
+    # Non-numeric / multi-output y -> None (ALS falls back to ``classes_y`` codes).
+    try:
+        _y_pw_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        if _y_pw_arr.ndim == 1 and _y_pw_arr.dtype.kind in "fiub" and len(_y_pw_arr) == len(X):
+            self._fe_prewarp_y_continuous_ = np.ascontiguousarray(_y_pw_arr, dtype=np.float64)
+        else:
+            self._fe_prewarp_y_continuous_ = None
+    except Exception:
+        self._fe_prewarp_y_continuous_ = None
+
     # ---------------------------------------------------------------------------------------------------------------
     # Temporarily inject targets
     # ---------------------------------------------------------------------------------------------------------------
@@ -7560,4 +7580,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             pass
     # Transient FE-escalation fitting target: full-n array, fit-time only.
     self._fe_escalation_y_rank_ = None
+    # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.
+    self._fe_prewarp_y_continuous_ = None
     return self
