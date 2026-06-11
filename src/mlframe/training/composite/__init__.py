@@ -289,6 +289,10 @@ from .compare import compare_models, should_promote  # noqa: E402,F401
 from .orthogonal import OrthogonalizedCompositeEstimator  # noqa: E402,F401
 from .ranking import CompositeRankEstimator  # noqa: E402,F401
 
+# Panel/longitudinal (entity fixed-effects) composite + extreme-value tail composite.
+from .panel import CompositePanelEstimator  # noqa: E402,F401
+from .extremes import TailCompositeEstimator  # noqa: E402,F401
+
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
 from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
@@ -333,7 +337,7 @@ __all__ = [
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
-    "CompositeRankEstimator",
+    "CompositeRankEstimator", "CompositePanelEstimator", "TailCompositeEstimator",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
