@@ -566,5 +566,45 @@ from .bayesian import (  # noqa: E402,F401
     _BAYESIAN_ALPHA_DEFAULT_CI_LEVEL,
 )
 
+# Incremental / warm-start discovery re-export. Thin facade over
+# ``_incremental.incremental_discovery_check`` so callers can warm-start a prior
+# discovery result on an appended frame without reaching into the private
+# sibling. Train-only / no frame copy (the helper reads only a bounded row sample
+# via narrow column pulls).
+from ._incremental import (  # noqa: E402,F401
+    IncrementalDecision,
+    incremental_discovery_check,
+)
+
+
+def discover_incremental(
+    prior_result: "CompositeTargetDiscovery",
+    new_df: Any,
+    target_col: str,
+    feature_cols: Sequence[str],
+    config: Any | None = None,
+    **kwargs: Any,
+) -> IncrementalDecision:
+    """Warm-start a prior :class:`CompositeTargetDiscovery` on an appended frame.
+
+    Cheaply decide REUSE (prior specs still hold -- skip the full re-screen) vs
+    REDISCOVER (DGP drifted -- caller should run ``fit``) by re-scoring each kept
+    spec's MI gain on a bounded sample of ``new_df``. Pulls the prior kept specs
+    + the ``data_signature`` they were fit on off ``prior_result``; ``config``
+    defaults to the prior result's own config.
+
+    Returns an :class:`IncrementalDecision`; ``reuse=True`` carries the prior
+    specs unchanged, ``reuse=False`` carries ``specs=None`` (run a full ``fit``).
+    Thin wrapper -- all extra kwargs (``sample_n`` / ``min_surviving_fraction`` /
+    ``eps_mi_gain``) forward to :func:`incremental_discovery_check`.
+    """
+    prior_specs = list(getattr(prior_result, "specs_", []) or [])
+    prior_sig = getattr(prior_result, "_fit_data_signature", "") or ""
+    if config is None:
+        config = getattr(prior_result, "config", None)
+    return incremental_discovery_check(
+        prior_specs, prior_sig, new_df, target_col, feature_cols, config, **kwargs,
+    )
+
 
 # ----------------------------------------------------------------------

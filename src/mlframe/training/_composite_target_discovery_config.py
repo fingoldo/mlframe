@@ -40,6 +40,29 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Opt-in: add the 3 chronological-order transforms (ewma_residual / rolling_quantile_ratio / frac_diff) to the candidate set. They need the screen in time order, so set ``time_column`` too. Default OFF -- on a shuffled frame they model a meaningless row sequence.
     time_series_transforms_enabled: bool = False
 
+    # Opt-in discovery steps (wired via ``discovery._opt_in_steps``). ALL default
+    # OFF -> a flag-gated no-op that leaves the discovered specs byte-identical to
+    # the legacy flow. Each enables one standalone helper over the already-kept
+    # single-base specs at the END of ``fit``:
+    #   - region_adaptive: per-region best-transform selection routed by frozen
+    #     quantile edges of each kept base (``_region_adaptive.fit_region_adaptive``);
+    #     results surface on ``CompositeTargetDiscovery.region_adaptive_specs_``.
+    #   - interaction_base_discovery: surface ``a OP b`` synthetic interaction bases
+    #     whose MI beats both marginals (``_interaction_bases.discover_interaction_bases``);
+    #     results surface on ``interaction_bases_`` / ``interaction_base_records_``.
+    #   - auto_chain_discovery: compose every ``residual x tail-unary`` chain and keep
+    #     those that beat both single stages on held-out y-scale RMSE
+    #     (``_auto_chain.discover_chains``); winning chains are APPENDED to ``specs_``
+    #     (their composed Transform is registered so ``iter_transform`` resolves it)
+    #     and also surface on ``auto_chains_``.
+    region_adaptive_enabled: bool = False
+    region_adaptive_k: int = 4
+    interaction_base_discovery_enabled: bool = False
+    interaction_base_top_k: int = 4
+    interaction_base_max_pairs: int = 3
+    auto_chain_discovery_enabled: bool = False
+    auto_chain_top_k: int = 2
+
     # Base candidate selection.
     # - "auto": rank all numeric features by structural MI gain
     #   (MI(y - LinearFit(x), X \ {x}) on train) and take the top
