@@ -959,3 +959,51 @@ def test_biz_val_rfecv_sample_weight_changes_support_under_recency():
     # when the score gap is small, so we don't pin the wrapper-level support to a hard inequality).
     assert isinstance(sel_uniform, tuple) and isinstance(sel_recency, tuple)
     assert len(sel_uniform) >= 1 and len(sel_recency) >= 1
+
+
+# ---------------------------------------------------------------------------
+# n_features_selection_rule='auto': pure-noise false-positive control (KNOWN GAP)
+# ---------------------------------------------------------------------------
+#
+# PB-5 (open): the DEFAULT 'auto' rule resolves to 'one_se_max', which on a pure-noise
+# input selects ~ALL features (no false-positive control). A rule-resolution-layer fix --
+# reject all features when the best evaluated subset cannot beat the no-features N=0 dummy --
+# was implemented + measured and REJECTED as a TRADEOFF (not a clean win), so the gap stays
+# open. On pure noise it correctly flipped selection 15 -> 0 with STRONG/WEAK detectable-signal
+# recall bit-identical, BUT it also rejected RECOVERABLE signal on two real-signal fixtures
+# where the FULL feature set scores below the dummy while an UNEXPLORED smaller subset beats it:
+# 6-informative multi-estimator min-aggregation (12 -> 0) and recency sample-weighted 2-feature
+# (2 -> 0). Root cause: RFECV's "all-features can't beat the dummy" early-exit stops the search
+# at {N=0, N=full} on BOTH pure noise AND noise-diluted-but-recoverable signal, so the two are
+# indistinguishable at rule-resolution; the real fix needs an outer-loop search change. Full
+# measured pre/post table + harness: wrappers/_benchmarks/bench_auto_rule_noise_fp.py.
+#
+# This test PINS the current (unfixed) behavior so the gap is visible and a future outer-loop fix
+# flips it without weakening the contract.
+
+
+def test_biz_val_rfecv_auto_rule_pure_noise_fp_gap_pinned():
+    """PB-5 (open FP-control gap): on pure noise the DEFAULT 'auto' rule selects ~all features
+    (RFECV's search early-exits at {0, all} so one_se_max keeps the full noise band). Pins the
+    current behavior; a rule-layer reject was measured as a TRADEOFF (sacrifices recoverable
+    noise-diluted signal -- see bench_auto_rule_noise_fp.py) and NOT shipped."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    rng = np.random.default_rng(0)
+    p = 15
+    X = rng.normal(size=(400, p))
+    y = rng.integers(0, 2, size=400).astype(np.int64)
+    df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=0, n_estimators=40),
+        cv=3, max_refits=10, verbose=0, random_state=0,
+        max_noimproving_iters=4, n_features_selection_rule="auto",
+    )
+    sel.fit(df, y)
+    n_sel = len(_support_indices(sel))
+    # Current (unfixed) contract: auto selects the full noise band on pure noise.
+    assert n_sel >= p - 1, (
+        f"PB-5 pin: expected auto to keep ~all {p} pure-noise features (current FP-control gap); "
+        f"got {n_sel}. If an outer-loop noise-rejection fix landed, flip this to assert n_sel <= p//3."
+    )

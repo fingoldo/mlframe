@@ -86,6 +86,9 @@ def _fit_count_noise(spec, seed: int) -> int:
 #
 # Families whose measured null-FDR is "most of the noise" (>= ~half of 15) are pinned as xfail with the
 # measured rate so the gap is visible and a future FP-control fix flips them green without weakening the test.
+# RFECV PB-5 (auto/one_se_max selecting all noise on pure-noise input) stays xfail: a rule-resolution-layer reject
+# was measured as a TRADEOFF (sacrifices recoverable noise-diluted signal -- see
+# wrappers/_benchmarks/bench_auto_rule_noise_fp.py) and NOT shipped; the real fix needs an outer-loop search change.
 _NULL_CEILINGS = {
     # name        -> (per-seed ceiling, xfail_reason or None)
     "RFECV": (3, "PROD BUG: RFECV(argmax rule, no plateau) selects ALL 15/15 pure-noise features "

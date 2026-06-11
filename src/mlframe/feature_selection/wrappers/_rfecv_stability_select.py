@@ -271,6 +271,18 @@ def select_optimal_nfeatures_(
     # actually picked n_features_ without re-deriving the auto logic.
     self.resolved_n_features_rule_ = rule
 
+    # bench-attempt-rejected (2026-06-11): a flat-curve / pure-noise reject in the 'auto' branch -- when the best evaluated subset
+    # cannot beat (or is SE-significantly worse than) the no-features N=0 dummy, select NOTHING instead of all features -- was
+    # measured as a TRADEOFF, NOT a clean win, and REVERTED. On pure noise it correctly flipped selection 15 -> 0 (and STRONG /
+    # WEAK detectable-signal recall stayed bit-identical), BUT it also rejected RECOVERABLE signal on two real-signal fixtures
+    # where the FULL feature set scores below the dummy while an UNEXPLORED smaller subset would beat it: (1) 6-informative
+    # multi-estimator min-aggregation (knockoffs K3): 12 -> 0; (2) recency sample-weighted 2-feature (A predictive under the
+    # weighting): 2 -> 0. Root cause: RFECV's "all-features can't beat the dummy" early-exit (_rfecv_fit_outer_loop.py ~351)
+    # stops the search at {N=0, N=full} on BOTH pure noise AND noise-diluted-but-recoverable signal, so the two are
+    # INDISTINGUISHABLE at this rule-resolution layer -- any reject here sacrifices recoverable signal. The only safe noise
+    # rejection requires the search to explore smaller subsets BEFORE concluding (an outer-loop change). Harness +
+    # measured numbers: _benchmarks/bench_auto_rule_noise_fp.py.
+
     nfeatures_arr = np.array(checked_nfeatures)
     nonzero_mask = nfeatures_arr > 0
     # Honour max_nfeatures as a HARD cap on the final pick. The optimiser may evaluate larger N during search (e.g. an all-features
