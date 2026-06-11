@@ -19,6 +19,7 @@ from mlframe.reporting.charts.binary import (
     bootstrap_ap_ci,
     compose_binary_figure,
     _finite_binary,
+    _operating_point,
     _ScoreSort,
     _threshold_sweep,
 )
@@ -558,3 +559,147 @@ def test_decile_table_figure_cprofile_bounded_at_1e6():
     total = st.total_tt
     assert fig is not None
     assert total < 2.0, f"decile-table figure build at n=1e6 took {total:.3f}s (>2s: a per-decile rescan crept in)"
+
+
+# ----------------------------------------------------------------------------
+# Operating-point marker on ROC / PR (decision-threshold)
+# ----------------------------------------------------------------------------
+
+
+def _confusion_rates(yt, ys, thr):
+    """Brute-force (FPR, TPR, recall, precision) at the ``score >= thr`` operating point from the raw confusion counts."""
+    pred = (ys >= thr).astype(int)
+    tp = int(((pred == 1) & (yt == 1)).sum())
+    fp = int(((pred == 1) & (yt == 0)).sum())
+    fn = int(((pred == 0) & (yt == 1)).sum())
+    tn = int(((pred == 0) & (yt == 0)).sum())
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    fpr = fp / (fp + tn) if (fp + tn) else 0.0
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    return fpr, tpr, tpr, precision
+
+
+def test_roc_panel_carries_operating_point_marker():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC", threshold=0.5))
+    assert panel.point_markers is not None and len(panel.point_markers) == 1
+    mx, my, label, color, sym = panel.point_markers[0]
+    assert label.startswith("thr=0.50:") and "TPR=" in label and "FPR=" in label
+    assert sym == "*"
+
+
+def test_pr_panel_carries_operating_point_marker():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR", threshold=0.5, ap_ci=False))
+    assert panel.point_markers is not None and len(panel.point_markers) == 1
+    _, _, label, _, _ = panel.point_markers[0]
+    assert label.startswith("thr=0.50:") and "R=" in label and "P=" in label
+
+
+def test_operating_point_marker_can_be_disabled():
+    y, s = _separable()
+    (roc,) = _flat(compose_binary_figure(y, s, panels_template="ROC", operating_point=False))
+    (prc,) = _flat(compose_binary_figure(y, s, panels_template="PR", ap_ci=False, operating_point=False))
+    assert roc.point_markers is None
+    assert prc.point_markers is None
+
+
+@pytest.mark.parametrize("thr", [0.3, 0.5, 0.7])
+def test_roc_marker_coords_equal_confusion_rates(thr):
+    """The ROC marker's (FPR, TPR) must equal the confusion-matrix-derived rates at that exact threshold."""
+    y, s = _separable(seed=2)
+    yt, ys = _finite_binary(y, s)
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC", threshold=thr))
+    mx, my, _, _, _ = panel.point_markers[0]
+    exp_fpr, exp_tpr, _, _ = _confusion_rates(yt, ys, thr)
+    assert mx == pytest.approx(exp_fpr, abs=1e-9)
+    assert my == pytest.approx(exp_tpr, abs=1e-9)
+
+
+@pytest.mark.parametrize("thr", [0.3, 0.5, 0.7])
+def test_pr_marker_coords_equal_confusion_rates(thr):
+    """The PR marker's (recall, precision) must equal the confusion-matrix-derived rates at that exact threshold."""
+    y, s = _separable(seed=2)
+    yt, ys = _finite_binary(y, s)
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR", threshold=thr, ap_ci=False))
+    mx, my, _, _, _ = panel.point_markers[0]
+    _, _, exp_rec, exp_prec = _confusion_rates(yt, ys, thr)
+    assert mx == pytest.approx(exp_rec, abs=1e-9)
+    assert my == pytest.approx(exp_prec, abs=1e-9)
+
+
+def test_operating_point_omitted_when_threshold_above_all_scores():
+    """A threshold above every score flags nobody -> marker omitted gracefully, curve kept."""
+    y, s = _separable()
+    hi = float(np.max(s)) + 0.5
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC", threshold=hi))
+    assert panel.point_markers is None
+    assert isinstance(panel, LinePanelSpec)  # curve still drawn
+
+
+def test_operating_point_none_on_single_class():
+    yt, ys = _finite_binary(np.ones(200, dtype=int), np.linspace(0.1, 0.9, 200))
+    sort = _ScoreSort(yt, ys)
+    assert _operating_point(sort, 0.5) is None
+
+
+def test_operating_point_uses_searchsorted_not_full_pass():
+    """The operating point is rank-located via searchsorted on the shared sort -- correct on tied scores too."""
+    yt = np.array([1, 0, 1, 1, 0, 0, 1, 0], dtype=np.int8)
+    ys = np.array([0.9, 0.9, 0.5, 0.5, 0.5, 0.2, 0.2, 0.1])  # heavy ties
+    sort = _ScoreSort(yt, ys)
+    for thr in (0.9, 0.5, 0.2, 0.1):
+        op = _operating_point(sort, thr)
+        exp_fpr, exp_tpr, exp_rec, exp_prec = _confusion_rates(yt, ys, thr)
+        assert op[0] == pytest.approx(exp_fpr, abs=1e-12)
+        assert op[1] == pytest.approx(exp_tpr, abs=1e-12)
+        assert op[3] == pytest.approx(exp_prec, abs=1e-12)
+
+
+def test_biz_val_operating_point_moves_monotonically_with_threshold():
+    """Raising the threshold must not raise recall (fewer positives flagged): TPR/recall monotone non-increasing.
+
+    A regression that mislocated the operating-point rank (off-by-one / wrong sort direction) would break monotonicity."""
+    y, s = _separable(n=8000, sep=2.0, seed=12)
+    yt, ys = _finite_binary(y, s)
+    sort = _ScoreSort(yt, ys)
+    thresholds = [0.2, 0.4, 0.6, 0.8]
+    recalls = [_operating_point(sort, t)[1] for t in thresholds]
+    assert all(recalls[i] >= recalls[i + 1] - 1e-12 for i in range(len(recalls) - 1)), \
+        f"recall not monotone non-increasing with threshold: {recalls}"
+    # And a strictly higher threshold gives strictly lower recall somewhere along the sweep (not a flat line).
+    assert recalls[0] > recalls[-1], f"recall did not drop from thr=0.2 ({recalls[0]}) to thr=0.8 ({recalls[-1]})"
+
+
+def test_operating_point_marker_renders_on_matplotlib():
+    """End-to-end: the ROC+PR markers must render without error through the matplotlib backend."""
+    from mlframe.reporting.renderers.base import get_renderer
+    import matplotlib
+    matplotlib.use("Agg")
+    y, s = _separable()
+    fig_spec = compose_binary_figure(y, s, panels_template="ROC PR", threshold=0.5, ap_ci=False)
+    rend = get_renderer("matplotlib")
+    fig = rend.render(fig_spec)
+    assert fig is not None
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_operating_point_cprofile_bounded_reuses_sweep():
+    """The operating point is one searchsorted on the existing sort: figure build at n=1e6 stays well under a second."""
+    import cProfile
+    import io
+    import pstats
+
+    rng = np.random.default_rng(13)
+    n = 1_000_000
+    y = (rng.random(n) < 0.3).astype(np.int8)
+    s = 1.0 / (1.0 + np.exp(-rng.normal(2.0 * y, 1.0, n)))
+    compose_binary_figure(y, s, panels_template="ROC PR", ap_ci=False)  # warm
+    pr = cProfile.Profile()
+    pr.enable()
+    fig = compose_binary_figure(y, s, panels_template="ROC PR", ap_ci=False)
+    pr.disable()
+    st = pstats.Stats(pr, stream=io.StringIO())
+    assert fig is not None
+    assert st.total_tt < 2.0, f"ROC+PR build at n=1e6 took {st.total_tt:.3f}s (operating point should add no full-n pass)"

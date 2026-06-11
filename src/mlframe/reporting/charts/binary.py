@@ -150,7 +150,37 @@ class _ScoreSort:
 # ----------------------------------------------------------------------------
 
 
-def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
+def _operating_point(sort: _ScoreSort, threshold: float) -> Optional[Tuple[float, float, float, float]]:
+    """Confusion-derived (FPR, TPR, recall, precision) at the ``score >= threshold`` operating point, or None.
+
+    Locates the threshold's rank via ``searchsorted`` on the SHARED descending-score array (O(log n), no new full-n
+    pass): the rank ``k`` is the count of scores ``>= threshold``, read off as TP=cum_tp[k-1], FP=cum_fp[k-1]. Returns
+    None when the marker is undefined -- single-class (no TPR or no FPR axis) or a threshold outside the score range
+    that flags nobody (k==0) -- so the caller omits the marker but keeps the curve.
+    """
+    if sort.n == 0 or sort.n_pos == 0 or sort.n_neg == 0:
+        return None
+    # scores_desc is descending; -scores_desc is ascending, so searchsorted(side='right') counts scores >= threshold.
+    k = int(np.searchsorted(-sort.scores_desc, -float(threshold), side="right"))
+    if k == 0:
+        return None
+    tp = float(sort.cum_tp[k - 1])
+    fp = float(sort.cum_fp[k - 1])
+    tpr = tp / sort.n_pos
+    fpr = fp / sort.n_neg
+    precision = tp / max(1.0, tp + fp)
+    return fpr, tpr, tpr, precision
+
+
+def _operating_point_label(threshold: float, a: float, b: float, kind: str) -> str:
+    """Short marker label: ``thr=0.50: TPR=0.81 FPR=0.12`` (ROC) or ``thr=0.50: R=0.81 P=0.74`` (PR)."""
+    if kind == "roc":
+        return f"thr={threshold:.2f}: TPR={a:.2f} FPR={b:.2f}"
+    return f"thr={threshold:.2f}: R={a:.2f} P={b:.2f}"
+
+
+def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None,
+               operating_point: bool = True) -> PanelSpec:
     """ROC curve (TPR vs FPR) with the chance diagonal; AUC in the title.
 
     Built from the shared score sort's per-distinct-threshold cumulative TP/FP counts (the same quantities
@@ -166,6 +196,12 @@ def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
     roc_auc = float(np.trapezoid(tpr, fpr))
     x_thin, (tpr_thin,) = _decimate(fpr, tpr)
     diag = x_thin.copy()
+    markers = None
+    if operating_point:
+        op = _operating_point(sort, threshold)
+        if op is not None:
+            op_fpr, op_tpr, _, _ = op
+            markers = ((op_fpr, op_tpr, _operating_point_label(threshold, op_tpr, op_fpr, "roc"), "#d62728", "*"),)
     return LinePanelSpec(
         x=x_thin,
         y=(tpr_thin, diag),
@@ -175,6 +211,7 @@ def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
         ylabel="True Positive Rate",
         line_styles=("-", ":"),
         colors=("#1f77b4", "gray"),
+        point_markers=markers,
     )
 
 
@@ -253,7 +290,7 @@ def _ap_from_labels_desc(labels_desc: np.ndarray) -> float:
 
 
 def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None,
-              ap_ci: bool = True, ap_ci_seed: int = 0) -> PanelSpec:
+              ap_ci: bool = True, ap_ci_seed: int = 0, operating_point: bool = True) -> PanelSpec:
     """Precision-recall curve with the prevalence no-skill baseline; AP + bootstrap 95% CI in the title.
 
     Built from the shared score sort's per-distinct-threshold cumulative TP/FP counts, matching sklearn's
@@ -282,6 +319,12 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
         _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed)
         if np.isfinite(lo) and np.isfinite(hi):
             title = f"Precision-Recall (AP={ap:.3f} [{lo:.3f}, {hi:.3f}], 95% CI)"
+    markers = None
+    if operating_point:
+        op = _operating_point(sort, threshold)
+        if op is not None:
+            _, _, op_rec, op_prec = op
+            markers = ((op_rec, op_prec, _operating_point_label(threshold, op_rec, op_prec, "pr"), "#d62728", "*"),)
     return LinePanelSpec(
         x=x_thin,
         y=(prec_thin, baseline),
@@ -291,6 +334,7 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
         ylabel="Precision",
         line_styles=("-", ":"),
         colors=("#2ca02c", "gray"),
+        point_markers=markers,
     )
 
 
@@ -729,6 +773,7 @@ def compose_binary_figure(
     cell_height: float = 4.0,
     ap_ci: bool = True,
     ap_ci_seed: int = 0,
+    operating_point: bool = True,
 ) -> FigureSpec:
     """Build a binary-classification quality FigureSpec from a panel template.
 
@@ -745,6 +790,9 @@ def compose_binary_figure(
     max_cols : grid width (default 2).
     ap_ci : annotate the PR panel's AP with a 95% bootstrap CI (default on; AP has no closed-form variance).
     ap_ci_seed : seed for the AP bootstrap, so the interval is reproducible.
+    operating_point : mark the chosen ``threshold`` operating point on the ROC (FPR, TPR) and PR (recall, precision)
+        curves (default on), so the user sees exactly where on the sweep they operate. Omitted gracefully when
+        single-class / the threshold flags nobody.
     """
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -759,6 +807,8 @@ def compose_binary_figure(
     panels: List[PanelSpec] = []
     for tok in tokens:
         kw = dict(sort=sort, threshold=threshold, cost_ratio=cost_ratio)
+        if tok in ("ROC", "PR"):
+            kw.update(operating_point=operating_point)
         if tok == "PR":
             kw.update(ap_ci=ap_ci, ap_ci_seed=ap_ci_seed)
         panels.append(_TOKEN_BUILDERS[tok](yt, ys, **kw))

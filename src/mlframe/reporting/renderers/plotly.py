@@ -674,6 +674,17 @@ class PlotlyRenderer:
             # and y spanning the panel's y-domain works on numeric AND datetime axes alike (G4).
             self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col)
 
+        _MARKER_MAP = {"*": "star", "D": "diamond", "o": "circle", "s": "square", "^": "triangle-up"}
+        for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
+            fig.add_trace(
+                go.Scatter(x=[mx], y=[my], mode="markers+text",
+                           marker=dict(color=mcolor, size=13, symbol=_MARKER_MAP.get(msym, "star"),
+                                       line=dict(color="black", width=0.6)),
+                           text=[mlabel or ""], textposition="bottom right", textfont=dict(size=8),
+                           name=mlabel or None, showlegend=bool(mlabel)),
+                row=row, col=col,
+            )
+
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid,
                          tickangle=-30 if p.x_is_time else 0)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid,

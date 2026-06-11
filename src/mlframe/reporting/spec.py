@@ -217,6 +217,10 @@ class LinePanelSpec:
     # Vertical reference lines: tuple of (x, color, label). label may be "" for unlabeled. ``x`` may be a float OR a
     # datetime / numpy datetime64 (temporal change-point markers); renderers draw these on a datetime x-axis too.
     vlines: Optional[Tuple[Tuple[Any, str, str], ...]] = None
+    # Standalone point markers drawn on top of the curves (e.g. the chosen decision-threshold operating point on a
+    # ROC / PR curve): tuple of (x, y, label, color, marker_symbol). ``label`` rides the legend; renderers also
+    # annotate the metric text beside the point. ``marker_symbol`` is a matplotlib marker token ("*", "D", "o").
+    point_markers: Optional[Tuple[Tuple[float, float, str, str, str], ...]] = None
     # Shaded vertical spans (change-points / train-val-test split shading): (x0, x1, color, alpha) or, to carry a
     # legend label, (x0, x1, color, alpha, label). A non-empty label adds a legend proxy for the span.
     vspans: Optional[Tuple[Tuple[Any, ...], ...]] = None

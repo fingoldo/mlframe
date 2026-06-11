@@ -558,9 +558,17 @@ class MatplotlibRenderer:
             ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2,
                        label=vlabel or None)
 
+        for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
+            ax.plot([mx], [my], marker=msym or "*", markersize=13, color=mcolor,
+                    markeredgecolor="black", markeredgewidth=0.6, linestyle="none",
+                    label=mlabel or None, zorder=6)
+            if mlabel:
+                ax.annotate(mlabel, (mx, my), textcoords="offset points", xytext=(8, -10),
+                            fontsize=7, color=mcolor, zorder=6)
+
         if ax2 is not None:
             ax2.set_ylabel(p.secondary_ylabel)
-        if any(labels) or p.band_label or any((p.vlines or ())) or proxies or (ax2 is not None and any(sec)):
+        if any(labels) or p.band_label or any((p.vlines or ())) or any((p.point_markers or ())) or proxies or (ax2 is not None and any(sec)):
             handles, leg_labels = ax.get_legend_handles_labels()
             if ax2 is not None:
                 h2, l2 = ax2.get_legend_handles_labels()
