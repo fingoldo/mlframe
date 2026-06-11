@@ -243,18 +243,38 @@ class TestLayer54_C2_RowPerSupportFeature:
 
     def test_feature_names_match_final_output_order(self):
         """Order in fe_provenance_ must mirror transform()'s column order:
-        raw support_ names followed by engineered names in
-        _engineered_recipes_ order."""
+        raw support_ names first, then the SURVIVING engineered names in
+        ``_engineered_recipes_`` order, then any engineered column the FE
+        pipeline PRODUCED this fit but the greedy CMI screen / accuracy gate
+        dropped before support finalisation (drained from ``_produced_recipes_``
+        -- the audit-trail completeness ``_final_feature_order`` deliberately
+        carries so a pickle-replay can recover which mechanism produced every
+        engineered column even when it lost the greedy competition). The
+        survivor prefix MUST come first and in the right order; the
+        produced-but-screened suffix follows (any order)."""
         X, y = _simple_binary_frame(n=400, seed=11)
         m = _fast_mrmr().fit(X, y)
         feature_names_in = list(m.feature_names_in_)
         raw_names = [feature_names_in[i] for i in np.asarray(m.support_).tolist()]
         eng_names = [r.name for r in (m._engineered_recipes_ or [])]
-        expected = raw_names + eng_names
+        survivor_prefix = raw_names + eng_names
         got = list(m.fe_provenance_["feature_name"])
-        assert got == expected, (
-            f"feature_name order mismatch: got {got!r}, expected {expected!r}"
+        # The survivor prefix (raw support + surviving engineered recipes) is
+        # positionally pinned (mirrors transform() column order).
+        assert got[: len(survivor_prefix)] == survivor_prefix, (
+            f"survivor prefix mismatch: got {got!r}, expected prefix {survivor_prefix!r}"
         )
+        # Any trailing names are produced-but-screened engineered columns; they
+        # must all be drawn from the produced-recipes audit ledger and never
+        # duplicate a survivor.
+        produced_names = {r.name for r in (getattr(m, "_produced_recipes_", []) or [])}
+        trailing = got[len(survivor_prefix):]
+        assert len(set(trailing)) == len(trailing), f"duplicate produced names: {trailing!r}"
+        for nm in trailing:
+            assert nm in produced_names, (
+                f"trailing provenance name {nm!r} is neither a survivor nor in "
+                f"_produced_recipes_={sorted(produced_names)!r}"
+            )
 
     def test_engineered_name_with_recipe_included(self):
         """When hybrid-orth FE fires and an engineered name lands in
