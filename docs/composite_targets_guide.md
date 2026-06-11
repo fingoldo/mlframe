@@ -509,3 +509,486 @@ warm-starts on appended data.
 | Per-group coverage | `calibrate_conformal_mondrian` → `predict_interval_mondrian` |
 | Covariate shift | `calibrate_conformal_weighted` → `predict_interval_weighted` |
 | Full quantiles | `CompositeQuantileEstimator.predict_quantile` |
+
+---
+
+# Extended surface (post-wave-10)
+
+Everything below is importable from `mlframe.training.composite` unless a
+fully-qualified submodule path is shown. Each section gives: one-line summary,
+when to use, and a short verified snippet. All constructor / function
+signatures below were read from the source modules under
+`src/mlframe/training/composite/`.
+
+## A. Estimator families
+
+These are sibling wrappers to `CompositeTargetEstimator`, each for a different
+target family. All are sklearn-compatible (`fit` / `predict`) and never copy or
+down-convert the feature frame.
+
+### `CompositeGLMEstimator` — log-link Poisson / Gamma / Tweedie residual
+
+Models a GLM residual over a positive base mean; for counts, durations, and
+insurance-style targets. (Already covered in §6 above — kept here for the menu.)
+
+```python
+from mlframe.training.composite import CompositeGLMEstimator
+glm = CompositeGLMEstimator(base_estimator=..., family="poisson", tweedie_power=1.5)
+```
+
+### `CompositeQuantileEstimator` — native pinball-quantile heads
+
+One inner per quantile fit on the transform `T`, inverted to y-scale, with
+per-row non-crossing. Use when you need calibrated conditional quantiles rather
+than a single point estimate. (Constructor + snippet in §4 above.)
+
+### `CompositeMultiOutputEstimator` — per-column vector target
+
+One composite per column of a `(n, K)` target. Use for joint multi-output
+regression where each output wants its own transform / base. (See §7.)
+
+### `CompositeDistributionEstimator` — full predictive distribution (CRPS)
+
+One sentence: a dense-quantile composite (delegating to
+`CompositeQuantileEstimator`) that exposes the *whole* predictive distribution
+— CDF, sampling, and a proper CRPS score. When to use: you need calibrated
+densities / probabilistic scoring, not just a band.
+
+```python
+from mlframe.training.composite import CompositeDistributionEstimator
+de = CompositeDistributionEstimator(
+    base_estimator=GradientBoostingRegressor(loss="quantile"),
+    transform_name="linear_residual", base_column="lag",
+)  # quantiles=None -> a dense default grid
+de.fit(X, y)
+de.predict(X)                              # median point estimate
+de.predict_quantile(X)                     # (n, len(grid)) ascending
+de.predict_cdf(X, y_grid=[-1.0, 0.0, 1.0]) # (n, 3) P(Y <= g)
+de.sample(X, n_samples=100, random_state=0)
+crps = de.crps(X, y, reduce="mean")        # proper score (lower=better)
+```
+
+### `CompositeSurvivalEstimator` — right-censored time-to-event (AFT-style)
+
+One sentence: a log-time AFT-style composite over a log base column with a 0/1
+event indicator and Harrell's concordance. When to use: right-censored
+durations / survival times. `censoring="aware"` requires scikit-survival;
+`"observed_only"` / `"auto"` fall back to event-only fitting.
+
+```python
+from mlframe.training.composite import CompositeSurvivalEstimator
+sv = CompositeSurvivalEstimator(base_estimator=..., base_column="log_base",
+                                censoring="auto")
+sv.fit(X, time, event=event01)            # event=1 observed, 0 censored
+sv.predict(X)                              # predicted (positive) time
+```
+
+### `CompositePanelEstimator` — entity fixed-effects (longitudinal)
+
+One sentence: subtracts a train-only shrunken per-entity offset (toward the
+global mean, `w_e = n_e/(n_e+alpha)`) then learns the within-entity residual.
+When to use: panel / longitudinal data with strong entity-level intercepts.
+
+```python
+from mlframe.training.composite import CompositePanelEstimator
+pe = CompositePanelEstimator(inner_estimator=..., entity_column="user_id",
+                             shrinkage_alpha=10.0)
+pe.fit(X, y)                               # entity_column read off X
+pe.predict(X)                              # unseen entities -> global mean offset
+pe.predict(X, entity_id=some_ids)          # override entity ids explicitly
+```
+
+### `CompositeRankEstimator` — learning-to-rank within groups
+
+One sentence: residualises the target against a base score *within each query
+group* (rank / z-score / raw modes) and learns the within-group ordering
+correction. When to use: ranking with a strong base-score prior. `fit` requires
+a `group` array; default inner is LightGBM `LGBMRanker` (pairwise fallback).
+
+```python
+from mlframe.training.composite import CompositeRankEstimator, ndcg_at_k
+rk = CompositeRankEstimator(base_column="base_score", residual_mode="rank")
+rk.fit(X, y, group=group_sizes)
+scores = rk.predict(X, group=group_sizes)
+ndcg = ndcg_at_k(y, scores, group_sizes, k=10)
+```
+
+### `OrthogonalizedCompositeEstimator` — double-ML / Neyman-orthogonal base
+
+One sentence: cross-fits nuisance models for `E[y|X]` and `E[base|X]`, then fits
+the inner on the orthogonalized (residual-on-residual) signal — debiased base
+effect. When to use: you want an unbiased base coefficient under confounding.
+
+```python
+from mlframe.training.composite import OrthogonalizedCompositeEstimator
+oc = OrthogonalizedCompositeEstimator(base_column="lag", inner_estimator=...,
+                                      n_folds=5, random_state=0)
+oc.fit(X, y); oc.predict(X)
+```
+
+### `BaggedCompositeEstimator` — bootstrap-bagged epistemic ensemble
+
+One sentence: fits `n_estimators` composites on bootstrap resamples with
+decorrelated inner seeds; `predict` averages, and the per-member spread gives an
+epistemic uncertainty band. When to use: variance reduction + cheap epistemic
+intervals without conformal calibration.
+
+```python
+from mlframe.training.composite import BaggedCompositeEstimator
+bc = BaggedCompositeEstimator(base_estimator=composite_proto, n_estimators=10,
+                              bootstrap=True, random_state=0, n_jobs=1)
+bc.fit(X, y); bc.predict(X)
+```
+
+### `MissingAwareComposite` — NaN-base robustness
+
+One sentence: wraps a single-base composite, dropping fit-time rows whose base
+exceeds `max_missing_frac` NaN and imputing the base at predict (median/mean),
+without copying the full frame. When to use: the base column has missing values
+at inference time.
+
+```python
+from mlframe.training.composite import MissingAwareComposite
+ma = MissingAwareComposite(composite=CompositeTargetEstimator(...),
+                           max_missing_frac=0.5, impute_strategy="median")
+ma.fit(X, y); ma.predict(X_with_nan_base)
+```
+
+### `TailCompositeEstimator` — extreme-value (GPD) tail quantiles
+
+One sentence: fits a body point-composite plus a Generalized-Pareto tail on the
+held-out residual exceedances, giving valid quantiles far past the data range.
+When to use: extreme high/low quantiles (risk, VaR-style tails). Prefer a
+held-out `residual_X` / `residual_y` so the threshold is not optimistic.
+
+```python
+from mlframe.training.composite import TailCompositeEstimator
+tc = TailCompositeEstimator(base_estimator=..., transform_name="diff",
+                            base_column="lag", threshold_pct=0.9, two_sided=True)
+tc.fit(X_tr, y_tr, residual_X=X_cal, residual_y=y_cal)
+tc.predict(X)                              # body point prediction
+tc.predict_tail_quantile(X, q=0.995)       # GPD-extrapolated extreme quantile
+tc.tail_params_                            # fitted (xi, beta, threshold) per side
+```
+
+### `CompositeOrRawStacker` — composite-vs-raw meta-stacker
+
+One sentence: cross-fits both a composite and a raw inner on the same data and
+learns a non-negative (NNLS) blend from OOF predictions — degrades gracefully to
+whichever wins. When to use: you are unsure the composite helps and want an
+auto-hedged ensemble.
+
+```python
+from mlframe.training.composite import CompositeOrRawStacker
+st = CompositeOrRawStacker(base_estimator=..., transform_name="diff",
+                           base_column="lag", n_splits=5, random_state=0)
+st.fit(X, y); st.predict(X)
+```
+
+> `CompositeQRFEstimator` is referenced in the roadmap but is **not** present in
+> the current source tree; it is intentionally omitted here until it lands.
+
+## B. Uncertainty menu
+
+The split / CQR / Mondrian / weighted conformal methods bind onto
+`CompositeTargetEstimator` (covered in §4). The additions below extend the menu
+to classification sets, GLM, multi-output, online, distributional, Venn-Abers,
+and extreme-value coverage. Every `calibrate_*` call must use rows the inner
+never trained on.
+
+### Online / adaptive conformal (ACI) — streaming coverage
+
+One sentence: an Adaptive Conformal Inference controller on
+`CompositeTargetEstimator` that updates the radius online so long-run coverage
+tracks `1-alpha` even under drift. When to use: streaming / non-exchangeable
+data where a fixed split-conformal radius decays.
+
+```python
+est.init_aci(alpha=0.1, gamma=0.05, buffer_n=500, warmup_residuals=resid_cal)
+lo, hi = est.predict_interval_online(X)         # current adaptive radius
+est.update_conformal(x_new, y_new)              # observe -> advance controller
+est.get_aci_state()                             # diagnostic snapshot
+```
+
+### Conformal classification SETS (LAC / APS)
+
+One sentence: calibrated prediction *sets* (not single labels) on
+`CompositeClassificationEstimator`, via least-ambiguous (`"lac"`) or adaptive
+(`"aps"`) scores. When to use: classification where you need a set guaranteed to
+contain the true label with probability `>= 1-alpha`.
+
+```python
+clf.calibrate_conformal_set(X_cal, y_cal, alpha=0.1, score="lac")
+sets = clf.predict_set(X, alpha=0.1, score="lac")   # per-row label set
+```
+
+### Venn-Abers — calibrated binary probability intervals
+
+One sentence: an Inductive Venn-Abers calibrator on
+`CompositeClassificationEstimator` that returns a probability *interval*
+`(p_low, p_high)` plus a calibrated point proba. When to use: you need honest
+binary probability calibration with a width that flags uncertainty.
+
+```python
+clf.calibrate_venn_abers(X_cal, y_cal)
+p_lo, p_hi = clf.predict_proba_interval(X)          # positive-class interval
+proba = clf.predict_proba_venn_abers(X)             # (n, 2) calibrated
+```
+
+### GLM conformal — variance-scaled intervals
+
+One sentence: a variance-function-scaled split-conformal radius on
+`CompositeGLMEstimator`, so the band width *grows with the predicted mean*. When
+to use: heteroscedastic count / positive targets where a constant band is wrong.
+
+```python
+glm.calibrate_conformal_glm(X_cal, y_cal, alpha=0.1)
+lo, hi = glm.predict_interval_glm(X, alpha=0.1)
+```
+
+### Multi-output conformal — per-column bands
+
+One sentence: per-column split-conformal on `CompositeMultiOutputEstimator`
+(each output calibrated independently, failed columns degenerate to their
+fallback). When to use: vector-target intervals.
+
+```python
+mo.calibrate_conformal(X_cal, Y_cal, alpha=0.1)
+lower, upper = mo.predict_interval(X, alpha=0.1)    # both (n, K)
+```
+
+### Distributional CRPS + extreme-value tails
+
+See `CompositeDistributionEstimator.crps` and
+`TailCompositeEstimator.predict_tail_quantile` in section A — the distributional
+proper-score path and the GPD tail-quantile path of the uncertainty menu.
+
+### Menu (extended)
+
+| Need | Use |
+|------|-----|
+| Streaming / drift-robust coverage | `init_aci` → `predict_interval_online` + `update_conformal` |
+| Classification prediction sets | `calibrate_conformal_set` → `predict_set` |
+| Binary probability interval | `calibrate_venn_abers` → `predict_proba_interval` |
+| GLM (mean-scaled) interval | `calibrate_conformal_glm` → `predict_interval_glm` |
+| Multi-output bands | `CompositeMultiOutputEstimator.calibrate_conformal` → `predict_interval` |
+| Proper density score | `CompositeDistributionEstimator.crps` |
+| Extreme tail quantile | `TailCompositeEstimator.predict_tail_quantile` |
+
+## C. Workflow helpers
+
+### `suggest_discovery_config` — data-driven config + rationale
+
+One sentence: inspects a bounded sample of the frame and returns a populated
+`CompositeTargetDiscoveryConfig` plus a per-field rationale dict. When to use:
+you want sensible discovery defaults without hand-tuning. (Snippet in §2.)
+
+```python
+cfg, rationale = suggest_discovery_config(df, "target", feature_cols,
+                                          sample_n=20_000, seed=0)
+```
+
+### `discover_and_wrap` — discovery → fitted estimator in one call
+
+One sentence: runs the full discovery flow and returns a fitted estimator +
+provenance report (`DiscoverAndWrapResult`), optionally calibrating a
+split-conformal radius on a disjoint holdout. When to use: the one-call happy
+path from raw frame to deployable composite.
+
+```python
+res = discover_and_wrap(df, "target", feature_cols, train_idx=train_idx,
+                        calibrate_conformal=True, conformal_alpha=0.1,
+                        holdout_idx=val_idx)
+res.estimator.predict(X_new)
+```
+
+### `optimize_composite` — joint (transform, inner-HPO) search
+
+One sentence: jointly searches the transform choice and inner hyperparameters by
+CV (Optuna when available, else random search) and returns the winning fitted
+composite + trial log. When to use: you want the best (transform, params) pair
+rather than a fixed transform.
+
+```python
+from sklearn.ensemble import HistGradientBoostingRegressor
+res = optimize_composite(
+    X, y, base_column="lag",
+    transform_candidates=("diff", "linear_residual", "ratio"),
+    inner_factory=lambda: HistGradientBoostingRegressor(),
+    n_trials=30, cv=5, time_ordering=None, prefer_optuna=True,
+)
+res.estimator.predict(X)                   # winning all-rows-fitted composite
+```
+
+### `stability_select_specs` — bootstrap selection frequency
+
+One sentence: re-runs discovery on `n_replicates` row-subsamples and returns
+each spec's selection frequency plus the stable subset above `freq_threshold`.
+When to use: you want only specs that survive resampling (guard against
+seed-lucky discoveries).
+
+```python
+res = stability_select_specs(
+    discovery_factory=lambda: CompositeTargetDiscovery(cfg),
+    df=df, target="target", feature_cols=feature_cols, train_idx=train_idx,
+    n_replicates=5, subsample_frac=0.8, freq_threshold=0.6, random_state=0,
+)
+```
+
+### `discover_incremental` — warm-start on appended data
+
+One sentence: cheaply decides REUSE (prior specs still hold) vs REDISCOVER (DGP
+drifted) by re-scoring kept specs' MI gain on a sample of the new frame. When to
+use: data grows incrementally and you want to avoid a full re-screen each batch.
+Imported from the discovery subpackage:
+
+```python
+from mlframe.training.composite.discovery import discover_incremental
+decision = discover_incremental(prior_disc, new_df, "target", feature_cols)
+if decision.reuse:
+    specs = decision.specs                 # prior specs carried forward
+```
+
+### `engineer_temporal_bases` — strictly-causal temporal base columns
+
+One sentence: builds a family of strictly-causal lag / rolling / diff base
+columns from the target series (sorted by time, mapped back to original row
+order). When to use: time-series discovery where you need candidate AR bases.
+
+```python
+from mlframe.training.composite import engineer_temporal_bases
+bases = engineer_temporal_bases(df, "target", time_column="ts",
+                                lags=(1, 2, 3), rolling_windows=(3, 5),
+                                ops=("lag", "rolling_mean", "diff"))
+# dict[name -> ndarray aligned with df's row order]
+```
+
+### Default-ON discovery steps
+
+`auto_chain_discovery_enabled`, `region_adaptive_enabled`,
+`interaction_base_discovery_enabled` are ON by default (see "Advanced discovery"
+above): auto-chaining appends winning residual→tail chains to `specs_`,
+region-adaptive surfaces per-region best transforms on
+`discovery.region_adaptive_specs_`, and interaction-base discovery surfaces
+synergy bases on `discovery.interaction_bases_`.
+
+## D. Interpretability
+
+### `explain_prediction` — per-row base + residual decomposition
+
+One sentence: returns a `pandas.DataFrame` decomposing each composite prediction
+into its base level and learned-residual contribution. When to use: row-level
+"why this prediction" attribution for a fitted (additive/multiplicative)
+composite. Base-free unary transforms raise.
+
+```python
+from mlframe.training.composite import explain_prediction, attribution_summary
+df_expl = explain_prediction(est, X)        # per-row base / residual / total
+summary = attribution_summary(est, X)        # aggregate base-vs-residual shares
+```
+
+### `composite_report` — one explainability report (markdown / html)
+
+One sentence: assembles a single human-readable report (config, attribution,
+prediction range, fallback rate, interval coverage when `X`/`y` given) via one
+`predict`. When to use: a stakeholder-facing summary of a fitted composite.
+
+```python
+from mlframe.training.composite import composite_report
+md = composite_report(est, X, y, fmt="markdown")   # or fmt="html"
+```
+
+### `composite_model_card` — structured model card
+
+One sentence: builds a structured model-card dict (identity, provenance, params,
+readiness, plus evaluation / attribution / leakage when `X`/`y` given). When to
+use: governance / model-registry metadata.
+
+```python
+from mlframe.training.composite import composite_model_card
+card = composite_model_card(est, X, y, target_col="target")
+```
+
+## E. Production
+
+### `CompositeDriftMonitor` — deployed-model drift watch
+
+One sentence: a read-only monitor that sketches base / prediction / residual
+distributions at train time and flags PSI / KS / residual-shift drift on new
+batches, recommending a refit. When to use: monitoring a deployed composite for
+input or residual drift.
+
+```python
+from mlframe.training.composite import CompositeDriftMonitor
+mon = CompositeDriftMonitor(est, base_psi_threshold=0.25)
+report = mon.check(X_new, y_new)            # alerts + recommend_update flag
+```
+
+### `detect_base_target_leakage` — base-is-y guard
+
+One sentence: tests whether a base column is a near-deterministic function of the
+*current* target (Spearman + residual + lag probes), catching a leaking base
+before it inflates discovery. When to use: validating a candidate base on
+temporal data before trusting its MI gain.
+
+```python
+from mlframe.training.composite import detect_base_target_leakage
+verdict = detect_base_target_leakage(y, base, time_ordering=ts)
+verdict["leaking"]                          # bool + the probe details
+```
+
+### `PurgedTimeSeriesSplit` / `make_purged_cv` — leakage-safe CV
+
+One sentence: forward-walk CV with a purge gap and embargo so no train row shares
+a label window / short-range autocorrelation with its test fold. When to use:
+honest time-series CV for scoring composites.
+
+```python
+from mlframe.training.composite import PurgedTimeSeriesSplit, make_purged_cv
+cv = PurgedTimeSeriesSplit(n_splits=5, purge=10, embargo=0.01)
+for tr, te in cv.split(X):
+    ...
+```
+
+### `export_serving_spec` / `load_serving_spec` — dependency-light serving
+
+One sentence: serialise a fitted composite's forward/inverse + clip/fallback
+params to a JSON-able dict and rebuild a pure-callable y-scale predict (the inner
+model is served separately). When to use: lightweight production serving without
+shipping the full Python estimator.
+
+```python
+from mlframe.training.composite import export_serving_spec, load_serving_spec
+spec = export_serving_spec(est)             # json.dumps-able
+predict = load_serving_spec(spec, inner_predict=my_inner_raw_predict)
+y_hat = predict(X)
+```
+
+### `compare_models` / `should_promote` — champion-challenger governance
+
+One sentence: paired-bootstrap (or Wilcoxon) comparison of a fitted challenger
+vs champion on held-out data, with `should_promote` adding a significance + min
+practical-effect gate. When to use: deciding whether to promote a retrained
+model.
+
+```python
+from mlframe.training.composite import compare_models, should_promote
+cmp = compare_models(champion, challenger, X_hold, y_hold, metric="rmse")
+decision = should_promote(champion, challenger, X_hold, y_hold,
+                          metric="rmse", alpha=0.05, min_effect=0.0)
+decision["promote"], decision["reason"]
+```
+
+### `CompositeFeatureGenerator` — OOF composite-prediction feature
+
+One sentence: a sklearn transformer that turns a discovered spec into one
+leakage-free OOF feature column (`fit_transform` on train, `transform` on new
+data via a single all-train wrapper). When to use: stacking a composite's
+prediction as a feature into a downstream model.
+
+```python
+from mlframe.training.composite import CompositeFeatureGenerator
+gen = CompositeFeatureGenerator(spec=disc.specs_[0], n_splits=5, time_aware=False)
+X_train_aug = gen.fit_transform(X_train, y_train)   # adds OOF column
+X_new_aug = gen.transform(X_new)
+```
