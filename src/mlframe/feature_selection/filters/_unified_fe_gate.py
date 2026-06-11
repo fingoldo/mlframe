@@ -45,7 +45,7 @@ rest. They never reference y at transform time (they run only at fit).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -148,6 +148,7 @@ def local_mi_gate(
     nbins: int = 10,
     mad_mult: float = 3.5,
     floor: Optional[float] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> list[str]:
     """Tier-1 local MI floor. Returns the subset of ``enc_df`` columns to keep.
 
@@ -177,6 +178,25 @@ def local_mi_gate(
         for j, col in enumerate(cand_cols)
         if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor
     ]
+    # W6 (class-closure): record every candidate the shared abs-MAD noise floor
+    # kills (raw_mi_noise_floor = med+k*MAD). Pure-record; the kept set is
+    # computed independently above so selection is byte-identical.
+    if reject_sink is not None:
+        for j, col in enumerate(cand_cols):
+            _mi = cand_mi[j]
+            if np.isfinite(_mi) and _mi < floor:
+                try:
+                    reject_sink(
+                        gate="marginal_uplift_floor",
+                        candidate=str(col),
+                        operands=None,
+                        operator="unified_local_mi_gate",
+                        observed=float(_mi),
+                        threshold=float(floor),
+                        reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
+                    )
+                except Exception:
+                    pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:
         scored = scored[: int(top_k)]

@@ -1383,6 +1383,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_cluster_basis_fe import (
                     hybrid_orth_mi_cluster_basis_fe_with_recipes,
                 )
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                # W6: record abs-MAD floor kills in the cluster-basis stage into
+                # the FE rejection ledger (pure-record; selection unchanged).
+                _cb_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _cb_reject_sink(**_kw):
+                    _record_fe_rejection(self, step=_cb_step, **_kw)
+
                 _y_for_cb = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
@@ -1439,6 +1447,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         degrees=_cb_degrees,
                         corr_threshold=_cb_corr,
                         top_k=_cb_top_k,
+                        reject_sink=_cb_reject_sink,
                     )
                 )
                 _cb_appended = [
@@ -2687,6 +2696,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         else:
             try:
                 from .._mi_greedy_fe import greedy_mi_fe_construct_with_recipes
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                # W6: record abs-MAD floor kills in the mi_greedy stage into the
+                # FE rejection ledger (pure-record; selection unchanged).
+                _mig_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _mig_reject_sink(**_kw):
+                    _record_fe_rejection(self, step=_mig_step, **_kw)
                 _y_for_mig = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
@@ -2730,6 +2746,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     top_k=int(self.fe_mi_greedy_top_k),
                     include_unary=bool(self.fe_mi_greedy_include_unary),
                     include_binary=bool(self.fe_mi_greedy_include_binary),
+                    reject_sink=_mig_reject_sink,
                 )
                 _mig_appended = [
                     c for c in X_mg.columns if c not in _X_before_mig_cols

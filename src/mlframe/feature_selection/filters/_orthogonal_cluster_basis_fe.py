@@ -68,7 +68,7 @@ aggregator so the test-time orientation matches fit time exactly.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -367,6 +367,7 @@ def generate_cluster_basis_features(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> tuple[pd.DataFrame, dict]:
     """For each cluster, compute the aggregate column then evaluate
     ``basis_degree(preprocess(aggregate))`` for each requested degree.
@@ -555,6 +556,23 @@ def generate_cluster_basis_features(
         if uplift < float(min_uplift):
             continue
         if emi < abs_floor:
+            # W6 abs-MAD floor instrumentation (pure-record; no decision
+            # change): this candidate cleared the uplift gate but missed the
+            # absolute med+k*MAD noise floor -- the ``marginal_uplift_floor``
+            # gate kill. Selection is byte-identical with or without the sink.
+            if reject_sink is not None:
+                try:
+                    reject_sink(
+                        gate="marginal_uplift_floor",
+                        candidate=str(cand_cols[j]),
+                        operands=tuple(info["members"]),
+                        operator="cluster_basis",
+                        observed=float(emi),
+                        threshold=float(abs_floor),
+                        reason="cluster-basis abs-MAD floor: engineered_mi below med+k*MAD noise floor",
+                    )
+                except Exception:
+                    pass
             continue
         survivors.append({
             "engineered_col": cand_cols[j],
@@ -608,6 +626,7 @@ def hybrid_orth_mi_cluster_basis_fe(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """End-to-end cluster-basis hybrid.
 
@@ -641,6 +660,7 @@ def hybrid_orth_mi_cluster_basis_fe(
         min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac,
         nbins=nbins,
+        reject_sink=reject_sink,
     )
     if engineered.empty:
         scores_empty = pd.DataFrame(columns=[
@@ -689,6 +709,7 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Same as :func:`hybrid_orth_mi_cluster_basis_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind
@@ -714,6 +735,7 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
         min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac,
         nbins=nbins,
+        reject_sink=reject_sink,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     if not appended:

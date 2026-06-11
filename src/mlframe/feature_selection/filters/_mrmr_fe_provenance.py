@@ -458,6 +458,62 @@ def populate_fe_provenance(mrmr_self: Any) -> None:
         )
 
 
+def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
+    """PROVENANCE SELF-AUDIT (W2). List every SURVIVING engineered recipe.kind
+    whose provenance origin resolved to ``"engineered_unknown"`` -- i.e. a kind
+    the FE pipeline emits but ``_RECIPE_KIND_TO_ORIGIN`` does not map to a
+    dedicated origin bucket.
+
+    Turns "did we forget to register a kind?" into a measured list: when a new
+    FE family ships a recipe.kind nobody added to ``_RECIPE_KIND_TO_ORIGIN``,
+    its surviving columns show up here, so provenance can't silently regress.
+
+    Returns a dict ``{kind: count}`` over the SURVIVING engineered columns (those
+    in ``support_`` -- ``support_rank >= 0``) whose origin is
+    ``"engineered_unknown"``. On a normal fit after commit 205baa86 this is the
+    deliberate ``{"factorize": N}`` set (the generic ordinal lookup is kept
+    unlabeled by design) and nothing else; any OTHER kind appearing here is an
+    unregistered family -- the guardrail firing.
+
+    Pure-read; never raises. Returns ``{}`` when the estimator is unfitted, has
+    no engineered survivors, or every surviving kind is labeled. The ``factorize``
+    entry is INCLUDED (it genuinely resolves to engineered_unknown); callers that
+    want only the GUARDRAIL signal subtract the known-deliberate set
+    ``DELIBERATELY_UNLABELED_KINDS``.
+    """
+    out: dict[str, int] = {}
+    prov = getattr(mrmr_self, "fe_provenance_", None)
+    if prov is None or not isinstance(prov, pd.DataFrame) or prov.empty:
+        return out
+    # Index every recipe (survivor + produced ledger) by name so we can recover
+    # each engineered column's recipe.kind. Mirrors compute_fe_provenance's join.
+    recipe_by_name: dict[str, Any] = {}
+    for attr in ("_produced_recipes_", "_engineered_recipes_"):
+        for r in (getattr(mrmr_self, attr, None) or []):
+            nm = getattr(r, "name", None)
+            if nm is not None:
+                recipe_by_name[str(nm)] = r
+    try:
+        unlabeled = prov[
+            (prov["origin"] == "engineered_unknown") & (prov["support_rank"] >= 0)
+        ]
+    except Exception:
+        return out
+    for name in unlabeled["feature_name"].tolist():
+        recipe = recipe_by_name.get(str(name))
+        kind = str(getattr(recipe, "kind", "") or "") if recipe is not None else ""
+        key = kind if kind else "<no-recipe>"
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
+# Kinds that resolve to ``engineered_unknown`` BY DESIGN (not a registration
+# gap). ``get_unlabeled_recipe_kinds`` surfaces these too; the guardrail signal
+# is whatever appears OUTSIDE this set. Keep in sync with the deliberate
+# ``engineered_unknown`` entries in ``_RECIPE_KIND_TO_ORIGIN``.
+DELIBERATELY_UNLABELED_KINDS: frozenset = frozenset({"factorize"})
+
+
 def get_fe_report(mrmr_self: Any) -> str:
     """Render ``fe_provenance_`` as a single human-readable string.
 

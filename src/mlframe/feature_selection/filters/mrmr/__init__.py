@@ -182,6 +182,12 @@ MRMR.partial_fit = _partial_fit_func
 from .._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
 MRMR.get_fe_report = _get_fe_report_func
 
+# W2 provenance self-audit accessor: surviving engineered recipe.kinds that
+# resolved to ``engineered_unknown`` (deliberate ``factorize`` on a clean fit;
+# anything else is an unregistered FE family).
+from .._mrmr_fe_provenance import get_unlabeled_recipe_kinds as _get_unlabeled_recipe_kinds_func  # noqa: E402
+MRMR.get_unlabeled_recipe_kinds = _get_unlabeled_recipe_kinds_func
+
 # Per-gate FE rejection ledger accessor (the rejection side of get_fe_report).
 from .._fe_rejection_ledger import get_fe_rejection_report as _get_fe_rejection_report_func  # noqa: E402
 MRMR.get_fe_rejection_report = _get_fe_rejection_report_func
