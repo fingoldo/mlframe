@@ -122,7 +122,12 @@ def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = True) -> bool:
 def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pl.DataFrame:
     cols = cs.all() if not num_cols_only else cs.numeric()
     inf_mask = df.select(cols.is_infinite().any())
-    inf_cols = inf_mask.transpose(include_header=True, header_name="column", column_names=["is_inf"]).filter(pl.col("is_inf"))["column"].to_list()
+    # No matching columns (e.g. an all-categorical / all-text frame with num_cols_only=True) -> nothing can hold infinity.
+    # Guarding here is required because transpose() with an explicit column_names list raises ShapeError on a 0-column frame
+    # (the transposed row count is 0 but column_names=["is_inf"] has length 1).
+    if inf_mask.width == 0:
+        return df
+    inf_cols = [c for c, flag in zip(inf_mask.columns, inf_mask.row(0)) if flag]
 
     if len(inf_cols) > 0:
         df = df.with_columns(pllib.clean_numeric(pl.col(inf_cols), nans_filler=nans_filler))

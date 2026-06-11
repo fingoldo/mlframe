@@ -983,6 +983,33 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
         assert out["obj"].tolist() == ["x", "y"]
 
 
+class TestEnsureNoInfinityPlAllCategorical:
+    """A polars frame with ZERO numeric columns (all-categorical / all-text)
+    fed to ``ensure_no_infinity_pl`` must not raise. The old code did
+    ``inf_mask.transpose(..., column_names=["is_inf"])`` on a 0-column
+    ``df.select(cs.numeric().is_infinite().any())`` result; transpose() with an
+    explicit column_names list raises ``polars.exceptions.ShapeError: Length of
+    new column names must be the same as the row count`` because the transposed
+    row count is 0 but the name list has length 1. Surfaced by a CatBoost
+    multi-target-regression fuzz combo on an all-text polars_nullable frame."""
+
+    def test_all_categorical_polars_frame_does_not_raise(self):
+        from mlframe.core.helpers import ensure_no_infinity_pl
+
+        df = pl.DataFrame({"cat_a": ["x", "y", "z"], "text_b": ["foo", "bar", "baz"]})
+        out = ensure_no_infinity_pl(df)  # must not raise ShapeError
+        assert out.shape == (3, 2)
+        assert out["cat_a"].to_list() == ["x", "y", "z"]
+
+    def test_inf_still_sanitised_when_numeric_present(self):
+        from mlframe.core.helpers import ensure_no_infinity_pl
+
+        df = pl.DataFrame({"num": [1.0, float("inf"), 3.0], "cat": ["a", "b", "c"]})
+        out = ensure_no_infinity_pl(df, verbose=0)
+        assert out["num"].to_list() == [1.0, 0.0, 3.0]
+        assert out["cat"].to_list() == ["a", "b", "c"]
+
+
 # =====================================================================
 # Fix 10: B5 polars-release fires before non-polars-native strategy entry
 #         (not just on tier change) — RAM peak halved on mixed suites
