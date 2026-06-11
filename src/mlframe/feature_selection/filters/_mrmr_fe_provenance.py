@@ -80,6 +80,15 @@ FE_ORIGIN_LABELS = (
     "dcd_aggregate",
     "cluster_aggregate",
     "unary_binary_pair",
+    "hinge_basis",
+    "numeric_decompose",
+    "periodic",
+    "group_distance",
+    "temporal_agg",
+    "wavelet_basis",
+    "cat_cross",
+    "grouped_agg",
+    "extra_fe",
     "engineered_unknown",
 )
 
@@ -92,6 +101,10 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "orth_pair_cross": "hybrid_orth",
     "orth_spline": "hybrid_orth",
     "orth_fourier": "hybrid_orth",
+    "orth_diff_basis": "hybrid_orth",
+    "orth_cluster_basis": "hybrid_orth",
+    "orth_triplet_cross": "hybrid_orth",
+    "orth_quadruplet_cross": "hybrid_orth",
     "hermite_pair": "hybrid_orth",
     "mi_greedy_transform": "mi_greedy",
     "kfold_target_encoded": "kfold_te",
@@ -102,11 +115,42 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "missingness_count": "missing_count",
     "missingness_pattern": "missing_pattern",
     "pairwise_ratio": "pairwise_ratio",
+    "div": "pairwise_ratio",
+    "log_div": "pairwise_log_ratio",
     "grouped_delta": "grouped_delta",
     "lagged_diff": "lagged_diff",
+    "grouped_agg": "grouped_agg",
+    "composite_group_agg": "grouped_agg",
+    "grouped_quantile": "grouped_agg",
+    "target_aware_group_bin": "grouped_agg",
     "cluster_aggregate": "cluster_aggregate",
     "target_encoding": "kfold_te",
+    "cat_pair_cross": "cat_cross",
+    "cat_triple_cross": "cat_cross",
     "unary_binary": "unary_binary_pair",
+    # Piecewise-linear / change-point hinge legs (a__relu_gt.../relu_lt...).
+    "hinge_basis": "hinge_basis",
+    # Numeric decomposition family (rounding buckets, digit extraction).
+    "numeric_rounding": "numeric_decompose",
+    "digit_extract": "numeric_decompose",
+    # Periodic / modular-arithmetic family.
+    "modular": "periodic",
+    # Cross-row distance-to-group family.
+    "group_distance": "group_distance",
+    # Temporal expanding/rolling/lag aggregates.
+    "temporal_expanding": "temporal_agg",
+    "temporal_rolling": "temporal_agg",
+    "temporal_lag": "temporal_agg",
+    # Wavelet basis family.
+    "orth_wavelet": "wavelet_basis",
+    # Extra FE families (rare-category, conditional residual/dispersion, rankgauss).
+    "rare_category": "extra_fe",
+    "conditional_residual": "extra_fe",
+    "conditional_dispersion": "extra_fe",
+    "rankgauss": "extra_fe",
+    # ``factorize`` stays engineered_unknown by design: the cat k-way
+    # materializer emits it as a generic ordinal lookup with no single
+    # mechanism semantics worth a dedicated origin bucket.
     "factorize": "engineered_unknown",
 }
 
