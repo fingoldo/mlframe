@@ -23,6 +23,11 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 # documented ``:4096:8`` workspace size (PyTorch CONTRIBUTING.md + NVIDIA cuBLAS docs).
 # Pre-set by operator wins (the alternative ``:16:8`` slot trades workspace for memory).
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+# Headless tests MUST use the non-GUI Agg backend. The DSL render path renders each chart in a ThreadPoolExecutor
+# worker (render_and_save); under an interactive backend (TkAgg on a desktop) Tk calls from a non-main thread hang
+# ("main thread is not in main loop"), tripping the 60s render-thread timeout so EVERY chart is silently dropped --
+# which made suite-render tests (e.g. test_ensembling_chart_artifacts) flip pass/fail with the ambient backend.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 # Isolate the per-host kernel_tuning_cache from the developer's real ``~/.pyutilz`` cache for the whole test session.
 # Cache-dependent dispatch tests (per_member / dtw / cat-perm / batch_pair_mi backend choice) assert the un-tuned
