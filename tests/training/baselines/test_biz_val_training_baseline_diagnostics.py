@@ -106,6 +106,90 @@ def test_biz_val_baseline_diagnostics_dominant_features_finds_signal():
 
 
 # ---------------------------------------------------------------------------
+# n_estimators provisioning: the 200->100 flip preserves the verdict AND is faster
+# ---------------------------------------------------------------------------
+
+
+def _run_dom_and_wall(n_estimators, df, feature_cols, cat_features, target_type, seed):
+    """Run the ablation diagnostic once; return (dominant_feature, wall_seconds)."""
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
+
+    cfg = _make_config(
+        quick_model_n_estimators=n_estimators, sample_n=4000,
+        ablation_top_k=5, random_state=seed,
+    )
+    diag = BaselineDiagnostics(cfg)
+    t0 = time.perf_counter()
+    report = diag.fit_and_report(
+        train_df=df, train_target=df["y"], feature_cols=feature_cols,
+        cat_features=cat_features, target_type=target_type, target_name="y",
+    )
+    wall = time.perf_counter() - t0
+    dom = report.dominant_features[0]["feature"] if report.dominant_features else None
+    return dom, wall
+
+
+def test_biz_val_baseline_diagnostics_n_estimators_100_preserves_dominant_verdict():
+    """The ablation n_estimators flip 200->100 MUST keep the dominant-feature
+    verdict identical and the default config must already be 100.
+
+    bench _benchmarks/bench_ablation_n_estimators_provisioning.py: 6 scenarios x 3 seeds,
+    dominant feature IDENTICAL on 18/18 cells at n_estimators 100 vs 200. This pins the
+    verdict half of the flip on the linear-dominant canonical scenario across seeds.
+    """
+    pytest.importorskip("lightgbm")
+    from mlframe.training.configs import BaselineDiagnosticsConfig
+
+    assert BaselineDiagnosticsConfig().quick_model_n_estimators == 100, (
+        "ablation provisioning flip: quick_model_n_estimators default must be 100 "
+        "(bench-verified verdict-stable + ~1.8x faster vs 200)"
+    )
+
+    n = 4000
+    feature_cols = [f"x{i}" for i in range(8)]
+    for seed in (0, 1, 2):
+        rng = np.random.default_rng(1000 + seed)
+        X = {c: rng.normal(size=n) for c in feature_cols}
+        df = pd.DataFrame(X)
+        # x0 dominant by construction.
+        df["y"] = 6.0 * df["x0"] + 1.5 * df["x1"] + 0.6 * df["x2"] + 0.3 * rng.normal(size=n)
+        dom_200, _ = _run_dom_and_wall(200, df, feature_cols, [], "regression", seed)
+        dom_100, _ = _run_dom_and_wall(100, df, feature_cols, [], "regression", seed)
+        assert dom_200 == "x0", f"ground-truth dominant must be x0 at n_estimators=200 (seed={seed}); got {dom_200}"
+        assert dom_100 == dom_200, (
+            f"n_estimators=100 must keep the same dominant feature as 200 "
+            f"(seed={seed}): 100->{dom_100} vs 200->{dom_200}"
+        )
+
+
+def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
+    """The 200->100 flip must deliver a real ablation wall win. bench measured
+    ~1.825x (4k synthetic) / 1.78x (200k+sample_n=50k). Floor 1.15x absorbs
+    timer noise + CI contention while still catching a regression that silently
+    restores the 200-estimator cost.
+    """
+    pytest.importorskip("lightgbm")
+
+    n = 4000
+    feature_cols = [f"x{i}" for i in range(8)]
+    rng = np.random.default_rng(1000)
+    X = {c: rng.normal(size=n) for c in feature_cols}
+    df = pd.DataFrame(X)
+    df["y"] = 6.0 * df["x0"] + 1.5 * df["x1"] + 0.6 * df["x2"] + 0.3 * rng.normal(size=n)
+
+    # Warm LightGBM / numba so the first fit's cold cost doesn't skew the ratio.
+    _run_dom_and_wall(100, df, feature_cols, [], "regression", 0)
+
+    _, wall_200 = _run_dom_and_wall(200, df, feature_cols, [], "regression", 0)
+    _, wall_100 = _run_dom_and_wall(100, df, feature_cols, [], "regression", 0)
+    speedup = wall_200 / wall_100 if wall_100 > 0 else 0.0
+    assert speedup >= 1.15, (
+        f"n_estimators=100 must be >=1.15x faster than 200; got {speedup:.2f}x "
+        f"(200={wall_200:.3f}s, 100={wall_100:.3f}s)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # sample_n bounds runtime
 # ---------------------------------------------------------------------------
 

@@ -1,0 +1,3013 @@
+{
+  "config": {
+    "ablation_top_k": 5,
+    "cells": [
+      {
+        "n_estimators": 200,
+        "name": "default",
+        "sample_n": 4000
+      },
+      {
+        "n_estimators": 150,
+        "name": "ne_150_0.75x",
+        "sample_n": 4000
+      },
+      {
+        "n_estimators": 100,
+        "name": "ne_100_0.50x",
+        "sample_n": 4000
+      },
+      {
+        "n_estimators": 50,
+        "name": "ne_50_0.25x",
+        "sample_n": 4000
+      },
+      {
+        "n_estimators": 200,
+        "name": "sample_n_2000",
+        "sample_n": 2000
+      },
+      {
+        "n_estimators": 200,
+        "name": "sample_n_1000",
+        "sample_n": 1000
+      }
+    ],
+    "default_n_estimators": 200,
+    "n_features": 8,
+    "n_rows": 4000,
+    "scenarios": [
+      "linear_dominant",
+      "interaction_dominant",
+      "redundant_correlated",
+      "noisy_weak_signal",
+      "highcard_categorical",
+      "mixed_binary"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "topk_verdict": 3
+  },
+  "default_dominant_correct": "15/18",
+  "rows": [
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3394
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0322
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7031
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.4099
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "linear_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2969
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "linear_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.1428
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3349
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0362
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7891
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3855
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "linear_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.27
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "linear_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.1415
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3049
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0227
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.729
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "linear_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3936
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x3",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "linear_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2107
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x3",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "linear_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0612
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2473
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0492
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x3",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7219
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3799
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "interaction_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3188
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "interaction_dominant",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.1601
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2749
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0161
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.6697
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3798
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "interaction_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2597
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "interaction_dominant",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0558
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3444
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.9787
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.6678
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "interaction_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3809
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "interaction_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3269
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "interaction_dominant",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.1737
+    },
+    {
+      "cell": "default",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x7",
+        "x5",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x7"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3282
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x4",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.0541
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x2",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.6947
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x7",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.3811
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x6",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "redundant_correlated",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.2153
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x0",
+        "x3",
+        "x2",
+        "x4",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "redundant_correlated",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x3",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1286
+    },
+    {
+      "cell": "default",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x7",
+        "x2",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x7"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3408
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x7",
+        "x1",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x7"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0579
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x7",
+        "x2",
+        "x1"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x7"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7293
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x5",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.4185
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x2",
+        "x5",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "redundant_correlated",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.2104
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x0",
+        "x3",
+        "x2",
+        "x1",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "redundant_correlated",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x3",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1659
+    },
+    {
+      "cell": "default",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x5",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x5"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2911
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.0235
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x2",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.7432
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x2",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "redundant_correlated",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.3992
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x2",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "redundant_correlated",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1226
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": false,
+      "dominant_feature": "x3",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x3",
+        "x0",
+        "x1",
+        "x2",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "redundant_correlated",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x3",
+        "x0",
+        "x1"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.0873
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.277
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x7",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.065
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x4",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.6849
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x4",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.4086
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x6",
+        "x4",
+        "x3",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "noisy_weak_signal",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x6",
+        "x4"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.283
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": false,
+      "dominant_feature": "x1",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x1",
+        "x5",
+        "x2",
+        "x6",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "noisy_weak_signal",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x1",
+        "x5",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.158
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x2",
+        "x4",
+        "x3",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x2",
+        "x4"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2692
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.0713
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.7445
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x4",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.4171
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": false,
+      "dominant_feature": "x1",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x1",
+        "x4",
+        "x7",
+        "x2",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "noisy_weak_signal",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x1",
+        "x4",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.3237
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x7",
+        "x6",
+        "x1",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "noisy_weak_signal",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x7",
+        "x6"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1624
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x5",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3493
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x5",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0052
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x5",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7325
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x6",
+        "x5",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "noisy_weak_signal",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x6"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3597
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": false,
+      "dominant_feature": "x1",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x1",
+        "x7",
+        "x2",
+        "x4",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "noisy_weak_signal",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x1",
+        "x7",
+        "x2"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.2123
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x3",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "noisy_weak_signal",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1124
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.389
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0195
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7396
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x2",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.4449
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x5",
+        "x4",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "highcard_categorical",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x5"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.3452
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": false,
+      "dominant_feature": "x1",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x1",
+        "x7",
+        "x6",
+        "x5",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "highcard_categorical",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x1",
+        "x7",
+        "x6"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1474
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3517
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x2",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.0754
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x6",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.7727
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x4",
+        "x3",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x4"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.4058
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "highcard_categorical",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2717
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": false,
+      "dominant_feature": "x1",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x1",
+        "x3",
+        "x4",
+        "x5",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "highcard_categorical",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x1",
+        "x3",
+        "x4"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1269
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x5",
+        "x7",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x5"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3149
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x5",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.0188
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x3",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.7456
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x6",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "highcard_categorical",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 0.4145
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x7",
+        "x3",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "highcard_categorical",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x7"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.2667
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": false,
+      "dominant_feature": "x1",
+      "dominant_same_as_default": false,
+      "full_ranking": [
+        "x1",
+        "x4",
+        "x3",
+        "x2",
+        "x6"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "highcard_categorical",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "regression",
+      "topk_ranking": [
+        "x1",
+        "x4",
+        "x3"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.1567
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3615
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0299
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7455
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.4114
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "mixed_binary",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2587
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x5",
+        "x6",
+        "x2"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "mixed_binary",
+      "seed": 0,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x5"
+      ],
+      "topk_same_as_default": false,
+      "wall_s": 1.2626
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3466
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0856
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7236
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x4"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.3677
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x4",
+        "x3"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "mixed_binary",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2101
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x3",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "mixed_binary",
+      "seed": 1,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.1953
+    },
+    {
+      "cell": "default",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.3425
+    },
+    {
+      "cell": "ne_150_0.75x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 150,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0452
+    },
+    {
+      "cell": "ne_100_0.50x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x6",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 100,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.7317
+    },
+    {
+      "cell": "ne_50_0.25x",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x7",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 50,
+      "sample_n": 4000,
+      "scenario": "mixed_binary",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 0.4332
+    },
+    {
+      "cell": "sample_n_2000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x3",
+        "x5"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 2000,
+      "scenario": "mixed_binary",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.2303
+    },
+    {
+      "cell": "sample_n_1000",
+      "dominant_correct": true,
+      "dominant_feature": "x0",
+      "dominant_same_as_default": true,
+      "full_ranking": [
+        "x0",
+        "x1",
+        "x2",
+        "x5",
+        "x7"
+      ],
+      "ground_truth_dominant": "x0",
+      "n_estimators": 200,
+      "sample_n": 1000,
+      "scenario": "mixed_binary",
+      "seed": 2,
+      "skipped": false,
+      "target_type": "binary_classification",
+      "topk_ranking": [
+        "x0",
+        "x1",
+        "x2"
+      ],
+      "topk_same_as_default": true,
+      "wall_s": 1.0993
+    }
+  ],
+  "summary_per_reduced_cell": {
+    "ne_100_0.50x": {
+      "cells": 18,
+      "dominant_correct_vs_ground_truth": "15/18",
+      "dominant_fully_stable": true,
+      "dominant_same_as_default": "18/18",
+      "mean_speedup_vs_default": 1.825,
+      "topk_same_as_default": "13/18",
+      "verdict_fully_stable": false
+    },
+    "ne_150_0.75x": {
+      "cells": 18,
+      "dominant_correct_vs_ground_truth": "15/18",
+      "dominant_fully_stable": true,
+      "dominant_same_as_default": "18/18",
+      "mean_speedup_vs_default": 1.275,
+      "topk_same_as_default": "13/18",
+      "verdict_fully_stable": false
+    },
+    "ne_50_0.25x": {
+      "cells": 18,
+      "dominant_correct_vs_ground_truth": "15/18",
+      "dominant_fully_stable": true,
+      "dominant_same_as_default": "18/18",
+      "mean_speedup_vs_default": 3.32,
+      "topk_same_as_default": "11/18",
+      "verdict_fully_stable": false
+    },
+    "sample_n_1000": {
+      "cells": 18,
+      "dominant_correct_vs_ground_truth": "13/18",
+      "dominant_fully_stable": false,
+      "dominant_same_as_default": "12/18",
+      "mean_speedup_vs_default": 1.161,
+      "topk_same_as_default": "8/18",
+      "verdict_fully_stable": false
+    },
+    "sample_n_2000": {
+      "cells": 18,
+      "dominant_correct_vs_ground_truth": "13/18",
+      "dominant_fully_stable": false,
+      "dominant_same_as_default": "16/18",
+      "mean_speedup_vs_default": 1.054,
+      "topk_same_as_default": "10/18",
+      "verdict_fully_stable": false
+    }
+  },
+  "total_wall_s": 118.69
+}
