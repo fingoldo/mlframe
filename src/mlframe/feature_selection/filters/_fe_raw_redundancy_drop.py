@@ -119,6 +119,64 @@ _SUPPORT_FRAG_DIVISOR = 5
 _TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_]+")
 
 
+def _recipe_subexprs(recipe) -> dict:
+    """Walk an ``EngineeredRecipe``'s nested-parent operand tree and return a map
+    ``{sub_recipe_name -> sub_recipe}`` of EVERY node in the tree (the recipe
+    itself plus every nested-engineered parent at any depth).
+
+    NESTED-OPERAND CONSUMER DETECTION (BUG1, 2026-06-12). A step-k composite like
+    ``add(div(log(c),reciproc(d)),abs(div(sqr(a),abs(b))))`` carries its operand
+    structure as ``EngineeredRecipe`` objects in ``extra['nested_parent_a/b']``
+    (the dataclass tree, NOT the str() name). The redundancy verdict must be able
+    to condition a raw operand on the CLEAN a-containing sub-expression
+    ``div(sqr(a),abs(b))`` = a**2/b (which isolates the raw's full capture), not
+    only on the WHOLE fused composite (which mixes a**2/b with log(c)*sin(d) and so
+    leaves the raw a spurious residual -> wrongly KEPT). This recovers the
+    sub-expressions so each can be replayed to its own continuous values and used
+    as a clean conditioning anchor."""
+    out: dict = {}
+    if recipe is None:
+        return out
+    stack = [recipe]
+    seen_ids = set()
+    while stack:
+        r = stack.pop()
+        if r is None or id(r) in seen_ids:
+            continue
+        seen_ids.add(id(r))
+        nm = getattr(r, "name", None)
+        if nm is not None:
+            out[nm] = r
+        extra = getattr(r, "extra", None) or {}
+        for _k in ("nested_parent_a", "nested_parent_b"):
+            _p = extra.get(_k)
+            if _p is not None:
+                stack.append(_p)
+    return out
+
+
+def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
+    """Replay one (sub-)recipe to its CONTINUOUS values from the raw frame.
+
+    Uses the production ``apply_recipe`` with quantization stripped so the
+    sub-expression is reconstructed on continuous values exactly as at fit time.
+    Returns ``None`` on any replay failure (the caller then falls back to the
+    fused-composite continuous values -- the conservative KEEP direction)."""
+    if recipe is None or raw_X is None:
+        return None
+    try:
+        import dataclasses as _dc
+        from .engineered_recipes._recipe_dispatch import apply_recipe
+        _r = recipe
+        if getattr(_r, "quantization", None) is not None:
+            _r = _dc.replace(_r, quantization=None)
+        vals = np.asarray(apply_recipe(_r, raw_X), dtype=np.float64).ravel()
+        vals = np.nan_to_num(vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        return vals
+    except Exception:
+        return None
+
+
 def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
     """Return ``(cmi, floor, excess)`` for ``CMI(cand; y | z_support)`` using the
     S5 conditional-permutation null (within-stratum shuffle reproduces the same
@@ -142,6 +200,8 @@ def drop_redundant_raw_operands(
     y_continuous: Optional[np.ndarray] = None,
     engineered_continuous: Optional[dict] = None,
     replayable_eng_names: Optional[set] = None,
+    recipes: Optional[dict] = None,
+    raw_X=None,
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
     seed: int = 0,
     verbose: int = 0,
@@ -367,6 +427,83 @@ def drop_redundant_raw_operands(
                 _parents.add(base)
         _eng_signal_parents[ei] = {p for p in _parents if _raw_is_signal_bearing(p)}
 
+    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12). A selected
+    # survivor may be a FUSED composite that combines two independent signal terms
+    # into one feature -- e.g. ``add(div(log(c),reciproc(d)),abs(div(sqr(a),abs(b))))``
+    # fuses the ``a**2/b`` ratio with the ``log(c)*sin(d)`` product. Conditioning a
+    # raw operand ``a`` on the WHOLE fused composite does NOT cleanly isolate a's
+    # capture: the second term acts as nuisance variation across the conditioning
+    # strata, so ``CMI(a; y | fused_composite)`` retains a spurious residual and the
+    # raw is wrongly KEPT (the BUG1 seed-dependent failure: the composite collapses
+    # the whole selection on some seeds -> never-empty path drops a, but on seeds
+    # where ``a`` is selected ALONGSIDE the composite the main path here ran and kept
+    # it). The fix walks the consumer's recipe operand TREE (the dataclass
+    # nested-parent structure, not str()) for the CLEANEST ``rname``-containing
+    # sub-expression -- the tightest sub-recipe that still contains ``rname`` plus a
+    # SECOND signal-bearing raw (a true combination, not a self-transform) -- replays
+    # it to its own continuous values, and conditions ``rname`` on THAT. On the user
+    # fixture the cleanest sub-expression of ``a`` is ``div(sqr(a),abs(b))`` = a**2/b,
+    # which captures ``a`` fully -> conditional excess collapses -> DROP. A GENUINE
+    # private term (``y += 3*a``) keeps a large residual given the same clean ratio
+    # sub-expression -> KEPT (the over-drop control). Conservative: any failure to
+    # parse / replay falls back to the fused composite bin (the KEEP direction).
+    _recipes = recipes or {}
+    # (rname, ei) -> binned clean sub-expression conditioning column (or None).
+    _clean_subexpr_bin: dict[tuple, Optional[np.ndarray]] = {}
+    if _recipes and raw_X is not None:
+        # Pre-extract each consumer's sub-recipe tree once.
+        _consumer_subtrees: dict[int, dict] = {}
+        for ei in eng_idx:
+            _r = _recipes.get(cols[ei])
+            if _r is not None:
+                _consumer_subtrees[ei] = _recipe_subexprs(_r)
+
+        def _subexpr_signal_parents(_sub) -> set:
+            _p = set()
+            for _t in _TOKEN_SPLIT.split(getattr(_sub, "name", "") or ""):
+                if not _t:
+                    continue
+                _base = _t if _t in raw_name_set else (
+                    _t.split("__", 1)[0] if ("__" in _t and _t.split("__", 1)[0] in raw_name_set) else None
+                )
+                if _base is not None:
+                    _p.add(_base)
+            return {p for p in _p if _raw_is_signal_bearing(p)}
+
+        for ei, _subtree in _consumer_subtrees.items():
+            for _rn in raw_name_set:
+                # Candidate sub-expressions: contain ``_rn`` AND a second signal-bearing
+                # raw (true combination -> not a DPI-trap self-transform).
+                _cands = []
+                for _sname, _sub in _subtree.items():
+                    _sp = _subexpr_signal_parents(_sub)
+                    if _rn in _sp and len(_sp - {_rn}) >= 1:
+                        _cands.append((len(_sp), _sname, _sub))
+                if not _cands:
+                    continue
+                # CLEANEST = fewest signal-bearing parents (tightest isolation of the
+                # raw's capture). Ties broken by the SHORTER name (the inner node).
+                _cands.sort(key=lambda t: (t[0], len(t[1])))
+                _, _best_name, _best_sub = _cands[0]
+                # Only worth a separate anchor if it is a PROPER sub-expression of the
+                # whole survivor (fewer signal-bearing parents than the survivor) --
+                # otherwise the survivor bin already isolates the raw and no
+                # nuisance-fusion problem exists.
+                if len(_subexpr_signal_parents(_best_sub)) >= len(_eng_signal_parents.get(ei, set())):
+                    continue
+                _vals = _subexpr_continuous(_best_sub, raw_X)
+                if _vals is None or _vals.shape[0] != n_rows:
+                    continue
+                _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(
+                    np.asarray(_vals, dtype=np.float64), nbins=_eng_card
+                )
+                if verbose:
+                    logger.info(
+                        "raw-redundancy: conditioning raw %s on CLEAN nested sub-expression "
+                        "%s (isolated from fused composite %s) instead of the whole composite.",
+                        _rn, _best_name, cols[ei],
+                    )
+
     drop_names: list[str] = []
     drop_idx_set: set[int] = set()
     for ri in raw_sel_idx:
@@ -405,7 +542,17 @@ def drop_redundant_raw_operands(
         # resolution the selector saw, and a finer raw binning would only inflate
         # its residual CMI (bias toward KEEP), the unsafe direction.
         rb = np.asarray(data[:, ri]).astype(np.int64).ravel()
-        z_support, _ = _renumber_joint(*(eng_bin[ei] for ei in consumers))
+        # Per-consumer conditioning column: prefer the CLEAN nested ``rname``-containing
+        # sub-expression (BUG1) when it was successfully isolated/replayed above, else the
+        # whole consuming survivor's bin. The clean sub-expression isolates the raw's
+        # capture from the fused composite's second signal term so a fully-subsumed
+        # operand's conditional excess collapses (DROP) while a genuine private term keeps
+        # its residual (KEEP).
+        _cond_bins = [
+            _clean_subexpr_bin.get((rname, ei), eng_bin[ei])
+            for ei in consumers
+        ]
+        z_support, _ = _renumber_joint(*_cond_bins)
         cmi, floor, excess = _excess_and_floor(rb, y_arr, z_support, seed=seed)
         # Raw's OWN marginal debiased excess -- the reference scale for both keep legs.
         _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)

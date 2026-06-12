@@ -28,6 +28,7 @@ formula structure (a**2/b, log(c)*sin(d), f/5 + e as noise) is preserved.
 """
 from __future__ import annotations
 
+import os
 import re
 
 import numpy as np
@@ -295,6 +296,120 @@ def test_user_case_drops_redundant_raw_operands_at_large_n():
     assert "a" not in out, (
         f"raw 'a' spuriously kept despite being subsumed by its a**2/b engineered child "
         f"(the user-reported BUG1 case): full out={out}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# MULTI-SEED BUG1 PIN (2026-06-12, the ROBUST fix). The 2026-06-12 fix 65d18475
+# only repaired the never-empty-raw rescue path (which fires when the composite
+# collapses the WHOLE selection into one recipe-only feature -> ``selected_vars``
+# empty). On seeds where the dominant operand ``a`` is selected ALONGSIDE the fused
+# composite (``selected_vars`` non-empty), the MAIN ``drop_redundant_raw_operands``
+# path runs and conditioned ``a`` on the WHOLE fused composite
+# ``add(div(log(c),reciproc(d)),abs(div(sqr(a),abs(b))))`` -- which fuses the
+# ``a**2/b`` ratio with the ``log(c)*sin(d)`` product, so the second term acts as
+# nuisance variation across the conditioning strata and ``a`` retained a spurious
+# residual -> wrongly KEPT. The single-seed pin above happened to land on a
+# collapse seed and passed; the user's exact case kept ``a`` on the non-collapse
+# seeds (verified 5/5 at seed 4, n=40000, pre-fix). The fix walks each consumer's
+# recipe OPERAND TREE (the dataclass nested-parent structure, not str()) for the
+# cleanest ``a``-containing sub-expression ``div(sqr(a),abs(b))`` = a**2/b, replays
+# it to its own continuous values, and conditions ``a`` on THAT isolated
+# sub-expression -> the fully-subsumed operand drops on EVERY seed. The private-raw
+# control (a dominant standalone linear term) confirms no over-drop.
+# n=40_000 is the iteration size (fast enough for CI under the timeout, large
+# enough to reproduce the non-collapse seeds); the behaviour is n-invariant.
+_BUG1_N = 40_000
+_BUG1_PRIVATE_COEF = 10.0  # dominant standalone linear term -> irreducible private signal
+
+
+def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
+    """Fit the user's EXACT case in a FRESH subprocess and return the selected
+    feature names.
+
+    A FRESH PROCESS PER SEED IS LOAD-BEARING, NOT cosmetic. ``MRMR.fit`` consumes
+    GLOBAL ``np.random`` state during fitting (permutation nulls / subsampling), so
+    running several fits in ONE process leaves numpy's RNG in a state that depends
+    on the PRIOR fits -- which silently CHANGES which composite a later seed
+    selects. That in-process contamination is exactly what made the prior
+    single-seed pin pass on a lucky ordering while the user (who runs ONE fit in a
+    clean process) saw raw ``a`` kept. Isolating each seed in its own interpreter
+    reproduces the user's real invocation and makes the verdict reproducible: the
+    pin FAILS pre-fix (raw ``a`` kept on the non-collapse seeds) and PASSES
+    post-fix on EVERY seed."""
+    import subprocess
+    import sys
+    src = (
+        "import numpy as np, pandas as pd\n"
+        "from mlframe.feature_selection.filters.mrmr import MRMR\n"
+        f"np.random.seed({seed})\n"
+        f"a,b,c,d,e,f=(np.random.rand({n}) for _ in range(6))\n"
+        "y=a**2/b+f/5.0+np.log(c)*np.sin(d)\n"
+        f"{'y=y+%r*a' % _BUG1_PRIVATE_COEF if private else ''}\n"
+        "df=pd.DataFrame({'a':a,'b':b,'c':c,'d':d,'e':e})\n"
+        "fs=MRMR(verbose=0); fs.fit(df,pd.Series(y,name='y'))\n"
+        "import json; print('RESULT_JSON='+json.dumps(list(fs.get_feature_names_out())))\n"
+    )
+    env = dict(os.environ)
+    # Force CPU + deterministic path so the verdict is not perturbed by GPU/HNSW.
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["MLFRAME_DISABLE_HNSW"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+    proc = subprocess.run(
+        [sys.executable, "-c", src], capture_output=True, text=True, timeout=850, env=env,
+    )
+    out_names = None
+    for line in proc.stdout.splitlines():
+        if line.startswith("RESULT_JSON="):
+            import json
+            out_names = json.loads(line[len("RESULT_JSON="):])
+    assert out_names is not None, (
+        f"[seed={seed} private={private}] subprocess fit did not return a selection "
+        f"(rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:])
+    )
+    return out_names
+
+
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+def test_user_case_drops_redundant_raw_a_multi_seed(seed):
+    """REAL BUG1, MULTI-SEED (the recurring single-seed-validation failure mode):
+    on the user's EXACT df ``y=a**2/b + f/5 + log(c)*sin(d)`` the fully-subsumed
+    raw operand ``a`` MUST be dropped on EVERY seed -- not just the collapse seeds
+    the never-empty path handles, but also the seeds where ``a`` is selected
+    alongside the fused composite (the MAIN redundancy path, which pre-fix kept
+    ``a`` by conditioning on the fused whole rather than the clean a**2/b
+    sub-expression). Each seed fits in a FRESH subprocess (see
+    ``_run_user_case_in_subprocess``) so the in-process RNG contamination that
+    masked the bug cannot hide it. Verified to FAIL pre-fix (raw ``a`` kept on the
+    non-collapse seeds) and PASS post-fix on all 5."""
+    out = _run_user_case_in_subprocess(seed, private=False)
+    eng = [nm for nm in out if nm not in _RAW]
+    # Each signal group still covered by an engineered feature.
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no a**2/b coverage: {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no log(c)*sin(d) coverage: {eng}"
+    # raw ``a`` -- fully subsumed by its a**2/b sub-expression -- must NOT survive.
+    assert "a" not in out, (
+        f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its "
+        f"a**2/b sub-expression (nested inside the fused composite): out={out}"
+    )
+
+
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+def test_private_raw_a_kept_alongside_engineered_multi_seed(seed):
+    """OVER-DROP CONTROL (multi-seed): when ``a`` carries a DOMINANT standalone
+    linear term (``y += 10*a``) the engineered children built from ``a`` do NOT
+    capture that private additive signal, so ``a`` keeps a large conditional
+    residual given its clean a**2/b sub-expression and MUST be KEPT on every seed.
+    Pins that the nested-sub-expression redundancy fix does not over-correct into
+    dropping a genuine private-term raw. Same fresh-subprocess-per-seed isolation
+    as the drop pin above."""
+    out = _run_user_case_in_subprocess(seed, private=True)
+    assert "a" in out, (
+        f"[seed={seed}] raw 'a' wrongly dropped despite a DOMINANT standalone linear "
+        f"term (10*a) the engineered children do not capture (over-drop regression): "
+        f"out={out}"
     )
 
 
