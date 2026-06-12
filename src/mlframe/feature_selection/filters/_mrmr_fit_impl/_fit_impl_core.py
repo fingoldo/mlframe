@@ -7156,9 +7156,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _NE_TOK_SPLIT
             from ..info_theory import mi as _ne_mi
             _raw_names_ne = set(self.feature_names_in_)
+            # Recipe -> column NAME. ``self._engineered_recipes_`` holds EngineeredRecipe
+            # OBJECTS whose ``str()``/``repr()`` is the full dataclass repr, NOT the column
+            # name -- so ``str(r)`` neither matches ``cols`` nor is a clean token source.
+            # Resolve the name from ``.name`` (the column the recipe materialises), falling
+            # back to ``str(r)`` only for a legacy bare-string entry.
+            def _ne_recipe_name(_r):
+                _nm = getattr(_r, "name", None)
+                return str(_nm) if _nm is not None else str(_r)
             _operand_idxs: set = set()
-            for _rname in self._engineered_recipes_:
-                for _tok in _NE_TOK_SPLIT.split(str(_rname)):
+            for _r_obj in self._engineered_recipes_:
+                for _tok in _NE_TOK_SPLIT.split(_ne_recipe_name(_r_obj)):
                     if not _tok:
                         continue
                     _base = _tok if _tok in _raw_names_ne else (_tok.split("__", 1)[0] if "__" in _tok else None)
@@ -7185,9 +7193,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _subsumed_operand_names: set = set()
             try:
                 from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _ne_drop
+                _recipe_names = [_ne_recipe_name(r) for r in self._engineered_recipes_]
                 _eng_survivor_cols = [
-                    cols.index(str(r)) for r in self._engineered_recipes_
-                    if str(r) in cols and str(r) not in _raw_names_ne
+                    cols.index(_nm) for _nm in _recipe_names
+                    if _nm in cols and _nm not in _raw_names_ne
                 ]
                 if _eng_survivor_cols and _operand_idxs:
                     _trial_sel = sorted(set(_operand_idxs) | set(_eng_survivor_cols))
@@ -7196,7 +7205,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         raw_name_set=_raw_names_ne, y_binned=classes_y,
                         y_continuous=(y.values if hasattr(y, "values") else np.asarray(y)),
                         engineered_continuous=_eng_continuous_snapshot,
-                        replayable_eng_names={str(r) for r in self._engineered_recipes_},
+                        replayable_eng_names=set(_recipe_names),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
                     )
                     _subsumed_operand_names = set(_ne_dropped or ())
@@ -7225,13 +7234,33 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             "stand-in (carries residual signal beyond the engineered child).",
                             cols[_best_idx_ne], _best_rel_ne,
                         )
-            elif _operand_idxs and verbose:
-                logger.info(
-                    "MRMR never-empty raw representative: ALL %d engineered operand(s) are "
-                    "conditionally subsumed by the surviving engineered child; leaving support "
-                    "engineered-only (no spurious raw stand-in re-attached): %s",
-                    len(_operand_idxs), sorted(_subsumed_operand_names),
-                )
+            elif _operand_idxs and _subsumed_operand_names:
+                # EVERY engineered operand is conditionally subsumed by a surviving
+                # engineered child -- the engineered recipe(s) ARE the complete feature
+                # set. Record the verdict so the DOWNSTREAM empty-raw rescue (the
+                # ``else`` branch that tops up the support to ``min_features_fallback``
+                # by marginal MI) does NOT resurrect a dropped operand. Without this the
+                # rescue re-adds the highest-marginal operand (``a`` in the user's
+                # ``a**2/b + log(c)sin(d)`` fixture, whose ``a**2/b`` is captured by the
+                # composite), the BUG1 spurious-raw-kept regression -- because the raw
+                # operands were dropped by the EARLIER raw-retention pass, not the main
+                # ``drop_redundant_raw_operands`` sweep, so neither
+                # ``_raw_redundancy_dropped_`` nor ``_redundancy_emptied_raw_`` was set.
+                # The ``elif`` at the rescue site keys on ``_redundancy_emptied_raw_`` and
+                # the rescue / RFECV / augmentation pools all exclude
+                # ``_raw_redundancy_dropped_``; populate both here so the engineered-only
+                # support stands.
+                self._raw_redundancy_dropped_ = set(
+                    getattr(self, "_raw_redundancy_dropped_", None) or set()
+                ) | set(_subsumed_operand_names)
+                self._redundancy_emptied_raw_ = True
+                if verbose:
+                    logger.info(
+                        "MRMR never-empty raw representative: ALL %d engineered operand(s) are "
+                        "conditionally subsumed by the surviving engineered child; leaving support "
+                        "engineered-only (no spurious raw stand-in re-attached): %s",
+                        len(_operand_idxs), sorted(_subsumed_operand_names),
+                    )
         except Exception as _ne_exc:
             logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
 

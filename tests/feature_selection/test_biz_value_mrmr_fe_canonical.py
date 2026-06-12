@@ -253,15 +253,24 @@ def test_user_case_drops_redundant_raw_operands_at_large_n():
     features. The original ``_covers_pair(..., exclude=...)`` assertion (which demanded
     two SEPARATE single-group features) is therefore outdated; the correct invariant is
     that an engineered feature covers EACH signal group (whether in one composite or
-    two). KNOWN RESIDUAL (documented, not asserted away): when the full target collapses
-    into a SINGLE recipe-only composite, the never-empty-raw-representative contract
-    re-attaches exactly ONE dominant raw operand (``a``) as the support stand-in -- its
-    conditional residual given the MIXED-term composite is non-zero (the composite's
-    second term adds noise to the a-signal channel), so the CMI verdict cannot prove it
-    subsumed by the composite alone. This is a single dominant operand, NOT the old
-    ``a, c, d`` 3-way pollution; the spurious-multi-operand regression IS fixed. The
-    clean two-feature path (case1 / the small-n ratio cells) fully drops the subsumed
-    operands."""
+    two).
+
+    TIGHTENED 2026-06-12 (REAL BUG1): the earlier "KNOWN RESIDUAL -- one dominant raw
+    operand ``a`` survives as the never-empty stand-in" was NOT an irreducible residual
+    but a live bug, now FIXED. When the full target collapses into a SINGLE recipe-only
+    composite, ``selected_vars`` is empty and the never-empty-raw-representative block
+    runs its conditional-redundancy guard. That guard built its engineered-survivor
+    anchor / replayable set from ``str(recipe)`` -- the EngineeredRecipe dataclass REPR,
+    not the recipe's column ``.name`` -- so the anchor set was empty, the guard was
+    skipped, and the empty-raw rescue re-added ``a`` by marginal MI. Measured on this
+    EXACT fixture: ``CMI(a; y | composite) excess = 0.0024`` vs marginal ``0.326`` (0.7%
+    retention) and ``CMI(a; y | div(sqr(a),abs(b))) excess = 0.0024`` (0.7%) -- ``a`` is
+    FULLY subsumed by its ``a**2/b`` child; the composite fusion does not mask it. With
+    the guard now resolving ``recipe.name`` (and recording the subsumption verdict so the
+    downstream empty-raw / RFECV rescues honour it) the support is engineered-only: ZERO
+    redundant raw operands. The genuine-private-raw control
+    (``test_genuine_independent_raw_kept_alongside_engineered``) confirms a raw carrying
+    an independent term is still KEPT."""
     df, y = _make_user_fixture()
     fs = MRMR(verbose=0)
     fs.fit(df, y)
@@ -272,12 +281,20 @@ def test_user_case_drops_redundant_raw_operands_at_large_n():
     # composite, or two separate features -- both acceptable; the combined one is better).
     assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"no a**2/b coverage in {eng}"
     assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"no log(c)*sin(d) coverage in {eng}"
-    # The old 3-way raw pollution (a, c, d all re-added) is fixed: AT MOST ONE raw
-    # operand survives -- the never-empty support stand-in for the recipe-only composite.
+    # REAL BUG1 PIN: the redundant raw operands are FULLY subsumed by the engineered
+    # composite (a**2/b inside it captures all of a's and b's y-information; c/d likewise
+    # via log(c)sin(d)) -> NONE may pollute support_. Pre-fix this kept ``a`` (the dominant
+    # operand) as a spurious never-empty stand-in; verified to FAIL at commit 23d71f0b.
     raw_in_support = {n for n in out if n in _RAW}
-    assert len(raw_in_support) <= 1, (
-        f"redundant raw operand pollution at large n (regression -- pre-fix kept a, c, d): "
-        f"support raw={raw_in_support}, expected at most ONE stand-in; full out={out}"
+    assert raw_in_support == set(), (
+        f"redundant raw operand(s) re-added to support_ despite full subsumption by the "
+        f"engineered composite (REAL BUG1 regression -- pre-fix kept 'a'): "
+        f"support raw={raw_in_support}; full out={out}"
+    )
+    # Specifically pin the user-reported operand: raw ``a`` must not appear.
+    assert "a" not in out, (
+        f"raw 'a' spuriously kept despite being subsumed by its a**2/b engineered child "
+        f"(the user-reported BUG1 case): full out={out}"
     )
 
 
