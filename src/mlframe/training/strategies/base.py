@@ -184,11 +184,29 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         transformed = self.inner.transform(X[num_cols])
         if not hasattr(transformed, "columns"):
             import pandas as _pd
-            transformed = _pd.DataFrame(transformed, columns=num_cols, index=X.index)
+            # The inner transformer is expected to preserve the numeric block width (imputers configured with keep_empty_features=True, scalers, inf->NaN / float32 casts all do). If it nonetheless changed the column count -- e.g. a SimpleImputer left at its default keep_empty_features=False that dropped an all-NaN column -- recover the surviving column labels from get_feature_names_out so the reassembly maps each output column back to the right name instead of crashing the DataFrame constructor with a width mismatch.
+            _n_out = transformed.shape[1] if getattr(transformed, "ndim", 1) >= 2 else 1
+            if _n_out == len(num_cols):
+                _out_cols = num_cols
+            else:
+                _out_cols = None
+                try:
+                    _names = list(self.inner.get_feature_names_out(num_cols))
+                    if len(_names) == _n_out:
+                        _out_cols = _names
+                except (AttributeError, ValueError, NotImplementedError, TypeError):
+                    pass
+                if _out_cols is None:
+                    _out_cols = list(num_cols[:_n_out]) if _n_out <= len(num_cols) else [f"num_ext_{i}" for i in range(_n_out)]
+            transformed = _pd.DataFrame(transformed, columns=_out_cols, index=X.index)
         # Reassemble in the ORIGINAL column order so the cat columns keep their positions + names (the estimator reorders cats leading by name,
-        # but downstream feature-name continuity + the input-width contract still expect a stable layout here).
+        # but downstream feature-name continuity + the input-width contract still expect a stable layout here). Only map back columns the inner
+        # actually produced; a column the inner dropped stays at its pre-transform value (the keep_empty_features fix above makes this the rare path).
         out = X.copy()
+        _present = set(transformed.columns) if hasattr(transformed, "columns") else set(num_cols)
         for c in num_cols:
+            if c not in _present:
+                continue
             out[c] = transformed[c].to_numpy() if hasattr(transformed[c], "to_numpy") else transformed[c]
         return out
 

@@ -117,3 +117,66 @@ class TestGetPipelineComponentsDefaults:
         cfg = PreprocessingConfig(imputer=my_imputer)
         _, imputer, _ = _get_pipeline_components(cfg, cat_features=[])
         assert imputer is my_imputer, "explicit PreprocessingConfig.imputer must pass through untouched"
+
+
+class TestNumericOnlyTransformerAllNanColumn:
+    """Regression for the cb/mlp pre_pipeline crash ``ValueError: Shape of passed values is (N, k-d), indices imply (N, k)``.
+
+    An all-NaN numeric column (degenerate fuzz input, or a column normalised to all-NaN after inf->NaN) was fed to a default
+    ``SimpleImputer()`` (``keep_empty_features=False``), which DROPPED the empty column. ``_NumericOnlyTransformer`` then tried
+    to rebuild the scaled numeric block under the FULL ``num_cols`` label list and the pandas DataFrame constructor raised
+    the opaque shape-mismatch. Two contracts pin the fix: the default imputer keeps empty features, and the wrapper survives
+    a width-changing inner regardless.
+    """
+
+    def test_default_imputer_keeps_empty_features(self):
+        """The default imputer must NOT silently drop all-NaN columns -- that broke the _NumericOnlyTransformer width contract."""
+        cfg = PreprocessingConfig()
+        _, imputer, _ = _get_pipeline_components(cfg, cat_features=[])
+        assert getattr(imputer, "keep_empty_features", False) is True, (
+            "default SimpleImputer must set keep_empty_features=True so an all-NaN numeric column survives imputation "
+            "(else _NumericOnlyTransformer reassembly crashes with a shape mismatch)"
+        )
+        # An all-NaN column survives as a (zero-filled) column rather than being dropped.
+        arr = np.array([[1.0, np.nan], [2.0, np.nan], [3.0, np.nan]])
+        out = imputer.fit_transform(arr)
+        assert out.shape[1] == 2, f"all-NaN column must be kept, got width {out.shape[1]}"
+
+    def test_numeric_only_transformer_survives_all_nan_column(self):
+        """_NumericOnlyTransformer.fit_transform must not crash when a numeric column is all-NaN."""
+        from mlframe.training.strategies.base import _NumericOnlyTransformer
+
+        X = pd.DataFrame(
+            {
+                "num_0": [1.0, 2.0, 3.0, 4.0],
+                "num_all_nan": [np.nan, np.nan, np.nan, np.nan],
+                "cat_0": ["a", "b", "a", "c"],
+            }
+        )
+        # With the keep_empty_features fix the default imputer preserves both numeric columns.
+        wrapper = _NumericOnlyTransformer(SimpleImputer(keep_empty_features=True), cat_features=["cat_0"])
+        out = wrapper.fit_transform(X, np.array([0.0, 1.0, 2.0, 3.0]))
+        assert list(out.columns) == ["num_0", "num_all_nan", "cat_0"], (
+            f"original column layout must be preserved, got {list(out.columns)!r}"
+        )
+        assert out.shape == (4, 3)
+        # The all-NaN column is imputed to a constant (0.0) rather than dropped.
+        assert not np.isnan(out["num_all_nan"].to_numpy()).any()
+
+    def test_numeric_only_transformer_survives_width_dropping_inner(self):
+        """Defence-in-depth: even an inner that DROPS a column (legacy keep_empty_features=False) must not crash the reassembly."""
+        from mlframe.training.strategies.base import _NumericOnlyTransformer
+
+        X = pd.DataFrame(
+            {
+                "num_0": [1.0, 2.0, 3.0, 4.0],
+                "num_all_nan": [np.nan, np.nan, np.nan, np.nan],
+                "cat_0": ["a", "b", "a", "c"],
+            }
+        )
+        # Default (keep_empty_features=False) drops the all-NaN column -> inner returns 1 col for 2 num_cols.
+        wrapper = _NumericOnlyTransformer(SimpleImputer(), cat_features=["cat_0"])
+        out = wrapper.fit_transform(X, np.array([0.0, 1.0, 2.0, 3.0]))
+        # No crash; the surviving numeric column is mapped back, the dropped one keeps its pre-transform (NaN) values.
+        assert out.shape == (4, 3)
+        assert "num_0" in out.columns and "cat_0" in out.columns

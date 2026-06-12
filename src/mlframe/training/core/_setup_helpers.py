@@ -427,7 +427,8 @@ def _get_pipeline_components(
         category_encoder = ce.CatBoostEncoder(random_state=_seed)
 
     if imputer is None:
-        imputer = SimpleImputer()
+        # keep_empty_features=True: an all-NaN numeric column (degenerate input, or a column that became all-NaN after the pre-split inf->NaN normalisation) must SURVIVE imputation as a zero-filled column, not be silently dropped. The default SimpleImputer() drops such columns, which breaks the column-count contract that ``_NumericOnlyTransformer`` relies on when it reassembles the scaled numeric block back into the original frame (it expects ``inner.transform`` to return exactly ``num_cols`` columns) -- the drop produced "Shape of passed values is (N, k-d), indices imply (N, k)" on the MLP pre-pipeline. Mirrors the imputer config already used in ``_predict_guards``.
+        imputer = SimpleImputer(keep_empty_features=True)
 
     if scaler is None:
         scaler = StandardScaler()
