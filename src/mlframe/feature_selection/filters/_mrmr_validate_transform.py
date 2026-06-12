@@ -507,7 +507,15 @@ def _append_engineered(self, base_out, X, recipes):
     if isinstance(X, np.ndarray) and X.dtype.names is None and hasattr(self, "feature_names_in_"):
         try:
             _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
-        except Exception:
+        except (ValueError, TypeError) as _wrap_err:
+            # A length/shape mismatch means X does not match fit-time feature_names_in_. Falling back
+            # to the nameless ndarray makes every src-names-by-name recipe resolve against an unnamed
+            # frame -> wrong engineered columns. Surface it at WARNING instead of masking it silently.
+            logger.warning(
+                "MRMR.transform: could not wrap input ndarray in fit-time feature_names_in_ (%s: %s); "
+                "engineered-recipe replay will run on an unnamed frame and may produce wrong columns.",
+                type(_wrap_err).__name__, _wrap_err,
+            )
             _X_for_recipes = X
     # Recipe replay must support multi-level chaining: a spline / fourier / hybrid
     # extra-basis recipe can carry ``src_names=('x__He2',)`` referencing a sibling

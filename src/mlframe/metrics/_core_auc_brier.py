@@ -487,10 +487,10 @@ def brier_and_precision_score(
     if brier > brier_threshold:
         return 0.0
     y_pred = (y_proba > 0.5).astype(int)
-    try:
-        precision = precision_score(y_true, y_pred, zero_division=0)
-    except Exception:
-        return 0.0
+    # precision_score on valid binary input with zero_division=0 does not raise; a failure here
+    # signals a real input-contract violation (multiclass y, shape mismatch). Returning 0.0 would
+    # silently make this model-selection scorer report the worst value, corrupting which model wins.
+    precision = precision_score(y_true, y_pred, zero_division=0)
     if precision < precision_threshold:
         return 0.0
     return float(precision - brier)
