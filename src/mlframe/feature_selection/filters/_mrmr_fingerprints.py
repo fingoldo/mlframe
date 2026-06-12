@@ -543,8 +543,10 @@ def _full_x_content_hash(X) -> str:
             except Exception:
                 pass
         result = h.hexdigest()
-        _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
+        # Publish value BEFORE key so a concurrent torn read (this single-slot memo is unlocked and MRMR.fit may run under joblib threads) can only see
+        # an OLD key paired with whatever hash -- a miss that recomputes -- never a NEW id_shape paired with a stale hash from a prior different X.
         _MRMR_LAST_X_HASH_CACHE["hash"] = result
+        _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
         return result
     except Exception:
         return ""

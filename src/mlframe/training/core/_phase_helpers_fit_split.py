@@ -498,7 +498,14 @@ def _phase_auto_detect_feature_types(
                 _post_flip_pandas_cats = detect_df.select_dtypes(include=["category"]).columns.tolist()
             except Exception:
                 _post_flip_pandas_cats = []
-    raw_cat_features = list(set((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats))
+    # Order-preserving dedup: ``metadata["cat_features"]`` feeds CatBoost/Pool and is
+    # serialised into the recipe -- ``list(set(...))`` would reorder per PYTHONHASHSEED,
+    # making a fixed-random_state run non-reproducible. Keep first-seen input order.
+    _seen_cat: set[str] = set()
+    raw_cat_features = [
+        c for c in ((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats)
+        if not (c in _seen_cat or _seen_cat.add(c))
+    ]
     # Honor only strictly-user-declared pl.Categorical columns as already-assigned.
     if was_polars_input:
         user_polars_cats = [

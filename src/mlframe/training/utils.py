@@ -793,8 +793,10 @@ def get_pandas_view_of_polars_df(
     if not self_destruct:
         try:
             sh = getattr(df, "shape", None)
-            _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,))
+            # Publish result BEFORE key so a torn read on this unlocked single-slot memo can only see an OLD key (miss -> recompute), never a NEW id_key
+            # paired with a stale pandas view from a prior different df.
             _PD_VIEW_LAST_CACHE["result"] = pandas_df
+            _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,))
         except Exception:
             # Memo population is best-effort; never fail the conversion
             # because of a cache-write hiccup.

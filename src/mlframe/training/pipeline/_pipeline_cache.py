@@ -594,8 +594,10 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         sig,
         _sw_fp,
     )
-    _LAST_KEY_CACHE["id_tup"] = id_tup
+    # Publish key BEFORE id_tup so a torn read on this unlocked single-slot memo can only see an OLD id_tup (miss -> recompute), never a NEW id_tup paired
+    # with a stale key from a prior different (df, target) under id-recycling.
     _LAST_KEY_CACHE["key"] = key
+    _LAST_KEY_CACHE["id_tup"] = id_tup
     return key
 
 
