@@ -6911,6 +6911,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     selected_vars_names = np.array(cols)[np.array(selected_vars, dtype=np.intp)]
+    # BUG2 (2026-06-12): the cross-fold stability vote in ``_run_fe_step`` pops a
+    # fold-unstable engineered recipe AND de-selects its column for that step, but the
+    # materialised bin-code column stays in ``cols``/``data``, so the downstream greedy
+    # screen (step>1 re-screen / final selection) re-admits it on marginal MI -- it then
+    # arrives here with NO recipe and was silently DROPPED from transform output (a
+    # select-then-drop contract violation: a feature in support_/discovered MUST survive
+    # transform). The vote is authoritative, so strip every vote-rejected engineered name
+    # from the selection BEFORE finalising support_/discovered: the column never re-enters
+    # support_, get_feature_names_out, or _engineered_features_. ``selected_vars`` is filtered
+    # in lockstep (by cols-index) so the raw integer support stays consistent.
+    _vote_dropped_names = getattr(self, "_fe_stability_vote_dropped_", None)
+    if _vote_dropped_names:
+        _keep_mask = np.array([nm not in _vote_dropped_names for nm in selected_vars_names], dtype=bool)
+        if not _keep_mask.all():
+            _kept_idx_positions = np.nonzero(_keep_mask)[0]
+            selected_vars = [selected_vars[i] for i in _kept_idx_positions]
+            selected_vars_names = selected_vars_names[_keep_mask]
+            if verbose:
+                logger.info(
+                    "MRMR.fit: stripped %d cross-fold-vote-rejected engineered feature(s) from the "
+                    "final selection so they cannot re-enter support_ without a replayable recipe.",
+                    int((~_keep_mask).sum()),
+                )
     # Tolerate FE-engineered names: screening output may include synthetic feature names not in
     # feature_names_in_; record them in self._engineered_features_ instead of raising on the .index() lookup.
     # Also surface matching EngineeredRecipe (built during _run_fe_step) so transform() can replay each

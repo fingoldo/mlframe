@@ -1757,6 +1757,20 @@ def _run_fe_step(
                         selected_vars = [i for i in selected_vars if i not in _failed_idx]
                     for _fn in _failed_eng:
                         engineered_recipes.pop(_fn, None)
+                    # BUG2 (2026-06-12): the vote pops the recipe + de-selects the column,
+                    # but the materialised bin-code column STAYS in ``cols``/``data`` and is
+                    # therefore still visible to the downstream greedy screen (the step>1
+                    # re-screen / final selection). That screen re-admits it on its marginal
+                    # MI, so it lands in ``selected_vars_names`` at fit-end with NO recipe and
+                    # is silently DROPPED from transform output -- a select-then-drop contract
+                    # violation. Record the vote-rejected engineered NAMES on ``self`` so the
+                    # fit-end selection finaliser strips them before they can re-enter support_.
+                    # The vote is authoritative: a fold-unstable recipe must not reappear.
+                    _vote_dropped = getattr(self, "_fe_stability_vote_dropped_", None)
+                    if _vote_dropped is None:
+                        _vote_dropped = set()
+                        self._fe_stability_vote_dropped_ = _vote_dropped
+                    _vote_dropped.update(str(_fn) for _fn in _failed_eng)
             except Exception as _vote_exc:
                 if verbose:
                     logger.warning(
