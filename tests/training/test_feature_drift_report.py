@@ -252,3 +252,110 @@ def test_categorical_psi_no_categorical_columns_returns_empty_per_feature():
     out = compute_categorical_drift_psi(train, val, test)
     assert out["per_feature"] == {}
     assert out["n_categorical_features"] == 0
+
+
+# ----- target-invariant z-stats cache (bit-identity) ---------------------
+
+
+def _drift_frames(seed: int = 0):
+    rng = np.random.default_rng(seed)
+    n = 4000
+    data = {f"num_{j}": rng.standard_normal(n) + 0.01 * j for j in range(8)}
+    data["cat"] = rng.integers(0, 15, size=n).astype(str)
+    train = pd.DataFrame(data)
+    val = pd.DataFrame({c: rng.permutation(train[c].to_numpy()) for c in train.columns})
+    test = pd.DataFrame({c: rng.permutation(train[c].to_numpy()) for c in train.columns})
+    return train, val, test
+
+
+def _strip_target_specific(report: dict) -> dict:
+    """The target-invariant slice of a drift report (everything but the
+    FI-weighted aggregate / override / threshold scalar)."""
+    return {
+        "per_feature": report["per_feature"],
+        "drift_candidates": report["drift_candidates"],
+        "categorical_psi": report["categorical_psi"],
+        "n_numeric_features": report["n_numeric_features"],
+    }
+
+
+def test_drift_zstats_cache_is_bit_identical_to_fresh_recompute():
+    """A 3-target run on shared frames: the cached invariant (per-feature z,
+    candidates, categorical PSI) for targets 2..N must EQUAL a from-scratch
+    recompute. Pins cached == fresh -- the cache must never change the output."""
+    import mlframe.training.feature_drift_report as fdr
+
+    train, val, test = _drift_frames(seed=1)
+    num_cols = [c for c in train.columns if c.startswith("num_")]
+    fis = [{c: float(abs(hash((c, t)) % 97)) for c in num_cols} for t in range(3)]
+
+    # Fresh: cache cleared before EVERY call -> always a from-scratch compute.
+    fresh_reports = []
+    for t in range(3):
+        fdr._DRIFT_INVARIANT_CACHE.clear()
+        fresh_reports.append(
+            compute_feature_distribution_drift(
+                train, val, test, feature_importance=fis[t], target_type="regression",
+            )
+        )
+
+    # Cached: cleared ONCE, then targets 2..3 hit the cache.
+    fdr._DRIFT_INVARIANT_CACHE.clear()
+    cached_reports = [
+        compute_feature_distribution_drift(
+            train, val, test, feature_importance=fis[t], target_type="regression",
+        )
+        for t in range(3)
+    ]
+    # At least one cached entry was stored (cacheable frames).
+    assert len(fdr._DRIFT_INVARIANT_CACHE) >= 1
+
+    for t in range(3):
+        f = _strip_target_specific(fresh_reports[t])
+        c = _strip_target_specific(cached_reports[t])
+        assert f["n_numeric_features"] == c["n_numeric_features"]
+        assert f["drift_candidates"] == c["drift_candidates"]
+        # Per-feature dicts: every train_mean/std/val_z/test_z bit-identical.
+        assert set(f["per_feature"]) == set(c["per_feature"])
+        for col, ent in f["per_feature"].items():
+            cent = c["per_feature"][col]
+            for k in ("train_mean", "train_std", "val_z", "test_z"):
+                fv, cv = ent[k], cent[k]
+                if isinstance(fv, float) and math.isnan(fv):
+                    assert math.isnan(cv)
+                else:
+                    assert fv == cv, (col, k, fv, cv)
+        # Categorical PSI bit-identical.
+        fp = f["categorical_psi"]["per_feature"]
+        cp = c["categorical_psi"]["per_feature"]
+        assert set(fp) == set(cp)
+        for col, ent in fp.items():
+            for k, v in ent.items():
+                cv = cp[col][k]
+                if isinstance(v, float) and math.isnan(v):
+                    assert math.isnan(cv)
+                else:
+                    assert v == cv, (col, k, v, cv)
+        # Target-specific fields are still computed fresh per target.
+        assert fresh_reports[t]["weighted_drift_score"] == cached_reports[t]["weighted_drift_score"]
+        assert fresh_reports[t]["recommend_neural_overrides"] == cached_reports[t]["recommend_neural_overrides"]
+
+
+def test_drift_cache_isolates_distinct_frames():
+    """Different frame CONTENT must not collide: a second frame set yields its
+    own stats, never the first set's cached entry."""
+    import mlframe.training.feature_drift_report as fdr
+
+    fdr._DRIFT_INVARIANT_CACHE.clear()
+    train_a, val_a, test_a = _drift_frames(seed=2)
+    train_b, val_b, test_b = _drift_frames(seed=99)
+    rep_a = compute_feature_distribution_drift(train_a, val_a, test_a, target_type="regression")
+    rep_b = compute_feature_distribution_drift(train_b, val_b, test_b, target_type="regression")
+    # Distinct content -> distinct per-feature train means (not a stale hit).
+    means_a = {k: v["train_mean"] for k, v in rep_a["per_feature"].items()}
+    means_b = {k: v["train_mean"] for k, v in rep_b["per_feature"].items()}
+    assert means_a != means_b
+    # And a fresh recompute of B equals the cached B (self-consistency).
+    fdr._DRIFT_INVARIANT_CACHE.clear()
+    rep_b_fresh = compute_feature_distribution_drift(train_b, val_b, test_b, target_type="regression")
+    assert means_b == {k: v["train_mean"] for k, v in rep_b_fresh["per_feature"].items()}

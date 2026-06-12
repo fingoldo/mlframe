@@ -158,6 +158,11 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
     ys = np.asarray(y_score, dtype=np.float64)
     if yt.shape[0] == 0:
         return np.nan
+    # bench-attempt-rejected (_benchmarks/bench_ks_shared_sort.py): sharing this
+    # sort with the AUC score-desc argsort is bit-identical (KS via reversed
+    # desc-order == asc) but unimplementable as a micro-change -- the report's
+    # AUC sort is inside the batched/GPU compute_batch_aucs (returns scalars,
+    # not orders); threading an (N,K) order matrix back adds 8*N*K. Keep own sort.
     order = np.argsort(ys, kind="quicksort")
     return float(_ks_statistic_kernel(yt[order], ys[order]))
 

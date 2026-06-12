@@ -658,56 +658,53 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
     return None
 
 
-def compute_feature_distribution_drift(
-    train_df: Any,
-    val_df: Any,
-    test_df: Any,
-    *,
-    warn_threshold_z: float = DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z,
-    feature_names: Optional[List[str]] = None,
-    feature_importance: Optional[Dict[str, float]] = None,
-    max_features_in_log: int = 10,
-    target_type: Optional[str] = None,
-    linear_shape_delta_vs_raw_pct: Optional[float] = None,
+# Target-invariant z-stats cache. The per-feature train/val/test z-stats +
+# categorical PSI depend ONLY on the (train, val, test) frames + feature_names +
+# threshold -- NOT on feature_importance / target_type / linear_shape. The drift
+# sensor runs once per target on the SAME filtered frames, so this artefact is
+# recomputed identically per target. We cache the cheap-to-rebuild stats keyed on
+# a content signature (point-sampled, O(n_cols), no whole-frame copy) and recompute
+# only the per-target FI-weighted aggregate. Bounded FIFO so it never grows on a
+# 100 GB workload; a single suite's targets share one signature -> one live entry.
+_DRIFT_INVARIANT_CACHE: "Dict[Any, Dict[str, Any]]" = {}
+_DRIFT_INVARIANT_CACHE_MAX: int = 8
+
+
+def _drift_invariant_cache_key(
+    train_df: Any, val_df: Any, test_df: Any,
+    feature_names: Optional[List[str]], warn_threshold_z: float,
+) -> Optional[Any]:
+    """Content signature for the target-invariant drift stats; None = uncacheable.
+
+    Reuses ``_content_fingerprint_for_cache`` (point-samples 4 rows, O(n_cols), no
+    full materialisation) so the key tracks frame CONTENT, not id() (GC recycles
+    ids; the per-target loop persists the same frame object across targets).
+    """
+    try:
+        from .pipeline._pipeline_cache import _content_fingerprint_for_cache
+    except Exception:
+        return None
+    try:
+        key = (
+            _content_fingerprint_for_cache(train_df),
+            _content_fingerprint_for_cache(val_df),
+            _content_fingerprint_for_cache(test_df),
+            tuple(feature_names) if feature_names is not None else None,
+            float(warn_threshold_z),
+        )
+        hash(key)  # force-uncached on any unhashable (embedding) component.
+        return key
+    except Exception:
+        return None
+
+
+def _compute_drift_invariant(
+    train_df: Any, val_df: Any, test_df: Any,
+    *, warn_threshold_z: float, feature_names: Optional[List[str]],
 ) -> Dict[str, Any]:
-    """Compute per-feature mean drift across train / val / test.
-
-    Returns a dict with:
-      - ``per_feature``: ``{col: {"train_mean", "train_std", "val_z",
-        "test_z"}}`` for each numeric feature.
-      - ``drift_candidates``: list of (col, max_abs_z) where max_abs_z
-        exceeds ``warn_threshold_z``, sorted descending.
-      - ``weighted_drift_score``: optional importance-weighted aggregate
-        = sum(|z_i| * |fi_i|) / sum(|fi_i|). Populated only when
-        ``feature_importance`` is supplied. Higher = more risk because
-        the IMPORTANT features (high FI) are drifting; a non-FI-weighted
-        high-z on irrelevant features is much less worrying.
-      - ``recommend_neural_overrides``: dict of MLP HPT overrides to apply
-        for this target when ``weighted_drift_score >=
-        WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD`` (3.0 by default), or
-        ``None`` when no override is recommended. Keys are MLPConfig field
-        names; values are the empirically-grounded settings from the
-        2026-05-22 robustness sweep that close the Ridge-vs-MLP gap on
-        drifted data. Downstream model-selection should merge this dict
-        into the MLP config for the target (not drop the model -- drop
-        loses stacking diversity).
-      - ``threshold``: the z-threshold that fired log lines.
-      - ``n_numeric_features``: count of numeric features inspected.
-
-    The function never raises on missing val/test (returns z=NaN for the
-    missing slot). Per-feature z is NaN when train_std==0 (constant
-    feature -- no drift signal can be extracted).
-
-    Log level depends on the magnitude AND the FI-weighted score:
-      - <3 sigma: silent.
-      - 3-10 sigma: INFO log (observational; per-model FS may drop these).
-      - >=10 sigma OR weighted_drift_score >= 1.0: WARN log (correlation
-        with model harm is strong enough to escalate).
-
-    ``feature_importance`` is an optional dict ``{col: fi}`` from any
-    reasonable source (sklearn coef_ magnitudes, mlframe FI top-K, MRMR
-    scores). Missing columns get 0 weight. The aggregate skips features
-    with NaN z (constant features).
+    """Target-invariant half of the drift report: per-feature z-stats, the drift
+    candidate list, and the categorical PSI. Depends only on the frames + names +
+    threshold; the caller layers the per-target FI-weighted aggregate on top.
     """
     cols = feature_names or _numeric_columns(train_df)
     per_feature: Dict[str, Dict[str, float]] = {}
@@ -765,6 +762,88 @@ def compute_feature_distribution_drift(
         if max_abs_z > warn_threshold_z:
             candidates.append((col, max_abs_z))
     candidates.sort(key=lambda pair: -pair[1])
+    # Categorical-side PSI (target-invariant too): same train/val/test trio.
+    categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df)
+    return {
+        "per_feature": per_feature,
+        "candidates": candidates,
+        "categorical_psi": categorical_psi,
+    }
+
+
+def compute_feature_distribution_drift(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    *,
+    warn_threshold_z: float = DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z,
+    feature_names: Optional[List[str]] = None,
+    feature_importance: Optional[Dict[str, float]] = None,
+    max_features_in_log: int = 10,
+    target_type: Optional[str] = None,
+    linear_shape_delta_vs_raw_pct: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Compute per-feature mean drift across train / val / test.
+
+    Returns a dict with:
+      - ``per_feature``: ``{col: {"train_mean", "train_std", "val_z",
+        "test_z"}}`` for each numeric feature.
+      - ``drift_candidates``: list of (col, max_abs_z) where max_abs_z
+        exceeds ``warn_threshold_z``, sorted descending.
+      - ``weighted_drift_score``: optional importance-weighted aggregate
+        = sum(|z_i| * |fi_i|) / sum(|fi_i|). Populated only when
+        ``feature_importance`` is supplied. Higher = more risk because
+        the IMPORTANT features (high FI) are drifting; a non-FI-weighted
+        high-z on irrelevant features is much less worrying.
+      - ``recommend_neural_overrides``: dict of MLP HPT overrides to apply
+        for this target when ``weighted_drift_score >=
+        WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD`` (3.0 by default), or
+        ``None`` when no override is recommended. Keys are MLPConfig field
+        names; values are the empirically-grounded settings from the
+        2026-05-22 robustness sweep that close the Ridge-vs-MLP gap on
+        drifted data. Downstream model-selection should merge this dict
+        into the MLP config for the target (not drop the model -- drop
+        loses stacking diversity).
+      - ``threshold``: the z-threshold that fired log lines.
+      - ``n_numeric_features``: count of numeric features inspected.
+
+    The function never raises on missing val/test (returns z=NaN for the
+    missing slot). Per-feature z is NaN when train_std==0 (constant
+    feature -- no drift signal can be extracted).
+
+    Log level depends on the magnitude AND the FI-weighted score:
+      - <3 sigma: silent.
+      - 3-10 sigma: INFO log (observational; per-model FS may drop these).
+      - >=10 sigma OR weighted_drift_score >= 1.0: WARN log (correlation
+        with model harm is strong enough to escalate).
+
+    ``feature_importance`` is an optional dict ``{col: fi}`` from any
+    reasonable source (sklearn coef_ magnitudes, mlframe FI top-K, MRMR
+    scores). Missing columns get 0 weight. The aggregate skips features
+    with NaN z (constant features).
+    """
+    # Target-invariant stats (per-feature z + drift candidates + categorical PSI)
+    # are cached on a content signature and reused across the per-target loop;
+    # only the FI-weighted aggregate below varies per target. Cache miss / an
+    # uncacheable (embedding) frame falls back to a fresh recompute.
+    _cache_key = _drift_invariant_cache_key(
+        train_df, val_df, test_df, feature_names, warn_threshold_z,
+    )
+    _invariant: Optional[Dict[str, Any]] = (
+        _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
+    )
+    if _invariant is None:
+        _invariant = _compute_drift_invariant(
+            train_df, val_df, test_df,
+            warn_threshold_z=warn_threshold_z, feature_names=feature_names,
+        )
+        if _cache_key is not None:
+            if len(_DRIFT_INVARIANT_CACHE) >= _DRIFT_INVARIANT_CACHE_MAX:
+                _DRIFT_INVARIANT_CACHE.pop(next(iter(_DRIFT_INVARIANT_CACHE)))
+            _DRIFT_INVARIANT_CACHE[_cache_key] = _invariant
+    per_feature = _invariant["per_feature"]
+    candidates = _invariant["candidates"]
+    categorical_psi = _invariant["categorical_psi"]
     # Compute the FI-weighted aggregate when feature_importance is provided.
     # Without FI this is None -- the per-feature z-scores alone aren't strong
     # enough to be a grounded harm signal (drift on a fi=0 feature is
@@ -868,8 +947,8 @@ def compute_feature_distribution_drift(
             "actionable target-aware protection downstream. Top drifters: %s",
             len(candidates), warn_threshold_z, _max_abs_z, _ws_str, _override_str, _detail,
         )
-    # Categorical-side PSI report woven into the same return dict so a single call surfaces both. Cheap (~ms per col on typical cardinality) and uses the same train/val/test trio already in scope; explicit feature_names list filters the numeric pass to numeric cols only, so the categorical scan walks the full schema.
-    categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df)
+    # Categorical PSI is part of the target-invariant artefact (computed once,
+    # cached on the frame signature, reused across the per-target loop).
     return {
         "per_feature": per_feature,
         "drift_candidates": [(c, z) for c, z in candidates],

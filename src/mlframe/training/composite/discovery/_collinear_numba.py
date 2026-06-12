@@ -33,6 +33,10 @@ regression test pins this across seeds plus a degenerate constant column.
 """
 from __future__ import annotations
 
+import hashlib
+from collections import OrderedDict
+from typing import Any
+
 import numpy as np
 
 try:
@@ -42,6 +46,34 @@ try:
 except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
     _numba = None  # type: ignore
     _HAS_NUMBA = False
+
+# Per-suite keep-mask cache. The keep-mask is a pure function of the (base-dropped)
+# feature matrix + threshold; discovery runs once per target, so when two targets
+# share the byte-identical matrix for a base (the common case -- the leakage filter
+# usually drops the same columns) the O(B^2 * n) walk is recomputed identically.
+# Key = blake2b of the contiguous buffer + shape + dtype + threshold -> collision-safe
+# so a hit returns ONLY a byte-identical recompute (bit-identical by construction).
+# The hash is O(matrix bytes) but the kernel is O(B^2 * n) (~17 s at 80k x 120 vs
+# ~50 ms hash), so a miss never regresses. Bounded FIFO + per-entry size cap so a
+# 100 GB workload never pins large masks (the mask itself is just n_cols bools).
+_KEEP_MASK_CACHE: "OrderedDict[Any, np.ndarray]" = OrderedDict()
+_KEEP_MASK_CACHE_MAX_ENTRIES: int = 64
+_KEEP_MASK_HASH_MAX_BYTES: int = 2_000_000_000  # skip caching beyond ~2 GB matrices.
+
+
+def _keep_mask_cache_key(fm: np.ndarray, thr: float):
+    """Collision-safe content signature for the keep-mask cache, or None to skip.
+
+    Hashes the full contiguous buffer (no source-frame copy -- ``fm`` is already an
+    ascontiguousarray the kernel owns). Returns None above the byte cap so very large
+    matrices recompute rather than pay a multi-GB hash.
+    """
+    nbytes = int(fm.nbytes)
+    if nbytes == 0 or nbytes > _KEEP_MASK_HASH_MAX_BYTES:
+        return None
+    h = hashlib.blake2b(digest_size=16)
+    h.update(fm.tobytes())
+    return (fm.shape, fm.dtype.str, float(thr), h.digest())
 
 # Numba JIT wins the O(B^2) pair walk only once both the column count and the
 # row count are large enough to amortise the ~register-loop setup vs numpy's
@@ -208,21 +240,32 @@ def near_collinear_keep_mask_fast(
         return reference_fn(feature_matrix, corr_threshold=thr)
 
     fm = np.ascontiguousarray(feature_matrix, dtype=np.float64)
+    # Content-keyed cache hit -> a byte-identical matrix already produced this exact
+    # mask; return a copy so the caller can mutate freely without corrupting the entry.
+    _ck = _keep_mask_cache_key(fm, thr)
+    if _ck is not None:
+        _hit = _KEEP_MASK_CACHE.get(_ck)
+        if _hit is not None:
+            _KEEP_MASK_CACHE.move_to_end(_ck)
+            return _hit.copy()
     finite = np.isfinite(fm)
     keep_i8, borderline_i8 = _keep_mask_kernel(fm, finite, thr, _BORDERLINE_BAND)
     keep = keep_i8.astype(bool)
-    if not borderline_i8.any():
-        return keep
-    # Replay the left-to-right walk, re-deciding only the borderline columns with
-    # the exact numpy primitives. The kept set is rebuilt in column order so a
-    # re-decided KEEP can correctly shadow a later borderline column too.
-    kept_idx: list[int] = []
-    for j in range(n_cols):
-        if borderline_i8[j]:
-            dropped = _recheck_column_exact(fm, finite, j, kept_idx, thr)
-            keep[j] = not dropped
-        if keep[j]:
-            kept_idx.append(j)
+    if borderline_i8.any():
+        # Replay the left-to-right walk, re-deciding only the borderline columns with
+        # the exact numpy primitives. The kept set is rebuilt in column order so a
+        # re-decided KEEP can correctly shadow a later borderline column too.
+        kept_idx: list[int] = []
+        for j in range(n_cols):
+            if borderline_i8[j]:
+                dropped = _recheck_column_exact(fm, finite, j, kept_idx, thr)
+                keep[j] = not dropped
+            if keep[j]:
+                kept_idx.append(j)
+    if _ck is not None:
+        if len(_KEEP_MASK_CACHE) >= _KEEP_MASK_CACHE_MAX_ENTRIES:
+            _KEEP_MASK_CACHE.popitem(last=False)
+        _KEEP_MASK_CACHE[_ck] = keep.copy()
     return keep
 
 
