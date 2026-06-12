@@ -424,6 +424,28 @@ def _apply_pre_pipeline_with_passthrough(
                         model_name, _pc, type(_reattach_err).__name__, _reattach_err,
                     )
     except Exception as _pp_exc:
+        # The subset-recovery (serve the inner model the raw input subset to its
+        # feature_names_in_) is VALUE-CORRECT only when the failed pre_pipeline
+        # was a pure name-keyed column selector (MRMR/RFECV/BorutaShap): its
+        # transform == "select these columns by name", so the raw subset equals
+        # the output the inner model trained on. When the pre_pipeline ALSO
+        # alters values (scaler / imputer / encoder / PCA / engineered features),
+        # the raw subset is NOT what the model saw at fit -- serving it produces
+        # silently-wrong predictions. In that case re-raise so the per-model
+        # try/except drops the model instead of shipping nonsense as if correct.
+        if not _pre_pipeline_is_pure_selector(model_obj.pre_pipeline):
+            logger.warning(
+                "predict_from_models: %s pre_pipeline.transform raised %s: %s. "
+                "The pre_pipeline value-transforms features (not a pure column "
+                "selector), so serving the raw input subset would feed the model "
+                "un-transformed columns it was NOT trained on -> silently-wrong "
+                "predictions. Re-raising to drop this model rather than ship a "
+                "degraded result as if correct. Restore the fitted pre_pipeline "
+                "or retrain on the current schema.",
+                model_name, type(_pp_exc).__name__,
+                str(_pp_exc).splitlines()[0][:160],
+            )
+            raise
         _inner_feat_names = getattr(model, "feature_names_in_", None)
         if _inner_feat_names is None:
             _inner_feat_names = getattr(model, "feature_names_", None)
@@ -445,12 +467,50 @@ def _apply_pre_pipeline_with_passthrough(
                 )
         logger.warning(
             "predict_from_models: %s pre_pipeline.transform "
-            "raised %s: %s. Skipping pre_pipeline (main "
-            "pipeline already encoded cat_features); subsetted "
-            "input to inner model's feature_names_in_ when "
+            "raised %s: %s. Skipping pre_pipeline (pure column "
+            "selector; main pipeline already encoded cat_features); "
+            "subsetted input to inner model's feature_names_in_ when "
             "available, then passing to model.predict.",
             model_name, type(_pp_exc).__name__,
             str(_pp_exc).splitlines()[0][:160],
         )
 
     return input_for_model
+
+
+def _pre_pipeline_is_pure_selector(pre_pipeline) -> bool:
+    """True when ``pre_pipeline``'s net effect is column selection BY NAME only.
+
+    A pure name-keyed selector's transform output is, value-for-value, the
+    same-named subset of its input -- so subsetting the raw predict frame to the
+    inner model's feature names reproduces the fit-time input exactly. Any
+    value-altering step (imputer / encoder / scaler / KBins / PCA / poly /
+    custom transformer) breaks that equivalence, and the raw-subset recovery
+    would silently feed un-transformed columns to a model trained on the
+    transformed ones. Such pipelines return False so the caller re-raises.
+
+    Detected as pure-selector when: the object IS a name-keyed selector
+    (exposes ``feature_names_in_`` + a ``support_`` / ``get_support`` mask), or
+    it is a sklearn ``Pipeline`` whose only non-passthrough step is that
+    selector. Anything ambiguous returns False (fail safe: prefer re-raise over
+    serving wrong predictions)."""
+    from ..pipeline._pipeline_helpers import _extract_feature_selector, _selector_output_columns
+
+    if pre_pipeline is None:
+        return False
+    _sel = _extract_feature_selector(pre_pipeline)
+    if _sel is None or _selector_output_columns(_sel) is None:
+        return False
+    # Bare selector (not wrapped in a Pipeline): value-preserving by definition.
+    if not hasattr(pre_pipeline, "named_steps"):
+        return True
+    # Pipeline: every other step must be a pass-through ('passthrough' / None /
+    # an identity FunctionTransformer with func=None). Any real transformer step
+    # alongside the selector can alter values -> not a pure selector.
+    for _name, _step in pre_pipeline.named_steps.items():
+        if _step is _sel or _step is None or _step == "passthrough":
+            continue
+        if type(_step).__name__ == "FunctionTransformer" and getattr(_step, "func", None) is None:
+            continue
+        return False
+    return True
