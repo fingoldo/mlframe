@@ -197,6 +197,21 @@ def check_prospective_fe_pairs(
     # additive composite below the engineered-MI gate). ``None`` (default) -> fall
     # back to the by-name frame extract (bin codes), preserving the legacy behaviour.
     engineered_operand_values: dict | None = None,
+    # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12). Per raw pair, the search picks the
+    # single MAX-target-MI engineered form and discards every other. But MI is a RANK
+    # statistic blind to LINEAR usability: on F2 ``log(2c)*sin(d/3)`` the MI-winner
+    # ``sub(exp(c),cbrt(d))`` (MI 0.288) helps a LINEAR downstream by ~0 (MAE 0.092->0.093)
+    # while the lower-MI ``mul(log(c),sin(d))`` (MI 0.264, INSIDE the 0.85 leaders band) is
+    # the linearly-aligned additive term and cuts MAE 0.092->0.063. Emitting only one loses
+    # whichever the actual model needs. With ``fe_multi_emit_max_per_pair > 1`` the search
+    # additionally emits the next DISTINCT forms (greedy by target MI, skipping any whose
+    # continuous values correlate above ``fe_multi_emit_diversity_corr`` with an
+    # already-emitted column, down to ``fe_multi_emit_mi_floor`` x best_mi) -- a tree-friendly
+    # AND a linear-friendly form both survive, and the downstream MRMR redundancy gate prunes
+    # any residual overlap. The cap + the diversity filter keep it from flooding near-duplicates.
+    fe_multi_emit_max_per_pair: int = 1,
+    fe_multi_emit_mi_floor: float = 0.5,
+    fe_multi_emit_diversity_corr: float = 0.90,
     # LARGE-N PEAK-MEMORY FIX (2026-06-08). Number of ``check_prospective_fe_pairs`` calls
     # that may run CONCURRENTLY in this process. On the serial-main-thread path this is 1; on
     # the joblib ``backend="threading"`` path it is ``n_jobs`` (each thread allocates its OWN
@@ -1713,6 +1728,66 @@ def check_prospective_fe_pairs(
                     )
                 j = 0
                 this_pair_features.add((best_config, j))
+
+            # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): the blocks above emit the
+            # single MAX-MI engineered form. MI is rank-based and blind to LINEAR usability,
+            # so the MI-winner can be a tree-friendly monotone warp that a linear model
+            # cannot use, while a lower-MI form is the linearly-aligned one (F2:
+            # sub(exp(c),cbrt(d)) MI 0.288 vs the linearly-usable mul(log(c),sin(d)) MI 0.264).
+            # When ``fe_multi_emit_max_per_pair > 1`` additionally emit the next DISTINCT
+            # forms by target MI (skip any whose continuous values correlate above
+            # ``fe_multi_emit_diversity_corr`` with an already-emitted column, down to
+            # ``fe_multi_emit_mi_floor`` x best_mi) so both survive; the downstream MRMR
+            # redundancy gate prunes residual overlap. Purely additive: never emits FEWER
+            # than the single-best path, byte-identical when max_per_pair == 1.
+            if (
+                int(fe_multi_emit_max_per_pair) > 1
+                and final_transformed_vals is not None
+                and this_pair_features
+                and best_mi > 0
+            ):
+                _emit_floor = float(best_mi) * float(fe_multi_emit_mi_floor)
+                _div_corr = float(fe_multi_emit_diversity_corr)
+                _already = {c for c, _ in this_pair_features}
+                _emitted_cols = []
+                for _c in _already:
+                    try:
+                        _emitted_cols.append(np.asarray(final_transformed_vals[:, _c[2]], dtype=np.float64))
+                    except Exception:
+                        pass
+                for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
+                    if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):
+                        break
+                    if _cfg_mi < _emit_floor:
+                        break  # sorted desc: nothing below the floor remains
+                    if _cfg in _already:
+                        continue
+                    try:
+                        _col = np.asarray(final_transformed_vals[:, _cfg[2]], dtype=np.float64)
+                    except Exception:
+                        continue
+                    _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)
+                    if float(np.std(_col)) <= 1e-9:
+                        continue
+                    # DIVERSITY: skip a near-duplicate of any already-emitted column.
+                    _dup = False
+                    for _ec in _emitted_cols:
+                        if float(np.std(_ec)) <= 1e-9:
+                            continue
+                        _r = np.corrcoef(_col, _ec)[0, 1]
+                        if np.isfinite(_r) and abs(_r) > _div_corr:
+                            _dup = True
+                            break
+                    if _dup:
+                        continue
+                    this_pair_features.add((_cfg, 0))
+                    _already.add(_cfg)
+                    _emitted_cols.append(_col)
+                    if verbose:
+                        messages.append(
+                            f"{get_new_feature_name(fe_tuple=_cfg, cols_names=cols)} also emitted "
+                            f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
+                        )
 
             transformed_vals, new_cols, new_nbins = None, None, None
 

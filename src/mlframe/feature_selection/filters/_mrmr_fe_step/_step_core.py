@@ -1009,6 +1009,13 @@ def _run_fe_step(
         # persistence as the prewarp specs above (a gate_med operand selected in an
         # earlier iteration must keep its median available for recipe replay).
         _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
+        # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): per pair, emit up to this many
+        # DISTINCT engineered forms (MI is rank-blind to linear usability, so a single
+        # MI-winner can be tree-friendly-but-linearly-useless while a lower-MI form is the
+        # linearly-usable one; both should survive for the downstream model to choose).
+        _multi_emit_max = int(getattr(self, "fe_multi_emit_max_per_pair", 1))
+        _multi_emit_floor = float(getattr(self, "fe_multi_emit_mi_floor", 0.5))
+        _multi_emit_div_corr = float(getattr(self, "fe_multi_emit_diversity_corr", 0.90))
         _gate_med_specs: dict = getattr(self, "_gate_med_specs_accum_", None)
         if _gate_med_specs is None:
             _gate_med_specs = {}
@@ -1070,6 +1077,9 @@ def _run_fe_step(
                 prewarp_min_val_corr=_prewarp_min_val_corr,
                 prewarp_specs_out=_prewarp_specs,
                 fe_gate_med_enable=_gate_med_enable,
+                fe_multi_emit_max_per_pair=_multi_emit_max,
+                fe_multi_emit_mi_floor=_multi_emit_floor,
+                fe_multi_emit_diversity_corr=_multi_emit_div_corr,
                 gate_med_specs_out=_gate_med_specs,
                 # OPT-A (2026-06-07): THIS is the serial-main-thread branch -- the whole FE
                 # search runs here with NO joblib threads (the ``else`` below is the
@@ -1155,6 +1165,9 @@ def _run_fe_step(
                         prewarp_min_val_corr=_prewarp_min_val_corr,
                         prewarp_specs_out=None,  # loky: recovered from result dict below
                         fe_gate_med_enable=_gate_med_enable,
+                        fe_multi_emit_max_per_pair=_multi_emit_max,
+                        fe_multi_emit_mi_floor=_multi_emit_floor,
+                        fe_multi_emit_diversity_corr=_multi_emit_div_corr,
                         gate_med_specs_out=None,  # loky: recovered from result dict below
                         # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
                         allow_engineered_operands=(_eng_cap != 0),

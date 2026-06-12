@@ -1409,6 +1409,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         # (c,d) candidate for the weak rescue pair, so the output is identical to master). Opt-in
         # research knob.
         fe_prevalence_rescue_all_pairs: bool = False,
+        # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): per raw pair the unary/binary search
+        # emits only the SINGLE max-target-MI engineered form. MI is a RANK statistic blind to
+        # LINEAR usability, so the MI-winner can be a tree-friendly monotone warp a linear model
+        # cannot use, while a lower-MI form is the linearly-aligned one (F2: the MI-winner
+        # ``sub(exp(c),cbrt(d))`` helps a linear downstream ~0 while the lower-MI
+        # ``mul(log(c),sin(d))`` cuts MAE 0.092->0.063). With ``fe_multi_emit_max_per_pair > 1``
+        # the search ALSO emits the next DISTINCT forms (greedy by target MI, skipping any whose
+        # continuous values correlate above ``fe_multi_emit_diversity_corr`` with an
+        # already-emitted column, down to ``fe_multi_emit_mi_floor`` x best_mi); the downstream
+        # MRMR redundancy gate prunes residual overlap. Purely additive (never emits fewer than
+        # the single-best path); ==1 is byte-identical to the legacy one-per-pair behaviour.
+        # DEFAULT 1 (off) pending a downstream bench: measured on F2 it emits the diverse forms
+        # but the cross-pair MRMR greedy still selects high-MI cross-mix over the linearly-usable
+        # form, so it does not on its own reach the (c,d) goal and it adds candidate-buffer cost;
+        # ship default>1 only once a multi-task bench shows a downstream win.
+        fe_multi_emit_max_per_pair: int = 1,
+        fe_multi_emit_mi_floor: float = 0.5,
+        fe_multi_emit_diversity_corr: float = 0.90,
         # ORDER-2 Westfall-Young maxT permutation-null floor on the
         # PROSPECTIVE-PAIR JOINT MI. The FE step ranks O(p^2) candidate pairs by
         # JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs
