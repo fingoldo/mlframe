@@ -131,6 +131,23 @@ def format_suite_end_summary(
                                 )
                                 _used_raw_y_dummy = True
 
+            # No raw-y trivial baseline available (raw target not separately
+            # registered / name mismatch): fall back to this composite's OWN
+            # strongest dummy inverted to y-scale (``y_scale_strongest_metrics``,
+            # stamped in _phase_dummy_baselines). The model metric below is the
+            # composite's y-scale RMSE, so the T-scale ``primary_metric`` value
+            # is a silent scale mismatch -- the inverted dummy is the only
+            # same-scale comparison. ``primary_metric`` decomposes as
+            # ``<split>_<metric>`` (e.g. ``val_RMSE`` -> split ``val``, metric ``RMSE``).
+            if not _used_raw_y_dummy:
+                _ys = rep_dict.get("y_scale_strongest_metrics")
+                if isinstance(_ys, dict) and "_" in primary_metric:
+                    _split_key, _metric_key = primary_metric.split("_", 1)
+                    _ys_val = _ys.get(_split_key, {}).get(_metric_key)
+                    if _ys_val is not None and np.isfinite(_ys_val):
+                        dummy_val = float(_ys_val)
+                        strongest = f"{strongest} [y-scale inv]"
+
             # Best model metric lookup (optional). Considers BOTH the single best
             # individual model AND the cross-target ensemble (NNLS-stack etc.), then
             # picks whichever is stronger on the primary metric. On strong-AR targets
