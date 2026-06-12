@@ -502,6 +502,23 @@ def compute_dummy_baselines(
         ])
         unique_classes = np.unique(all_y[~pd.isna(all_y)] if all_y.dtype.kind in "fc" else all_y)
         n_classes = max(2, len(unique_classes))
+        # Label-encode to positions 0..K-1 against the sorted class union. The classification
+        # baselines assume positional labels: ``np.bincount(train_y, minlength=K)`` (returns
+        # max(label)+1 wide for non-0-indexed labels -> phantom class-0 column -> wrong-width
+        # (N, K) prob matrices) and ``log_loss(y, p, labels=np.arange(K))`` in the metrics table
+        # (raises when a raw label like 3 is not in {0,1,2} -> every classification metric NaN).
+        # Integer multiclass targets are NOT label-encoded upstream (only string/object are), so
+        # {1,2,3} / {10,20,30} reach here raw. searchsorted is identity for already-0..K-1 labels,
+        # so the common path is bit-identical; only non-contiguous / non-0-based labels are remapped.
+        _cls_sorted = unique_classes
+        if len(_cls_sorted) and not np.array_equal(_cls_sorted, np.arange(len(_cls_sorted))):
+            def _enc(_y):
+                if _y is None:
+                    return None
+                return np.searchsorted(_cls_sorted, np.asarray(_y)).astype(np.int64)
+            train_y_arr = _enc(train_y_arr)
+            val_y_arr = _enc(val_y_arr)
+            test_y_arr = _enc(test_y_arr)
         val_preds, test_preds, extras = _compute_classification_baselines(
             target_name, train_X, val_X, test_X,
             train_y_arr, val_y_arr, test_y_arr,
@@ -509,6 +526,7 @@ def compute_dummy_baselines(
             target_type=target_type, n_classes=n_classes,
         )
         extras["n_classes"] = n_classes
+        extras["class_labels"] = list(_cls_sorted)
     elif target_type == "multilabel_classification":
         val_preds, test_preds, extras = _compute_multilabel_baselines(
             target_name, train_y_arr, val_y_arr, test_y_arr, config,

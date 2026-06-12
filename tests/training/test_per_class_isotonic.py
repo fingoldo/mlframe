@@ -116,6 +116,66 @@ def test_calibration_reduces_brier_loss():
     )
 
 
+def test_multiclass_non_contiguous_labels_calibrate_correct_column():
+    """LABEL-POSITION regression: predict_proba columns are ordered by
+    model.classes_ (sorted unique labels), not by 0..K-1. With non-contiguous
+    labels like [10, 20, 30] the pre-fix ``y == k`` matched zero rows, turning
+    EVERY per-class calibrator into a silent identity no-op (and with labels
+    like [1, 2, 3] it calibrated the wrong column). The fit must align column k
+    to its class label via ``classes`` / ``np.unique``.
+    """
+    rng = np.random.default_rng(7)
+    N = 900
+    order = [10, 20, 30]  # non-0..K-1 integer labels
+    y = rng.choice(order, size=N)
+    # Informative-but-miscalibrated probs aligned to classes_ (sorted) order.
+    probs = np.full((N, 3), 0.0)
+    for i in range(N):
+        c = order.index(y[i])  # column index for this row's true class
+        base = rng.dirichlet([1.0, 1.0, 1.0])
+        base[c] += 2.0
+        probs[i] = base
+    probs = probs / probs.sum(axis=1, keepdims=True)
+
+    cal = _PerClassIsotonicCalibrator.fit(
+        probs, y, TargetTypes.MULTICLASS_CLASSIFICATION, classes=np.array(order)
+    )
+    # Pre-fix: ``y == 0/1/2`` matched nothing -> all calibrators skipped (None).
+    n_fitted = sum(v is not None for v in cal.calibrators.values())
+    assert n_fitted == 3, (
+        f"expected 3 fitted per-class isotonics for non-contiguous labels, got {n_fitted}; "
+        "label-position bug turned calibration into a no-op"
+    )
+
+    # And it must actually reduce Brier loss on the correct column (column 0 == class 10).
+    from sklearn.metrics import brier_score_loss
+    out = cal.predict_proba(probs)
+    b0_before = brier_score_loss((y == 10).astype(int), probs[:, 0])
+    b0_after = brier_score_loss((y == 10).astype(int), out[:, 0])
+    assert b0_after <= b0_before + 1e-6
+
+
+def test_multiclass_classes_none_falls_back_to_unique():
+    """When ``classes`` is omitted the fit derives column labels from
+    ``np.unique(y)`` (sklearn classes_ order), so non-contiguous labels still
+    calibrate the right column without the caller passing classes_ explicitly.
+    """
+    rng = np.random.default_rng(11)
+    N = 600
+    order = [1, 2, 3]
+    y = rng.choice(order, size=N)
+    probs = np.full((N, 3), 0.0)
+    for i in range(N):
+        c = order.index(y[i])
+        base = rng.dirichlet([1.0, 1.0, 1.0])
+        base[c] += 2.0
+        probs[i] = base
+    probs = probs / probs.sum(axis=1, keepdims=True)
+    cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION)
+    n_fitted = sum(v is not None for v in cal.calibrators.values())
+    assert n_fitted == 3
+
+
 class _PickleableFakeBase:
     """Top-level class (picklable) fake estimator for pickle tests."""
     classes_ = np.array([0, 1, 2])
