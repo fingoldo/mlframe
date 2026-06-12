@@ -27,7 +27,6 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         )
     # Lazy import to avoid circular dependency (feature_engineering -> mrmr via _internals).
     from ..feature_engineering import create_unary_transformations, create_binary_transformations
-    from ..discretization import discretize_array
 
     unary_funcs = create_unary_transformations(preset=recipe.unary_preset)
     binary_funcs = create_binary_transformations(preset=recipe.binary_preset)
@@ -134,41 +133,20 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-    if recipe.quantization is not None:
-        q = recipe.quantization
-        # 2026-05-30 Wave 9.1 fix (loop iter 28): use fit-time edges when
-        # the recipe stored them. Pre-fix ``discretize_array`` recomputed
-        # ``np.nanpercentile`` from TEST data each replay, so the same
-        # physical row mapped to DIFFERENT bin codes between fit and
-        # transform under any distribution drift (58.8% disagreement
-        # observed in synthetic shift demo). That's a textbook train/test
-        # leak: the model trained on stale bin codes and got fresh
-        # rebinned codes at inference.
-        if q.get("edges") is not None:
-            edges = np.asarray(q["edges"], dtype=np.float64)
-            out = np.searchsorted(
-                edges[1:-1] if edges.size >= 2 else edges,
-                out, side="right",
-            ).astype(np.dtype(q["dtype"]))
-        else:
-            # Back-compat: pre-iter-28 recipes (pickled before edges were
-            # persisted) fall back to the leaky path. Warn so maintainers
-            # see the smell. New recipes always carry edges.
-            import warnings as _w_iter28
-            _w_iter28.warn(
-                f"unary_binary recipe '{recipe.name}' has no fit-time "
-                f"quantile edges; replay will re-quantile on test data "
-                f"and produce shifted codes under distribution drift. "
-                f"Refit the MRMR estimator to regenerate the recipe with "
-                f"persisted edges.",
-                UserWarning, stacklevel=2,
-            )
-            out = discretize_array(
-                arr=out,
-                n_bins=q["nbins"],
-                method=q["method"],
-                dtype=np.dtype(q["dtype"]),
-            )
+    # CONTINUOUS TRANSFORM OUTPUT (2026-06-12): ``transform()`` delivers the
+    # numeric pair-FE column as its CONTINUOUS value, never as the internal
+    # MI quantile code. Quantile-binning a heavy-tailed product/ratio to integer
+    # codes preserves only RANK and discards MAGNITUDE -- which every non-tree
+    # downstream model needs. Measured on ``y = 0.2*a**2/b``: the 10-bin code of
+    # ``div(sqr(a),abs(b))`` had Pearson 0.03 with the true ``a**2/b`` (rank-corr
+    # 0.99), and a linear model on the code scored test-R2 ~0.002, versus >=0.99
+    # on the continuous feature. The ``prewarp`` / ``hermite_pair`` siblings
+    # already skip quantization for exactly this reason (see
+    # ``build_unary_binary_recipe`` -- prewarp sets ``quantization=None``); this
+    # generalises it to EVERY unary_binary recipe at replay. ``recipe.quantization``
+    # is left populated for provenance/audit only; it is replay-irrelevant because
+    # the downstream MRMR fit discretises the fit-time column for its OWN MI matrix
+    # via ``_mrmr_fe_step`` (a separate code path, unaffected by this choice).
     return out
 
 

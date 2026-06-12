@@ -1,33 +1,30 @@
-"""Wave 9.1 loop-iter-29 regression: cluster_aggregate recipes must
-persist fit-time quantile edges (sibling of iter 28's unary_binary fix).
+"""cluster_aggregate recipe replay: transform emits a CONTINUOUS, leak-free value.
 
-Pre-fix at ``engineered_recipes.py:368-372``: ``_apply_cluster_aggregate``
-called ``discretize_array`` at replay, which recomputed
-``np.nanpercentile`` from TEST aggregate values. Under distribution
-drift the bin edges shifted and the same physical row mapped to
-DIFFERENT bin codes between fit and transform.
+History
+-------
+Wave 9.1 loop-iter-29 made ``_apply_cluster_aggregate`` persist fit-time quantile
+edges and replay them with ``np.searchsorted`` instead of re-quantiling on test
+data, fixing a P0 train/test leak (identical physical row -> different bin code
+under distribution drift; 83% of rows mis-coded at a 10x stddev shift).
 
-Live demonstration (10x stddev shift, n=200, 3 members):
-  identical input row (0.5, 0.5, 0.5) -> fit bin 4, transform bin 3
-  83% of test rows received wrong codes
-  -> model trained on stale cluster_aggregate codes, served fresh
-     rebinned codes at inference (P0 label-leak-equivalent).
+2026-06-12 -- supersession by continuous output
+-----------------------------------------------
+``_apply_cluster_aggregate`` now returns the aggregate's CONTINUOUS value and no
+longer discretises at replay (mirrors the ``unary_binary`` sibling -- see
+``_recipe_unary_binary._apply_unary_binary``). Binning the continuous aggregate
+to ~10 integer codes keeps only RANK and discards MAGNITUDE, which collapses any
+downstream LINEAR model: measured on a target linear in a mean-z cluster
+aggregate, a linear model scored test-R2 0.936 on the 10-bin code (Pearson 0.967
+with the true aggregate) vs 0.99972 on the continuous value (Pearson 1.000).
 
-Severity: P0. Identical scope and blast radius to iter 28's
-unary_binary fix; cluster_aggregate is enabled by default for the
-post-hoc cluster_aggregate FE path so this hit users who never opted
-into anything special.
-
-Fix (mirror iter 28's three-part):
-1. ``build_cluster_aggregate_recipe``'s caller in
-   ``_cluster_aggregate.py:272`` now computes the continuous aggregate
-   FIRST, derives quantile edges from it, and threads them into the
-   recipe's ``quantization["edges"]`` field.
-2. ``_apply_cluster_aggregate`` uses stored edges via
-   ``np.searchsorted(edges[1:-1], out, side='right')`` so replay is
-   purely a fit-time lookup.
-3. Legacy recipes without edges emit a UserWarning at replay so
-   maintainers see the leak and refit.
+Continuous replay SUBSUMES the iter-29 leak fix: the output is a closed-form
+function of the operand row given the FROZEN standardization
+(``member_mean`` / ``member_std`` / ``signs`` / ``weights``), so an identical
+physical row maps to an identical value regardless of the rest of the frame's
+distribution -- there is no quantile recomputation left to drift.
+``recipe.quantization`` is still BUILT (provenance/audit) but no longer consulted
+at replay; the downstream MRMR fit discretises the fit-time column for its OWN MI
+matrix via ``_mrmr_fe_step`` (a separate path).
 """
 from __future__ import annotations
 
@@ -35,7 +32,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _frames():
@@ -46,7 +42,7 @@ def _frames():
         "c2": rng.standard_normal(n),
         "c3": rng.standard_normal(n),
     })
-    # 10x stddev shift triggers the leak under quantile binning.
+    # 10x stddev shift -> the drift that flipped bin codes in the pre-iter-29 leak.
     test = pd.DataFrame({
         "c1": rng.standard_normal(n) * 10,
         "c2": rng.standard_normal(n) * 10,
@@ -79,7 +75,7 @@ def _build_recipe_with_edges(train, member_names):
         name="ca_test", src_names=tuple(member_names), method="mean_z",
         member_mean=mean, member_std=std, signs=signs, weights=weights,
         quantization=q, diagnostics={"representative": member_names[0]},
-    )
+    ), (mean, std, signs, weights)
 
 
 def _build_recipe_no_edges(train, member_names):
@@ -100,52 +96,54 @@ def _build_recipe_no_edges(train, member_names):
     )
 
 
-def test_with_edges_identical_row_same_bin():
-    """The iter-29 contract: identical physical row -> same bin code
-    regardless of test-data distribution drift.
-    """
-    from mlframe.feature_selection.filters.engineered_recipes import (
-        _apply_cluster_aggregate,
+def test_replay_output_is_continuous_not_quantized():
+    """Replay emits the continuous mean-z aggregate, not a low-cardinality bin code:
+    high cardinality and floating dtype, not integers confined to ``[0, nbins)``."""
+    from mlframe.feature_selection.filters.engineered_recipes import _apply_cluster_aggregate
+    train, _ = _frames()
+    recipe, _ = _build_recipe_with_edges(train, ["c1", "c2", "c3"])
+    out = np.asarray(_apply_cluster_aggregate(recipe, train), dtype=np.float64)
+    assert np.issubdtype(out.dtype, np.floating)
+    assert np.unique(out).size > recipe.quantization["nbins"], (
+        f"replay output has only {np.unique(out).size} distinct values -- looks "
+        f"quantized to ~{recipe.quantization['nbins']} bins, not continuous."
     )
+
+
+def test_identical_row_same_value_under_drift():
+    """The leak-safety property, now via CONTINUITY: an identical physical row
+    (0.5, 0.5, 0.5) -> identical output whether transformed alongside the
+    in-distribution train frame or the 10x-shifted test frame. Continuous replay is a
+    closed-form function of the row given the frozen standardization, so there is
+    nothing left to drift.
+    """
+    from mlframe.feature_selection.filters.engineered_recipes import _apply_cluster_aggregate
     train, test = _frames()
-    recipe = _build_recipe_with_edges(train, ["c1", "c2", "c3"])
+    recipe, _ = _build_recipe_with_edges(train, ["c1", "c2", "c3"])
     out_train = _apply_cluster_aggregate(recipe, train)
     out_test = _apply_cluster_aggregate(recipe, test)
     assert out_train[0] == out_test[0], (
-        f"identical row got different bins: "
-        f"train={out_train[0]}, test={out_test[0]}"
+        f"identical row got different values: train={out_train[0]}, test={out_test[0]}"
     )
 
 
-def test_without_edges_warns_legacy_leak():
-    """Legacy recipe (no stored edges) emits the UserWarning at replay."""
-    from mlframe.feature_selection.filters.engineered_recipes import (
-        _apply_cluster_aggregate,
-    )
-    train, _ = _frames()
+def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
+    """A recipe built WITHOUT persisted edges is handled identically now: continuous
+    replay, no quantile recomputation, so the old drift-leak cannot occur and NO leak
+    warning is emitted (there is no replay-time quantiser left to warn about).
+    """
+    from mlframe.feature_selection.filters.engineered_recipes import _apply_cluster_aggregate
+    train, test = _frames()
     recipe = _build_recipe_no_edges(train, ["c1", "c2", "c3"])
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        _apply_cluster_aggregate(recipe, train)
-    assert any(
-        "no fit-time quantile edges" in str(w.message) for w in caught
-    ), f"expected UserWarning; got {[str(w.message) for w in caught]}"
-
-
-def test_without_edges_reproduces_leak():
-    """Legacy path must still reproduce the leak so the iter-29 fix is
-    provably needed.
-    """
-    from mlframe.feature_selection.filters.engineered_recipes import (
-        _apply_cluster_aggregate,
-    )
-    train, test = _frames()
-    recipe = _build_recipe_no_edges(train, ["c1", "c2", "c3"])
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
         out_train = _apply_cluster_aggregate(recipe, train)
         out_test = _apply_cluster_aggregate(recipe, test)
-    # Either bins differ (expected) or coincidentally match - both safe.
-    # Skip on coincidental match so the test stays non-flaky.
-    if out_train[0] == out_test[0]:
-        pytest.skip("legacy path coincidentally gave same bin")
+    assert not any("fit-time quantile edges" in str(w.message) for w in caught), (
+        f"replay no longer quantises, so the legacy-edge leak warning must be gone; "
+        f"got {[str(w.message) for w in caught]}"
+    )
+    assert out_train[0] == out_test[0], (
+        f"continuous replay must give the identical row the same value under drift; "
+        f"train={out_train[0]}, test={out_test[0]}"
+    )

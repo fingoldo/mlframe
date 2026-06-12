@@ -184,13 +184,17 @@ def test_gate_rejects_when_no_mi_gain():
     assert n_added == 0 and not recipes  # independent noise -> no denoising gain -> rejected
 
 
-def test_fit_binned_column_is_bit_identical_to_apply_recipe_replay():
+def test_fit_binned_column_matches_binned_apply_recipe_replay():
     """The orchestration's direct-bin fast path (bin the already-computed continuous aggregate with
     the fit-time quantile edges, skipping the full ``apply_recipe`` member re-extract/re-standardize/
-    re-combine round trip) must reproduce ``apply_recipe``'s replay column EXACTLY for every accepted
-    aggregate. A future "just call apply_recipe again" regression -- or any FP-order drift between the
-    fit-time aggregate and the replay aggregate -- changes the binned codes and would silently shift
-    which features get selected, so pin bit-identity across multiple seeds."""
+    re-combine round trip) must reproduce the fit-time MI column EXACTLY for every accepted aggregate.
+
+    Since 2026-06-12 ``apply_recipe`` (the transform-time replay) returns the CONTINUOUS aggregate
+    (magnitude needed by downstream linear models -- see ``_recipe_poly_cluster._apply_cluster_aggregate``),
+    so the invariant is now: BINNING the continuous replay with the recipe's FROZEN fit-time edges
+    reproduces the fast-path fit code bit-for-bit. That still catches the real failure modes this test
+    guards -- a "just call apply_recipe again" regression, or any FP-order drift between the fit-time
+    aggregate and the replay aggregate -- because either would change the binned codes."""
     from mlframe.feature_selection.filters._cluster_aggregate import run_cluster_aggregate_step
     from mlframe.feature_selection.filters.discretization import discretize_array
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
@@ -217,10 +221,15 @@ def test_fit_binned_column_is_bit_identical_to_apply_recipe_replay():
         assert n_added >= 1, f"seed={seed}: expected at least one accepted aggregate"
         added = data_out[:, data_out.shape[1] - n_added:]
         for j, recipe in enumerate(list(recipes.values())[-n_added:]):
-            replay = apply_recipe(recipe, X).astype(added.dtype)
+            replay_continuous = np.asarray(apply_recipe(recipe, X), dtype=np.float64)
+            # Replay is continuous now; bin it with the recipe's FROZEN fit-time edges.
+            edges = np.asarray(recipe.quantization["edges"], dtype=np.float64)
+            replay_binned = np.searchsorted(
+                edges[1:-1] if edges.size >= 2 else edges, replay_continuous, side="right",
+            ).astype(added.dtype)
             np.testing.assert_array_equal(
-                added[:, j], replay,
-                err_msg=f"seed={seed} recipe={recipe.name}: fast-path column != apply_recipe replay",
+                added[:, j], replay_binned,
+                err_msg=f"seed={seed} recipe={recipe.name}: fast-path code != binned apply_recipe replay",
             )
 
 
