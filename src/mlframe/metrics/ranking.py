@@ -216,6 +216,8 @@ def ndcg_at_k(
     Returns NaN if every query is degenerate (zero positives or empty).
     Otherwise returns the mean NDCG@k over queries with IDCG > 0.
     """
+    if k <= 0:
+        raise ValueError(f"k must be >= 1, got {k}")
     sorted_y_true, sorted_y_score, group_starts = _iter_group_slices(y_true, y_score, group_ids)
     n_groups = len(group_starts) - 1
     if n_groups == 0:
@@ -240,6 +242,8 @@ def map_at_k(
     k: int = 10,
 ) -> float:
     """Mean MAP@k across queries (binary relevance: any y > 0 is relevant)."""
+    if k <= 0:
+        raise ValueError(f"k must be >= 1, got {k}")
     sorted_y_true, sorted_y_score, group_starts = _iter_group_slices(y_true, y_score, group_ids)
     n_groups = len(group_starts) - 1
     if n_groups == 0:
@@ -526,6 +530,9 @@ def compute_ranking_summary(
     transitions, which dominated wall-time on n_groups >= 10k LTR
     inputs -- c0001's profile attributed 6 s to this on 333k groups).
     """
+    bad_ks = [int(k) for k in eval_at if k <= 0]
+    if bad_ks:
+        raise ValueError(f"all k in eval_at must be >= 1, got invalid {bad_ks}")
     sorted_y_true, sorted_y_score, group_starts = _iter_group_slices(y_true, y_score, group_ids)
     n_groups = len(group_starts) - 1
     out: Dict[str, float] = {}
