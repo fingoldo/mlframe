@@ -24,19 +24,20 @@ Selector x target-type SUPPORT + EFFECTIVENESS matrix (measured here):
     multiclass>2    | recovers {x0,x1}, 0 nz | accepts; argmax keeps all (weak)
     count/Poisson   | recovers {x0,x1}, 0 nz | accepts (PoissonRegressor); weak
     ordinal         | recovers {x0,x1}, 0 nz | accepts (Ridge); recovers {x0,x1}
-    multilabel (2D) | recovers {x0,x1}       | GAP: raises NotImplementedError
-    multioutput(2D) | recovers {x0,x1}       | GAP: raises NotImplementedError
+    multilabel (2D) | recovers {x0,x1}       | recovers {x0,x1} (default multioutput_strategy='union')
+    multioutput(2D) | recovers {x0,x1}       | recovers {x0,x1} (default multioutput_strategy='union')
 
 MEASURED floor (5 seeds, no-FE fast preset, n=700, 2 signal + 6 noise):
     every target type recovers BOTH signal columns on 5/5 seeds (sig=2/2);
     single-target types leak 0 noise; 2D targets leak <=1 noise/seed.
 Floors below are pinned ~10-15% under those measured values (majority-of-seeds).
 
-GAPS documented as strict=False xfail (a real capability gap, never a softened
-assertion): RFECV cannot select on 2D y -- ``RFECV.fit`` raises
-``NotImplementedError`` for multilabel AND multi-output, telling the caller to
-loop per target and union ``support_``. Until that loop lands in the wrapper,
-multilabel/multi-output FS via RFECV is unsupported.
+Multi-output (2D y) FS via RFECV works out of the box: ``multioutput_strategy``
+defaults to ``'union'`` and fits one single-target
+RFECV per output column and aggregates the per-column ``support_`` (OR / AND).
+Set ``multioutput_strategy=None`` to opt OUT and restore the historical clear
+``NotImplementedError`` so a caller who wants the hard failure on 2D y gets an
+actionable message rather than a cryptic sklearn crash.
 """
 from __future__ import annotations
 
@@ -252,56 +253,89 @@ def test_biz_val_rfecv_count_poisson_accepts():
 
 
 # ===========================================================================
-# RFECV -- GAPS: 2D y (multilabel / multi-output) is unsupported.
-# These document REAL capability gaps via strict=False xfail. The test asserts
-# the CORRECT behavior (a usable per-target FS), which currently fails because
-# the wrapper raises NotImplementedError. When the per-target loop lands, the
-# xfail flips to an unexpected PASS and prompts removing the marker.
+# RFECV -- 2D y (multilabel / multi-output) via opt-in multioutput_strategy.
+# Capability closed: fit one single-target RFECV per output column and union
+# the per-column support_. DEFAULT 'union' just works; None opts out to the clear
+# NotImplementedError -- both pinned in the last two tests below.
 # ===========================================================================
 
 
-@pytest.mark.xfail(
-    reason="FS GAP: RFECV unsupported on multilabel (2D y) -- RFECV.fit raises "
-    "NotImplementedError, instructing the caller to loop per label and union "
-    "support_; no built-in multilabel path in the wrapper.",
-    strict=False,
-)
 @pytest.mark.slow
 def test_biz_val_rfecv_multilabel_recovers_signal():
+    """multioutput_strategy='union' on a 2D multilabel y recovers BOTH generating
+    columns {x0, x1}: one single-target RFECV per label, support_ OR-aggregated."""
     from sklearn.linear_model import LogisticRegression
 
     df, y = make_target(0, "multilabel")
     sel = _make_rfecv(LogisticRegression(max_iter=200, random_state=0))
-    sel.fit(df, y)  # currently raises NotImplementedError
+    sel.multioutput_strategy = "union"
+    sel.fit(df, y)
     sup = set(np.where(np.asarray(sel.support_))[0].tolist())
-    assert SIGNAL.issubset(sup)
+    assert SIGNAL.issubset(sup), f"RFECV multilabel union must retain {SIGNAL}; got {sorted(sup)}"
+    assert set(sel.multioutput_supports_) == {"l0", "l1"}
 
 
-@pytest.mark.xfail(
-    reason="FS GAP: RFECV unsupported on multi-output regression (2D y) -- "
-    "RFECV.fit raises NotImplementedError, instructing the caller to loop per "
-    "target and union support_; no built-in multi-output path in the wrapper.",
-    strict=False,
-)
 @pytest.mark.slow
 def test_biz_val_rfecv_multioutput_recovers_signal():
+    """multioutput_strategy='union' on a 2D multi-target regression y recovers
+    BOTH generating columns {x0, x1} via per-target RFECV + OR-aggregation."""
     from sklearn.linear_model import Ridge
-    from sklearn.multioutput import MultiOutputRegressor
 
     df, y = make_target(0, "multioutput")
-    sel = _make_rfecv(MultiOutputRegressor(Ridge()))
-    sel.fit(df, y)  # currently raises NotImplementedError
+    sel = _make_rfecv(Ridge())
+    sel.multioutput_strategy = "union"
+    sel.fit(df, y)
     sup = set(np.where(np.asarray(sel.support_))[0].tolist())
-    assert SIGNAL.issubset(sup)
+    assert SIGNAL.issubset(sup), f"RFECV multioutput union must retain {SIGNAL}; got {sorted(sup)}"
+    assert set(sel.multioutput_supports_) == {"o0", "o1"}
 
 
-def test_biz_val_rfecv_2d_y_currently_raises_notimplemented():
-    """Pin the EXACT current contract so a silent behavior change is caught: a
-    bare RFECV.fit on 2D y raises NotImplementedError mentioning multi-output.
-    (Complements the xfails above, which assert the DESIRED behavior.)"""
+@pytest.mark.slow
+def test_biz_val_rfecv_multioutput_intersect_is_subset_of_union():
+    """'intersect' (AND) keeps only features selected for EVERY output, so it is
+    a subset of the 'union' (OR) selection on the same fixture -- precision vs
+    recall. Pins both aggregation modes against silent regression."""
+    from sklearn.linear_model import Ridge
+
+    df, y = make_target(0, "multioutput")
+    u = _make_rfecv(Ridge()); u.multioutput_strategy = "union"; u.fit(df, y)
+    i = _make_rfecv(Ridge()); i.multioutput_strategy = "intersect"; i.fit(df, y)
+    sup_u = set(np.where(np.asarray(u.support_))[0].tolist())
+    sup_i = set(np.where(np.asarray(i.support_))[0].tolist())
+    assert sup_i.issubset(sup_u), f"intersect {sorted(sup_i)} must subset union {sorted(sup_u)}"
+
+
+def test_biz_val_rfecv_multioutput_strategy_validation():
+    """An invalid multioutput_strategy is rejected at construction with a clear
+    ValueError, not deferred to a cryptic fit-time crash."""
+    from sklearn.linear_model import Ridge
+    from mlframe.feature_selection.wrappers import RFECV
+
+    with pytest.raises(ValueError, match="multioutput_strategy"):
+        RFECV(estimator=Ridge(), cv=3, multioutput_strategy="bogus")
+
+
+def test_biz_val_rfecv_2d_y_default_handles_multioutput():
+    """Pin the FRIENDLY DEFAULT: a bare RFECV.fit on 2D y just works -- multioutput_strategy
+    defaults to 'union', so it fits one single-target RFECV per output column and unions the
+    support_, recovering the generating signal without the caller opting in."""
+    from sklearn.linear_model import LogisticRegression
+
+    df, y = make_target(0, "multilabel")
+    sel = _make_rfecv(LogisticRegression(max_iter=100))  # no strategy set -> ctor default 'union'
+    assert sel.multioutput_strategy == "union"
+    sel.fit(df, y)
+    sup = set(np.where(np.asarray(sel.support_))[0].tolist())
+    assert SIGNAL.issubset(sup), f"default-union RFECV on 2D y must retain {SIGNAL}; got {sorted(sup)}"
+
+
+def test_biz_val_rfecv_2d_y_none_opts_out_to_raise():
+    """Opt-OUT contract: multioutput_strategy=None explicitly restores the historical clear
+    NotImplementedError on 2D y (for a caller who wants the hard failure)."""
     from sklearn.linear_model import LogisticRegression
 
     df, y = make_target(0, "multilabel")
     sel = _make_rfecv(LogisticRegression(max_iter=100))
+    sel.multioutput_strategy = None
     with pytest.raises(NotImplementedError, match="multi-output"):
         sel.fit(df, y)

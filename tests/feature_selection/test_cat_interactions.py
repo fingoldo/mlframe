@@ -136,10 +136,22 @@ class TestValidationGates:
         assert kept == [1, 2]
         assert 0 in state.dropped_singleton_nbins
 
-    def test_high_cardinality_column_raises(self):
-        # n=1000 -> high_card_threshold = sqrt(1000)*2 ~ 63.25
+    def test_high_cardinality_column_skipped_by_default(self):
+        # n=1000 -> high_card_threshold = sqrt(1000)*2 ~ 63.25. Default 'skip' drops the high-card col from cat-FE but does not crash.
         nbins = np.array([4, 1000], dtype=np.int64)
         cfg = CatFEConfig()
+        state = CatFEState()
+        with pytest.warns(UserWarning, match="(?i)skipping"):
+            kept = _select_candidate_indices(
+                nbins=nbins, categorical_vars=[0, 1],
+                cfg=cfg, state=state, n_samples=1000,
+            )
+        assert kept == [0]
+        assert (1, 1000) in state.high_cardinality_warnings
+
+    def test_high_cardinality_column_raises_when_opted_in(self):
+        nbins = np.array([4, 1000], dtype=np.int64)
+        cfg = CatFEConfig(on_high_cardinality="raise")
         state = CatFEState()
         with pytest.raises(ValueError, match="(?i)high-cardinality"):
             _select_candidate_indices(

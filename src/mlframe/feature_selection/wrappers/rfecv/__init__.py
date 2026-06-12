@@ -385,6 +385,12 @@ class RFECV(BaseEstimator, TransformerMixin):
         prescreen_top_k: Union[int, None] = None,
         # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
         prescreen_fdr_level: float = 0.05,
+        # multioutput_strategy: how to handle a 2D y (multilabel / multi-target regression). sklearn RFE/RFECV is single-target, so we fit one
+        # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box -- keeps a
+        # feature selected for ANY output (recall-oriented, never drops a feature useful to one target). 'intersect' (AND) keeps only features
+        # selected for EVERY output (precision-oriented). Set None to opt OUT and get the historical clear NotImplementedError on a 2D y. Each
+        # sub-fit clones the full configured RFECV on one y column.
+        multioutput_strategy: Union[str, None] = "union",
     ):
 
         # checks
@@ -450,6 +456,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"fi_missing_policy must be 'worst', 'median', or 'skip'; "
                 f"got {fi_missing_policy!r}."
+            )
+
+        if multioutput_strategy not in (None, "union", "intersect"):
+            raise ValueError(
+                f"multioutput_strategy must be None, 'union', or 'intersect'; got {multioutput_strategy!r}."
             )
 
         if optimizer_target not in ("mean", "final_score"):

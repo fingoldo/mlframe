@@ -9,9 +9,11 @@ feature-selection family, family-by-family, as behavioral biz_value tests:
     ~0 LINEAR (univariate) signal but a single synthesized feature carries
     strong signal, and assert the FE-on selection lifts a held-out LINEAR
     downstream AUC over a raw-only selection by a measured floor.  Where the
-    FE machinery genuinely cannot synthesize the family, the test is written
-    to the CORRECT behavior and ``xfail``-ed with the measured miss -- a
-    documented capability GAP, never a weakened assertion.
+    FE machinery genuinely cannot synthesize the family (MODULAR -- a sawtooth
+    parity no smooth basis fits), the test is written to the CORRECT behavior
+    and ``xfail``-ed with the measured miss -- a documented capability GAP,
+    never a weakened assertion. The 3-way XOR (XOR3) is RECOVERED by the
+    ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer.
 
 (B) DROPPING -- does the selector correctly DROP a redundancy / decoy column
     in favour of the real signal?  For each redundancy / decoy family we put
@@ -30,7 +32,8 @@ Calibration run (n=800, seed-7/seed-1, store py3.14, CPU):
   SYNTHESIS delta (FE_auc - raw_auc):
     PRODUCT +0.54  RATIO +0.50  QUADRATIC/ABS/LOG +0.52  SINE +0.19
     MINMAX +0.09   CONDITIONAL +0.17   DIFFERENCE +0.00 (already raw-linear)
-    XOR3 -0.07 (GAP)   MODULAR -0.15 (GAP)
+    XOR3 +0.50 (triplet cross-basis synthesizer, fe_hybrid_orth_triplet_enable)
+    MODULAR -0.15 (GAP -- smooth basis cannot fit a sawtooth/parity)
   DROPPING (MRMR, raw-only):  every twin family collapses to a single
     survivor; constant / near-constant / id-like / permuted-noise all dropped.
   DROPPING (RFECV):  exact_dup + constant dropped; permuted-noise, id-like,
@@ -69,7 +72,10 @@ _RAW_ONLY = dict(
     fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
     cluster_aggregate_enable=False, dcd_enable=False,
 )
-_FE_FULL = dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False)
+# Full FE mode includes the 3-way cross-basis synthesizer (``fe_hybrid_orth_triplet_enable``); it stays a separate ctor opt-out because the triplet stage
+# runs regardless of fe_max_steps, so default-ON would add the seed_k-bounded O(C(k,3)) stage to EVERY fit. The pair-only synthesis families are byte-identical
+# with it on (it only appends a column when its MI-uplift gate clears), and it is the only path that synthesizes a single feature carrying a pure 3-way XOR.
+_FE_FULL = dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False, fe_hybrid_orth_triplet_enable=True)
 
 _N = 800
 
@@ -136,9 +142,10 @@ _SYNTH_FAMILIES = [
     ("MINMAX",       lambda X, r: np.maximum(X[:, 0], X[:, 1]),           "median", 0.05,   None),
     ("THRESHOLD_RELU", lambda X, r: (X[:, 0] > 0.5).astype(float) + 0.01 * X[:, 1], 0.5, -0.05, None),
     ("CONDITIONAL",  None,                                                None,     0.10,   None),  # custom builder
-    # --- documented GAPs: FE machinery cannot synthesize these ---
-    ("XOR3",         lambda X, r: X[:, 0] * X[:, 1] * X[:, 2],            0.0,      0.10,
-     "FS GAP: cannot synthesize 3-way XOR (no triple-product generator in default FE; pair search misses it)"),
+    # 3-way XOR: recovered by the ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer (He1*He1*He1 cell), wired into _FE_FULL. Pair search alone misses it
+    # (every pair MI is ~0); the triplet stage emits the single feature that carries the joint sign-product, and a linear downstream lifts to ~0.99 AUC.
+    ("XOR3",         lambda X, r: X[:, 0] * X[:, 1] * X[:, 2],            0.0,      0.40,   None),
+    # --- documented GAP: FE machinery cannot synthesize this ---
     ("MODULAR",      lambda X, r: ((np.floor(X[:, 0] * 3).astype(int)) % 2).astype(float), 0.5, 0.10,
      "FS GAP: cannot synthesize MODULAR/parity target (no mod generator; smooth basis cannot fit a sawtooth)"),
 ]
@@ -165,8 +172,9 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
     """SYNTHESIS: does full-mode MRMR FE recover a target ONLY a synthesized
     feature exposes?  Floor is on (FE_auc - raw_auc) for a held-out LogReg.
 
-    A documented capability GAP (XOR3 / MODULAR) is asserted to the CORRECT
-    behavior and xfail-ed -- not weakened -- so the miss stays visible."""
+    A documented capability GAP (MODULAR) is asserted to the CORRECT behavior
+    and xfail-ed -- not weakened -- so the miss stays visible. XOR3 is now
+    recovered via the triplet cross-basis synthesizer in _FE_FULL."""
     if gap is not None:
         pytest.xfail(gap)
     df, y = _build_synth(family, score_fn, thr)
@@ -185,6 +193,28 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
         f"{family}: FE did not recover the synthesized target over raw-only: "
         f"FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f} "
         f"< floor {floor:+.3f}; fe_names={fe_names}, raw_names={raw_names}")
+
+
+@pytest.mark.timeout(120)
+def test_synthesis_xor3_recovered_by_triplet_synthesizer():
+    """Regression sensor for the closed 3-way-XOR synthesis gap: the triplet
+    cross-basis synthesizer (``fe_hybrid_orth_triplet_enable``, wired into
+    _FE_FULL) must emit a single feature carrying ``sign(x0*x1*x2)`` so a linear
+    downstream lifts to ~0.99 AUC, while raw-only and pair-only FE both miss it
+    (every pair MI is ~0). Always runs (not behind fast_subset sampling)."""
+    df, y = _mk(lambda X, r: X[:, 0] * X[:, 1] * X[:, 2], thr=0.0)
+    fe_auc, fe_names = _sel_auc(_FE_FULL, df, y)
+    raw_auc, _ = _sel_auc(_RAW_ONLY, df, y)
+    pair_auc, pair_names = _sel_auc(
+        dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False), df, y)
+    print(f"XOR3 triplet FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} pair_auc={pair_auc:.3f} fe_names={fe_names[:4]}")
+    assert fe_auc > 0.90, f"triplet synthesizer must carry 3-way XOR (FE_auc={fe_auc:.3f}); names={fe_names}"
+    assert fe_auc - raw_auc >= 0.40, f"triplet FE must beat raw-only by >=0.40 on 3-way XOR; got {fe_auc - raw_auc:+.3f}"
+    assert fe_auc - pair_auc >= 0.30, (
+        f"triplet FE must beat PAIR-only FE by >=0.30 on 3-way XOR (pairs cannot synthesize it); "
+        f"got {fe_auc - pair_auc:+.3f}; pair_names={pair_names}")
+    assert any("__He1_He1_He1" in n or "*" in n for n in fe_names), (
+        f"a 3-way cross-basis triplet column must be selected; got {fe_names}")
 
 
 # ===========================================================================

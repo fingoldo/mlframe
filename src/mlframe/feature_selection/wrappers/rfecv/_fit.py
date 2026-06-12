@@ -154,6 +154,20 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             )
         X = np.asarray(X.toarray())
 
+    # Multi-output (2D y) opt-in: fit one single-target RFECV per output column and aggregate support_ (union/intersect).
+    # Default ``multioutput_strategy=None`` falls through to the historical clear NotImplementedError in _fit_init.
+    _mo_strategy = getattr(self, "multioutput_strategy", None)
+    if _mo_strategy is not None:
+        try:
+            _y_arr = np.asarray(y)
+            _is_2d = _y_arr.ndim >= 2 and _y_arr.shape[-1] > 1
+        except Exception:
+            _is_2d = False
+        if _is_2d:
+            from ._multioutput import fit_multioutput
+            _fp = copy.copy(self.fit_params) if self.fit_params else {}
+            return fit_multioutput(self, X, y, groups, sample_weight, _fp, _mo_strategy)
+
     # TODO A (Wave 6 prelim, 2026-05-28): auto-tune. Compute a DataFingerprint
     # then push the rule-based suggestion into self.<flat-knob> for every
     # flat kwarg the caller didn't explicitly override. Stored decision lives

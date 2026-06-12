@@ -123,6 +123,11 @@ class CatFEConfig:
     """Minimum samples per class of Y. Below this, marginal MI estimates on cat columns are dominated by which rows happen to be the minority (5 positives in
     100k means each (X1, X2, Y=1) cell has 0 or 1 obs). Cat-FE warns and disables when violated."""
 
+    on_high_cardinality: Literal["skip", "raise"] = "skip"
+    """How a categorical column whose nbins exceeds the ``sqrt(n)*2`` ceiling is handled. ``skip`` (default): drop it from the cat-FE candidate pool, warn once, and
+    let it flow through the rest of MRMR as an ordinary (high-cardinality) column the relevance screen can still drop -- raw frames with id/hash/free-text columns no
+    longer crash MRMR.fit. ``raise``: legacy hard ValueError (kept for callers who want a strict "this column shouldn't be categorical" signal)."""
+
     discretization_audit: bool = False
     """Re-run pair search with ``nbins +- 2`` for numeric columns and record per-pair II range. Surfaces pairs whose ranking is sensitive to the discretization scheme."""
 
