@@ -33,6 +33,51 @@ pattern works on a built wheel by importing ``mlframe.training``, ``mlframe.metr
 from __future__ import annotations
 
 
+def _autoconfigure_cuda_home() -> None:
+    """Point CUDA_HOME/CUDA_PATH at the pip-installed nvidia NVVM when nothing else has.
+
+    numba.cuda needs ``CUDA_HOME``/``CUDA_PATH`` to locate ``nvvm`` + ``libdevice``. On a host that
+    has the ``nvidia-cuda-nvcc`` pip wheel (which bundles a working NVVM) but no system CUDA toolkit
+    and no CUDA env var, numba silently reports ``cuda.is_available() == False`` and every GPU kernel
+    falls back to CPU even though the GPU + driver + cupy all work. This sets the env var to the pip
+    NVVM so the GPU path is used out of the box.
+
+    Safety -- never override a real install: skips entirely if CUDA_HOME / CUDA_PATH (or any versioned
+    ``CUDA_PATH_V*`` that the NVIDIA system installer sets) is already present, so a machine with a
+    proper CUDA toolkit is left untouched. Cheap filesystem probe only (no numba/cupy import); never
+    raises. Opt-out: ``MLFRAME_NO_CUDA_AUTOCONFIG=1``.
+    """
+    import os
+    if os.environ.get("MLFRAME_NO_CUDA_AUTOCONFIG", "").strip() not in ("", "0", "false", "False"):
+        return
+    if os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH"):
+        return
+    if any(k.startswith("CUDA_PATH_V") for k in os.environ):
+        return
+    try:
+        import sysconfig
+        import pathlib
+
+        roots = {sysconfig.get_paths().get("purelib"), sysconfig.get_paths().get("platlib")}
+        for root in filter(None, roots):
+            nvvm = pathlib.Path(root) / "nvidia" / "cuda_nvcc" / "nvvm"
+            has_dll = bool(list(nvvm.glob("bin/nvvm*.dll")) or list(nvvm.glob("lib64/libnvvm*")))
+            has_libdevice = bool(list(nvvm.glob("libdevice/libdevice*.bc")))
+            if has_dll and has_libdevice:
+                cuda_nvcc = str(nvvm.parent)
+                os.environ["CUDA_HOME"] = cuda_nvcc
+                os.environ.setdefault("CUDA_PATH", cuda_nvcc)
+                import logging
+
+                logging.getLogger(__name__).info(
+                    "mlframe: set CUDA_HOME/CUDA_PATH to the pip-installed nvidia NVVM (%s) so numba.cuda "
+                    "GPU kernels are enabled; set MLFRAME_NO_CUDA_AUTOCONFIG=1 to skip.", cuda_nvcc,
+                )
+                return
+    except Exception:
+        pass
+
+
 def _disable_broken_cupy() -> None:
     """Guard against the cupy softlink-recursion bug on broken CUDA installs.
 
@@ -104,6 +149,8 @@ def _disable_broken_cupy() -> None:
         # already wrapped in ``try / except ImportError``).
         sys.modules["cupy"] = None  # type: ignore[assignment]
 
+
+_autoconfigure_cuda_home()  # kept importable (not del'd) for the unit test
 
 _disable_broken_cupy()
 del _disable_broken_cupy
