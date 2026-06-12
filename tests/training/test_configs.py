@@ -238,18 +238,21 @@ class TestConfigValidationEdgeCases:
             LinearModelConfig(model_type='invalid_model')
 
     def test_alpha_values_accepted(self):
-        """Test that alpha values are accepted (validation deferred to sklearn)."""
+        """alpha>=0 accepted (0 == OLS); negative rejected at construction."""
         # Positive alpha - valid
         config = LinearModelConfig(model_type='ridge', alpha=1.0)
         assert config.alpha == 1.0
 
-        # Note: Negative alpha validation is deferred to sklearn at model creation
-        # Config accepts any numeric value
-        config = LinearModelConfig(model_type='ridge', alpha=-1.0)
-        assert config.alpha == -1.0
+        # alpha=0 is valid (OLS limit of Ridge/Lasso).
+        assert LinearModelConfig(model_type='ridge', alpha=0.0).alpha == 0.0
+
+        # Negative alpha is rejected at construction (sklearn rejects it too,
+        # only deep inside fit -- the config guard surfaces it earlier).
+        with pytest.raises(ValidationError):
+            LinearModelConfig(model_type='ridge', alpha=-1.0)
 
     def test_l1_ratio_values(self):
-        """Test l1_ratio values are accepted."""
+        """l1_ratio in [0,1] accepted; out-of-range rejected at construction."""
         # Valid in-range value
         config = LinearModelConfig(model_type='elasticnet', l1_ratio=0.5)
         assert config.l1_ratio == 0.5
@@ -261,9 +264,10 @@ class TestConfigValidationEdgeCases:
         config = LinearModelConfig(model_type='elasticnet', l1_ratio=1.0)
         assert config.l1_ratio == 1.0
 
-        # Note: Out-of-range validation is deferred to sklearn
-        config = LinearModelConfig(model_type='elasticnet', l1_ratio=1.5)
-        assert config.l1_ratio == 1.5
+        # Out-of-range now rejected at config time (sklearn ElasticNet contract
+        # is 0<=l1_ratio<=1).
+        with pytest.raises(ValidationError):
+            LinearModelConfig(model_type='elasticnet', l1_ratio=1.5)
 
     def test_max_iter_values(self):
         """Test max_iter values are accepted."""
