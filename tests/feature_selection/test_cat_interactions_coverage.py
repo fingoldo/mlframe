@@ -257,8 +257,20 @@ class TestSelectCandidateIndices:
         assert kept == [1, 2]
         assert state.dropped_singleton_nbins == [0]
 
-    def test_raise_on_high_cardinality(self):
+    def test_skip_on_high_cardinality_by_default(self):
         cfg = CatFEConfig()
+        state = CatFEState()
+        with pytest.warns(UserWarning, match="(?i)skipping"):
+            kept = _select_candidate_indices(
+                nbins=np.array([2, 500], dtype=np.int64),
+                categorical_vars=[0, 1],
+                cfg=cfg, state=state, n_samples=400,
+            )
+        assert kept == [0]
+        assert (1, 500) in state.high_cardinality_warnings
+
+    def test_raise_on_high_cardinality_when_opted_in(self):
+        cfg = CatFEConfig(on_high_cardinality="raise")
         state = CatFEState()
         with pytest.raises(ValueError, match="(?i)high-cardinality"):
             _select_candidate_indices(

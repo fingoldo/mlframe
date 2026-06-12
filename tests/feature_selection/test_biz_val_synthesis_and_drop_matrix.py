@@ -9,9 +9,11 @@ feature-selection family, family-by-family, as behavioral biz_value tests:
     ~0 LINEAR (univariate) signal but a single synthesized feature carries
     strong signal, and assert the FE-on selection lifts a held-out LINEAR
     downstream AUC over a raw-only selection by a measured floor.  Where the
-    FE machinery genuinely cannot synthesize the family, the test is written
-    to the CORRECT behavior and ``xfail``-ed with the measured miss -- a
-    documented capability GAP, never a weakened assertion.
+    FE machinery genuinely cannot synthesize the family (MODULAR -- a sawtooth
+    parity no smooth basis fits), the test is written to the CORRECT behavior
+    and ``xfail``-ed with the measured miss -- a documented capability GAP,
+    never a weakened assertion. The 3-way XOR (XOR3) is RECOVERED by the
+    ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer.
 
 (B) DROPPING -- does the selector correctly DROP a redundancy / decoy column
     in favour of the real signal?  For each redundancy / decoy family we put
@@ -30,7 +32,8 @@ Calibration run (n=800, seed-7/seed-1, store py3.14, CPU):
   SYNTHESIS delta (FE_auc - raw_auc):
     PRODUCT +0.54  RATIO +0.50  QUADRATIC/ABS/LOG +0.52  SINE +0.19
     MINMAX +0.09   CONDITIONAL +0.17   DIFFERENCE +0.00 (already raw-linear)
-    XOR3 -0.07 (GAP)   MODULAR -0.15 (GAP)
+    XOR3 +0.50 (triplet cross-basis synthesizer, fe_hybrid_orth_triplet_enable)
+    MODULAR -0.15 (GAP -- smooth basis cannot fit a sawtooth/parity)
   DROPPING (MRMR, raw-only):  every twin family collapses to a single
     survivor; constant / near-constant / id-like / permuted-noise all dropped.
   DROPPING (RFECV):  exact_dup + constant dropped; permuted-noise, id-like,
@@ -69,7 +72,10 @@ _RAW_ONLY = dict(
     fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
     cluster_aggregate_enable=False, dcd_enable=False,
 )
-_FE_FULL = dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False)
+# Full FE mode includes the 3-way cross-basis synthesizer (``fe_hybrid_orth_triplet_enable``); it stays a separate ctor opt-out because the triplet stage
+# runs regardless of fe_max_steps, so default-ON would add the seed_k-bounded O(C(k,3)) stage to EVERY fit. The pair-only synthesis families are byte-identical
+# with it on (it only appends a column when its MI-uplift gate clears), and it is the only path that synthesizes a single feature carrying a pure 3-way XOR.
+_FE_FULL = dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False, fe_hybrid_orth_triplet_enable=True)
 
 _N = 800
 
@@ -136,9 +142,10 @@ _SYNTH_FAMILIES = [
     ("MINMAX",       lambda X, r: np.maximum(X[:, 0], X[:, 1]),           "median", 0.05,   None),
     ("THRESHOLD_RELU", lambda X, r: (X[:, 0] > 0.5).astype(float) + 0.01 * X[:, 1], 0.5, -0.05, None),
     ("CONDITIONAL",  None,                                                None,     0.10,   None),  # custom builder
-    # --- documented GAPs: FE machinery cannot synthesize these ---
-    ("XOR3",         lambda X, r: X[:, 0] * X[:, 1] * X[:, 2],            0.0,      0.10,
-     "FS GAP: cannot synthesize 3-way XOR (no triple-product generator in default FE; pair search misses it)"),
+    # 3-way XOR: recovered by the ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer (He1*He1*He1 cell), wired into _FE_FULL. Pair search alone misses it
+    # (every pair MI is ~0); the triplet stage emits the single feature that carries the joint sign-product, and a linear downstream lifts to ~0.99 AUC.
+    ("XOR3",         lambda X, r: X[:, 0] * X[:, 1] * X[:, 2],            0.0,      0.40,   None),
+    # --- documented GAP: FE machinery cannot synthesize this ---
     ("MODULAR",      lambda X, r: ((np.floor(X[:, 0] * 3).astype(int)) % 2).astype(float), 0.5, 0.10,
      "FS GAP: cannot synthesize MODULAR/parity target (no mod generator; smooth basis cannot fit a sawtooth)"),
 ]
@@ -165,8 +172,9 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
     """SYNTHESIS: does full-mode MRMR FE recover a target ONLY a synthesized
     feature exposes?  Floor is on (FE_auc - raw_auc) for a held-out LogReg.
 
-    A documented capability GAP (XOR3 / MODULAR) is asserted to the CORRECT
-    behavior and xfail-ed -- not weakened -- so the miss stays visible."""
+    A documented capability GAP (MODULAR) is asserted to the CORRECT behavior
+    and xfail-ed -- not weakened -- so the miss stays visible. XOR3 is now
+    recovered via the triplet cross-basis synthesizer in _FE_FULL."""
     if gap is not None:
         pytest.xfail(gap)
     df, y = _build_synth(family, score_fn, thr)
@@ -185,6 +193,28 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
         f"{family}: FE did not recover the synthesized target over raw-only: "
         f"FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f} "
         f"< floor {floor:+.3f}; fe_names={fe_names}, raw_names={raw_names}")
+
+
+@pytest.mark.timeout(120)
+def test_synthesis_xor3_recovered_by_triplet_synthesizer():
+    """Regression sensor for the closed 3-way-XOR synthesis gap: the triplet
+    cross-basis synthesizer (``fe_hybrid_orth_triplet_enable``, wired into
+    _FE_FULL) must emit a single feature carrying ``sign(x0*x1*x2)`` so a linear
+    downstream lifts to ~0.99 AUC, while raw-only and pair-only FE both miss it
+    (every pair MI is ~0). Always runs (not behind fast_subset sampling)."""
+    df, y = _mk(lambda X, r: X[:, 0] * X[:, 1] * X[:, 2], thr=0.0)
+    fe_auc, fe_names = _sel_auc(_FE_FULL, df, y)
+    raw_auc, _ = _sel_auc(_RAW_ONLY, df, y)
+    pair_auc, pair_names = _sel_auc(
+        dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False), df, y)
+    print(f"XOR3 triplet FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} pair_auc={pair_auc:.3f} fe_names={fe_names[:4]}")
+    assert fe_auc > 0.90, f"triplet synthesizer must carry 3-way XOR (FE_auc={fe_auc:.3f}); names={fe_names}"
+    assert fe_auc - raw_auc >= 0.40, f"triplet FE must beat raw-only by >=0.40 on 3-way XOR; got {fe_auc - raw_auc:+.3f}"
+    assert fe_auc - pair_auc >= 0.30, (
+        f"triplet FE must beat PAIR-only FE by >=0.30 on 3-way XOR (pairs cannot synthesize it); "
+        f"got {fe_auc - pair_auc:+.3f}; pair_names={pair_names}")
+    assert any("__He1_He1_He1" in n or "*" in n for n in fe_names), (
+        f"a 3-way cross-basis triplet column must be selected; got {fe_names}")
 
 
 # ===========================================================================
@@ -279,12 +309,16 @@ def test_mrmr_dropping_matrix(family, decoy, kind, gap):
 _RFECV_DROP = [
     ("exact_dup",        lambda x, y, r: x.copy(),                    "decoy", None),
     ("constant",         lambda x, y, r: np.full(_N, 3.0),            "decoy", None),
-    ("scaled_copy",      lambda x, y, r: 100.0 * x,                   "decoy",
-     "FS GAP: RFECV is not redundancy-aware -- admits an exact scaled copy of the signal"),
+    # CLOSED GAP: the ``drop_near_dup_corr`` guard (default on) drops a near-exact monotone replica (100*x has |Spearman|=1.0) at fit entry, keeping the first
+    # occurrence, so RFECV's voting no longer splits the replica's importance and admits the redundant copy. NARROW: a legitimately-distinct correlated pair
+    # (corr ~0.7) sits far below the 0.999 default and BOTH survive; see test_rfecv_near_dup_corr_guard for the decoy-drop + distinct-pair-safety sensor.
+    ("scaled_copy",      lambda x, y, r: 100.0 * x,                   "decoy", None),
     ("permuted_decoy",   lambda x, y, r: r.permutation(x),            "decoy",
      "FS GAP: RFECV admits a permuted realistic-marginal noise decoy (no relevance floor)"),
-    ("id_like_highcard", lambda x, y, r: np.arange(_N, dtype=float),  "decoy",
-     "FS GAP: RFECV admits a high-cardinality ID-like decoy"),
+    # CLOSED GAP: the ``drop_id_like_sequences`` guard (default on) drops a near-unique + affine-spaced row-id / index / counter at fit entry, structurally,
+    # so a tree estimator can no longer memorise it via split-frequency bias. The guard is narrow (it fires only on the structureless affine-sequence shape) so
+    # it never touches a continuous real signal or a hash-style random id; see test_rfecv_id_like_sequence_guard for the decoy-drop + weak-signal-safety sensor.
+    ("id_like_highcard", lambda x, y, r: np.arange(_N, dtype=float),  "decoy", None),
 ]
 
 
@@ -316,6 +350,129 @@ def test_rfecv_dropping_matrix(family, decoy, kind, gap):
         pytest.xfail(gap)
     assert "decoy" not in names, (
         f"{family}: RFECV admitted the decoy into selection: {names}")
+
+
+@pytest.mark.timeout(120)
+def test_rfecv_id_like_sequence_guard():
+    """CLOSED GAP regression sensor: the ``drop_id_like_sequences`` guard drops a
+    near-unique + affine-spaced ID-like decoy that a TREE estimator would otherwise
+    memorise via split-frequency bias -- WITHOUT touching a weak recoverable signal.
+
+    Exercised with a RandomForest + the recall-oriented one_se_max rule (the matrix
+    uses LogReg, whose linear coef already starves the arange decoy; the FI gap is
+    tree-specific, and one_se_max keeps the decoy inside the 1-SE band where the
+    tree's split-frequency-biased FI ranks it). Three assertions:
+      (1) the arange ID decoy is dropped (the gap);
+      (2) a weak low-card-binnable signal is KEPT (the PB-5 safety gate);
+      (3) a weak continuous signal is KEPT (continuous != near-unique-affine)."""
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+
+    def _tree_rfecv(**kw):
+        return RFECV(estimator=RandomForestClassifier(n_estimators=30, random_state=0),
+                     cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+                     n_features_selection_rule="one_se_max", verbose=0, **kw)
+
+    rng = np.random.default_rng(1)
+    x_real = rng.normal(size=_N)
+    y = pd.Series((x_real + 0.2 * rng.normal(size=_N) > 0).astype(int), name="y")
+
+    # (1) ID-like decoy is dropped (default guard ON). With the guard OFF the tree admits it.
+    df_id = pd.DataFrame({"x_real": x_real, "decoy": np.arange(_N, dtype=float),
+                          "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_on = _tree_rfecv(); sel_on.fit(df_id, y)
+    names_on = selected_names(sel_on)
+    print(f"ID-GUARD on  sel={names_on}")
+    assert "x_real" in names_on, f"guard dropped the real signal: {names_on}"
+    assert "decoy" not in names_on, f"ID-like decoy survived the guard: {names_on}"
+
+    sel_off = _tree_rfecv(drop_id_like_sequences=False); sel_off.fit(df_id, y)
+    names_off = selected_names(sel_off)
+    print(f"ID-GUARD off sel={names_off}")
+    assert "decoy" in names_off, (
+        "regression sensor is blind: tree must admit the ID decoy with the guard OFF "
+        f"(else the test does not prove the guard does the work): {names_off}")
+
+    # (2) PB-5 SAFETY: a weak low-card-binnable signal must NOT be dropped.
+    wl = rng.integers(0, 5, _N).astype(float)
+    yl = pd.Series((0.6 * (wl >= 3) + 0.4 * rng.normal(size=_N) > 0.3).astype(int), name="y")
+    df_wl = pd.DataFrame({"weak_lowcard": wl, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_wl = _tree_rfecv(); sel_wl.fit(df_wl, yl)
+    print(f"WEAK-LOWCARD sel={selected_names(sel_wl)}")
+    assert "weak_lowcard" in selected_names(sel_wl), (
+        "guard wrongly dropped a weak low-cardinality binnable signal (PB-5 recall regression)")
+
+    # (3) PB-5 SAFETY: a weak CONTINUOUS signal (near-unique but NOT affine-spaced) must NOT be dropped.
+    wc = rng.normal(size=_N)
+    yc = pd.Series((0.5 * wc + rng.normal(size=_N) > 0).astype(int), name="y")
+    df_wc = pd.DataFrame({"weak_cont": wc, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_wc = _tree_rfecv(); sel_wc.fit(df_wc, yc)
+    print(f"WEAK-CONT    sel={selected_names(sel_wc)}")
+    assert "weak_cont" in selected_names(sel_wc), (
+        "guard wrongly dropped a weak continuous signal (continuous != near-unique-affine)")
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+def test_rfecv_near_dup_corr_guard():
+    """CLOSED GAP regression sensor: the ``drop_near_dup_corr`` guard drops a near-exact
+    monotone replica (a scaled/shifted copy) at fit entry so RFECV no longer admits the
+    redundant copy -- WITHOUT collapsing a legitimately-distinct correlated pair.
+
+    Four assertions:
+      (1) a scaled copy (100*x, |Spearman|=1.0) is dropped, keeping the original;
+      (2) with the guard OFF the decoy is admitted (sensor is not blind);
+      (3) PB-5 SAFETY: a legitimately-distinct corr~0.7 pair is kept in FULL (both members);
+      (4) the two independent drivers of a linear-combo signal are BOTH kept (weak-signal recovery)."""
+    from mlframe.feature_selection.wrappers import RFECV
+
+    def _rfecv(**kw):
+        return RFECV(estimator=LogisticRegression(max_iter=200, random_state=0),
+                     cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+                     n_features_selection_rule="argmax", verbose=0, **kw)
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=_N)
+    y = pd.Series((x + 0.25 * rng.normal(size=_N) > 0).astype(int), name="y")
+
+    # (1) scaled-copy decoy is dropped (default guard ON), original kept.
+    df = pd.DataFrame({"x_real": x, "decoy": 100.0 * x,
+                       "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_on = _rfecv(); sel_on.fit(df, y)
+    names_on = selected_names(sel_on)
+    print(f"NEAR-DUP on  sel={names_on}")
+    assert "x_real" in names_on, f"guard dropped the original signal: {names_on}"
+    assert "decoy" not in names_on, f"scaled-copy decoy survived the guard: {names_on}"
+
+    # (2) sensor is not blind: with the guard OFF the redundant copy is admitted.
+    sel_off = _rfecv(drop_near_dup_corr=False); sel_off.fit(df, y)
+    names_off = selected_names(sel_off)
+    print(f"NEAR-DUP off sel={names_off}")
+    assert "decoy" in names_off, (
+        "regression sensor is blind: RFECV must admit the scaled copy with the guard OFF "
+        f"(else the test does not prove the guard does the work): {names_off}")
+
+    # (3) PB-5 SAFETY: a legitimately-distinct corr~0.7 pair must BOTH survive (0.999 default is far above 0.7).
+    a = rng.normal(size=_N)
+    b = 0.7 * a + np.sqrt(1.0 - 0.49) * rng.normal(size=_N)
+    yp = pd.Series((a + b + 0.25 * rng.normal(size=_N) > 0).astype(int), name="y")
+    df_p = pd.DataFrame({"a": a, "b": b, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_p = _rfecv(); sel_p.fit(df_p, yp)
+    names_p = selected_names(sel_p)
+    print(f"DISTINCT-0.7 sel={names_p}")
+    assert "a" in names_p and "b" in names_p, (
+        f"guard wrongly collapsed a legitimately-distinct corr~0.7 pair (PB-5 recall regression): {names_p}")
+
+    # (4) weak-signal recovery: two INDEPENDENT drivers of a linear-combo target must both be kept (neither is near-dup).
+    x1 = rng.normal(size=_N)
+    x2 = rng.normal(size=_N)
+    yc = pd.Series((x1 + x2 + 0.25 * rng.normal(size=_N) > 0).astype(int), name="y")
+    df_c = pd.DataFrame({"x1": x1, "x2": x2, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_c = _rfecv(); sel_c.fit(df_c, yc)
+    names_c = selected_names(sel_c)
+    print(f"WEAK-COMBO   sel={names_c}")
+    assert "x1" in names_c and "x2" in names_c, (
+        f"guard wrongly dropped an independent driver of the linear-combo signal: {names_c}")
 
 
 @pytest.mark.slow

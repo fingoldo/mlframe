@@ -1262,10 +1262,10 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
 
     rng = np.random.default_rng(123)
     n = 1500
-    # Time axis: index 0..n-1 (0=oldest, n-1=newest). Older slice is 2x bigger than recent slice so under
+    # Time axis: index 0..n-1 (0=oldest, n-1=newest). Older slice is 4x bigger than recent slice so under
     # uniform weighting, B (older-regime driver) edges out A on relevance; under recency weighting the
     # imbalance reverses and A (recent-regime driver) wins top-1.
-    n_recent = n // 3
+    n_recent = n // 5
     is_recent = np.zeros(n, dtype=bool)
     is_recent[-n_recent:] = True
     x_a = rng.normal(size=n)

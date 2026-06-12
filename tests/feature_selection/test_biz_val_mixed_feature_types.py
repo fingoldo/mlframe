@@ -155,31 +155,30 @@ def test_biz_val_mrmr_lowcard_cat_beats_random_relevance():
         f"cat_sig out-ranked equal-card noise on only {good}/{len(seeds)} seeds")
 
 
-@pytest.mark.xfail(reason="FS GAP: MRMR raises ValueError on a high-card categorical "
-                          "(nbins > sqrt(n)*2) instead of dropping it; raw mixed frames "
-                          "with id/hash columns cannot be passed to MRMR directly",
-                   strict=False)
 def test_biz_val_mrmr_drops_highcard_cat_noise_gracefully():
-    """MRMR DIRECT on a frame WITH a high-card categorical noise column should drop it
-    and keep the signals -- instead it raises a hard ValueError from the cat-FE
-    cardinality ceiling. xfail pins the GAP; flipping to graceful-drop would make this
-    pass."""
+    """MRMR DIRECT on a frame WITH a high-card categorical noise column completes (no
+    crash): the high-card column is skipped for cat-FE and dropped as noise by the
+    relevance screen, while the low-card cat signal is kept. (Was a GAP: the cat-FE
+    cardinality ceiling raised a hard ValueError; now ``on_high_cardinality='skip'`` is
+    the default.)"""
     df, y, roles = _make_mixed_frame(500, 0, high_card=True)
     m = _fast_mrmr(random_seed=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m.fit(df, y)  # currently raises ValueError -> xfail
+        m.fit(df, y)
     sel = set(map(str, m.get_feature_names_out()))
-    assert "cat_noise" not in sel
-    assert any("cat_sig" in c for c in sel)
+    assert "cat_noise" not in sel, f"high-card noise should be dropped: {sel}"
+    assert any("cat_sig" in c for c in sel), f"low-card cat signal should be kept: {sel}"
 
 
-def test_biz_val_mrmr_highcard_cat_raises_documented_error():
-    """Pin the CURRENT behaviour (the GAP) so a future graceful-drop change is a
-    deliberate, test-visible flip: MRMR raises ValueError mentioning the cardinality
-    ceiling on a raw high-card categorical."""
+def test_biz_val_mrmr_highcard_cat_raises_when_opted_in():
+    """The legacy hard ValueError is still available opt-in via
+    ``CatFEConfig(on_high_cardinality='raise')`` for callers who want a strict
+    "this column shouldn't be categorical" signal."""
+    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
     df, y, _ = _make_mixed_frame(500, 0, high_card=True)
-    m = _fast_mrmr(random_seed=0)
+    m = _fast_mrmr(random_seed=0,
+                   cat_fe_config=CatFEConfig(on_high_cardinality="raise"))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with pytest.raises(ValueError, match="(?i)nbins|ceiling|cardinal"):

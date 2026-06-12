@@ -385,6 +385,28 @@ class RFECV(BaseEstimator, TransformerMixin):
         prescreen_top_k: Union[int, None] = None,
         # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
         prescreen_fdr_level: float = 0.05,
+        # multioutput_strategy: how to handle a 2D y (multilabel / multi-target regression). sklearn RFE/RFECV is single-target, so we fit one
+        # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box -- keeps a
+        # feature selected for ANY output (recall-oriented, never drops a feature useful to one target). 'intersect' (AND) keeps only features
+        # selected for EVERY output (precision-oriented). Set None to opt OUT and get the historical clear NotImplementedError on a 2D y. Each
+        # sub-fit clones the full configured RFECV on one y column.
+        multioutput_strategy: Union[str, None] = "union",
+        # drop_id_like_sequences: when True (default), drop near-unique columns whose sorted distinct values are (near-)perfectly affine-spaced at fit entry --
+        # an enumerated row-id / index / counter (or an affine rescale of one). Such a column is pure sample-order with ZERO generalisable signal yet a tree
+        # estimator memorises it via split-frequency bias and admits it into support_. The guard is deliberately NARROW: it fires only on the structureless
+        # affine-sequence shape (spacing coefficient-of-variation <= id_like_spacing_cv), so a continuous real signal (spacing CV ~O(1)) and a hash-style random
+        # id (irregular spacing) are NEVER touched -- it cannot drop a weak recoverable signal. Set False to disable.
+        drop_id_like_sequences: bool = True,
+        id_like_ratio_threshold: float = 0.999,
+        id_like_spacing_cv: float = 1e-3,
+        # drop_near_dup_corr: when True (default), drop columns that are a (near-)monotone copy of another already kept -- a scaled / shifted / tiny-noise replica
+        # (``100*x``, ``x + 1e-3*eps``) the exact-dup hash misses bit-for-bit. RFECV's voting otherwise splits the replica's importance across the copies and admits
+        # the redundant copy into support_. Uses |Spearman| (rank) so any monotone rescale is caught regardless of slope/offset; keeps the FIRST of each pair. NARROW
+        # BY CONSTRUCTION: the 0.999 default fires only on a near-perfect monotone replica -- a legitimately-distinct correlated pair (corr ~0.7, even ~0.95 cluster
+        # mates) sits far below it and BOTH survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a representative remains the
+        # redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True). Set False to disable.
+        drop_near_dup_corr: bool = True,
+        near_dup_corr_threshold: float = 0.999,
     ):
 
         # checks
@@ -450,6 +472,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"fi_missing_policy must be 'worst', 'median', or 'skip'; "
                 f"got {fi_missing_policy!r}."
+            )
+
+        if multioutput_strategy not in (None, "union", "intersect"):
+            raise ValueError(
+                f"multioutput_strategy must be None, 'union', or 'intersect'; got {multioutput_strategy!r}."
             )
 
         if optimizer_target not in ("mean", "final_score"):

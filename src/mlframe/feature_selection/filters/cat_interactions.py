@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from typing import Any, Optional
 
 import numpy as np
@@ -162,16 +163,23 @@ def _select_candidate_indices(
             continue
         if nb > high_card_threshold:
             state.high_cardinality_warnings.append((int(idx), nb))
-            # Refuse rather than warn: legacy upstream truncation to int16 already silently mangles >32k-cardinality cols, so downstream MI is on garbage.
-            # Hard error gives the user a clear "this column shouldn't be cat".
-            raise ValueError(
-                f"cat-FE: column index {idx} has nbins={nb}, exceeding the "
-                f"safe ceiling sqrt(n)*2={high_card_threshold:.0f} for "
-                f"n={n_samples}. High-cardinality categorical columns "
-                f"(IDs, hashes, free-text) produce unstable MI estimates "
-                f"and likely violate the int16 ceiling upstream. "
-                f"Drop the column or reconsider whether it's truly categorical."
+            if cfg.on_high_cardinality == "raise":
+                # int16 truncation upstream silently mangles >32k-card cols, so downstream MI is garbage; the hard error tells the user "this shouldn't be cat".
+                raise ValueError(
+                    f"cat-FE: column index {idx} has nbins={nb}, exceeding the "
+                    f"safe ceiling sqrt(n)*2={high_card_threshold:.0f} for "
+                    f"n={n_samples}. High-cardinality categorical columns "
+                    f"(IDs, hashes, free-text) produce unstable MI estimates "
+                    f"and likely violate the int16 ceiling upstream. "
+                    f"Drop the column or reconsider whether it's truly categorical."
+                )
+            # Default skip: drop from the cat-FE pool, let the column flow through the relevance screen (which can still drop it as noise).
+            warnings.warn(
+                f"cat-FE: column index {idx} has nbins={nb} > sqrt(n)*2={high_card_threshold:.0f} (n={n_samples}); skipping it for cat-FE. "
+                f"It still passes through MRMR relevance screening. Set CatFEConfig(on_high_cardinality='raise') for the legacy hard error.",
+                stacklevel=2,
             )
+            continue
         kept.append(int(idx))
     return kept
 
