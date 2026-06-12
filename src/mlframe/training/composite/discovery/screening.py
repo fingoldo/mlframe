@@ -19,6 +19,14 @@ import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 try:
+    import numba as _numba
+
+    _HAS_NUMBA = True
+except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
+    _numba = None  # type: ignore
+    _HAS_NUMBA = False
+
+try:
     import polars as pl  # type: ignore
     _HAS_POLARS = True
 except Exception:  # pragma: no cover
@@ -413,6 +421,25 @@ def _prebin_feature_columns_lazy(
     return binned
 
 
+# Shared FS/MRMR <-> discovery prebin cache: investigated and REJECTED as UNSAFE (not feasible).
+# MRMR feature-selection (filters/mrmr.py) and composite discovery use two INDEPENDENT MI stacks;
+# sharing a single per-suite feature-prebin cache across them would CHANGE the bins feeding MI ->
+# change MI -> change which features get selected. They are not interchangeable on four axes:
+#   1. strategy: MRMR default ``nbins_strategy='mdlp'`` is SUPERVISED Fayyad-Irani discretization
+#      (target-aware, per-feature adaptive edge counts via _adaptive_nbins.per_feature_edges, also
+#      knuth/blocks/fd variants); discovery here is UNSUPERVISED fixed equi-mass quantile binning
+#      (np.quantile(col, linspace(0,1,nbins+1)[1:-1]) + searchsorted). Supervised != unsupervised
+#      edges -> different codes for the same column.
+#   2. nbins: MRMR ``quantization_nbins=10`` default vs discovery ``nbins=16`` default.
+#   3. row population: MRMR bins its OWN train rows; discovery bins the MI-SCREEN SAMPLE
+#      (_sample_indices -> mi_sample_n subset). Different rows -> different quantile edges.
+#   4. code dtype/layout: MRMR int32 (discretize_2d_array, min_ncats=50) vs discovery int16/int32.
+# Because the codes diverge, a shared cache is NOT bit-identical and would silently alter selection
+# -- forbidden per the bit-identity gate. The discovery-internal PrebinCache (cache.py) already
+# de-duplicates re-bins WITHIN discovery (same data+sample+nbins across configs/targets), which is
+# the only safe, bit-identical sharing seam. Do not force a cross-stack cache.
+
+
 def _prebin_feature_columns_cached(
     feature_matrix: np.ndarray, *, nbins: int, use_cache: bool = True,
 ) -> np.ndarray:
@@ -578,10 +605,10 @@ def _mi_to_target_prebinned(
     return _aggregate_mi_per_feature(per_feat, aggregation)
 
 
-def _mi_from_binned_pair(
+def _mi_from_binned_pair_numpy(
     x_idx: np.ndarray, y_idx: np.ndarray, *, nbins: int,
 ) -> float:
-    """MI from two already-binned integer arrays (0..nbins-1).
+    """Numpy reference for :func:`_mi_from_binned_pair` (kept callable for tests / benches).
 
     ``x_idx`` / ``y_idx`` may arrive as int16 (the narrowed prebin code
     dtype). The flattened index ``x_idx*nbins + y_idx`` reaches ``nbins**2 - 1``,
@@ -602,6 +629,74 @@ def _mi_from_binned_pair(
     log_terms = np.zeros_like(pxy)
     log_terms[nz] = np.log(pxy[nz] / (px * py)[nz])
     return max(0.0, float((pxy * log_terms).sum()))
+
+
+if _HAS_NUMBA:
+    @_numba.njit(cache=True, fastmath=False)
+    def _mi_from_binned_pair_njit_kernel(x_idx, y_idx, nbins):  # type: ignore[no-untyped-def]
+        # Single-pass joint histogram + marginals, then MI = sum pxy*log(pxy/(px*py)).
+        # Reproduces the numpy reference's arithmetic term-for-term: the joint counts are
+        # integer-exact (no FP), px/py are the same row/col sums, and each non-zero cell adds
+        # pxy*log(pxy/(px*py)) -- the only divergence from numpy is FP reduction ORDER of the
+        # final accumulation (numpy reduces the (nbins,nbins) product array; this walks cells
+        # row-major), which lands ~1e-16 on the natural-log MI scale, far under the 1e-12 gate.
+        n = x_idx.shape[0]
+        joint = np.zeros(nbins * nbins, dtype=np.int64)
+        for i in range(n):
+            joint[int(x_idx[i]) * nbins + int(y_idx[i])] += 1
+        n_total = 0
+        for k in range(nbins * nbins):
+            n_total += joint[k]
+        if n_total <= 0:
+            return 0.0
+        inv_n = 1.0 / float(n_total)
+        # Row (px) and column (py) marginal probabilities.
+        px = np.zeros(nbins, dtype=np.float64)
+        py = np.zeros(nbins, dtype=np.float64)
+        for a in range(nbins):
+            base = a * nbins
+            for b in range(nbins):
+                c = joint[base + b]
+                if c != 0:
+                    p = c * inv_n
+                    px[a] += p
+                    py[b] += p
+        mi = 0.0
+        for a in range(nbins):
+            base = a * nbins
+            pxa = px[a]
+            for b in range(nbins):
+                c = joint[base + b]
+                if c != 0:
+                    pxy = c * inv_n
+                    mi += pxy * np.log(pxy / (pxa * py[b]))
+        if mi < 0.0:
+            return 0.0
+        return mi
+
+
+def _mi_from_binned_pair(
+    x_idx: np.ndarray, y_idx: np.ndarray, *, nbins: int,
+) -> float:
+    """MI from two already-binned integer arrays (0..nbins-1).
+
+    Hot kernel: called ~9.8k times per discovery run (per-feature MI AND inside the
+    per-permutation null loop in ``_auto_base``, so the cost multiplies with
+    ``n_targets x auto_base_top_k x npermutations``). Dispatches to a ``numba.njit``
+    single-pass histogram+MI kernel (``cache=True``) which is ~4x faster than the numpy
+    ``bincount``+log path at the production sample size and bit-identical within ~1e-12
+    (only the final-sum FP reduction order differs). The numpy reference stays callable as
+    ``_mi_from_binned_pair_numpy`` for tests / benches; falls back to it when numba is
+    unavailable.
+    """
+    if not _HAS_NUMBA:
+        return _mi_from_binned_pair_numpy(x_idx, y_idx, nbins=nbins)
+    # Contiguous int64 inputs let the kernel index without per-element dtype branches; the
+    # asarray is a no-op when the caller already passes contiguous codes (the common path
+    # slices a column / shuffled codes), so no (n)-copy on the hot loop.
+    xi = np.ascontiguousarray(x_idx)
+    yi = np.ascontiguousarray(y_idx)
+    return float(_mi_from_binned_pair_njit_kernel(xi, yi, int(nbins)))
 
 
 def _mi_per_feature_y_fixed(

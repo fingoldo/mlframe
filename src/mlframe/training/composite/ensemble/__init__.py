@@ -49,23 +49,62 @@ def _unwrap_shim(model: Any) -> tuple[Any, Any]:
     return model, None
 
 
+logger = logging.getLogger(__name__)
+
+
+def _pp_is_fitted(pp: Any) -> bool:
+    """True iff every non-trivial step of ``pp`` is fitted (lazy import of the
+    pipeline-helper check to avoid an import cycle at module load).
+    """
+    try:
+        from ...pipeline._pipeline_helpers import _is_fitted
+    except Exception:  # pragma: no cover - defensive; treat as unfitted
+        return False
+    return bool(_is_fitted(pp))
+
+
+def _transform_pair_via(
+    pp: Any,
+    X_train: Any,
+    X_holdout: Any,
+    *,
+    y_train: Any = None,
+) -> tuple[Any, Any]:
+    """Project the OOF train + holdout slices into the SAME feature space the deployed model predicts in.
+
+    The deployed component (:class:`PrePipelinePredictShim`) routes every predict through ``pre_pipeline.transform`` and REFUSES to feed raw X to the inner (post_shim.py). The OOF estimate must mirror that, so this helper never silently falls back to raw X (which evaluated a different space than deployed and biased the NNLS weights).
+
+    - ``pp is None`` -> pass both slices through unchanged.
+    - ``pp`` already fitted (the suite-normal case: the entry's pre_pipeline was fit-transformed on full train during the main pass) -> apply ``pp.transform`` to both slices, EXACTLY as deployment does. Bit-identical to the previous fitted path; the only change is that the transform happens ONCE per slice with no surrounding per-slice try/except-and-fallback.
+    - ``pp`` NOT fitted -> clone it and fit the clone on the TRAIN slice only (train-only, leak-free: the holdout slice never touches the scaler/imputer/selector fit), then transform both slices through that fitted clone. This is the honest-OOF analogue of "pp fitted on train, applied at predict" and keeps the OOF in the deployed (transformed) space instead of the old raw-X fallback.
+
+    A fit/transform failure is allowed to propagate to the per-component ``except`` in the OOF loops, which drops the component from the ensemble -- the same outcome the deployed shim produces when its transform fails (it raises rather than predict on unscaled features), so a component that cannot be projected into the deployed space is excluded rather than scored in the wrong space.
+
+    The caller's ``pp`` is never mutated: the unfitted branch fits a ``clone`` so the shared deployed pipeline object keeps its state across slices/folds/components.
+    """
+    if pp is None:
+        return X_train, X_holdout
+    if _pp_is_fitted(pp):
+        return pp.transform(X_train), pp.transform(X_holdout)
+    # Unfitted pre_pipeline: fit a clone on the train slice (leak-free) and
+    # reuse it for both slices so the OOF lives in the deployed space.
+    pp_fit = clone(pp)
+    try:
+        pp_fit.fit(X_train, y_train)
+    except TypeError:
+        # Some unsupervised pipelines expose fit(X) only.
+        pp_fit.fit(X_train)
+    return pp_fit.transform(X_train), pp_fit.transform(X_holdout)
+
+
 def _transform_via(pp: Any, X: Any) -> Any:
     """Apply a fitted pre_pipeline to ``X`` or return ``X`` unchanged when ``pp is None``.
 
-    Falls back to ``X`` on ``transform`` exceptions so the inner ``fit``/``predict`` raises the more descriptive boundary-mismatch error (mirrors ``PrePipelinePredictShim._transform``).
+    Retained for external callers / single-frame projection (e.g. the external-holdout train side, which is paired with the holdout via :func:`_transform_pair_via`). On an UNFITTED ``pp`` this raises rather than silently returning raw X, mirroring the deployed shim's refusal to predict on unscaled features; OOF loops route through :func:`_transform_pair_via` so the unfitted case is handled leak-free without a per-slice raise.
     """
     if pp is None:
         return X
-    try:
-        return pp.transform(X)
-    except Exception as exc:
-        logger.warning(
-            "[ensemble] pre_pipeline.transform failed (%s: %s); falling back to RAW X for this slice -- OOF may evaluate a different space than deployed.",
-            type(exc).__name__, exc,
-        )
-        return X
-
-logger = logging.getLogger(__name__)
+    return pp.transform(X)
 
 
 def derive_seeds(random_state: int, components: Sequence[str]) -> dict[str, int]:
@@ -263,8 +302,9 @@ def _compute_oof_with_external_holdout(
     ):
         try:
             inner, pp = _unwrap_shim(model)
-            X_stack_t = _transform_via(pp, train_X)
-            X_holdout_t = _transform_via(pp, external_holdout_X)
+            X_stack_t, X_holdout_t = _transform_pair_via(
+                pp, train_X, external_holdout_X, y_train=y_train_full,
+            )
             if isinstance(inner, CompositeTargetEstimator):
                 if spec is None:
                     raise ValueError("composite component with no spec")
@@ -529,8 +569,9 @@ def compute_oof_holdout_predictions(
             for model, name, spec in zip(component_models, component_names, component_specs):
                 try:
                     inner, pp = _unwrap_shim(model)
-                    X_stack_t = _transform_via(pp, X_stack)
-                    X_holdout_t = _transform_via(pp, X_holdout)
+                    X_stack_t, X_holdout_t = _transform_pair_via(
+                        pp, X_stack, X_holdout, y_train=y_stack,
+                    )
                     if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
                             raise ValueError("composite component with no spec")
@@ -791,8 +832,9 @@ def compute_oof_holdout_predictions(
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)
-            X_stack_t = _transform_via(pp, X_stack)
-            X_holdout_t = _transform_via(pp, X_holdout)
+            X_stack_t, X_holdout_t = _transform_pair_via(
+                pp, X_stack, X_holdout, y_train=y_stack,
+            )
             if isinstance(inner, CompositeTargetEstimator):
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
                 if spec is None:
