@@ -230,6 +230,32 @@ _FRAC_DIFF_DEFAULT_D: float = 0.5  # Lopez de Prado standard order
 _FRAC_DIFF_DEFAULT_LAGS: int = 30  # maximum weight tail used in the truncated series
 
 
+def _canonical_group_key(label: Any) -> str:
+    """Stable string key for a group / category label, robust to int<->float dtype drift.
+
+    The grouped + target-encoding transforms key their per-group dicts by ``str(label)``.
+    A bare ``str`` makes the integer ``1`` (key ``'1'``) and the float ``1.0`` (key ``'1.0'``)
+    DIFFERENT keys, so a fit on int labels then predict on the SAME categories arriving as
+    float (a routine polars int->float promotion / pandas join upcast) misses every key and
+    silently routes every row to the global fallback -- the model's per-group residual is
+    added back with the wrong (global) level, producing systematically wrong y with no error.
+
+    Canonicalise integral-valued numeric labels to their integer form so ``1``, ``1.0``,
+    ``np.int64(1)``, ``np.float64(1.0)`` all collapse to ``'1'``. Non-integral floats keep
+    their full repr; non-numeric labels (strings / bytes) pass through ``str`` unchanged.
+    """
+    if isinstance(label, (bool, np.bool_)):
+        return str(bool(label))
+    if isinstance(label, (int, np.integer)):
+        return str(int(label))
+    if isinstance(label, (float, np.floating)):
+        f = float(label)
+        if np.isfinite(f) and f == int(f):
+            return str(int(f))
+        return repr(f)
+    return str(label)
+
+
 # ----------------------------------------------------------------------
 # Pack J: unary y-only transforms (no base column required).
 # Re-export of unary raw helpers; the wrapping into the registry's
