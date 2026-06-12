@@ -41,11 +41,15 @@ def _build_pre_pipelines(
 
     ``use_boruta_shap`` appends a BorutaShap selector AFTER MRMR / RFECV: SHAP-driven Boruta is a comparatively-expensive wrapper (per-trial TreeExplainer on a doubled feature matrix) so it makes sense to evaluate it as an alternative branch rather than chained behind the cheaper selectors. Default OFF preserves the legacy pre_pipelines ordering byte-for-byte.
 
-    Train-only contract (cardinal val=ES-detector rule): every pre-pipeline built here -- FS selectors AND any
-    imblearn resampler / FunctionSampler wired into the imblearn Pipeline -- is FIT on train rows only. The suite
-    fit driver (``_apply_pre_pipeline_transforms``) calls ``fit``/``fit_transform`` on train and ``transform`` ONLY
-    on val (samplers are pass-through under ``transform``), so val is never resampled/refit. Do NOT fit a resampler
-    on train+val: it leaks the ES detector's distribution into selection and inflates the honest holdout.
+    Train-only contract (cardinal val=ES-detector rule): every pre-pipeline built here is FIT on train rows only.
+    The suite fit driver (``_apply_pre_pipeline_transforms``) calls ``fit``/``fit_transform`` on train and
+    ``transform`` ONLY on val, so val is never refit. ROW-PRESERVING contract: a pre_pipeline must keep the train
+    row count (it selects columns / engineers features, never rows). A row-CHANGING step -- an imblearn resampler
+    (SMOTE / RandomOver/UnderSampler / FunctionSampler) -- is NOT supported in this slot: the driver returns only
+    (train_df, val_df), so train_target + sample_weight would stay at the original row count while train_df
+    grows/shrinks, silently misaligning X and y at model fit. The driver now raises on any row-count change. For
+    class imbalance use a model-level knob (lgb/xgb scale_pos_weight / is_unbalance, catboost auto_class_weights,
+    sklearn class_weight='balanced').
 
     ``use_sample_weights_in_fs`` (``FeatureSelectionConfig.use_sample_weights_in_fs``): when True, stamps the
     marker attribute ``_mlframe_use_sample_weights_in_fs_`` on every MRMR / RFECV instance so the suite-level

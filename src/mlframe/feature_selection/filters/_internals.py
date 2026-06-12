@@ -90,22 +90,61 @@ def smart_log(x: np.ndarray) -> np.ndarray:
         return np.log(x + (1e-5 - x_min))
 
 
-def group_key_strings(col) -> np.ndarray:
-    """Object array of per-row string group keys, equivalent to
-    ``col.astype(object).map(str).to_numpy()``.
+def canonical_group_token(value) -> str:
+    """Stable per-value group/category key robust to int<->float dtype drift.
 
-    Integer / unsigned / bool columns can never hold None or NaN, and the
-    group columns these FE layers key on are low-cardinality, so only the
-    distinct values are stringified and gathered back via
-    ``np.unique(return_inverse)`` -- str() runs per-unique instead of per-row
-    (6-10x on typical group keys; bit-identical to the per-row map). Any other
-    dtype falls back to the exact ``map(str)`` semantics (NaN -> ``"nan"``,
-    None -> ``"None"``, floats/objects/categoricals unchanged)."""
+    Fit and predict can see the SAME group/category values arriving in different
+    dtypes (polars int->float promotion, a pandas join upcast, a re-read CSV).
+    A bare ``str`` makes the integer ``1`` (``'1'``) and the float ``1.0``
+    (``'1.0'``) DIFFERENT keys, so a fit-on-int / predict-on-float drift misses
+    every per-group lookup and silently routes every row to the global fallback
+    -- the engineered column is then computed from the wrong (global) statistic
+    with no error. Collapse integral-valued numerics so ``1``, ``1.0``,
+    ``np.int64(1)``, ``np.float64(1.0)`` all map to ``'1'``; non-integral floats
+    keep their full repr; non-numeric labels pass through ``str`` unchanged.
+
+    Mirrors ``training.composite.transforms._canonical_group_key`` so the whole
+    framework keys per-group state identically."""
+    if isinstance(value, (bool, np.bool_)):
+        return str(bool(value))
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (float, np.floating)):
+        f = float(value)
+        if np.isfinite(f) and f == int(f):
+            return str(int(f))
+        return repr(f)
+    return str(value)
+
+
+def group_key_strings(col) -> np.ndarray:
+    """Object array of per-row canonical group keys (int<->float drift safe).
+
+    Group columns are low-cardinality, so only the distinct values are
+    canonicalised and gathered back via ``np.unique(return_inverse)`` --
+    ``canonical_group_token`` runs per-unique instead of per-row (6-10x on
+    typical group keys; identical result to the per-row map). Integral-valued
+    int and float labels collapse to the same key (``1`` and ``1.0`` -> ``'1'``)
+    so a fit-int / predict-float dtype drift still hits the per-group entry
+    instead of falling through to the global value. NaN -> ``'nan'``,
+    None -> ``'None'`` (unchanged); non-integral floats keep their repr."""
     arr = col.to_numpy()
     if arr.dtype.kind in ("i", "u", "b"):
+        # Integral / bool: native dtype already collapses 1 and 1.0 to "1" via
+        # int casting on the other side; keep the fast per-unique str path.
         uniq, inv = np.unique(arr, return_inverse=True)
-        return uniq.astype(str).astype(object)[inv]
-    return col.astype(object).map(str).to_numpy()
+        if arr.dtype.kind == "b":
+            return uniq.astype(str).astype(object)[inv]
+        return np.array([str(int(u)) for u in uniq], dtype=object)[inv]
+    if arr.dtype.kind == "f":
+        # Float: canonicalise integral values to their int form so they match a
+        # fit/predict counterpart that arrived as integer dtype.
+        uniq, inv = np.unique(arr, return_inverse=True)
+        toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
+        return toks[inv]
+    # object / categorical / string: per-value canonical (handles mixed dtypes,
+    # python ints/floats embedded in object arrays, NaN sentinels via str()).
+    return col.astype(object).map(canonical_group_token).to_numpy()
 
 
 def njit_functions_dict(

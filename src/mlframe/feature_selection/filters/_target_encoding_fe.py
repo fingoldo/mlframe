@@ -118,14 +118,19 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     strings. NaN values map to a sentinel ``"__nan__"`` so they form their
     own implicit category at fit AND transform time (no NaN propagation
     when the test row has NaN in the source column)."""
+    from ._internals import canonical_group_token
+
     arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
     # Integer / unsigned / bool columns can never hold None or NaN, so the
-    # sentinel branch is dead. Convert only the distinct values to strings and
-    # gather (str() runs per-unique, not per-row): ~5-7x on low-card cat keys,
-    # bit-identical to the per-row str(v) loop below.
+    # sentinel branch is dead. Convert only the distinct values to canonical
+    # tokens and gather (runs per-unique, not per-row): ~5-7x on low-card cat
+    # keys. Canonical tokens collapse integral int/float so a fit-int /
+    # predict-float dtype drift still hits the per-category encoding instead of
+    # the global fallback (the bare str() made '1' and '1.0' distinct keys).
     if arr.dtype.kind in ("i", "u", "b"):
         uniq, inv = np.unique(arr, return_inverse=True)
-        return uniq.astype(str).astype(object)[inv]
+        toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
+        return toks[inv]
     out = np.empty(len(arr), dtype=object)
     for i, v in enumerate(arr):
         if v is None:
@@ -133,7 +138,7 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
         elif isinstance(v, float) and v != v:  # NaN
             out[i] = "__nan__"
         else:
-            out[i] = str(v)
+            out[i] = canonical_group_token(v)
     return out
 
 

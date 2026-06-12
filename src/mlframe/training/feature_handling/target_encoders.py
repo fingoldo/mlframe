@@ -76,6 +76,29 @@ logger = logging.getLogger(__name__)
 _NULL_SENTINEL = "__NULL__"
 
 
+def _canonical_cat_token(value) -> str:
+    """Per-value category key robust to int<->float dtype drift.
+
+    A bare ``str`` makes the integer ``1`` (``'1'``) and the float ``1.0``
+    (``'1.0'``) DIFFERENT keys, so fitting the encoder on an integer-coded
+    categorical then transforming the SAME column arriving as float (a routine
+    polars int->float promotion / pandas join upcast) misses every per-category
+    entry and returns the prior for every row -- a silently wrong encoding.
+    Collapse integral-valued numerics to int form so ``1`` and ``1.0`` share a
+    key; non-integral floats keep their repr; other labels pass through ``str``.
+    Mirrors ``transforms._canonical_group_key`` / ``_internals``'."""
+    if isinstance(value, (bool, np.bool_)):
+        return str(bool(value))
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (float, np.floating)):
+        f = float(value)
+        if np.isfinite(f) and f == int(f):
+            return str(int(f))
+        return repr(f)
+    return str(value)
+
+
 def _categorical_to_string_array(values: Sequence) -> np.ndarray:
     """Coerce a sequence of category values to a numpy string array of object dtype. Handles None / NaN
     by mapping them to a sentinel ``"__NULL__"`` so they form their own category rather than being
@@ -89,7 +112,19 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
         import pandas as pd
         if isinstance(values, pd.Series):
             mask_null = values.isna()
-            out = values.astype(str).to_numpy(dtype=object)
+            if values.dtype.kind == "f":
+                # Float column: canonicalise integral values to int form so a
+                # fit-int / transform-float drift (or vice versa) on the SAME
+                # integer-coded categorical still hits the per-category entry
+                # instead of returning the prior for every row.
+                arr = values.to_numpy()
+                uniq, inv = np.unique(arr, return_inverse=True)
+                toks = np.array(
+                    [_canonical_cat_token(u) for u in uniq], dtype=object
+                )
+                out = toks[np.asarray(inv).reshape(-1)]
+            else:
+                out = values.astype(str).to_numpy(dtype=object)
             if mask_null.any():
                 out[mask_null.to_numpy()] = _NULL_SENTINEL
             return out
@@ -100,8 +135,19 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
         import polars as pl
         if isinstance(values, pl.Series):
             mask_null = np.asarray(values.is_null().to_numpy())
-            # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
-            out = values.cast(pl.Utf8).to_numpy().astype(object)
+            if values.dtype in (pl.Float32, pl.Float64):
+                # Float column: canonicalise integral values to int form (see
+                # the pandas-float branch) so int<->float dtype drift on the
+                # same integer-coded categorical does not miss every key.
+                arr = values.to_numpy()
+                uniq, inv = np.unique(arr, return_inverse=True)
+                toks = np.array(
+                    [_canonical_cat_token(u) for u in uniq], dtype=object
+                )
+                out = toks[np.asarray(inv).reshape(-1)]
+            else:
+                # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
+                out = values.cast(pl.Utf8).to_numpy().astype(object)
             if mask_null.any():
                 out[mask_null] = _NULL_SENTINEL
             # Float NaN cells survive cast as ``"NaN"``; rebrand to sentinel for parity with pandas path.
@@ -115,16 +161,24 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
     if isinstance(values, np.ndarray):
         if values.dtype.kind == "f":
             mask = np.isnan(values)
-            out = values.astype(str).astype(object)
+            # Canonicalise integral float values to int form (int<->float drift).
+            uniq, inv = np.unique(values, return_inverse=True)
+            toks = np.array(
+                [_canonical_cat_token(u) for u in uniq], dtype=object
+            )
+            out = toks[np.asarray(inv).reshape(-1)]
             if mask.any():
                 out[mask] = _NULL_SENTINEL
             return out
         if values.dtype.kind in ("O", "U", "S"):
-            out = np.where(
-                _objectwise_isnull(values),
-                _NULL_SENTINEL,
-                values.astype(str),
-            ).astype(object)
+            # Object/string arrays can embed python ints/floats; canonicalise
+            # per value so an int 1 and a float 1.0 in the SAME logical category
+            # collapse to one key.
+            null_mask = _objectwise_isnull(values)
+            toks = np.array(
+                [_canonical_cat_token(v) for v in values], dtype=object
+            )
+            out = np.where(null_mask, _NULL_SENTINEL, toks).astype(object)
             return out
         return values.astype(str).astype(object)
     # Generic iterable / list / tuple: per-row loop is fine (length typically <= a few thousand for tests).
@@ -136,7 +190,7 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
         if isinstance(v, float) and np.isnan(v):
             out[i] = _NULL_SENTINEL
             continue
-        out[i] = str(v)
+        out[i] = _canonical_cat_token(v)
     return out
 
 

@@ -95,20 +95,34 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
     join unambiguous). The result is an object ndarray usable as a group key by
     the Layer 87 per-group machinery and as a dict key in the replay lookup.
     """
+    from ._internals import canonical_group_token
+
     parts = []
     for c in group_cols:
         ser = X[c]
-        # Fast path: a column with no missing values converts with a single
-        # vectorised C-level ``astype(str)`` (pandas applies str() element-wise,
-        # bit-identical to the per-row lambda's ``str(v)`` branch). The per-row
-        # ``.map(lambda)`` was a 960k-call hotspot at n=40k * group_cols. The
-        # lambda's only non-str() case is ``v is None -> ""``, which cannot
-        # occur when there are no nulls, so the fast path is exact. Columns
-        # with nulls keep the explicit lambda (None -> "" while NaN -> "nan").
+        # Each part is canonicalised per UNIQUE value so an integral int/float
+        # collapses to the same token (``1`` and ``1.0`` -> ``'1'``): a fit-int /
+        # predict-float dtype drift on any component column would otherwise
+        # change the whole composite key and miss every per-cell lookup. The
+        # per-unique map keeps the low-cardinality hot path cheap. Nulls keep the
+        # explicit branch (None -> "" while NaN -> the canonical 'nan').
         if not ser.isna().any():
-            parts.append(ser.astype(str).to_numpy(dtype=object))
+            arr = ser.to_numpy()
+            try:
+                uniq, inv = np.unique(arr, return_inverse=True)
+                toks = np.array(
+                    [canonical_group_token(u) for u in uniq], dtype=object
+                )
+                parts.append(toks[np.asarray(inv).reshape(-1)])
+            except (TypeError, ValueError):
+                # Unorderable mixed-type object array: per-value canonical.
+                parts.append(
+                    ser.astype(object).map(canonical_group_token).to_numpy()
+                )
         else:
-            parts.append(ser.astype(object).map(lambda v: "" if v is None else str(v)).to_numpy())
+            parts.append(ser.astype(object).map(
+                lambda v: "" if v is None else canonical_group_token(v)
+            ).to_numpy())
     if not parts:
         return np.empty(len(X), dtype=object)
     # \x1f = ASCII unit separator; vanishingly unlikely inside real labels.
