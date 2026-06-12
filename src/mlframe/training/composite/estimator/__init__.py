@@ -61,8 +61,8 @@ def _y_train_clip_bounds(y_train: np.ndarray) -> tuple[float, float]:
     finite = y_train[np.isfinite(y_train)]
     if finite.size == 0:
         return float("-inf"), float("inf")
-    q_low = float(np.quantile(finite, 0.001))
-    q_high = float(np.quantile(finite, 0.999))
+    # Single np.quantile([q_low, q_high]) does one sort instead of two -> ~2x; bit-identical to two separate calls.
+    q_low, q_high = (float(v) for v in np.quantile(finite, (0.001, 0.999)))
     # Constant / near-constant train target gives zero span (degenerate envelope); fall back to a small wiggle around the median below.
     span = q_high - q_low
     if span <= 0:

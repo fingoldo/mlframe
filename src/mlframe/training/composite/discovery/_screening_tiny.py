@@ -38,12 +38,57 @@ from ..estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
 
+# Shuffled-KFold splits depend ONLY on (n_rows, cv_folds, random_state) -- not on
+# the feature values (KFold.split shuffles np.arange(n) by the seeded RNG). Across
+# all N_SPECS in one rerank sweep that triple is identical, so the fold-index lists
+# repeat; cache them once per sweep (also skips KFold.split's per-call x re-validation).
+# Bounded LRU-ish: cap entries so a long-lived process can't grow it unboundedly.
+_KFOLD_SPLIT_CACHE: dict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray]]] = {}
+_KFOLD_SPLIT_CACHE_MAX = 256
+
+
+def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
+    """Return the shuffled-KFold ``(train_idx, val_idx)`` list for this
+    ``(n_rows, cv_folds, random_state)``, building+caching it on first use.
+
+    Bit-identical to ``list(KFold(n_splits=cv_folds, shuffle=True,
+    random_state=random_state).split(x))`` for any ``x`` with ``n_rows`` rows --
+    the split is a pure function of those three ints. Cached arrays are only
+    READ downstream (fancy-indexed into copies), so reuse is safe without a copy."""
+    key = (int(n_rows), int(cv_folds), int(random_state))
+    cached = _KFOLD_SPLIT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    from sklearn.model_selection import KFold
+    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+    splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
+    if len(_KFOLD_SPLIT_CACHE) >= _KFOLD_SPLIT_CACHE_MAX:
+        _KFOLD_SPLIT_CACHE.clear()  # cheap bounded reset; sweeps reuse one key set
+    _KFOLD_SPLIT_CACHE[key] = splits
+    return splits
+
+
+def _family_uses_lgb(family: str | None) -> bool:
+    """True when ``family`` actually drives LightGBM. Only then is the
+    lightgbm-logger level bump (logging.Manager._clear_cache, which walks the
+    whole logger tree twice) worth paying. ``None`` keeps the legacy
+    always-bump behaviour for callers that don't pass a family."""
+    if family is None:
+        return True
+    return family.lower() in ("lgb", "lightgbm")
+
 
 @contextlib.contextmanager
-def _silence_tiny_model_output():
+def _silence_tiny_model_output(family: str | None = None):
     """Context manager: silence the per-fold tiny-model fit/predict
     noise without changing the numeric path (no DataFrame->ndarray
     conversion; we keep the user's frame as-is for performance).
+
+    ``family`` gates the lightgbm-logger level bump: for linear/ridge/cb/xgb
+    families no LightGBM is involved, so the ``setLevel`` (which triggers
+    ``logging.Manager._clear_cache`` over the whole logger tree, twice per
+    fold) is skipped. ``None`` (default) keeps the legacy always-bump path for
+    external callers that don't know the family.
 
     Suppressed:
     - sklearn ``UserWarning`` for "X has feature names, but X was
@@ -60,9 +105,11 @@ def _silence_tiny_model_output():
     catboost / xgboost (already silenced via their own kwargs).
     """
     import logging as _logging
-    _lgb_logger = _logging.getLogger("lightgbm")
-    _prev_level = _lgb_logger.level
-    _lgb_logger.setLevel(_logging.ERROR)
+    _bump_lgb = _family_uses_lgb(family)
+    _lgb_logger = _logging.getLogger("lightgbm") if _bump_lgb else None
+    _prev_level = _lgb_logger.level if _lgb_logger is not None else None
+    if _lgb_logger is not None:
+        _lgb_logger.setLevel(_logging.ERROR)
     try:
         from sklearn.exceptions import ConvergenceWarning
     except Exception:  # pragma: no cover - sklearn always installed in our deps
@@ -90,7 +137,8 @@ def _silence_tiny_model_output():
         try:
             yield
         finally:
-            _lgb_logger.setLevel(_prev_level)
+            if _lgb_logger is not None:
+                _lgb_logger.setLevel(_prev_level)
 
 
 def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
@@ -210,6 +258,7 @@ def _tiny_cv_rmse_raw_y(
     return_per_bin: bool = False,
     n_bins: int = 5,
     bin_var: np.ndarray | None = None,
+    return_fold_preds: bool = False,
     time_aware: bool = False,
     cv_splitter: Any = None,
     groups: np.ndarray | None = None,
@@ -230,6 +279,15 @@ def _tiny_cv_rmse_raw_y(
 
     Same fit / fold / parallelism contract as :func:`_tiny_cv_rmse_y_scale`
     so the comparison is apples-to-apples.
+
+    ``return_fold_preds`` appends a list of per-fold ``(val_y_true, val_y_hat,
+    val_idx)`` records to the return value. The raw-y model is trained on
+    ``x_train_matrix`` and never sees ``bin_var``, so the same fold predictions
+    yield the per-bin baseline for ANY ``bin_var`` via
+    :func:`_per_bin_from_fold_preds` -- letting the rerank compute the raw
+    per-bin breakdown ONCE and reuse it across every base, instead of refitting
+    the (bin_var-independent) raw-y model per base. Bit-identical to calling
+    this function per base with ``bin_var=`` set.
     """
     from sklearn.model_selection import KFold, TimeSeriesSplit, GroupKFold
     n = len(y_train)
@@ -296,7 +354,7 @@ def _tiny_cv_rmse_raw_y(
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
-    ) -> tuple[float, np.ndarray | None]:
+    ) -> tuple[float, np.ndarray | None, tuple[np.ndarray, np.ndarray, np.ndarray] | None]:
         try:
             model = _build_tiny_model(
                 family,
@@ -322,13 +380,14 @@ def _tiny_cv_rmse_raw_y(
                         "wallclock may regress 4-8x): %s: %s",
                         type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
                     )
-            with _silence_tiny_model_output():
+            with _silence_tiny_model_output(family):
                 model.fit(x_clean[train_fold], y_clean[train_fold])
                 y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
-            diff = y_hat.astype(np.float64) - y_clean[val_fold]
+            y_hat_f64 = y_hat.astype(np.float64)
+            diff = y_hat_f64 - y_clean[val_fold]
             finite = np.isfinite(diff)
             if finite.sum() == 0:
-                return float("nan"), None
+                return float("nan"), None, None
             rmse = float(np.sqrt(np.mean(diff[finite] * diff[finite])))
             per_bin = None
             if return_per_bin and bin_var_clean is not None:
@@ -336,7 +395,16 @@ def _tiny_cv_rmse_raw_y(
                     y_clean[val_fold], y_hat,
                     bin_var_clean[val_fold], n_bins=n_bins,
                 )
-            return rmse, per_bin
+            # Capture the per-fold val truth/prediction/index so the caller can
+            # re-derive a per-bin breakdown for a DIFFERENT bin_var without
+            # refitting the (bin_var-independent) raw-y model and folds. Store
+            # the RAW y_hat (the exact array _per_bin_rmse receives in-loop) so
+            # the derived per-bin is bit-identical, not the float64-cast copy.
+            fold_pred = (
+                (y_clean[val_fold].copy(), y_hat, np.asarray(val_fold))
+                if return_fold_preds else None
+            )
+            return rmse, per_bin, fold_pred
         except Exception as _e:
             # Failed fold reported as NaN -> np.nanmean over surviving folds
             # silently shifts the screening RMSE toward well-behaved folds
@@ -349,7 +417,7 @@ def _tiny_cv_rmse_raw_y(
                 "reported as NaN. Screening RMSE will use nanmean over surviving "
                 "folds -- effective fold count is reduced.", _e,
             )
-            return float("nan"), None
+            return float("nan"), None, None
 
     splits = (
         _precomputed_splits
@@ -373,7 +441,7 @@ def _tiny_cv_rmse_raw_y(
     # RMSE toward the surviving folds. Without this WARN the operator never
     # sees that effective fold count dropped (a prod log had
     # 4 silent NaN-folds before the lazy-import race was fixed).
-    _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
+    _nan_fold_count = sum(1 for r, _, _ in fold_results if not math.isfinite(r))
     if _nan_fold_count > 0:
         logger.warning(
             "_tiny_cv_rmse_raw_y: %d/%d folds returned NaN (silent failures). "
@@ -382,10 +450,22 @@ def _tiny_cv_rmse_raw_y(
             "above for the underlying exception.",
             _nan_fold_count, len(fold_results), len(fold_results) - _nan_fold_count,
         )
-    fold_rmses = [r for r, _ in fold_results if math.isfinite(r)]
+    # Per-fold val truth/prediction records (only populated when the caller
+    # asked for them); the per-bin baseline for any bin_var is derivable from
+    # these without a refit, since the raw-y model never sees bin_var.
+    fold_preds = (
+        [fp for _, _, fp in fold_results if fp is not None]
+        if return_fold_preds else None
+    )
+    fold_rmses = [r for r, _, _ in fold_results if math.isfinite(r)]
     if not fold_rmses:
+        _nan_pb = np.full(n_bins, float("nan"))
+        if return_per_bin and return_fold_preds:
+            return float("nan"), _nan_pb, []
+        if return_fold_preds:
+            return float("nan"), []
         if return_per_bin:
-            return float("nan"), np.full(n_bins, float("nan"))
+            return float("nan"), _nan_pb
         return float("nan")
     from ..._cv_aggregation import aggregate_fold_scores
     mean_rmse = aggregate_fold_scores(
@@ -397,13 +477,18 @@ def _tiny_cv_rmse_raw_y(
         quantile_level=cv_selector_quantile_level,
     )
     if not return_per_bin:
+        if return_fold_preds:
+            return mean_rmse, fold_preds
         return mean_rmse
-    per_bin_arrays = [pb for _, pb in fold_results if pb is not None]
+    per_bin_arrays = [pb for _, pb, _ in fold_results if pb is not None]
     if not per_bin_arrays:
-        return mean_rmse, np.full(n_bins, float("nan"))
-    per_bin_stack = np.stack(per_bin_arrays, axis=0)
-    with np.errstate(invalid="ignore"):
-        per_bin_mean = np.nanmean(per_bin_stack, axis=0)
+        per_bin_mean = np.full(n_bins, float("nan"))
+    else:
+        per_bin_stack = np.stack(per_bin_arrays, axis=0)
+        with np.errstate(invalid="ignore"):
+            per_bin_mean = np.nanmean(per_bin_stack, axis=0)
+    if return_fold_preds:
+        return mean_rmse, per_bin_mean, fold_preds
     return mean_rmse, per_bin_mean
 
 
@@ -614,6 +699,38 @@ def _per_bin_rmse(
     return out
 
 
+def _per_bin_from_fold_preds(
+    fold_preds: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    bin_var_clean: np.ndarray,
+    n_bins: int = 5,
+) -> np.ndarray:
+    """Per-bin RMSE for ``bin_var_clean`` from cached raw-y fold predictions.
+
+    ``fold_preds`` is the ``(val_y_true, val_y_hat, val_idx)`` list returned by
+    :func:`_tiny_cv_rmse_raw_y` with ``return_fold_preds=True``; ``val_idx``
+    indexes into the SAME finite-y-masked space as ``bin_var_clean`` (the caller
+    masks ``bin_var`` with ``isfinite(y_train)`` exactly as the function does).
+
+    Reproduces the in-function per-bin path bit-for-bit: per fold call
+    :func:`_per_bin_rmse` on ``bin_var_clean[val_idx]`` then ``np.nanmean`` the
+    surviving per-fold arrays. Because the raw-y model is independent of
+    ``bin_var``, this yields the identical array a fresh ``_tiny_cv_rmse_raw_y``
+    call with ``bin_var=`` would -- with no refit, so K specs over distinct
+    bases share one fit.
+    """
+    per_bin_arrays = []
+    for y_true, y_hat, val_idx in fold_preds:
+        pb = _per_bin_rmse(
+            y_true, y_hat, bin_var_clean[val_idx], n_bins=n_bins,
+        )
+        per_bin_arrays.append(pb)
+    if not per_bin_arrays:
+        return np.full(n_bins, float("nan"))
+    per_bin_stack = np.stack(per_bin_arrays, axis=0)
+    with np.errstate(invalid="ignore"):
+        return np.nanmean(per_bin_stack, axis=0)
+
+
 def _tiny_cv_rmse_y_scale(
     y_train: np.ndarray,
     base_train: np.ndarray,
@@ -784,8 +901,8 @@ def _tiny_cv_rmse_y_scale(
         kf = TimeSeriesSplit(n_splits=cv_folds)
         splits = list(kf.split(x_clean))
     else:
-        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
-        splits = list(kf.split(x_clean))
+        # Hoisted split cache: identical (n,cv_folds,seed) across N_SPECS -> identical splits.
+        splits = _cached_kfold_splits(x_clean.shape[0], cv_folds, random_state)
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
@@ -824,7 +941,7 @@ def _tiny_cv_rmse_y_scale(
                 _fit_rows = _tr_valid
             else:
                 _fit_rows = train_fold
-            with _silence_tiny_model_output():
+            with _silence_tiny_model_output(family):
                 model.fit(x_clean[_fit_rows], t_clean[_fit_rows])
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).

@@ -46,6 +46,7 @@ from ..phases import phase
 # AND a single source of truth (no constant duplication across siblings).
 from ._reporting import (  # noqa: E402
     _canonical_multilabel_y,
+    _labels_are_arange,
     _maybe_display,
     _style_with_caption,
     DEFAULT_PLOT_SAMPLE_SIZE,
@@ -310,7 +311,20 @@ def report_probabilistic_model_perf(
     targets = targets_arr  # rebind so downstream uses the stacked form
     is_multilabel = targets_arr.ndim == 2
 
-    integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0
+    # Single full-(N,K) ICE call. return_per_class=True surfaces the per-class ICE vector the
+    # batched kernel already computes, so the per-class loop INDEXes it instead of recomputing
+    # each 1-D column (bit-identical); a metric without the kwarg falls back to the scalar form.
+    integral_error = 0.0
+    _per_class_ice: dict | None = None
+    if custom_ice_metric:
+        try:
+            _full_res = custom_ice_metric(y_true=targets, y_score=probs, return_per_class=True)
+        except TypeError:
+            _full_res = custom_ice_metric(y_true=targets, y_score=probs)
+        if isinstance(_full_res, tuple) and len(_full_res) == 2 and isinstance(_full_res[1], dict):
+            integral_error, _per_class_ice = _full_res
+        else:
+            integral_error = _full_res
     robust_integral_error = None
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
@@ -328,6 +342,9 @@ def report_probabilistic_model_perf(
             classes = np.arange(len(target_label_encoder.classes_)).tolist()
         else:
             classes = np.unique(targets)
+
+    if _per_class_ice is not None and not is_multilabel and not _labels_are_arange(classes, probs):
+        _per_class_ice = None  # non-0-indexed labels -> kernel column index != class label
 
     # GPU batch-AUC fastpath: when the suite has many classes (multiclass /
     # multilabel) and the row count is large enough, compute all K
@@ -406,7 +423,12 @@ def report_probabilistic_model_perf(
         if len(classes) != 2:
             title += "-" + str_class_name
 
-        class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
+        # Reuse the per-class ICE the batched kernel already produced in the single full-(N,K)
+        # call (keyed by class_id); bit-identical. Recompute only when it's unavailable.
+        if _per_class_ice is not None and class_id in _per_class_ice:
+            class_integral_error = _per_class_ice[class_id]
+        else:
+            class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]"

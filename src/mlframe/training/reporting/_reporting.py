@@ -128,6 +128,17 @@ def _style_with_caption(df, caption: str):
         return df
 
 
+def _labels_are_arange(classes: Sequence | None, probs: np.ndarray) -> bool:
+    """True when class labels are exactly 0..K-1, so the batched-kernel per-class ICE
+    (indicator ``targets == column_index``) is bit-identical to the report's per-class
+    recompute (``targets == class_name``) and can be indexed by class_id. Non-0-indexed
+    labels (e.g. [1,2,3] / strings) make the column index differ from the label -> unsafe."""
+    k = probs.shape[1] if hasattr(probs, "shape") and probs.ndim == 2 else (len(classes) if classes is not None else 0)
+    return bool(classes is not None and len(classes) == k and all(
+        isinstance(c, (int, np.integer)) and int(c) == i for i, c in enumerate(classes)
+    ))
+
+
 def _canonical_multilabel_y(targets) -> np.ndarray:
     """Coerce a multilabel-shaped target to a clean ``(N, K) ndarray``.
 

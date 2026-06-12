@@ -58,6 +58,7 @@ def compute_probabilistic_multiclass_error(
     verbose: bool = False,
     ndigits: int = 4,
     multilabel: bool = False,
+    return_per_class: bool = False,
     **kwargs,  # scorer can pass kwargs like {'needs_proba': True, 'needs_threshold': False}
 ):
     """Given a sequence of per-class probabilities (predicted by some model), and ground truth targets,
@@ -68,6 +69,13 @@ def compute_probabilistic_multiclass_error(
     ``multilabel=True``: y_true is a 2D (n_samples, n_classes) indicator matrix, each column
     treated as an independent binary target. Single-label (``y_true == class_id``) comparison
     is wrong for multilabel data because a sample can carry multiple positives simultaneously.
+
+    ``return_per_class=True``: return ``(total_error, ice_per_class)`` where ``ice_per_class``
+    is a dict mapping evaluated class_id -> its ICE. The batched kernel already computes this
+    (K,) vector during the full (N, K) call; exposing it lets the report avoid a per-class
+    recompute on each 1-D column (bit-identical: same kernel inputs per class). Only the
+    "multicrit" non-verbose fastpath populates per-class values; other methods/verbose return
+    an empty dict (caller falls back to its own per-class path).
 
     NOT threaded across classes. Benched against a ``ThreadPoolExecutor.map``
     variant fanning each class to its own thread: ``par/seq`` ratio
@@ -207,12 +215,15 @@ def compute_probabilistic_multiclass_error(
                 float(min_roc_auc), float(roc_auc_penalty),
             )
             # Reduce with per-class weights
+            _ice_by_class = {}
             for _k, _cid in enumerate(_class_ids):
+                _ice_val = float(ice_per_class[_k])
+                _ice_by_class[_cid] = _ice_val
                 if weight_by_class_npositives:
                     weight = int(_y_true_NK[:, _k].sum())
                 else:
                     weight = 1
-                total_error += float(ice_per_class[_k]) * weight
+                total_error += _ice_val * weight
                 weights_sum += weight
             if weights_sum > 0:
                 total_error /= weights_sum
@@ -221,6 +232,8 @@ def compute_probabilistic_multiclass_error(
                     "compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN."
                 )
                 total_error = float("nan")
+            if return_per_class:
+                return total_error, _ice_by_class
             return total_error
         except Exception as _exc:
             # Defensive: any kernel / stacking issue falls through to the
@@ -308,6 +321,11 @@ def compute_probabilistic_multiclass_error(
     if verbose:
         logger.info(f"method={method}, data size={len(correct_class):_} mean_class_error={total_error:.{ndigits}f}")
 
+    if return_per_class:
+        # Legacy/verbose/non-multicrit path does not surface the per-class
+        # vector; return empty dict so the caller falls back to its own
+        # per-class recompute rather than indexing a missing entry.
+        return total_error, {}
     return total_error
 
 
