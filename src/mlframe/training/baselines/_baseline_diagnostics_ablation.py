@@ -61,6 +61,13 @@ def _run_ablation(
         cat_kept = [c for c in cat_features if c in kept]
         per_feature_work.append((rank, int(idx), feat, kept, cat_kept))
 
+    # bench-attempt-rejected: amortizing the per-fit LightGBM binning across the
+    # 6 drops (build the binned Dataset once, reuse per drop) is NOT viable.
+    # (b) reference= subset fails construct (LGBM requires equal num_feature);
+    # (a) ignore_column diverges (max|dproba|~0.7, FI changes) -> alters the
+    # ablation verdict. Binning is only ~3% of fit wall anyway (cProfile inflated
+    # init_from_np2d ~10x). See _benchmarks/bench_ablation_shared_dataset.py +
+    # test_ablation_shared_dataset_rejected.py.
     def _one_drop(rank: int, idx: int, feat: str,
                   kept: list[str], cat_kept: list[str]):
         X_drop = X.loc[:, kept]
