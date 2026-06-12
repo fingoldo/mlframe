@@ -140,7 +140,8 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         if df is None:
             return df
         if not getattr(df, flag, False):
-            df = df.copy()
+            # Shallow copy: only cat_cols_to_align columns are reassigned by the caller; deep-copying a 100+ GB frame to realign a few cat columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+            df = df.copy(deep=False)
             try:
                 setattr(df, flag, True)
             except Exception:
@@ -248,7 +249,8 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
         if not decat_cols:
             return df
         if not getattr(df, "_mlframe_filled", False):
-            df = df.copy()
+            # Shallow copy: only decat_cols are recast below; deep-copying a 100+ GB frame to decat a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+            df = df.copy(deep=False)
             df._mlframe_filled = True
         for _col in decat_cols:
             # ``.astype(_dt.categories.dtype)`` materialises the

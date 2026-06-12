@@ -387,7 +387,8 @@ def _predict_with_fallback(
             if _cat_in_df:
                 _has_any_nan_in_cat = any(X[c].isna().any() for c in _cat_in_df)
                 if _has_any_nan_in_cat:
-                    X = X.copy() if not getattr(X, "_mlframe_filled", False) else X
+                    # Shallow copy: only the cat columns carrying NaN are reassigned below; deep-copying a 100+ GB predict frame to mutate a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+                    X = X.copy(deep=False) if not getattr(X, "_mlframe_filled", False) else X
                     for _c in _cat_in_df:
                         if X[_c].isna().any():
                             _orig = X[_c]

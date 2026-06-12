@@ -527,7 +527,8 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
                 "earlier - see PreprocessingConfig.fix_infinities / impute."
             )
             if isinstance(_x_for_fit, _pd.DataFrame):
-                _x_for_fit = _x_for_fit.copy()
+                # Shallow copy: only float columns carrying NaN are imputed below; deep-copying a 100+ GB frame to fill a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+                _x_for_fit = _x_for_fit.copy(deep=False)
                 for _c in _x_for_fit.columns:
                     _s = _x_for_fit[_c]
                     if _s.dtype.kind == "f" and _s.isna().any():
