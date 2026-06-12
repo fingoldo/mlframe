@@ -15,10 +15,34 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import pytest
+
 from mlframe.training.feature_handling.target_encoders import (
+    _NULL_SENTINEL,
     LeakageSafeEncoder,
     _categorical_to_string_array,
 )
+
+
+def test_polars_float_nan_maps_to_null_sentinel() -> None:
+    """Polars float NaN must map to the null sentinel, like pandas/numpy.
+
+    Pre-fix the polars float branch keyed NaN as ``repr(nan) == 'nan'`` (the
+    ``is_null()`` mask does not flag NaN and the ``"NaN"`` string-rebrand never
+    matched the lowercase token), so a polars float categorical with NaN cells
+    produced a spurious ``'nan'`` category instead of the unified NULL bucket --
+    diverging from the pandas / numpy backends on the same data.
+    """
+    pl = pytest.importorskip("polars")
+    ps = pl.Series("a", [1.0, float("nan"), None, 2.0], dtype=pl.Float64)
+    out = _categorical_to_string_array(ps)
+    assert list(out) == ["1", _NULL_SENTINEL, _NULL_SENTINEL, "2"]
+
+    # Cross-backend parity: pandas float NaN already collapses to the sentinel.
+    pd_out = _categorical_to_string_array(pd.Series([1.0, float("nan"), 2.0]))
+    assert pd_out[1] == _NULL_SENTINEL
+    np_out = _categorical_to_string_array(np.array([1.0, np.nan, 2.0]))
+    assert np_out[1] == _NULL_SENTINEL
 
 
 def test_categorical_to_string_array_int_float_agree() -> None:

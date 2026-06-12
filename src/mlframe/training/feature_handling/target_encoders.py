@@ -145,6 +145,11 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
                     [_canonical_cat_token(u) for u in uniq], dtype=object
                 )
                 out = toks[np.asarray(inv).reshape(-1)]
+                # polars ``is_null()`` does NOT flag NaN, and the float token for
+                # NaN is ``repr(nan) == "nan"`` (not "NaN"), so the string rebrand
+                # below misses it. Mask NaN directly off the numeric array for
+                # parity with the pandas/numpy branches (NaN -> sentinel).
+                mask_null = mask_null | np.isnan(arr)
             else:
                 # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
                 out = values.cast(pl.Utf8).to_numpy().astype(object)
