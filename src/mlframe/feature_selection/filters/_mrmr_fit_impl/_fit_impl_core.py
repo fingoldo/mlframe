@@ -6860,6 +6860,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # drop_redundant_raw_operands), so anchor the verdict only on the
                 # replayable survivors.
                 _replayable_eng_names = set(engineered_recipes.keys())
+                # NESTED-OPERAND CONSUMER DETECTION (BUG1, 2026-06-12): pass the
+                # engineered RECIPES (name -> EngineeredRecipe) and the raw frame so
+                # the redundancy verdict can walk each consuming composite's operand
+                # tree, isolate the cleanest raw-containing sub-expression (e.g.
+                # ``div(sqr(a),abs(b))`` = a**2/b inside a fused full-target composite),
+                # and condition the raw on THAT clean sub-expression rather than the
+                # fused whole -- so a fully-subsumed operand drops even when it is
+                # selected alongside the composite (not only when the composite
+                # collapsed the whole selection into the never-empty path).
                 _kept_redund, _dropped_redund_names = drop_redundant_raw_operands(
                     data=data,
                     cols=cols,
@@ -6869,6 +6878,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     y_continuous=_y_cont_for_redund,
                     engineered_continuous=_eng_continuous_snapshot,
                     replayable_eng_names=_replayable_eng_names,
+                    recipes=engineered_recipes,
+                    raw_X=X,
                     retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     verbose=verbose,
@@ -7200,12 +7211,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ]
                 if _eng_survivor_cols and _operand_idxs:
                     _trial_sel = sorted(set(_operand_idxs) | set(_eng_survivor_cols))
+                    # name -> EngineeredRecipe so the verdict can isolate clean nested
+                    # sub-expressions here too (BUG1 nested-operand consumer detection).
+                    _ne_recipes = {
+                        _ne_recipe_name(_r): _r for _r in self._engineered_recipes_
+                        if _ne_recipe_name(_r) is not None
+                    }
                     _, _ne_dropped = _ne_drop(
                         data=data, cols=cols, selected_cols_idx=_trial_sel,
                         raw_name_set=_raw_names_ne, y_binned=classes_y,
                         y_continuous=(y.values if hasattr(y, "values") else np.asarray(y)),
                         engineered_continuous=_eng_continuous_snapshot,
                         replayable_eng_names=set(_recipe_names),
+                        recipes=_ne_recipes,
+                        raw_X=X,
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
                     )
                     _subsumed_operand_names = set(_ne_dropped or ())
