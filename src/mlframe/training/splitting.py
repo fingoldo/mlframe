@@ -903,22 +903,32 @@ def make_train_test_split(
                     len(_three_way),
                 )
 
-    # Silent-empty-split warning: user requested a non-zero val/test fraction
-    # but wound up with 0 rows. Happens in practice when wholeday_splitting=True
-    # and all rows share a single date (n_unique_days=1, int(1*0.1)=0), or
-    # when val_size*test_size was small enough to round to 0 at low n.
-    # Emit a WARNING so the user notices instead of silently losing splits.
+    # Empty-split guard: the user requested a non-zero val/test fraction but the
+    # split wound up with 0 rows. The splitter is the SOURCE of this defect --
+    # the sequential / aging path floors ``int(pool * frac)`` to 0 at low n, and
+    # the wholeday path can collapse to a single date -- so raise an actionable
+    # error here naming the offending config rather than handing a silent 0-row
+    # split downstream (where it surfaces far from the cause as e.g. CatBoost
+    # "Input data must have at least one feature" or an empty-eval-set crash).
+    # The fallback paths above already redirect the recoverable wholeday-collapse
+    # case to row-based; a still-empty split here is a genuine misconfiguration.
     if val_size > 0 and len(val_idx) == 0:
-        logger.warning(
-            "val_size=%s requested but val split is empty (possibly because "
-            "wholeday_splitting collapsed to a single date, or n_rows*val_size<1).",
-            val_size,
+        raise ValueError(
+            f"Split produced 0 validation rows from val_size={val_size} on "
+            f"n={len(df)} rows (mode={'wholeday' if wholeday_splitting and timestamps is not None else 'sequential/row'}, "
+            f"val_sequential_fraction={val_sequential_fraction}, "
+            f"trainset_aging_limit={trainset_aging_limit}). int(pool*val_size) "
+            f"floored to 0, or wholeday_splitting collapsed to a single date. "
+            f"Increase val_size, increase n, or disable wholeday_splitting."
         )
     if test_size > 0 and len(test_idx) == 0:
-        logger.warning(
-            "test_size=%s requested but test split is empty (possibly because "
-            "wholeday_splitting collapsed to a single date, or n_rows*test_size<1).",
-            test_size,
+        raise ValueError(
+            f"Split produced 0 test rows from test_size={test_size} on "
+            f"n={len(df)} rows (mode={'wholeday' if wholeday_splitting and timestamps is not None else 'sequential/row'}, "
+            f"test_sequential_fraction={test_sequential_fraction}). "
+            f"int(pool*test_size) floored to 0, or wholeday_splitting collapsed "
+            f"to a single date. Increase test_size, increase n, or disable "
+            f"wholeday_splitting."
         )
 
     # Calibration carve: take a disjoint slice from train ONLY, after all

@@ -27,7 +27,13 @@ logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 
 def _slice_rows_by_idx(X: Any, idx: np.ndarray) -> Any:
-    """Row-subset a pandas / polars / ndarray frame by integer indices without copying the whole frame."""
+    """Row-subset a pandas / polars / ndarray frame by integer indices without copying the whole frame.
+
+    Each fold's ``tr_idx`` is distinct, so the K slices are irreducible (no shared materialization to hoist) and
+    already done once per fold OUTSIDE the component loop. ``reset_index`` is ~2/3 of the slice wall (10->30 ms @
+    n=100k) but is NOT droppable for free: removing it makes ``fit`` see a non-contiguous gather, perturbing the
+    NNLS-input predictions by ~1 ULP (1e-17) -> not bit-identical, so kept (clean 0..n-1 index for the components).
+    """
     if hasattr(X, "iloc"):
         sub = X.iloc[idx]
         return sub.reset_index(drop=True) if hasattr(sub, "reset_index") else sub

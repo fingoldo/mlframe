@@ -712,6 +712,18 @@ def _train_model_with_fallback(
                     X_val, y_val = pair
                     if isinstance(X_val, pl.DataFrame):
                         X_val = get_pandas_view_of_polars_df(X_val)
+                        # ``get_pandas_view_of_polars_df`` keys each frame's
+                        # pl.Categorical->pl.Enum remap on THAT frame's own
+                        # unique values, so train and val (converted separately
+                        # above) get DIVERGING pandas Categorical ``categories``
+                        # lists -- the same string maps to different integer
+                        # codes across the fit/eval boundary (a silent mis-encode
+                        # for any code-consuming backend). Re-align to the
+                        # train+val category union (leak-free: val already feeds
+                        # early stopping) before prep so codes match.
+                        train_df, X_val, _ = _align_xgb_cat_categories(
+                            model_type_name, train_df, val_df=X_val, test_df=None,
+                        )
                         # Decategorize BEFORE prep_cb (see train_df comment above).
                         X_val = _decategorize_text_cols(X_val)
                         _prep_cb(X_val, cat_features=cat_feat)  # in-place; text_feat already decategorised above
