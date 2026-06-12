@@ -1728,4 +1728,43 @@ AXES: dict[str, tuple[Any, ...]] = {
     # FE families.
     "mrmr_fe_rare_category_enable_cfg": (False, True),
     "mrmr_fe_conditional_residual_enable_cfg": (False, True),
+    # =====================================================================
+    # 2026-06-13 -- coverage refresh for the embedding-passthrough + the five
+    # default-ON / one default-OFF MRMR FE families that landed across the
+    # ~140-commit window and had no fuzz axis. All gate on use_mrmr_fs=True.
+    # The five default-ON families list their source default FIRST (so the
+    # default-config run keeps exercising the prod state) and add the OFF
+    # branch that nothing previously fuzzed; the gradient-interaction seeder
+    # is default-OFF so its tuple lists False first then the un-fuzzed ON.
+    # =====================================================================
+    # embedding/free-text passthrough through MRMR (commits b896abbf / 3eb0a564).
+    # embedding_passthrough=True (source default, mrmr/_mrmr_class.py:2404) routes
+    # detected embedding (pl.List) + free-text columns AROUND the selector core;
+    # False forces MRMR to try to consume them, exercising the consume/coerce path
+    # the passthrough was built to avoid. The two detect-* sub-knobs only bite when
+    # the master is on and the frame actually carries an embedding / text column.
+    # Compound gate (canonical_key): use_mrmr_fs=True AND (embedding_col_count>0 OR
+    # text_col_count>0) -- otherwise there is nothing to passthrough and the axis
+    # canon-collapses to the source default.
+    "mrmr_embedding_passthrough_cfg": (True, False),
+    "mrmr_embedding_passthrough_detect_embeddings_cfg": (True, False),
+    "mrmr_embedding_passthrough_detect_text_cfg": (True, False),
+    # MRMR FE families added in the recent window, default-ON in MRMR.__init__ --
+    # the OFF branch was never fuzzed. hinge_basis (change-point / kink basis,
+    # mrmr/_mrmr_class.py:1306), conditional_dispersion (per-bin spread features,
+    # :2282), wavelet_basis (multi-scale leg features, :2307), stability_vote
+    # (k-fold selection-stability voting, :454), sufficient_summary_early_stop
+    # (H(y)-relative residual stop that halts the FE search, :512). All gate on
+    # use_mrmr_fs=True; canon-collapse to the source default (True) outside.
+    "mrmr_fe_hinge_enable_cfg": (True, False),
+    "mrmr_fe_conditional_dispersion_enable_cfg": (True, False),
+    "mrmr_fe_wavelet_enable_cfg": (True, False),
+    "mrmr_fe_stability_vote_enable_cfg": (True, False),
+    "mrmr_fe_sufficient_summary_early_stop_cfg": (True, False),
+    # Gradient-interaction seeder (mrmr/_mrmr_class.py:1537, default-OFF, bench-
+    # rejected 2026-06-10 so it stays opt-in). The ON branch -- a GBM-gradient
+    # co-occurrence interaction seeder -- has no fuzz exposure. Gate use_mrmr_fs
+    # AND interactions_max_order>=2 (the seeder feeds the interaction stage);
+    # canon to False outside.
+    "mrmr_fe_gradient_interaction_enable_cfg": (False, True),
 }

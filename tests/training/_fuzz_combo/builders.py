@@ -206,6 +206,17 @@ def build_mrmr_kwargs_from_flat(
     fe_group_distance_enable: bool = False,
     fe_rare_category_enable: bool = False,
     fe_conditional_residual_enable: bool = False,
+    # 2026-06-13 coverage refresh. Names match MRMR.__init__ exactly
+    # (mrmr/_mrmr_class.py:2404-2406 / 1306 / 2282 / 2307 / 454 / 512 / 1537).
+    embedding_passthrough: bool = True,
+    embedding_passthrough_detect_embeddings: bool = True,
+    embedding_passthrough_detect_text: bool = True,
+    fe_hinge_enable: bool = True,
+    fe_conditional_dispersion_enable: bool = True,
+    fe_wavelet_enable: bool = True,
+    fe_stability_vote_enable: bool = True,
+    fe_sufficient_summary_early_stop: bool = True,
+    fe_gradient_interaction_enable: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -346,6 +357,16 @@ def build_mrmr_kwargs_from_flat(
         "fe_group_distance_enable": fe_group_distance_enable,
         "fe_rare_category_enable": fe_rare_category_enable,
         "fe_conditional_residual_enable": fe_conditional_residual_enable,
+        # 2026-06-13 coverage refresh. Names match MRMR.__init__ verbatim.
+        "embedding_passthrough": embedding_passthrough,
+        "embedding_passthrough_detect_embeddings": embedding_passthrough_detect_embeddings,
+        "embedding_passthrough_detect_text": embedding_passthrough_detect_text,
+        "fe_hinge_enable": fe_hinge_enable,
+        "fe_conditional_dispersion_enable": fe_conditional_dispersion_enable,
+        "fe_wavelet_enable": fe_wavelet_enable,
+        "fe_stability_vote_enable": fe_stability_vote_enable,
+        "fe_sufficient_summary_early_stop": fe_sufficient_summary_early_stop,
+        "fe_gradient_interaction_enable": fe_gradient_interaction_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -514,6 +535,18 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_group_distance_enable=combo.mrmr_fe_group_distance_enable_cfg,
         fe_rare_category_enable=combo.mrmr_fe_rare_category_enable_cfg,
         fe_conditional_residual_enable=combo.mrmr_fe_conditional_residual_enable_cfg,
+        # 2026-06-13 coverage refresh. Forward verbatim; canon-collapse at
+        # FuzzCombo.canonical_key reduces each to its source default outside its
+        # documented gate (build_mrmr_kwargs returns None when use_mrmr_fs=False).
+        embedding_passthrough=combo.mrmr_embedding_passthrough_cfg,
+        embedding_passthrough_detect_embeddings=combo.mrmr_embedding_passthrough_detect_embeddings_cfg,
+        embedding_passthrough_detect_text=combo.mrmr_embedding_passthrough_detect_text_cfg,
+        fe_hinge_enable=combo.mrmr_fe_hinge_enable_cfg,
+        fe_conditional_dispersion_enable=combo.mrmr_fe_conditional_dispersion_enable_cfg,
+        fe_wavelet_enable=combo.mrmr_fe_wavelet_enable_cfg,
+        fe_stability_vote_enable=combo.mrmr_fe_stability_vote_enable_cfg,
+        fe_sufficient_summary_early_stop=combo.mrmr_fe_sufficient_summary_early_stop_cfg,
+        fe_gradient_interaction_enable=combo.mrmr_fe_gradient_interaction_enable_cfg,
     )
 
 

@@ -704,6 +704,17 @@ class FuzzCombo:
     mrmr_fe_group_distance_enable_cfg: bool = False
     mrmr_fe_rare_category_enable_cfg: bool = False
     mrmr_fe_conditional_residual_enable_cfg: bool = False
+    # 2026-06-13 coverage refresh -- embedding passthrough + 5 default-ON / 1
+    # default-OFF MRMR FE families. Defaults mirror MRMR.__init__ source.
+    mrmr_embedding_passthrough_cfg: bool = True
+    mrmr_embedding_passthrough_detect_embeddings_cfg: bool = True
+    mrmr_embedding_passthrough_detect_text_cfg: bool = True
+    mrmr_fe_hinge_enable_cfg: bool = True
+    mrmr_fe_conditional_dispersion_enable_cfg: bool = True
+    mrmr_fe_wavelet_enable_cfg: bool = True
+    mrmr_fe_stability_vote_enable_cfg: bool = True
+    mrmr_fe_sufficient_summary_early_stop_cfg: bool = True
+    mrmr_fe_gradient_interaction_enable_cfg: bool = False
     # Learnable categorical embeddings default-on (nn.Embedding); this axis also samples the legacy CatBoostEncoder OFF path + a fixed embed dim vs the fastai heuristic (None).
     mlp_use_learnable_cat_embeddings_cfg: bool = True
     mlp_categorical_embed_dim_cfg: "int | None" = None
@@ -2536,6 +2547,41 @@ class FuzzCombo:
             self.mrmr_fe_group_distance_enable_cfg if self.use_mrmr_fs else False,
             self.mrmr_fe_rare_category_enable_cfg if self.use_mrmr_fs else False,
             self.mrmr_fe_conditional_residual_enable_cfg if self.use_mrmr_fs else False,
+            # 2026-06-13 coverage refresh. embedding_passthrough master gates on
+            # use_mrmr_fs AND a passthrough-eligible column being present
+            # (embedding OR free-text); with neither there is nothing to route
+            # around, so the axis collapses to the source default True. The two
+            # detect-* sub-knobs additionally require the master to be True.
+            (
+                self.mrmr_embedding_passthrough_cfg
+                if (self.use_mrmr_fs and (self.embedding_col_count > 0 or self.text_col_count > 0))
+                else True
+            ),
+            (
+                self.mrmr_embedding_passthrough_detect_embeddings_cfg
+                if (self.use_mrmr_fs and self.embedding_col_count > 0 and self.mrmr_embedding_passthrough_cfg)
+                else True
+            ),
+            (
+                self.mrmr_embedding_passthrough_detect_text_cfg
+                if (self.use_mrmr_fs and self.text_col_count > 0 and self.mrmr_embedding_passthrough_cfg)
+                else True
+            ),
+            # Five default-ON FE families: their OFF branch is the new coverage.
+            # All gate on use_mrmr_fs; collapse to the source default True outside.
+            self.mrmr_fe_hinge_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_conditional_dispersion_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_wavelet_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_stability_vote_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_sufficient_summary_early_stop_cfg if self.use_mrmr_fs else True,
+            # Gradient-interaction seeder feeds the interaction stage: gate on
+            # use_mrmr_fs AND interactions_max_order>=2; canon to source-default
+            # False outside (the seeder is a no-op when no interactions run).
+            (
+                self.mrmr_fe_gradient_interaction_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_interactions_max_order_cfg >= 2)
+                else False
+            ),
             # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Gated
             # on 'mlp' in models; canon to False outside so non-MLP combos
             # collapse to one variant per knob.

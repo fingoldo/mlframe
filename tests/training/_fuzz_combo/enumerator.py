@@ -788,6 +788,17 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_group_distance_enable_cfg=axes.get("mrmr_fe_group_distance_enable_cfg", False),
         mrmr_fe_rare_category_enable_cfg=axes.get("mrmr_fe_rare_category_enable_cfg", False),
         mrmr_fe_conditional_residual_enable_cfg=axes.get("mrmr_fe_conditional_residual_enable_cfg", False),
+        # 2026-06-13 coverage refresh -- embedding passthrough + 5 default-ON /
+        # 1 default-OFF MRMR FE families. Defaults mirror MRMR.__init__ source.
+        mrmr_embedding_passthrough_cfg=axes.get("mrmr_embedding_passthrough_cfg", True),
+        mrmr_embedding_passthrough_detect_embeddings_cfg=axes.get("mrmr_embedding_passthrough_detect_embeddings_cfg", True),
+        mrmr_embedding_passthrough_detect_text_cfg=axes.get("mrmr_embedding_passthrough_detect_text_cfg", True),
+        mrmr_fe_hinge_enable_cfg=axes.get("mrmr_fe_hinge_enable_cfg", True),
+        mrmr_fe_conditional_dispersion_enable_cfg=axes.get("mrmr_fe_conditional_dispersion_enable_cfg", True),
+        mrmr_fe_wavelet_enable_cfg=axes.get("mrmr_fe_wavelet_enable_cfg", True),
+        mrmr_fe_stability_vote_enable_cfg=axes.get("mrmr_fe_stability_vote_enable_cfg", True),
+        mrmr_fe_sufficient_summary_early_stop_cfg=axes.get("mrmr_fe_sufficient_summary_early_stop_cfg", True),
+        mrmr_fe_gradient_interaction_enable_cfg=axes.get("mrmr_fe_gradient_interaction_enable_cfg", False),
     )
 
 
