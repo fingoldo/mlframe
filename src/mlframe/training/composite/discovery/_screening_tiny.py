@@ -148,6 +148,11 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
     imports keep the discovery module light when those libraries
     aren't installed.
 
+    No-actionable-speedup (bench: _benchmarks/bench_build_tiny_model_per_fold.py): a fresh per-fold construction is
+    ~3.7us (ridge) / ~6-7us (lgb/xgb) / ~28us (cb) warm -- the lazy import is cached after first touch, so a 5-fold
+    build sweep is sub-millisecond, orders below the fold FIT (ms-to-s). Pooling/reusing instances across folds saves
+    nothing and risks cross-fold/spec state leakage; a fresh unfitted estimator per fold is the correct contract.
+
     When ``deterministic=True``, inject the well-known per-family
     determinism flags so run-to-run results are bit-exact at a
     5-10% per-fit cost. See ``deterministic_screening_models`` config

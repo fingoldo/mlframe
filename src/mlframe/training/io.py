@@ -339,12 +339,13 @@ def _meta_sidecar_path(bundle_path: str) -> str:
 def _bundle_sha256(bundle_path: str, chunk: int = 1 << 20) -> Optional[str]:
     """Compute SHA-256 of the bundle file at save-side. Returns None when the bundle file is not yet readable (caller logs a non-fatal WARN -- the load-side sidecar check is independent and remains the primary RCE guard).
 
-    Re-reads the just-written bundle rather than hashing the compressed bytes
-    inline: the zstd ``stream_writer`` streams straight to the fd (no single
-    materialised buffer to tee), and teeing through ``atomic_write_bytes`` would
-    entangle the writer + durability path. Sub-1% on tabular bundles -- not worth
-    the writer complexity; revisit only if 30MB+ fat-bundle hashing surfaces in a
-    profile.
+    Re-reads the just-written bundle rather than hashing the compressed bytes inline.
+    bench-attempt-rejected (_benchmarks/bench_bundle_sha256_reopen_vs_inline.py): inline hashing saves only the
+    reopen-read (~0.83ms@0.5MB / ~1.7ms@4MB / ~9.9ms@32MB) but has no FREE bit-identical capture -- one-shot
+    ``compress()`` yields DIFFERENT on-disk bytes (changes the bundle + digest); the only bit-identical capture is a
+    HashTee around the ``stream_writer`` fd, which entangles the hash with ``threads=-1`` background flush + the
+    atomic-write ``fsync(fileno)`` durability invariant. Sub-1% of save wall (pickle+compress dominate); keep the
+    reopen. Revisit only if 30MB+ fat-bundle hashing surfaces in a full-pipeline profile.
     """
     import hashlib
     try:

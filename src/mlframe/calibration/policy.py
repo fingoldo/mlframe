@@ -273,7 +273,9 @@ def _build_resample_indices(
     not compound; OOF-train ECE inputs are the calibration set (typically
     << the 100 GB feature frame), so the ceiling is acceptable. If a caller
     ever bootstraps an OOF set so large this matrix dominates RAM, lower
-    ``n_bootstrap`` rather than materialising it.
+    ``n_bootstrap`` rather than materialising it. A chunked-block stream (cap peak to ``8 * block * n``) is
+    bit-identical and ~15x smaller at block=64 but forces a per-block candidate re-walk; benched + rejected as
+    unjustified for the small one-time shared alloc (_benchmarks/bench_resample_index_ram_chunked.py).
     """
     rng = np.random.default_rng(random_state)
     if stratify is None:
