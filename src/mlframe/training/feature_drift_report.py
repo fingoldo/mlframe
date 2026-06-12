@@ -428,16 +428,48 @@ DEFAULT_CATEGORICAL_PSI_WARN_HIGH: float = 0.25
 """PSI high-warn threshold for categorical features (credit-risk convention)."""
 
 
+def _is_unhashable_object_column(df: Any, col: str) -> bool:
+    """True if ``col`` is an object column whose first non-null cell is an ndarray/list/dict/set (an embedding/array column, not a hashable categorical).
+
+    Cheap O(1) probe on the first non-null cell only -- no full-column scan. Such columns make pandas ``value_counts`` hash each ndarray via PyObjectHashTable
+    (O(n) blowup that near-hangs the always-on drift diagnostics on embedding columns), and are not meaningful categoricals, so PSI must skip them.
+    """
+    try:
+        ser = df[col]
+        if hasattr(ser, "dtype") and getattr(ser.dtype, "kind", "") != "O":
+            return False
+        cell0 = None
+        if hasattr(ser, "to_numpy"):
+            arr = ser.to_numpy()
+            for v in arr:
+                if v is not None and not (isinstance(v, float) and v != v):
+                    cell0 = v
+                    break
+        if cell0 is None:
+            return False
+        return isinstance(cell0, (np.ndarray, list, dict, set, tuple))
+    except Exception:
+        return False
+
+
 def _categorical_columns(df: Any) -> List[str]:
     """Return the list of categorical / string column names from a pandas/polars DataFrame.
 
     Pandas: ``category``, ``object``, ``string`` dtypes. Polars: ``Categorical``, ``Enum``, ``Utf8``/``String``.
+    Object columns holding ndarray/list/dict/set cells (embeddings) are excluded -- they are not hashable categoricals and would near-hang ``value_counts``.
     """
     if df is None:
         return []
     if hasattr(df, "select_dtypes"):
         try:
-            return list(df.select_dtypes(include=["category", "object", "string"]).columns)
+            cols = list(df.select_dtypes(include=["category", "object", "string"]).columns)
+            out: List[str] = []
+            for c in cols:
+                if _is_unhashable_object_column(df, c):
+                    logger.debug("drift: skipping object column %r (array/list/dict cells, not a hashable categorical)", c)
+                    continue
+                out.append(c)
+            return out
         except Exception:
             return []
     if hasattr(df, "schema") and hasattr(df, "columns"):
@@ -455,8 +487,11 @@ def _categorical_columns(df: Any) -> List[str]:
 
 
 def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
-    """Per-value count for a single column across pandas / polars; returns ``None`` on failure."""
+    """Per-value count for a single column across pandas / polars; returns ``None`` on failure or for unhashable array/list/dict object columns."""
     if df is None:
+        return None
+    if _is_unhashable_object_column(df, col):
+        logger.debug("drift: skipping value_counts on object column %r (array/list/dict cells, not a hashable categorical)", col)
         return None
     try:
         if hasattr(df, "loc") and not (hasattr(df, "schema") and hasattr(df, "columns") and not hasattr(df, "iloc")):
