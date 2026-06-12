@@ -6493,6 +6493,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cv = X[_sn].to_numpy()
                 if _cv is None:
                     continue
+                # A selected RAW categorical (str labels like 'R22') has no place in a
+                # numeric linear-regression baseline; skip non-numeric columns rather
+                # than crash the float cast (the gate scores the leg over the NUMERIC
+                # selected design only).
+                if not np.issubdtype(np.asarray(_cv).dtype, np.number):
+                    continue
                 _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
                 if _cv.shape[0] == _y_for_hinge_gate.shape[0] and np.all(np.isfinite(_cv)):
                     _sel_value_cols.append(_cv)
