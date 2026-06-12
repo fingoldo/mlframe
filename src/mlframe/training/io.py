@@ -265,32 +265,69 @@ class _SafeUnpickler(dill.Unpickler):
 _SIDECAR_META_VERSION = 1
 
 
+# Libraries whose versions the .meta.json sidecar records, mapped from
+# import-name -> PyPI distribution-name (only differ where listed; same name
+# otherwise). cupy ships under arch-suffixed dists (cupy-cuda12x, ...) so its
+# metadata lookup is unreliable -- the sys.modules fallback covers it.
+_LIB_VERSION_DISTS: tuple = (
+    ("mlframe", "mlframe"),
+    ("numpy", "numpy"),
+    ("pandas", "pandas"),
+    ("polars", "polars"),
+    ("scipy", "scipy"),
+    ("sklearn", "scikit-learn"),
+    ("lightgbm", "lightgbm"),
+    ("xgboost", "xgboost"),
+    ("catboost", "catboost"),
+    ("pyarrow", "pyarrow"),
+    ("dill", "dill"),
+    ("cupy", "cupy"),
+    ("numba", "numba"),
+    ("pydantic", "pydantic"),
+    ("lightning", "lightning"),
+    ("torch", "torch"),
+)
+
+
 def _collect_lib_versions() -> Dict[str, str]:
     """Snapshot the booster + serialization library versions at save time.
 
     Used by the .meta.json sidecar so the load-side can flag skew. Only the
     libraries whose internals appear in mlframe payloads are recorded; this
-    keeps the sidecar small and the skew-check focused. Unavailable libraries
-    are silently skipped (their absence is itself signal).
+    keeps the sidecar small and the skew-check focused.
+
+    CRITICAL: a version sidecar must NEVER force-load a heavy optional dep.
+    Versions come from ``importlib.metadata.version`` (reads installed-package
+    metadata WITHOUT importing the package) with a fallback to an
+    already-imported module's ``__version__``. We never ``__import__`` the
+    listed libs: on a lean tree-only / CPU-serving process the old
+    ``__import__`` path paid ~14s of cold imports and pulled the whole neural
+    stack (torch/transformers) resident in RAM purely to stamp version strings.
+    A lib that is neither installed-with-metadata nor already imported is
+    omitted -- its absence is itself correct signal for the skew-check.
     """
+    import sys
+    from importlib import metadata as _md
+
     out: Dict[str, str] = {}
-    # cupy / numba / pydantic / lightning / torch added per audit D2 P2 #15: cupy pickles carry
-    # device-cookies that break across versions, numba caches AOT-compiled kernels keyed on
-    # version, pydantic schemas changed validator shape between 2.x minors, lightning serialises
-    # checkpoint format alongside torch model state. Skipping them in the meta sidecar means a
-    # subtle silent-deserialise-wrong on cross-version reload.
-    for _name in (
-        "mlframe", "numpy", "pandas", "polars", "scipy", "sklearn",
-        "lightgbm", "xgboost", "catboost", "pyarrow", "dill",
-        "cupy", "numba", "pydantic", "lightning", "torch",
-    ):
+    for _name, _dist in _LIB_VERSION_DISTS:
+        _ver: Optional[str] = None
         try:
-            _mod = __import__(_name)
-            _ver = getattr(_mod, "__version__", None)
-            if _ver is not None:
-                out[_name] = str(_ver)
-        except (ImportError, AttributeError):
-            continue
+            _ver = _md.version(_dist)
+        except _md.PackageNotFoundError:
+            _ver = None
+        except Exception:
+            _ver = None
+        if _ver is None:
+            # Fallback for libs whose import-name != dist-name lookup failed
+            # but that ARE already imported (e.g. arch-suffixed cupy dists).
+            _mod = sys.modules.get(_name)
+            if _mod is not None:
+                _mv = getattr(_mod, "__version__", None)
+                if _mv is not None:
+                    _ver = str(_mv)
+        if _ver is not None:
+            out[_name] = str(_ver)
     return out
 
 
@@ -300,7 +337,15 @@ def _meta_sidecar_path(bundle_path: str) -> str:
 
 
 def _bundle_sha256(bundle_path: str, chunk: int = 1 << 20) -> Optional[str]:
-    """Compute SHA-256 of the bundle file at save-side. Returns None when the bundle file is not yet readable (caller logs a non-fatal WARN -- the load-side sidecar check is independent and remains the primary RCE guard)."""
+    """Compute SHA-256 of the bundle file at save-side. Returns None when the bundle file is not yet readable (caller logs a non-fatal WARN -- the load-side sidecar check is independent and remains the primary RCE guard).
+
+    Re-reads the just-written bundle rather than hashing the compressed bytes
+    inline: the zstd ``stream_writer`` streams straight to the fd (no single
+    materialised buffer to tee), and teeing through ``atomic_write_bytes`` would
+    entangle the writer + durability path. Sub-1% on tabular bundles -- not worth
+    the writer complexity; revisit only if 30MB+ fat-bundle hashing surfaces in a
+    profile.
+    """
     import hashlib
     try:
         h = hashlib.sha256()

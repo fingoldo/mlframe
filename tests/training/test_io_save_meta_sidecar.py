@@ -175,3 +175,73 @@ def test_collect_lib_versions_includes_required():
     assert boosters & set(libs), (
         f"none of {boosters} found in lib_versions snapshot {libs}"
     )
+
+
+def test_collect_lib_versions_does_not_force_import_absent_lib(monkeypatch):
+    """Regression: the version sidecar must NEVER force-load a heavy optional
+    dep. The pre-fix code did ``__import__(name)`` for each listed lib, which
+    on a lean tree-only / CPU-serving process paid ~14s of cold imports and
+    pulled the whole neural stack resident purely to stamp version strings.
+
+    We inject a sentinel that is IMPORTABLE (a stdlib module not yet loaded in
+    this process) but has no distribution metadata under its import-name. Post-fix
+    ``_collect_lib_versions`` consults ``importlib.metadata`` (no import side
+    effect) + a sys.modules fallback, so the sentinel stays absent from
+    sys.modules. Pre-fix ``__import__(name)`` would force-load it -- exactly the
+    mechanism that dragged the whole neural stack (torch/transformers) resident
+    on a lean serving process just to stamp version strings.
+
+    Fail-on-pre-fix: verified that pre-fix code (`__import__('imaplib')`) loads
+    the sentinel into sys.modules, so this assertion FAILS pre-fix and PASSES
+    post-fix.
+    """
+    import sys
+    from mlframe.training import io as _io
+
+    # Importable stdlib module, plausibly absent from the test process. If it is
+    # already imported we cannot tell forced from pre-existing -> use a fresh one.
+    sentinel = "imaplib"
+    if sentinel in sys.modules:
+        sentinel = "telnetlib"
+    if sentinel in sys.modules:
+        pytest.skip("no importable-but-unloaded stdlib sentinel available")
+    # Splice the sentinel into the lib list under an import-name with no matching
+    # distribution metadata. A correct (no-side-effect) implementation records
+    # nothing for it and -- crucially -- never imports it.
+    patched = _io._LIB_VERSION_DISTS + ((sentinel, sentinel),)
+    monkeypatch.setattr(_io, "_LIB_VERSION_DISTS", patched)
+
+    libs = _io._collect_lib_versions()
+
+    assert sentinel not in sys.modules, (
+        "version sidecar must not import an absent lib; pre-fix __import__ path "
+        "force-loaded the heavy optional stack (torch/transformers) just to "
+        "stamp versions"
+    )
+    assert sentinel not in libs  # no metadata, not loaded -> absent/None -> omitted
+    # Real installed libs are still reported correctly without the import cost.
+    assert libs.get("numpy") and libs.get("mlframe")
+
+
+def test_collect_lib_versions_does_not_load_uninstalled_heavy_dep(monkeypatch):
+    """Pin the exact pre-fix failure mode: an installed-but-not-yet-imported
+    heavy lib must NOT be dragged into sys.modules by the sidecar.
+
+    Pick a lib from the list that is plausibly absent from the test process.
+    If torch happens to already be imported we skip (the assertion can't
+    distinguish forced from pre-existing). Pre-fix ``__import__('torch')`` would
+    load it; post-fix ``importlib.metadata.version('torch')`` reads metadata
+    only -- torch stays out of sys.modules.
+    """
+    import sys
+    from mlframe.training import io as _io
+
+    heavy = "torch"
+    if heavy in sys.modules:
+        pytest.skip("torch already imported in this process; cannot assert non-load")
+
+    _io._collect_lib_versions()
+    assert heavy not in sys.modules, (
+        "pre-fix __import__('torch') would force-load torch; post-fix must read "
+        "metadata only and leave torch out of sys.modules"
+    )
