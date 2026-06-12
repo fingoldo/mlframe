@@ -68,8 +68,11 @@ print(report["init_score_baseline"])            # native residual baseline (or N
 1. **Sample**. Random 50 000-row sample (configurable). Larger frames are
    subsampled to keep the diagnostic under one minute.
 2. **Quick fit**. One LightGBM model on an 80/20 random holdout with
-   `n_estimators=200`. Records headline metric (`RMSE` for regression,
-   `AUC` for binary) and `feature_importances_`.
+   `n_estimators=100`. Records headline metric (`RMSE` for regression,
+   `AUC` for binary) and `feature_importances_`. (Was 200; a 6-scenario x
+   3-seed bench showed the dominant-feature verdict is identical at 100 and
+   the ablation runs ~1.8x faster — see
+   `src/mlframe/training/baselines/_benchmarks/bench_ablation_n_estimators_provisioning.py`.)
 3. **Ablation**. Top-K features by FI are each dropped in turn (sequential,
    independent — *not* cumulative), the model is refit on the reduced
    feature set, and Δ% is measured against the raw fit. Sign convention:
@@ -94,7 +97,7 @@ print(report["init_score_baseline"])            # native residual baseline (or N
 BaselineDiagnosticsConfig(
     enabled=True,                                 # default ON
     ablation_top_k=5,                             # drop top-5 by FI
-    quick_model_n_estimators=200,
+    quick_model_n_estimators=100,
     quick_model_num_leaves=31,
     quick_model_learning_rate=0.05,
     init_score_top_k=1,                           # 1 = single-feature, K>1 = OLS combiner

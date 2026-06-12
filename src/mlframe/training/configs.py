@@ -113,8 +113,18 @@ class BaselineDiagnosticsConfig(BaseConfig):
 
     # Quick-model knobs. LightGBM is the workhorse: fast, supports
     # init_score natively for regression, robust on cold caches.
+    # n_estimators=100 (was 200): the ablation diagnostic exists to find the DOMINANT feature, and
+    # _benchmarks/bench_ablation_n_estimators_provisioning.py (6 scenarios x 3 seeds: linear /
+    # interaction / redundant / noisy-weak / high-card-cat / mixed-binary) shows the dominant-feature
+    # verdict is IDENTICAL to the n_estimators=200 default on 18/18 cells at 0.75x/0.5x/0.25x, with
+    # ground-truth recovery unchanged (15/18 at both 200 and 100). The top-k tail wobbles only among
+    # effectively-tied weak features -- seed-noise present at the 200 default too (redundant/noisy/
+    # high-card top3 already varies across seeds at 200). Per accuracy-then-speed the verdict is equal
+    # so speed breaks the tie: 100 buys ~1.8x ablation wall (1.825x bench / 1.78x at 200k+sample_n=50k)
+    # with no verdict change. sample_n reductions were ALSO tested and REJECTED -- they flip the
+    # dominant feature (16/18, 12/18), so sample_n stays at 50000.
     quick_model_family: Literal["lightgbm"] = "lightgbm"
-    quick_model_n_estimators: int = 200
+    quick_model_n_estimators: int = 100
     quick_model_num_leaves: int = 31
     quick_model_learning_rate: float = 0.05
 
