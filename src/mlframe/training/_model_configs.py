@@ -85,13 +85,16 @@ class LinearModelConfig(ModelConfig):
 
     model_type: str = "linear"
 
-    # Regularization parameters
-    alpha: float = 1.0
-    l1_ratio: float = 0.5
+    # Regularization parameters. Range guards catch garbage at construction
+    # (alpha=-1 / l1_ratio=1.5) -- sklearn Ridge/Lasso/ElasticNet reject these
+    # too, but only deep inside fit; the earlier the better. alpha>=0 (0 == OLS);
+    # l1_ratio in [0,1] (sklearn ElasticNet contract: 0=L2, 1=L1).
+    alpha: float = Field(default=1.0, ge=0.0)
+    l1_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # Robust regression parameters
     epsilon: float = 1.35
-    max_trials: int = 100
+    max_trials: int = Field(default=100, ge=1)
     residual_threshold: Optional[float] = None
 
     # SGD parameters
@@ -163,10 +166,15 @@ class TreeModelConfig(ModelConfig):
         HistGradientBoosting-specific parameters.
     """
 
-    iterations: int = DEFAULT_TREE_ITERATIONS
-    learning_rate: float = 0.1
-    max_depth: Optional[int] = None
-    early_stopping_rounds: Optional[int] = 0  # 0 = auto (iterations // 3); None = disabled
+    # Range guards mirror ModelHyperparamsConfig: iterations=0 trains zero trees
+    # (LightGBM/XGB silently predict the init constant -- a degenerate, no-error
+    # run); a negative / >1 learning_rate propagates straight to the booster.
+    iterations: int = Field(default=DEFAULT_TREE_ITERATIONS, ge=1)
+    learning_rate: float = Field(default=0.1, gt=0.0, le=1.0)
+    # None = unlimited; when set must be >=1 (max_depth=0 is a degenerate stump).
+    max_depth: Optional[int] = Field(default=None, ge=1)
+    # 0 = auto (iterations // 3); None = disabled; a negative value is nonsense.
+    early_stopping_rounds: Optional[int] = Field(default=0, ge=0)
 
     # GPU settings
     task_type: str = "CPU"
@@ -255,9 +263,12 @@ class NGBConfig(ModelConfig):
         NGBoost scoring rule class (e.g., ngboost.scores.LogScore, CRPS).
     """
 
-    n_estimators: int = 500
-    learning_rate: float = 0.01
-    minibatch_frac: float = 1.0
+    # Range guards: n_estimators=0 yields a no-stage NGBoost (degenerate);
+    # minibatch_frac must be a (0,1] fraction (NGBoost subsamples that share
+    # of rows per stage -- 0 / >1 / negative all misbehave silently).
+    n_estimators: int = Field(default=500, ge=1)
+    learning_rate: float = Field(default=0.01, gt=0.0, le=1.0)
+    minibatch_frac: float = Field(default=1.0, gt=0.0, le=1.0)
     Dist: Optional[Any] = None  # ngboost.distns distribution class (Normal, Bernoulli, etc.)
     Score: Optional[Any] = None  # ngboost.scores scoring rule (LogScore, CRPS, etc.)
 
@@ -753,11 +764,13 @@ class MultilabelDispatchConfig(BaseConfig):
     """
 
     strategy: str = "auto"  # Literal["auto","wrapper","chain","native"]
-    n_chains: int = 3
+    # n_chains>=1: 0 builds an empty _ChainEnsemble that averages nothing.
+    n_chains: int = Field(default=3, ge=1)
     chain_order_strategy: str = "random"  # Literal["random","by_frequency","user"]
     chain_order_user: Optional[List[List[int]]] = None  # one ordering per chain
     chain_seeds: Optional[List[int]] = None
-    cv: Optional[int] = 5  # ClassifierChain.cv -- 5 cross-validates chain features
+    # None = no cross-val of chain features; when set sklearn needs cv>=2.
+    cv: Optional[int] = Field(default=5, ge=2)  # ClassifierChain.cv
     per_label_thresholds: Optional[List[float]] = None  # decision-rule thresholds
     wrapper_n_jobs: Union[int, str] = "auto"  # MultiOutputClassifier n_jobs
     allow_uncalibrated_multi: bool = False  # downgrade post-hoc calib skip from raise to warn
