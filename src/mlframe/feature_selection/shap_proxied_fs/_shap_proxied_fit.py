@@ -108,6 +108,13 @@ class ShapProxiedFitMixin:
 
         X = self._to_pandas(X).reset_index(drop=True)
         X.columns = [str(c) for c in X.columns]
+        # Duplicate column names make ``X[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises inside the parallel SHAP/booster path, and break the feature -> selected-subset mapping. Surface a clear error at fit entry.
+        if X.columns.has_duplicates:
+            dup_names = X.columns[X.columns.duplicated()].unique().tolist()
+            raise ValueError(
+                f"ShapProxiedFS.fit: duplicate column names not supported: {dup_names[:10]}. "
+                f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+            )
         self.feature_names_in_ = np.asarray(list(X.columns))
         self.n_features_in_ = int(X.shape[1])
         n_features = self.n_features_in_

@@ -197,6 +197,13 @@ def _init_fit_state(
 
     # X-side input checks. Run after y validation so common operator mistakes surface clearly at fit entry.
     if isinstance(X, pd.DataFrame):
+        # Duplicate column names make ``X[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises downstream, and break the feature-name -> support_ mapping every selector relies on. Surface a clear error at fit entry.
+        if X.columns.has_duplicates:
+            dup_names = X.columns[X.columns.duplicated()].unique().tolist()
+            raise ValueError(
+                f"RFECV.fit: duplicate column names not supported: {dup_names[:10]}. "
+                f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+            )
         # Estimator behaviour on Inf is undefined - LR crashes, CB silently treats as huge. Stream column-by-column instead of materialising the full numeric block: ``X.select_dtypes(...).to_numpy()`` doubles peak RAM on a 100+ GB frame even before checking finiteness.
         _inf_cols: list = []
         for _c in X.columns:

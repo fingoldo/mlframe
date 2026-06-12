@@ -121,10 +121,12 @@ def compute_unsupervised_drops(
     # Pandas branch
     if pd is not None and isinstance(train_df, pd.DataFrame):
         null_cutoff = null_fraction_threshold * n_rows
-        for col_name in train_df.columns:
+        col_labels = list(train_df.columns)
+        for col_pos, col_name in enumerate(col_labels):
             if col_name in protected:
                 continue
-            col = train_df[col_name]
+            # Positional access (``.iloc[:, col_pos]``) always yields a Series; ``train_df[col_name]`` returns a DataFrame on duplicate column names, whose ``.dtype`` access raises.
+            col = train_df.iloc[:, col_pos]
             # SparseDtype-aware null check: ``Series.isna()`` on a
             # pd.SparseDtype column with ``fill_value=NaN`` returns True
             # for every UNFILLED cell, conflating sparse storage (which

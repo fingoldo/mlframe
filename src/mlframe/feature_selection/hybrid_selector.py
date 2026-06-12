@@ -358,6 +358,13 @@ class HybridSelector:
     # ------------------------------------------------------------------ fit / transform
     @rng_hygienic_fit
     def fit(self, X, y):
+        # Duplicate column names make ``X[label]`` return a DataFrame (not a Series) and crash the member selectors (MRMR / LightGBM FI / cluster expand) that assume unique names. Surface a clear error at fit entry.
+        if hasattr(X, "columns") and X.columns.has_duplicates:
+            dup_names = X.columns[X.columns.duplicated()].unique().tolist()
+            raise ValueError(
+                f"HybridSelector.fit: duplicate column names not supported: {dup_names[:10]}. "
+                f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+            )
         # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
         self.mrmr_selected_, self.artifacts_ = (self._run_mrmr(X, y) if self.use_mrmr else ([], None))

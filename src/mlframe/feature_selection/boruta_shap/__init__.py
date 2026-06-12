@@ -332,9 +332,6 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         if isinstance(self.X, pd.DataFrame) is False:
             raise AttributeError("X must be a pandas Dataframe")
 
-        else:
-            pass
-
     def missing_values_y(self):
         """
         Checks for missing values in target variable.

@@ -369,6 +369,13 @@ def fit(self, X, y):
         self.starting_X = X.copy()
         self.X = X.copy()
         self.y = y.copy()
+        # Duplicate column names make ``df[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises in the object-col encoder below, and break the column -> accepted-feature mapping. Surface a clear error before the encoder runs.
+        if hasattr(self.X, "columns") and self.X.columns.has_duplicates:
+            dup_names = self.X.columns[self.X.columns.duplicated()].unique().tolist()
+            raise ValueError(
+                f"BorutaShap.fit: duplicate column names not supported: {dup_names[:10]}. "
+                f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+            )
         # Ordinal-encode object / pandas-Categorical columns in self.X so
         # the internal surrogate fit (Train_model) and the SHAP step
         # downstream both see numeric features. Pre-fix iter-179 / iter-237
