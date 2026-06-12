@@ -81,8 +81,14 @@ NEURAL_MODEL_TYPES = {"mlp", "nn", "lstm", "gru", "rnn", "transformer"}
 VALID_SGD_CLASSIFICATION_LOSSES = {"hinge", "log_loss", "modified_huber", "squared_hinge", "perceptron"}
 """Valid loss functions for SGDClassifier."""
 
-DEFAULT_CALIBRATION_CV_FOLDS = 3
-"""Default number of cross-validation folds for CalibratedClassifierCV."""
+DEFAULT_CALIBRATION_CV_FOLDS = 5
+"""Default inner-fold count for CalibratedClassifierCV (isotonic).
+
+5 beats 3 on a 5-scenario x 4-seed honest-holdout bench (15/20 cells, mean
+Brier 0.1112 vs 0.1135, mean log-loss 0.3585 vs 0.3625): isotonic is
+data-hungry, so giving each base model (k-1)/k of train cuts under-fit and
+averaging more calibrators lowers variance. See
+_benchmarks/bench_calibration_cv_folds.py."""
 
 
 # ==================================================================================
