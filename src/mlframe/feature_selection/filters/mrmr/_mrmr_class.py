@@ -592,6 +592,34 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_escalation_underdelivery_enable: bool = True,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
+        # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss, default-ON). A
+        # synergy pair (>=1 bootstrap-added unselected operand) whose JOINT MI cleared the
+        # order-2 maxT permutation floor but missed the stricter ``fe_synergy_min_prevalence``
+        # RAW-MI ratio bar is handed to the auto-escalation as a failed pair. The raw-MI
+        # prevalence ratio structurally UNDER-estimates a smooth, non-bilinear ratio
+        # interaction: the user's genuine ``a**2/b`` term scores ratio ~1.11 (joint MI 0.028
+        # vs marginal-sum 0.025) -- far below the 1.5 synergy bar -- so it was dropped before
+        # ANY FE/escalation ran, and the output carried no (a,b) feature at all (F2 downstream
+        # R^2 capped at 0.947 vs the 0.997 the feature reaches). LOWERING the raw-MI bar is
+        # bench-rejected (injects optimisation-inflated noise products); instead the rescue
+        # re-tests each pair with the LEAK-SAFE held-out rank-1 ALS pair-vs-single |corr|
+        # margin inside ``_propose_poly`` (the genuine (a,b) scores pair/single ratio 1.24 vs
+        # cross-mix/noise ~1.0), and the proposed candidate then faces the FULL admission
+        # gates (order-2 maxT on MM-debiased MI + marginal-permutation floor + S5 CMI
+        # redundancy). Only synergy pairs that cleared the maxT null are eligible (a
+        # pure-chance noise pair never reaches escalation); a false rescue only PROPOSES.
+        # Set False to restore the pre-fix behaviour (synergy prevalence is a hard drop).
+        fe_synergy_prevalence_rescue_enable: bool = True,
+        # ESCALATION FEATURES ARE TERMINAL in the composite feed-forward (2026-06-12, F2
+        # rescue). An ``esc_*`` orth-poly / adaptive-Fourier escalation feature already
+        # captures a genuine richer-basis interaction; feeding it back as an operand for a
+        # FURTHER pair composite fuses two independent additive target terms into one ratio
+        # whose joint MI tops the greedy ranking, so MRMR then drops the clean raw
+        # predictors -- measured on F2: the standalone esc_poly(a,b) is a +0.05 downstream
+        # R^2 win, but the fed-forward nested ``div(log(esc_poly(a,b)),exp(...))`` regresses
+        # it. Default OFF (escalation features stay selected but never seed composites); set
+        # True to restore the unrestricted feed-forward.
+        fe_escalation_feedforward_enable: bool = False,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
@@ -2960,6 +2988,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
             # 2026-06-09. Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
             # Pre-seeder pickles default to the same safe values for re-fits.
+            # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12). Live default ON; pre-fix
+            # pickles default ON too (the rescue only adds a leak-safe second-chance path
+            # behind the full admission gates -- it never changes an already-admitted
+            # column's values, so replay of a pre-fix recipe is unaffected).
+            "fe_synergy_prevalence_rescue_enable": True,
+            # ESCALATION FEATURES TERMINAL in feed-forward (2026-06-12). Pre-fix pickles
+            # default OFF too (matches the live default; escalation features were rare and
+            # this only restricts NEW composite seeding, never replay of an existing recipe).
+            "fe_escalation_feedforward_enable": False,
             "fe_gbm_seeder_enable": False,
             "fe_gbm_seeder_min_features": 30,
             "fe_gbm_seeder_top_k_pairs": 12,

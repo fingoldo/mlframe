@@ -365,6 +365,27 @@ def _run_fe_step(
     _raw_name_set = set(getattr(self, "feature_names_in_", []) or [])
     _eng_cap = int(getattr(self, "fe_max_engineered_operands", 8))
     _engineered_in_pool = [v for v in numeric_vars_to_consider if cols[v] not in _raw_name_set]
+    # ESCALATION FEATURES ARE TERMINAL -- never feed them forward as composite operands
+    # (2026-06-12, F2 rescue). An ``esc_*`` escalation feature (orth-poly / adaptive-Fourier
+    # pair warp) already captures a genuine richer-basis interaction the library could not
+    # express; nesting it INTO a further pair composite (the feed-forward built
+    # ``div(log(esc_poly_legendre_mul(a,b)),exp(mul(prewarp(c),prewarp(d))))`` on F2) fuses
+    # two INDEPENDENT additive terms of the target into a single ratio whose joint MI tops
+    # the greedy ranking, so MRMR then DROPS the clean raw predictors and the standalone
+    # captures -- measured on F2: the standalone esc_poly(a,b) is a +0.05 downstream R^2 WIN
+    # (raw c,d,f 0.943 -> +a**2/b 0.995), but the fed-forward nested form REGRESSES it to
+    # 0.864 by restructuring the selection. The escalation feature stays selected (reaches
+    # ``support_``); it just does not seed further composites. Gated on
+    # ``fe_escalation_feedforward_enable`` (default OFF -- terminal is the safe default).
+    if not bool(getattr(self, "fe_escalation_feedforward_enable", False)):
+        _esc_idx = {
+            v for v in _engineered_in_pool
+            if str(cols[v]).startswith("esc_") or "esc_poly_" in str(cols[v])
+            or "esc_fourier_" in str(cols[v]) or "esc_chirp_" in str(cols[v])
+        }
+        if _esc_idx:
+            numeric_vars_to_consider = set(numeric_vars_to_consider) - _esc_idx
+            _engineered_in_pool = [v for v in _engineered_in_pool if v not in _esc_idx]
     if _engineered_in_pool and _eng_cap >= 0:
         if _eng_cap == 0:
             _keep_eng: set = set()
@@ -544,6 +565,23 @@ def _run_fe_step(
 
     vars_usage_counter = defaultdict(int)
     prospective_pairs = {}
+    # PREVALENCE-FAILED SYNERGY RESCUE LEDGER (2026-06-12, F2 a**2/b miss): a synergy
+    # pair (>=1 bootstrap-added operand) whose JOINT MI cleared the order-2 maxT floor
+    # but missed the STRICTER ``fe_synergy_min_prevalence`` raw-MI ratio bar is recorded
+    # here as ``{(pair_idx_tuple): pair_mi}``. The raw-MI prevalence ratio structurally
+    # UNDER-estimates a smooth non-bilinear ratio interaction (the genuine ``a**2/b``
+    # scores ratio ~1.11 -- below the 1.5 synergy bar -- yet a leak-safe rank-1 ALS pair
+    # warp beats its best single-operand warp held-out by ratio 1.24, cleanly separated
+    # from cross-mix/noise at ~1.0). Rather than LOWER the raw-MI bar (bench-rejected:
+    # injects optimisation-inflated noise products), these pairs are handed to the
+    # auto-escalation as a SECOND CHANCE: its ``_propose_poly`` re-tests each with the
+    # held-out pair-vs-single |corr| margin (``fe_escalation_pairness_margin``=1.15) and
+    # min-val-corr floor, and the proposed candidate then faces the FULL admission gates
+    # (order-2 maxT on MM-debiased MI + marginal-permutation floor + S5 CMI redundancy).
+    # A false rescue only PROPOSES; the gates decide. Measured on F2: rescues the genuine
+    # (a,b) term (esc_poly candidate MI 0.032 ~ the simple a**2/b, downstream R^2
+    # 0.947 -> 0.997) while cross-mix/noise pairs propose nothing or are gated out.
+    _prevalence_failed_synergy: dict = {}
     for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
         if len(raw_vars_pair) == 2:
             if raw_vars_pair in checked_pairs:
@@ -635,6 +673,19 @@ def _run_fe_step(
                             reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
                             step=int(num_fs_steps),
                         )
+                        # SECOND-CHANCE RESCUE (see ``_prevalence_failed_synergy`` above):
+                        # a SYNERGY pair that cleared the order-2 maxT floor but only missed
+                        # the stricter raw-MI synergy ratio is handed to the auto-escalation,
+                        # where a leak-safe held-out ALS pair-warp test (not the raw-MI ratio)
+                        # re-decides. Gated on ``fe_synergy_prevalence_rescue_enable`` (default
+                        # on); only synergy pairs (selected-selected prevalence misses are
+                        # genuinely additive and stay out), only when the joint MI cleared the
+                        # maxT null (a pure-chance noise pair never reaches escalation).
+                        if (
+                            _is_synergy_pair and _passes_maxt
+                            and bool(getattr(self, "fe_synergy_prevalence_rescue_enable", True))
+                        ):
+                            _prevalence_failed_synergy[tuple(raw_vars_pair)] = float(pair_mi)
                     else:
                         # prevalence passed but the MM-debiased joint MI missed the max-T floor.
                         _record_fe_rejection(
@@ -1462,7 +1513,9 @@ def _run_fe_step(
         # floor + the S5 conditional-MI redundancy gate vs the admitted engineered
         # support). Structurally a no-op (one set-difference) when every surviving pair
         # produced an admitted column -- the common case. See ``_fe_auto_escalation``.
-        if bool(getattr(self, "fe_auto_escalation_enable", True)) and prospective_pairs:
+        if bool(getattr(self, "fe_auto_escalation_enable", True)) and (
+            prospective_pairs or _prevalence_failed_synergy
+        ):
             try:
                 # Per-fit escalation ledger: a pair escalated once is never re-escalated
                 # in a later FE step of the SAME fit (a step-2 retry would re-propose the
@@ -1479,6 +1532,19 @@ def _run_fe_step(
                     (_k[0], float(_k[1])) for _k in prospective_pairs
                     if _k[0] not in _esc_pairs_with_additions and _k[0] not in _esc_done
                 ]
+                # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss): synergy
+                # pairs that cleared the order-2 maxT floor but missed the stricter raw-MI
+                # synergy prevalence ratio (the raw-MI ratio under-estimates a smooth ratio
+                # interaction -- the genuine a**2/b scores ~1.11 < 1.5). Feed them to the
+                # escalation as failed pairs: ``_propose_poly``'s leak-safe held-out
+                # pair-vs-single |corr| margin re-decides, then the full gates. These never
+                # entered ``prospective_pairs`` (the prevalence gate dropped them), so the
+                # set-difference above cannot contain them; add directly (skip ones already
+                # escalated this fit / already admitted by the unary search).
+                _esc_failed.extend(
+                    (_pp, _pmi) for _pp, _pmi in _prevalence_failed_synergy.items()
+                    if _pp not in _esc_pairs_with_additions and _pp not in _esc_done
+                )
                 # UNDERDELIVERY trigger (2026-06-10): a pair that DID admit a column but
                 # whose best capture leaves SIGNIFICANT conditional pair MI on the table
                 # (leftover CMI(joint(a,b); y | best admitted) above its conditional-
@@ -1535,6 +1601,7 @@ def _run_fe_step(
                         admitted_pool=_esc_admitted_pool,
                         verbose=verbose,
                         capture_vals=_esc_capture_vals,
+                        rescue_pairs=set(_prevalence_failed_synergy.keys()),
                     )
                     # Mark the pairs escalation actually PROCESSED (budget-selected
                     # eligible) as done for this fit, admitted or not -- a retry on

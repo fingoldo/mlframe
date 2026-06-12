@@ -449,6 +449,7 @@ def run_fe_auto_escalation(
     admitted_pool: dict,
     verbose: int = 0,
     capture_vals: dict | None = None,
+    rescue_pairs: set | None = None,
 ) -> list[dict]:
     """Escalate the FE search to the richer shipped bases for prescreen-surviving pairs
     the unary/binary step admitted NOTHING for (or, via the UNDERDELIVERY trigger,
@@ -525,7 +526,15 @@ def run_fe_auto_escalation(
     _, y_dense = np.unique(y_arr, return_inverse=True)
     y_dense = y_dense.astype(np.int64)
 
-    # RAW-RAW pairs only, strongest joint MI first, bounded by the pair budget.
+    # RAW-RAW pairs only, bounded by the pair budget. Ranking key: RESCUE pairs first,
+    # then by joint MI. A prevalence-failed-synergy rescue pair (a genuine SMOOTH ratio
+    # interaction the raw-MI ratio under-rates) has LOW raw joint MI BY CONSTRUCTION, so a
+    # plain joint-MI sort buries it below the zero-admission cross-mix pairs and the
+    # ``max_pairs`` cap drops it (measured on F2: the genuine (a,b) at joint MI 0.028 was
+    # squeezed out by 6 higher-MI cross pairs). Rescue pairs are exactly the ones the
+    # escalation EXISTS to recover, so they get first claim on the budget; the held-out
+    # ALS pairness guard + the full admission gates still decide whether each is admitted.
+    _rescue = {tuple(p) for p in (rescue_pairs or set())}
     eligible = []
     for pair, pair_mi in failed_pairs:
         try:
@@ -534,7 +543,7 @@ def run_fe_auto_escalation(
             continue
         if na in raw_names and nb in raw_names:
             eligible.append((pair, float(pair_mi), na, nb))
-    eligible.sort(key=lambda e: e[1], reverse=True)
+    eligible.sort(key=lambda e: (tuple(e[0]) in _rescue, e[1]), reverse=True)
     eligible = eligible[:max_pairs]
     info["eligible_pairs"] = [(na, nb) for _, _, na, nb in eligible]
     # Raw cols-space index tuples of the processed pairs -- the caller's per-fit
