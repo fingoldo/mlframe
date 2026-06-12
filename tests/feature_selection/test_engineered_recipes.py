@@ -18,6 +18,7 @@ storage through ``_run_fe_step``.
 from __future__ import annotations
 
 import pickle
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -141,9 +142,15 @@ class TestApplyRecipeUnaryBinary:
             test_out, df_test["a"].to_numpy() ** 2 * df_test["b"].to_numpy(), rtol=1e-5
         )
 
-    def test_quantization_is_applied_when_recorded(self, simple_pair_data):
-        """When the recipe records a discretization scheme, replay output
-        is integer-coded with values in ``[0, nbins)``."""
+    def test_replay_is_continuous_even_when_quantization_recorded(self, simple_pair_data):
+        """unary_binary replay emits the CONTINUOUS value (2026-06-12), even when the
+        recipe records a discretization scheme. Binning a heavy-tailed product to
+        integer codes keeps only RANK and discards the MAGNITUDE that downstream
+        linear models need (measured: test-R2 ~0.002 on a 10-bin code of ``a**2/b``
+        vs >=0.99 on the continuous feature). ``recipe.quantization`` is kept for
+        provenance only -- the downstream MRMR fit discretises the fit-time column for
+        its own MI matrix separately. Mirrors the ``prewarp`` / ``hermite_pair``
+        siblings, which already skip replay-time quantization."""
         recipe = build_unary_binary_recipe(
             name="mul(a,b)_quantized",
             src_a_name="a", src_b_name="b",
@@ -154,13 +161,22 @@ class TestApplyRecipeUnaryBinary:
             quantization_method="uniform",
             quantization_dtype=np.int16,
         )
-        # The recipe carries a quantization scheme but no persisted fit-time edges, so replay warns that it re-quantiles on the input; assert + consume that expected notice.
-        with pytest.warns(UserWarning, match="no fit-time quantile edges"):
+        # Replay no longer discretises, so the legacy "no fit-time edges" re-quantile
+        # warning is gone, and the output is the continuous product, not a [0, nbins) code.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any UserWarning here would be a regression
             out = apply_recipe(recipe, simple_pair_data)
 
-        assert out.dtype == np.int16, f"Expected int16, got {out.dtype}"
-        assert out.min() >= 0
-        assert out.max() <= 9, "uniform binning should clip to [0, nbins-1]"
+        expected = (
+            np.asarray(simple_pair_data["a"], dtype=np.float64)
+            * np.asarray(simple_pair_data["b"], dtype=np.float64)
+        )
+        assert np.issubdtype(np.asarray(out).dtype, np.floating), (
+            f"continuous replay expected a floating dtype, got {np.asarray(out).dtype}"
+        )
+        assert np.allclose(np.asarray(out, dtype=np.float64), expected, atol=1e-9), (
+            "replay should equal the continuous product a*b, not an integer bin code"
+        )
 
 
 # ---------------------------------------------------------------------------

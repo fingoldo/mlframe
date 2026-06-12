@@ -1,36 +1,32 @@
-"""Wave 9.1 loop-iter-28 regression: unary_binary recipes MUST persist
-fit-time quantile edges so transform-time bin codes match fit-time bin
-codes for the same physical row.
+"""unary_binary recipe replay: transform emits a CONTINUOUS, leak-free value.
 
-Pre-fix at ``engineered_recipes.py:465-472``: ``_apply_unary_binary``
-called ``discretize_array`` at replay, which RECOMPUTED
-``np.nanpercentile`` from TEST data (see ``discretization.py:631``).
-Under any distribution drift between fit and transform, the bin edges
-shifted and an identical physical row mapped to DIFFERENT codes.
+History
+-------
+Wave 9.1 loop-iter-28 made ``_apply_unary_binary`` persist fit-time quantile
+edges and replay them with ``np.searchsorted`` instead of re-quantiling on test
+data. That fixed a P0 train/test leak: pre-iter-28 the replay recomputed
+``np.nanpercentile`` from TEST data, so under distribution drift an identical
+physical row mapped to DIFFERENT bin codes between fit and transform (58.8% of
+rows mis-coded at a 10x stddev shift).
 
-Live demonstration (synthetic 10x stddev shift, n=200):
-  identical row (0.5, 0.5) -> fit bin 3, transform bin 2
-  58.8% of test rows received wrong bin codes
-  -> classic train/test leak: model trained on stale codes,
-     fed fresh rebinned codes at inference.
+2026-06-12 -- supersession by continuous output
+-----------------------------------------------
+``_apply_unary_binary`` now returns the engineered column's CONTINUOUS value and
+no longer discretises at replay at all (see the rationale in
+``_recipe_unary_binary._apply_unary_binary``: a heavy-tailed product binned to
+~10 integer codes keeps only RANK and discards MAGNITUDE, which collapses any
+downstream LINEAR model -- measured test-R2 ~0.002 on ``y=0.2*a**2/b`` via the
+10-bin code vs >=0.99 on the continuous feature). This is the ``prewarp`` /
+``hermite_pair`` siblings' behaviour generalised to every unary_binary recipe.
 
-Severity: P0 silent. Any deployed MRMR with engineered unary_binary
-features under quantile binning corrupted at inference time. Equivalent
-in impact to a label-leak bug.
-
-Fix:
-1. ``build_unary_binary_recipe`` accepts an optional
-   ``fit_values_for_edges`` array. When provided, computes the
-   quantile (or uniform) edges ONCE on fit data and stores them in
-   ``quantization["edges"]``.
-2. ``_apply_unary_binary`` uses the stored edges via
-   ``np.searchsorted(edges[1:-1], out, side='right')`` instead of
-   re-quantiling on test data.
-3. Recipes built without ``fit_values_for_edges`` (legacy pickles)
-   emit a UserWarning at replay so maintainers see the leak risk.
-4. ``_mrmr_fe_step.py:514`` passes the fit-time engineered values
-   (``transformed_vals[:, j]``) so newly-built recipes are
-   always edge-pinned.
+Continuous replay SUBSUMES the iter-28 leak fix: the output is now a pure
+element-wise (closed-form) function of the operand row, so an identical physical
+row maps to an identical value REGARDLESS of the rest of the frame's distribution
+-- there is no quantile recomputation left to drift. These tests therefore assert
+the stronger, post-supersession contract: continuous, magnitude-preserving, and
+drift-invariant. ``quantization['edges']`` is still BUILT (provenance/audit) but
+is no longer consulted at replay; the downstream MRMR fit discretises the
+fit-time column for its OWN MI matrix via ``_mrmr_fe_step`` (a separate path).
 """
 from __future__ import annotations
 
@@ -38,7 +34,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_recipe(with_edges: bool, train: pd.DataFrame):
@@ -64,36 +59,63 @@ def _frames():
         "c1": rng.standard_normal(n),
         "c2": rng.standard_normal(n),
     })
-    # 10x stddev shift -> drift severe enough to flip bin codes pre-fix
+    # 10x stddev shift -> the drift that flipped bin codes in the pre-iter-28 leak.
     test = pd.DataFrame({
         "c1": rng.standard_normal(n) * 10,
         "c2": rng.standard_normal(n) * 10,
     })
-    # Inject identical physical row at index 0 in both frames
+    # Inject identical physical row at index 0 in both frames.
     train.loc[0] = [0.5, 0.5]
     test.loc[0] = [0.5, 0.5]
     return train, test
 
 
-def test_with_edges_identical_row_same_bin():
-    """The iter-28 contract: identical physical row -> same bin code,
-    regardless of test-data distribution drift.
+def test_replay_output_is_continuous_not_quantized():
+    """The replay emits the continuous product value, not a low-cardinality bin
+    code. For ``mul(identity(c1), identity(c2))`` the column equals ``c1*c2``
+    exactly (float, high cardinality), never an integer code in ``[0, nbins)``.
+    """
+    from mlframe.feature_selection.filters.engineered_recipes import _apply_unary_binary
+    train, _ = _frames()
+    recipe = _build_recipe(with_edges=True, train=train)
+    out = np.asarray(_apply_unary_binary(recipe, train), dtype=np.float64)
+    expected = train["c1"].to_numpy() * train["c2"].to_numpy()
+    # Continuous: matches the closed-form product, not a 5-bin code.
+    assert np.allclose(out, expected, atol=1e-9), (
+        f"replay should equal the continuous product c1*c2; max abs diff "
+        f"{np.max(np.abs(out - expected)):.3e}, sample out[:5]={out[:5]}"
+    )
+    assert np.unique(out).size > recipe.quantization["nbins"], (
+        f"replay output has only {np.unique(out).size} distinct values -- looks "
+        f"quantized to ~{recipe.quantization['nbins']} bins, not continuous."
+    )
+
+
+def test_identical_row_same_value_under_drift():
+    """The leak-safety property, now via CONTINUITY: an identical physical row
+    (0.5, 0.5) -> identical output whether transformed alongside the in-distribution
+    train frame or the 10x-shifted test frame. Continuous replay is a closed-form
+    function of the row alone, so there is nothing left to drift.
     """
     from mlframe.feature_selection.filters.engineered_recipes import _apply_unary_binary
     train, test = _frames()
     recipe = _build_recipe(with_edges=True, train=train)
-    assert recipe.quantization.get("edges") is not None
     out_train = _apply_unary_binary(recipe, train)
     out_test = _apply_unary_binary(recipe, test)
     assert out_train[0] == out_test[0], (
-        f"identical (0.5, 0.5) row got different bins: "
+        f"identical (0.5, 0.5) row produced different values: "
         f"train={out_train[0]}, test={out_test[0]}"
+    )
+    assert np.isclose(float(out_train[0]), 0.25, atol=1e-9), (
+        f"mul(0.5, 0.5) should be 0.25 continuous; got {out_train[0]}"
     )
 
 
-def test_without_edges_warns_legacy_leak():
-    """Legacy path (no ``fit_values_for_edges``) emits a UserWarning at
-    replay so maintainers see the leak.
+def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
+    """A recipe built WITHOUT ``fit_values_for_edges`` (legacy pickle shape) is now
+    handled identically: continuous replay, no quantile recomputation, so the old
+    drift-leak cannot occur and NO leak warning is emitted (there is no replay-time
+    quantiser left to warn about).
     """
     from mlframe.feature_selection.filters.engineered_recipes import _apply_unary_binary
     train, test = _frames()
@@ -101,34 +123,24 @@ def test_without_edges_warns_legacy_leak():
     assert "edges" not in recipe.quantization
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        _apply_unary_binary(recipe, test)
-    assert any("fit-time quantile edges" in str(w.message) for w in caught), (
-        f"expected leak warning; got {[str(w.message) for w in caught]}"
+        out_train = _apply_unary_binary(recipe, train)
+        out_test = _apply_unary_binary(recipe, test)
+    assert not any("fit-time quantile edges" in str(w.message) for w in caught), (
+        f"replay no longer quantises, so the legacy-edge leak warning must be gone; "
+        f"got {[str(w.message) for w in caught]}"
+    )
+    # The pre-iter-28 leak (identical row -> different code under drift) is structurally
+    # eliminated: identical row -> identical continuous value.
+    assert out_train[0] == out_test[0], (
+        f"continuous replay must give the identical row the same value under drift; "
+        f"train={out_train[0]}, test={out_test[0]}"
     )
 
 
-def test_without_edges_reproduces_leak():
-    """The leak (different bins for identical row under drift) MUST
-    still reproduce on the legacy path. If this ever stops being true,
-    the iter-28 fix becomes redundant and the test catches the change.
-    """
-    from mlframe.feature_selection.filters.engineered_recipes import _apply_unary_binary
-    train, test = _frames()
-    recipe = _build_recipe(with_edges=False, train=train)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        out_train = _apply_unary_binary(recipe, train)
-        out_test = _apply_unary_binary(recipe, test)
-    # Pre-fix leak: bins disagree. If equal, the test environment
-    # produced a coincidental match -- still safe but unexpected.
-    if out_train[0] == out_test[0]:
-        pytest.skip("legacy path coincidentally gave same bin; "
-                    "iter-28 fix still applies for general case")
-
-
-def test_edges_count_matches_nbins_plus_one():
-    """Stored edges must have ``n_bins + 1`` values (closed-form
-    quantile boundaries).
+def test_edges_still_built_as_provenance():
+    """``build_unary_binary_recipe`` still derives ``n_bins + 1`` fit-time quantile
+    edges and stores them on the recipe. They are provenance/audit only now (replay
+    no longer consults them), but the build contract is unchanged.
     """
     train, _ = _frames()
     recipe = _build_recipe(with_edges=True, train=train)

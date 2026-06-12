@@ -208,6 +208,12 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # bin codes between fit and transform under any distribution drift
         # (83% disagreement at 10x stddev shift). Sibling of iter 28's
         # unary_binary fix.
+        # NOTE (2026-06-12): the sibling ``unary_binary`` replay now emits its
+        # continuous value (magnitude needed by downstream linear models -- see
+        # ``_recipe_unary_binary._apply_unary_binary``). The same generalisation is a
+        # candidate here, but cluster_aggregate has a distinct downstream contract +
+        # dedicated quantile-edge tests, so it is deferred to a separately-measured
+        # change rather than folded into the unary_binary fix.
         if q.get("edges") is not None:
             edges = np.asarray(q["edges"], dtype=np.float64)
             out = np.searchsorted(
