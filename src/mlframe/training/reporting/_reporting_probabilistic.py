@@ -371,6 +371,9 @@ def report_probabilistic_model_perf(
                 _y_score_NK = probs[:, [1]]
             else:
                 # Multiclass: K columns, one-vs-rest.
+                # bench-attempt-rejected (_benchmarks/bench_report_one_hot.py): an
+                # arange-scatter one-hot loses here -- raw report labels need a
+                # label->col map first; with it, scatter=0.35x col_stack at n=100k/K=5.
                 _y_true_NK = np.column_stack(
                     [(targets == c).astype(np.int8) for c in classes]
                 )

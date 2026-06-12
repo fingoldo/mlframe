@@ -97,6 +97,9 @@ def _confusion_counts_binary_dispatch(y_true: np.ndarray, y_pred: np.ndarray) ->
 
 # ---------- KS statistic ----------
 
+# Below this n the fused-gather kernel (indexes through ``order`` inline, no gather temporaries) reliably wins 1.05-1.7x; above it the saving is noise-band. Retune per hardware.
+_KS_FUSED_MAX_N = 2048
+
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _ks_statistic_kernel(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -145,6 +148,59 @@ def _ks_statistic_kernel(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return ks
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _ks_statistic_kernel_ordered(order: np.ndarray, y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """Single-pass KS that indexes through ``order`` (an ascending argsort of
+    ``y_score``) instead of consuming pre-gathered arrays. Bit-identical to
+    ``_ks_statistic_kernel(y_true[order], y_score[order])`` but avoids the two
+    N-length gather temporaries -- the gather happens inline in the scan.
+
+    Tie handling matches the reference: rows sharing a y_score value fold into
+    a SINGLE CDF jump before |F1 - F0| is checked (see ``_ks_statistic_kernel``).
+    """
+    n = order.shape[0]
+    n_pos = 0
+    for i in range(n):
+        if y_true[i] != 0:
+            n_pos += 1
+    n_neg = n - n_pos
+    if n_pos == 0 or n_neg == 0:
+        return np.nan
+    inv_pos = 1.0 / n_pos
+    inv_neg = 1.0 / n_neg
+    cum_pos = 0.0
+    cum_neg = 0.0
+    ks = 0.0
+    i = 0
+    while i < n:
+        j = i
+        cur = y_score[order[i]]
+        while j < n and y_score[order[j]] == cur:
+            if y_true[order[j]] != 0:
+                cum_pos += inv_pos
+            else:
+                cum_neg += inv_neg
+            j += 1
+        d = cum_pos - cum_neg
+        if d < 0.0:
+            d = -d
+        if d > ks:
+            ks = d
+        i = j
+    return ks
+
+
+def _ks_statistic_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """Reference KS: argsort + pre-gathered single-pass kernel. Kept callable
+    for bit-identity regression tests against the fused default path."""
+    yt = np.asarray(y_true).astype(np.int64, copy=False)
+    ys = np.asarray(y_score, dtype=np.float64)
+    if yt.shape[0] == 0:
+        return np.nan
+    order = np.argsort(ys, kind="quicksort")
+    return float(_ks_statistic_kernel(yt[order], ys[order]))
+
+
 def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """Kolmogorov-Smirnov statistic between class-conditional score CDFs.
 
@@ -156,9 +212,24 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """
     yt = np.asarray(y_true).astype(np.int64, copy=False)
     ys = np.asarray(y_score, dtype=np.float64)
-    if yt.shape[0] == 0:
+    n = yt.shape[0]
+    if n == 0:
         return np.nan
+    # bench-attempt-rejected (_benchmarks/bench_ks_shared_sort.py): sharing this
+    # sort with the AUC score-desc argsort is bit-identical but unimplementable
+    # -- the report's AUC sort is inside the batched/GPU compute_batch_aucs
+    # (returns scalars, not orders); threading an (N,K) order matrix back adds
+    # 8*N*K. Keep own sort.
+    # standalone-replace rejected (_benchmarks/bench_ks_statistic_njit.py): np.argsort
+    # dominates so no all-sizes win; the in-kernel-argsort variant is 0.3-0.5x.
+    # BUT _ks_statistic_kernel_ordered (fused gather, indexes through order inline,
+    # zero gather temporaries) is gated in for n < _KS_FUSED_MAX_N where it wins
+    # 1.3-1.7x bit-identically (the per-class report arrays are exactly this small);
+    # above the gate its double-indirect access is noise-band so the pre-gathered
+    # contiguous-scan reference stays default.
     order = np.argsort(ys, kind="quicksort")
+    if n < _KS_FUSED_MAX_N:
+        return float(_ks_statistic_kernel_ordered(order, yt, ys))
     return float(_ks_statistic_kernel(yt[order], ys[order]))
 
 

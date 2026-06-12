@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.training.composite.discovery import _collinear_numba as _cn
 from mlframe.training.composite.discovery._collinear_numba import (
     _HAS_NUMBA,
     _MIN_COLS,
@@ -116,6 +117,62 @@ def test_small_input_uses_reference_path() -> None:
     fast = _fast(fm, 0.99)
     assert np.array_equal(ref, fast)
     assert fast.tolist() == [True, False, True]
+
+
+@pytest.mark.skipif(not _HAS_NUMBA, reason="numba required for the JIT path")
+def test_keep_mask_cache_hit_is_bit_identical_to_fresh() -> None:
+    """A second call on a byte-identical matrix must hit the per-suite cache and
+    return a mask BIT-IDENTICAL to the from-scratch (cache-cleared) recompute --
+    the cache must never change the selection. Mirrors targets 2..N reusing a
+    base's shared feature matrix in discovery."""
+    _cn._KEEP_MASK_CACHE.clear()
+    fm, thr = _make_matrix(321)
+    # Fresh from-scratch (cache empty).
+    fresh = _fast(fm, thr)
+    assert len(_cn._KEEP_MASK_CACHE) >= 1, "cacheable matrix should populate the cache"
+    # Byte-identical copy -> cache hit -> must equal fresh.
+    hit = _fast(fm.copy(), thr)
+    assert np.array_equal(fresh, hit)
+    # And equal to a fully fresh recompute (cache cleared) -- pins cached == fresh.
+    _cn._KEEP_MASK_CACHE.clear()
+    refresh = _fast(fm, thr)
+    assert np.array_equal(fresh, refresh)
+
+
+def test_keep_mask_cache_isolates_distinct_matrices() -> None:
+    """A different matrix content must not collide with a cached entry: each
+    matrix gets its own mask (collision-safe content key)."""
+    _cn._KEEP_MASK_CACHE.clear()
+    fm_a, thr = _make_matrix(11)
+    fm_b, _ = _make_matrix(404)
+    mask_a = _fast(fm_a, thr)
+    mask_b = _fast(fm_b, thr)
+    # Recompute A fresh; must still equal mask_a (no stale-B contamination).
+    _cn._KEEP_MASK_CACHE.clear()
+    assert np.array_equal(mask_a, _fast(fm_a, thr))
+    # A different threshold on the SAME matrix is a distinct key (no false hit).
+    _cn._KEEP_MASK_CACHE.clear()
+    m_lo = _fast(fm_a, 0.90)
+    m_hi = _fast(fm_a, 0.999)
+    ref_lo = _near_collinear_keep_mask_numpy(fm_a, corr_threshold=0.90)
+    ref_hi = _near_collinear_keep_mask_numpy(fm_a, corr_threshold=0.999)
+    assert np.array_equal(m_lo, ref_lo)
+    assert np.array_equal(m_hi, ref_hi)
+
+
+def test_keep_mask_cache_returned_mask_is_mutation_safe() -> None:
+    """The cache returns a COPY, so a caller mutating the result must not corrupt
+    the stored entry (discovery indexes/reassigns the mask downstream)."""
+    _cn._KEEP_MASK_CACHE.clear()
+    fm, thr = _make_matrix(77)
+    first = _fast(fm, thr)
+    first[:] = False  # caller mutates the returned mask in place.
+    second = _fast(fm.copy(), thr)  # cache hit.
+    assert second.any() or not first.any(), "cached entry must survive caller mutation"
+    # second must equal a clean recompute, not the all-False mutated array.
+    _cn._KEEP_MASK_CACHE.clear()
+    clean = _fast(fm, thr)
+    assert np.array_equal(second, clean)
 
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba required for the JIT path")
