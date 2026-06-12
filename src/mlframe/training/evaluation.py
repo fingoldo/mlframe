@@ -413,6 +413,8 @@ def post_calibrate_model(
             _n_boot = int(getattr(_calib_cfg, "n_bootstrap", 1000)) if _calib_cfg is not None else 1000
             _alpha = float(getattr(_calib_cfg, "alpha", 0.05)) if _calib_cfg is not None else 0.05
             _cand = getattr(_calib_cfg, "candidates", None) if _calib_cfg is not None else None
+            _selection = str(getattr(_calib_cfg, "selection", "inner_cv")) if _calib_cfg is not None else "inner_cv"
+            _inner_splits = int(getattr(_calib_cfg, "inner_cv_splits", 5)) if _calib_cfg is not None else 5
             _policy = pick_best_calibrator(
                 probs=None,
                 y=None,
@@ -421,6 +423,8 @@ def post_calibrate_model(
                 alpha=_alpha,
                 candidates=_cand,
                 n_bootstrap=_n_boot,
+                selection=_selection,
+                inner_cv_splits=_inner_splits,
                 emit_plot=_emit_plot,
                 plot_path=_plot_path,
             )

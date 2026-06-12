@@ -35,6 +35,7 @@ def test_pick_best_calibrator_picks_isotonic_on_large_n():
         oof_probs=raw, oof_y=y,
         n_bootstrap=200,  # keep test fast; default 1000 covered by other paths
         random_state=11,
+        selection="same_oof",  # this test exercises the legacy same-OOF Kull-2017 CI-overlap ruleset
     )
 
     assert out["chosen"] in {"Sigmoid", "Isotonic", "Beta", "Spline"}, out
@@ -69,6 +70,7 @@ def test_pick_best_calibrator_small_n_prefers_beta():
         oof_probs=raw, oof_y=y,
         n_bootstrap=200,
         random_state=17,
+        selection="same_oof",  # this test exercises the legacy small-n Beta default rule
     )
     assert out["n_oof"] == 200
     # At small n the CIs are wide -> typically overlap -> default Beta fires.

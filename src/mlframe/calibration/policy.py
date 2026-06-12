@@ -368,6 +368,68 @@ def _cis_overlap(ci_a: tuple[float, float], ci_b: tuple[float, float]) -> bool:
     return not (hi_a < lo_b or hi_b < lo_a)
 
 
+def _stratified_inner_folds(y: np.ndarray, n_splits: int, random_state: Optional[int]) -> list[np.ndarray]:
+    """Return ``n_splits`` held-out index arrays, stratified on ``y`` when binary.
+
+    Each candidate is fitted on the complement of a fold and scored on the fold, so the reported ECE reflects
+    generalisation to rows the calibrator never saw -- not the same-data interpolation that lets Isotonic drive
+    its in-sample ECE to ~0.
+    """
+    rng = np.random.default_rng(random_state)
+    n = y.shape[0]
+    classes = np.unique(y)
+    fold_of = np.empty(n, dtype=np.int64)
+    if classes.size == 2:
+        for c in classes:
+            members = np.flatnonzero(y == c)
+            rng.shuffle(members)
+            fold_of[members] = np.arange(members.shape[0]) % n_splits
+    else:
+        order = np.arange(n)
+        rng.shuffle(order)
+        fold_of[order] = np.arange(n) % n_splits
+    return [np.flatnonzero(fold_of == k) for k in range(n_splits)]
+
+
+def _heldout_ece_inner_cv(
+    name: str,
+    oof_p_pos: np.ndarray,
+    oof_y: np.ndarray,
+    folds: Sequence[np.ndarray],
+    n_bins: int,
+) -> Optional[float]:
+    """Mean held-out ECE for ``name``: fit on each fold's complement, score on the held-out fold.
+
+    Returns ``None`` when the candidate cannot be fitted (missing optional dep), so the caller drops it; a single
+    failed fold is skipped and the remaining folds still average.
+    """
+    n = oof_y.shape[0]
+    all_idx = np.arange(n)
+    scores: list[float] = []
+    for held in folds:
+        if held.shape[0] < 1:
+            continue
+        train_mask = np.ones(n, dtype=bool)
+        train_mask[held] = False
+        train_idx = all_idx[train_mask]
+        if train_idx.shape[0] < 2:
+            continue
+        apply_fn = _fit_calibrator(name, oof_p_pos[train_idx], oof_y[train_idx])
+        if apply_fn is None:
+            return None
+        try:
+            cal = np.clip(np.asarray(apply_fn(oof_p_pos[held]), dtype=np.float64).ravel(), 0.0, 1.0)
+        except Exception as exc:
+            logger.warning("pick_best_calibrator: inner-CV %s predict failed: %s", name, exc)
+            continue
+        v = _ece_score(oof_y[held], cal, n_bins=n_bins)
+        if np.isfinite(v):
+            scores.append(float(v))
+    if not scores:
+        return None
+    return float(np.mean(scores))
+
+
 def _emit_reliability_plot(
     candidates: Mapping[str, dict[str, Any]],
     oof_probs: np.ndarray,
@@ -441,6 +503,8 @@ def pick_best_calibrator(
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
     n_bins: int = DEFAULT_ECE_NBINS,
     random_state: Optional[int] = 0,
+    selection: str = "inner_cv",
+    inner_cv_splits: int = 5,
     emit_plot: bool = False,
     plot_path: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -484,8 +548,25 @@ def pick_best_calibrator(
            "alternatives": {<name>: {"ece_mean", "ece_ci"}}, "rule": <selection-rule>,
            "n_oof": int, "plot_path": Optional[str]}``.
 
+    selection
+        ``"inner_cv"`` (default) ranks candidates by HELD-OUT ECE -- each candidate is fitted on
+        ``inner_cv_splits``-1 inner folds and scored on the held-out fold, averaged -- so a flexible
+        calibrator (Isotonic) cannot interpolate its own score to ~0; the chosen calibrator is then refit
+        on the full OOF for deployment and the reported ``ece_mean`` is the honest held-out estimate.
+        ``"same_oof"`` is the legacy path that fits AND scores every candidate on the same OOF rows
+        (optimistic by ~0.006 ECE, Isotonic-biased); kept for replay / A-B comparison.
+    inner_cv_splits
+        Inner-CV fold count for ``selection="inner_cv"``; default 5.
+
     Selection rule
     --------------
+    For ``selection="inner_cv"`` (default):
+    1. Build ``inner_cv_splits`` stratified inner folds of the OOF.
+    2. For each candidate, fit on the fold complement, score ECE on the held-out fold, average.
+    3. Pick the lowest held-out-ECE candidate; refit it on the FULL OOF for deployment.
+    4. Report the honest held-out ECE as ``ece_mean`` (no longer ~0 for Isotonic).
+
+    For ``selection="same_oof"`` (legacy):
     1. Bench every candidate; compute OOF ECE + bootstrap CI.
     2. Sort by ECE mean ascending.
     3. If the top candidate's CI does NOT overlap the runner-up's, return top.
@@ -493,6 +574,8 @@ def pick_best_calibrator(
        ``n_oof < 1000``; if the default isn't in the OOF-tied subset, fall through
        to the lowest-ECE candidate.
     """
+    if selection not in ("inner_cv", "same_oof"):
+        raise ValueError(f"pick_best_calibrator: selection must be 'inner_cv' or 'same_oof'; got {selection!r}")
     oof_p = np.asarray(oof_probs, dtype=np.float64)
     if oof_p.ndim == 2 and oof_p.shape[1] >= 2:
         oof_p_pos = oof_p[:, 1]
@@ -528,6 +611,10 @@ def pick_best_calibrator(
     # CIs at a fraction of the cost. Indices mirror bootstrap_metric's RNG order.
     idx_matrix = _build_resample_indices(n_oof, n_bootstrap, stratify, random_state)
 
+    inner_folds: Optional[list[np.ndarray]] = None
+    if selection == "inner_cv":
+        inner_folds = _stratified_inner_folds(oof_y_arr, max(2, int(inner_cv_splits)), random_state)
+
     for name in cand_names:
         apply_fn = _fit_calibrator(name, oof_p_pos, oof_y_arr)
         if apply_fn is None:
@@ -543,8 +630,15 @@ def pick_best_calibrator(
         except Exception as exc:
             logger.warning("pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
             continue
+        # ``rank_ece`` drives selection: held-out (honest) for inner_cv, same-OOF (legacy) otherwise.
+        rank_ece = float(ci["point"])
+        if inner_folds is not None:
+            ho = _heldout_ece_inner_cv(name, oof_p_pos, oof_y_arr, inner_folds, n_bins)
+            if ho is None:
+                continue
+            rank_ece = ho
         results[name] = {
-            "ece_mean": float(ci["point"]),
+            "ece_mean": rank_ece,
             "ece_ci": (float(ci["lo"]), float(ci["hi"])),
             "calibrated_probs": cal_oof,
         }
@@ -558,7 +652,11 @@ def pick_best_calibrator(
     ranked = sorted(results.items(), key=lambda kv: kv[1]["ece_mean"])
     chosen_name = ranked[0][0]
     selection_rule = "lowest_ece"
-    if len(ranked) > 1:
+    if selection == "inner_cv":
+        # Held-out ECE already removes the same-data optimism, so the lowest held-out ECE is the honest
+        # winner; the same-OOF bootstrap CI (still reported) would mis-tie Isotonic, so no CI tiebreak here.
+        selection_rule = "lowest_heldout_ece"
+    elif len(ranked) > 1:
         top_ci = ranked[0][1]["ece_ci"]
         runner_ci = ranked[1][1]["ece_ci"]
         if _cis_overlap(top_ci, runner_ci):
@@ -630,6 +728,8 @@ class CalibrationConfig:
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP
     alpha: float = DEFAULT_ALPHA
     candidates: Optional[tuple[str, ...]] = None
+    selection: str = "inner_cv"
+    inner_cv_splits: int = 5
 
 
 __all__ = ["pick_best_calibrator", "CalibrationConfig", "CANDIDATE_NAMES", "DEFAULT_ECE_NBINS"]
