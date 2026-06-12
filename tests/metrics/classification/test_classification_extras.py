@@ -78,6 +78,156 @@ def test_ks_matches_scipy_for_2_sample():
     assert ks_statistic(y, s) == pytest.approx(expected, abs=1e-12)
 
 
+@pytest.mark.parametrize("kind", ["random", "lowcard_ties", "all_tied", "imbalanced"])
+def test_ks_ordered_kernel_bit_identical_to_numpy_ref(kind):
+    """The fused-gather _ks_statistic_kernel_ordered (indexes through order
+    inline) must equal the pre-gathered _ks_statistic_numpy reference exactly,
+    including on heavy ties where tie-handling diverges easily. Pins the rejected
+    standalone-njit variant so it stays a valid re-test option."""
+    from mlframe.metrics.classification._classification_extras import (
+        _ks_statistic_kernel_ordered, _ks_statistic_numpy,
+    )
+    rng = np.random.default_rng(123)
+    if kind == "random":
+        ys = rng.random(5000); yt = (rng.random(5000) < 0.3).astype(np.int64)
+    elif kind == "lowcard_ties":
+        ys = rng.integers(0, 5, size=5000).astype(np.float64); yt = (rng.random(5000) < 0.4).astype(np.int64)
+    elif kind == "all_tied":
+        ys = np.full(2000, 0.5); yt = (rng.random(2000) < 0.5).astype(np.int64)
+    else:
+        ys = rng.random(20000); yt = (rng.random(20000) < 0.01).astype(np.int64)
+    ref = _ks_statistic_numpy(yt, ys)
+    order = np.argsort(ys, kind="quicksort")
+    fused = float(_ks_statistic_kernel_ordered(order, yt.astype(np.int64), ys.astype(np.float64)))
+    assert fused == ref, f"{kind}: fused {fused!r} != ref {ref!r}"
+
+
+@pytest.mark.parametrize("kind", ["random", "lowcard_ties", "all_tied", "imbalanced", "rare"])
+def test_ks_size_gate_is_bit_identical_both_sides(kind):
+    """ks_statistic dispatches on size: fused-gather kernel below _KS_FUSED_MAX_N,
+    pre-gathered reference above. Both paths must return bit-identical results to the
+    reference on the SAME data, including heavy ties -- the gate only changes speed."""
+    from mlframe.metrics.classification._classification_extras import (
+        _KS_FUSED_MAX_N, _ks_statistic_numpy,
+    )
+    rng = np.random.default_rng(2024)
+    # Size each case once below and once above the gate; data shape held constant within a case.
+    for n in (_KS_FUSED_MAX_N - 1, _KS_FUSED_MAX_N + 1, _KS_FUSED_MAX_N * 4):
+        if kind == "random":
+            ys = rng.random(n)
+            yt = (rng.random(n) < 0.3).astype(np.int64)
+        elif kind == "lowcard_ties":
+            ys = rng.integers(0, 5, size=n).astype(np.float64)
+            yt = (rng.random(n) < 0.4).astype(np.int64)
+        elif kind == "all_tied":
+            ys = np.full(n, 0.5)
+            yt = (rng.random(n) < 0.5).astype(np.int64)
+        elif kind == "imbalanced":
+            ys = rng.random(n)
+            yt = (rng.random(n) < 0.05).astype(np.int64)
+        else:
+            ys = rng.random(n)
+            yt = (rng.random(n) < 0.01).astype(np.int64)
+        # Guard against a degenerate single-class draw making both paths NaN trivially.
+        if yt.sum() == 0 or yt.sum() == n:
+            yt[0] = 1
+            yt[-1] = 0
+        got = ks_statistic(yt, ys)
+        ref = _ks_statistic_numpy(yt, ys)
+        if np.isnan(ref):
+            assert np.isnan(got), f"{kind} n={n}: got {got!r}, ref NaN"
+        else:
+            assert got == ref, f"{kind} n={n}: gate {got!r} != ref {ref!r}"
+
+
+def test_ks_size_gate_routes_to_expected_kernel(monkeypatch):
+    """Below _KS_FUSED_MAX_N the fused-gather kernel must be the one invoked; at/above it
+    the pre-gathered reference kernel. Spy on both to pin the dispatch boundary so a future
+    'always fuse' / 'never fuse' change is caught, independent of timing."""
+    import mlframe.metrics.classification._classification_extras as ext
+    calls = {"fused": 0, "ref": 0}
+    orig_fused = ext._ks_statistic_kernel_ordered
+    orig_ref = ext._ks_statistic_kernel
+
+    def spy_fused(order, yt, ys):
+        calls["fused"] += 1
+        return orig_fused(order, yt, ys)
+
+    def spy_ref(yt, ys):
+        calls["ref"] += 1
+        return orig_ref(yt, ys)
+
+    monkeypatch.setattr(ext, "_ks_statistic_kernel_ordered", spy_fused)
+    monkeypatch.setattr(ext, "_ks_statistic_kernel", spy_ref)
+
+    rng = np.random.default_rng(7)
+    small = ext._KS_FUSED_MAX_N - 1
+    big = ext._KS_FUSED_MAX_N + 1
+    ys = rng.random(small)
+    yt = (rng.random(small) < 0.3).astype(np.int64)
+    ext.ks_statistic(yt, ys)
+    assert calls == {"fused": 1, "ref": 0}, "small-n must route to fused-gather kernel"
+
+    ys = rng.random(big)
+    yt = (rng.random(big) < 0.3).astype(np.int64)
+    ext.ks_statistic(yt, ys)
+    assert calls == {"fused": 1, "ref": 1}, "large-n must route to pre-gathered reference kernel"
+
+
+def test_ks_fused_gate_perf_sentinel():
+    """Perf sentinel: the gated-in fused-gather path must not be materially slower than the
+    pre-gathered reference at a size well inside the gate (it wins 1.3-1.7x on an uncontended
+    box). Uses best-of-many-blocks per path + multiple trials and takes the MEDIAN speedup so
+    transient scheduler noise on a contended CI host does not flake; skips when the host is too
+    contended to measure steady-state (ref-path block variance too high to trust either number)."""
+    from statistics import median
+    from mlframe.metrics.classification._classification_extras import (
+        _ks_statistic_kernel, _ks_statistic_kernel_ordered, _KS_FUSED_MAX_N,
+    )
+
+    def ref(yt, ys):
+        order = np.argsort(ys, kind="quicksort")
+        return float(_ks_statistic_kernel(yt[order], ys[order]))
+
+    def fused(yt, ys):
+        order = np.argsort(ys, kind="quicksort")
+        return float(_ks_statistic_kernel_ordered(order, yt, ys))
+
+    def best_block(fn, yt, ys, iters=500, blocks=12):
+        fn(yt, ys)  # warm JIT
+        return min(_timed_block(fn, yt, ys, iters) for _ in range(blocks))
+
+    n = min(1000, _KS_FUSED_MAX_N - 1)  # comfortably inside the gate
+    rng = np.random.default_rng(123)
+    speedups = []
+    ref_block_spreads = []
+    for _ in range(5):
+        ys = rng.random(n)
+        yt = (rng.random(n) < 0.3).astype(np.int64)
+        # contention probe: spread of ref blocks; if huge, the host is too noisy to trust.
+        ref(yt, ys)
+        rblocks = [_timed_block(ref, yt, ys, 500) for _ in range(8)]
+        ref_block_spreads.append(max(rblocks) / min(rblocks))
+        tr = best_block(ref, yt, ys)
+        tf = best_block(fused, yt, ys)
+        speedups.append(tr / tf)
+
+    if median(ref_block_spreads) > 2.0:
+        pytest.skip(f"host too contended to time steady-state (ref block spread {median(ref_block_spreads):.1f}x)")
+
+    med = median(speedups)
+    # Floor well below the 1.3-1.7x clean-box win to absorb noise but catch a real fused regression.
+    assert med >= 1.05, f"fused gate not faster at n={n}: median speedup {med:.2f}x ({[round(s, 2) for s in speedups]})"
+
+
+def _timed_block(fn, yt, ys, iters):
+    import time
+    t0 = time.perf_counter()
+    for _ in range(iters):
+        fn(yt, ys)
+    return (time.perf_counter() - t0) / iters
+
+
 # ----- MCC -----
 
 
