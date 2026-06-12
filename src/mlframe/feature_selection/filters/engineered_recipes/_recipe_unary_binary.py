@@ -92,6 +92,21 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             from .._feature_engineering_pairs import _gate_med_apply
             return _gate_med_apply(vals, float(recipe.extra[_mkey]))
         if uname != _PREWARP:
+            # BUG2 FIX (2026-06-12): ``smart_log`` (the registry ``log``) additively
+            # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` -- a
+            # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
+            # replay ``nanmin`` differs from the full-frame fit, shifting every
+            # ``log`` output and (after the downstream quantiser) drifting the bin code
+            # by up to several bins on a nested ``log(...)`` operand. When the recipe
+            # froze the fit-time shift anchor, replay the log from THAT frozen anchor so
+            # the operand is byte-exact regardless of the slice. Non-log unaries are
+            # closed-form and stay on the registry path.
+            _skey = f"log_shift_{side}"
+            if uname == "log" and _skey in recipe.extra:
+                _shift = float(recipe.extra[_skey])
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 \
+                        else np.log(np.asarray(vals, dtype=np.float64))
             return unary_funcs[uname](vals)
         # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
         # it closed-form (no y) so the warped operand is bit-identical to fit.
@@ -177,6 +192,8 @@ def build_unary_binary_recipe(
     gate_med_b: float | None = None,
     nested_parent_a: "EngineeredRecipe | None" = None,
     nested_parent_b: "EngineeredRecipe | None" = None,
+    log_shift_a: float | None = None,
+    log_shift_b: float | None = None,
 ) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
     parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges so transform-time replay maps each row to the SAME bin
@@ -266,6 +283,16 @@ def build_unary_binary_recipe(
         if _parent is None:
             continue
         extra[f"nested_parent_{_side}"] = _parent
+    # BUG2 FIX (2026-06-12): per-operand FROZEN ``smart_log`` shift anchor. The
+    # registry ``log`` (``smart_log``) shifts non-positive inputs by
+    # ``(1e-5 - nanmin(operand))`` -- a data-dependent anchor that, recomputed from a
+    # transform row-slice, drifts every log output (and the downstream bin code). When
+    # a side's unary is ``log`` and the caller computed the fit-time anchor, persist it
+    # FLAT so replay reproduces the exact fit-time shift. Stored only for ``log`` sides
+    # so non-log recipes stay byte-equal with legacy pickles.
+    for _side, _uname, _shift in (("a", unary_a_name, log_shift_a), ("b", unary_b_name, log_shift_b)):
+        if _uname == "log" and _shift is not None:
+            extra[f"log_shift_{_side}"] = float(_shift)
     return EngineeredRecipe(
         name=name,
         kind="unary_binary",

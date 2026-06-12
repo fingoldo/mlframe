@@ -758,9 +758,26 @@ def hybrid_orth_mi_fe_with_recipes(
                 "from column name %r; skipping recipe build.", name,
             )
             continue
+        # BUG2 FIX (2026-06-12): freeze the fit-time basis-preprocess params into
+        # the recipe so transform() replays byte-exactly on any row-slice. ``X`` is
+        # the FULL fit frame, and the fit path preprocessed via ``fit_fn(full_col)``,
+        # so recomputing the params from the same full column here reproduces the
+        # exact train-time axis (mean/std / lo-hi / shift). Without this, replay
+        # refits the axis from the transform slice and the z-score drifts by ~1e-3,
+        # which the downstream quantiser turns into a |delta|=1 bin drift on a nested
+        # ``a__He2`` sub-operand (the BUG2 replay-determinism regression).
+        _pp = None
+        try:
+            _col_full = np.asarray(X[src].values, dtype=np.float64)
+            _, _pp = _evaluate_basis_column(
+                _col_full, chosen_basis, int(chosen_degree), return_params=True,
+            )
+        except Exception:
+            _pp = None  # best-effort: fall back to legacy refit-at-replay path
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes
 

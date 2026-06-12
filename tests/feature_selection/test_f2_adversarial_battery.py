@@ -48,27 +48,13 @@ N = 20000  # all fits <= 30000 (RAM cap)
 _RAW_COLS = {"a", "b", "c", "d", "f", "g", "h"}
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
-# --- BUG2 replay-determinism bridge ------------------------------------------
-# The BUG2 fix (byte-exact replay of a nested engineered recipe at fe_max_steps=2)
-# is landing on master from a CONCURRENT agent and is NOT yet present at this
-# commit. With the fix ABSENT, any selected engineered feature that nests a
-# warp-tagged ``X__He2`` (robust-basis / Hermite) sub-operand replays with a
-# QUANTISATION-BIN drift of |delta|=1 on a row-slice vs the full-frame transform:
-# the bin EDGES are recomputed from the slice's data instead of being frozen into
-# the recipe, so the discretised engineered column is NOT deterministic-from-raw.
-# This adversarial battery PINS the honest correct behavior (byte-exact replay);
-# until the fix lands these cells are marked ``xfail(strict=True)`` so master stays
-# green AND the moment the fix lands they XPASS -> strict failure -> forcing the
-# marker's removal (the bug can never be silently masked). REMOVE this marker (and
-# this note) when the BUG2 replay fix is on master.
-_BUG2_REPLAY_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG2 replay fix not yet on master: warp-tagged X__He2 nested sub-operand "
-        "replays with quantisation-bin |delta|=1 on slice-vs-full transform "
-        "(bin edges recomputed from slice, not frozen into recipe). REMOVE when fix lands."
-    ),
-)
+# --- BUG2 replay-determinism (FIXED 2026-06-12) -------------------------------
+# The BUG2 replay fix is now on master: the orth-basis preprocess params (z-score
+# mean/std, min-max lo/hi) AND the ``smart_log`` shift anchor are FROZEN into the
+# engineered recipe at fit time, so a nested engineered operand replays BYTE-EXACTLY
+# on any row-slice (previously the basis axis / log shift were refit from the slice's
+# data, drifting the quantisation bin code). The cells below therefore PASS outright;
+# the former ``xfail(strict=True)`` bridge marker has been removed.
 
 
 def _is_engineered(name: str) -> bool:
@@ -314,13 +300,9 @@ def test_bug1_chained_subsumption_transitive():
     for t in ("a", "b", "c"):
         assert t in toks, f"transitive drop lost token {t!r}: {sel}"
     # Replay determinism is BUG2's contract; at this seed a warp-tagged X__He2 nests
-    # into the selected composite, so this strict-xfails until the BUG2 fix lands.
+    # into the selected composite. With the BUG2 freeze fix on master this replays
+    # byte-exactly.
     _assert_byte_exact_replay(fs, df)
-
-
-test_bug1_chained_subsumption_transitive = _BUG2_REPLAY_XFAIL(  # noqa: E305
-    test_bug1_chained_subsumption_transitive
-)
 
 
 # ===========================================================================
@@ -328,7 +310,6 @@ test_bug1_chained_subsumption_transitive = _BUG2_REPLAY_XFAIL(  # noqa: E305
 # ===========================================================================
 
 
-@_BUG2_REPLAY_XFAIL
 @pytest.mark.timeout(360)
 def test_bug2_nested_ratio_composite_replays():
     """y = a**2/b + c forces a nested composite (a sub-feature ``div(sqr(a),abs(b))``
@@ -346,7 +327,6 @@ def test_bug2_nested_ratio_composite_replays():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@_BUG2_REPLAY_XFAIL
 @pytest.mark.timeout(360)
 def test_bug2_mixed_operator_nested_replays():
     """y = (a**3)/d + b*c : mixes cube + ratio over (a,d) with a product over (b,c),
@@ -379,7 +359,6 @@ def test_bug2_survivor_operand_chained_replay():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@_BUG2_REPLAY_XFAIL
 @pytest.mark.timeout(360)
 def test_bug2_deep_nesting_boundary_fe_steps2():
     """Default fe_max_steps=2 boundary: a target with 3-deep structure
@@ -398,7 +377,6 @@ def test_bug2_deep_nesting_boundary_fe_steps2():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@_BUG2_REPLAY_XFAIL
 @pytest.mark.timeout(360)
 def test_bug2_explicit_fe_max_steps2_replays():
     """Same composite target fit with fe_max_steps=2 set EXPLICITLY (not relying on the

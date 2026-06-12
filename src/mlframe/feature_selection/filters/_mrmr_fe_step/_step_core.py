@@ -1468,6 +1468,33 @@ def _run_fe_step(
                             # closed-form ``(x > median)`` gate.
                             _gm_a = _gate_med_specs.get(var_a_idx) if unary_a_name == "gate_med" else None
                             _gm_b = _gate_med_specs.get(var_b_idx) if unary_b_name == "gate_med" else None
+                            # BUG2 FIX (2026-06-12): freeze the fit-time ``smart_log`` shift
+                            # anchor per ``log`` side. ``smart_log`` shifts non-positive
+                            # inputs by ``(1e-5 - nanmin(operand))``; that anchor is
+                            # data-dependent, so a transform row-slice recomputes a
+                            # different shift and the log output (then the bin code)
+                            # drifts. Reconstruct the CONTINUOUS fit-time operand exactly
+                            # as replay does (raw column from X, or the nested parent's
+                            # continuous replay) and compute the frozen anchor so replay is
+                            # byte-exact. Best-effort: None leaves the legacy refit path.
+                            def _ls_anchor(_src_name, _nested):
+                                try:
+                                    if _nested is not None:
+                                        from ..engineered_recipes import apply_recipe as _ar
+                                        import dataclasses as _dc2
+                                        _p = _nested
+                                        if getattr(_p, "quantization", None) is not None:
+                                            _p = _dc2.replace(_p, quantization=None)
+                                        _ov = np.asarray(_ar(_p, X), dtype=np.float64)
+                                    else:
+                                        _ov = np.asarray(X[_src_name].values if hasattr(X[_src_name], "values")
+                                                         else X[_src_name], dtype=np.float64)
+                                    _mn = float(np.nanmin(_ov))
+                                    return (1e-5 - _mn) if _mn <= 0 else 0.0
+                                except Exception:
+                                    return None
+                            _ls_a = _ls_anchor(src_a_name_raw, _nested_a) if unary_a_name == "log" else None
+                            _ls_b = _ls_anchor(src_b_name_raw, _nested_b) if unary_b_name == "log" else None
                             engineered_recipes[eng_name] = build_unary_binary_recipe(
                                 name=eng_name,
                                 src_a_name=src_a_name_raw,
@@ -1489,6 +1516,8 @@ def _run_fe_step(
                                 # else the parent's recipe so replay recomputes it recursively.
                                 nested_parent_a=_nested_a,
                                 nested_parent_b=_nested_b,
+                                log_shift_a=_ls_a,
+                                log_shift_b=_ls_b,
                             )
 
                 n_recommended_features += len(this_pair_features)

@@ -473,10 +473,25 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                     basis_b = basis_route_by_moments(x_j)
                 except Exception:
                     pass
+            # BUG2 FIX (2026-06-12): freeze each operand's fit-time preprocess
+            # params from the FULL fit column so replay is byte-exact on a slice.
+            from . import _evaluate_basis_column as _ebc
+            _ppi = _ppj = None
+            try:
+                _xi = X[col_i].to_numpy(dtype=np.float64)
+                _, _ppi = _ebc(_xi, basis_a, int(deg_a), return_params=True)
+            except Exception:
+                _ppi = None
+            try:
+                _xj = X[col_j].to_numpy(dtype=np.float64)
+                _, _ppj = _ebc(_xj, basis_b, int(deg_b), return_params=True)
+            except Exception:
+                _ppj = None
             recipes.append(build_orth_pair_cross_recipe(
                 name=name, src_a_name=col_i, src_b_name=col_j,
                 basis_i=basis_a, basis_j=basis_b,
                 deg_a=deg_a, deg_b=deg_b,
+                preprocess_params_i=_ppi, preprocess_params_j=_ppj,
             ))
         else:
             # univariate: "{col}__{code}{degree}"
@@ -497,8 +512,17 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                     "degree from %r; skipping recipe.", name,
                 )
                 continue
+            # BUG2 FIX (2026-06-12): freeze the fit-time preprocess params.
+            from . import _evaluate_basis_column as _ebc
+            _pp = None
+            try:
+                _xc = X[src].to_numpy(dtype=np.float64)
+                _, _pp = _ebc(_xc, chosen_basis, int(chosen_degree), return_params=True)
+            except Exception:
+                _pp = None
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,
                 basis=chosen_basis, degree=chosen_degree,
+                preprocess_params=_pp,
             ))
     return X_aug, uni_scores, cross_scores, recipes
