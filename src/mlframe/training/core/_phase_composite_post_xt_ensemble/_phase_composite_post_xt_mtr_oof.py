@@ -30,9 +30,13 @@ def _slice_rows_by_idx(X: Any, idx: np.ndarray) -> Any:
     """Row-subset a pandas / polars / ndarray frame by integer indices without copying the whole frame.
 
     Each fold's ``tr_idx`` is distinct, so the K slices are irreducible (no shared materialization to hoist) and
-    already done once per fold OUTSIDE the component loop. ``reset_index`` is ~2/3 of the slice wall (10->30 ms @
-    n=100k) but is NOT droppable for free: removing it makes ``fit`` see a non-contiguous gather, perturbing the
-    NNLS-input predictions by ~1 ULP (1e-17) -> not bit-identical, so kept (clean 0..n-1 index for the components).
+    already done once per fold OUTSIDE the component loop. ``reset_index`` is ~58% of the pandas slice wall (30.7 of
+    53.2 ms @ n=100k, 2.36x) but is NOT droppable for free: it flips the gemv input layout. bench-attempt-rejected
+    (_benchmarks/bench_mtr_oof_slice.py): reset_index.to_numpy() is NON-contiguous, raw iloc.to_numpy() is C-contig;
+    same bytes, but BLAS reduces the two layouts in a different order -> NNLS-input predictions diverge ~1.4e-17 (5/5
+    folds), so dropping reset_index is NOT bit-identical to the shipped path; kept. No free bit-identical alt exists
+    (ascontiguousarray also relayouts -> same ~1e-17 vs reset). Divergence is ~14 orders below the 1e-3 selection
+    threshold, but the conservative shipped layout is retained since the wall saving is pandas-only and small.
     """
     if hasattr(X, "iloc"):
         sub = X.iloc[idx]

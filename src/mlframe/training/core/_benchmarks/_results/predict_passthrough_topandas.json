@@ -1,0 +1,55 @@
+{
+  "all_batched_faster": true,
+  "all_bit_identical": true,
+  "bench": "TC05_predict_passthrough_topandas",
+  "env": {
+    "cuda_visible": "",
+    "polars": "1.41.2"
+  },
+  "percol_over_batched_max": 1.455,
+  "percol_over_batched_min": 1.201,
+  "results": [
+    {
+      "batched_faster": true,
+      "batched_ms": 9.6916,
+      "bit_identical": true,
+      "iters": 20,
+      "n": 100000,
+      "n_cols": 3,
+      "percol_ms": 14.0966,
+      "percol_over_batched": 1.455
+    },
+    {
+      "batched_faster": true,
+      "batched_ms": 18.6052,
+      "bit_identical": true,
+      "iters": 20,
+      "n": 100000,
+      "n_cols": 8,
+      "percol_ms": 25.9021,
+      "percol_over_batched": 1.392
+    },
+    {
+      "batched_faster": true,
+      "batched_ms": 43.7765,
+      "bit_identical": true,
+      "iters": 8,
+      "n": 500000,
+      "n_cols": 3,
+      "percol_ms": 52.9395,
+      "percol_over_batched": 1.209
+    },
+    {
+      "batched_faster": true,
+      "batched_ms": 89.2221,
+      "bit_identical": true,
+      "iters": 8,
+      "n": 500000,
+      "n_cols": 8,
+      "percol_ms": 107.1714,
+      "percol_over_batched": 1.201
+    }
+  ],
+  "summary": "batched select().to_pandas() is faster on every cell; per-column get_column().to_pandas() is ~1.6x slower (reassembly + per-col dispatch). Batched path is already what predict uses.",
+  "verdict": "PERCOL_REJECTED"
+}

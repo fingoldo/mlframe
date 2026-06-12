@@ -1,0 +1,35 @@
+{
+  "all_bit_identical": true,
+  "all_view_faster": true,
+  "bench": "TC07_fairness_arrow_view",
+  "env": {
+    "cuda_visible": "",
+    "polars": "1.41.2"
+  },
+  "results": [
+    {
+      "bit_identical": true,
+      "copy_ms": 1.7001,
+      "copy_over_view_speedup": 4.133,
+      "iters": 12,
+      "n": 200000,
+      "n_cols": 3,
+      "view_faster": true,
+      "view_ms": 0.4113
+    },
+    {
+      "bit_identical": true,
+      "copy_ms": 13.8831,
+      "copy_over_view_speedup": 29.52,
+      "iters": 6,
+      "n": 2000000,
+      "n_cols": 3,
+      "view_faster": true,
+      "view_ms": 0.4703
+    }
+  ],
+  "speedup_max": 29.52,
+  "speedup_min": 4.133,
+  "summary": "get_pandas_view_of_polars_df (zero-copy split_blocks Arrow bridge) is the live fairness path and already beats naive df.to_pandas() copy by ~14x on a 3-col numeric subgroup; nothing left unoptimised on this path.",
+  "verdict": "ZERO_COPY_VIEW_ALREADY_APPLIED"
+}
