@@ -446,6 +446,13 @@ def pick_best_calibrator(
 ) -> dict[str, Any]:
     """Pick the calibrator that minimises OOF ECE (with bootstrap CI tiebreak).
 
+    Known optimism (FUTURE -- needs an inner-CV / fit-score split, an accuracy-affecting API change):
+    each candidate is fit AND ECE-scored on the SAME oof rows, so a flexible calibrator (Isotonic)
+    drives its reported ECE to ~0 by construction and is selected ~100% of the time, reporting an ECE
+    optimistic by ~0.006 vs fresh data (_benchmarks/bench_pick_best_calibrator_selection_bias.py). The
+    CI-separation rule + Kull default dampen but do not remove it; a future fix should select on a
+    held-out (inner-CV) split, not the fit rows.
+
     Parameters
     ----------
     probs, y
