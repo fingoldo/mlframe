@@ -39,10 +39,25 @@ logger = logging.getLogger(__name__)
 _GPU_PROBE_LOCK = threading.RLock()
 
 
+def _label_float32_is_lossless(arr: np.ndarray) -> bool:
+    """True iff every finite value in ``arr`` round-trips through float32 exactly.
+
+    float32 has only ~7 significant digits; a large-magnitude regression target
+    (int counts/IDs > 2**24, prices like 1234567.89) loses precision silently and
+    collapses adjacent label values, biasing the fit. CatBoost accepts float64
+    labels natively, so we only downcast when it is bit-safe.
+    """
+    finite = arr[np.isfinite(arr)] if arr.dtype.kind == "f" else arr
+    if finite.size == 0:
+        return True
+    return bool(np.array_equal(finite.astype(np.float32).astype(np.float64), finite.astype(np.float64)))
+
+
 def _coerce_label_for_cb_pool(target):
     """Convert target to dtype/shape CatBoost Pool expects.
     CB infers loss family from first label cell; crashes on Python list cells (polars List->pandas object roundtrip).
-    Stack object-of-arrays into 2-D (N,K), cast to float32. Falls through on failure."""
+    Stack object-of-arrays into 2-D (N,K). Downcast to float32 only when lossless; else keep float64 (CB accepts it).
+    Falls through on failure."""
     arr = np.asarray(target)
     if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
         _first = arr[0]
@@ -51,10 +66,8 @@ def _coerce_label_for_cb_pool(target):
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
             except Exception:
                 pass
-    if arr.dtype.kind in ("i", "u", "b"):
-        arr = arr.astype(np.float32)
-    elif arr.dtype.kind == "f" and arr.dtype != np.float32:
-        arr = arr.astype(np.float32)
+    if arr.dtype.kind in ("i", "u", "b", "f") and arr.dtype != np.float32:
+        arr = arr.astype(np.float32) if _label_float32_is_lossless(arr) else arr.astype(np.float64)
     return arr
 
 

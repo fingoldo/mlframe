@@ -229,9 +229,10 @@ def _maybe_get_or_build_cb_pool(
                 # ``SetNumericTarget`` rejects anything but Float/None. If
                 # rejection happens anyway, fall through to rebuild.
                 try:
-                    _label_for_swap = np.asarray(train_target)
-                    if _label_for_swap.dtype != np.float32:
-                        _label_for_swap = _label_for_swap.astype(np.float32)
+                    # Route through the shared lossless guard: a large-magnitude
+                    # regression target keeps float64 instead of silently
+                    # collapsing adjacent values under float32 (~7 sig digits).
+                    _label_for_swap = _coerce_label_for_cb_pool(train_target)
                 except Exception:
                     _label_for_swap = train_target
                 cached.set_label(_label_for_swap)

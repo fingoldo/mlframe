@@ -435,9 +435,20 @@ def _fit_persist_and_transform(
         # so the result matches sklearn StandardScaler(SimpleImputer.fit_transform(X)) bit-for-bit. The
         # post-imputation std is strictly LESS than the drop_nans std (mean-filling reduces variance), and
         # sklearn uses the post-imputation values.
+        # Fill BOTH null and NaN: a polars float column may carry nulls (not
+        # just NaN). ``fill_nan`` alone leaves nulls untouched, so they would
+        # survive to the bridged pandas frame and crash the NaN-intolerant
+        # model the guard exists to protect. ``drop_nans().mean()`` already
+        # ignores both null and NaN, matching sklearn SimpleImputer's nanmean.
         df_imp = X.with_columns([
-            pl.col(c).fill_nan(pl.col(c).drop_nans().mean()) for c in cols
+            pl.col(c).fill_nan(pl.col(c).drop_nans().mean()).fill_null(pl.col(c).drop_nans().mean())
+            for c in cols
         ])
+        # All-null / all-NaN column: ``drop_nans().mean()`` is null, so the fill
+        # above leaves null/NaN in place. sklearn SimpleImputer(keep_empty_features=
+        # True) fills such a column with 0.0; mirror that so no null/NaN reaches
+        # the model and the persisted imputer statistics stay 0 for empty columns.
+        df_imp = df_imp.with_columns([pl.col(c).fill_nan(0.0).fill_null(0.0) for c in cols])
         # Compute post-imputation per-column means and stds in one pass for
         # persistence. We then re-use these scalars - via pl.lit constants -
         # to do the (x - mean) / std rewrite. The previous implementation
