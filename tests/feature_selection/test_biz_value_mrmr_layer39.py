@@ -230,6 +230,23 @@ class TestRecipeCountParity:
                 f"transform output ({sorted(out_cols)})"
             )
 
+    def test_hinge_gate_skips_selected_raw_categorical(self):
+        """A selected RAW categorical (string labels like 'R22'/'U_055') must not
+        reach the hinge-gate float64 baseline cast. The kitchen-sink selects
+        ``cat_region``/``cat_user`` (string-valued) alongside numeric columns; the
+        hinge change-point protection builds a numeric baseline design over the
+        selected set and must SKIP non-numeric columns rather than crash on
+        ``np.asarray(str_col, dtype=float64)``."""
+        X, y = _kitchen_sink(seed=HEADLINE_SEED)
+        X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=HEADLINE_SEED)
+        m = _make_mrmr(**_all_fe_kwargs())
+        m.fit(X_tr, y_tr)  # must not raise ValueError: could not convert string to float
+        sel = set(m.get_feature_names_out())
+        assert {"cat_region", "cat_user"} & sel, (
+            "fixture no longer selects a raw string categorical; the regression "
+            "this test pins (str column hitting the hinge float cast) is unreachable"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Contract 2: fit-time budget across 3 seeds (p95 < 30s)

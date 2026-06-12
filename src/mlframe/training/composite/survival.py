@@ -291,6 +291,11 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         X_arr = self._to_2d_float(X_feat)
         model = GradientBoostingSurvivalAnalysis(n_estimators=100, random_state=0)
         model.fit(X_arr, y_struct)
+        # Freeze the TRAIN risk mean as the centring reference so predict() is
+        # per-row deterministic; centring on the predict-batch mean would make a
+        # row's prediction depend on which OTHER rows share its batch (a silent
+        # batch-composition bug -- predict([a]) != predict([a, b])[0]).
+        self._aware_risk_center_ = float(np.mean(model.predict(X_arr)))
         return model
 
     @staticmethod
@@ -348,9 +353,12 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         """Map the GBSA risk score to a residual log-time point estimate.
 
         GBSA's ``.predict`` returns a risk score (higher = higher hazard = shorter
-        time). We center it and negate to obtain a residual on the log-time scale
-        monotone in survival time -- this preserves the C-index ranking (the
-        metric that matters for survival) without claiming a calibrated median.
+        time). We center it (by the FROZEN train-risk mean, not the predict-batch
+        mean, so each row is deterministic regardless of batch composition) and
+        negate to obtain a residual on the log-time scale monotone in survival time
+        -- this preserves the C-index ranking (the metric that matters for
+        survival) without claiming a calibrated median.
         """
         risk = np.asarray(self.inner_.predict(self._to_2d_float(X_feat)), dtype=np.float64).reshape(-1)
-        return -(risk - float(np.mean(risk)))
+        center = float(getattr(self, "_aware_risk_center_", 0.0))
+        return -(risk - center)

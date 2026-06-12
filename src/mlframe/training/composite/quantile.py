@@ -33,10 +33,14 @@ samples / extrapolation. We restore monotonicity by sorting each row of the
 ``(n, n_q)`` prediction matrix ascending (the standard rearrangement; Chernozhukov
 et al. 2010 show sorting quantile estimates never increases estimation error and
 restores monotonicity). For transforms whose inverse is DECREASING in T
-(``reciprocal_residual``) the per-row sort still yields a valid ascending y-quantile
-set; for ``ratio`` with mixed-sign base the inverse flips quantile order per row,
-which a global sort cannot disambiguate -- that case raises (mirroring
-``CompositeTargetEstimator.predict_quantile``).
+(``reciprocal_residual``, ``y = 1/(T + 1/base)``) the inverse FLIPS quantile order:
+the head trained for the tau-quantile of T produces the (1-tau)-quantile of y. The
+estimator detects this at fit (``_inverse_decreasing_``) and serves each column from
+the COMPLEMENTARY head, so the column labels are correct independent of the
+non-crossing sort -- ``predict_quantile(X)[:, j]`` is always the requested level's
+y-quantile, not its mirror. For ``ratio`` with mixed-sign base the inverse flips
+quantile order PER ROW (sign-dependent), which a fit-time scalar flag cannot
+disambiguate -- that case raises in the inner head's ``predict_quantile``.
 
 cProfile (fit + predict_quantile, n=50k x 2 cols, 5 quantiles, LightGBM
 n_estimators=100): 0.98 s total, of which ~0.74 s is inside LightGBM ``train`` /
@@ -130,6 +134,43 @@ def _set_inner_quantile_alpha(estimator: Any, q: float) -> Any:
             "regressor, or set the objective on the prototype yourself."
         )
     return inner
+
+
+def _transform_inverse_decreasing(transform_name: str) -> bool:
+    """True when the transform inverse ``y = inverse(T, base)`` DECREASES in ``T``.
+
+    For such transforms the head trained for the tau-quantile of ``T`` produces the
+    (1-tau)-quantile of ``y`` (the inverse flips the order), so the per-head
+    columns must be re-labelled by their complementary level. Detected by probing
+    the registered inverse with an increasing ``T`` ramp at a representative
+    positive base; base-free / sign-ambiguous transforms (``ratio`` with mixed
+    base) are NOT handled here and are caught by ``predict_quantile`` of the inner.
+    """
+    try:
+        transform = get_transform(transform_name)
+    except Exception:  # pragma: no cover - unknown name surfaces earlier at fit
+        return False
+    if not getattr(transform, "requires_base", True):
+        # Unary y-transforms (log_y / cbrt_y / yeo_johnson_y) are all monotone
+        # INCREASING in T by construction; no flip.
+        return False
+    # Probe a SMALL increasing T ramp around 0 at a representative positive base.
+    # Reciprocal-type inverses have a pole at ``T = -1/base``; a wide ramp would
+    # straddle it and read as non-monotone. A tight ramp (+/- 1e-3) stays on one
+    # branch so the local sign of dy/dT is read cleanly.
+    t_probe = np.array([-1e-3, 0.0, 1e-3], dtype=np.float64)
+    base_probe = np.full(3, 2.0, dtype=np.float64)
+    try:
+        params = transform.fit(np.array([1.0, 2.0, 3.0]), base_probe)
+        y_probe = np.asarray(
+            transform.inverse(t_probe, base_probe, params), dtype=np.float64
+        ).reshape(-1)
+    except Exception:  # pragma: no cover - probe failure -> assume increasing
+        return False
+    if y_probe.shape[0] != 3 or not np.all(np.isfinite(y_probe)):
+        return False
+    # Strictly decreasing across the ramp -> the inverse flips quantile order.
+    return bool(y_probe[0] > y_probe[1] > y_probe[2])
 
 
 class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
@@ -257,6 +298,12 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
 
         self.estimators_ = estimators
         self.quantiles_ = quantiles
+        # Detect a monotone-DECREASING transform inverse (e.g. reciprocal_residual,
+        # y = 1/(T + 1/base)): a head trained for the tau-quantile of T then yields
+        # the (1-tau)-quantile of y, so the column labelled tau must take the head
+        # trained at (1-tau). Without this the raw (enforce_non_crossing=False)
+        # columns are silently swapped: column "0.1" carries the 0.9 y-quantile.
+        self._inverse_decreasing_ = _transform_inverse_decreasing(self.transform_name)
         # Inherit feature names from the median (or first) head for sklearn
         # introspection parity; all heads saw the same X so any head works.
         ref_head = estimators[float(quantiles[np.argmin(np.abs(quantiles - 0.5))])]
@@ -298,9 +345,14 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
                 )
             req = np.sort(req)
 
+        decreasing = bool(getattr(self, "_inverse_decreasing_", False))
         cols: list[np.ndarray] = []
         for q in req:
-            head = self._lookup_head(float(q))
+            # Decreasing inverse: the y-quantile at level q is produced by the head
+            # trained for the (1-q)-quantile of T. Use the complementary head so
+            # the returned column is correctly labelled regardless of the sort.
+            head_q = 1.0 - float(q) if decreasing else float(q)
+            head = self._lookup_head(head_q)
             y_q = np.asarray(head.predict(X), dtype=np.float64).reshape(-1)
             cols.append(y_q)
         out = np.column_stack(cols)

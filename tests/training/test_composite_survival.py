@@ -126,3 +126,46 @@ def test_biz_value_composite_beats_base_only_on_cindex():
     ci_base = concordance_index(tte, base_pred, ete)
 
     assert ci_comp > ci_base + 0.01, f"composite {ci_comp:.4f} vs base {ci_base:.4f}"
+
+
+class _StubGBSA:
+    """Minimal GBSA-like stub: a risk score = linear combo of the 2 features.
+
+    Exposes only ``.predict`` (the method ``_predict_aware_resid_log`` calls), so
+    the aware-path centring logic can be tested WITHOUT scikit-survival installed.
+    """
+
+    def fit(self, X, y):  # noqa: ARG002
+        return self
+
+    def predict(self, X):
+        X = np.asarray(X, dtype=np.float64)
+        return X[:, 0] * 0.7 - X[:, 1] * 0.3
+
+
+def test_aware_predict_is_batch_independent(monkeypatch):
+    """Aware-path predictions must be PER-ROW deterministic: a row's prediction
+    must not change with the rest of its batch.
+
+    Pre-fix ``_predict_aware_resid_log`` centred risk by the PREDICT-batch mean,
+    so ``predict([a])`` differed from ``predict([a, b])[0]`` (silent batch-
+    composition bug). The frozen train-risk centre makes them identical.
+    """
+    X, t, e, _ = _make_aft(n=400, seed=7)
+    est = CompositeSurvivalEstimator(
+        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+    )
+    # Bypass the real fit: inject a stub GBSA + frozen train-risk centre and flip
+    # the resolved mode to 'aware' so predict() routes through the aware branch.
+    est.fit(X, t, event=e)
+    stub = _StubGBSA()
+    est.inner_ = stub
+    est.censoring_mode_ = "aware"
+    X_feat = est._drop_base_column(X)
+    est._aware_risk_center_ = float(np.mean(stub.predict(est._to_2d_float(X_feat))))
+
+    single = est.predict(X.iloc[[0]])
+    pair = est.predict(X.iloc[[0, 1]])
+    triple = est.predict(X.iloc[[0, 1, 2]])
+    assert single[0] == pytest.approx(pair[0], rel=1e-12, abs=1e-12)
+    assert single[0] == pytest.approx(triple[0], rel=1e-12, abs=1e-12)

@@ -47,7 +47,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from ._internals import group_key_strings
+from ._internals import canonical_group_token, group_key_strings
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +199,14 @@ def generate_grouped_agg_features(
             # even if the user didn't request them as broadcast stats.
             mean_series = grouped.mean()
             std_series = grouped.std(ddof=1)
-            lookup_mean = {str(k): float(v) for k, v in mean_series.items()}
+            # Keys built from the RAW group column (native dtype) -- canonicalise
+            # so they match the canonical per-row keys (group_key_strings) at
+            # both fit and a dtype-drifted predict (int<->float).
+            lookup_mean = {
+                canonical_group_token(k): float(v) for k, v in mean_series.items()
+            }
             lookup_std = {
-                str(k): (float(v) if np.isfinite(v) else 0.0)
+                canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0)
                 for k, v in std_series.items()
             }
             global_mean = _global_value_for_stat(x, "mean")
@@ -211,7 +216,7 @@ def generate_grouped_agg_features(
             for stat in stats:
                 agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {
-                    str(k): (float(v) if np.isfinite(v) else 0.0)
+                    canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0)
                     for k, v in agg_series.items()
                 }
                 global_value = _global_value_for_stat(x, stat)

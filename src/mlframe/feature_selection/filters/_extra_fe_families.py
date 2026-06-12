@@ -98,13 +98,22 @@ __all__ = [
 
 
 def _column_to_str(col) -> np.ndarray:
-    """Stringify a (possibly categorical / object / numeric) column to a 1-D
-    str ndarray, mapping NaN to the sentinel ``"__nan__"`` so it is a stable
-    lookup key (mirrors Layer 33/34's ``_column_to_str`` contract)."""
+    """Canonicalise a (categorical / object / numeric) column to a 1-D str
+    ndarray, mapping NaN to the sentinel ``"__nan__"`` so it is a stable lookup
+    key (mirrors Layer 33/34's ``_column_to_str`` contract). Integral int/float
+    values collapse to the same token (``1`` and ``1.0`` -> ``'1'``) so a
+    fit-int / predict-float dtype drift still resolves the per-category entry
+    instead of the global fallback."""
+    from ._internals import canonical_group_token
+
     s = pd.Series(col)
     if s.isna().any():
-        s = s.astype(object).where(~s.isna(), "__nan__")
-    return s.astype(str).to_numpy()
+        out = s.astype(object).map(
+            lambda v: "__nan__" if (v is None or (isinstance(v, float) and v != v))
+            else canonical_group_token(v)
+        )
+        return out.to_numpy()
+    return s.astype(object).map(canonical_group_token).to_numpy()
 
 
 # ===========================================================================

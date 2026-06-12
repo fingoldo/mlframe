@@ -436,6 +436,17 @@ def _multilabel_target_to_1d_for_supervised_encoders(target):
     return _collapsed
 
 
+def _raise_pre_pipeline_rowcount_change(n_in: int, n_out: int) -> None:
+    """Raise when a pre_pipeline changed the train row count (row-preserving-slot violation)."""
+    raise ValueError(
+        f"pre_pipeline changed the train row count ({n_in:_} -> {n_out:_}). The pre_pipeline slot is "
+        f"row-preserving: a resampler (imblearn SMOTE / RandomOver/UnderSampler / FunctionSampler) "
+        f"cannot be used here -- target and sample_weight are NOT resampled in lockstep, misaligning "
+        f"X and y at model fit. Use a model-level imbalance knob (lgb/xgb scale_pos_weight / "
+        f"is_unbalance, catboost auto_class_weights, sklearn class_weight='balanced')."
+    )
+
+
 def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None, groups=None, sample_weight=None):
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
@@ -570,6 +581,12 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         held = df[present]
         reduced = df.drop(columns=present)
     out = _call_fit(fn, reduced, target) if fit else fn(reduced)
+    # Row-preserving-slot guard: a resampler makes ``out`` grow/shrink vs ``held``, misaligning the
+    # positional re-attach below. Raise the shared actionable message (not an opaque pandas error).
+    _out_n = out.shape[0] if hasattr(out, "shape") and len(getattr(out, "shape", ())) >= 1 else None
+    _held_n = held.shape[0] if hasattr(held, "shape") and len(getattr(held, "shape", ())) >= 1 else None
+    if _out_n is not None and _held_n is not None and _out_n != _held_n:
+        _raise_pre_pipeline_rowcount_change(_held_n, _out_n)
     if hasattr(out, "columns"):
         if isinstance(out, pl.DataFrame):
             out = out.with_columns([held[c] for c in present])
@@ -663,6 +680,13 @@ def _apply_pre_pipeline_transforms(
         # branches.
         _input_cols = (
             list(train_df.columns) if hasattr(train_df, "columns") else None
+        )
+        # Row count BEFORE transform. The pre_pipeline slot is row-PRESERVING (selects columns /
+        # engineers features, never rows). A resampler here breaks that: this driver returns only
+        # (train_df, val_df), so train_target + sample_weight stay at the original row count while
+        # train_df grows/shrinks, silently desyncing X from y at model fit (guard at the return).
+        _input_n_rows = (
+            train_df.shape[0] if hasattr(train_df, "shape") and len(getattr(train_df, "shape", ())) >= 1 else None
         )
         # Structurally-identical-pipeline cache. When the
         # PER-TARGET loop runs Linear then MLP back-to-back, both build
@@ -1004,6 +1028,14 @@ def _apply_pre_pipeline_transforms(
         # expected feature names are KNOWN (model already fitted, e.g. a reused
         # round); on the first fit they're unknown -- skip to avoid over-validation.
         _validate_pre_pipeline_output_against_model(model, pre_pipeline, train_df)
+
+        # Row-count contract guard (see _input_n_rows above). Skip on unknown row count or a
+        # 0-feature frame (handled above). The passthrough path raises the same error earlier.
+        if _input_n_rows is not None and hasattr(train_df, "shape") and len(train_df.shape) >= 1:
+            _out_n_rows = train_df.shape[0]
+            _is_zero_feature = len(train_df.shape) == 2 and train_df.shape[1] == 0
+            if _out_n_rows != _input_n_rows and not _is_zero_feature:
+                _raise_pre_pipeline_rowcount_change(_input_n_rows, _out_n_rows)
 
     return train_df, val_df
 
