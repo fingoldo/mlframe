@@ -252,10 +252,27 @@ _SAFE_SPECIFIC: frozenset = frozenset({
 })
 
 
+# Code-execution primitives that live in the (allowlisted) ``builtins`` module. The prefix allow
+# is needed for data containers (dict/list/set/tuple/bytes/...), but these names are a direct RCE
+# gadget -- a legit model bundle never references them, an attacker payload uses exactly these
+# (``(eval, ("__import__('os').system(...)",))``). Denied even though their module is allowlisted.
+# ``__builtin__`` is the Python-2 / dill spelling of the same module.
+_UNSAFE_BUILTINS: frozenset = frozenset({
+    "eval", "exec", "execfile", "compile", "__import__", "import_module",
+    "getattr", "setattr", "delattr", "globals", "locals", "vars",
+    "open", "input", "breakpoint", "memoryview", "help",
+})
+
+
 class _SafeUnpickler(dill.Unpickler):
     """Restricted unpickler that only allows a conservative allowlist of modules."""
 
     def find_class(self, module: str, name: str):
+        # Block code-exec builtins even though ``builtins`` is allowlisted for data containers.
+        if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
+            raise dill.UnpicklingError(
+                f"Unsafe builtin blocked by _SafeUnpickler allowlist: {module}.{name}"
+            )
         # Allow exact specific pairs.
         if (module, name) in _SAFE_SPECIFIC:
             return super().find_class(module, name)
