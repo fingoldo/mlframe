@@ -555,7 +555,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             if _fp_cached is not None and _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns"):
                 _live_cols = list(_fp_train_df_pre.columns)
                 _cached_cols = [rec.get("name") for rec in _fp_cached[1]] if _fp_cached[1] else []
-                if sorted(_cached_cols) != sorted(str(c) for c in _live_cols):
+                if sorted(str(c) for c in _cached_cols) != sorted(str(c) for c in _live_cols):
                     _fp_cached = None
             if _fp_cached is not None:
                 _cs_fp["hits"] += 1

@@ -335,7 +335,10 @@ def compute_model_input_fingerprint(
     emb_set = set(embedding_features or [])
 
     schema = []
-    for col in sorted(df_at_fit.columns):
+    # Sort by ``str(col)`` so a frame carrying a mix of int-positional and string column labels
+    # (engineered string-named columns alongside raw integer-indexed ones) does not raise
+    # ``TypeError: '<' not supported between instances of 'int' and 'str'`` on the bare sort.
+    for col in sorted(df_at_fit.columns, key=str):
         try:
             if pl is not None and isinstance(df_at_fit, pl.DataFrame):
                 dt = df_at_fit.schema[col]

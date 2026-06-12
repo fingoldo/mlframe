@@ -90,3 +90,14 @@ def test_fingerprint_split_indices_change_invalidates():
     h1, _ = compute_model_input_fingerprint(df, train_idx=np.arange(7), val_idx=np.arange(7, 10))
     h2, _ = compute_model_input_fingerprint(df, train_idx=np.arange(8), val_idx=np.arange(8, 10))
     assert h1 != h2
+
+
+def test_fingerprint_handles_mixed_int_and_str_column_labels():
+    """A frame whose columns mix integer-positional labels with string labels must not crash the
+    schema sort with ``TypeError: '<' not supported between instances of 'int' and 'str'`` -- the
+    sort key coerces to ``str`` so heterogeneous labels order deterministically."""
+    df = pd.DataFrame({0: [1.0, 2.0], 1: [3.0, 4.0], "cat_0": ["A", "B"]})
+    schema_hash, schema = compute_model_input_fingerprint(df, cat_features=["cat_0"])
+    assert len(schema_hash) == 10
+    # Original (un-coerced) labels are preserved in the records; only the sort key is stringified.
+    assert {rec["name"] for rec in schema} == {0, 1, "cat_0"}
