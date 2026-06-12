@@ -566,6 +566,28 @@ def make_train_test_split(
             sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf
         )
 
+        # Boundary de-leak: positional slicing cuts THROUGH a block of rows
+        # sharing one timestamp (common in multi-entity panels where many
+        # entities share each timestamp), leaving the same timestamp value in
+        # BOTH train and the later split -- a time leak (model validated/tested
+        # on a timestamp it trained on). Snap any boundary-tied rows to the
+        # LATER split so max(train_ts) < min(val_ts) <= min(test_ts) strictly.
+        # Only for the fully-sequential path: shuffled / partial-sequential
+        # portions intentionally interleave timestamps, so a tie split there is
+        # by request, not a bug.
+        _fully_sequential = (n_test_shuf == 0 and n_val_shuf == 0)
+        if _fully_sequential and len(train_idx):
+            _ts_vals = timestamps.values
+            if _effective_val_placement == "backward":
+                # Layout [val(oldest)] [train] [test]: de-leak val|train then train|test.
+                val_idx, train_idx, test_idx = _deleak_tied_boundaries(
+                    _ts_vals, val_idx, train_idx, test_idx,
+                )
+            else:
+                train_idx, val_idx, test_idx = _deleak_tied_boundaries(
+                    _ts_vals, train_idx, val_idx, test_idx,
+                )
+
         # Apply aging limit
         if trainset_aging_limit:
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
@@ -993,6 +1015,7 @@ __all__ = ["make_train_test_split", "_carve_calib_from_train"]
 
 from ._split_helpers import (  # noqa: F401,E402
     _carve_calib_from_train,
+    _deleak_tied_boundaries,
     _stratified_split,
     _stratified_split_3way,
     _use_multilabel_3way,

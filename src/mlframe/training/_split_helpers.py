@@ -161,6 +161,52 @@ def _positions(indices: np.ndarray, subset: np.ndarray) -> np.ndarray:
     return order[pos_in_sorted]
 
 
+def _deleak_tied_boundaries(
+    ts_vals: np.ndarray,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+    test_idx: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Enforce strict timestamp precedence across the time-ordered sequential split.
+
+    Positional slicing can cut through a block of rows that share one timestamp
+    (multi-entity panels: many entities per timestamp), leaving the same value in
+    train AND val (or val AND test) -- a time leak. Move every boundary-tied row
+    to the LATER split so ``max(train_ts) < min(val_ts) <= min(test_ts)`` strictly.
+
+    Forward layout only (train oldest). If the split is not strictly time-ordered
+    (backward val placement -> val oldest), the function is a no-op for the pair
+    whose order is inverted; callers gate on the sequential forward path.
+    """
+    train_idx = np.asarray(train_idx)
+    val_idx = np.asarray(val_idx)
+    test_idx = np.asarray(test_idx)
+
+    def _move_ties(earlier: np.ndarray, later: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if len(earlier) == 0 or len(later) == 0:
+            return earlier, later
+        boundary = ts_vals[earlier].max()
+        # Only de-leak when the later split actually starts AT the boundary value
+        # (strict-precedence violation). If later already starts after, nothing to do.
+        if ts_vals[later].min() != boundary:
+            return earlier, later
+        tied = ts_vals[earlier] == boundary
+        if tied.all():
+            # The whole earlier split is one timestamp; moving it would empty it.
+            # Leave as-is (degenerate config: single-timestamp train) -- the
+            # empty-split guard / caller handles this.
+            return earlier, later
+        moved = earlier[tied]
+        kept = earlier[~tied]
+        return kept, np.concatenate([moved, later])
+
+    # val|test first so rows pushed train->val can cascade val->test if needed.
+    val_idx, test_idx = _move_ties(val_idx, test_idx)
+    train_idx, val_idx = _move_ties(train_idx, val_idx)
+    val_idx, test_idx = _move_ties(val_idx, test_idx)
+    return train_idx, val_idx, test_idx
+
+
 def _carve_calib_from_train(
     train_idx: np.ndarray,
     calib_size: float,
