@@ -11,7 +11,12 @@ in order on ``X`` and emits the post-fix shapes:
    ``support_`` and trip transform-time column-set drift.
 5. Drop exact-duplicate columns (numeric + categorical) so RFECV's
    voting doesn't split a duplicated feature's importance across copies.
-6. Honour ``must_exclude``: drop named columns at fit entry so they
+5b. Drop near-exact correlation duplicates (|Spearman| >= near_dup_corr_threshold):
+   a monotone scaled/shifted replica the bit-exact hash misses (drop_near_dup_corr).
+6. Drop ID-like sequence columns: near-unique + affine-spaced row-id /
+   index / counter columns carry zero generalisable signal but a tree
+   estimator memorises them via split-frequency bias (drop_id_like_sequences).
+7. Honour ``must_exclude``: drop named columns at fit entry so they
    never enter the optimiser's universe.
 7. Optional leakage scan: Pearson |corr(X, y)| >= leakage_corr_threshold
    trips one of {warn, raise, exclude} per ``leakage_action``.
@@ -154,6 +159,102 @@ def _sanitize_X_inputs(self, X, y):
         except (TypeError, ValueError):
             # Non-hashable dtype - skip dedup.
             pass
+
+    # Drop near-exact correlation duplicates: a column that is a (near-)monotone copy of one already kept -- a scaled / shifted / tiny-noise-perturbed replica
+    # (``100*x``, ``x + 1e-3*eps``). The exact-dup hash above misses these because the values differ bit-for-bit; yet RFECV's voting still splits the replica's
+    # importance across the copies, biasing selection toward isolated noise and admitting the redundant copy into ``support_``. We use SPEARMAN (rank) correlation
+    # so any monotone rescale is caught regardless of slope/offset, keep the FIRST column of each near-duplicate pair (column order), and drop the rest. The guard
+    # is NARROW BY CONSTRUCTION: the 0.999 default fires only on a NEAR-PERFECT monotone replica -- a legitimately-distinct correlated pair (corr ~0.7, even ~0.95
+    # collinear-cluster mates) sits far below it and BOTH members survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a
+    # representative remains the redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True); this is only the exact/near-exact replica case. Default on;
+    # opt out via drop_near_dup_corr=False.
+    if (
+        getattr(self, "drop_near_dup_corr", True)
+        and isinstance(X, pd.DataFrame)
+        and X.shape[1] > 1
+        and X.shape[0] >= 50
+    ):
+        _thr = float(getattr(self, "near_dup_corr_threshold", 0.999))
+        from pandas.api.types import is_numeric_dtype as _is_num_dup
+
+        _num_cols = [c for c in X.columns if _is_num_dup(X[c])]
+        if len(_num_cols) > 1:
+            try:
+                _rc = X[_num_cols].corr(method="spearman").abs().to_numpy()
+            except (TypeError, ValueError):
+                _rc = None
+            if _rc is not None and _rc.shape[0] == len(_num_cols):
+                _dup_drop: list = []
+                _kept_idx: list = []
+                for _i in range(len(_num_cols)):
+                    _is_dup = False
+                    for _j in _kept_idx:
+                        _v = _rc[_i, _j]
+                        if np.isfinite(_v) and _v >= _thr:
+                            _is_dup = True
+                            break
+                    if _is_dup:
+                        _dup_drop.append(_num_cols[_i])
+                    else:
+                        _kept_idx.append(_i)
+                if _dup_drop:
+                    if getattr(self, "verbose", 0):
+                        logger.info(
+                            "RFECV: dropping %d near-duplicate column(s) (|Spearman| >= %s to an earlier-kept column -- a monotone scaled/shifted replica) "
+                            "before fit so RFECV's voting does not split the replica's importance and admit the redundant copy into ``support_``: %s. "
+                            "Set drop_near_dup_corr=False to keep them, or feature_groups=... for all-or-nothing group decisions.",
+                            len(_dup_drop), _thr, _dup_drop,
+                        )
+                    X = X.drop(columns=_dup_drop)
+
+    # Drop ID-like sequence columns: a near-unique column whose sorted distinct values are (near-)perfectly affine-spaced is an enumerated row-id / index /
+    # counter (or affine of one). It carries ZERO generalisable signal -- the values ARE the sample order -- yet a tree estimator memorises it via split-frequency
+    # bias and admits it into support_, where it cannot generalise. Dropping it is as safe as dropping a constant. The guard is NARROW BY CONSTRUCTION: it requires
+    # both near-uniqueness AND a near-zero spacing coefficient-of-variation, so a continuous real signal (a Normal column has sorted-gap CV ~O(1)) and a hash-style
+    # random id (irregular gaps) are NEVER caught -- it cannot drop a weak recoverable signal (which is either low-cardinality-binnable or continuous, both with
+    # high spacing CV). Default on; opt out via drop_id_like_sequences=False.
+    if getattr(self, "drop_id_like_sequences", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 0:
+        _n = X.shape[0]
+        _ratio_thr = float(getattr(self, "id_like_ratio_threshold", 0.999))
+        _cv_thr = float(getattr(self, "id_like_spacing_cv", 1e-3))
+        if _n >= 50:
+            from pandas.api.types import is_numeric_dtype as _is_num_id
+            _id_like: list = []
+            for _c in X.columns:
+                if not _is_num_id(X[_c]):
+                    continue
+                _ser = X[_c]
+                try:
+                    _nu = int(_ser.nunique(dropna=True))
+                except (TypeError, ValueError):
+                    continue
+                if _nu < _ratio_thr * _n:
+                    continue
+                try:
+                    _v = np.sort(_ser.dropna().to_numpy(dtype=float))
+                except (TypeError, ValueError):
+                    continue
+                _v = _v[np.isfinite(_v)]
+                if _v.size < 50:
+                    continue
+                _d = np.diff(_v)
+                _d = _d[_d > 0]
+                if _d.size < max(10, 0.5 * _v.size):
+                    continue
+                _md = float(_d.mean())
+                if _md <= 0:
+                    continue
+                if float(_d.std()) / _md <= _cv_thr:
+                    _id_like.append(_c)
+            if _id_like:
+                if getattr(self, "verbose", 0):
+                    logger.info(
+                        "RFECV: dropping %d ID-like sequence column(s) (near-unique + affine-spaced row-id / index / counter) "
+                        "before fit so they cannot leak into ``support_`` via tree split-frequency bias: %s. "
+                        "Set drop_id_like_sequences=False to keep them.",
+                        len(_id_like), _id_like,
+                    )
+                X = X.drop(columns=_id_like)
 
     # must_exclude: drop named columns at fit entry so they never enter the optimiser's universe.
     if self.must_exclude and isinstance(X, pd.DataFrame):

@@ -309,12 +309,16 @@ def test_mrmr_dropping_matrix(family, decoy, kind, gap):
 _RFECV_DROP = [
     ("exact_dup",        lambda x, y, r: x.copy(),                    "decoy", None),
     ("constant",         lambda x, y, r: np.full(_N, 3.0),            "decoy", None),
-    ("scaled_copy",      lambda x, y, r: 100.0 * x,                   "decoy",
-     "FS GAP: RFECV is not redundancy-aware -- admits an exact scaled copy of the signal"),
+    # CLOSED GAP: the ``drop_near_dup_corr`` guard (default on) drops a near-exact monotone replica (100*x has |Spearman|=1.0) at fit entry, keeping the first
+    # occurrence, so RFECV's voting no longer splits the replica's importance and admits the redundant copy. NARROW: a legitimately-distinct correlated pair
+    # (corr ~0.7) sits far below the 0.999 default and BOTH survive; see test_rfecv_near_dup_corr_guard for the decoy-drop + distinct-pair-safety sensor.
+    ("scaled_copy",      lambda x, y, r: 100.0 * x,                   "decoy", None),
     ("permuted_decoy",   lambda x, y, r: r.permutation(x),            "decoy",
      "FS GAP: RFECV admits a permuted realistic-marginal noise decoy (no relevance floor)"),
-    ("id_like_highcard", lambda x, y, r: np.arange(_N, dtype=float),  "decoy",
-     "FS GAP: RFECV admits a high-cardinality ID-like decoy"),
+    # CLOSED GAP: the ``drop_id_like_sequences`` guard (default on) drops a near-unique + affine-spaced row-id / index / counter at fit entry, structurally,
+    # so a tree estimator can no longer memorise it via split-frequency bias. The guard is narrow (it fires only on the structureless affine-sequence shape) so
+    # it never touches a continuous real signal or a hash-style random id; see test_rfecv_id_like_sequence_guard for the decoy-drop + weak-signal-safety sensor.
+    ("id_like_highcard", lambda x, y, r: np.arange(_N, dtype=float),  "decoy", None),
 ]
 
 
@@ -346,6 +350,129 @@ def test_rfecv_dropping_matrix(family, decoy, kind, gap):
         pytest.xfail(gap)
     assert "decoy" not in names, (
         f"{family}: RFECV admitted the decoy into selection: {names}")
+
+
+@pytest.mark.timeout(120)
+def test_rfecv_id_like_sequence_guard():
+    """CLOSED GAP regression sensor: the ``drop_id_like_sequences`` guard drops a
+    near-unique + affine-spaced ID-like decoy that a TREE estimator would otherwise
+    memorise via split-frequency bias -- WITHOUT touching a weak recoverable signal.
+
+    Exercised with a RandomForest + the recall-oriented one_se_max rule (the matrix
+    uses LogReg, whose linear coef already starves the arange decoy; the FI gap is
+    tree-specific, and one_se_max keeps the decoy inside the 1-SE band where the
+    tree's split-frequency-biased FI ranks it). Three assertions:
+      (1) the arange ID decoy is dropped (the gap);
+      (2) a weak low-card-binnable signal is KEPT (the PB-5 safety gate);
+      (3) a weak continuous signal is KEPT (continuous != near-unique-affine)."""
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+
+    def _tree_rfecv(**kw):
+        return RFECV(estimator=RandomForestClassifier(n_estimators=30, random_state=0),
+                     cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+                     n_features_selection_rule="one_se_max", verbose=0, **kw)
+
+    rng = np.random.default_rng(1)
+    x_real = rng.normal(size=_N)
+    y = pd.Series((x_real + 0.2 * rng.normal(size=_N) > 0).astype(int), name="y")
+
+    # (1) ID-like decoy is dropped (default guard ON). With the guard OFF the tree admits it.
+    df_id = pd.DataFrame({"x_real": x_real, "decoy": np.arange(_N, dtype=float),
+                          "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_on = _tree_rfecv(); sel_on.fit(df_id, y)
+    names_on = selected_names(sel_on)
+    print(f"ID-GUARD on  sel={names_on}")
+    assert "x_real" in names_on, f"guard dropped the real signal: {names_on}"
+    assert "decoy" not in names_on, f"ID-like decoy survived the guard: {names_on}"
+
+    sel_off = _tree_rfecv(drop_id_like_sequences=False); sel_off.fit(df_id, y)
+    names_off = selected_names(sel_off)
+    print(f"ID-GUARD off sel={names_off}")
+    assert "decoy" in names_off, (
+        "regression sensor is blind: tree must admit the ID decoy with the guard OFF "
+        f"(else the test does not prove the guard does the work): {names_off}")
+
+    # (2) PB-5 SAFETY: a weak low-card-binnable signal must NOT be dropped.
+    wl = rng.integers(0, 5, _N).astype(float)
+    yl = pd.Series((0.6 * (wl >= 3) + 0.4 * rng.normal(size=_N) > 0.3).astype(int), name="y")
+    df_wl = pd.DataFrame({"weak_lowcard": wl, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_wl = _tree_rfecv(); sel_wl.fit(df_wl, yl)
+    print(f"WEAK-LOWCARD sel={selected_names(sel_wl)}")
+    assert "weak_lowcard" in selected_names(sel_wl), (
+        "guard wrongly dropped a weak low-cardinality binnable signal (PB-5 recall regression)")
+
+    # (3) PB-5 SAFETY: a weak CONTINUOUS signal (near-unique but NOT affine-spaced) must NOT be dropped.
+    wc = rng.normal(size=_N)
+    yc = pd.Series((0.5 * wc + rng.normal(size=_N) > 0).astype(int), name="y")
+    df_wc = pd.DataFrame({"weak_cont": wc, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_wc = _tree_rfecv(); sel_wc.fit(df_wc, yc)
+    print(f"WEAK-CONT    sel={selected_names(sel_wc)}")
+    assert "weak_cont" in selected_names(sel_wc), (
+        "guard wrongly dropped a weak continuous signal (continuous != near-unique-affine)")
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+def test_rfecv_near_dup_corr_guard():
+    """CLOSED GAP regression sensor: the ``drop_near_dup_corr`` guard drops a near-exact
+    monotone replica (a scaled/shifted copy) at fit entry so RFECV no longer admits the
+    redundant copy -- WITHOUT collapsing a legitimately-distinct correlated pair.
+
+    Four assertions:
+      (1) a scaled copy (100*x, |Spearman|=1.0) is dropped, keeping the original;
+      (2) with the guard OFF the decoy is admitted (sensor is not blind);
+      (3) PB-5 SAFETY: a legitimately-distinct corr~0.7 pair is kept in FULL (both members);
+      (4) the two independent drivers of a linear-combo signal are BOTH kept (weak-signal recovery)."""
+    from mlframe.feature_selection.wrappers import RFECV
+
+    def _rfecv(**kw):
+        return RFECV(estimator=LogisticRegression(max_iter=200, random_state=0),
+                     cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+                     n_features_selection_rule="argmax", verbose=0, **kw)
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=_N)
+    y = pd.Series((x + 0.25 * rng.normal(size=_N) > 0).astype(int), name="y")
+
+    # (1) scaled-copy decoy is dropped (default guard ON), original kept.
+    df = pd.DataFrame({"x_real": x, "decoy": 100.0 * x,
+                       "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_on = _rfecv(); sel_on.fit(df, y)
+    names_on = selected_names(sel_on)
+    print(f"NEAR-DUP on  sel={names_on}")
+    assert "x_real" in names_on, f"guard dropped the original signal: {names_on}"
+    assert "decoy" not in names_on, f"scaled-copy decoy survived the guard: {names_on}"
+
+    # (2) sensor is not blind: with the guard OFF the redundant copy is admitted.
+    sel_off = _rfecv(drop_near_dup_corr=False); sel_off.fit(df, y)
+    names_off = selected_names(sel_off)
+    print(f"NEAR-DUP off sel={names_off}")
+    assert "decoy" in names_off, (
+        "regression sensor is blind: RFECV must admit the scaled copy with the guard OFF "
+        f"(else the test does not prove the guard does the work): {names_off}")
+
+    # (3) PB-5 SAFETY: a legitimately-distinct corr~0.7 pair must BOTH survive (0.999 default is far above 0.7).
+    a = rng.normal(size=_N)
+    b = 0.7 * a + np.sqrt(1.0 - 0.49) * rng.normal(size=_N)
+    yp = pd.Series((a + b + 0.25 * rng.normal(size=_N) > 0).astype(int), name="y")
+    df_p = pd.DataFrame({"a": a, "b": b, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_p = _rfecv(); sel_p.fit(df_p, yp)
+    names_p = selected_names(sel_p)
+    print(f"DISTINCT-0.7 sel={names_p}")
+    assert "a" in names_p and "b" in names_p, (
+        f"guard wrongly collapsed a legitimately-distinct corr~0.7 pair (PB-5 recall regression): {names_p}")
+
+    # (4) weak-signal recovery: two INDEPENDENT drivers of a linear-combo target must both be kept (neither is near-dup).
+    x1 = rng.normal(size=_N)
+    x2 = rng.normal(size=_N)
+    yc = pd.Series((x1 + x2 + 0.25 * rng.normal(size=_N) > 0).astype(int), name="y")
+    df_c = pd.DataFrame({"x1": x1, "x2": x2, "noise0": rng.normal(size=_N), "noise1": rng.normal(size=_N)})
+    sel_c = _rfecv(); sel_c.fit(df_c, yc)
+    names_c = selected_names(sel_c)
+    print(f"WEAK-COMBO   sel={names_c}")
+    assert "x1" in names_c and "x2" in names_c, (
+        f"guard wrongly dropped an independent driver of the linear-combo signal: {names_c}")
 
 
 @pytest.mark.slow

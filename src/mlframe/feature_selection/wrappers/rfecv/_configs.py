@@ -169,6 +169,15 @@ if _PYDANTIC_AVAILABLE:
         leakage_corr_threshold: Optional[float] = 0.95
         leakage_action: str = "warn"
 
+        # ID-like sequence guard (near-unique + affine-spaced row-id / index / counter)
+        drop_id_like_sequences: bool = True
+        id_like_ratio_threshold: float = Field(default=0.999, gt=0.0, le=1.0)
+        id_like_spacing_cv: float = Field(default=1e-3, ge=0.0)
+
+        # Near-exact correlation-duplicate guard (monotone scaled/shifted replica of an already-kept column)
+        drop_near_dup_corr: bool = True
+        near_dup_corr_threshold: float = Field(default=0.999, gt=0.0, le=1.0)
+
         # Search-loop accounting
         noimprove_counts_revisit: bool = False
 

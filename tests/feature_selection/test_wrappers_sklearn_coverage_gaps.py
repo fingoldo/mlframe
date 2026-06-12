@@ -111,9 +111,10 @@ class TestInputTypes:
             pytest.xfail(f"NaN-in-X smoke: {type(exc).__name__}: {exc}")
 
     def test_2d_y_rejected_with_clear_error(self):
-        """Multi-output y: mlframe explicitly rejects via L6 (Wave 5)."""
+        """Multi-output y: the default now handles it (multioutput_strategy='union' fits one single-target RFECV per column);
+        the explicit NotImplementedError rejection is reached only by opting OUT via multioutput_strategy=None."""
         X, y = make_regression(n_samples=100, n_features=6, n_targets=3, random_state=0)
-        rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=2)
+        rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=2, multioutput_strategy=None)
         with pytest.raises(NotImplementedError, match="multi-output"):
             rfecv.fit(X, y)
 
