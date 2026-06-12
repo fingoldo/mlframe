@@ -198,38 +198,22 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         out = Z @ np.asarray(recipe.extra["weights"], dtype=np.float64)
 
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    if recipe.quantization is not None:
-        from ..discretization import discretize_array
-        q = recipe.quantization
-        # 2026-05-30 Wave 9.1 fix (loop iter 29): use fit-time edges when
-        # the recipe stored them. Pre-fix ``discretize_array`` recomputed
-        # ``np.nanpercentile`` from TEST aggregate values each replay, so
-        # the same physical input row mapped to DIFFERENT cluster_aggregate
-        # bin codes between fit and transform under any distribution drift
-        # (83% disagreement at 10x stddev shift). Sibling of iter 28's
-        # unary_binary fix.
-        # NOTE (2026-06-12): the sibling ``unary_binary`` replay now emits its
-        # continuous value (magnitude needed by downstream linear models -- see
-        # ``_recipe_unary_binary._apply_unary_binary``). The same generalisation is a
-        # candidate here, but cluster_aggregate has a distinct downstream contract +
-        # dedicated quantile-edge tests, so it is deferred to a separately-measured
-        # change rather than folded into the unary_binary fix.
-        if q.get("edges") is not None:
-            edges = np.asarray(q["edges"], dtype=np.float64)
-            out = np.searchsorted(
-                edges[1:-1] if edges.size >= 2 else edges,
-                out, side="right",
-            ).astype(np.dtype(q["dtype"]))
-        else:
-            import warnings as _w_iter29
-            _w_iter29.warn(
-                f"cluster_aggregate recipe '{recipe.name}' has no fit-time "
-                f"quantile edges; replay will re-quantile on test data and "
-                f"produce shifted codes under distribution drift. Refit the "
-                f"MRMR estimator to regenerate the recipe with persisted edges.",
-                UserWarning, stacklevel=2,
-            )
-            out = discretize_array(arr=out, n_bins=q["nbins"], method=q["method"], dtype=np.dtype(q["dtype"]))
+    # CONTINUOUS TRANSFORM OUTPUT (2026-06-12): like its ``unary_binary`` sibling,
+    # ``transform()`` delivers the cluster-aggregate column CONTINUOUS rather than as
+    # the internal MI quantile code. Binning the continuous aggregate to integer codes
+    # keeps only RANK and discards the MAGNITUDE that non-tree downstream models need:
+    # measured on a target linear in a mean-z cluster aggregate, a linear model scored
+    # test-R2 0.936 on the 10-bin code (Pearson 0.967 with the true aggregate) vs
+    # 0.99972 on the continuous value (Pearson 1.000). This mirrors the
+    # ``_recipe_unary_binary._apply_unary_binary`` change and the ``prewarp`` /
+    # ``hermite_pair`` siblings that already skip replay-time quantization.
+    # Continuous replay also SUBSUMES the Wave-9.1 iter-29 quantile-edge leak fix: the
+    # output is a closed-form function of the operand row given the FROZEN
+    # standardization (member_mean/member_std/signs/weights), so an identical physical
+    # row maps to an identical value regardless of test-distribution drift -- there is
+    # no quantile recomputation left to drift. ``recipe.quantization`` is kept for
+    # provenance only; the downstream MRMR fit discretises the fit-time column for its
+    # own MI matrix via ``_mrmr_fe_step`` (a separate path, unaffected).
     return out
 
 
