@@ -210,8 +210,19 @@ def bootstrap_metrics(
     alpha: float = 0.05,
     stratify: Optional[np.ndarray] = None,
     random_state: Optional[int] = None,
+    metric_fns_idx: Optional[Mapping[str, Callable[[np.ndarray], float]]] = None,
 ) -> dict[str, dict]:
     """Bootstrap percentile CIs for SEVERAL metrics sharing ONE resample loop.
+
+    ``metric_fns_idx`` are INDEX-aware metric callables ``fn(idx) -> float`` that
+    receive the raw resample indices instead of pre-sliced ``(yt, yp)`` views.
+    They let a metric reuse a precomputed base-data structure across all 1000
+    resamples (e.g. a pre-sorted base score vector for AUC -- see
+    ``make_bootstrap_auc_resampler``), turning a per-resample O(n log n) argsort
+    into an O(n) gather. The point estimate uses ``idx = arange(n)``. Results
+    merge into the same dict; bit-identity vs the slice-based path holds when the
+    index-aware metric is defined to equal the slice-based one (it is for AUC on
+    tie-free scores).
 
     Equivalent to calling ``bootstrap_metric`` once per metric with the SAME
     ``random_state``, but each resample's indices and the ``(y_true[idx],
@@ -247,16 +258,26 @@ def bootstrap_metrics(
     # state at the resample loop matches a freshly-seeded bootstrap_metric.
     rng = np.random.default_rng(random_state)
 
+    metric_fns_idx = dict(metric_fns_idx) if metric_fns_idx else {}
+    _full_idx = np.arange(n, dtype=np.int64)  # point estimate = identity resample
+
     results: dict[str, dict] = {}
     points: dict[str, float] = {}
     active: list = []
+    active_idx: list = []
     for name, fn in metric_fns.items():
         try:
             points[name] = float(fn(y_true, y_pred))
             active.append(name)
         except Exception as exc:
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
-    if not active:
+    for name, fn in metric_fns_idx.items():
+        try:
+            points[name] = float(fn(_full_idx))
+            active_idx.append(name)
+        except Exception as exc:
+            results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
+    if not active and not active_idx:
         return results
 
     if stratify is not None:
@@ -274,10 +295,11 @@ def bootstrap_metrics(
         _total_n = int(_class_sizes.sum())
         _idx_buf = np.empty(_total_n, dtype=np.int64)
 
-    samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in active}
-    valid = {name: 0 for name in active}
-    failures = {name: 0 for name in active}
-    first_err: dict = {name: None for name in active}
+    _all_active = active + active_idx
+    samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in _all_active}
+    valid = {name: 0 for name in _all_active}
+    failures = {name: 0 for name in _all_active}
+    first_err: dict = {name: None for name in _all_active}
 
     for _ in range(n_bootstrap):
         # Index generation MUST match bootstrap_metric exactly (same rng calls,
@@ -306,10 +328,25 @@ def bootstrap_metrics(
                 continue
             samples[name][valid[name]] = v
             valid[name] += 1
+        # Index-aware metrics: pass raw idx so they can reuse a precomputed
+        # base structure (e.g. pre-sorted AUC) instead of re-deriving it.
+        for name in active_idx:
+            try:
+                v = float(metric_fns_idx[name](idx))
+            except Exception as exc:
+                failures[name] += 1
+                if first_err[name] is None:
+                    first_err[name] = f"{type(exc).__name__}: {exc}"
+                continue
+            if not _isfinite(v):
+                failures[name] += 1
+                continue
+            samples[name][valid[name]] = v
+            valid[name] += 1
 
     lo_pct = (alpha / 2.0) * 100.0
     hi_pct = (1.0 - alpha / 2.0) * 100.0
-    for name in active:
+    for name in _all_active:
         v_n = valid[name]
         if v_n == 0:
             results[name] = {

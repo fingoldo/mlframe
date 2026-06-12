@@ -198,6 +198,80 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
     return None
 
 
+def _build_resample_indices(
+    n: int,
+    n_bootstrap: int,
+    stratify: Optional[np.ndarray],
+    random_state: Optional[int],
+) -> np.ndarray:
+    """Build the (n_bootstrap, resample_len) resample-index matrix ONCE.
+
+    Mirrors ``bootstrap_metric``'s RNG draw order EXACTLY (same seed, same
+    per-class ``rng.integers`` order in unique-sorted class order, int64) so a
+    candidate evaluated on these indices yields the bit-identical CI a fresh
+    per-candidate ``bootstrap_metric`` call would. ``pick_best_calibrator`` reuses
+    this single matrix across all calibrator candidates instead of regenerating
+    the identical resample per candidate (every candidate shares n / stratify /
+    seed; only y_pred differs).
+    """
+    rng = np.random.default_rng(random_state)
+    if stratify is None:
+        out = np.empty((n_bootstrap, n), dtype=np.int64)
+        for b in range(n_bootstrap):
+            out[b] = rng.integers(0, n, size=n, dtype=np.int64)
+        return out
+    stratify = np.asarray(stratify).ravel()
+    groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
+    _groups_list = list(groups.values())
+    _class_sizes = np.array([g.shape[0] for g in _groups_list], dtype=np.int64)
+    _class_offsets = np.empty(_class_sizes.shape[0] + 1, dtype=np.int64)
+    _class_offsets[0] = 0
+    _class_offsets[1:] = np.cumsum(_class_sizes)
+    _total_n = int(_class_sizes.sum())
+    out = np.empty((n_bootstrap, _total_n), dtype=np.int64)
+    for b in range(n_bootstrap):
+        for _c in range(_class_sizes.shape[0]):
+            _sz = int(_class_sizes[_c])
+            _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
+            out[b, _class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+    return out
+
+
+def _bootstrap_ece_with_indices(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    idx_matrix: np.ndarray,
+    metric_fn: Callable[[np.ndarray, np.ndarray], float],
+    alpha: float,
+) -> dict[str, Any]:
+    """Percentile-CI bootstrap for one candidate using a PRE-BUILT index matrix.
+
+    Numerically identical to ``bootstrap_metric`` (same indices -> same per-resample
+    metric -> same percentiles), but the resample matrix is generated once outside
+    the candidate loop and shared, removing the per-candidate RNG + regen cost.
+    """
+    point = float(metric_fn(y_true, y_pred))
+    n_bootstrap = idx_matrix.shape[0]
+    samples = np.empty(n_bootstrap, dtype=np.float64)
+    valid = 0
+    for b in range(n_bootstrap):
+        idx = idx_matrix[b]
+        try:
+            v = float(metric_fn(y_true[idx], y_pred[idx]))
+        except Exception:
+            continue
+        if not np.isfinite(v):
+            continue
+        samples[valid] = v
+        valid += 1
+    if valid == 0:
+        raise ValueError("pick_best_calibrator: all resamples failed for a candidate")
+    samples = samples[:valid]
+    lo = float(np.percentile(samples, (alpha / 2.0) * 100.0))
+    hi = float(np.percentile(samples, (1.0 - alpha / 2.0) * 100.0))
+    return {"point": point, "lo": lo, "hi": hi}
+
+
 def _cis_overlap(ci_a: tuple[float, float], ci_b: tuple[float, float]) -> bool:
     """True if two percentile CIs overlap (closed intervals)."""
     lo_a, hi_a = ci_a
@@ -323,8 +397,6 @@ def pick_best_calibrator(
        ``n_oof < 1000``; if the default isn't in the OOF-tied subset, fall through
        to the lowest-ECE candidate.
     """
-    from mlframe.evaluation.bootstrap import bootstrap_metric
-
     oof_p = np.asarray(oof_probs, dtype=np.float64)
     if oof_p.ndim == 2 and oof_p.shape[1] >= 2:
         oof_p_pos = oof_p[:, 1]
@@ -353,6 +425,13 @@ def pick_best_calibrator(
 
     metric_fn = lambda _y, _p, _nb=n_bins: _ece_score(_y, _p, n_bins=_nb)
 
+    # Build the stratified resample-index matrix ONCE: every candidate shares the
+    # same n / stratify / seed and only differs in calibrated y_pred, so the
+    # per-candidate ``bootstrap_metric`` call previously regenerated the identical
+    # resample. One matrix reused across candidates -> same indices -> bit-identical
+    # CIs at a fraction of the cost. Indices mirror bootstrap_metric's RNG order.
+    idx_matrix = _build_resample_indices(n_oof, n_bootstrap, stratify, random_state)
+
     for name in cand_names:
         apply_fn = _fit_calibrator(name, oof_p_pos, oof_y_arr)
         if apply_fn is None:
@@ -364,15 +443,7 @@ def pick_best_calibrator(
             logger.warning("pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
             continue
         try:
-            ci = bootstrap_metric(
-                oof_y_arr,
-                cal_oof,
-                metric_fn=metric_fn,
-                n_bootstrap=n_bootstrap,
-                alpha=alpha,
-                stratify=stratify,
-                random_state=random_state,
-            )
+            ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, idx_matrix, metric_fn, alpha)
         except Exception as exc:
             logger.warning("pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
             continue

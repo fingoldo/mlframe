@@ -712,7 +712,14 @@ def make_train_test_split(
                     f"{_groups_arr.shape}"
                 )
 
-        if test_size > 0:
+        # Multilabel single greedy 3-way pass replaces two full O(n*K*iters) carves (no groups).
+        _ml_3way_done = _use_multilabel_3way(_groups_arr, _stratify_active, test_size, val_size)
+        if _ml_3way_done:
+            train_idx, val_idx, test_idx = _stratified_split_3way(
+                all_idx, test_size=test_size, val_size=val_size,
+                stratify_y=_stratify_active, random_state=sklearn_seed,
+            )
+        elif test_size > 0:
             if _groups_arr is not None and _strat_groups_active and _stratify_active is not None and _stratify_active.ndim == 1:
                 # Both constraints simultaneously: stratify by target
                 # bucket / class AND keep whole groups together. sklearn
@@ -754,7 +761,9 @@ def make_train_test_split(
         else:
             train_idx, test_idx = all_idx, np.array([], dtype=np.intp)
 
-        if val_size > 0:
+        if _ml_3way_done:
+            pass
+        elif val_size > 0:
             if _groups_arr is not None and _strat_groups_active and _stratify_active is not None and _stratify_active.ndim == 1:
                 # Same StratifiedGroupKFold strategy as the test split,
                 # restricted to the post-test train rows. val_size is
@@ -982,4 +991,9 @@ def make_train_test_split(
 
 __all__ = ["make_train_test_split", "_carve_calib_from_train"]
 
-from ._split_helpers import _carve_calib_from_train, _stratified_split  # noqa: F401,E402
+from ._split_helpers import (  # noqa: F401,E402
+    _carve_calib_from_train,
+    _stratified_split,
+    _stratified_split_3way,
+    _use_multilabel_3way,
+)

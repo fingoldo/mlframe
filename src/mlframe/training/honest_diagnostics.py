@@ -107,9 +107,9 @@ def _bootstrap_block(
             # case from real ML model outputs); see kernel docstring for
             # the rationale and when to use the stable variant instead.
             from mlframe.metrics.core import (
-                fast_roc_auc_unstable as _fast_auc,
                 fast_brier_score_loss as _fast_brier,
                 fast_log_loss as _fast_ll,
+                make_bootstrap_auc_resampler,
             )
 
             # mlframe kernels accept (y_true, y_pred) bound on float64; the
@@ -128,18 +128,30 @@ def _bootstrap_block(
             # something about the dispatcher fast-path on (float64,float64)
             # outperforms the bare call. Not worth the float64 regression to
             # win on int paths.
-            def _auc(yy, pp):
-                return float(_fast_auc(yy, pp))
-
+            # Cast y_true / p_pos to float64 ONCE before the 1000-resample loop
+            # (below), so the resampled ``y_true[idx]`` / ``p_pos
+            # [idx]`` views handed to each metric are already float64. The old
+            # per-call ``yy.astype(np.float64, copy=False)`` inside _brier/_ll
+            # still COPIED on every int-label resample (copy=False only avoids a
+            # copy when dtype already matches) -- ~4000 in-loop copies / block.
+            # With the pre-cast the kernels receive float64 directly: bit-
+            # identical (same values), and the dispatcher hits the same
+            # (float64,float64) fast path the prior code wanted.
             def _brier(yy, pp):
-                return float(_fast_brier(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
+                return float(_fast_brier(yy, pp))
 
             def _ll(yy, pp):
-                return float(_fast_ll(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
+                return float(_fast_ll(yy, pp))
 
-            metric_fns["roc_auc"] = _auc
             metric_fns["brier"] = _brier
             metric_fns["log_loss"] = _ll
+            # roc_auc via the INDEX-aware resampler: pre-argsort the base score
+            # vector ONCE, then build each of the 1000 resamples' descending order
+            # in O(n) (counting-gather over base ranks) instead of a fresh
+            # O(n log n) argsort per resample. 1.6x-4.4x on the 1000-bootstrap
+            # loop, BIT-IDENTICAL on tie-free float64 scores (dominant case);
+            # tied/discrete base auto-falls back to exact argsort in the factory.
+            _make_auc_resampler = make_bootstrap_auc_resampler
         except ImportError as exc:
             out["status"] = "skipped"
             out["reason"] = f"mlframe metrics import failed: {exc}"
@@ -157,10 +169,22 @@ def _bootstrap_block(
         # per-metric bootstrap_metric calls for the same random_state (identical
         # index sequence; a metric raising never advances the RNG).
         if metric_fns:
+            # Pre-cast ONCE so resampled views are float64 (see _brier/_ll note):
+            # removes ~4000 in-loop per-resample copies. _auc/_ece accept float64
+            # natively; stratify uses the original-label y_true for class masks.
+            y_true_f64 = np.ascontiguousarray(y_true, dtype=np.float64)
+            p_pos_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)
+            # Build the index-aware AUC resampler on the same f64 base arrays the
+            # loop resamples, so resampler(idx) matches y_true_f64[idx]/p_pos_f64[idx].
+            _metric_fns_idx = None
+            _resampler_factory = locals().get("_make_auc_resampler")
+            if _resampler_factory is not None:
+                _metric_fns_idx = {"roc_auc": _resampler_factory(y_true_f64, p_pos_f64)}
             try:
                 cis = bootstrap_metrics(
-                    y_true, p_pos, metric_fns,
+                    y_true_f64, p_pos_f64, metric_fns,
                     n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
+                    metric_fns_idx=_metric_fns_idx,
                 )
             except Exception as exc:
                 cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}

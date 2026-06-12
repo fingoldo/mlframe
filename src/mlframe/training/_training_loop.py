@@ -45,6 +45,32 @@ from .utils import get_pandas_view_of_polars_df, maybe_clean_ram_adaptive as _ma
 logger = logging.getLogger(__name__)
 
 
+def _in_interactive_notebook() -> bool:
+    """True only inside an IPython/Jupyter kernel where CB's live plot makes sense."""
+    try:
+        from IPython import get_ipython  # type: ignore
+
+        ip = get_ipython()
+        return ip is not None and type(ip).__name__ == "ZMQInteractiveShell"
+    except Exception:
+        return False
+
+
+def _maybe_disable_cb_plot(model_type_name: str, fit_params: dict, verbose: bool) -> None:
+    """Set ``plot=False`` for CatBoost fits outside an interactive notebook.
+
+    Without it CB spawns+joins a MetricVisualizer/ipywidget plot thread (~1.5s/fit)
+    even headless / ``verbose=0``. Pure-config: no numerics change. Respects an
+    explicit user-supplied ``plot`` and never disables inside a live Jupyter kernel
+    unless verbose is off.
+    """
+    if model_type_name not in CATBOOST_MODEL_TYPES or "plot" in fit_params:
+        return
+    if _in_interactive_notebook() and verbose:
+        return
+    fit_params["plot"] = False
+
+
 def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     """When target is (N, K>=2) continuous but CatBoostRegressor lacks an
     MTR-compatible ``loss_function``, set ``loss_function='MultiRMSE'``
@@ -486,6 +512,7 @@ def _train_model_with_fallback(
                 elif isinstance(_eval_set_for_align, tuple):
                     fit_params["eval_set"] = (_aligned_val, _eval_set_for_align[1])
 
+        _maybe_disable_cb_plot(model_type_name, fit_params, verbose)
         with phase(
             "model.fit",
             model=model_type_name,

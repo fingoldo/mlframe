@@ -70,6 +70,97 @@ def _stratified_split(
     return indices[left_pos], indices[right_pos]
 
 
+def _use_multilabel_3way(groups, stratify_y, test_size: float, val_size: float) -> bool:
+    """True when the single-pass multilabel 3-way carve applies (2-D strat, no groups, both carves)."""
+    return (
+        groups is None
+        and stratify_y is not None
+        and getattr(stratify_y, "ndim", 0) == 2
+        and test_size > 0
+        and val_size > 0
+    )
+
+
+def _stratified_split_3way(
+    indices: np.ndarray,
+    test_size: float,
+    val_size: float,
+    stratify_y: np.ndarray,
+    random_state: Optional[int] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Single-pass 3-way stratified partition (train / val / test).
+
+    Replaces the two-call ``MultilabelStratifiedShuffleSplit`` pattern (test carve
+    over all N, then val carve over the remainder) -- each of which re-ran the full
+    O(n*K*iters) greedy from scratch -- with ONE greedy pass over all N into three
+    folds. Uses ``iterstrat.IterativeStratification`` directly (the same kernel the
+    shuffle-splitter wraps), so the split stays a valid, leakage-free, label-balanced
+    multilabel split and is deterministic for a fixed seed.
+
+    Fractions follow the suite convention: ``test_size`` and ``val_size`` are both
+    fractions of the WHOLE ``indices`` (NOT of the post-test remainder), matching the
+    cumulative semantics the two-call path produced (test over N, then val over the
+    train remainder == val_size*N rows). Train gets ``1 - test_size - val_size``.
+
+    1-D ``stratify_y`` falls back to the exact two-call ``_stratified_split`` path
+    (single-label sklearn carve is already cheap; no greedy re-run to fold).
+
+    Returns ``(train_idx, val_idx, test_idx)`` -- all slices of ``indices``.
+    """
+    if stratify_y.ndim == 1:
+        train_idx, test_idx = _stratified_split(
+            indices, test_size=test_size, stratify_y=stratify_y, random_state=random_state,
+        )
+        # val_size is a fraction of the whole; rescale to the train remainder.
+        rem = max(1.0 - test_size, 1e-12)
+        strat_train = stratify_y[_positions(indices, train_idx)]
+        train_idx, val_idx = _stratified_split(
+            train_idx, test_size=min(val_size / rem, 1.0 - 1e-9),
+            stratify_y=strat_train, random_state=random_state,
+        )
+        return train_idx, val_idx, test_idx
+
+    if stratify_y.ndim != 2:
+        raise ValueError(f"stratify_y must be 1-D or 2-D, got shape {stratify_y.shape}")
+
+    try:
+        from iterstrat.ml_stratifiers import IterativeStratification
+    except ImportError as e:
+        raise ImportError(
+            "Multilabel stratification requires the optional dependency "
+            "'iterative-stratification'. Install via: "
+            "pip install iterative-stratification\n"
+            f"Original error: {e}"
+        ) from e
+    from sklearn.utils import check_random_state
+
+    train_frac = max(1.0 - test_size - val_size, 0.0)
+    # Fold order [train, val, test]; r normalised so the greedy desired-counts match.
+    r = np.array([train_frac, val_size, test_size], dtype=float)
+    r = r / r.sum()
+
+    rng = check_random_state(random_state)
+    y = np.asarray(stratify_y, dtype=bool)
+    n = y.shape[0]
+    perm = np.arange(n)
+    rng.shuffle(perm)
+    folds = IterativeStratification(labels=y[perm], r=r, random_state=rng)
+    # Map fold labels back to original positions in ``indices``.
+    fold_of_pos = folds[np.argsort(perm)]
+    train_idx = indices[fold_of_pos == 0]
+    val_idx = indices[fold_of_pos == 1]
+    test_idx = indices[fold_of_pos == 2]
+    return train_idx, val_idx, test_idx
+
+
+def _positions(indices: np.ndarray, subset: np.ndarray) -> np.ndarray:
+    """Positions of ``subset`` values within ``indices`` (both are index arrays)."""
+    order = np.argsort(indices, kind="stable")
+    sorted_idx = indices[order]
+    pos_in_sorted = np.searchsorted(sorted_idx, subset)
+    return order[pos_in_sorted]
+
+
 def _carve_calib_from_train(
     train_idx: np.ndarray,
     calib_size: float,
