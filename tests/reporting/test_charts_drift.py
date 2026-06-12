@@ -538,3 +538,42 @@ def test_cprofile_adversarial_subsample_bound():
     pr.disable()
     assert imp.shape == (d,)
     assert 0.0 <= auc <= 1.0
+
+
+# ----------------------------------------- feature_names column selection (regression)
+
+
+def test_frame_columns_honors_feature_names_for_dataframe():
+    """_frame_columns must RESTRICT + ORDER pulled columns to feature_names on a
+    DataFrame, not silently return every column. Pre-fix it ignored feature_names
+    for frames, so PSI / adversarial validation trained on id / target columns."""
+    pd = pytest.importorskip("pandas")
+    df = pd.DataFrame({"a": [1.0, 2, 3], "b": [4.0, 5, 6], "id": [7.0, 8, 9]})
+    cols, names = drift._frame_columns(df, ["a", "b"])
+    assert names == ["a", "b"]
+    assert len(cols) == 2
+    # order is honored, not just the set
+    cols2, names2 = drift._frame_columns(df, ["b", "a"])
+    assert names2 == ["b", "a"]
+    assert float(cols2[0][0]) == 4.0
+
+
+def test_adversarial_auc_respects_feature_subset():
+    """adversarial_auc(feature_names=[...]) must only use the requested columns:
+    a perfectly-separating leak column NOT in feature_names must not be seen, so
+    the restricted AUC stays near chance while the unrestricted AUC is ~1."""
+    pytest.importorskip("lightgbm")
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(7)
+    n = 1500
+    a = pd.DataFrame({"x": rng.normal(size=n), "leak": np.zeros(n)})
+    b = pd.DataFrame({"x": rng.normal(size=n), "leak": np.ones(n)})
+    auc_sub, _, _, imp_sub, names_sub = drift.adversarial_auc(
+        a, b, feature_names=["x"], n_splits=3, seed=1
+    )
+    assert names_sub == ("x",)
+    assert imp_sub.shape == (1,)
+    assert auc_sub < 0.6  # leak excluded => near chance
+    auc_all, _, _, _, names_all = drift.adversarial_auc(a, b, n_splits=3, seed=1)
+    assert "leak" in names_all
+    assert auc_all > 0.95  # leak included => perfectly separable

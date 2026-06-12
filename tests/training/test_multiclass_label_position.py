@@ -132,6 +132,49 @@ def test_multiclass_ice_metric_auto_maps_non_0_indexed_integer_labels():
     assert set(per_class) == {0, 1, 2} and np.isclose(total, err_explicit)
 
 
+def test_dummy_baselines_non_0_indexed_integer_multiclass_labels():
+    """compute_dummy_baselines on integer multiclass labels {1,2,3} (NOT 0..K-1).
+
+    Integer multiclass targets are not label-encoded upstream (only string/object are), so {1,2,3}
+    reaches the dummy-baseline builders raw. Pre-fix two label-position assumptions silently broke it:
+      * ``np.bincount(train_y, minlength=K)`` returns max(label)+1 == K+1 wide -> a phantom class-0
+        column -> the prior/most_frequent/uniform prob matrices come out (N, K+1) not (N, K).
+      * the metrics table calls ``log_loss(y, p, labels=np.arange(K))``; raw label 3 is absent from
+        {0,1,2} so sklearn raises -> every classification metric becomes NaN -> the whole table fails.
+    The dispatch now searchsorts the labels to positions 0..K-1, so the prob matrices are (N, K) and
+    at least one baseline reports a finite log_loss.
+    """
+    from mlframe.training.baselines import compute_dummy_baselines
+    from mlframe.training.configs import DummyBaselinesConfig
+
+    rng = np.random.default_rng(0)
+    n_tr, n_va, n_te = 300, 120, 120
+    train_y = rng.integers(1, 4, size=n_tr)  # labels {1,2,3}
+    val_y = rng.integers(1, 4, size=n_va)
+    test_y = rng.integers(1, 4, size=n_te)
+    import pandas as pd
+    train_X = pd.DataFrame({"f": rng.normal(size=n_tr)})
+    val_X = pd.DataFrame({"f": rng.normal(size=n_va)})
+    test_X = pd.DataFrame({"f": rng.normal(size=n_te)})
+
+    rep = compute_dummy_baselines(
+        target_type="multiclass_classification", target_name="t",
+        train_X=train_X, val_X=val_X, test_X=test_X,
+        train_y=train_y, val_y=val_y, test_y=test_y,
+        config=DummyBaselinesConfig(),
+    )
+    assert rep.extras.get("n_classes") == 3
+    # At least one baseline must have a finite val_log_loss: pre-fix every row was NaN
+    # (log_loss labels=arange(3) rejects label 3) -> the table is all-failed.
+    tbl = rep.table
+    finite_ll = tbl["val_log_loss"].apply(lambda v: np.isfinite(v) if v is not None else False)
+    assert bool(finite_ll.any()), (
+        f"no baseline produced a finite val_log_loss for non-0-indexed labels; table=\n{tbl}"
+    )
+    # Width check via uniform: 1/K per class on K=3 columns.
+    assert not tbl["failed"].all(), f"all baselines failed for {{1,2,3}} labels; table=\n{tbl}"
+
+
 def test_classification_report_no_phantom_class_for_non_0_indexed_labels(caplog):
     """The printed classification_report table must carry exactly K rows (in label order) with the correct macro avg.
 

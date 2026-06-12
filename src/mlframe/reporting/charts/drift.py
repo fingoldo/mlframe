@@ -162,16 +162,21 @@ def compute_psi_matrix(
 def _frame_columns(
     feature_frame: Any, feature_names: Optional[Sequence[str]]
 ) -> Tuple[List[np.ndarray], List[str]]:
-    """Yield per-column ndarrays + names from ndarray / pandas / polars without copying the whole frame."""
+    """Yield per-column ndarrays + names from ndarray / pandas / polars without copying the whole frame.
+
+    ``feature_names`` (when given) RESTRICTS + ORDERS the pulled columns for a DataFrame
+    too -- not only the ndarray-labelling path. Ignoring it on frames silently trained
+    PSI / adversarial validation on every column (target / id leakage, mismatched order).
+    """
     if hasattr(feature_frame, "columns") and hasattr(feature_frame, "__getitem__") and not isinstance(feature_frame, np.ndarray):
-        names = [str(c) for c in feature_frame.columns]
+        selected = list(feature_names) if feature_names is not None else list(feature_frame.columns)
         # polars exposes ``to_numpy`` per Series; pandas ``.values``. Pull one column at a time (narrow ndarray pull).
         cols = []
-        for c in feature_frame.columns:
+        for c in selected:
             s = feature_frame[c]
             arr = s.to_numpy() if hasattr(s, "to_numpy") else np.asarray(s)
             cols.append(arr)
-        return cols, names
+        return cols, [str(c) for c in selected]
     arr = np.asarray(feature_frame)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)

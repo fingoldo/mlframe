@@ -141,7 +141,7 @@ class _PerClassIsotonicCalibrator:
         self.n_classes = n_classes
 
     @classmethod
-    def fit(cls, probs_NK, y_true, target_type):
+    def fit(cls, probs_NK, y_true, target_type, classes=None):
         """Fit K independent isotonic regressions on the calibration set.
 
         Parameters
@@ -150,9 +150,19 @@ class _PerClassIsotonicCalibrator:
             Canonical (N, K) probability matrix (use
             ``_canonical_predict_proba_shape`` to coerce first).
         y_true : np.ndarray
-            - MULTICLASS: shape (N,) with int labels 0..K-1
+            - MULTICLASS: shape (N,) with the raw class labels (may be
+              non-0..K-1, e.g. ``[10, 20, 30]`` or strings).
             - MULTILABEL: shape (N, K) binary indicator matrix
         target_type : TargetTypes
+        classes : sequence, optional
+            The class label for each probability COLUMN (i.e. ``model.classes_``,
+            which is what orders ``predict_proba`` columns). Column ``k`` is
+            calibrated against ``y_true == classes[k]``. MULTICLASS only. When
+            ``None`` it falls back to ``np.unique(y_true)`` (sklearn's sorted
+            classes_ order) so callers that omit it stay correct for the common
+            "every class appears in calib" case. Passing ``range(K)`` reproduces
+            the legacy positional behaviour and is only correct when the labels
+            are exactly ``0..K-1``.
         """
         import numpy as _np
         from .configs import TargetTypes
@@ -162,11 +172,26 @@ class _PerClassIsotonicCalibrator:
         is_exclusive = target_type == TargetTypes.MULTICLASS_CLASSIFICATION
         y = _np.asarray(y_true)
 
+        col_labels = None
+        if is_exclusive:
+            # Map probability COLUMN k -> its class label. predict_proba orders
+            # columns by model.classes_ (sorted unique), NOT by integer value, so
+            # ``y == k`` is wrong whenever the labels are not exactly 0..K-1.
+            if classes is not None:
+                col_labels = _np.asarray(classes)
+            else:
+                col_labels = _np.unique(y)
+            if col_labels.shape[0] != K:
+                # Fall back to positional only if we truly cannot align (e.g. a
+                # class is absent from the calib slice); a misaligned guess would
+                # silently calibrate the wrong column, so prefer identity there.
+                col_labels = None
+
         calibrators = {}
         for k in range(K):
             # Per-class binary target
             if is_exclusive:
-                y_k = (y == k).astype(_np.int8)
+                y_k = (y == (col_labels[k] if col_labels is not None else k)).astype(_np.int8)
             else:
                 # Multilabel: y is (N, K)
                 y_k = y[:, k].astype(_np.int8)
@@ -354,7 +379,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
             )
         if _ttype is None:
             _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
-        calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype)
+        calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype, classes=getattr(base, "classes_", None))
         wrapped = _PostHocMultiCalibratedModel(base, calibrator, _ttype, classes_=getattr(base, "classes_", None))
     else:
         _pos = _cp[:, 1] if _cp.ndim == 2 else _cp.ravel()
