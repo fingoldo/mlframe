@@ -7047,6 +7047,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # the rescue pool so RFECV only reconsiders RAW discarded columns.
             _excluded_from_rescue.update(getattr(self, "hybrid_orth_features_", None) or [])
             _excluded_from_rescue.update(getattr(self, "mi_greedy_features_", None) or [])
+            # Raw operands the conditional-redundancy sweep judged FULLY SUBSUMED by a
+            # surviving engineered child (``_raw_redundancy_dropped_``) must NOT re-enter
+            # via the RFECV rescue pool. The n-invariant CMI verdict is authoritative: a
+            # raw whose entire y-information is captured by an admitted engineered feature
+            # (e.g. ``a`` / ``b`` in ``a**2/b`` once ``div(neg(a),sqrt(b))`` is selected)
+            # carries no independent signal, but CatBoost RFECV -- which scores raw
+            # MARGINAL usefulness, blind to the engineered child's coverage -- would re-admit
+            # it, resurrecting the exact redundancy the sweep removed (observed at n=2000/5000
+            # on ``y=0.30 a**2/b``: the sweep dropped a+b, RFECV re-added a). Excluding the
+            # dropped set keeps the redundancy decision consistent across both the FE-step
+            # finalisation AND the downstream RFECV rescue.
+            _excluded_from_rescue.update(getattr(self, "_raw_redundancy_dropped_", None) or set())
             temp_columns = [c for c in X.columns if c not in _sel_names and c not in _excluded_from_rescue]
 
             if _is_classification:
@@ -7105,7 +7117,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # column is added (the operand most relevant to y), never an unvalidated one, and the engineered
     # recipe still rides along via ``get_feature_names_out`` / ``transform``. Best-effort: any failure
     # leaves the empty support_ unchanged (no crash on a degenerate fit).
-    if (not selected_vars) and getattr(self, "_engineered_recipes_", None):
+    # The conditional-redundancy sweep marks an INTENTIONALLY engineered-only support via
+    # ``_redundancy_emptied_raw_``: every raw operand was FULLY subsumed by a surviving
+    # engineered child (e.g. ``a`` + ``b`` both captured by ``div(neg(a),sqrt(b))`` for
+    # ``y=a**2/b``), so re-attaching the "best" raw stand-in would resurrect exactly the
+    # operand the n-invariant CMI verdict just dropped (observed at n=2000/5000: the sweep
+    # dropped a+b, this block re-added a as the highest-marginal stand-in). When the empty
+    # raw support is the redundancy sweep's deliberate outcome, the engineered recipes ARE
+    # the complete feature set -- skip the never-empty re-attach and let ``support_`` stay
+    # empty (transform still emits the engineered columns). The re-attach remains active for
+    # the genuine degenerate case (engineered-only with no redundancy verdict).
+    if (not selected_vars) and getattr(self, "_engineered_recipes_", None) \
+            and not getattr(self, "_redundancy_emptied_raw_", False):
         try:
             from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _NE_TOK_SPLIT
             from ..info_theory import mi as _ne_mi
@@ -7121,11 +7144,49 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _operand_idxs.add(cols.index(_base))
                         except ValueError:
                             continue
-            if _operand_idxs:
+            # CONDITIONAL-REDUNDANCY GUARD on the re-attach (2026-06-12, BUG1). The
+            # operand picked below is the highest-MARGINAL-MI one, but a high marginal
+            # does NOT mean it carries signal the engineered child lacks: a dominant
+            # operand (``a`` in ``a**2/b``) has the largest marginal yet is FULLY
+            # subsumed by the ``a**2/b`` ratio inside the surviving composite. Re-
+            # attaching it re-introduces exactly the redundancy the campaign set out to
+            # remove (observed at n=100k on the user fixture: the single full-target
+            # composite ``add(mul(log(c),sin(d)),abs(div(sqr(a),abs(b))))`` rode as a
+            # recipe -> ``selected_vars`` empty -> this block re-attached raw ``a``,
+            # which the composite already captures). Restrict the candidate pool to
+            # operands that carry a SIGNIFICANT INDEPENDENT RESIDUAL given the engineered
+            # survivor(s), using the SAME n-invariant conditional-redundancy verdict as
+            # the main drop. Only operands NOT judged subsumed are eligible; if every
+            # operand is subsumed (the composite fully reconstructs y), leave the support
+            # engineered-only -- the recipe IS the complete feature set.
+            _subsumed_operand_names: set = set()
+            try:
+                from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _ne_drop
+                _eng_survivor_cols = [
+                    cols.index(str(r)) for r in self._engineered_recipes_
+                    if str(r) in cols and str(r) not in _raw_names_ne
+                ]
+                if _eng_survivor_cols and _operand_idxs:
+                    _trial_sel = sorted(set(_operand_idxs) | set(_eng_survivor_cols))
+                    _, _ne_dropped = _ne_drop(
+                        data=data, cols=cols, selected_cols_idx=_trial_sel,
+                        raw_name_set=_raw_names_ne, y_binned=classes_y,
+                        y_continuous=(y.values if hasattr(y, "values") else np.asarray(y)),
+                        engineered_continuous=_eng_continuous_snapshot,
+                        replayable_eng_names={str(r) for r in self._engineered_recipes_},
+                        seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
+                    )
+                    _subsumed_operand_names = set(_ne_dropped or ())
+            except Exception:
+                _subsumed_operand_names = set()  # best-effort: fall back to MI-only pick
+            _eligible_idxs = [
+                _oi for _oi in _operand_idxs if cols[_oi] not in _subsumed_operand_names
+            ]
+            if _eligible_idxs:
                 _tgt_ne = np.asarray(target_indices, dtype=np.int64)
                 _fn_ne = np.asarray(nbins, dtype=np.int64)
                 _best_idx_ne, _best_rel_ne = -1, float("-inf")
-                for _oi in sorted(_operand_idxs):
+                for _oi in sorted(_eligible_idxs):
                     try:
                         _rel_ne = float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
                     except Exception:
@@ -7138,8 +7199,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         logger.info(
                             "MRMR never-empty raw representative: support_ would be empty (only engineered "
                             "feature(s) selected); re-attached raw operand %r (marginal MI %.4f) as the raw "
-                            "stand-in.", cols[_best_idx_ne], _best_rel_ne,
+                            "stand-in (carries residual signal beyond the engineered child).",
+                            cols[_best_idx_ne], _best_rel_ne,
                         )
+            elif _operand_idxs and verbose:
+                logger.info(
+                    "MRMR never-empty raw representative: ALL %d engineered operand(s) are "
+                    "conditionally subsumed by the surviving engineered child; leaving support "
+                    "engineered-only (no spurious raw stand-in re-attached): %s",
+                    len(_operand_idxs), sorted(_subsumed_operand_names),
+                )
         except Exception as _ne_exc:
             logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
 

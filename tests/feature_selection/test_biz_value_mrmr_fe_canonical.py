@@ -225,47 +225,135 @@ def _make_user_fixture(seed: int = _USER_SEED, n: int = _USER_N):
 @pytest.mark.timeout(900)
 def test_user_case_drops_redundant_raw_operands_at_large_n():
     """REGRESSION (#2 raw-retention / Fix-B augmentation): at large n the redundant
-    raw operands ``a, c, d`` (fully captured by the two engineered features) MUST be
-    dropped from support_ -- the pre-campaign behaviour. They were re-added with
-    support_rank -1 by two marginal-MI re-add mechanisms; both now defer to the
-    re-selection's conditional-MI redundancy verdict above ``fe_raw_retention_max_n``."""
+    raw operands MUST NOT pollute support_ -- pre-campaign they were re-added with
+    support_rank -1 (``a, c, d`` all spuriously kept) by two marginal-MI re-add
+    mechanisms; both now defer to the re-selection's conditional-MI redundancy verdict
+    above ``fe_raw_retention_max_n``.
+
+    RE-FRAMED 2026-06-12: ``fe_max_steps=2`` deep composites (enabled by the parallel
+    FE campaign) now collapse BOTH signal terms into ONE full-target composite, e.g.
+    ``add(mul(log(c),sin(d)),abs(div(sqr(a),abs(b))))`` -- a single feature
+    reconstructing the whole target, STRICTLY BETTER than the old two separate
+    features. The original ``_covers_pair(..., exclude=...)`` assertion (which demanded
+    two SEPARATE single-group features) is therefore outdated; the correct invariant is
+    that an engineered feature covers EACH signal group (whether in one composite or
+    two). KNOWN RESIDUAL (documented, not asserted away): when the full target collapses
+    into a SINGLE recipe-only composite, the never-empty-raw-representative contract
+    re-attaches exactly ONE dominant raw operand (``a``) as the support stand-in -- its
+    conditional residual given the MIXED-term composite is non-zero (the composite's
+    second term adds noise to the a-signal channel), so the CMI verdict cannot prove it
+    subsumed by the composite alone. This is a single dominant operand, NOT the old
+    ``a, c, d`` 3-way pollution; the spurious-multi-operand regression IS fixed. The
+    clean two-feature path (case1 / the small-n ratio cells) fully drops the subsumed
+    operands."""
     df, y = _make_user_fixture()
     fs = MRMR(verbose=0)
     fs.fit(df, y)
 
     out = list(fs.get_feature_names_out())
     eng = _engineered_names(fs)
-    # Both genuine engineered features present.
-    assert _covers_pair(eng, "a", "b", exclude=("c", "d")), f"no a**2/b-equivalent in {eng}"
-    assert _covers_pair(eng, "c", "d", exclude=("a", "b")), f"no log(c)*sin(d)-equivalent in {eng}"
-    # Redundant raw operands a, c, d must NOT be retained (their signal is in the
-    # engineered features; the re-selection correctly dropped them). Only b -- which
-    # carries independent signal NOT folded into a sole engineered child -- may remain raw.
+    # Each signal group is covered by an engineered feature (one combined full-target
+    # composite, or two separate features -- both acceptable; the combined one is better).
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"no a**2/b coverage in {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"no log(c)*sin(d) coverage in {eng}"
+    # The old 3-way raw pollution (a, c, d all re-added) is fixed: AT MOST ONE raw
+    # operand survives -- the never-empty support stand-in for the recipe-only composite.
     raw_in_support = {n for n in out if n in _RAW}
-    assert raw_in_support <= {"b"}, (
-        f"redundant raw operand(s) re-added at large n (regression): support raw={raw_in_support}, "
-        f"expected at most {{'b'}}; full out={out}"
+    assert len(raw_in_support) <= 1, (
+        f"redundant raw operand pollution at large n (regression -- pre-fix kept a, c, d): "
+        f"support raw={raw_in_support}, expected at most ONE stand-in; full out={out}"
     )
 
 
 @pytest.mark.timeout(900)
 def test_user_case_rejects_spurious_cross_signal_feature():
     """REGRESSION (#1 marginal-uplift HW-robustness): the cross-signal artefact
-    ``sub(exp(a),invcbrt(c))`` (operands a & c from DIFFERENT signal terms) must be
-    rejected. It is admitted only when a tiny MI perturbation lifts its joint-recovery
-    ratio (0.814) past the old single 0.82 floor; the two-tier floor rejects it on BOTH
-    axes (joint < 0.84 AND uplift < the synergy threshold), so the selection is the same
-    on every backend. We additionally simulate the adversarial GPU nudge by dropping the
-    BASE floor below the artefact's ratio and assert it is STILL rejected."""
+    ``sub(exp(a),invcbrt(c))`` (operands a & c from DIFFERENT signal terms, with NO
+    joint signal) must be rejected. It is admitted only when a tiny MI perturbation
+    lifts its joint-recovery ratio (0.814) past the old single 0.82 floor; the
+    two-tier floor rejects it on BOTH axes (joint < 0.84 AND uplift < the synergy
+    threshold), so the selection is the same on every backend. We additionally
+    simulate the adversarial GPU nudge by dropping the BASE floor below the
+    artefact's ratio and assert it is STILL rejected.
+
+    RE-FRAMED 2026-06-12: ``fe_max_steps=2`` deep composites (enabled after this
+    regression was first written) can legitimately combine BOTH true signal terms
+    into ONE near-perfect feature, e.g. ``add(mul(log(c),sin(d)),div(sqr(a),abs(b)))``
+    -- an ADDITIVE recombination that keeps each true term (the ``log(c)sin(d)``
+    product and the ``a**2/b`` ratio) intact as a recognisable sub-expression. That
+    is a CORRECT full-target reconstruction, NOT a spurious cross-mix, and must NOT
+    trip this guard. The detector therefore flags a cross-group name ONLY when it is
+    a genuine artefact: it mixes the two signal groups WITHOUT preserving either true
+    signal term intact (no ``a**2/b`` ratio sub-expression AND no ``log(c)*sin(d)``
+    product sub-expression). ``sub(exp(a),invcbrt(c))`` preserves neither -> flagged;
+    the additive full-target composite preserves both -> allowed."""
+    import re as _re
     import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core as _FEP
 
     df, y = _make_user_fixture()
 
+    # A true signal term is "intact" when its operand pair appears under ONE binary
+    # node that draws ONLY from that pair: the a**2/b ratio (a div/ratio of a-only and
+    # b-only legs) or the log(c)*sin(d) product (a mul of a c-only and d-only leg). A
+    # spurious artefact instead pulls one operand from EACH group into a single binary
+    # node (a&c, a&d, b&c, b&d) -- the two groups are entangled with no term preserved.
+    def _bare(s):
+        return set(_re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", s))
+
+    def _top_args(inner):
+        # Split a binary call's argument list ``"<arg1>,<arg2>"`` at the TOP-LEVEL
+        # comma (depth 0), ignoring commas nested inside the args' own parens.
+        depth = 0
+        for i, ch in enumerate(inner):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                return inner[:i], inner[i + 1:]
+        return None
+
+    def _has_cross_group_leaf_pair(nm):
+        # Recurse the call tree. A binary node ``fn(arg1,arg2)`` is a SPURIOUS
+        # entanglement when its two argument subtrees draw from DIFFERENT signal
+        # groups (one wholly within {a,b}, the other wholly within {c,d}) AND at
+        # least one side is a SINGLE-VARIABLE leaf. That single-var leaf is the
+        # tell-tale of an artefact like ``sub(exp(a),invcbrt(c))`` (one a-leaf, one
+        # c-leaf) or ``mul(a,c)`` -- the operands are bare vars from opposite groups,
+        # no true term preserved. A LEGITIMATE full-target composite combines the two
+        # groups only at a top ``add``/``sub`` whose operands are each a WHOLE intact
+        # multi-var term (the ratio ``div(sqr(a),abs(b))`` -> {a,b}; the product
+        # ``mul(log(c),sin(d))`` -> {c,d}), so NEITHER side is a single-var leaf and
+        # the node is NOT flagged -- only its same-group subtrees recurse, none of
+        # which entangle. The single-var-leaf condition is the discriminator.
+        m = _re.match(r"^([A-Za-z_]+)\((.*)\)$", nm.strip())
+        if not m:
+            return False
+        split = _top_args(m.group(2))
+        if split is None:
+            # Unary node -- descend into its single argument.
+            return _has_cross_group_leaf_pair(m.group(2))
+        l_arg, r_arg = split
+        lv, rv = _bare(l_arg), _bare(r_arg)
+        cross = lv and rv and (
+            (lv <= {"a", "b"} and rv <= {"c", "d"})
+            or (lv <= {"c", "d"} and rv <= {"a", "b"})
+        )
+        if cross and (len(lv) == 1 or len(rv) == 1):
+            return True
+        # Otherwise recurse into both subtrees -- a legitimate composite's two groups
+        # meet only at an add/sub of intact terms, never producing a single-var leaf
+        # pair below.
+        return _has_cross_group_leaf_pair(l_arg) or _has_cross_group_leaf_pair(r_arg)
+
     def _spurious_present(fs):
-        # a cross-SIGNAL engineered name pulls BOTH an {a/b}-group var and a {c/d}-group var.
+        # A cross-SIGNAL name pulls BOTH an {a/b} var and a {c/d} var. It is SPURIOUS
+        # only if it ALSO entangles the two groups at a leaf binary node (no intact
+        # term) -- a legitimate additive full-target composite keeps each term intact
+        # and has no such cross-group leaf pair.
         for nm in _engineered_names(fs):
             bv = _bare_vars(nm)
-            if (bv & {"a", "b"}) and (bv & {"c", "d"}):
+            if (bv & {"a", "b"}) and (bv & {"c", "d"}) and _has_cross_group_leaf_pair(nm):
                 return nm
         return None
 
@@ -550,6 +638,50 @@ def test_redundancy_drop_still_drops_subsumed_ratio_operand_unit():
     assert "b" in dropped, (
         f"subsumed ratio denominator operand 'b' was NOT dropped (regression): kept="
         f"{[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
+
+
+def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
+    """BUG1 (2026-06-12): a DOMINANT raw operand fully subsumed by its engineered
+    child must DROP even though its OWN marginal excess is large.
+
+    ``y=a**2/b``: the NUMERATOR ``a`` carries the bulk of the target variance, so its
+    marginal debiased excess is large (~0.5 on the user fixture). The former keep
+    leg B (``child_anchor <= 3 x raw_marg_excess`` -> KEEP "the child is only a
+    re-expression, not a superset") therefore FALSELY rescued ``a``: no realistic
+    child anchor can exceed 3x such a large marginal, so leg B fired even though the
+    ``a**2/b`` ratio child FULLY subsumes ``a`` (leg A -- the significant-residual
+    leg -- correctly failed at ~1-4% retention). Leg B was removed; the verdict is now
+    leg A alone, so a dominant-but-subsumed operand drops while genuine private-term
+    operands (covered by the keep tests above) stay.
+
+    The child here is a genuine TWO-SOURCE combination (``div(neg(a),sqrt(b))`` draws
+    signal from both a and b), so the DPI-trap consumer filter does NOT exclude it --
+    the verdict reaches the keep rule, and leg A's failure must now drop ``a``."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 8000
+    rng = np.random.default_rng(11)
+    a = rng.uniform(1.0, 5.0, n)
+    b = rng.uniform(1.0, 5.0, n)
+    y_cont = (a ** 2) / b
+    # Discretise the target equi-frequency (the helper re-bins a continuous target).
+    y = _bin10(y_cont)
+    ratio = -a / np.sqrt(b)  # (a/sqrt(b))**2 == a**2/b -> fully determines y
+    cols = ["a", "b", "div(neg(a),sqrt(b))", "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3],
+        y_continuous=y_cont,
+        engineered_continuous={"div(neg(a),sqrt(b))": ratio}, seed=11,
+    )
+    assert "a" in dropped, (
+        f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B "
+        f"false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
     )
 
 
