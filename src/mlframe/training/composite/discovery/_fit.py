@@ -822,7 +822,7 @@ def fit(
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "forward_stepwise_done")
 
-    # Opt-in discovery steps (region-adaptive / interaction-base / auto-chain). ALL gated by config flags defaulting False -> a no-op leaving kept_specs byte-identical to the pre-hook flow. Heavy logic lives in the ``_opt_in_steps`` sibling (LOC threshold); it returns extra appendable specs (auto-chain) + stashes per-step artefacts on the instance. The cheap gate check + no-op artefact init both live in the sibling.
+    # Opt-in discovery steps (region-adaptive / interaction-base / auto-chain). Gated by config flags defaulting True (each has test-confirmed value); set all False for a no-op leaving kept_specs byte-identical to the pre-hook flow. Heavy logic lives in the ``_opt_in_steps`` sibling (LOC threshold); it returns extra appendable specs (auto-chain) + stashes per-step artefacts on the instance. The cheap gate check + no-op artefact init both live in the sibling.
     if kept_specs and (
         getattr(self.config, "region_adaptive_enabled", False)
         or getattr(self.config, "interaction_base_discovery_enabled", False)

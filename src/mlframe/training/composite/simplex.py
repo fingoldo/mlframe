@@ -104,8 +104,20 @@ def multiplicative_zero_replacement(y: np.ndarray, delta: float = _DEFAULT_ZERO_
 
 
 def _close(y: np.ndarray) -> np.ndarray:
-    """Normalise each row to sum to 1 (the closure operation)."""
+    """Normalise each row to sum to 1 (the closure operation).
+
+    A degenerate row whose parts sum to <=0 (an all-zero row, or all-negative
+    noise) carries no relative information and would make the naive ``y / s``
+    produce NaN/inf that silently corrupts the downstream log-ratio target. Such
+    rows are mapped to the uniform composition ``1/K`` -- the no-information point
+    of the simplex -- so the log-ratio map stays finite.
+    """
     s = y.sum(axis=1, keepdims=True)
+    bad = ~np.isfinite(s[:, 0]) | (s[:, 0] <= 0.0)
+    if bad.any():
+        out = y / np.where(s <= 0.0, 1.0, s)
+        out[bad] = 1.0 / y.shape[1]
+        return out
     return y / s
 
 

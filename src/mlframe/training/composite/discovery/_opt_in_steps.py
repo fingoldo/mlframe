@@ -13,17 +13,18 @@ were never reachable from a plain ``fit`` call:
   held-out y-scale RMSE.
 
 ``run_optional_discovery_steps`` runs ONLY the enabled steps (each gated by a
-NEW config flag that defaults ``False``) over the already-kept single-base
+config flag that defaults ``True``) over the already-kept single-base
 specs, stashes the per-step rich artefacts on dedicated instance attributes
 (``region_adaptive_specs_`` / ``interaction_bases_`` / ``auto_chains_``), and
 returns a list of well-formed extra :class:`CompositeSpec` objects the caller
 appends to ``kept_specs``.
 
-Default-OFF discipline (CRITICAL)
----------------------------------
-With all three flags ``False`` this function is a flag-gated no-op: it returns
-an empty list and sets each artefact attribute to its empty default, so the
-discovered ``specs_`` / ``report_`` are byte-identical to the pre-hook flow.
+Flag discipline (CRITICAL)
+--------------------------
+All three flags default ``True`` (each step has test-confirmed business value).
+With all three explicitly set ``False`` this function is a flag-gated no-op: it
+returns an empty list and sets each artefact attribute to its empty default, so
+the discovered ``specs_`` / ``report_`` are byte-identical to the pre-hook flow.
 
 Leakage / RAM discipline (CRITICAL)
 -----------------------------------
@@ -228,7 +229,7 @@ def run_optional_discovery_steps(
 ) -> list[CompositeSpec]:
     """Run the enabled opt-in discovery steps; return extra appendable specs.
 
-    Gated by three NEW config flags (all default ``False``):
+    Gated by three config flags (all default ``True``):
 
     * ``region_adaptive_enabled`` -> ``region_adaptive_specs_`` artefact.
     * ``interaction_base_discovery_enabled`` -> ``interaction_bases_`` artefact.
