@@ -251,7 +251,7 @@ def bootstrap_metrics(
         raise ValueError(
             f"bootstrap_metrics: y_true ({n}) and y_pred ({y_pred.shape[0]}) row counts diverge"
         )
-    if not metric_fns:
+    if not metric_fns and not metric_fns_idx:
         return {}
 
     # Seed BEFORE the point estimates (which never touch the RNG), so the RNG
@@ -296,6 +296,12 @@ def bootstrap_metrics(
         _idx_buf = np.empty(_total_n, dtype=np.int64)
 
     _all_active = active + active_idx
+    # When every active metric is index-aware (re-gathers internally from idx),
+    # the per-resample yt=y_true[idx]/yp=y_pred[idx] slice is pure waste -- the
+    # idx-aware path never reads it. Skip the two n-length fancy-index copies
+    # then (the dominant per-resample cost; 2.2s/1000 at n=200k). Non-idx-aware
+    # metrics still get their slices when any are active.
+    _need_slice = bool(active)
     samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in _all_active}
     valid = {name: 0 for name in _all_active}
     failures = {name: 0 for name in _all_active}
@@ -312,9 +318,11 @@ def bootstrap_metrics(
                 _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
                 _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
             idx = _idx_buf
-        # Slice ONCE; every metric reads the same resampled views.
-        yt = y_true[idx]
-        yp = y_pred[idx]
+        # Slice ONCE; every non-idx-aware metric reads the same resampled views.
+        # Skipped entirely when all active metrics are idx-aware (re-gather internally).
+        if _need_slice:
+            yt = y_true[idx]
+            yp = y_pred[idx]
         for name in active:
             try:
                 v = float(metric_fns[name](yt, yp))

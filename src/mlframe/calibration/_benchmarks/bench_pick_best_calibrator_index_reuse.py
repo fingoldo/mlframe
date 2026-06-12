@@ -46,7 +46,7 @@ def main(n=2000, n_bootstrap=500, reps=20):
 
     orig = policy._bootstrap_ece_with_indices
 
-    def legacy(yt, yp, idx, mf, alpha):
+    def legacy(yt, yp, idx, mf, alpha, n_bins=None):
         ci = bootstrap_metric(yt, yp, metric_fn=mf, n_bootstrap=n_bootstrap, alpha=alpha, stratify=strat, random_state=11)
         return {"point": ci["point"], "lo": ci["lo"], "hi": ci["hi"]}
 

@@ -64,7 +64,7 @@ def test_pick_best_calibrator_selection_identical_to_per_candidate_bootstrap(mon
     )
 
     # Reconstruct the legacy per-candidate path: bootstrap_metric per candidate.
-    def _legacy_eci(yt, yp, idx, mf, alpha):
+    def _legacy_eci(yt, yp, idx, mf, alpha, n_bins=None):
         ci = bootstrap_metric(yt, yp, metric_fn=mf, n_bootstrap=300, alpha=alpha, stratify=strat, random_state=11)
         return {"point": ci["point"], "lo": ci["lo"], "hi": ci["hi"]}
 

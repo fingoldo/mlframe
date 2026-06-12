@@ -400,6 +400,15 @@ def batch_scan_constants_and_inf_polars(
 
     Empty (zero-detection-flag) requests still return the dict skeleton so
     callers can unconditionally read the keys.
+
+    bench-attempt-rejected (cross-stage fusion): feeding this scan's min/max
+    into ``_select_scalable_numeric_columns`` (the scaler-boundary stat sweep)
+    to share one pass was rejected -- the two run on DIFFERENT frames. This
+    scan runs in ``preprocess_dataframe`` (which then drops constant cols,
+    replaces inf with 0.0, casts float32) and the scalable check runs later on
+    the post-split train frame; reusing stale stats would alter the selected
+    scalable-column set (selection-altering, forbidden). The intra-function
+    fusion stays inside each sweep instead.
     """
     out: dict = {"constant_numeric": [], "constant_nonnumeric": [], "inf_counts": {}}
     if not isinstance(df, pl.DataFrame) or cs is None:

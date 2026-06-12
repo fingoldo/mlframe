@@ -111,5 +111,101 @@ def test_perf_sentinel_presort_beats_argsort():
     assert speedup >= 1.2, f"presort resampler not faster: {speedup:.2f}x (old={old*1e3:.1f}ms new={new*1e3:.1f}ms)"
 
 
+def test_fused_kernel_bit_identical_to_exact_on_tie_free():
+    """Fused single-pass kernel == fast_roc_auc_unstable(y[idx], score[idx]) on
+    tie-free base, byte-for-byte (maxdiff 0.0). Pins the gated-in fast path."""
+    from mlframe.metrics._core_auc_brier import _fused_resample_auc
+
+    rng = np.random.default_rng(101)
+    n = 5000
+    y_score = rng.random(n)  # continuous -> all-distinct
+    y_true = (rng.random(n) < 0.3).astype(np.int64)
+    asc = np.argsort(y_score)
+    base_rank = np.empty(n, dtype=np.int64)
+    base_rank[asc] = np.arange(n, dtype=np.int64)
+    y_by_rank = np.ascontiguousarray(y_true[asc].astype(np.int64))
+    for _ in range(40):
+        idx = rng.integers(0, n, size=n, dtype=np.int64)
+        got = float(_fused_resample_auc(idx, base_rank, y_by_rank, n))
+        ref = _ref(y_true, y_score, idx)
+        assert got == ref, f"fused kernel not bit-identical: {got!r} vs {ref!r}"
+
+
+def test_fused_resampler_matches_exact_single_class_nan():
+    """All-positive resample -> tmp==0 -> NaN, matching the exact path's NaN."""
+    from mlframe.metrics._core_auc_brier import make_bootstrap_auc_resampler
+
+    rng = np.random.default_rng(5)
+    n = 1000
+    y_score = rng.random(n)
+    y_true = np.ones(n, dtype=np.int64)  # single class
+    resampler = make_bootstrap_auc_resampler(y_true, y_score)
+    idx = rng.integers(0, n, size=n, dtype=np.int64)
+    assert np.isnan(resampler(idx))
+
+
+def test_bootstrap_metrics_skips_preslice_when_all_idx_aware():
+    """MED lead: when every active metric is idx-aware, bootstrap_metrics must
+    skip the yt/yp pre-slice yet still produce the SAME samples as when a non-
+    idx-aware metric forces the slice. Bit-identity across the gate boundary."""
+    from mlframe.evaluation.bootstrap import bootstrap_metrics
+    from mlframe.metrics._core_auc_brier import (
+        make_bootstrap_auc_resampler,
+        fast_roc_auc_unstable,
+    )
+
+    rng = np.random.default_rng(23)
+    n = 3000
+    y_score = rng.random(n)
+    y_true = (rng.random(n) < 0.4).astype(np.float64)
+
+    # idx-aware-only: triggers the pre-slice skip (active == [])
+    r1 = bootstrap_metrics(
+        y_true, y_score, metric_fns={}, n_bootstrap=200, random_state=9,
+        metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y_true, y_score)},
+    )
+    # add a non-idx-aware metric -> forces the slice; idx sequence identical for
+    # the same seed, so the idx-aware roc_auc samples must be byte-identical.
+    r2 = bootstrap_metrics(
+        y_true, y_score,
+        metric_fns={"auc_sliced": lambda yt, yp: float(fast_roc_auc_unstable(yt, yp))},
+        n_bootstrap=200, random_state=9,
+        metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y_true, y_score)},
+    )
+    assert np.array_equal(r1["roc_auc"]["samples"], r2["roc_auc"]["samples"])
+    # and the sliced non-idx-aware metric equals the idx-aware one (tie-free base)
+    assert np.array_equal(r2["roc_auc"]["samples"], r2["auc_sliced"]["samples"])
+
+
+def test_perf_sentinel_fused_beats_prior_resampler():
+    """Perf sentinel for the fused kernel vs the prior 4-pass resampler shape.
+    Compares the fused fast path to the exact per-resample argsort path (the
+    pre-fused floor); fused must win clearly. Measured 1.7x-2.2x@50k-200k;
+    assert >=1.3x to catch regression without flaking."""
+    from mlframe.metrics._core_auc_brier import make_bootstrap_auc_resampler
+
+    rng = np.random.default_rng(31)
+    n = 50000
+    n_boot = 200
+    y_score = rng.random(n)
+    y_true = (rng.random(n) < 0.3).astype(np.int64)
+    idxs = [rng.integers(0, n, size=n, dtype=np.int64) for _ in range(n_boot)]
+
+    resampler = make_bootstrap_auc_resampler(y_true, y_score)
+    resampler(idxs[0])
+    _ref(y_true, y_score, idxs[0])
+
+    t0 = time.perf_counter()
+    for idx in idxs:
+        _ref(y_true, y_score, idx)
+    old = time.perf_counter() - t0
+    t1 = time.perf_counter()
+    for idx in idxs:
+        resampler(idx)
+    new = time.perf_counter() - t1
+    speedup = old / new
+    assert speedup >= 1.3, f"fused resampler not faster: {speedup:.2f}x (old={old*1e3:.1f}ms new={new*1e3:.1f}ms)"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

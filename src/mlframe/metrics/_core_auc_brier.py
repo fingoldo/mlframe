@@ -115,7 +115,11 @@ def _resample_desc_order_counting(resample_rank: np.ndarray, n: int) -> np.ndarr
     the ascending order; the caller reverses for descending. Bit-identical to
     ``np.argsort(y_score[idx])[::-1]`` when base scores are all-distinct (every
     rank unique, so resample-position tie-break never differs); on tied base
-    scores the positional tie-break differs, so the caller GATES this off."""
+    scores the positional tie-break differs, so the caller GATES this off.
+
+    Retained building block: the resampler now uses the fused single-pass
+    ``_fused_resample_auc`` (no separate desc-order array); this counting-sort
+    stays available for the desc-order-as-array path and as a fallback primitive."""
     m = resample_rank.shape[0]
     counts = np.zeros(n, dtype=np.int64)
     for k in range(m):
@@ -134,16 +138,58 @@ def _resample_desc_order_counting(resample_rank: np.ndarray, n: int) -> np.ndarr
     return asc_order[::-1]  # descending
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.ndarray, n: int) -> float:
+    """Single-pass resample ROC AUC: bin counts+positives per ascending base rank,
+    then walk ranks descending accumulating tps/fps. Fuses base_rank gather +
+    desc-order build + duplicate y/score gather + the AUC walk into ONE njit pass
+    (no desc-index array, no ``[::-1]`` reverse, no second/third gather). Returns
+    the same AUC as ``fast_numba_auc_nonw`` fed the counting desc-order; bit-
+    identical to ``fast_roc_auc_unstable(y[idx], score[idx])`` on tie-free base
+    scores (each rank is unique, so the descending-rank walk matches the desc
+    score walk). Caller GATES this on all-distinct base scores."""
+    counts = np.zeros(n, dtype=np.int64)
+    ones = np.zeros(n, dtype=np.int64)
+    m = idx.shape[0]
+    for k in range(m):
+        r = base_rank[idx[k]]
+        counts[r] += 1
+        ones[r] += y_by_rank[r]
+    last_fps = 0
+    last_tps = 0
+    tps = 0
+    fps = 0
+    auc = 0
+    for r in range(n - 1, -1, -1):
+        c = counts[r]
+        if c == 0:
+            continue
+        pos = ones[r]
+        neg = c - pos
+        tps += pos
+        fps += neg
+        auc += (fps - last_fps) * (last_tps + tps)
+        last_fps = fps
+        last_tps = tps
+    tmp = tps * fps * 2
+    if tmp > 0:
+        return auc / tmp
+    return np.nan
+
+
 def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     """Factory: pre-argsort the BASE score vector ONCE, return a callable
     ``resampler(idx) -> float`` that scores each bootstrap resample without
     re-argsorting the n-length resampled vector (1000x O(n log n) -> O(n)).
 
-    The returned closure builds each resample's descending order via an O(n)
-    counting-sort over the cached base ranks (``_resample_desc_order_counting``)
-    and feeds it straight to the same ``fast_numba_auc_nonw`` kernel, so the
-    AUC is bit-identical to ``fast_roc_auc_unstable(y_true[idx], y_score[idx])``
-    on tie-free float64 scores.
+    The returned closure scores each resample in ONE fused njit pass
+    (``_fused_resample_auc``): it bins counts + positives per ascending base rank
+    and walks ranks descending accumulating tps/fps -- no per-resample argsort, no
+    desc-index array, no ``[::-1]``, and no duplicate y/score gather. The AUC is
+    bit-identical to ``fast_roc_auc_unstable(y_true[idx], y_score[idx])`` on tie-
+    free float64 scores. Measured on the 1000-bootstrap loop: 1.72x@50k /
+    2.16x@200k over the prior 4-pass resampler, maxdiff 0.0 (see
+    ``training/_benchmarks/bench_fused_bootstrap_auc_resampler.py``).
 
     GATE: the fast path requires all-distinct base scores (tie-free). On tied /
     discrete / low-cardinality base scores ``np.argsort`` breaks ties by
@@ -174,11 +220,11 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     # base_rank[i] = ascending rank of base index i (inverse permutation)
     base_rank = np.empty(n, dtype=np.int64)
     base_rank[asc_order] = np.arange(n, dtype=np.int64)
+    # y_by_rank[r] = label of the base element at ascending rank r (gather once)
+    y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
 
     def _resampler_fast(idx: np.ndarray) -> float:
-        resample_rank = base_rank[idx]
-        desc = _resample_desc_order_counting(resample_rank, n)
-        return float(fast_numba_auc_nonw(y_true=y_true[idx], y_score=y_score[idx], desc_score_indices=desc))
+        return float(_fused_resample_auc(idx, base_rank, y_by_rank, n))
 
     return _resampler_fast
 

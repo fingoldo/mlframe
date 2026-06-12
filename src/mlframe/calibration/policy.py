@@ -88,6 +88,46 @@ def _ece_score_numba_serial(y: np.ndarray, p: np.ndarray, n_bins: int) -> float:
     return total / n_finite
 
 
+@_njit(cache=True, nogil=True)
+def _ece_score_idx_numba_serial(y: np.ndarray, p: np.ndarray, idx: np.ndarray, n_bins: int) -> float:
+    """Idx-aware ECE: gather ``y[idx[i]]`` / ``p[idx[i]]`` INSIDE the bin loop.
+
+    Identical reduction to ``_ece_score_numba_serial`` but the resample gather
+    is fused into the njit loop, so the bootstrap caller never materialises a
+    per-resample ``y[idx]`` / ``p[idx]`` Python slice. Bit-identical by
+    construction: equal-width binning is order-independent (no argsort/tie
+    break), so gathering inside vs slicing outside reduces the exact same
+    per-bin sums. Mirrors the idx-aware AUC resampler (gather inside the njit loop).
+    """
+    m = idx.shape[0]
+    sum_p = np.zeros(n_bins, dtype=np.float64)
+    sum_y = np.zeros(n_bins, dtype=np.float64)
+    n_finite = 0.0
+    for k in range(m):
+        j = idx[k]
+        pi = p[j]
+        yi = y[j]
+        if not (np.isfinite(pi) and np.isfinite(yi)):
+            continue
+        b = int(pi * n_bins)
+        if b >= n_bins:
+            b = n_bins - 1
+        elif b < 0:
+            b = 0
+        sum_p[b] += pi
+        sum_y[b] += yi
+        n_finite += 1.0
+    if n_finite == 0.0:
+        return float("nan")
+    total = 0.0
+    for b in range(n_bins):
+        diff = sum_y[b] - sum_p[b]
+        if diff < 0.0:
+            diff = -diff
+        total += diff
+    return total / n_finite
+
+
 def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE_NBINS) -> float:
     """Equal-width ECE over ``n_bins`` for binary probability ``p_pred[:, 1]`` or 1-D ``p_pred``.
 
@@ -114,6 +154,18 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     reduces to ``(1/n) * sum_b |sum_y_b - sum_p_b|`` because the count_b
     cancels between the per-bin weight times the per-bin magnitude.
     """
+    # lead-ece-wrapper: skip the asarray/ravel/ascontiguousarray coercion when
+    # the caller already passes a contiguous 1-D float64 array (the bootstrap
+    # hot path always does). Guarded -- any other dtype/shape/non-contiguity
+    # keeps the full coercion below, so behaviour is unchanged for all callers.
+    if (
+        isinstance(p_pred, np.ndarray) and p_pred.dtype == np.float64
+        and p_pred.ndim == 1 and p_pred.flags.c_contiguous
+        and isinstance(y_true, np.ndarray) and y_true.ndim == 1 and y_true.flags.c_contiguous
+    ):
+        if p_pred.size == 0 or y_true.size != p_pred.size:
+            return float("nan")
+        return _ece_score_numba_serial(y_true, p_pred, int(n_bins))
     p = np.asarray(p_pred, dtype=np.float64)
     if p.ndim == 2 and p.shape[1] >= 2:
         p = p[:, 1]
@@ -213,6 +265,15 @@ def _build_resample_indices(
     this single matrix across all calibrator candidates instead of regenerating
     the identical resample per candidate (every candidate shares n / stratify /
     seed; only y_pred differs).
+
+    RAM ceiling: the matrix is ``n_bootstrap x resample_len`` int64 ->
+    ``8 * n_bootstrap * n`` bytes (~0.8 GB at n=200k, ~2 GB at n=500k for the
+    1000-resample default). This is a ONE-TIME shared allocation reused across
+    ALL candidates (not a per-candidate or per-resample hot copy), so it does
+    not compound; OOF-train ECE inputs are the calibration set (typically
+    << the 100 GB feature frame), so the ceiling is acceptable. If a caller
+    ever bootstraps an OOF set so large this matrix dominates RAM, lower
+    ``n_bootstrap`` rather than materialising it.
     """
     rng = np.random.default_rng(random_state)
     if stratify is None:
@@ -243,17 +304,43 @@ def _bootstrap_ece_with_indices(
     idx_matrix: np.ndarray,
     metric_fn: Callable[[np.ndarray, np.ndarray], float],
     alpha: float,
+    n_bins: Optional[int] = None,
 ) -> dict[str, Any]:
     """Percentile-CI bootstrap for one candidate using a PRE-BUILT index matrix.
 
     Numerically identical to ``bootstrap_metric`` (same indices -> same per-resample
     metric -> same percentiles), but the resample matrix is generated once outside
     the candidate loop and shared, removing the per-candidate RNG + regen cost.
+
+    When ``n_bins`` is supplied the per-resample metric is the fused idx-aware ECE
+    kernel ``_ece_score_idx_numba_serial``, which gathers ``y[idx]`` / ``p[idx]``
+    inside the njit bin loop -- removing the per-resample Python-level
+    ``y_true[idx]`` / ``y_pred[idx]`` fancy-index copy entirely. Bit-identical to
+    the slice-based ``metric_fn`` path (equal-width binning is order-independent).
+    ``metric_fn`` still produces the point estimate so any caller-specific ECE
+    config flows through unchanged.
     """
     point = float(metric_fn(y_true, y_pred))
     n_bootstrap = idx_matrix.shape[0]
     samples = np.empty(n_bootstrap, dtype=np.float64)
     valid = 0
+    if n_bins is not None:
+        yb = np.ascontiguousarray(np.asarray(y_true).ravel())
+        pb = np.ascontiguousarray(np.asarray(y_pred, dtype=np.float64).ravel())
+        nb = int(n_bins)
+        for b in range(n_bootstrap):
+            idx = idx_matrix[b]
+            v = _ece_score_idx_numba_serial(yb, pb, idx, nb)
+            if not np.isfinite(v):
+                continue
+            samples[valid] = v
+            valid += 1
+        if valid == 0:
+            raise ValueError("pick_best_calibrator: all resamples failed for a candidate")
+        samples = samples[:valid]
+        lo = float(np.percentile(samples, (alpha / 2.0) * 100.0))
+        hi = float(np.percentile(samples, (1.0 - alpha / 2.0) * 100.0))
+        return {"point": point, "lo": lo, "hi": hi}
     for b in range(n_bootstrap):
         idx = idx_matrix[b]
         try:
@@ -443,7 +530,7 @@ def pick_best_calibrator(
             logger.warning("pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
             continue
         try:
-            ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, idx_matrix, metric_fn, alpha)
+            ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, idx_matrix, metric_fn, alpha, n_bins=n_bins)
         except Exception as exc:
             logger.warning("pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
             continue
