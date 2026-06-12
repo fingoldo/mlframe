@@ -568,7 +568,9 @@ def _linear_residual_grouped_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from . import _GROUPED_MIN_GROUP_SIZE, _james_stein_shrinkage_factor
+    from . import (
+        _GROUPED_MIN_GROUP_SIZE, _canonical_group_key, _james_stein_shrinkage_factor,
+    )
     if groups is None:
         raise ValueError(
             "linear_residual_grouped requires a 1-D ``groups`` array of "
@@ -617,7 +619,9 @@ def _linear_residual_grouped_fit(
     for i, g in enumerate(unique_groups):
         g_mask = (inverse_idx == i)
         n_g = int(g_mask.sum())
-        g_key = str(g)
+        # Canonical key so int<->float dtype drift between fit and predict cannot
+        # silently miss every group and collapse to the global alpha/beta.
+        g_key = _canonical_group_key(g)
         group_sizes[g_key] = n_g
         if n_g < min_group_size:
             # Skip per-group OLS; defer to global.

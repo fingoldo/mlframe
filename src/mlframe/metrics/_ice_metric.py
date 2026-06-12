@@ -146,6 +146,27 @@ def compute_probabilistic_multiclass_error(
         multilabel = True
         logger.debug("compute_probabilistic_multiclass_error: detected multilabel y_true shape, enabling multilabel mode.")
 
+    # Auto-derive a label map for non-0-indexed integer multiclass targets. Without it every per-class indicator is built
+    # as ``y_true == column_index``, which silently mismatches when the labels are not exactly 0..K-1 (e.g. [1,2,3] or
+    # [10,20,30]): column 0 compares against 0, finds nothing, and the ICE collapses to a no-skill value. Identity for
+    # already-0..K-1 targets, so the common path stays bit-identical; only the shifted/non-contiguous case is corrected.
+    if (
+        labels is None
+        and not multilabel
+        and len(probs) > 2
+        and isinstance(y_true, np.ndarray)
+        and y_true.ndim == 1
+        and y_true.dtype.kind in ("i", "u")
+    ):
+        _uniq = np.unique(y_true)
+        if _uniq.size == len(probs) and not np.array_equal(_uniq, np.arange(len(probs))):
+            labels = _uniq
+            logger.warning(
+                "compute_probabilistic_multiclass_error: y_true carries %d non-0-indexed integer labels %r but %d proba "
+                "columns; auto-mapping column j -> label sorted_unique[j]. Pass labels= explicitly to silence this.",
+                _uniq.size, _uniq.tolist(), len(probs),
+            )
+
     total_error = 0.0
     weights_sum = 0
 

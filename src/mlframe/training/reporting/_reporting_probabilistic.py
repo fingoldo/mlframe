@@ -719,10 +719,27 @@ def report_probabilistic_model_perf(
                 and _y_true.ndim == 1 and _y_pred.ndim == 1
                 and len(_y_true) == len(_y_pred)
             ):
-                _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
-                _cls_report_text = format_classification_report(
-                    _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
-                )
+                # Remap raw integer labels to positions 0..K-1 against ``classes`` so the table carries one row PER class
+                # in label order with correct macro/weighted averages. Inferring nclasses from ``max(label)+1`` instead
+                # injects phantom 0-support rows for non-0-indexed labels (e.g. [1,2,3] -> a spurious class-0 row) which
+                # silently drag the macro average below sklearn's. Any label outside ``classes`` -> sklearn fallback.
+                _label_to_pos = {int(c): i for i, c in enumerate(classes)} if classes is not None else None
+                if _label_to_pos is not None and len(_label_to_pos) == len(classes):
+                    _pos_true = np.array([_label_to_pos.get(int(v), -1) for v in _y_true], dtype=np.int64)
+                    _pos_pred = np.array([_label_to_pos.get(int(v), -1) for v in _y_pred], dtype=np.int64)
+                    if _pos_true.min(initial=0) >= 0 and _pos_pred.min(initial=0) >= 0:
+                        _names = [str(tc) for tc in true_classes] if len(true_classes) == len(classes) else None
+                        _cls_report_text = format_classification_report(
+                            _pos_true, _pos_pred, nclasses=len(classes), digits=report_ndigits,
+                            zero_division=0, target_names=_names,
+                        )
+                    else:
+                        _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+                else:
+                    _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
+                    _cls_report_text = format_classification_report(
+                        _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
+                    )
             else:
                 _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
         except (ValueError, TypeError, ImportError, AttributeError) as _cls_err:

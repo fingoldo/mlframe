@@ -110,8 +110,12 @@ def _target_encoding_residual_fit(
     sums = np.bincount(inverse_idx, weights=y_f, minlength=len(unique_groups))
     # Empirical-Bayes additive smoothing toward the global mean.
     smoothed = (sums + a * global_mean) / (counts + a)
+    # Canonical keys so int<->float dtype drift between fit and predict cannot
+    # silently miss every category and collapse to the global mean (see
+    # _canonical_group_key). ``str`` alone made ``1`` and ``1.0`` distinct keys.
+    from . import _canonical_group_key
     encoding: dict[str, float] = {
-        str(g): float(v) for g, v in zip(unique_groups, smoothed)
+        _canonical_group_key(g): float(v) for g, v in zip(unique_groups, smoothed)
     }
     return {
         "global_mean": global_mean,
@@ -142,8 +146,11 @@ def _category_encoding_lookup(
         return np.empty(0, dtype=np.float64)
     uniq, inverse_idx = np.unique(groups, return_inverse=True)
     # One dict lookup per DISTINCT label (unseen -> global mean fallback).
+    # Canonical key matches the fit-side keying so an int->float dtype shift at
+    # predict does not miss every category and silently fall back to global mean.
+    from . import _canonical_group_key
     uniq_enc = np.fromiter(
-        (encoding.get(str(g), global_mean) for g in uniq),
+        (encoding.get(_canonical_group_key(g), global_mean) for g in uniq),
         dtype=np.float64,
         count=len(uniq),
     )

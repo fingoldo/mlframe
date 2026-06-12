@@ -178,13 +178,16 @@ def _row_alpha_beta(
     pg_alphas = params["per_group_alphas"]
     pg_betas = params["per_group_betas"]
     # K unique labels; inv maps each row to an index into uniq. Per-unique-label alpha / beta built with global as fallback.
+    # Canonical key matches the grouped-fit keying so int<->float dtype drift at
+    # predict does not miss every group and silently fall back to global alpha/beta.
+    from . import _canonical_group_key
     uniq, inv = np.unique(groups, return_inverse=True)
     uniq_alpha = np.array(
-        [pg_alphas.get(str(g), alpha_global) for g in uniq],
+        [pg_alphas.get(_canonical_group_key(g), alpha_global) for g in uniq],
         dtype=np.float64,
     )
     uniq_beta = np.array(
-        [pg_betas.get(str(g), beta_global) for g in uniq],
+        [pg_betas.get(_canonical_group_key(g), beta_global) for g in uniq],
         dtype=np.float64,
     )
     return uniq_alpha[inv], uniq_beta[inv]

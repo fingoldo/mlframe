@@ -92,3 +92,86 @@ def test_weighted_metric_supports_use_class_label_not_enumerate_index():
     assert abs(float(metrics["weighted_recall"]) - 0.6) < 0.05, (
         f"weighted_recall={metrics['weighted_recall']} (correct=0.6, pre-fix buggy=0.0)"
     )
+
+
+def test_multiclass_ice_metric_auto_maps_non_0_indexed_integer_labels():
+    """compute_probabilistic_multiclass_error with non-0-indexed integer labels and labels=None.
+
+    The ICE scorer (training/_helpers_training_configs.integral_calibration_error) wraps this with labels=None, so a
+    multiclass target labelled [1,2,3] reaches it raw. Pre-fix every per-class indicator was ``y_true == column_index``
+    (column 0 vs label 0 -> empty), collapsing ICE to a no-skill ~+1.8 instead of the correct ~-0.17 for well-separated
+    probs -- silently corrupting model selection AND the report TOTAL INTEGRAL ERROR. The auto-map now mirrors an
+    explicit labels=[1,2,3] and the 0-indexed equivalent bit-for-bit.
+    """
+    from mlframe.metrics.core import compute_probabilistic_multiclass_error
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    y = rng.integers(1, 4, size=n)  # labels {1,2,3}, NOT 0..K-1
+    probs = np.zeros((n, 3))
+    for i, c in enumerate(y):
+        probs[i, c - 1] = 0.8
+        others = [k for k in range(3) if k != c - 1]
+        probs[i, others[0]] = 0.1
+        probs[i, others[1]] = 0.1
+    probs = np.clip(probs + rng.normal(0, 0.02, probs.shape), 1e-6, 1.0)
+    probs /= probs.sum(axis=1, keepdims=True)
+
+    err_auto = compute_probabilistic_multiclass_error(y_true=y, y_score=probs)  # labels=None -> auto-map
+    err_explicit = compute_probabilistic_multiclass_error(y_true=y, y_score=probs, labels=np.array([1, 2, 3]))
+    err_0indexed = compute_probabilistic_multiclass_error(y_true=y - 1, y_score=probs)
+
+    assert np.isclose(err_auto, err_explicit), (
+        f"auto-map ICE {err_auto} != explicit-labels ICE {err_explicit} (pre-fix auto ~+1.8)"
+    )
+    assert np.isclose(err_auto, err_0indexed), f"auto-map ICE {err_auto} != 0-indexed ICE {err_0indexed}"
+    assert err_auto < 0.0, f"well-separated multiclass ICE should be negative; got {err_auto} (pre-fix ~+1.8)"
+
+    # return_per_class must also surface the corrected per-class vector keyed by column position.
+    total, per_class = compute_probabilistic_multiclass_error(y_true=y, y_score=probs, return_per_class=True)
+    assert set(per_class) == {0, 1, 2} and np.isclose(total, err_explicit)
+
+
+def test_classification_report_no_phantom_class_for_non_0_indexed_labels(caplog):
+    """The printed classification_report table must carry exactly K rows (in label order) with the correct macro avg.
+
+    Pre-fix the report inferred ``nclasses = max(label) + 1`` and called the njit table with raw labels, so labels
+    [1,2,3] produced a 4-row table with a phantom 0-support class-0 row. That phantom row is averaged into ``macro avg``
+    (the per-class mean), dragging it BELOW sklearn's: fast macro-precision 0.67 vs sklearn 0.89 on the fixture below.
+    The remap to positions 0..K-1 against ``classes`` removes the phantom row and matches sklearn.
+    """
+    import logging
+
+    from sklearn.metrics import classification_report as _skl_report
+    from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
+
+    classes = [1, 2, 3]
+    targets = np.array([1, 1, 2, 2, 3, 3] * 40)
+    preds = np.array([1, 1, 2, 3, 3, 3] * 40)
+    pos = {1: 0, 2: 1, 3: 2}
+    probs = np.zeros((len(targets), 3))
+    for i, p in enumerate(preds):
+        probs[i, pos[p]] = 1.0
+
+    logger_name = "mlframe.training.reporting._reporting_probabilistic"
+    with caplog.at_level(logging.INFO, logger=logger_name):
+        report_probabilistic_model_perf(
+            targets=targets, columns=["f"], model_name="m", model=None,
+            classes=classes, preds=preds, probs=probs, metrics={},
+            print_report=True, show_perf_chart=False, report_ndigits=2,
+        )
+    report_block = next(r.getMessage() for r in caplog.records if "f1-score" in r.getMessage())
+    table_lines = report_block.splitlines()
+
+    # No phantom class-0 row (labels start at 1): only the header may contain the substring, so check row prefixes.
+    assert not any(line.strip().startswith("0 ") for line in table_lines), (
+        f"phantom class-0 row present:\n{report_block}"
+    )
+    # macro avg matches sklearn's (0.89 precision here), NOT the phantom-diluted 0.67.
+    skl = _skl_report(targets, preds, zero_division=0, digits=2)
+    skl_macro = next(l for l in skl.splitlines() if "macro avg" in l).split()
+    our_macro = next(l for l in table_lines if "macro avg" in l).split()
+    # last 4 numeric tokens are precision recall f1 support
+    assert our_macro[-4:-1] == skl_macro[-4:-1], (
+        f"macro avg mismatch: ours={our_macro[-4:-1]} sklearn={skl_macro[-4:-1]}"
+    )
