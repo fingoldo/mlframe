@@ -1378,6 +1378,37 @@ class MRMR(BaseEstimator, TransformerMixin):
         # needs train-based FE selection (deep rewrite) for marginal gain over this
         # tighter-prevalence cut, so it is deferred.
         fe_synergy_min_prevalence: float = 1.5,
+        # DATA-DRIVEN PAIR PREVALENCE (2026-06-12): the hardcoded ``fe_*_min_prevalence``
+        # ratio bars over the MM-debiased joint MI under-admit ASYMMETRIC interactions
+        # whose one operand has a strong marginal (the joint's analytic bias subtraction
+        # exceeds the marginals', dropping the ratio below the bar even when the OTHER
+        # operand adds genuine conditional signal -- e.g. F2's ``log(2c)*sin(d/3)``: the
+        # (c,d) MM-ratio is ~1.03 < 1.05, yet ``CMI(d; y | c)`` clears its within-stratum
+        # permutation null by +0.085 while the noise pair (c,e) sits ON the null). When the
+        # ratio bar fails but the pair cleared the order-2 maxT floor, MRMR re-decides with
+        # a CONDITIONAL-PERMUTATION NULL (the S5 gate's primitive): condition the weaker
+        # operand on the stronger and admit iff its observed CMI clears the null quantile
+        # floor by ``fe_pair_perm_null_excess_frac`` of the anchor's marginal MI. The
+        # permutation cancels the finite-sample bias by construction, so genuine asymmetric
+        # interactions are admitted WITHOUT lowering the bar for noise. Set False to restore
+        # the hardcoded-ratio-only screen. DEFAULT OFF -- MEASURED to NOT help: on F2 the
+        # CMI null correctly admits the genuine (c,d) pair (oracle feature mul(log2c,sin(d/3))
+        # nearly HALVES closed-form-linear MAE, 0.092 -> 0.050), but CMI cannot separate it
+        # from an additive cross-mix (a,c), so admitting it ALSO admits cross-mix pairs whose
+        # FE composites HURT: closed-form-linear MAE went 0.092 (master) -> 0.097 (fe1, cross-mix
+        # esc_poly) -> 0.868 (fe2, step-2 fusion destroys the clean a**2/b). The unary/binary +
+        # escalation search never builds the clean log*sin product even when (c,d) is admitted.
+        # Kept as an opt-in research knob; a clean (c,d) win needs a NEW separable warp-product
+        # proposer (terminal, no fusion), not this admission relaxation.
+        fe_pair_perm_null_admission_enable: bool = False,
+        fe_pair_perm_null_excess_frac: float = 0.05,
+        # PAIRNESS-ROUTED PREVALENCE RESCUE (2026-06-12): route a SELECTED-SELECTED prevalence-
+        # failing maxT-clearing pair to the auto-escalation second-chance (held-out ALS pairness
+        # test, which CAN separate a multiplicative interaction from an additive cross-mix).
+        # DEFAULT OFF -- MEASURED to be a NO-OP on F2 (the escalation does not fire / produces no
+        # (c,d) candidate for the weak rescue pair, so the output is identical to master). Opt-in
+        # research knob.
+        fe_prevalence_rescue_all_pairs: bool = False,
         # ORDER-2 Westfall-Young maxT permutation-null floor on the
         # PROSPECTIVE-PAIR JOINT MI. The FE step ranks O(p^2) candidate pairs by
         # JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs

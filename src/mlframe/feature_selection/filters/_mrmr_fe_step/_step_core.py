@@ -650,9 +650,56 @@ def _run_fe_step(
                 # ``_pair_mi_floor_cmp`` is the MM-debiased joint MI (IRON RULE, see above).
                 _passes_prevalence = pair_mi > ind_elems_mi_sum * _prev_thresh
                 _passes_maxt = _pair_mi_floor_cmp >= _pair_maxt_floor
-                if _passes_prevalence and _passes_maxt:
-                    uplift = pair_mi / ind_elems_mi_sum
-                    if verbose >= 2:
+                # DATA-DRIVEN PREVALENCE (2026-06-12, EXPERIMENTAL, default OFF pending the
+                # 3-model RMSE A/B/C): the HARDCODED ratio bar over the MM-debiased joint MI
+                # under-admits an ASYMMETRIC interaction whose one operand has a strong
+                # marginal (the joint's analytic bias subtraction exceeds the marginals',
+                # dropping the ratio below the bar even when the OTHER operand adds genuine
+                # conditional signal -- F2's (c,d): MM-ratio ~1.03 < 1.05 yet CMI(d;y|c)
+                # clears its within-stratum permutation null by +0.085, while noise (c,e)
+                # sits ON the null). When the ratio bar fails but the pair cleared the maxT
+                # floor, re-decide with a CONDITIONAL-PERMUTATION NULL (cancels the
+                # finite-sample bias by construction). CAVEAT under measurement: CMI cannot
+                # separate a multiplicative interaction (c,d) from an additive cross-mix
+                # (a,c) -- both show CMI>0 -- so this over-admits cross-mix; whether the
+                # resulting fused features HELP or HURT downstream is being decided by RMSE,
+                # not assumed. ``fe_pair_perm_null_admission_enable`` (default False).
+                _admit_via_perm = False
+                if (
+                    (not _passes_prevalence) and _passes_maxt
+                    and bool(getattr(self, "fe_pair_perm_null_admission_enable", False))
+                ):
+                    try:
+                        from .._fe_cmi_redundancy_gate import _conditional_perm_null
+                        from .._mi_greedy_cmi_fe import _cmi_from_binned
+                        _ia, _ib = int(raw_vars_pair[0]), int(raw_vars_pair[1])
+                        if cached_MIs[(_ia,)] >= cached_MIs[(_ib,)]:
+                            _anchor_i, _cand_i = _ia, _ib
+                        else:
+                            _anchor_i, _cand_i = _ib, _ia
+                        _anchor_mi = float(cached_MIs[(_anchor_i,)])
+                        _cand_codes = np.ascontiguousarray(data[:, _cand_i], dtype=np.int64)
+                        _anchor_codes = np.ascontiguousarray(data[:, _anchor_i], dtype=np.int64)
+                        _y_codes = np.ascontiguousarray(classes_y, dtype=np.int64)
+                        _cmi_obs = float(_cmi_from_binned(_cand_codes, _y_codes, _anchor_codes))
+                        _floor, _null_mean = _conditional_perm_null(
+                            _cand_codes, _y_codes, _anchor_codes,
+                            seed=int(getattr(self, "random_seed", 0) or 0) + 7919 * _ia + _ib,
+                        )
+                        _excess_frac = float(getattr(self, "fe_pair_perm_null_excess_frac", 0.05))
+                        if _cmi_obs > _floor and (_cmi_obs - _null_mean) >= _excess_frac * max(_anchor_mi, 1e-9):
+                            _admit_via_perm = True
+                            if verbose >= 2:
+                                logger.info(
+                                    "Factors pair %s ADMITTED via conditional-permutation null "
+                                    "(CMI(%d|%d)=%.4f > floor %.4f, excess %.4f) -- data-driven prevalence.",
+                                    raw_vars_pair, _cand_i, _anchor_i, _cmi_obs, _floor, _cmi_obs - _null_mean,
+                                )
+                    except Exception:
+                        _admit_via_perm = False
+                if (_passes_prevalence and _passes_maxt) or _admit_via_perm:
+                    uplift = pair_mi / ind_elems_mi_sum if ind_elems_mi_sum > 0 else float("inf")
+                    if verbose >= 2 and not _admit_via_perm:
                         logger.info(
                             "Factors pair %s will be considered for Feature Engineering, %.4f->%.4f, rat=%.2f",
                             raw_vars_pair, ind_elems_mi_sum, pair_mi, uplift,
@@ -681,10 +728,17 @@ def _run_fe_step(
                         # on); only synergy pairs (selected-selected prevalence misses are
                         # genuinely additive and stay out), only when the joint MI cleared the
                         # maxT null (a pure-chance noise pair never reaches escalation).
-                        if (
-                            _is_synergy_pair and _passes_maxt
+                        # PAIRNESS-ROUTED RESCUE (2026-06-12): synergy pairs always route here
+                        # (existing behaviour). With ``fe_prevalence_rescue_all_pairs`` ON, a
+                        # SELECTED-SELECTED pair that cleared the maxT floor ALSO routes here, so
+                        # the escalation's held-out ALS pairness test (which separates a genuine
+                        # multiplicative interaction from an additive cross-mix) re-decides it.
+                        _route_to_rescue = (
+                            (_is_synergy_pair or bool(getattr(self, "fe_prevalence_rescue_all_pairs", False)))
+                            and _passes_maxt
                             and bool(getattr(self, "fe_synergy_prevalence_rescue_enable", True))
-                        ):
+                        )
+                        if _route_to_rescue:
                             _prevalence_failed_synergy[tuple(raw_vars_pair)] = float(pair_mi)
                     else:
                         # prevalence passed but the MM-debiased joint MI missed the max-T floor.
