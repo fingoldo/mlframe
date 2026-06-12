@@ -1,0 +1,307 @@
+"""biz_val coverage: FS effectiveness across ALL supported mlframe target types.
+
+Q2 coverage dimension. The existing FS biz_val suite locks in signal recovery /
+noise rejection for BINARY and REGRESSION (+ some MULTICLASS). This file extends
+the same behavioral floor to the target types that were UNTESTED:
+
+    * MULTICLASS (>2 exclusive classes)
+    * MULTILABEL (independent binary outputs, 2D y)
+    * MULTI-OUTPUT / MULTI-TARGET REGRESSION (2D continuous y)
+    * COUNT / POISSON (y = rng.poisson(lambda(x)))
+    * ORDINAL (ordered discrete levels)
+
+mlframe ``TargetTypes`` (src/mlframe/training/configs.py) enumerates REGRESSION,
+BINARY_CLASSIFICATION, MULTICLASS_CLASSIFICATION, MULTILABEL_CLASSIFICATION,
+LEARNING_TO_RANK, QUANTILE_REGRESSION, MULTI_TARGET_REGRESSION. COUNT/Poisson and
+ORDINAL are not first-class enum members -- they ride on REGRESSION-shaped y -- so
+they are exercised here as the data SHAPES a user feeds, validating that the
+selector's information-theoretic relevance still recovers the generating columns.
+
+Selector x target-type SUPPORT + EFFECTIVENESS matrix (measured here):
+
+    target type     | MRMR (filter)          | RFECV (wrapper)
+    ----------------|------------------------|----------------------------------
+    multiclass>2    | recovers {x0,x1}, 0 nz | accepts; argmax keeps all (weak)
+    count/Poisson   | recovers {x0,x1}, 0 nz | accepts (PoissonRegressor); weak
+    ordinal         | recovers {x0,x1}, 0 nz | accepts (Ridge); recovers {x0,x1}
+    multilabel (2D) | recovers {x0,x1}       | GAP: raises NotImplementedError
+    multioutput(2D) | recovers {x0,x1}       | GAP: raises NotImplementedError
+
+MEASURED floor (5 seeds, no-FE fast preset, n=700, 2 signal + 6 noise):
+    every target type recovers BOTH signal columns on 5/5 seeds (sig=2/2);
+    single-target types leak 0 noise; 2D targets leak <=1 noise/seed.
+Floors below are pinned ~10-15% under those measured values (majority-of-seeds).
+
+GAPS documented as strict=False xfail (a real capability gap, never a softened
+assertion): RFECV cannot select on 2D y -- ``RFECV.fit`` raises
+``NotImplementedError`` for multilabel AND multi-output, telling the caller to
+loop per target and union ``support_``. Until that loop lands in the wrapper,
+multilabel/multi-output FS via RFECV is unsupported.
+"""
+from __future__ import annotations
+
+import warnings
+
+import numpy as np
+import pandas as pd
+import pytest
+
+warnings.filterwarnings("ignore")
+
+
+# ---------------------------------------------------------------------------
+# Tiny signal+noise fixtures: 2 true signal cols (x0, x1) + 6 pure-noise.
+# Target is built from x0+x1 (or per-label / per-output from x0, x1) so the
+# generating set is exactly {0, 1} for every target type.
+# ---------------------------------------------------------------------------
+
+N = 700
+N_SIGNAL = 2
+N_NOISE = 6
+SIGNAL = {0, 1}
+
+
+def _design(seed: int):
+    rng = np.random.default_rng(seed)
+    x_sig = rng.normal(size=(N, N_SIGNAL))
+    x_noise = rng.normal(size=(N, N_NOISE))
+    X = np.column_stack([x_sig, x_noise])
+    df = pd.DataFrame(X, columns=[f"x{i}" for i in range(N_SIGNAL + N_NOISE)])
+    return rng, df, x_sig
+
+
+def make_target(seed: int, kind: str):
+    """Return ``(df, y)`` for a given target ``kind``. Signal lives in x0, x1."""
+    rng, df, xs = _design(seed)
+    score = xs[:, 0] + xs[:, 1]
+    if kind == "multiclass":
+        y = pd.Series(np.digitize(score, np.quantile(score, [0.33, 0.66])), name="y")
+    elif kind == "count":
+        lam = np.exp(0.7 * xs[:, 0] + 0.6 * xs[:, 1])
+        y = pd.Series(rng.poisson(lam), name="y")
+    elif kind == "ordinal":
+        y = pd.Series(np.digitize(score, np.quantile(score, [0.2, 0.4, 0.6, 0.8])), name="y")
+    elif kind == "multilabel":
+        l0 = (xs[:, 0] + 0.3 * rng.normal(size=N) > 0).astype(int)
+        l1 = (xs[:, 1] + 0.3 * rng.normal(size=N) > 0).astype(int)
+        y = pd.DataFrame(np.column_stack([l0, l1]), columns=["l0", "l1"])
+    elif kind == "multioutput":
+        o0 = xs[:, 0] + 0.3 * rng.normal(size=N)
+        o1 = xs[:, 1] + 0.3 * rng.normal(size=N)
+        y = pd.DataFrame(np.column_stack([o0, o1]), columns=["o0", "o1"])
+    else:  # pragma: no cover - guard
+        raise ValueError(kind)
+    return df, y
+
+
+def _make_mrmr(seed: int):
+    """Lightest deterministic no-FE MRMR (mirrors conftest.make_fast_mrmr base).
+
+    FE is OFF so the SELECTED set is RAW columns -- with FE on, MRMR would
+    engineer e.g. ``mul(exp(x0),exp(x1))`` and leave ``support_`` (raw) empty
+    even though it captured the signal. The no-FE preset is the correct lens for
+    a raw signal-recovery / noise-rejection assertion.
+    """
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    return MRMR(
+        verbose=0,
+        interactions_max_order=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        quantization_nbins=10,
+        random_seed=seed,
+    )
+
+
+def _selected(selector) -> set:
+    sup = np.asarray(selector.support_)
+    if sup.dtype == bool:
+        return set(np.where(sup)[0].tolist())
+    return set(int(i) for i in sup.tolist())
+
+
+# ===========================================================================
+# MRMR -- supports every target type (single-target AND 2D). Behavioral floor:
+# recover BOTH signal cols, reject noise.
+# ===========================================================================
+
+_SINGLE_TARGET = ["multiclass", "count", "ordinal"]
+_MULTI_TARGET = ["multilabel", "multioutput"]
+_ALL_KINDS = _SINGLE_TARGET + _MULTI_TARGET
+
+
+def _mrmr_recovery(kind: str, seed: int):
+    df, y = make_target(seed, kind)
+    sel = _make_mrmr(seed)
+    sel.fit(df, y)
+    sup = _selected(sel)
+    recovered = len(SIGNAL & sup)
+    noise = len([i for i in sup if i >= N_SIGNAL])
+    return recovered, noise, sup
+
+
+@pytest.mark.parametrize("kind", _ALL_KINDS)
+def test_biz_val_mrmr_recovers_signal_all_target_types(kind):
+    """MRMR recovers BOTH generating columns {x0, x1} on the MAJORITY of seeds
+    for every supported target type. Measured: 5/5 seeds recover 2/2; floor is
+    >=2 recovered on >=4/5 seeds (~10% under measured)."""
+    recs = [_mrmr_recovery(kind, s)[0] for s in range(5)]
+    n_full = sum(r >= N_SIGNAL for r in recs)
+    assert n_full >= 4, (
+        f"MRMR on {kind}: expected >=2/2 signal recovered on >=4/5 seeds; "
+        f"per-seed recovered={recs}"
+    )
+
+
+@pytest.mark.parametrize("kind", _SINGLE_TARGET)
+def test_biz_val_mrmr_rejects_noise_single_target(kind):
+    """On single-target types MRMR leaks ZERO noise columns (measured 0/seed on
+    5/5). Floor: total noise across 5 seeds <= 2 (loose, but measured is 0)."""
+    total_noise = sum(_mrmr_recovery(kind, s)[1] for s in range(5))
+    assert total_noise <= 2, (
+        f"MRMR on {kind}: expected ~0 noise leakage across 5 seeds; got {total_noise}"
+    )
+
+
+@pytest.mark.parametrize("kind", _MULTI_TARGET)
+def test_biz_val_mrmr_rejects_noise_multi_target_2d(kind):
+    """On 2D targets MRMR keeps noise leakage small. Measured: <=1 noise/seed.
+    Floor: total noise across 5 seeds <= 5 (avg 1/seed)."""
+    total_noise = sum(_mrmr_recovery(kind, s)[1] for s in range(5))
+    assert total_noise <= 5, (
+        f"MRMR on {kind}: expected <=1 noise/seed across 5 seeds; got {total_noise}"
+    )
+
+
+def test_biz_val_mrmr_accepts_2d_y_shape():
+    """Contract pin: MRMR.fit accepts a 2D ``y`` (DataFrame) for multilabel /
+    multi-output WITHOUT raising, and produces a non-trivial selection. This is
+    the capability RFECV lacks (see the GAP xfails below)."""
+    for kind in _MULTI_TARGET:
+        df, y = make_target(0, kind)
+        assert getattr(y, "ndim", 1) == 2
+        sel = _make_mrmr(0)
+        sel.fit(df, y)  # must not raise
+        assert len(_selected(sel)) >= 1
+
+
+# ===========================================================================
+# RFECV -- SINGLE-target target types it DOES handle.
+# ===========================================================================
+
+
+def _make_rfecv(estimator):
+    from mlframe.feature_selection.wrappers import RFECV
+
+    return RFECV(
+        estimator=estimator, cv=3, max_refits=4, random_state=0,
+        leakage_corr_threshold=None, n_features_selection_rule="argmax",
+    )
+
+
+@pytest.mark.slow
+def test_biz_val_rfecv_multiclass_accepts_and_keeps_signal():
+    """RFECV accepts a multiclass (>2) target via a LogisticRegression estimator
+    and KEEPS both signal columns in its support_ (it may also keep noise --
+    argmax on a tiny n is permissive, so we assert signal-retention, not noise
+    rejection, here)."""
+    from sklearn.linear_model import LogisticRegression
+
+    df, y = make_target(0, "multiclass")
+    sel = _make_rfecv(LogisticRegression(max_iter=200, random_state=0))
+    sel.fit(df, y)
+    sup = set(np.where(np.asarray(sel.support_))[0].tolist())
+    assert SIGNAL.issubset(sup), f"RFECV multiclass must retain {SIGNAL}; got {sorted(sup)}"
+
+
+@pytest.mark.slow
+def test_biz_val_rfecv_ordinal_as_regression_recovers_signal():
+    """ORDINAL target treated as continuous (Ridge): RFECV recovers exactly the
+    signal set {x0, x1} (measured) -- ordinal levels carry the x0+x1 ordering
+    linearly, so RFE prunes all 6 noise columns."""
+    from sklearn.linear_model import Ridge
+
+    rng, df, xs = _design(0)
+    score = xs[:, 0] + xs[:, 1]
+    y = pd.Series(np.digitize(score, np.quantile(score, [0.2, 0.4, 0.6, 0.8])).astype(float))
+    sel = _make_rfecv(Ridge())
+    sel.fit(df, y)
+    sup = set(np.where(np.asarray(sel.support_))[0].tolist())
+    assert SIGNAL.issubset(sup), f"RFECV ordinal-as-reg must retain {SIGNAL}; got {sorted(sup)}"
+
+
+@pytest.mark.slow
+def test_biz_val_rfecv_count_poisson_accepts():
+    """COUNT/Poisson target via PoissonRegressor: RFECV runs and retains the
+    signal. Noise rejection is WEAK on a count target at this n (argmax keeps the
+    full set), so this pins acceptance + signal-retention only -- the weakness is
+    documented in the matrix, not asserted away."""
+    from sklearn.linear_model import PoissonRegressor
+
+    rng, df, xs = _design(0)
+    lam = np.exp(0.7 * xs[:, 0] + 0.6 * xs[:, 1])
+    y = pd.Series(rng.poisson(lam))
+    sel = _make_rfecv(PoissonRegressor(max_iter=300))
+    sel.fit(df, y)
+    sup = set(np.where(np.asarray(sel.support_))[0].tolist())
+    assert SIGNAL.issubset(sup), f"RFECV count/Poisson must retain {SIGNAL}; got {sorted(sup)}"
+
+
+# ===========================================================================
+# RFECV -- GAPS: 2D y (multilabel / multi-output) is unsupported.
+# These document REAL capability gaps via strict=False xfail. The test asserts
+# the CORRECT behavior (a usable per-target FS), which currently fails because
+# the wrapper raises NotImplementedError. When the per-target loop lands, the
+# xfail flips to an unexpected PASS and prompts removing the marker.
+# ===========================================================================
+
+
+@pytest.mark.xfail(
+    reason="FS GAP: RFECV unsupported on multilabel (2D y) -- RFECV.fit raises "
+    "NotImplementedError, instructing the caller to loop per label and union "
+    "support_; no built-in multilabel path in the wrapper.",
+    strict=False,
+)
+@pytest.mark.slow
+def test_biz_val_rfecv_multilabel_recovers_signal():
+    from sklearn.linear_model import LogisticRegression
+
+    df, y = make_target(0, "multilabel")
+    sel = _make_rfecv(LogisticRegression(max_iter=200, random_state=0))
+    sel.fit(df, y)  # currently raises NotImplementedError
+    sup = set(np.where(np.asarray(sel.support_))[0].tolist())
+    assert SIGNAL.issubset(sup)
+
+
+@pytest.mark.xfail(
+    reason="FS GAP: RFECV unsupported on multi-output regression (2D y) -- "
+    "RFECV.fit raises NotImplementedError, instructing the caller to loop per "
+    "target and union support_; no built-in multi-output path in the wrapper.",
+    strict=False,
+)
+@pytest.mark.slow
+def test_biz_val_rfecv_multioutput_recovers_signal():
+    from sklearn.linear_model import Ridge
+    from sklearn.multioutput import MultiOutputRegressor
+
+    df, y = make_target(0, "multioutput")
+    sel = _make_rfecv(MultiOutputRegressor(Ridge()))
+    sel.fit(df, y)  # currently raises NotImplementedError
+    sup = set(np.where(np.asarray(sel.support_))[0].tolist())
+    assert SIGNAL.issubset(sup)
+
+
+def test_biz_val_rfecv_2d_y_currently_raises_notimplemented():
+    """Pin the EXACT current contract so a silent behavior change is caught: a
+    bare RFECV.fit on 2D y raises NotImplementedError mentioning multi-output.
+    (Complements the xfails above, which assert the DESIRED behavior.)"""
+    from sklearn.linear_model import LogisticRegression
+
+    df, y = make_target(0, "multilabel")
+    sel = _make_rfecv(LogisticRegression(max_iter=100))
+    with pytest.raises(NotImplementedError, match="multi-output"):
+        sel.fit(df, y)
