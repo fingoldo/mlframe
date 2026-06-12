@@ -337,7 +337,8 @@ def preprocess_dataframe(
             if isinstance(_dt, pd.StringDtype)
         ]
         if _string_cols:
-            df = df.copy()
+            # Shallow copy: only StringDtype columns are recast below; deep-copying a 100+ GB frame to normalise a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+            df = df.copy(deep=False)
             for _c in _string_cols:
                 df[_c] = df[_c].astype(object)
             if verbose:

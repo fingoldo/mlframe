@@ -312,22 +312,21 @@ def _make_backend(
     )
 
 
-class _QuantileForestAdapter:  # pragma: no cover - exercised only when quantile-forest installed
+class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover - exercised only when quantile-forest installed
     """Adapt ``quantile_forest.RandomForestQuantileRegressor`` to the inner contract.
 
     Maps ``predict_quantile(X, alpha)`` onto the package's ``predict(X, quantiles=...)``
     and exposes a plain ``predict`` (median) so the wrapper treats it like any inner.
+
+    ``model`` is the single ``__init__`` arg and is stored verbatim so the default
+    BaseEstimator get_params/set_params round-trip and sklearn.clone (which recurses
+    into the nested ``model``) both work -- delegating get_params to ``self.model``
+    leaked the forest's params and made clone reconstruct the adapter with forest
+    kwargs it does not accept (TypeError when an inner pipeline cloned this).
     """
 
     def __init__(self, model: Any) -> None:
         self.model = model
-
-    def get_params(self, deep: bool = True) -> dict[str, Any]:
-        return self.model.get_params(deep=deep)
-
-    def set_params(self, **params: Any) -> "_QuantileForestAdapter":
-        self.model.set_params(**params)
-        return self
 
     def fit(self, X: Any, y: Any, sample_weight: np.ndarray | None = None, **kw: Any) -> "_QuantileForestAdapter":
         self.model.fit(np.asarray(X, dtype=np.float64), np.asarray(y, dtype=np.float64).reshape(-1), sample_weight=sample_weight)

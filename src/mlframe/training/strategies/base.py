@@ -202,7 +202,10 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         # Reassemble in the ORIGINAL column order so the cat columns keep their positions + names (the estimator reorders cats leading by name,
         # but downstream feature-name continuity + the input-width contract still expect a stable layout here). Only map back columns the inner
         # actually produced; a column the inner dropped stays at its pre-transform value (the keep_empty_features fix above makes this the rare path).
-        out = X.copy()
+        # Shallow copy: only the numeric columns get reassigned below (each a fresh block), so a deep ``X.copy()`` would
+        # needlessly clone the cat/passthrough columns -- on a 100+ GB frame that OOMs. ``deep=False`` shares the untouched
+        # column buffers; full-column reassignment never writes back into X (verified: caller frame stays unmutated).
+        out = X.copy(deep=False)
         _present = set(transformed.columns) if hasattr(transformed, "columns") else set(num_cols)
         for c in num_cols:
             if c not in _present:

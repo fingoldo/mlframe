@@ -266,7 +266,8 @@ def run_confidence_analysis(
     if _resolved_cat_features and isinstance(test_df, pd.DataFrame):
         _cat_in_df = [c for c in _resolved_cat_features if c in test_df.columns]
         if _cat_in_df:
-            test_df = test_df.copy()
+            # Shallow copy: only cat columns carrying NaN are reassigned below; deep-copying a 100+ GB test frame to fill a few cat columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+            test_df = test_df.copy(deep=False)
             for _c in _cat_in_df:
                 _col = test_df[_c]
                 if _col.isna().any():

@@ -146,7 +146,8 @@ def _maybe_get_or_build_cb_pool(
                     "(category dtype -> object) before Pool: %s",
                     len(_cat_dt_routed_as_text), _cat_dt_routed_as_text,
                 )
-                train_df = train_df.copy()
+                # Shallow copy: only the text-routed columns are cast below; deep-copying a 100+ GB train frame to recast a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+                train_df = train_df.copy(deep=False)
                 for _c in _cat_dt_routed_as_text:
                     train_df[_c] = train_df[_c].astype(object)
     except Exception as _exc:
