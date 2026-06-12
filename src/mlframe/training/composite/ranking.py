@@ -113,10 +113,28 @@ def _within_group_residual(
 
 
 def _rank01(a: np.ndarray) -> np.ndarray:
-    """Average-rank of ``a`` (ties shared), 0-based, as float64."""
+    """Average-rank of ``a`` (ties shared), 0-based, as float64.
+
+    Tied values receive their shared mean rank so equal relevance/base scores
+    contribute ZERO ordering residual -- otherwise positional argsort ranks would
+    fabricate a spurious within-group order on tied (e.g. graded-relevance) data,
+    biasing the lambdarank gains / pairwise labels with a non-existent ordering.
+    """
+    n = a.shape[0]
     order = np.argsort(a, kind="stable")
-    ranks = np.empty(a.shape[0], dtype=np.float64)
-    ranks[order] = np.arange(a.shape[0], dtype=np.float64)
+    pos = np.empty(n, dtype=np.float64)
+    pos[order] = np.arange(n, dtype=np.float64)
+    sa = a[order]
+    ranks = pos.copy()
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and sa[j] == sa[i]:
+            j += 1
+        if j - i > 1:
+            avg = (i + (j - 1)) / 2.0
+            ranks[order[i:j]] = avg
+        i = j
     return ranks
 
 
