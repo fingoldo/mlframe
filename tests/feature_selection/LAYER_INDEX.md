@@ -101,3 +101,14 @@ Discoverability map for the ~95 `tests/feature_selection/test_biz_value_mrmr_lay
 | layer101 | comprehensive full-suite regression + state-of-the-union. |
 | layer103 | Param-Oracle <-> kernel_tuning_cache migration POC. |
 | layer104 | THREE new recipe-based FE families. |
+
+## Themed-subpackage relocation map
+
+Layers consolidated out of the flat `test_biz_value_mrmr_layerNN.py` namespace into themed subpackages (each submodule keeps a `...layerNN.py` provenance marker in its docstring; roster sensors harvest it):
+
+| Original layers | Subpackage |
+| --- | --- |
+| 41-49 | `test_biz_value_mrmr_dcd/` |
+| scorer campaigns (e.g. 72-74) + theme-B | `test_biz_value_mrmr_scorers/`, `test_biz_value_mrmr_grouped_cat_fe/` |
+| 6-20 (robustness contracts) | `test_biz_value_mrmr_contracts_robustness/test_layerNN.py` |
+| 21-32 (hybrid orthogonal-poly FE) | `test_biz_value_mrmr_fe_hybrid_orth/test_layerNN.py` |

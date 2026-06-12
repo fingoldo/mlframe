@@ -24,6 +24,10 @@ from mlframe.feature_selection.wrappers import (
     VotesAggregation,
 )
 from mlframe.feature_selection.hybrid_selector import HybridSelector
+from mlframe.feature_selection.compare_selectors import (
+    compare_selectors,
+    SelectorComparison,
+)
 
 __all__ = [
     # general
@@ -40,4 +44,7 @@ __all__ = [
     "VotesAggregation",
     # hybrid (compute-once-share-many composition of MRMR/RFECV/BorutaShap/ShapProxiedFS)
     "HybridSelector",
+    # read-only diagnostics: compare what each selector keeps (agreement / Jaccard / consensus)
+    "compare_selectors",
+    "SelectorComparison",
 ]

@@ -59,30 +59,75 @@ from ._pipeline_cache import (  # noqa: F401, E402
 )
 
 
+def _selector_output_columns(selector):
+    """The OUTPUT (selected) column names of a fitted feature selector, or None.
+
+    A name-keyed selector (RFECV / MRMR / BorutaShap) records the columns it was fit on in ``feature_names_in_`` and the kept subset in
+    ``support_`` (a boolean mask) or via ``get_support()``. Its ``transform`` selects those output columns BY NAME, so the count of selected output
+    columns is the reliable width of an already-transformed frame -- independent of the selector's recorded INPUT width, which a zero-variance
+    pre-filter can shrink below the raw frame width. Returns the list of selected output names, or None when the selector doesn't expose a
+    name-keyed support contract (then the caller falls back to the input-width heuristic).
+    """
+    if selector is None:
+        return None
+    names_in = getattr(selector, "feature_names_in_", None)
+    if names_in is None:
+        return None
+    support = getattr(selector, "support_", None)
+    if support is None and hasattr(selector, "get_support"):
+        try:
+            support = selector.get_support()
+        except Exception:
+            support = None
+    if support is None:
+        return None
+    try:
+        support = np.asarray(support)
+        names_in = list(names_in)
+        if support.dtype == bool or (support.size and isinstance(support.flat[0], (bool, np.bool_))):
+            return [c for c, keep in zip(names_in, support) if keep]
+        return [names_in[int(i)] for i in support]
+    except Exception:
+        return None
+
+
 def _test_df_is_raw_pipeline_input(pre_pipeline, test_df, passthrough_cols, skip_preprocessing) -> bool:
-    """True when ``test_df`` still carries the fitted pipeline's RAW input
-    schema (so a transform is needed), False when it is already the pipeline's
-    transformed OUTPUT (so re-transforming would double-apply).
+    """True when ``test_df`` still needs the fitted pipeline's transform applied (it carries the RAW input schema, or any schema wider than the
+    pipeline's transformed OUTPUT), False only when it is already at the pipeline's transformed OUTPUT width (so re-transforming would double-apply).
 
-    The discriminator is the fitted estimator's ``n_features_in_``: a raw
-    frame's effective input width (total columns minus the hidden passthrough
-    columns the transform never sees) equals what the pipeline was fit on; an
-    already-transformed frame's width has diverged (feature selection dropped
-    columns, polynomial/interaction FE added them, etc.).
+    Primary discriminator -- the feature selector's OUTPUT width. A fitted selector (RFECV / MRMR / BorutaShap) reduces its input to the columns in
+    ``feature_names_in_[support_]``, so a frame WIDER than that selected output still needs the selection applied; a frame already at (or below) the
+    output width has been transformed and must not be re-selected. This is immune to the input-width ambiguity that broke the prior ``n_features_in_``
+    heuristic: a selector applies a zero-variance pre-filter at fit entry, so ``n_features_in_`` (e.g. 6) can be SMALLER than the raw frame width
+    (e.g. 7) -- making a raw 7-col frame compare unequal to ``n_features_in_=6`` and be misclassified as already-transformed, so its transform was
+    skipped and the model (trained on the 4 selected cols) received the raw 7-col frame -> ``LightGBMError: number of features in data (7) != training
+    (4)`` (fuzz c0026: use_mrmr_fs + rfecv on cb/lgb/linear). The output width has no such ambiguity: raw frames are strictly wider than the output.
 
-    Defaults to True (transform) whenever the width can't be determined, so
-    the NaN-to-LinearRegression guard (the original reason the fitted-pipeline
-    override exists) is preserved on any ambiguous frame.
+    Fallback discriminator -- the fitted estimator's ``n_features_in_`` width (the legacy heuristic), used only when no name-keyed selector output
+    set is available (e.g. a pure preprocessing pipeline with no selector). Defaults to True (transform) whenever neither signal is determinable,
+    so the NaN-to-LinearRegression guard (the original reason the fitted-pipeline override exists) is preserved on any ambiguous frame.
     """
     if not hasattr(test_df, "shape"):
         return True
-    # The estimator whose input width matters is the one the transform feeds:
-    # the feature selector under skip_preprocessing, else the whole pipeline.
+    _n_passthrough = len(passthrough_cols) if passthrough_cols else 0
+    _effective_width = int(test_df.shape[1]) - _n_passthrough
+
+    # Primary discriminator -- the feature selector's OUTPUT width. A selector reduces its input to ``len(support_[support_])`` columns, so a frame
+    # WIDER than that output still needs the selection applied (raw, or carrying upstream-dropped cols); a frame already AT (or below) the output
+    # width has been transformed and must not be re-selected. The output width is robust where the input-width heuristic below is not: a selector
+    # applies a zero-variance pre-filter at fit entry, so its ``n_features_in_`` can be SMALLER than the raw frame width -- which made the raw frame
+    # compare unequal to ``n_features_in_`` and be misclassified as already-transformed (the c0026 4-vs-7 LightGBMError). The output width has no
+    # such ambiguity: raw frames are strictly wider than the selected output.
+    _sel = _extract_feature_selector(pre_pipeline)
+    _out_cols = _selector_output_columns(_sel)
+    if _out_cols is not None:
+        return _effective_width > len(_out_cols)
+
+    # Fallback: input-width heuristic. The estimator whose input width matters is the one the transform feeds: the feature selector under
+    # skip_preprocessing, else the whole pipeline.
     _est = pre_pipeline
-    if skip_preprocessing:
-        _sel = _extract_feature_selector(pre_pipeline)
-        if _sel is not None:
-            _est = _sel
+    if skip_preprocessing and _sel is not None:
+        _est = _sel
     _expected_in = getattr(_est, "n_features_in_", None)
     if _expected_in is None and hasattr(_est, "named_steps"):
         # Pipeline: the first step carries the input-width contract.
@@ -92,8 +137,6 @@ def _test_df_is_raw_pipeline_input(pre_pipeline, test_df, passthrough_cols, skip
                 break
     if _expected_in is None:
         return True  # can't tell -> preserve the transform (NaN-guard posture)
-    _n_passthrough = len(passthrough_cols) if passthrough_cols else 0
-    _effective_width = int(test_df.shape[1]) - _n_passthrough
     # Raw input -> widths match; already-transformed -> diverged.
     return _effective_width == int(_expected_in)
 
@@ -266,18 +309,55 @@ def _is_fitted(estimator):
             for _name, step in estimator.steps:
                 if step is None or step == "passthrough":
                     continue
-                try:
-                    check_is_fitted(step)
-                except NotFittedError:
+                if not _step_is_fitted(step):
                     return False
             return True
     except Exception:
         pass
+    return _step_is_fitted(estimator)
+
+
+def _step_is_fitted(step) -> bool:
+    """``check_is_fitted`` for a single estimator, ignoring mlframe-private markers.
+
+    The suite stamps selectors with trailing-underscore markers (``_mlframe_use_sample_weights_in_fs_`` etc.). sklearn's
+    default ``check_is_fitted`` heuristic treats ANY trailing-underscore attribute as fitted state, so a freshly-cloned
+    selector carrying only those markers would be misreported as fitted -> the suite skips the fit -> NotFittedError on
+    transform. Restrict the fitted check to genuine sklearn-fitted attributes by excluding the ``_mlframe_*`` markers.
+    """
+    if step is None:
+        return False
+    # Custom ``__sklearn_is_fitted__`` (some wrappers define it) is authoritative; honour it before the attr heuristic.
+    if hasattr(step, "__sklearn_is_fitted__"):
+        try:
+            check_is_fitted(step)
+            return True
+        except NotFittedError:
+            return False
+        except Exception:
+            pass
     try:
-        check_is_fitted(estimator)
+        fitted_attrs = [a for a in vars(step) if a.endswith("_") and not a.startswith("__") and not a.startswith("_mlframe_")]
+    except TypeError:
+        fitted_attrs = None
+    if fitted_attrs is not None and not fitted_attrs:
+        # Only mlframe markers (or nothing) end in ``_`` -> genuinely unfitted; sklearn's default heuristic would be
+        # fooled by the trailing-underscore markers into reporting fitted.
+        return False
+    try:
+        if fitted_attrs:
+            check_is_fitted(step, attributes=fitted_attrs)
+        else:
+            check_is_fitted(step)
         return True
     except NotFittedError:
         return False
+    except Exception:
+        try:
+            check_is_fitted(step)
+            return True
+        except NotFittedError:
+            return False
 
 
 def _is_stale_fit_state_value_error(exc) -> bool:
@@ -397,8 +477,16 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     # + fe_max_steps=2 confirming 0 predictors).
     # Resolve the underlying selector instance so we can read the weight-aware marker.
     # ``fn`` is typically a bound method (``selector.fit_transform``); fall back to None when not applicable.
-    _selector = getattr(fn, "__self__", None)
+    # When the selector is wrapped in an sklearn Pipeline (the common case: any preprocessing step wraps MRMR /
+    # RFECV under the ``'pre'`` step), ``fn.__self__`` is the WRAPPING Pipeline -- which is never stamped -- so the
+    # marker must be read off the inner ``'pre'`` step. A bare ``sample_weight`` kwarg also will not reach the inner
+    # step through ``Pipeline.fit``; sklearn routes per-step fit_params via the ``<step>__param`` namespace, so the
+    # kwarg key becomes ``pre__sample_weight`` when forwarding through a Pipeline.
+    _bound = getattr(fn, "__self__", None)
+    _selector = _extract_feature_selector(_bound) if _bound is not None else None
+    _sw_via_pipeline = isinstance(_bound, Pipeline)
     _wants_sw = bool(sample_weight is not None and getattr(_selector, "_mlframe_use_sample_weights_in_fs_", False))
+    _sw_kwarg = "pre__sample_weight" if _sw_via_pipeline else "sample_weight"
 
     def _call_fit(_fn, _arg, _target_arg):
         """Invoke fit/fit_transform with ``groups`` / ``sample_weight`` when supported.
@@ -420,15 +508,15 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         if groups is not None:
             _kwargs["groups"] = groups
         if _wants_sw:
-            _kwargs["sample_weight"] = sample_weight
+            _kwargs[_sw_kwarg] = sample_weight
         if not _kwargs:
             return _fn(_arg, _target_arg)
         try:
             return _fn(_arg, _target_arg, **_kwargs)
         except TypeError:
             # Drop sample_weight first (more selectors accept groups than sw); then drop groups.
-            if "sample_weight" in _kwargs:
-                _kwargs.pop("sample_weight")
+            if _sw_kwarg in _kwargs:
+                _kwargs.pop(_sw_kwarg)
                 if _kwargs:
                     try:
                         return _fn(_arg, _target_arg, **_kwargs)
@@ -443,8 +531,8 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
                 or "unexpected keyword argument 'groups'" in _msg
                 or "unexpected keyword argument 'sample_weight'" in _msg
             ):
-                if "sample_weight" in _kwargs:
-                    _kwargs.pop("sample_weight")
+                if _sw_kwarg in _kwargs:
+                    _kwargs.pop(_sw_kwarg)
                     if _kwargs:
                         try:
                             return _fn(_arg, _target_arg, **_kwargs)

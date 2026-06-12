@@ -224,17 +224,61 @@ class TestUniversalContract:
 @pytest.mark.parametrize("name,factory", SELECTOR_FACTORIES)
 class TestSklearnParity:
     def test_pipeline_compatibility(self, name, factory, binary_df):
+        """Selector must embed in a sklearn Pipeline and fit->predict cleanly,
+        with the selected feature set propagating to the downstream estimator.
+
+        Previously this guarded the embed in a try/except that XFAILed on any
+        (TypeError, ValueError, AttributeError). All three selectors (MRMR,
+        RFECV, ShapProxiedFS) now satisfy the full Pipeline contract -- clone,
+        set_output, fit->predict, and get_feature_names_out propagation -- so
+        the xfail is removed and the test asserts a real pass (no-xfail-to-defer).
+        """
         from sklearn.pipeline import Pipeline
         from sklearn.linear_model import LogisticRegression
         X, y = binary_df
         sel = factory("binary")
-        try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             pipe = Pipeline([("fs", sel), ("clf", LogisticRegression(max_iter=200))])
             pipe.fit(X, y)
             preds = pipe.predict(X)
-            assert preds.shape == y.shape
-        except (TypeError, ValueError, AttributeError) as exc:
-            pytest.xfail(f"{name}: not Pipeline-compatible yet ({type(exc).__name__}: {exc})")
+        assert preds.shape == y.shape, f"{name}: Pipeline predict shape {preds.shape} != {y.shape}"
+
+        # Selected-feature propagation: the fitted selector's transform must
+        # feed exactly the columns the downstream estimator consumes.
+        fs = pipe.named_steps["fs"]
+        Xt = fs.transform(X)
+        n_out = Xt.shape[1]
+        assert n_out >= 1, f"{name}: selector emitted zero columns into the Pipeline"
+        clf = pipe.named_steps["clf"]
+        assert getattr(clf, "n_features_in_", n_out) == n_out, (
+            f"{name}: downstream estimator saw {clf.n_features_in_} features but selector emitted {n_out}"
+        )
+        # get_feature_names_out (when present) must agree with transform width,
+        # i.e. the names that propagate downstream match the emitted columns.
+        if callable(getattr(fs, "get_feature_names_out", None)):
+            names = fs.get_feature_names_out()
+            assert len(names) == n_out, (
+                f"{name}: get_feature_names_out len {len(names)} != transform cols {n_out}"
+            )
+
+    def test_pipeline_biz_value(self, name, factory, binary_df):
+        """biz_value: a real FS->model Pipeline on the canonical fixture must
+        train and beat the majority-class baseline -- i.e. the selected feature
+        subset retains genuine signal end-to-end through the Pipeline."""
+        from sklearn.pipeline import Pipeline
+        from sklearn.linear_model import LogisticRegression
+        X, y = binary_df
+        baseline = max(np.bincount(y)) / len(y)  # majority-class accuracy
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            pipe = Pipeline([("fs", factory("binary")),
+                             ("clf", LogisticRegression(max_iter=200))])
+            pipe.fit(X, y)
+            acc = pipe.score(X, y)
+        assert acc > baseline + 0.05, (
+            f"{name}: FS->model Pipeline train acc {acc:.3f} did not beat baseline {baseline:.3f}+0.05"
+        )
 
     def test_get_params_set_params_roundtrip(self, name, factory):
         sel = factory("binary")
@@ -247,7 +291,8 @@ class TestSklearnParity:
 
     def test_get_feature_names_out_or_get_support(self, name, factory, binary_df):
         """Either get_feature_names_out OR get_support must be defined (sklearn convention).
-        MRMR has get_feature_names_out; ShapProxied has get_support; RFECV has both.
+        All three selectors (MRMR, RFECV, ShapProxiedFS) now expose both, so the
+        downstream get_feature_names_out skip below is a non-firing defensive guard.
         """
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)

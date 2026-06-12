@@ -42,10 +42,11 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
     """Behavioral: monkey-patch ``combinations`` in the FE-step sibling, observe
     that the iterator is consumed in chunks, never wrapped in a single ``list(...)``."""
     from mlframe.feature_selection.filters import mrmr as _mrmr_mod
-    # After the mrmr.py monolith split, ``_run_fe_step`` lives in
-    # ``_mrmr_fe_step.py`` and looks up ``combinations`` from that module's
-    # globals -> patch there, not on the parent re-export.
-    from mlframe.feature_selection.filters import _mrmr_fe_step as _mrmr_fe_step_mod
+    # ``_run_fe_step`` lives in the ``_mrmr_fe_step`` subpackage's ``_step_core``
+    # submodule and looks up ``combinations`` from THAT module's globals -> patch
+    # there, not on the package re-export facade (whose ``combinations`` the body
+    # never reads).
+    from mlframe.feature_selection.filters._mrmr_fe_step import _step_core as _mrmr_fe_step_mod
 
     real_combinations = _mrmr_fe_step_mod.combinations
 

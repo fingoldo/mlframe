@@ -40,15 +40,20 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
     original column count and order, so cluster indices still map back to the
     caller's feature positions. Numeric columns pass through unchanged.
     """
-    out_cols = {}
-    for col in X.columns:
-        s = X[col]
+    # Iterate POSITIONALLY (``.iloc[:, j]``), not by label: duplicate column names (common after FE expansion -- repeated
+    # lags, one-hot level collisions) make ``X[label]`` return a DataFrame, whose ``.dtype`` access raises. Positional
+    # access always yields a Series, and we rebuild from a list so duplicate labels are preserved in original order.
+    series_list = []
+    for j in range(X.shape[1]):
+        s = X.iloc[:, j]
         if pd.api.types.is_numeric_dtype(s.dtype):
-            out_cols[col] = s
+            series_list.append(np.asarray(s.to_numpy()))
         else:
             codes, _ = pd.factorize(s, use_na_sentinel=True)
-            out_cols[col] = pd.Series(codes, index=s.index, name=col)
-    return pd.DataFrame(out_cols, index=X.index)
+            series_list.append(np.asarray(codes))
+    out = pd.DataFrame(np.column_stack(series_list) if series_list else np.empty((len(X), 0)), index=X.index)
+    out.columns = list(X.columns)
+    return out
 
 
 def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
@@ -120,6 +125,7 @@ def cluster_features_by_correlation(
     X,
     threshold: float = 0.9,
     method: str = "spearman",
+    precomputed_corr: np.ndarray | None = None,
 ) -> np.ndarray:
     """Greedy single-linkage clustering on the correlation graph.
 
@@ -140,7 +146,9 @@ def cluster_features_by_correlation(
     """
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    corr = _redundancy_matrix(X, method)
+    # The p x p redundancy matrix is a function of (X, method) alone; the caller (fit) computes it ONCE and threads it
+    # through both this clustering pass and _cluster_medoids to avoid a second O(p^2) build (p = features, bounded).
+    corr = precomputed_corr if precomputed_corr is not None else _redundancy_matrix(X, method)
     n = corr.shape[0]
 
     cluster_id = np.arange(n)  # union-find roots
@@ -171,11 +179,12 @@ def _cluster_medoids(
     X,
     cluster_id: np.ndarray,
     method: str = "spearman",
+    precomputed_corr: np.ndarray | None = None,
 ) -> list[int]:
     """For each cluster, pick the column with highest mean abs-corr to its cluster mates (the medoid). Singletons return their only member."""
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    corr = _redundancy_matrix(X, method)
+    corr = precomputed_corr if precomputed_corr is not None else _redundancy_matrix(X, method)
     n_clusters = int(cluster_id.max()) + 1
 
     medoids = []
@@ -265,11 +274,14 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         if not is_df:
             X = pd.DataFrame(X, columns=[f"f_{i}" for i in range(X.shape[1])])
 
+        # Build the p x p redundancy matrix ONCE and reuse it for both the clustering pass and the medoid pick --
+        # they are both functions of (X, corr_method) and previously each rebuilt it (a redundant O(p^2) SU/corr pass).
+        _corr = _redundancy_matrix(X, self.corr_method)
         self.cluster_assignments_ = cluster_features_by_correlation(
-            X, threshold=self.corr_threshold, method=self.corr_method,
+            X, threshold=self.corr_threshold, method=self.corr_method, precomputed_corr=_corr,
         )
         self.cluster_medoid_indices_ = _cluster_medoids(
-            X, self.cluster_assignments_, method=self.corr_method,
+            X, self.cluster_assignments_, method=self.corr_method, precomputed_corr=_corr,
         )
         n_clusters = len(self.cluster_medoid_indices_)
         n_feat = X.shape[1]

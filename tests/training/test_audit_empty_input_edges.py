@@ -82,7 +82,7 @@ def test_compute_prior_empty_y_weighted_branch() -> None:
 
 def test_rfecv_n_features_bootstrap_ci_zero_bootstrap_no_crash() -> None:
     """n_bootstrap=0 must not raise; returns (n, n, n) fallback."""
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     # Construct a minimally-populated RFECV without actually fitting; we only need
     # cv_results_ + n_features_ for the bootstrap method's no-crash path.
@@ -98,7 +98,7 @@ def test_rfecv_n_features_bootstrap_ci_zero_bootstrap_no_crash() -> None:
 
 
 def test_rfecv_n_features_bootstrap_ci_negative_bootstrap_no_crash() -> None:
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rf = RFECV.__new__(RFECV)
     rf.cv_results_ = {

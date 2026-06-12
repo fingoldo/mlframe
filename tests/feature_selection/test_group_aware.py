@@ -291,5 +291,94 @@ def test_group_aware_mrmr_expands_to_cluster_members():
     assert len(wrapper_no_expand.support_) == 1
 
 
+class TestDuplicateColumnNames:
+    """GroupAwareMRMR must not crash on duplicate column labels.
+
+    Duplicate names arise routinely after FE expansion (repeated lags, one-hot level collisions). ``X[label]`` then returns a DataFrame,
+    whose ``.dtype`` access raised ``AttributeError`` inside ``_numeric_codes_frame``. The fix iterates positionally via ``.iloc[:, j]``.
+    """
+
+    @pytest.mark.parametrize("method", ["pearson", "spearman", "su"])
+    def test_redundancy_methods_handle_duplicate_names(self, method):
+        from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+
+        rng = np.random.default_rng(0)
+        n = 300
+        a = rng.standard_normal(n)
+        X = pd.DataFrame(np.c_[a, a + 1e-9 * rng.standard_normal(n), rng.standard_normal(n)])
+        X.columns = ["dup", "dup", "other"]
+        rm = _redundancy_matrix(X, method)
+        assert rm.shape == (3, 3)
+        # The two near-identical "dup" columns are mutually redundant; "other" is not.
+        assert rm[0, 1] > 0.9
+        assert rm[0, 2] < 0.5
+
+    def test_cluster_and_medoid_on_duplicate_names(self):
+        rng = np.random.default_rng(1)
+        n = 300
+        a = rng.standard_normal(n)
+        X = pd.DataFrame(np.c_[a, a + 1e-9 * rng.standard_normal(n), rng.standard_normal(n)])
+        X.columns = ["dup", "dup", "other"]
+        cid = cluster_features_by_correlation(X, threshold=0.9, method="pearson")
+        assert cid[0] == cid[1] and cid[2] != cid[0]
+        med = _cluster_medoids(X, cid, method="pearson")
+        assert sorted(med) == [0, 2]
+
+    def test_fit_expands_duplicate_name_clusters_never_empty(self):
+        rng = np.random.default_rng(3)
+        n = 500
+        sig = rng.standard_normal(n)
+        y = (sig + 0.3 * rng.standard_normal(n) > 0).astype(int)
+        X = pd.DataFrame(np.c_[sig, sig + 1e-6 * rng.standard_normal(n), rng.standard_normal(n), rng.standard_normal(n)])
+        X.columns = ["s", "s", "n", "n"]
+        sel = GroupAwareMRMR(_FakeInner(k=1), corr_threshold=0.9, corr_method="pearson", min_reduction=0.0)
+        sel.fit(X, y)
+        assert len(sel.support_) > 0
+        # The selected signal cluster expands to BOTH duplicate-named members.
+        assert 0 in sel.support_ and 1 in sel.support_
+        assert sel.transform(X).shape[1] == len(sel.support_)
+
+
+class TestRedundancyMatrixComputedOnce:
+    """GroupAwareMRMR.fit must build the p x p redundancy matrix ONCE, not once per clustering + once per medoid pick.
+
+    The matrix is a function of (X, corr_method) alone; rebuilding it for the medoid pass was a redundant O(p^2) SU/corr
+    pass. fit now computes it once and threads it through both via ``precomputed_corr``. This pins the single build so a
+    future refactor cannot silently reintroduce the double compute, and pins byte-identity of the threaded matrix.
+    """
+
+    def test_fit_builds_redundancy_matrix_once(self, monkeypatch):
+        import mlframe.feature_selection.filters.group_aware as _ga
+        from sklearn.feature_selection import SelectKBest, f_classif
+
+        calls = {"n": 0}
+        _orig = _ga._redundancy_matrix
+        monkeypatch.setattr(_ga, "_redundancy_matrix", lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1) or _orig(*a, **k)))
+
+        rng = np.random.default_rng(0)
+        n = 200
+        base = rng.standard_normal((n, 3))
+        X = pd.DataFrame(
+            np.column_stack([base[:, 0], base[:, 0] + 0.01 * rng.standard_normal(n), base[:, 1], base[:, 2], rng.standard_normal((n, 2))]),
+            columns=[f"c{i}" for i in range(6)],
+        )
+        y = (X["c0"] + X["c2"] > 0).astype(int)
+        _ga.GroupAwareMRMR(estimator=SelectKBest(f_classif, k=2), corr_threshold=0.8).fit(X, y)
+        assert calls["n"] == 1, f"redundancy matrix rebuilt {calls['n']}x per fit (expected 1 -- the double-compute regressed)"
+
+    def test_precomputed_corr_is_byte_identical(self):
+        from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+        rng = np.random.default_rng(2)
+        X = pd.DataFrame(rng.standard_normal((150, 5)), columns=list("abcde"))
+        corr = _redundancy_matrix(X, "spearman")
+        # threading the precomputed matrix must give the same clustering + medoids as letting each recompute.
+        c_pre = cluster_features_by_correlation(X, threshold=0.9, method="spearman", precomputed_corr=corr)
+        c_recompute = cluster_features_by_correlation(X, threshold=0.9, method="spearman")
+        assert np.array_equal(c_pre, c_recompute)
+        m_pre = _cluster_medoids(X, c_pre, method="spearman", precomputed_corr=corr)
+        m_recompute = _cluster_medoids(X, c_recompute, method="spearman")
+        assert m_pre == m_recompute
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x", "--no-cov"])

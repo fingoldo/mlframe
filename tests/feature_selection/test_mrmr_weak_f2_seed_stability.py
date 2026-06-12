@@ -27,7 +27,7 @@ selection's engineered features into:
   * ``raw_only``    -- the pair's operands survive ONLY as raw columns, no joint
                        engineered form for that pair.
 
-The per-seed counts are written to ``D:/Temp/weak_f2_stability.json`` for the
+The per-seed counts are written to the test artifact dir (``weak_f2_stability.json``) for the
 report. The pytest assertions pin the qualitative finding (so a future change that
 fixes the instability, or regresses it, is caught) without demanding a specific
 unstable seed outcome. Seeded + deterministic; n<=30000.
@@ -86,6 +86,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.feature_selection.test_mrmr_create_keep_drop import _artifact_path
 
 # Operand groupings for the two genuine interactions.
 _AB = {"a", "b"}
@@ -95,7 +96,7 @@ _IDENT = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 SEEDS = list(range(10))
 PROFILE_N = 20000  # all <= 30000
-_PROGRESS = r"D:/Temp/distros_progress.txt"
+_PROGRESS = _artifact_path("weak_f2_progress.txt")
 _RESULTS = []
 
 
@@ -103,7 +104,7 @@ def _checkpoint(msg: str) -> None:
     try:
         with open(_PROGRESS, "a", encoding="utf-8") as fh:
             fh.write(msg.rstrip("\n") + "\n")
-    except Exception:
+    except OSError:
         pass
 
 
@@ -322,14 +323,19 @@ def test_weak_f2_stability_summary():
 @pytest.fixture(scope="session", autouse=True)
 def _dump_weak_f2_results():
     yield
+    results_path = _artifact_path("weak_f2_stability.json")
     try:
         import orjson
-        with open(r"D:/Temp/weak_f2_stability.json", "wb") as fh:
+        with open(results_path, "wb") as fh:
             fh.write(orjson.dumps(_RESULTS, option=orjson.OPT_INDENT_2))
-    except Exception:
+    except Exception as exc:
         try:
             import json
-            with open(r"D:/Temp/weak_f2_stability.json", "w", encoding="utf-8") as fh:
+            import warnings
+
+            warnings.warn(f"weak_f2 results orjson dump failed ({exc!r}); using json fallback")
+            with open(results_path, "w", encoding="utf-8") as fh:
                 json.dump(_RESULTS, fh, indent=2)
-        except Exception:
-            pass
+        except Exception as exc2:
+            import warnings
+            warnings.warn(f"weak_f2 results dump failed entirely: {exc2!r}")

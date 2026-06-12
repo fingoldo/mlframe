@@ -23,7 +23,7 @@ def test_rfecv_polars_sorted_datetime_triggers_time_series_split():
     pl = pytest.importorskip("polars")
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import TimeSeriesSplit
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     n = 80
     rng = np.random.default_rng(0)

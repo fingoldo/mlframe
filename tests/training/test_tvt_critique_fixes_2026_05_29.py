@@ -316,7 +316,7 @@ def test_shap_xgb_base_score_patch_handles_bracketed_array_string():
     # base_score natively and uses ``float`` as a numpy dtype, so ``_shap_tree.float`` must NOT be replaced -- see
     # test_patch_is_noop_on_shap_ge_052), hence the coercer is no longer reachable via ``_shap_tree.float`` there.
     # The bracket-handling logic itself (the contract under test) lives in the module-level ``_safe_float``.
-    from mlframe.feature_selection._shap_proxy_explain import _safe_float as coerce
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _safe_float as coerce
     assert coerce("[0.5]") == 0.5
     assert abs(coerce("[5.0666666E-1]") - 0.50666666) < 1e-6
     # Multi-element array: take the first.

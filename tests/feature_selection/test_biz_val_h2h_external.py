@@ -427,12 +427,6 @@ def test_biz_val_quality_vs_k_frontier():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    reason="PROD BUG: MRMR returns EMPTY support_ (0-width transform) on "
-    "make_signal_plus_noise for a majority of seeds, violating the documented "
-    "min_features_fallback=1 non-empty guarantee -- bizvalue_value_proofs-01",
-    strict=False,
-)
 def test_biz_val_h2h_honest_tie_on_linear_no_redundancy():
     """CONTROL leg: on ``make_signal_plus_noise`` (linear additive signal, zero
     redundancy) MRMR has no structural edge over a plain MI filter, so the CORRECT
@@ -440,15 +434,11 @@ def test_biz_val_h2h_honest_tie_on_linear_no_redundancy():
     (raw + engineered, via ``transform``) should reach within 0.02 AUC of
     ``SelectKBest`` on a majority of seeds.
 
-    This is written to the CORRECT contract and marked ``xfail`` because it SURFACES
-    A REAL PROD BUG: on this fixture MRMR returns an EMPTY ``support_`` (0-width
-    ``transform``) on a majority of seeds (dev: 4/6 at p_signal=3) despite
-    ``min_features_fallback=1``, whose docstring promises ``support_`` is never
-    empty ("keeps the single highest-MI column"). When MRMR *does* emit its
-    engineered additive combo it ties cleanly (dev: AUC 0.986/0.989 vs SelectKBest
-    0.990/0.992, delta ~-0.003) -- so the contract is right; the empty-support
-    collapse is the defect. The assertion is NOT weakened to pass.
-    """
+    This previously xfailed because MRMR returned an EMPTY ``support_`` (0-width
+    transform) on a majority of seeds, violating the ``min_features_fallback>=1``
+    non-empty guarantee. That defect was fixed (raw-redundancy drop no longer empties
+    the selection via an un-replayable nested subsumer -- verified 0/6 empties), so
+    the within-epsilon tie now holds and this is a passing value proof."""
     n = 1200 if is_fast_mode() else 1500
     margin = 0.02
     ties = 0

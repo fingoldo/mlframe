@@ -130,7 +130,7 @@ class TestB6_DuplicateColumns:
 class TestRfecvRamAwareCleanup:
     def test_no_gc_collect_when_rss_does_not_grow(self, monkeypatch):
         """The previous ``if nsteps % 5 == 0: clean_ram()`` fired gc.collect every 5th iter regardless of whether anything accumulated; on small problems this was pure ~290ms overhead per call. Route through ``maybe_clean_ram_and_gpu`` instead so a fixed RSS profile skips gc.collect entirely. Mock ``should_clean_ram`` -> False so the helper short-circuits, and assert the inner RFECV loop did NOT trigger the pyutilz ``clean_ram`` (the old call site)."""
-        from mlframe.feature_selection.wrappers import _rfecv as _rfecv_mod
+        from mlframe.feature_selection.wrappers import rfecv as _rfecv_mod
         from mlframe.training import _ram_helpers as _rh
 
         rng = np.random.default_rng(0)

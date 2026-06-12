@@ -46,7 +46,7 @@ WHITELIST_LINES: set[tuple[str, int]] = {
 # These are user-owned cache/checkpoint dirs (RFECV checkpoint, FE key-bank cache) -- low blast
 # radius compared to the metadata bundle paths, but still belong on the centralised path.
 TODO_DEFERRED: set[str] = {
-    "src/mlframe/feature_selection/wrappers/_rfecv.py",
+    "src/mlframe/feature_selection/wrappers/rfecv/__init__.py",
     "src/mlframe/feature_engineering/transformer/_key_bank.py",
 }
 

@@ -183,7 +183,7 @@ def test_rfecv_timestamps_kwarg_triggers_time_series_split():
     no DatetimeIndex / polars datetime column."""
     pd = pytest.importorskip("pandas")
     from sklearn.linear_model import Ridge
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
     from sklearn.model_selection import TimeSeriesSplit
 
     rng = np.random.default_rng(0)

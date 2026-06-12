@@ -228,14 +228,17 @@ def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
     unary/binary path without it. Single-knob A/B on ``fe_pair_prewarp_enable``.
 
     The control is framed as a MARGIN, not an absolute floor: the elementary
-    unary/binary library can PARTIALLY recover the non-monotone inner via a relu
-    threshold split (e.g. ``a__relu_lt-1.61`` reaches |corr| ~0.49 -- a piecewise
-    approximation of the quadratic), and which partial feature wins is sensitive to
-    the numba-warmed search order across the process (so the OFF |corr| drifts
-    ~0.06-0.49 depending on what ran before). The genuine, order-robust claim is
-    that the prewarp lands a near-exact reconstruction (|corr| ~0.97) that beats the
-    best the library can do WITHOUT it by a wide margin -- that margin is the lever
-    proof, and it is invariant to the control's partial-recovery drift."""
+    unary/binary library + escalation can PARTIALLY recover the non-monotone inner
+    via a relu threshold split / escalation residual (the OFF |corr| ranges from a
+    relu piecewise ~0.49 up to ~0.74 once the auto-escalation path partially
+    reconstructs the quadratic), and which partial feature wins is sensitive to the
+    numba-warmed search order across the process (so the OFF |corr| drifts within
+    that band depending on what ran before). The genuine, order-robust claim is that
+    the prewarp lands a NEAR-EXACT reconstruction (|corr| ~1.0, restored after the
+    2026-06-11 continuous-y ALS-target fix; was ~0.97 before the target-rebin guard)
+    that beats the best the library can do WITHOUT it by a clear margin -- that
+    margin is the lever proof, and it survives the control's higher partial-recovery
+    ceiling."""
     df, y, true = _make_poly()
     fs_on = _fit(lambda: _unb(prewarp=True), df, y)
     fs_off = _fit(lambda: _unb(prewarp=False), df, y)
@@ -251,10 +254,12 @@ def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
         f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-"
         f"unary; the recovery should be attributable to the prewarp"
     )
-    # The lever margin: prewarp ON beats the best the library does WITHOUT it. A wide
-    # 0.30 margin tolerates the control's partial-recovery drift while still failing
-    # if the prewarp stops being the decisive lever.
-    assert corr_on >= corr_off + 0.30, (
+    # The lever margin: prewarp ON beats the best the library does WITHOUT it. A
+    # 0.20 margin tolerates the control's partial-recovery ceiling (OFF reaches
+    # ~0.74 once escalation partially reconstructs the quadratic) while still failing
+    # if the prewarp stops being the decisive lever. ON is now a near-exact ~1.0
+    # reconstruction, so the lever gap stays comfortably above this bar.
+    assert corr_on >= corr_off + 0.20, (
         f"prewarp ON (corr={corr_on:.3f}) did not beat prewarp OFF "
         f"(corr={corr_off:.3f}) by the expected margin; the prewarp-is-the-lever "
         f"hypothesis would be falsified"

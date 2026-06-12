@@ -38,10 +38,10 @@ def _build_feature_selection_report(
     Reads selector-specific attributes:
       * MRMR: ``support_`` (integer index list into ``feature_names_in_``); no per-feature score is
         exposed, so ``scores=None``. Reason: "kept" / "dropped".
-      * RFECV: ``feature_importances_`` is a ``{nfeatures_nfold: ndarray}`` dict keyed by
-        ``"<best_top_n>_<n_folds>"``; aggregate over folds at ``best_top_n=self.n_features_`` by mean
-        across folds. ``ranking_`` (when present) gives the eliminated-order; we surface it as a
-        per-feature reason ("kept@rank=N" / "dropped@rank=N").
+      * RFECV: ``feature_importances_`` is a ``{"<nfeatures>_<fold>": {feature: score}}`` dict; a feature's
+        score is the mean of its per-fold importance across every run it appears in. ``ranking_`` (when
+        present) gives the eliminated-order; we surface it as a per-feature reason
+        ("kept@rank=N" / "dropped@rank=N").
       * BorutaShap: ``history_x`` is a DataFrame of per-iteration shap importances (one row per
         iteration, one column per feature); mean across rows is the canonical "average importance"
         score. Reason: "accepted" / "rejected" / "tentative" via ``self.accepted`` / ``self.rejected``
@@ -96,20 +96,38 @@ def _build_feature_selection_report(
             except Exception:
                 pass
     elif _kind == "RFECV":
-        # ``feature_importances_`` is dict keyed by "<nfeatures>_<fold>"; pick the rows matching
-        # ``n_features_`` (the chosen size) and mean across folds. ``ranking_`` exposes the per-
-        # feature elimination order when the suite went through the full RFECV loop.
+        # ``feature_importances_`` is a dict keyed by "<nfeatures>_<fold>". Each value is a per-fold
+        # ``{feature_name: importance}`` map carrying the importance of every feature present in that
+        # fold's candidate subset (the real fitted-RFECV surface). A feature's score is the mean of its
+        # importance across every fold run it appears in -- early-eliminated features only appear in the
+        # wider-subset runs. Legacy callers/stubs supply ndarray-valued rows aligned to
+        # ``feature_names_in_``; both shapes are aggregated here. ``ranking_`` (when present) gives the
+        # per-feature elimination order surfaced as the reason below.
         try:
             _fi_dict = getattr(selector, "feature_importances_", None)
-            _n_feat = getattr(selector, "n_features_", None)
-            if isinstance(_fi_dict, dict) and _n_feat and _all_in is not None:
-                _stride = str(int(_n_feat))
-                _rows = [v for k, v in _fi_dict.items() if str(k).startswith(_stride + "_")]
-                if _rows:
-                    _arr = np.asarray(_rows, dtype=np.float64)
-                    _mean = np.nanmean(_arr, axis=0)
-                    if _mean.shape[0] == len(_all_in):
-                        _report["scores"] = {str(c): float(_mean[i]) for i, c in enumerate(_all_in)}
+            if isinstance(_fi_dict, dict) and _fi_dict:
+                _acc: dict = {}
+                for _row in _fi_dict.values():
+                    if isinstance(_row, dict):
+                        _items = _row.items()
+                    elif _all_in is not None:
+                        _vals = np.asarray(_row, dtype=np.float64).ravel()
+                        if _vals.shape[0] != len(_all_in):
+                            continue
+                        _items = zip(_all_in, _vals)
+                    else:
+                        continue
+                    for _feat, _val in _items:
+                        try:
+                            _fval = float(_val)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isnan(_fval):
+                            continue
+                        _acc.setdefault(str(_feat), []).append(_fval)
+                _scores = {_f: float(np.mean(_vals)) for _f, _vals in _acc.items() if _vals}
+                if _scores:
+                    _report["scores"] = _scores
         except Exception:
             _report["scores"] = None
         # Ranking-based reason

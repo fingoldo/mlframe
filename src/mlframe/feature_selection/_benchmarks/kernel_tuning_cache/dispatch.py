@@ -35,22 +35,54 @@ _FALLBACK_JOINT_HIST_GLOBAL = {"kernel_variant": "global", "block_size": 1024}
 _SHARED_HIST_MAX_JOINT_FALLBACK = 4096
 
 
-def _hw_aware_fallback(joint_size: int) -> dict:
-    """Pick fallback based on live GPU compute capability. Cheap probe
-    via pyutilz; cached for the process lifetime."""
+# Process-lifetime cache of the GPU compute-capability MAJOR version. The
+# fallback table is keyed only on ``cc_major``, which is IMMUTABLE for the
+# process. ``gpu_capability_summary`` re-probes LIVE free-VRAM on every call by
+# shelling out to ``nvidia-smi`` via GPUtil (a ~50ms subprocess spawn); a
+# cProfile of ``mi_direct_gpu_batched`` (n=5000, nperm=1024) on a cc 6.1 host
+# showed that subprocess at 45% of the GPU-path wall because this fallback ran
+# once PER batched-MI call on the kernel-tuning-cache MISS path. We only need the
+# static cc_major, so probe ONCE and memoise. ``None`` = "not yet probed";
+# ``-1`` = "probed, unavailable" (so we never re-shell after a CPU-only / error
+# result). The live-VRAM fields of the summary are intentionally discarded --
+# kernel-variant selection is a function of (cc_major, joint_size) only.
+_CC_MAJOR_CACHE: "int | None" = None
+
+
+def _cached_cc_major() -> int:
+    """GPU compute-capability major version, probed once per process.
+
+    Returns ``-1`` when no GPU / probe failed (callers then take the generic,
+    cc-agnostic fallback). Avoids the per-call ``nvidia-smi`` subprocess that
+    ``gpu_capability_summary`` incurs for its live-VRAM fields, which this hot
+    dispatch path does not use."""
+    global _CC_MAJOR_CACHE  # noqa: PLW0603 - process-lifetime memo by design
+    if _CC_MAJOR_CACHE is not None:
+        return _CC_MAJOR_CACHE
+    cc = -1
     try:
         from pyutilz.system.gpu_dispatch import gpu_capability_summary
         summary = gpu_capability_summary(0)
         if summary is not None:
-            cc_major = int(summary.get("cc_major", 0))
-            cc_entry = _FALLBACK_BY_CC.get(cc_major)
-            if cc_entry is not None:
-                # cc-9+ prefers global for large joint sizes by default.
-                if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
-                    return dict(_FALLBACK_JOINT_HIST_GLOBAL)
-                return dict(cc_entry)
+            cc = int(summary.get("cc_major", 0))
     except Exception:
-        pass
+        cc = -1
+    _CC_MAJOR_CACHE = cc
+    return cc
+
+
+def _hw_aware_fallback(joint_size: int) -> dict:
+    """Pick fallback based on GPU compute capability. The cc_major probe is
+    cached for the process lifetime (see ``_cached_cc_major``); this routine
+    adds no per-call subprocess cost."""
+    cc_major = _cached_cc_major()
+    if cc_major >= 0:
+        cc_entry = _FALLBACK_BY_CC.get(cc_major)
+        if cc_entry is not None:
+            # cc-9+ prefers global for large joint sizes by default.
+            if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
+                return dict(_FALLBACK_JOINT_HIST_GLOBAL)
+            return dict(cc_entry)
     if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
         return dict(_FALLBACK_JOINT_HIST_GLOBAL)
     return dict(_FALLBACK_JOINT_HIST)

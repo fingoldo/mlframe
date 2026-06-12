@@ -374,9 +374,10 @@ def optimal_bin_edges(
     Optbinning is an existing project dep. Pricier than MDLP (~0.5s per column on n=10000) but produces monotonic bins which downstream
     GBM models prefer.
 
-    **Compatibility note**: optbinning's metrics module uses the sklearn API ``check_array(force_all_finite=...)`` which was removed in
-    sklearn 1.5+. If you hit ``TypeError: check_array() got an unexpected keyword argument 'force_all_finite'``, either pin
-    ``sklearn<1.5`` or switch to ``mdlp_bin_edges``. Reported upstream; the issue is not in our code.
+    **Compatibility note**: optbinning < 0.21 calls the sklearn API ``check_array(force_all_finite=...)`` which was removed in
+    sklearn 1.6 (renamed to ``ensure_all_finite``). The project now requires ``optbinning>=0.21`` (uses ``ensure_all_finite``),
+    so this combination works out of the box. If you somehow run optbinning 0.20.x against sklearn 1.6+ and hit
+    ``TypeError: check_array() got an unexpected keyword argument 'force_all_finite'``, upgrade optbinning (``pip install 'optbinning>=0.21'``).
     """
     try:
         from optbinning import OptimalBinning

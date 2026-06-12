@@ -63,7 +63,7 @@ def test_key_bank_save_uses_uuid_tmp_dir() -> None:
 
 
 def test_rfecv_load_checkpoint_tolerates_missing_file() -> None:
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     # The pre-fix `if not path or not os.path.exists(path)` is replaced
     # with `if not path: return None` plus FileNotFoundError on open.
     assert "if not path or not os.path.exists(path):" not in src
@@ -137,7 +137,7 @@ def test_invalidate_missing_key_returns_false_no_crash() -> None:
 
 
 def test_rfecv_load_checkpoint_missing_path_returns_none() -> None:
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rf = RFECV.__new__(RFECV)
     rf.checkpoint_path = "/nonexistent_dir_xyz/no_such_file.pkl"

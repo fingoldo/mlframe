@@ -144,7 +144,7 @@ automl = [
 # error message.
 feature_engineering = [
     "pysr>=0.18",
-    "optbinning>=0.19",
+    "optbinning>=0.21",  # 0.20.x calls sklearn check_array(force_all_finite=...), removed in sklearn 1.6+; 0.21 uses ensure_all_finite
     "cma>=3.2",
     "optuna>=3.0",
 ]

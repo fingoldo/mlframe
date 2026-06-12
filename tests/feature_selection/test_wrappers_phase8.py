@@ -87,7 +87,7 @@ class TestCvAutoDetect:
             estimator=LinearRegression(),
             cv=3, max_refits=3, verbose=1, random_state=0,
         )
-        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(Xdf, y)
         assert any(
             "DatetimeIndex" in rec.getMessage() for rec in caplog.records
@@ -112,7 +112,7 @@ class TestCvAutoDetect:
             estimator=LinearRegression(),
             cv=3, max_refits=3, verbose=1, random_state=0,
         )
-        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(Xdf, y)
         assert not any(
             "DatetimeIndex" in rec.getMessage() for rec in caplog.records
@@ -232,7 +232,7 @@ class TestSffsSwap:
             cv=3, max_refits=6, verbose=1, random_state=0,
             swap_top_k=3,
         )
-        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(Xdf, y)
         msgs = [rec.getMessage() for rec in caplog.records]
         assert any("SFFS swap pass" in m for m in msgs), (

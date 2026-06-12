@@ -13,6 +13,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 import pandas as pd
+from pandas.api.extensions import ExtensionDtype
 from numpy.polynomial.hermite import hermval
 
 from pyutilz.pythonlib import sort_dict_by_value
@@ -30,6 +31,7 @@ from ._pairs_gates import (
     _FE_MARGINAL_UPLIFT_MIN_RATIO,
     _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO,
     _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT,
+    _FE_REJECTION_RESULT_KEY,
     _GATE_MED_SPECS_RESULT_KEY,
     _GATE_MED_UNARY,
     _PREWARP_SPECS_RESULT_KEY,
@@ -120,6 +122,17 @@ def check_prospective_fe_pairs(
     # so behaviour on data that does not need it is byte-identical.
     prewarp_enable: bool = False,
     prewarp_y: np.ndarray | None = None,
+    # PREWARP ALS RECONSTRUCTION TARGET (2026-06-11). The rank-1 ALS warp fit /
+    # held-out validation / winning-spec reconstruction is a least-squares solve
+    # of ``y ~ f(a)*g(b)``; its fidelity depends on the RESOLUTION of the target it
+    # reconstructs. The 2026-06-10 target-rebin guard coarsens ``classes_y`` to the
+    # 10-bin equal-frequency screening codes (correctly -- the MI screen/gates need
+    # the faithful coarse codes), but feeding those binned codes to the ALS dropped
+    # the F-POLY non-monotone product reconstruction |corr| 0.97 -> 0.88. When the
+    # CONTINUOUS target is threaded here it drives the ALS fit/validate/score ONLY;
+    # the MI screen + every gate keep using ``classes_y`` codes. None -> legacy
+    # behaviour (ALS reconstructs against ``classes_y``).
+    prewarp_y_continuous: np.ndarray | None = None,
     prewarp_basis: str = "chebyshev",
     prewarp_max_degree: int = 4,
     # Minimum ratio (best-prewarp-MI / best-nonprewarp-MI) for the alternative
@@ -207,6 +220,14 @@ def check_prospective_fe_pairs(
     # seeds, genuine_ab 10/10 -> 8/10). Default False (opt-in); see the full numbers + rationale
     # on ``MRMR.fe_mm_debias_prevalence``. False == legacy raw-plug-in ratio (byte-reproduction).
     fe_mm_debias_prevalence: bool = False,
+    # REJECTION-LEDGER out-param (additive, 2026-06-11). When a list is passed, every pair
+    # the per-pair acceptance gate REJECTS (joint-prevalence floor AND the marginal-uplift /
+    # joint-recovery fallback both declined) appends one record dict carrying the operands,
+    # the winning binary operator, the observed best_mi/pair_mi ratio, the prevalence
+    # threshold, and the marginal-uplift diagnostics -- all values the gate ALREADY computed,
+    # no recompute. The caller (``_mrmr_fe_step``) drains it into ``self``'s fe rejection
+    # ledger. ``None`` (default) = legacy behaviour, no records captured.
+    rejection_ledger_out: list | None = None,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -219,6 +240,22 @@ def check_prospective_fe_pairs(
     # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
     res = {}
+    # REJECTION-LEDGER local accumulator (additive, 2026-06-11): per-pair acceptance-gate
+    # drops collect here, then are exported via BOTH the ``rejection_ledger_out`` side channel
+    # (serial / threading path) AND the reserved ``res`` key (survives the loky-parallel path,
+    # where the caller's list cannot be mutated cross-process). Records carry only values the
+    # gate already computed -- no recompute.
+    _rejection_records: list = []
+
+    # Seeded RNG for the external-validation factor subsample below. Pre-fix code used the
+    # process-global ``np.random.choice`` there, which (a) made the choice depend on whatever
+    # had consumed the global numpy RNG earlier in the process (so two fits of the SAME (X, y)
+    # in one session could pick DIFFERENT validation factors -> a different tie-break -> a
+    # different engineered-recipe SET / column NAMES), and (b) raced under the joblib
+    # ``backend="threading"`` chunked path (N workers sharing one global RNG). Derive a local
+    # Generator from ``subsample_seed`` (instance-controlled) so the factor pick is reproducible
+    # from the MRMR seed and thread-safe, mirroring the seeded ``_rng_sub`` and the fleuret LCG fix.
+    _rng_extval = np.random.default_rng(int(subsample_seed))
 
     # SUBSAMPLE-SETUP: when caller asks for subsample_n > 0 AND len(X) exceeds it,
     # build subsampled views of X / classes_y / classes_y_safe / freqs_y. The MI
@@ -280,6 +317,14 @@ def check_prospective_fe_pairs(
     # concern; the MRMR estimator never holds a reference to it).
     _extval_raw_col_cache: dict = {}
 
+    def _densify_nullable(_arr):
+        """Cast a pandas nullable extension array (Int64/Float64/boolean + pd.NA) to a plain
+        float64 ndarray (pd.NA -> np.nan) so the numba/numpy unary-transform kernels can type it.
+        No-op for ordinary numpy float64/int64 input -- only ExtensionArrays are converted."""
+        if isinstance(getattr(_arr, "dtype", None), ExtensionDtype):
+            return _arr.to_numpy(dtype=np.float64, na_value=np.nan)
+        return _arr
+
     def _extval_raw_col(_var):
         """Memoised operand-values ndarray for var ``_var`` (cols-space index).
 
@@ -303,7 +348,7 @@ def check_prospective_fe_pairs(
             return _extval_raw_col_cache[_var]
         if _var in original_cols:
             if isinstance(X, pd.DataFrame):
-                _vals = X.iloc[:, original_cols[_var]].values
+                _vals = _densify_nullable(X.iloc[:, original_cols[_var]].values)
             else:
                 _vals = X[:, original_cols[_var]].to_numpy()
             _extval_raw_col_cache[_var] = _vals
@@ -330,7 +375,9 @@ def check_prospective_fe_pairs(
             if _vals is None:
                 try:
                     if isinstance(X, pd.DataFrame):
-                        _vals = X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
+                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (
+                            X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
+                        )
                     elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
                         _vals = X[_name].to_numpy()  # polars
                     else:
@@ -356,7 +403,13 @@ def check_prospective_fe_pairs(
     _prewarp_y_eff = None
     if _prewarp_active:
         from ..hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
-        _pw_y = np.asarray(prewarp_y)
+        # The ALS reconstruction target: prefer the CONTINUOUS y when supplied (it
+        # is the faithful least-squares target; the binned ``classes_y`` codes the
+        # target-rebin guard produces are for the MI screen, not for reconstructing
+        # a continuous f(a)*g(b)). Fall back to ``classes_y`` codes when no
+        # continuous target was threaded (legacy / non-numeric / multi-output y).
+        _pw_y_src = prewarp_y_continuous if prewarp_y_continuous is not None else prewarp_y
+        _pw_y = np.asarray(_pw_y_src)
         if _use_subsample and _pw_y.shape[0] == _full_n_rows:
             _pw_y = _pw_y[_sample_idx]
         _prewarp_y_eff = np.ascontiguousarray(_pw_y, dtype=np.float64)
@@ -1376,6 +1429,48 @@ def check_prospective_fe_pairs(
                         f"admitting the genuine synergy pair."
                     )
 
+        # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
+        # to DROP -- the joint-prevalence floor declined AND both the prewarp and the
+        # marginal-uplift (abs-MAD / joint-recovery) fallbacks declined. Attribute to whichever
+        # floor it primarily missed: the engineered-MI prevalence floor (the 0.97 floor the
+        # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
+        # prewarp/uplift path declined for another reason) tag the marginal-uplift floor.
+        # All values were already computed above (no recompute).
+        if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept):
+            try:
+                _rej_thr = float(fe_min_engineered_mi_prevalence) * (1.0 if num_fs_steps < 1 else 1.025)
+                _rej_op = None
+                if best_config is not None:
+                    try:
+                        _rej_op = best_config[1]  # binary func name of the best engineered form
+                    except Exception:
+                        _rej_op = None
+                if not _passes_joint_gate:
+                    _rej_rec = {
+                        "gate": "engineered_mi_prevalence",
+                        "candidate": str(raw_vars_pair),
+                        "operands": tuple(raw_vars_pair),
+                        "operator": _rej_op,
+                        "observed": float(_gate_ratio),
+                        "threshold": _rej_thr,
+                        "reason": "best_mi_over_pair_mi_below_floor",
+                    }
+                else:
+                    _rej_rec = {
+                        "gate": "marginal_uplift_floor",
+                        "candidate": str(raw_vars_pair),
+                        "operands": tuple(raw_vars_pair),
+                        "operator": _rej_op,
+                        "observed": float(_gate_ratio),
+                        "threshold": _rej_thr,
+                        "reason": "marginal_uplift_and_prewarp_declined",
+                    }
+                _rejection_records.append(_rej_rec)
+                if rejection_ledger_out is not None:
+                    rejection_ledger_out.append(_rej_rec)
+            except Exception:
+                pass
+
         if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept:  # Best transformation is good enough
 
             # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
@@ -1428,9 +1523,14 @@ def check_prospective_fe_pairs(
                         best_valid_mi = -1
                         config = (transformations_pair, bin_func_name, i)
 
-                        external_factors = list(set(numeric_vars_to_consider) - set(raw_vars_pair))
+                        # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
+                        # PYTHONHASHSEED-randomised for str keys, so the candidate order (and hence the
+                        # sampled subset) would differ across processes / fits. Sort to a stable order,
+                        # then sample with the instance-seeded ``_rng_extval`` so the chosen validation
+                        # factors are fully reproducible from the MRMR seed.
+                        external_factors = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
                         if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
-                            external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
+                            external_factors = _rng_extval.choice(external_factors, fe_max_external_validation_factors, replace=False)
 
                         # BATCHED EXTERNAL VALIDATION (2026-06-07): the per-(external_factor x
                         # valid_bin_func) ``discretize_array`` + ``mi_direct`` double loop was the
@@ -1776,5 +1876,9 @@ def check_prospective_fe_pairs(
         if gate_med_specs_out is not None:
             gate_med_specs_out.update(_fitted_medians)
         res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
+
+    # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
+    if _rejection_records:
+        res[_FE_REJECTION_RESULT_KEY] = _rejection_records
 
     return res

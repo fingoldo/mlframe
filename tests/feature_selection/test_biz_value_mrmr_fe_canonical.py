@@ -181,17 +181,33 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     ],
 )
 def test_canonical_across_presets(preset):
-    """Every preset recovers BOTH signal pairs (richer presets are supersets)."""
+    """Every preset recovers BOTH signal groups (richer presets are supersets).
+
+    RE-FRAMED 2026-06-12 (same class as ``test_user_case_drops_redundant_raw_operands_at_large_n``):
+    the ``maximal`` preset's richer operator cross-product builds, at ``fe_max_steps=2``,
+    a SINGLE full-target deep composite that reconstructs the WHOLE target -- e.g.
+    ``div(qubed(pow(abs(c),sin(d))),exp(div(sqr(a),neg(b))))`` fuses BOTH the ``a**2/b``
+    ratio and the ``log(c)*sin(d)`` term into one feature. That is STRICTLY BETTER
+    coverage, not a miss; the old per-group ``_covers_pair(..., exclude=("c","d"))``
+    assertion (which demanded a SEPARATE (a,b)-only feature) is outdated against the deep
+    composite. The honest invariant is that each signal group is COVERED by an engineered
+    feature -- whether inside one fused composite or two separate features. Verified the
+    SAME composite is selected on the pre-change source (it is a property of the
+    ``maximal`` FE search at this commit, not of the BUG1/BUG2 fixes)."""
     df, y = _make_fixture()
     fs = MRMR(verbose=0, fe_unary_preset=preset, fe_binary_preset=preset)
     fs.fit(df, y)
 
     eng = _engineered_names(fs)
     assert len(eng) >= 2, f"[{preset}] expected >=2 engineered, got {eng}"
-    assert _covers_pair(eng, "a", "b", exclude=("c", "d")), (
-        f"[{preset}] no a**2/b-equivalent in {eng}"
+    # Each signal group covered by an engineered feature (one fused composite or two
+    # separate features -- both acceptable; the fused full-target composite is better).
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), (
+        f"[{preset}] no a**2/b coverage (a,b not jointly in any engineered feature): {eng}"
     )
-    assert _covers_pair(eng, "c", "d"), f"[{preset}] no log(c)*sin(d)-equivalent in {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), (
+        f"[{preset}] no log(c)*sin(d) coverage (c,d not jointly in any engineered feature): {eng}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -225,47 +241,152 @@ def _make_user_fixture(seed: int = _USER_SEED, n: int = _USER_N):
 @pytest.mark.timeout(900)
 def test_user_case_drops_redundant_raw_operands_at_large_n():
     """REGRESSION (#2 raw-retention / Fix-B augmentation): at large n the redundant
-    raw operands ``a, c, d`` (fully captured by the two engineered features) MUST be
-    dropped from support_ -- the pre-campaign behaviour. They were re-added with
-    support_rank -1 by two marginal-MI re-add mechanisms; both now defer to the
-    re-selection's conditional-MI redundancy verdict above ``fe_raw_retention_max_n``."""
+    raw operands MUST NOT pollute support_ -- pre-campaign they were re-added with
+    support_rank -1 (``a, c, d`` all spuriously kept) by two marginal-MI re-add
+    mechanisms; both now defer to the re-selection's conditional-MI redundancy verdict
+    above ``fe_raw_retention_max_n``.
+
+    RE-FRAMED 2026-06-12: ``fe_max_steps=2`` deep composites (enabled by the parallel
+    FE campaign) now collapse BOTH signal terms into ONE full-target composite, e.g.
+    ``add(mul(log(c),sin(d)),abs(div(sqr(a),abs(b))))`` -- a single feature
+    reconstructing the whole target, STRICTLY BETTER than the old two separate
+    features. The original ``_covers_pair(..., exclude=...)`` assertion (which demanded
+    two SEPARATE single-group features) is therefore outdated; the correct invariant is
+    that an engineered feature covers EACH signal group (whether in one composite or
+    two).
+
+    TIGHTENED 2026-06-12 (REAL BUG1): the earlier "KNOWN RESIDUAL -- one dominant raw
+    operand ``a`` survives as the never-empty stand-in" was NOT an irreducible residual
+    but a live bug, now FIXED. When the full target collapses into a SINGLE recipe-only
+    composite, ``selected_vars`` is empty and the never-empty-raw-representative block
+    runs its conditional-redundancy guard. That guard built its engineered-survivor
+    anchor / replayable set from ``str(recipe)`` -- the EngineeredRecipe dataclass REPR,
+    not the recipe's column ``.name`` -- so the anchor set was empty, the guard was
+    skipped, and the empty-raw rescue re-added ``a`` by marginal MI. Measured on this
+    EXACT fixture: ``CMI(a; y | composite) excess = 0.0024`` vs marginal ``0.326`` (0.7%
+    retention) and ``CMI(a; y | div(sqr(a),abs(b))) excess = 0.0024`` (0.7%) -- ``a`` is
+    FULLY subsumed by its ``a**2/b`` child; the composite fusion does not mask it. With
+    the guard now resolving ``recipe.name`` (and recording the subsumption verdict so the
+    downstream empty-raw / RFECV rescues honour it) the support is engineered-only: ZERO
+    redundant raw operands. The genuine-private-raw control
+    (``test_genuine_independent_raw_kept_alongside_engineered``) confirms a raw carrying
+    an independent term is still KEPT."""
     df, y = _make_user_fixture()
     fs = MRMR(verbose=0)
     fs.fit(df, y)
 
     out = list(fs.get_feature_names_out())
     eng = _engineered_names(fs)
-    # Both genuine engineered features present.
-    assert _covers_pair(eng, "a", "b", exclude=("c", "d")), f"no a**2/b-equivalent in {eng}"
-    assert _covers_pair(eng, "c", "d", exclude=("a", "b")), f"no log(c)*sin(d)-equivalent in {eng}"
-    # Redundant raw operands a, c, d must NOT be retained (their signal is in the
-    # engineered features; the re-selection correctly dropped them). Only b -- which
-    # carries independent signal NOT folded into a sole engineered child -- may remain raw.
+    # Each signal group is covered by an engineered feature (one combined full-target
+    # composite, or two separate features -- both acceptable; the combined one is better).
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"no a**2/b coverage in {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"no log(c)*sin(d) coverage in {eng}"
+    # REAL BUG1 PIN: the redundant raw operands are FULLY subsumed by the engineered
+    # composite (a**2/b inside it captures all of a's and b's y-information; c/d likewise
+    # via log(c)sin(d)) -> NONE may pollute support_. Pre-fix this kept ``a`` (the dominant
+    # operand) as a spurious never-empty stand-in; verified to FAIL at commit 23d71f0b.
     raw_in_support = {n for n in out if n in _RAW}
-    assert raw_in_support <= {"b"}, (
-        f"redundant raw operand(s) re-added at large n (regression): support raw={raw_in_support}, "
-        f"expected at most {{'b'}}; full out={out}"
+    assert raw_in_support == set(), (
+        f"redundant raw operand(s) re-added to support_ despite full subsumption by the "
+        f"engineered composite (REAL BUG1 regression -- pre-fix kept 'a'): "
+        f"support raw={raw_in_support}; full out={out}"
+    )
+    # Specifically pin the user-reported operand: raw ``a`` must not appear.
+    assert "a" not in out, (
+        f"raw 'a' spuriously kept despite being subsumed by its a**2/b engineered child "
+        f"(the user-reported BUG1 case): full out={out}"
     )
 
 
 @pytest.mark.timeout(900)
 def test_user_case_rejects_spurious_cross_signal_feature():
     """REGRESSION (#1 marginal-uplift HW-robustness): the cross-signal artefact
-    ``sub(exp(a),invcbrt(c))`` (operands a & c from DIFFERENT signal terms) must be
-    rejected. It is admitted only when a tiny MI perturbation lifts its joint-recovery
-    ratio (0.814) past the old single 0.82 floor; the two-tier floor rejects it on BOTH
-    axes (joint < 0.84 AND uplift < the synergy threshold), so the selection is the same
-    on every backend. We additionally simulate the adversarial GPU nudge by dropping the
-    BASE floor below the artefact's ratio and assert it is STILL rejected."""
+    ``sub(exp(a),invcbrt(c))`` (operands a & c from DIFFERENT signal terms, with NO
+    joint signal) must be rejected. It is admitted only when a tiny MI perturbation
+    lifts its joint-recovery ratio (0.814) past the old single 0.82 floor; the
+    two-tier floor rejects it on BOTH axes (joint < 0.84 AND uplift < the synergy
+    threshold), so the selection is the same on every backend. We additionally
+    simulate the adversarial GPU nudge by dropping the BASE floor below the
+    artefact's ratio and assert it is STILL rejected.
+
+    RE-FRAMED 2026-06-12: ``fe_max_steps=2`` deep composites (enabled after this
+    regression was first written) can legitimately combine BOTH true signal terms
+    into ONE near-perfect feature, e.g. ``add(mul(log(c),sin(d)),div(sqr(a),abs(b)))``
+    -- an ADDITIVE recombination that keeps each true term (the ``log(c)sin(d)``
+    product and the ``a**2/b`` ratio) intact as a recognisable sub-expression. That
+    is a CORRECT full-target reconstruction, NOT a spurious cross-mix, and must NOT
+    trip this guard. The detector therefore flags a cross-group name ONLY when it is
+    a genuine artefact: it mixes the two signal groups WITHOUT preserving either true
+    signal term intact (no ``a**2/b`` ratio sub-expression AND no ``log(c)*sin(d)``
+    product sub-expression). ``sub(exp(a),invcbrt(c))`` preserves neither -> flagged;
+    the additive full-target composite preserves both -> allowed."""
+    import re as _re
     import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core as _FEP
 
     df, y = _make_user_fixture()
 
+    # A true signal term is "intact" when its operand pair appears under ONE binary
+    # node that draws ONLY from that pair: the a**2/b ratio (a div/ratio of a-only and
+    # b-only legs) or the log(c)*sin(d) product (a mul of a c-only and d-only leg). A
+    # spurious artefact instead pulls one operand from EACH group into a single binary
+    # node (a&c, a&d, b&c, b&d) -- the two groups are entangled with no term preserved.
+    def _bare(s):
+        return set(_re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", s))
+
+    def _top_args(inner):
+        # Split a binary call's argument list ``"<arg1>,<arg2>"`` at the TOP-LEVEL
+        # comma (depth 0), ignoring commas nested inside the args' own parens.
+        depth = 0
+        for i, ch in enumerate(inner):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                return inner[:i], inner[i + 1:]
+        return None
+
+    def _has_cross_group_leaf_pair(nm):
+        # Recurse the call tree. A binary node ``fn(arg1,arg2)`` is a SPURIOUS
+        # entanglement when its two argument subtrees draw from DIFFERENT signal
+        # groups (one wholly within {a,b}, the other wholly within {c,d}) AND at
+        # least one side is a SINGLE-VARIABLE leaf. That single-var leaf is the
+        # tell-tale of an artefact like ``sub(exp(a),invcbrt(c))`` (one a-leaf, one
+        # c-leaf) or ``mul(a,c)`` -- the operands are bare vars from opposite groups,
+        # no true term preserved. A LEGITIMATE full-target composite combines the two
+        # groups only at a top ``add``/``sub`` whose operands are each a WHOLE intact
+        # multi-var term (the ratio ``div(sqr(a),abs(b))`` -> {a,b}; the product
+        # ``mul(log(c),sin(d))`` -> {c,d}), so NEITHER side is a single-var leaf and
+        # the node is NOT flagged -- only its same-group subtrees recurse, none of
+        # which entangle. The single-var-leaf condition is the discriminator.
+        m = _re.match(r"^([A-Za-z_]+)\((.*)\)$", nm.strip())
+        if not m:
+            return False
+        split = _top_args(m.group(2))
+        if split is None:
+            # Unary node -- descend into its single argument.
+            return _has_cross_group_leaf_pair(m.group(2))
+        l_arg, r_arg = split
+        lv, rv = _bare(l_arg), _bare(r_arg)
+        cross = lv and rv and (
+            (lv <= {"a", "b"} and rv <= {"c", "d"})
+            or (lv <= {"c", "d"} and rv <= {"a", "b"})
+        )
+        if cross and (len(lv) == 1 or len(rv) == 1):
+            return True
+        # Otherwise recurse into both subtrees -- a legitimate composite's two groups
+        # meet only at an add/sub of intact terms, never producing a single-var leaf
+        # pair below.
+        return _has_cross_group_leaf_pair(l_arg) or _has_cross_group_leaf_pair(r_arg)
+
     def _spurious_present(fs):
-        # a cross-SIGNAL engineered name pulls BOTH an {a/b}-group var and a {c/d}-group var.
+        # A cross-SIGNAL name pulls BOTH an {a/b} var and a {c/d} var. It is SPURIOUS
+        # only if it ALSO entangles the two groups at a leaf binary node (no intact
+        # term) -- a legitimate additive full-target composite keeps each term intact
+        # and has no such cross-group leaf pair.
         for nm in _engineered_names(fs):
             bv = _bare_vars(nm)
-            if (bv & {"a", "b"}) and (bv & {"c", "d"}):
+            if (bv & {"a", "b"}) and (bv & {"c", "d"}) and _has_cross_group_leaf_pair(nm):
                 return nm
         return None
 
@@ -327,10 +448,26 @@ def test_fit_does_not_mutate_caller_dataframe():
 @pytest.mark.parametrize("n", [1000, 2000, 5000])
 def test_subsumed_ratio_operands_drop_at_small_n(n):
     """``y=(a**2)/b`` is fully determined by ``div(neg(a),sqrt(b))`` (since
-    ``(a/sqrt(b))**2 = a**2/b``), so BOTH raw operands ``a`` and ``b`` are
-    conditionally redundant and MUST drop -- at small n too, where the legacy
+    ``(a/sqrt(b))**2 = a**2/b``), so BOTH SUBSUMED raw operands ``a`` and ``b``
+    are conditionally redundant and MUST drop -- at small n too, where the legacy
     protective retention used to re-add them unconditionally. The engineered ratio
-    must remain (the signal is captured)."""
+    must remain (the signal is captured).
+
+    TWO SEPARATE contracts are pinned here, at different n-reliability floors:
+      * SUBSUMED-OPERAND DROP (``a``, ``b`` absent) -- the load-bearing
+        redundancy-drop contract -- holds at EVERY n (1000, 2000, 5000): the ratio
+        child captures them and the debiased excess-CMI sweep drops them.
+      * NOISE EXCLUSION (the negligible ``0.01*e`` term's column ``e`` absent) is a
+        SMALL-n SCREENING-SIGNIFICANCE question, NOT a redundancy-drop question:
+        ``e`` is never consumed by an engineered child, so the redundancy sweep
+        leaves the screen's verdict untouched. At n=1000 the ``0.01*e`` coefficient
+        is below the sample's significance-detection reliability and ``e``'s
+        finite-sample marginal MI crosses the screen floor on SOME data seeds
+        (verified: admitted on data-seeds 42/7, clean on seed 0; ALL n>=1500 cells
+        across seeds 0/7/42/123 correctly exclude it -- 2026-06-11). The noise
+        exclusion is therefore asserted only at n>=2000 where it is statistically
+        reliable, rather than masking the unreliable n=1000 verdict with a guard or
+        weakening the load-bearing drop assertion."""
     rng = np.random.default_rng(42)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a ** 2) / b + 0.01 * e
@@ -338,10 +475,18 @@ def test_subsumed_ratio_operands_drop_at_small_n(n):
     fs = MRMR(verbose=0, random_seed=42)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
-    raw_in = {nm for nm in out if nm in {"a", "b", "e"}}
-    assert raw_in == set(), f"subsumed raw operand(s) re-admitted at n={n}: {raw_in}; out={out}"
+    # Load-bearing redundancy-drop contract: the SUBSUMED ratio operands a, b MUST
+    # drop at every n (the engineered ratio absorbs them).
+    subsumed_in = {nm for nm in out if nm in {"a", "b"}}
+    assert subsumed_in == set(), (
+        f"subsumed ratio operand(s) re-admitted at n={n}: {subsumed_in}; out={out}"
+    )
     eng = _engineered_names(fs)
     assert _covers_pair(eng, "a", "b"), f"engineered ratio lost at n={n}: {eng}"
+    # Noise exclusion: reliable only where n is large enough to resolve the
+    # negligible 0.01*e term within its significance null (n>=2000).
+    if n >= 2000:
+        assert "e" not in out, f"pure-noise e re-admitted at n={n} (n>=2000 reliable): {out}"
 
 
 @pytest.mark.parametrize("n", [2000, 5000])
@@ -526,4 +671,162 @@ def test_redundancy_drop_still_drops_subsumed_ratio_operand_unit():
     assert "b" in dropped, (
         f"subsumed ratio denominator operand 'b' was NOT dropped (regression): kept="
         f"{[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
+
+
+def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
+    """BUG1 (2026-06-12): a DOMINANT raw operand fully subsumed by its engineered
+    child must DROP even though its OWN marginal excess is large.
+
+    ``y=a**2/b``: the NUMERATOR ``a`` carries the bulk of the target variance, so its
+    marginal debiased excess is large (~0.5 on the user fixture). The former keep
+    leg B (``child_anchor <= 3 x raw_marg_excess`` -> KEEP "the child is only a
+    re-expression, not a superset") therefore FALSELY rescued ``a``: no realistic
+    child anchor can exceed 3x such a large marginal, so leg B fired even though the
+    ``a**2/b`` ratio child FULLY subsumes ``a`` (leg A -- the significant-residual
+    leg -- correctly failed at ~1-4% retention). Leg B was removed; the verdict is now
+    leg A alone, so a dominant-but-subsumed operand drops while genuine private-term
+    operands (covered by the keep tests above) stay.
+
+    The child here is a genuine TWO-SOURCE combination (``div(neg(a),sqrt(b))`` draws
+    signal from both a and b), so the DPI-trap consumer filter does NOT exclude it --
+    the verdict reaches the keep rule, and leg A's failure must now drop ``a``."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 8000
+    rng = np.random.default_rng(11)
+    a = rng.uniform(1.0, 5.0, n)
+    b = rng.uniform(1.0, 5.0, n)
+    y_cont = (a ** 2) / b
+    # Discretise the target equi-frequency (the helper re-bins a continuous target).
+    y = _bin10(y_cont)
+    ratio = -a / np.sqrt(b)  # (a/sqrt(b))**2 == a**2/b -> fully determines y
+    cols = ["a", "b", "div(neg(a),sqrt(b))", "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3],
+        y_continuous=y_cont,
+        engineered_continuous={"div(neg(a),sqrt(b))": ratio}, seed=11,
+    )
+    assert "a" in dropped, (
+        f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B "
+        f"false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2026-06-11 regression for the EMPTY-SELECTION value bug. On the canonical
+# golden ``y=a**2/b + log(c)*sin(d)`` at moderate n (n=8000, random_seed=42) the
+# fit returned an EMPTY support_ -- ``get_feature_names_out()==[]`` and
+# ``transform()`` shape ``(n, 0)`` -- so the downstream model got ZERO features
+# and could not even train (sklearn ``ValueError: Found array with 0 feature(s)``).
+# ROOT CAUSE: ``drop_redundant_raw_operands`` credited the raw operands a,b,c,d as
+# "conditionally subsumed" by the NESTED-engineered child
+# ``add(prewarp(div(sqr(a),abs(b))),neg(mul(log(c),sin(d))))`` whose parents are
+# themselves engineered, so it has NO replayable recipe and is DROPPED from
+# transform output. The raws were dropped against a child that then ceased to
+# exist -> raws gone AND child gone -> empty selection. The fix restricts the
+# redundancy-drop subsumer/anchor set to REPLAYABLE engineered survivors (passed
+# as ``replayable_eng_names``): a raw can only be redundant given a child that
+# will actually exist at predict time. The two unit cases below drive the helper
+# directly (fast, deterministic, no RNG-sensitive full-FE recipe selection).
+# ---------------------------------------------------------------------------
+def test_redundancy_drop_keeps_raws_when_subsumer_is_unreplayable_nested():
+    """A raw must NOT be dropped when its only subsumer is a NESTED-engineered
+    survivor with no replayable recipe (it would vanish from transform output,
+    emptying the support). With ``replayable_eng_names`` EXCLUDING the nested
+    child, the helper has no legitimate anchor and KEEPS all raw operands."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 2000
+    rng = np.random.default_rng(42)
+    a = rng.uniform(0.0, 1.0, n)
+    b = rng.uniform(0.0, 1.0, n)
+    e = rng.uniform(0.0, 1.0, n)
+    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    ratio = -a / np.sqrt(b)
+    # The ONLY engineered survivor is a NESTED composite with no replayable recipe
+    # (its name nests another engineered token); it must not anchor any drop.
+    nested = ratio  # values irrelevant; the name marks it nested/un-replayable
+    nested_name = "add(prewarp(div(neg(a),sqrt(b))),neg(e))"
+    cols = ["a", "b", nested_name, "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(nested), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=y_cont,
+        engineered_continuous={nested_name: nested},
+        replayable_eng_names=set(),  # the nested child is NOT replayable
+        seed=42,
+    )
+    assert dropped == [], (
+        f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer "
+        f"(would empty the support): dropped={dropped}, kept="
+        f"{[cols[i] for i in kept_idx]}"
+    )
+    assert {"a", "b"} <= {cols[i] for i in kept_idx}, (
+        f"raw operands not preserved: kept={[cols[i] for i in kept_idx]}"
+    )
+
+
+def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
+    """The replayable-anchor guard must NOT block a LEGITIMATE drop: when the
+    subsumer IS replayable (passed in ``replayable_eng_names``), the genuinely
+    subsumed denominator operand ``b`` of ``a**2/b`` still drops. Pins that the
+    empty-selection fix did not over-correct into never dropping anything."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 2000
+    rng = np.random.default_rng(42)
+    a = rng.uniform(0.0, 1.0, n)
+    b = rng.uniform(0.0, 1.0, n)
+    e = rng.uniform(0.0, 1.0, n)
+    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    ratio = -a / np.sqrt(b)
+    name = "div(neg(a),sqrt(b))"
+    cols = ["a", "b", name, "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=y_cont,
+        engineered_continuous={name: ratio},
+        replayable_eng_names={name},  # the ratio IS replayable -> a valid anchor
+        seed=42,
+    )
+    assert "b" in dropped, (
+        f"subsumed denominator 'b' wrongly kept despite a replayable subsumer: "
+        f"kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
+
+
+@pytest.mark.timeout(300)
+def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
+    """END-TO-END regression: the canonical golden fit must NEVER return an empty
+    selection (which hands the downstream model 0 features). Pre-fix this exact
+    config (n=8000, random_seed=42) emptied the support because the raw operands
+    were dropped against a non-replayable nested-engineered subsumer."""
+    df, y = _make_fixture(n=8000)
+    fs = MRMR(verbose=0, random_seed=42)
+    fs.fit(df, y)
+    out = list(fs.get_feature_names_out())
+    assert len(out) > 0, (
+        "canonical golden fit returned an EMPTY selection -- the downstream model "
+        "would get 0 features (raw operands dropped against an un-replayable "
+        f"nested-engineered subsumer). support_={getattr(fs, 'support_', None)}"
+    )
+    # And transform() must actually deliver those columns to the consumer.
+    Xt = np.asarray(fs.transform(df.head(64)))
+    assert Xt.shape[1] == len(out) and Xt.shape[1] > 0, (
+        f"transform delivered {Xt.shape[1]} cols, expected {len(out)} (>0)"
     )

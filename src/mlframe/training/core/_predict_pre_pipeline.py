@@ -140,10 +140,17 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             "The model was trained on the post-extension feature space; serving raw columns would produce wrong predictions. "
             "Restore the saved pipeline / retrain, or set MLFRAME_EXTENSIONS_SOFT_FAIL=1 to (unsafely) fall back to the raw frame."
         ) from _exc
+    _n_out = _arr.shape[1]
     try:
         _names = list(ext_pipeline.get_feature_names_out())
     except (AttributeError, ValueError, NotImplementedError):
-        _names = [f"ext_{i}" for i in range(_arr.shape[1])]
+        _names = [f"ext_{i}" for i in range(_n_out)]
+    # ``get_feature_names_out`` can return a count that disagrees with the transformed array width (TF-IDF vocabulary
+    # drift between fit and predict, transformers whose name list and output columns diverge); a mismatch makes the
+    # DataFrame constructor raise the opaque "Shape of passed values is (N, M), indices imply (N, K)". Fall back to
+    # positional names so predict stays robust, mirroring the train-side guard in ``_build_output_column_names``.
+    if len(_names) != _n_out:
+        _names = [f"ext_{i}" for i in range(_n_out)]
     try:
         import scipy.sparse as _sp
         _is_sparse = _sp.issparse(_arr)

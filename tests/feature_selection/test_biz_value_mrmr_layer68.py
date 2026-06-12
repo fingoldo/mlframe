@@ -79,24 +79,7 @@ def _import_plug_in_fe():
     return generate_univariate_basis_features
 
 
-def _make_mrmr(**overrides):
-    """Cheap-and-deterministic MRMR ctor (mirrors Layer 65 / 66 / 67 helpers)."""
-    from mlframe.feature_selection.filters.mrmr import MRMR
-    kwargs = dict(
-        verbose=0,
-        interactions_max_order=1,
-        fe_max_steps=0,
-        dcd_enable=False,
-        cluster_aggregate_enable=False,
-        build_friend_graph=False,
-        cat_fe_config=None,
-        quantization_nbins=10,
-        random_seed=0,
-    )
-    kwargs.update(overrides)
-    return MRMR(**kwargs)
-
-
+from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 # ---------------------------------------------------------------------------
 # Data builders: one per signal-family contract
 # ---------------------------------------------------------------------------
@@ -249,6 +232,7 @@ class TestDcorWinsOnNonMonotone:
         _, _, _, _, hybrid_with_recipes = _import_auto_fe()
         seeds = (1, 7, 13, 42, 101, 202, 303, 404)
         n_dcor_hits = 0
+        dcor_hit_seeds = []
         for seed in seeds:
             X, y = _build_non_monotone_fixture(seed, n=800)
             X_aug, scores, _recipes = hybrid_with_recipes(
@@ -264,11 +248,12 @@ class TestDcorWinsOnNonMonotone:
             )
             if (x1_rows["best_scorer"] == "dcor").any():
                 n_dcor_hits += 1
+                dcor_hit_seeds.append(seed)
         # dCor must dominate on the cos signal in the MAJORITY of seeds.
         assert n_dcor_hits >= 5, (
             f"auto-selector picked dCor on cos-signal x1 in only "
-            f"{n_dcor_hits}/{len(seeds)} seeds; expected >= 5 (the "
-            f"non-monotone dCor-favoured contract)."
+            f"{n_dcor_hits}/{len(seeds)} seeds (hit seeds {dcor_hit_seeds}); "
+            f"expected >= 5 (the non-monotone dCor-favoured contract)."
         )
 
 
@@ -305,6 +290,7 @@ class TestPlugInWinsOnDiscreteBinned:
         _, _, _, _, hybrid_with_recipes = _import_auto_fe()
         seeds = (1, 7, 13, 42, 101, 202, 303, 404)
         n_plugin_hits = 0
+        plugin_hit_seeds = []
         for seed in seeds:
             X, y = _build_discrete_binned_fixture(seed, n=600, n_levels=3)
             X_aug, scores, _recipes = hybrid_with_recipes(
@@ -320,13 +306,14 @@ class TestPlugInWinsOnDiscreteBinned:
             )
             if (x1_rows["best_scorer"] == "plug_in").any():
                 n_plugin_hits += 1
+                plugin_hit_seeds.append(seed)
         # At least 1/8 of the seeds must surface plug-in as the chosen
         # scorer on the discrete-bin fixture -- otherwise the auto-
         # selector is systematically biased AGAINST the binned plug-in
         # on data it should be the most-natural estimator for.
         assert n_plugin_hits >= 1, (
             f"auto-selector picked plug_in on discrete-x signal in "
-            f"{n_plugin_hits}/{len(seeds)} seeds; expected >= 1 (the "
+            f"{n_plugin_hits}/{len(seeds)} seeds (hit seeds {plugin_hit_seeds}); expected >= 1 (the "
             f"binned-plug-in-on-discrete-x contract). A zero-hit run "
             f"means the auto-selector is systematically biased AGAINST "
             f"the binned plug-in on data it should be the most-natural "
@@ -358,6 +345,7 @@ class TestCopulaWinsOnHeavyTail:
         _, _, _, _, hybrid_with_recipes = _import_auto_fe()
         seeds = (1, 7, 13, 42, 101, 202, 303, 404)
         n_copula_hits = 0
+        copula_hit_seeds = []
         for seed in seeds:
             X, y = _build_heavy_tail_fixture(seed, n=800)
             X_aug, scores, _recipes = hybrid_with_recipes(
@@ -373,10 +361,11 @@ class TestCopulaWinsOnHeavyTail:
             )
             if (x1_rows["best_scorer"] == "copula").any():
                 n_copula_hits += 1
+                copula_hit_seeds.append(seed)
         assert n_copula_hits >= 3, (
             f"auto-selector picked copula on heavy-tail signal in only "
-            f"{n_copula_hits}/{len(seeds)} seeds; expected >= 3 (the "
-            f"rank-uniform-marginal contract)."
+            f"{n_copula_hits}/{len(seeds)} seeds (hit seeds {copula_hit_seeds}); "
+            f"expected >= 3 (the rank-uniform-marginal contract)."
         )
 
 

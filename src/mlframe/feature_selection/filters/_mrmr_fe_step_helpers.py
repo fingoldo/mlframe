@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from itertools import combinations
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -97,20 +98,20 @@ def apply_synergy_bootstrap(
 
 
 def apply_surrogate_gbm_seeder(
-    self,
+    self: Any,
     *,
     num_fs_steps: int,
-    data,
-    nbins,
-    cols,
-    categorical_vars,
-    target_indices,
-    classes_y,
-    freqs_y,
+    data: Any,
+    nbins: Any,
+    cols: Sequence[str],
+    categorical_vars: Any,
+    target_indices: Any,
+    classes_y: Any,
+    freqs_y: Any,
     numeric_vars_to_consider: set,
     non_numeric_idx: set,
-    verbose,
-):
+    verbose: int,
+) -> tuple[set, list]:
     """Surrogate-GBM split-co-occurrence interaction seeder (backlog #6) + its order-3 maxT rail (#7).
 
     Fits one shallow LightGBM on the discretised matrix, walks root-to-leaf paths, and tallies
@@ -423,17 +424,17 @@ def run_cluster_aggregate_emission(
 
 
 def apply_interaction_information_routing(
-    self,
+    self: Any,
     *,
-    prospective_pairs,
-    cached_MIs,
-    nbins,
-    freqs_y,
-    classes_y,
-    data,
-    synergy_added_idx,
-    verbose,
-):
+    prospective_pairs: dict,
+    cached_MIs: Any,
+    nbins: Any,
+    freqs_y: Any,
+    classes_y: Any,
+    data: Any,
+    synergy_added_idx: Any,
+    verbose: int,
+) -> dict:
     """Signed interaction-information routing over the prospective pairs (backlog idea #8).
 
     Computes the order-2 permutation-null floor on the MAX positive interaction information over the SAME

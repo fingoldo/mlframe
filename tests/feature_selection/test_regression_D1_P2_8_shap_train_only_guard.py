@@ -84,7 +84,7 @@ def test_d1_p2_8_shap_explainer_uses_train_only_basis(boruta_train_basis_captor,
     bs.model = RandomForestClassifier(n_estimators=10, random_state=42, n_jobs=1)
     bs.model.fit(bs.X_boruta, bs.y)
 
-    with caplog.at_level(logging.INFO, logger="mlframe.feature_selection._boruta_shap_fit_explain"):
+    with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.boruta_shap._fit_explain"):
         bs.explain()
 
     assert "n_rows_basis" in boruta_train_basis_captor, "shap_values should have been called"

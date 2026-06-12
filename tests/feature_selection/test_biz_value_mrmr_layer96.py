@@ -37,6 +37,7 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -143,24 +144,24 @@ class TestPairScoringSpeedup:
 
 
 class TestBitEquivalence:
-    def test_cached_ii_equals_naive_ii(self):
+    @pytest.mark.parametrize("seed", (0, 7, 42))
+    def test_cached_ii_equals_naive_ii(self, seed):
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
         )
-        for seed in (0, 7, 42):
-            X, y = _build_wide_cats(seed, p=20, n=4000)
-            cat_cols = list(X.columns)
-            naive = _naive_pair_ii(X, y, cat_cols)
-            sc = score_cat_pairs_by_interaction_information(X, y, cat_cols)
-            max_diff = 0.0
-            for _, r in sc.iterrows():
-                key = (r["cat_i"], r["cat_j"])
-                max_diff = max(max_diff, abs(naive[key] - float(r["ii"])))
-            assert max_diff < 1e-9, (
-                f"seed={seed}: cached II differs from naive II by "
-                f"{max_diff:.3e} > 1e-9; the caching changed the numbers. "
-                f"Caching must be a pure speed transform, bit-identical."
-            )
+        X, y = _build_wide_cats(seed, p=20, n=4000)
+        cat_cols = list(X.columns)
+        naive = _naive_pair_ii(X, y, cat_cols)
+        sc = score_cat_pairs_by_interaction_information(X, y, cat_cols)
+        max_diff = 0.0
+        for _, r in sc.iterrows():
+            key = (r["cat_i"], r["cat_j"])
+            max_diff = max(max_diff, abs(naive[key] - float(r["ii"])))
+        assert max_diff < 1e-9, (
+            f"seed={seed}: cached II differs from naive II by "
+            f"{max_diff:.3e} > 1e-9; the caching changed the numbers. "
+            f"Caching must be a pure speed transform, bit-identical."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +170,8 @@ class TestBitEquivalence:
 
 
 class TestXorPreserved:
-    def test_pure_xor_pair_not_pruned_by_marginal_hoist(self):
+    @pytest.mark.parametrize("seed", (1, 7, 13, 42, 101))
+    def test_pure_xor_pair_not_pruned_by_marginal_hoist(self, seed):
         """The KEY subtlety: pure XOR has BOTH marginals ~0 yet II large. The
         Layer 96 caching must NOT prune a pair by its marginal MI -- it only
         hoists the marginal COMPUTATION out of the loop, it never gates on it.
@@ -179,34 +181,33 @@ class TestXorPreserved:
             score_cat_pairs_by_interaction_information,
             engineered_name_cat_pair_cross,
         )
-        for seed in (1, 7, 13, 42, 101):
-            X, y = _build_cat_xor(seed)
-            cat_cols = ["cat_a", "cat_b", "decoy_0", "decoy_1"]
-            sc = score_cat_pairs_by_interaction_information(X, y, cat_cols)
-            xor_name = engineered_name_cat_pair_cross("cat_a", "cat_b")
-            xor_rows = sc[sc["engineered_col"] == xor_name]
-            assert len(xor_rows) == 1, (
-                f"seed={seed}: the XOR pair was DROPPED from scoring "
-                f"({len(xor_rows)} rows). Marginal hoisting must never prune."
-            )
-            row = xor_rows.iloc[0]
-            # Both marginals near-zero -- a naive "needs marginal signal" filter
-            # would have killed this pair.
-            assert abs(float(row["mi_i"])) < 0.02 and abs(float(row["mi_j"])) < 0.02, (
-                f"seed={seed}: XOR parent marginals are not ~0 "
-                f"(mi_i={row['mi_i']:.4f}, mi_j={row['mi_j']:.4f}); fixture "
-                f"is not a pure-synergy XOR."
-            )
-            # ...yet the interaction information is large and the pair tops the
-            # ranking -- proving the synergy survived the hoist.
-            assert float(row["ii"]) > 0.2, (
-                f"seed={seed}: XOR pair II={row['ii']:.4f} <= 0.2; the synergy "
-                f"was lost by the optimization."
-            )
-            assert str(sc.iloc[0]["engineered_col"]) == xor_name, (
-                f"seed={seed}: XOR pair not top-1 after caching "
-                f"(top={sc.iloc[0]['engineered_col']})."
-            )
+        X, y = _build_cat_xor(seed)
+        cat_cols = ["cat_a", "cat_b", "decoy_0", "decoy_1"]
+        sc = score_cat_pairs_by_interaction_information(X, y, cat_cols)
+        xor_name = engineered_name_cat_pair_cross("cat_a", "cat_b")
+        xor_rows = sc[sc["engineered_col"] == xor_name]
+        assert len(xor_rows) == 1, (
+            f"seed={seed}: the XOR pair was DROPPED from scoring "
+            f"({len(xor_rows)} rows). Marginal hoisting must never prune."
+        )
+        row = xor_rows.iloc[0]
+        # Both marginals near-zero -- a naive "needs marginal signal" filter
+        # would have killed this pair.
+        assert abs(float(row["mi_i"])) < 0.02 and abs(float(row["mi_j"])) < 0.02, (
+            f"seed={seed}: XOR parent marginals are not ~0 "
+            f"(mi_i={row['mi_i']:.4f}, mi_j={row['mi_j']:.4f}); fixture "
+            f"is not a pure-synergy XOR."
+        )
+        # ...yet the interaction information is large and the pair tops the
+        # ranking -- proving the synergy survived the hoist.
+        assert float(row["ii"]) > 0.2, (
+            f"seed={seed}: XOR pair II={row['ii']:.4f} <= 0.2; the synergy "
+            f"was lost by the optimization."
+        )
+        assert str(sc.iloc[0]["engineered_col"]) == xor_name, (
+            f"seed={seed}: XOR pair not top-1 after caching "
+            f"(top={sc.iloc[0]['engineered_col']})."
+        )
 
 
 # ---------------------------------------------------------------------------

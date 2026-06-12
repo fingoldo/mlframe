@@ -183,16 +183,18 @@ def screen_predictors(
     # the pool, and floors order-1 selection at the q-th quantile of that
     # distribution - the chance ceiling for THIS pool. SELF-GATING: tiny at small
     # p (keeps weak genuine signals), large at high p (rejects the noise cloud).
-    # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the target-over-split gate
-    # (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
-    # (log-normal) regression target the supervised MDLP binner over-splits into many bins (~30) while features bin to ~5, lifting pure-noise columns past the abs/rel gain
-    # floors after the genuine signals are picked. The gate fires ONLY when the target is over-split (nbins_y large vs feature nbins, the plug-in-bias source) AND the (X,y)
-    # joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool like sklearn diabetes (nbins_y=53 but ~1.2 rows per joint cell at
-    # n=331) keeps the floor OFF and preserves its 10 weak features. See ``target_oversplit_floor_applies`` in ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables.
+    # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the high-cardinality-target
+    # gate (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
+    # (log-normal) regression target whose quantile binning yields a high-cardinality target (~10 equal-frequency bins, matching feature cardinality), lifting pure-noise columns
+    # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins -- a continuous
+    # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool
+    # like sklearn diabetes (nbins_y=10 but ~3.3 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (~25-50 rows per joint cell)
+    # fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See ``target_oversplit_floor_applies`` in
+    # ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables.
     screen_fdr_null_permutations: int = 25,
     screen_fdr_null_quantile: float = 0.95,
     screen_fdr_min_features: int = 30,
-    screen_fdr_target_oversplit_ratio: float = 3.0,
+    screen_fdr_target_oversplit_ratio: float = 1.0,
     screen_fdr_min_rows_per_joint_cell: float = 8.0,
     # When MRMR.fit re-screens after a feature-engineering step (confirm-rescreen
     # loop), the DCDState from the prior pass is threaded back in here so cluster
@@ -495,10 +497,26 @@ def screen_predictors(
             verbose=verbose,
         )
 
+        # ``classes_y_safe`` is OVERLOADED across two consumers with INCOMPATIBLE
+        # array-backend requirements, so we keep a CPU numpy buffer ALWAYS and a
+        # separate CuPy device buffer only when GPU is on:
+        #   * the FE step (returned ``classes_y_safe`` -> check_prospective_fe_pairs
+        #     -> the batched MI noise-gate) runs njit kernels (CPU fallback AND the
+        #     bit-identical GPU twin, which does ``np.asarray(classes_y_safe)`` +
+        #     a numba Fisher-Yates shuffle) -> it REQUIRES a numpy host array.
+        #   * the confirm / baseline-eval GPU branches (``mi_direct_gpu``) want the
+        #     pre-warmed CuPy DEVICE buffer to skip the H2D copy.
+        # Pre-2026-06-11 the GPU branch reassigned the single ``classes_y_safe``
+        # local to a CuPy array and returned THAT to the FE step, so any
+        # ``MRMR(use_gpu=True)`` fit that reached the FE pair-search crashed with
+        # ``TypingError: Cannot determine Numba type of <class 'cupy.ndarray'>``
+        # (or ``np.asarray`` on a cupy array raising in the subsample path). Now the
+        # numpy buffer survives for the return; the device buffer only goes to ctx.
+        classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
         if use_gpu:
             import cupy as cp
 
-            classes_y_safe = cp.asarray(classes_y.astype(np.int32))
+            classes_y_safe = cp.asarray(classes_y.astype(np.int32))  # device buffer for ctx -> mi_direct_gpu
             freqs_y_safe = cp.asarray(freqs_y)
         else:
             freqs_y_safe = None
@@ -789,6 +807,7 @@ def screen_predictors(
                                         entropy_cache=entropy_cache,
                                         factors_data=factors_data,
                                         factors_nbins=factors_nbins,
+                                        selected_vars=selected_vars,
                                     )
                                     # 2026-05-30 Wave 9.1 — anchor → PC1 swap.
                                     # When the freshly-grown cluster reaches
@@ -956,7 +975,11 @@ def screen_predictors(
             if key in cached_cond_MIs:
                 additional_knowledge = cached_cond_MIs[key]
         """
-        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, dcd_state
+        # Return the CPU numpy ``classes_y_safe_host`` (NOT the CuPy device buffer that
+        # ``ctx`` holds for ``mi_direct_gpu``): the caller threads this into the FE step's
+        # njit MI noise-gate, which cannot accept a cupy array. ``classes_y_safe_host`` is
+        # defined unconditionally above; on the CPU path it IS ``classes_y_safe``.
+        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe_host, freqs_y, dcd_state
     finally:
         # Restore the global numpy RNG state captured at entry. Executes on the
         # happy return AND on any raise inside the try -- pre-fix code only restored on

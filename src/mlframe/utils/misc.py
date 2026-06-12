@@ -8,6 +8,11 @@ import random
 import numpy as np
 from pyutilz.numbalib import set_numba_random_seed
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
 
 def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
     """Seed everything ml-related.
@@ -67,7 +72,7 @@ import contextlib
 import functools
 
 
-def rng_hygienic_fit(fit_method):
+def rng_hygienic_fit(fit_method: Callable) -> Callable:
     """Decorator wrapping a selector ``fit`` so it does not leave the caller's
     process-global ``numpy`` / ``random`` RNG mutated. Within-fit determinism is
     bit-identical (any internal seeding still runs); the global stream is restored
@@ -130,7 +135,7 @@ def hygienic_fit(fit_method):
 
 
 @contextlib.contextmanager
-def preserve_global_rng():
+def preserve_global_rng() -> Iterator[None]:
     """Snapshot the process-global ``numpy`` + ``random`` RNG state on entry and
     restore it on exit (success OR exception).
 

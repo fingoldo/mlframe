@@ -408,10 +408,17 @@ def _greedy_score_and_select(
     min_uplift: float,
     min_abs_mi_frac: float,
     nbins: int,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> tuple[list[str], pd.DataFrame, list[tuple[tuple[str, ...], str]]]:
     """Score engineered columns vs the BETTER of the per-source raw baseline
     MIs, then apply the two-gate selection. Returns the winning column names,
     the full scores DataFrame, and the parsed list aligned with the winners.
+
+    ``reject_sink`` (optional) is a callable invoked once per candidate the
+    abs-MAD floor (``marginal_uplift_floor`` gate) kills -- i.e. a candidate
+    that passed the uplift gate but missed ``abs_floor``. Pure instrumentation:
+    it only RECORDS the already-computed ``engineered_mi`` vs ``abs_floor``; it
+    changes NO selection decision. See the FE rejection ledger (W6).
     """
     from ._orthogonal_univariate_fe import _mi_classif_batch
     if engineered.empty:
@@ -485,6 +492,29 @@ def _greedy_score_and_select(
         (scores["uplift"] >= float(min_uplift))
         & (scores["engineered_mi"] >= abs_floor)
     ]
+    # W6 abs-MAD floor instrumentation (pure-record; no decision change):
+    # record every candidate that CLEARED the uplift gate but missed the
+    # absolute floor -- the ``marginal_uplift_floor`` gate kill the session
+    # previously had to diagnose by hand. Selection is byte-identical with or
+    # without the sink.
+    if reject_sink is not None and not scores.empty:
+        _killed = scores[
+            (scores["uplift"] >= float(min_uplift))
+            & (scores["engineered_mi"] < abs_floor)
+        ]
+        for _row in _killed.itertuples(index=False):
+            try:
+                reject_sink(
+                    gate="marginal_uplift_floor",
+                    candidate=str(_row.engineered_col),
+                    operands=tuple(_row.source_cols),
+                    operator=str(_row.transform),
+                    observed=float(_row.engineered_mi),
+                    threshold=float(abs_floor),
+                    reason="mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor",
+                )
+            except Exception:
+                pass
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     # parsed list aligned with the winners (in winner order).
@@ -506,6 +536,7 @@ def greedy_mi_fe_construct(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """End-to-end MI-greedy feature constructor.
 
@@ -564,6 +595,7 @@ def greedy_mi_fe_construct(
         raw_X_for_baseline, engineered, parsed, y_arr,
         top_k=top_k, min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
+        reject_sink=reject_sink,
     )
 
     # 5. Append winners.
@@ -592,6 +624,7 @@ def greedy_mi_fe_construct_with_recipes(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Same as :func:`greedy_mi_fe_construct` but additionally returns a list of
     ``EngineeredRecipe`` objects (one per appended column) so MRMR.transform
@@ -610,6 +643,7 @@ def greedy_mi_fe_construct_with_recipes(
         include_unary=include_unary, include_binary=include_binary,
         include_trig_on_bounded=include_trig_on_bounded,
         min_uplift=min_uplift, min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
+        reject_sink=reject_sink,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []

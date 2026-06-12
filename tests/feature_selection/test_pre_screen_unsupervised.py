@@ -113,3 +113,66 @@ def test_config_field_present_and_defaults_safe():
     assert cfg.pre_screen_unsupervised is True
     assert cfg.pre_screen_variance_threshold == 0.0
     assert cfg.pre_screen_null_fraction_threshold == 0.99
+
+
+def _reference_drops_via_isna(df):
+    """Reference pandas drop set computed with the slow ``isna().sum()`` null count on every column.
+
+    The production fast path replaces ``col.isna().sum()`` with ``np.isnan(col.to_numpy()).sum()``
+    for numpy float dtypes and a literal 0 for numpy int/bool dtypes; this reference reimplements the
+    null branch the slow way so the regression test can assert the drop SET is bit-identical.
+    """
+    drops = set()
+    n = df.shape[0]
+    null_cutoff = 0.99 * n
+    var_cutoff = max(0.0, 1e-24)
+    for c in df.columns:
+        s = df[c]
+        if isinstance(s.dtype, pd.SparseDtype):
+            continue
+        if int(s.isna().sum()) > null_cutoff:
+            drops.add(c)
+            continue
+        if not pd.api.types.is_numeric_dtype(s.dtype):
+            continue
+        try:
+            var_val = float(s.var())
+        except (TypeError, ValueError):
+            var_val = None
+        if var_val is None or np.isnan(var_val):
+            drops.add(c)
+            continue
+        if var_val <= var_cutoff:
+            drops.add(c)
+    return sorted(drops)
+
+
+def test_fast_null_count_matches_isna_across_dtypes():
+    rng = np.random.default_rng(11)
+    n = 2000
+    df = pd.DataFrame(
+        {
+            "float_some_null": np.where(rng.random(n) < 0.3, np.nan, rng.standard_normal(n)),
+            "float_clean": rng.standard_normal(n),
+            "float_const": np.full(n, 2.71),
+            "float_all_null": np.full(n, np.nan),
+            "float_high_null": np.where(rng.random(n) < 0.995, np.nan, rng.standard_normal(n)),
+            "int64_col": rng.integers(0, 9, n),
+            "int8_col": rng.integers(0, 4, n).astype(np.int8),
+            "bool_col": rng.random(n) < 0.5,
+            "object_with_none": rng.choice(["a", "b", None], n),
+            "datetime_with_nat": pd.to_datetime(rng.choice([None, "2021-01-01"], n)),
+        }
+    )
+    df["nullable_int"] = pd.array(rng.choice([1, 2, pd.NA], n), dtype="Int64")
+    df["category_col"] = pd.Series(rng.choice(["x", "y"], n)).astype("category")
+
+    fast = sorted(compute_unsupervised_drops(df))
+    reference = _reference_drops_via_isna(df)
+    assert fast == reference, f"fast null-count drop set diverged: {set(fast) ^ set(reference)}"
+    # float_const has var ~1e-28 (FP floor) -> dropped; float_all_null / float_high_null -> dropped on null fraction.
+    assert "float_const" in fast
+    assert "float_all_null" in fast
+    assert "float_high_null" in fast
+    assert "float_clean" not in fast
+    assert "int64_col" not in fast

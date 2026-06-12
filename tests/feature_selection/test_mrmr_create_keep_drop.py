@@ -97,7 +97,7 @@ def _checkpoint(msg: str) -> None:
     try:
         with open(_PROGRESS, "a", encoding="utf-8") as fh:
             fh.write(msg.rstrip("\n") + "\n")
-    except Exception:
+    except OSError:
         pass
 
 

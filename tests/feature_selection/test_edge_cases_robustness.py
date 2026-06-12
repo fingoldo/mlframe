@@ -101,11 +101,18 @@ def test_mrmr_single_feature_X_returns_that_feature():
         pytest.skip(f"selector requires >=2 features: {exc}")
 
     assert mrmr.n_features_in_ == 1
-    # Exactly one feature selected, and it is "only".
-    assert mrmr.n_features_ <= 1
+    # Exactly one RAW input feature is selected, and it is "only". ``support_``
+    # indexes into ``feature_names_in_`` (the raw input columns), so it is the
+    # authoritative check for "which raw features were kept". ``n_features_`` is
+    # NOT asserted here: hinge change-point FE is default-on (fe_hinge_enable=True
+    # since the 2026-06 campaign), so on a single signal-bearing column MRMR may
+    # additionally emit replayable relu legs (``only__relu_gt`` / ``only__relu_lt``)
+    # that legitimately appear in transform() output. n_features_ counts those
+    # engineered columns by design (= len(selected_vars) + n_engineered_out), so
+    # measured n_features_==3 here (raw "only" + 2 hinge legs) is correct, not a
+    # selection bug. The raw-selection invariant is what this edge case guards.
     names = _support_names(mrmr)
-    if names:
-        assert names == ["only"]
+    assert names == ["only"]
 
 
 # ---------------------------------------------------------------------------

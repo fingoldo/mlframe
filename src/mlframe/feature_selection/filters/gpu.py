@@ -59,10 +59,20 @@ class _GpuBufferPool:
         if self.cap_nbins_y < nbins_y:
             self.freqs_y = cp.empty(nbins_y, dtype=cp.float64)
             self.cap_nbins_y = nbins_y
+        # The CUDA joint-hist + MI kernels index ``joint_counts`` as a row-major
+        # buffer with stride EXACTLY ``nbins_y`` (``cx*nbins_y+cy``). A pooled
+        # buffer wider than the current request (``shape[1] > nbins_y``) would make
+        # ``joint_counts[:nbins_x, :nbins_y]`` a NON-contiguous slice whose true row
+        # stride is the allocated width, silently corrupting both the histogram
+        # write and the MI read. Reallocate whenever the column width CHANGES (this
+        # is a module-singleton pool that persists across fits, so a prior fit with
+        # more target bins could leave a wider buffer); the row count may still grow
+        # monotonically since slicing only the leading rows keeps each row contiguous.
         if (self.joint_counts is None
                 or self.joint_counts.shape[0] < nbins_x
-                or self.joint_counts.shape[1] < nbins_y):
-            self.joint_counts = cp.empty((nbins_x, nbins_y), dtype=cp.int32)
+                or self.joint_counts.shape[1] != nbins_y):
+            _rows = max(int(nbins_x), int(self.joint_counts.shape[0]) if self.joint_counts is not None else 0)
+            self.joint_counts = cp.empty((_rows, nbins_y), dtype=cp.int32)
         if self.totals is None:
             self.totals = cp.zeros(1, dtype=cp.float64)
 
@@ -328,14 +338,24 @@ def init_kernels() -> None:
     void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
         if (tid==0){
+            // joint_counts is a (nbins_x, nbins_y) row-major histogram written by
+            // compute_joint_hist_cuda with stride nbins_y (``cx*nbins_y+cy``). The
+            // reduction MUST read it with the SAME stride. A pre-2026-06-11 bug
+            // hardcoded ``i*2+j`` (stride 2), which only matched a binary target
+            // (nbins_y==2); for any nbins_y!=2 (multi-class y, or quantile-binned
+            // regression y with nbins_y up to 10) it read the WRONG cells, yielding
+            // garbage permutation-null MIs that systematically over-rejected genuine
+            // candidates -- silently diverging the GPU selection from the CPU path.
+            // Use double throughout (no float32 narrowing) to match the bit-exact
+            // CPU njit compute_mi_from_classes.
             double total = 0.0;
             for (int i=0;i<nbins_x;++i){
-                float prob_x = freqs_x[i];
+                double prob_x = freqs_x[i];
                 for (int j=0;j<nbins_y;++j){
-                    int jc = joint_counts[i*2+j];
+                    int jc = joint_counts[i*nbins_y+j];
                     if (jc>0){
-                        float prob_y = freqs_y[j];
-                        double jf=(float)jc/ (float)n;
+                        double prob_y = freqs_y[j];
+                        double jf=(double)jc/ (double)n;
                         total += jf* log(jf / (prob_x * prob_y));
                     }
                 }

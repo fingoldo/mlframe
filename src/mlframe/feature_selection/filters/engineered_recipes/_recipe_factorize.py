@@ -54,9 +54,12 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     vals_a = _extract_column(X, name_a)
     vals_b = _extract_column(X, name_b)
-    # Handle NaN / non-integer values per unknown_strategy.
-    vals_a_i = _coerce_to_int_with_nan_handling(vals_a, nbins_a, recipe.name, name_a, recipe.unknown_strategy)
-    vals_b_i = _coerce_to_int_with_nan_handling(vals_b, nbins_b, recipe.name, name_b, recipe.unknown_strategy)
+    # Handle NaN / non-integer values per unknown_strategy. ``cat_code_maps`` (per-source
+    # ``raw_value -> fit_code`` tables) reproduces fit-time discretiser codes for categorical /
+    # string sources; absent (numeric sources / legacy pickles) the int-cast path is used.
+    _cat_maps = recipe.extra.get("cat_code_maps") or {}
+    vals_a_i = _coerce_to_int_with_nan_handling(vals_a, nbins_a, recipe.name, name_a, recipe.unknown_strategy, _cat_maps.get(name_a))
+    vals_b_i = _coerce_to_int_with_nan_handling(vals_b, nbins_b, recipe.name, name_b, recipe.unknown_strategy, _cat_maps.get(name_b))
 
     # Clip out-of-range to nbins-1. Without this, a test value of ``nbins_a + 1`` would index past the lookup buffer end. Per ``unknown_strategy="clip"``
     # semantics (default), unseen values map to the highest seen class -- already encoded in the lookup; here we just guard the buffer.
@@ -97,14 +100,17 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"chain_nuniqs={len(chain_nuniqs)} (expected {k-1} each)."
         )
 
+    _cat_maps = recipe.extra.get("cat_code_maps") or {}
     # Step 1: build running from first two columns
     vals_0 = _coerce_to_int_with_nan_handling(
         _extract_column(X, src_names[0]), int(nbins_tuple[0]),
         recipe.name, src_names[0], recipe.unknown_strategy,
+        _cat_maps.get(src_names[0]),
     )
     vals_1 = _coerce_to_int_with_nan_handling(
         _extract_column(X, src_names[1]), int(nbins_tuple[1]),
         recipe.name, src_names[1], recipe.unknown_strategy,
+        _cat_maps.get(src_names[1]),
     )
     vals_0 = np.clip(vals_0, 0, int(nbins_tuple[0]) - 1)
     vals_1 = np.clip(vals_1, 0, int(nbins_tuple[1]) - 1)
@@ -133,6 +139,7 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         vals_next = _coerce_to_int_with_nan_handling(
             _extract_column(X, src_names[step]), int(nbins_tuple[step]),
             recipe.name, src_names[step], recipe.unknown_strategy,
+            _cat_maps.get(src_names[step]),
         )
         vals_next = np.clip(vals_next, 0, int(nbins_tuple[step]) - 1)
         pre_prune = running + vals_next * running_nuniq

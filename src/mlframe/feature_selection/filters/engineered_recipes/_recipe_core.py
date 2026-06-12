@@ -212,6 +212,17 @@ class EngineeredRecipe:
             return False
         return _extra_equal(self.extra, other.extra)
 
+    def with_extra(self, **updates) -> "EngineeredRecipe":
+        """Return a NEW frozen recipe identical to this one but with ``extra`` extended by ``updates``.
+
+        ``extra`` is a read-only ``MappingProxyType`` after ``__post_init__`` (so post-build in-place writes raise), so attaching late-bound
+        metadata (e.g. the ``cat_code_maps`` table built once the raw frame is in scope) goes through this helper. Uses ``dataclasses.replace`` which
+        re-runs ``__post_init__`` (deep-copy + re-freeze), preserving the immutability contract on the returned copy."""
+        from dataclasses import replace as _replace
+        _merged = dict(self.extra)
+        _merged.update(updates)
+        return _replace(self, extra=_merged)
+
     def __hash__(self) -> int:
         # Name-based hash (names are unique per fit), since ``extra: dict`` is mutable and would normally disable __hash__.
         # Wave 73 (2026-05-21) hardening: __eq__ (above) walks the ``extra`` dict

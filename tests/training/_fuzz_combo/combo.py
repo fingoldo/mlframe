@@ -830,23 +830,7 @@ class FuzzCombo:
             # exercises the full inject_degenerate_cols × CB × multilabel
             # cross-product again.
             self.inject_degenerate_cols,
-            # 2026-05-31 audit-pass-9 F-23 mirror: inject_inf_nan=True
-            # always hits the fit-entry _validate_no_nan_inf raise at
-            # training/neural/base.py:326 when the model subset is exactly
-            # ('mlp',). The True/False variants are then behaviour-identical
-            # (immediate crash vs. normal train); canon collapses True to
-            # False on those combos so dedup absorbs phantom variation.
-            # Multi-model subsets (mlp + cb / xgb / lgb / hgb / linear) keep
-            # the axis live because the non-MLP models consume inf/nan via
-            # their own paths.
-            (
-                self.inject_inf_nan
-                if not (
-                    "mlp" in self.models
-                    and len(self.models) == 1
-                )
-                else False
-            ),
+            self.inject_inf_nan,
             self.with_datetime_col,
             self.inject_zero_col,
             fairness,
@@ -1191,7 +1175,7 @@ class FuzzCombo:
             # knobs. The master toggle is only meaningful when BorutaShap is on;
             # patience/margin only bite when the master toggle is also on (they
             # are read solely inside the early_stop branch of
-            # _boruta_shap_fit_explain), so collapse them to the BorutaShap
+            # boruta_shap/_fit_explain), so collapse them to the BorutaShap
             # signature defaults outside that compound gate -- otherwise they'd
             # split dedup buckets for runs that behave identically.
             (self.boruta_early_stop_tentative_cfg if self.use_boruta_shap_cfg else False),

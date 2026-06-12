@@ -59,6 +59,31 @@ clean separation at every n from 1k up. The significance FLOOR leg is unchanged
 carry the same bias). The seed feature's anchor likewise uses a marginal-
 permutation-debiased excess so all anchors live on one debiased scale.
 
+STRONG-SIGNIFICANCE ESCAPE (the false-reject fix -- 2026-06-11 hardening)
+------------------------------------------------------------------------
+The relative bar (leg 2) is a RELATIVE separator anchored to the WEAKEST admitted
+feature's excess. When the admitted set is dominated by ONE strong seed, the bar
+``TAU * seed_excess`` becomes a large ABSOLUTE CMI threshold, and a genuinely
+COMPLEMENTARY feature that is merely WEAKER than that seed (independent of the
+admitted support, but adding an order-of-magnitude less information) is dropped
+``redundant_below_rel_bar`` -- a FALSE REJECT. Adversarial repro: one strong
+driver plus several INDEPENDENT weak drivers (each provably non-redundant -- MI
+with the support ~0 -- each clearing its OWN conditional-permutation floor 20x+)
+were ALL dropped, costing ~3% R2 on a real gradient-boosting model. "Much weaker
+than the strongest selected feature" is NOT "redundant".
+
+The fix adds a strong-significance escape: a candidate whose observed CMI clears
+its OWN conditional-permutation floor by at least ``significance_escape_margin``
+(default 3x) is admitted even when its excess is below the relative bar. Robust
+conditional significance proves the information is genuinely NEW (not in the
+admitted support): a truly redundant feature's CMI collapses to ~its floor
+(measured ``cmi/floor`` 1.0--1.4 for the spurious cross-signal ``sub``) while a
+genuine complementary feature clears it 20--340x, so the escape opens NO
+false-ADMIT path (a redundant feature cannot reach 3x its floor; a monotone remap
+of an admitted driver has CMI==0 and is caught at the floor itself). The escape
+requires ``passes_floor`` first (leg 1), so it only ever loosens leg 2, never
+leg 1.
+
 Greedy: seed on the highest-marginal-MI engineered candidate (admitted on its
 marginal significance -- nothing to condition on yet), then admit remaining
 candidates in MI order subject to the two-leg test, folding each admitted
@@ -89,6 +114,25 @@ DEFAULT_CMI_RETAIN_FRAC = 0.15
 _CMI_FLOOR_PERMUTATIONS = 25
 _CMI_FLOOR_QUANTILE = 0.95
 
+# Strong-significance escape margin for the relative-gap (leg 2) bar. The leg-2
+# bar (TAU * weakest-admitted excess) is a RELATIVE separator: it drops a
+# candidate whose information is an order of magnitude weaker than the weakest
+# admitted feature. Its DESIGN TARGET is the genuinely redundant feature (e.g. a
+# cross-signal ``sub`` whose y-information is already carried by the admitted
+# pair) -- such a feature sits only a SMALL multiple above its OWN conditional-
+# permutation floor (measured ``cmi/floor`` 1.0--1.4 for the spurious ``sub`` vs
+# 50--340 for the genuine ``div``/``mul``). But the bar by itself ALSO drops a
+# genuinely COMPLEMENTARY feature that is merely WEAKER than a strong incumbent
+# (independent of the support, ``cmi/floor`` ~20, real predictive value) -- a
+# FALSE REJECT, because "much weaker than the strongest selected feature" is not
+# the same as "redundant". The escape fixes this: a candidate whose observed CMI
+# clears its OWN conditional-permutation floor by at least this MULTIPLICATIVE
+# margin is robustly-significant NEW information that is NOT contained in the
+# admitted support (a redundant feature's CMI collapses to ~its floor), so it is
+# admitted even when its excess is below the relative bar. 3.0 sits with ~2x
+# margin on BOTH sides of the measured gap (redundant <=1.4x, genuine >=20x).
+_CMI_SIGNIFICANCE_ESCAPE_MARGIN = 3.0
+
 # Conditioning-support fragmentation cap (chi-squared rule-of-thumb: cells must
 # average >= 5 samples for the plug-in CMI to stay reliable). When folding the
 # next admitted feature would push the joint support cardinality past
@@ -101,6 +145,24 @@ _SUPPORT_FRAG_DIVISOR = 5
 # both become unreliable (strata collapse to <=1 element). Fall back to
 # admitting every candidate on its marginal significance.
 _MIN_ROWS_FOR_CMI = 500
+
+# COST GUARD (2026-06-11): the greedy gate is O(K^2) in the candidate count K --
+# every still-remaining candidate is re-scored against the admitted support in
+# EACH greedy round, and each scoring runs a within-stratum permutation null (25
+# permutations x a per-stratum Python shuffle). With a wide FE candidate pool
+# (the synergy bootstrap / GBM seeder can surface dozens-to-hundreds of survivors)
+# the cost blows up unbounded: measured 1.9 s @ 9 cands -> 27 s @ 99 cands, a
+# clean 2.0x per doubling of K (pure O(K^2)). The cap PRE-RANKS the pool by
+# marginal MI and keeps only the top-M before the greedy. This is SAFE for the
+# redundancy decision: (a) the gate already seeds on the highest-marginal-MI
+# candidate and admits in MI order, so the top-M-by-marginal-MI prefix is exactly
+# the prefix the unbounded gate would process first; (b) a redundant monotone/
+# linear remap has the SAME marginal MI as its genuine sibling, so each genuine
+# driver's representative is retained -- only deep-tail redundant remaps (which the
+# gate would reject anyway) are dropped pre-greedy; (c) genuinely complementary
+# drivers are real signal with high marginal MI, so they survive the cap. Default
+# 64 sits ~4x above the widest validated pool; raise to admit a larger greedy.
+_DEFAULT_MAX_CANDIDATES = 64
 
 
 def _conditional_perm_null(
@@ -188,6 +250,8 @@ def apply_cmi_redundancy_gate(
     retain_frac: float = DEFAULT_CMI_RETAIN_FRAC,
     n_permutations: int = _CMI_FLOOR_PERMUTATIONS,
     quantile: float = _CMI_FLOOR_QUANTILE,
+    significance_escape_margin: float = _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
+    max_candidates: int = _DEFAULT_MAX_CANDIDATES,
     seed: int = 0,
     verbose: int = 0,
 ) -> tuple[set, dict]:
@@ -209,6 +273,27 @@ def apply_cmi_redundancy_gate(
         TAU -- the scale-free relative-retention fraction (default 0.15).
     n_permutations, quantile : int, float
         Conditional-permutation floor config.
+    significance_escape_margin : float
+        Strong-significance escape for the relative-gap (leg 2) bar. A candidate
+        whose observed CMI clears its OWN conditional-permutation floor by at
+        least this MULTIPLICATIVE margin is robustly-significant NEW information
+        not contained in the admitted support, so it is admitted even when its
+        debiased excess is below the relative bar. Prevents the FALSE REJECT of a
+        genuinely complementary but individually-WEAKER feature (whose excess is
+        below ``retain_frac * strongest-incumbent`` yet which clears its floor
+        20x+). Set ``<= 1`` to disable the escape (pure two-leg behaviour).
+    max_candidates : int
+        COST GUARD. The greedy gate is O(K^2) in the candidate count (every
+        remaining candidate re-scored against the support in each round, each
+        scoring running a per-stratum permutation null). When ``len(candidates)``
+        exceeds this cap the pool is PRE-RANKED by marginal MI and only the
+        top-``max_candidates`` enter the greedy -- bounding the cost to O(M^2)
+        regardless of how wide the upstream FE pool grows. Safe for the redundancy
+        decision: the gate already admits in marginal-MI order and a redundant
+        remap shares its genuine sibling's marginal MI, so every genuine driver's
+        representative is retained; only deep-tail redundant remaps (rejected
+        anyway) are dropped. ``<= 0`` disables the cap (unbounded greedy). The
+        dropped tail is diagnosed with ``reason='dropped_cost_cap'``.
     seed : int
         RNG seed for the conditional-permutation floor (deterministic).
     verbose : int
@@ -253,12 +338,86 @@ def apply_cmi_redundancy_gate(
             )
         return set(names), diagnostics
 
-    # Bin every candidate once (production quantile binner).
+    # Bin every candidate once (production quantile binner). Done BEFORE the cost
+    # cap so the cap can collapse exact-partition duplicates first (see below).
     cand_bins: dict = {}
     for nm in names:
         vals = np.asarray(candidates[nm][0], dtype=np.float64)
         cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
     marg = {nm: float(candidates[nm][1]) for nm in names}
+
+    # PARTITION DEDUP (2026-06-11): a monotone/linear remap of an admitted feature
+    # bins to the IDENTICAL equi-frequency partition (equi-frequency binning is
+    # rank-invariant; a decreasing remap yields the reversed-but-identical
+    # partition). Such a remap carries IDENTICAL information and IDENTICAL marginal
+    # MI, so the greedy would correctly admit exactly one and reject the rest -- but
+    # at full per-round permutation-null cost, AND (critically) a plain top-M-by-
+    # marginal-MI cap can STARVE a genuine driver: when many tied-MI remaps of the
+    # strongest driver crowd out every form of a weaker (but genuine) driver, the
+    # weaker driver loses ALL its forms before the greedy even runs. Collapse each
+    # exact-partition equivalence class to its best representative (highest marginal
+    # MI; ties broken by name for determinism) BEFORE the cap so the cap operates on
+    # DISTINCT partitions -- every genuine driver keeps a representative and the
+    # redundant siblings never pay the greedy cost. Partition identity is hashed on
+    # the canonical (dense-renumbered) bin codes so a reversed-but-identical
+    # partition collapses to the same key.
+    _partition_rep: dict = {}   # canonical partition key -> representative name
+    _dups_collapsed: list[str] = []
+    for nm in sorted(names):  # deterministic iteration (name order)
+        _, inv = np.unique(cand_bins[nm], return_inverse=True)
+        key = inv.astype(np.int64).tobytes()
+        rep = _partition_rep.get(key)
+        if rep is None:
+            _partition_rep[key] = nm
+        else:
+            # keep the higher-marginal-MI rep; the loser is a collapsed duplicate
+            if marg[nm] > marg[rep] or (marg[nm] == marg[rep] and nm < rep):
+                _partition_rep[key] = nm
+                _dups_collapsed.append(rep)
+            else:
+                _dups_collapsed.append(nm)
+    if _dups_collapsed:
+        _keep = set(_partition_rep.values())
+        names = [nm for nm in names if nm in _keep]
+        for nm in _dups_collapsed:
+            diagnostics[nm] = dict(
+                accept=False, cmi=float(marg.get(nm, candidates[nm][1])),
+                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
+                reason="redundant_partition_duplicate",
+            )
+        if verbose:
+            logger.info(
+                "CMI-redundancy gate: collapsed %d exact-partition duplicate(s) "
+                "(monotone/linear remaps of a kept feature) before the greedy.",
+                len(_dups_collapsed),
+            )
+
+    # COST GUARD: the greedy below is O(K^2) in the candidate count. When the pool
+    # is STILL wide after partition dedup, PRE-RANK by marginal MI and keep only the
+    # top-``max_candidates`` before the greedy (bounds cost to O(M^2)). The dropped
+    # tail is the lowest-marginal-MI DISTINCT-partition candidates -- genuine drivers
+    # are real signal with high marginal MI, so they survive; only deep-tail weak
+    # candidates (which the greedy would reject anyway) never pay the per-round
+    # permutation-null cost. ``max_candidates <= 0`` disables it.
+    _dropped_for_cost: list[str] = []
+    if int(max_candidates) > 0 and len(names) > int(max_candidates):
+        names_by_marg = sorted(names, key=lambda nm: (float(candidates[nm][1]), nm), reverse=True)
+        _dropped_for_cost = names_by_marg[int(max_candidates):]
+        names = names_by_marg[: int(max_candidates)]
+        for nm in _dropped_for_cost:
+            diagnostics[nm] = dict(
+                accept=False, cmi=float(candidates[nm][1]),
+                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
+                reason="dropped_cost_cap",
+            )
+        if verbose:
+            logger.info(
+                "CMI-redundancy gate: cost cap -- %d distinct-partition candidate(s) "
+                "exceed max_candidates=%d; kept the top %d by marginal MI, dropped %d "
+                "low-marginal-MI tail candidate(s) before the O(K^2) greedy.",
+                len(_dropped_for_cost) + int(max_candidates), int(max_candidates),
+                int(max_candidates), len(_dropped_for_cost),
+            )
 
     accepted: list[str] = []          # admitted candidate names, in selection order
     accepted_bins: list[np.ndarray] = []
@@ -308,16 +467,32 @@ def apply_cmi_redundancy_gate(
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
             passes_floor = cmi > floor                 # leg 1: significance
+            # Strong-significance escape: a candidate whose observed CMI clears
+            # its OWN conditional-permutation floor by a robust multiplicative
+            # margin carries genuinely NEW conditional information that is NOT in
+            # the admitted support (a redundant feature's CMI collapses to ~its
+            # floor -- measured cmi/floor 1.0--1.4 for the spurious cross-signal
+            # vs >=20 for a genuine complementary feature). Such a feature is
+            # admitted even if its debiased excess is below the relative bar,
+            # which by itself would FALSELY REJECT a complementary-but-weaker
+            # feature as "redundant". The escape requires passes_floor first (no
+            # division-by-noise on a sub-floor candidate).
+            strongly_significant = (
+                passes_floor
+                and significance_escape_margin > 1.0
+                and floor > 0.0
+                and cmi >= significance_escape_margin * floor
+            )
             passes_rel = cmi_excess >= rel_bar         # leg 2: debiased relative gap
-            passes = passes_floor and passes_rel
+            passes = passes_floor and (passes_rel or strongly_significant)
             if nm not in diagnostics:
                 diagnostics[nm] = {}
             diagnostics[nm].update(
                 accept=False, cmi=cmi, cmi_excess=cmi_excess, floor=floor,
                 null_mean=null_mean, rel_bar=rel_bar,
                 reason=("redundant_below_floor" if not passes_floor
-                        else "redundant_below_rel_bar" if not passes_rel
-                        else "pending"),
+                        else "pending" if (passes_rel or strongly_significant)
+                        else "redundant_below_rel_bar"),
             )
             if passes and cmi_excess > best_excess:
                 best_excess = cmi_excess

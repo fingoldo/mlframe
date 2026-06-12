@@ -484,7 +484,7 @@ try:
         for _mod_path in (
             "mlframe.feature_selection.filters.mrmr",
             "mlframe.feature_selection.filters.feature_engineering",
-            "mlframe.feature_selection.wrappers._rfecv",
+            "mlframe.feature_selection.wrappers.rfecv",
             "mlframe.feature_selection.filters.screen",
             "mlframe.training.core._phase_train_one_target",
         ):

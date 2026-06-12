@@ -330,9 +330,37 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
     """Replay a per-operand pre-warp ``f(x)`` from a spec produced by
     :func:`fit_operand_prewarp`. Closed-form in ``x`` (uses the stored basis
     ``preprocess`` params + ``coef``); no ``y`` reference, so transform()-time
-    replay is bit-identical to fit time given the same ``x``."""
-    from . import _POLY_BASES
+    replay is bit-identical to fit time given the same ``x``.
+
+    ``basis == "fourier_adaptive"`` (2026-06-10, FE auto-escalation): an
+    ARBITRARY-frequency sin/cos mix ``f(x) = sum_k a_k*sin(2*pi*f_k*z) +
+    b_k*cos(2*pi*f_k*z)`` where ``z`` is either the linear min-max axis
+    (``preprocess: {arg: "linear", lo, span, freqs}``) or the shipped
+    quadratic-argument chirp axis ``z = ((sign(u)*u**2) - lo) / span`` with
+    ``u = (x - mean) / std`` (``arg: "quadratic"``). The frequencies come from
+    the held-out-validated adaptive detector (non-integer, so the integer-
+    harmonic ``"fourier"`` basis in ``bases.py`` cannot express them); ``coef``
+    packs ``[a_1, b_1, ..., a_K, b_K]``. Pure function of ``x`` + stored params
+    -- leak-safe replay, same contract as the polynomial branch below."""
     basis = str(spec["basis"])
+    if basis == "fourier_adaptive":
+        pp = dict(spec["preprocess"])
+        xf = np.asarray(x, dtype=np.float64).reshape(-1)
+        if str(pp.get("arg", "linear")) == "quadratic":
+            z = (xf - float(pp["mean"])) / max(float(pp["std"]), 1e-12)
+            u = np.sign(z) * (z * z)
+            axis = (u - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+        else:
+            axis = (xf - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+        coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
+        out = np.zeros_like(axis)
+        for i, f in enumerate(pp["freqs"]):
+            if 2 * i + 1 >= coef.size:
+                break
+            ang = 2.0 * np.pi * float(f) * axis
+            out += coef[2 * i] * np.sin(ang) + coef[2 * i + 1] * np.cos(ang)
+        return out
+    from . import _POLY_BASES
     bi = _POLY_BASES[basis]
     xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
     z = np.ascontiguousarray(bi["apply"](xf, dict(spec["preprocess"])), dtype=np.float64)

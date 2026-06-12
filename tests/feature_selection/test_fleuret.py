@@ -242,12 +242,9 @@ def test_parallel_matches_serial_same_seed(xor_factors):
     the *aggregated confidence* verdict.
     """
     factors_data, factors_nbins = xor_factors
-    seed = 12345
 
-    np.random.seed(seed)
     nfailed_s, nchecked_s = _call_core(factors_data, factors_nbins, npermutations=30, bootstrapped_gain=0.1, max_failed=30)
 
-    np.random.seed(seed)
     nfailed_p, nchecked_p, _ = parallel_fleuret(
         data=factors_data,
         factors_nbins=factors_nbins,
@@ -347,13 +344,10 @@ def test_biz_parallel_matches_serial():
     drops conditional MI below the bar => ``nfailed=0`` in both paths => confidence exactly ``1.0`` independently of the permutation RNG seed.
     """
     factors_data, factors_nbins = _build_xor_factors(n=2000, seed=42)
-    seed = 99
 
-    np.random.seed(seed)
     nf_s, nt_s = _call_core(factors_data, factors_nbins, npermutations=100, bootstrapped_gain=0.1, max_failed=100)
     conf_s = _confidence_from_core(nf_s, nt_s)
 
-    np.random.seed(seed)
     nf_p, nt_p, _ = parallel_fleuret(
         data=factors_data,
         factors_nbins=factors_nbins,

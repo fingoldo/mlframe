@@ -42,7 +42,7 @@ category contract: no NaN propagation, no KeyError).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -429,7 +429,7 @@ def apply_cat_num_residual(
 # ---------------------------------------------------------------------------
 
 
-def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k):
+def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k, reject_sink=None):
     """Tier-1 local MI floor over an ``enc_df`` of engineered columns. Returns
     the (possibly pruned) ``enc_df`` keeping only columns that clear the raw-
     baseline noise floor (top-K by MI). No-op when ``mi_gate`` is False."""
@@ -437,7 +437,7 @@ def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k):
         return enc_df
     from ._unified_fe_gate import local_mi_gate
 
-    keep = local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k)
+    keep = local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k, reject_sink=reject_sink)
     return enc_df[keep]
 
 
@@ -448,6 +448,7 @@ def count_encode_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append ``{col}__count`` columns to X and emit one recipe per col.
 
@@ -464,7 +465,7 @@ def count_encode_with_recipes(
         return X.copy(), [], []
     enc_df, raw_recipes = count_encode_fit(X, cat_cols)
     if mi_gate and y is not None:
-        enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k)
+        enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if enc_df.empty:
             return X.copy(), [], []
         kept = set(enc_df.columns)
@@ -490,6 +491,7 @@ def frequency_encode_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append ``{col}__freq`` columns to X and emit one recipe per col.
 
@@ -504,7 +506,7 @@ def frequency_encode_with_recipes(
         return X.copy(), [], []
     enc_df, raw_recipes = frequency_encode_fit(X, cat_cols)
     if mi_gate and y is not None:
-        enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k)
+        enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if enc_df.empty:
             return X.copy(), [], []
         kept = set(enc_df.columns)
@@ -534,6 +536,7 @@ def cat_num_interaction_with_recipes(
     random_state: int = 0,
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ):
     """Append ``{num}__resid_by__{cat}`` columns for the Cartesian product
     of ``cat_cols`` x ``num_cols`` (only valid combinations: cat in X,
@@ -582,7 +585,7 @@ def cat_num_interaction_with_recipes(
             )
     new_df = pd.DataFrame(new_cols, index=X.index)
     if mi_gate and not new_df.empty:
-        new_df = _gate_enc(new_df, y, X, mi_gate, mi_gate_top_k)
+        new_df = _gate_enc(new_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if new_df.empty:
             return X.copy(), [], []
         kept = set(new_df.columns)

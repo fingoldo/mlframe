@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from itertools import combinations
+from typing import Sequence
 
 import numpy as np
 
@@ -173,7 +174,7 @@ def _fit_surrogate_and_oof(
 def surrogate_gbm_interaction_seeds(
     disc_X: np.ndarray,
     y: np.ndarray,
-    candidate_indices,
+    candidate_indices: Sequence[int],
     *,
     is_classification: bool,
     top_k_pairs: int = 12,

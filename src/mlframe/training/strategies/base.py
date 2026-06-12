@@ -184,11 +184,29 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         transformed = self.inner.transform(X[num_cols])
         if not hasattr(transformed, "columns"):
             import pandas as _pd
-            transformed = _pd.DataFrame(transformed, columns=num_cols, index=X.index)
+            # The inner transformer is expected to preserve the numeric block width (imputers configured with keep_empty_features=True, scalers, inf->NaN / float32 casts all do). If it nonetheless changed the column count -- e.g. a SimpleImputer left at its default keep_empty_features=False that dropped an all-NaN column -- recover the surviving column labels from get_feature_names_out so the reassembly maps each output column back to the right name instead of crashing the DataFrame constructor with a width mismatch.
+            _n_out = transformed.shape[1] if getattr(transformed, "ndim", 1) >= 2 else 1
+            if _n_out == len(num_cols):
+                _out_cols = num_cols
+            else:
+                _out_cols = None
+                try:
+                    _names = list(self.inner.get_feature_names_out(num_cols))
+                    if len(_names) == _n_out:
+                        _out_cols = _names
+                except (AttributeError, ValueError, NotImplementedError, TypeError):
+                    pass
+                if _out_cols is None:
+                    _out_cols = list(num_cols[:_n_out]) if _n_out <= len(num_cols) else [f"num_ext_{i}" for i in range(_n_out)]
+            transformed = _pd.DataFrame(transformed, columns=_out_cols, index=X.index)
         # Reassemble in the ORIGINAL column order so the cat columns keep their positions + names (the estimator reorders cats leading by name,
-        # but downstream feature-name continuity + the input-width contract still expect a stable layout here).
+        # but downstream feature-name continuity + the input-width contract still expect a stable layout here). Only map back columns the inner
+        # actually produced; a column the inner dropped stays at its pre-transform value (the keep_empty_features fix above makes this the rare path).
         out = X.copy()
+        _present = set(transformed.columns) if hasattr(transformed, "columns") else set(num_cols)
         for c in num_cols:
+            if c not in _present:
+                continue
             out[c] = transformed[c].to_numpy() if hasattr(transformed[c], "to_numpy") else transformed[c]
         return out
 
@@ -561,7 +579,17 @@ class ModelPipelineStrategy(ABC):
                 or hasattr(base_pipeline, 'get_support')  # RFECV and similar
             )
 
-        # Feature selectors go FIRST (before preprocessing)
+        # Whether the cat encoder must run BEFORE the feature selector: a selector whose internal estimator is numeric
+        # (RFECV with a linear estimator, MRMR's numeric MI path) crashes with "could not convert string to float: 'C'"
+        # on raw string cats. When the strategy itself requires encoding, place the encoder ahead of the selector so the
+        # selector operates on encoded numeric features. Strategies with native cat handling (requires_encoding=False)
+        # keep the selector-first order so their estimator sees the raw cats.
+        _encode_before_selector = bool(self.requires_encoding and cat_features and category_encoder is not None)
+
+        if _encode_before_selector:
+            steps.append(("ce", category_encoder))
+
+        # Feature selectors go FIRST (before preprocessing, but AFTER cat-encoding when the strategy requires it).
         if base_pipeline is not None and is_feature_selector:
             steps.append(("pre", base_pipeline))
 
@@ -569,7 +597,7 @@ class ModelPipelineStrategy(ABC):
         # numeric step and the model see a pure-numeric frame. No-op unless the strategy overrides the hook.
         steps.extend(self._extra_pre_encoding_steps(embedding_features, text_features))
 
-        # Add category encoding if required and categorical features exist.
+        # Add category encoding if required and categorical features exist (unless already placed before the selector).
         # Observability guard (2026-04-19 round-9 probe): if the strategy
         # declares ``requires_encoding=True`` AND there are cat_features
         # in the data BUT the caller passed ``category_encoder=None``,
@@ -579,7 +607,7 @@ class ModelPipelineStrategy(ABC):
         # so operators see the missing dependency at the source. We don't
         # raise because some tests/callers legitimately pre-encode cats
         # upstream and pass encoder=None; the WARN is enough signal.
-        if self.requires_encoding and cat_features:
+        if self.requires_encoding and cat_features and not _encode_before_selector:
             if category_encoder is not None:
                 steps.append(("ce", category_encoder))
             else:

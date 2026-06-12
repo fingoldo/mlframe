@@ -62,7 +62,7 @@ def _recovered(sel, roles):
 
 def _patch_refine_for_substage_timing():
     """Wrap within_cluster_refine so each call records sub-stage timings to a shared dict."""
-    from mlframe.feature_selection import _shap_proxy_revalidate as R
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_revalidate as R
 
     timings: dict = {"stage1_total": 0.0, "stage2a_total": 0.0, "stage2b_total": 0.0,
                      "stage2b_rounds": 0, "stage2b_trials": 0,

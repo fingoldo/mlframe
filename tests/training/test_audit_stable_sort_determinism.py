@@ -77,10 +77,11 @@ def _read(rel: str) -> str:
             _sib_path = _core / _sib_name
             if _sib_path.exists():
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
-    elif rel == "feature_selection/filters/mrmr.py":
-        # 2026-05-21 split: helpers moved to _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py.
+    elif rel == "feature_selection/filters/mrmr/_mrmr_class.py":
+        # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
+        # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step.py", "_mrmr_validate_transform.py"):
+        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
@@ -89,17 +90,17 @@ def _read(rel: str) -> str:
         sibling = MLFRAME_ROOT / "feature_selection" / "filters" / "_screen_predictors.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "feature_selection/wrappers/_rfecv.py":
-        # 2026-05-21 split: RFECV.fit + ._fit_stability_selection +
-        # .select_optimal_nfeatures_ moved to sibling files.
-        _dir = MLFRAME_ROOT / "feature_selection" / "wrappers"
+    elif rel == "feature_selection/wrappers/rfecv/__init__.py":
+        # RFECV.fit + ._fit_stability_selection + .select_optimal_nfeatures_
+        # live in sibling submodules of the rfecv/ subpackage.
+        _dir = MLFRAME_ROOT / "feature_selection" / "wrappers" / "rfecv"
         for nm in (
-            "_rfecv_fit.py",
-            "_rfecv_stability_select.py",
-            "_rfecv_diagnostics.py",
-            "_rfecv_fit_fold.py",
-            "_rfecv_fit_outer_loop.py",
-            "_rfecv_finalize.py",
+            "_fit.py",
+            "_stability_select.py",
+            "_diagnostics.py",
+            "_fit_fold.py",
+            "_fit_outer_loop.py",
+            "_finalize.py",
         ):
             sibling = _dir / nm
             if sibling.exists():
@@ -113,14 +114,14 @@ def _read(rel: str) -> str:
 
 
 def test_rfecv_sffs_swap_uses_secondary_name_key() -> None:
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     assert "key=lambda f: (fi_mean.get(f, 0.0), str(f))" in src
     assert "key=lambda f: (-fi_mean.get(f, 0.0), str(f))" in src
 
 
 def test_rfecv_stability_topk_uses_lexsort() -> None:
     import re
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     # Indent-tolerant: the body was dedented by 4 spaces during the rfecv
     # monolith split (class-method extraction). Match the lexsort + tiebreak
     # tuple shape rather than the literal whitespace.
@@ -132,7 +133,7 @@ def test_rfecv_stability_topk_uses_lexsort() -> None:
 
 
 def test_rfecv_per_fold_top_uses_secondary_key() -> None:
-    src = _read("feature_selection/wrappers/_rfecv.py")
+    src = _read("feature_selection/wrappers/rfecv/__init__.py")
     assert "key=lambda k: (-fi[k], str(k))" in src
 
 
@@ -227,7 +228,7 @@ def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
 
 
 def test_mrmr_empty_fallback_uses_secondary_index() -> None:
-    src = _read("feature_selection/filters/mrmr.py")
+    src = _read("feature_selection/filters/mrmr/_mrmr_class.py")
     assert "_raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))" in src
 
 

@@ -458,7 +458,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     #     n_trials cap once the accepted set is unchanged for
     #     early_stop_patience trials AND no still-tentative feature is within
     #     early_stop_margin of a binomial decision threshold. This exercises a
-    #     distinct loop-termination branch in _boruta_shap_fit_explain that the
+    #     distinct loop-termination branch in boruta_shap/_fit_explain that the
     #     fixed-cap default never reaches.
     #   * early_stop_patience (default 20): consecutive-unchanged trial count
     #     before the margin gate is evaluated. Only meaningful when

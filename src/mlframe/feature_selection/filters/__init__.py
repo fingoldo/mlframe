@@ -127,6 +127,12 @@ if "MAX_CONFIRMATION_CAND_NBINS" in globals():
 
 
 def __getattr__(name):
+    if name == "_hashable_params_signature":
+        # Lazy public re-export. ``_mrmr_fingerprints`` top-level imports ``wrappers`` (RFECV),
+        # so a module-level import here would close a package-init cycle; resolving it on first
+        # access keeps the public path available to out-of-package callers without the cycle.
+        from ._mrmr_fingerprints import _hashable_params_signature as _fn
+        return _fn
     if name == "MAX_CONFIRMATION_CAND_NBINS":
         import warnings as _w
         from ._internals import MAX_CONFIRMATION_CAND_NBINS as _legacy_const  # noqa: N811 -- deprecation-trap alias, name intentionally non-constant-looking

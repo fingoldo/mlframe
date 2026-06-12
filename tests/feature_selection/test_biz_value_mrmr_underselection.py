@@ -23,7 +23,7 @@ import os
 import numpy as np
 import pytest
 
-_L101_PATH = os.path.join(os.path.dirname(__file__), "test_biz_value_mrmr_layer101.py")
+_L101_PATH = os.path.join(os.path.dirname(__file__), "test_biz_value_mrmr_regression_union", "test_layer101.py")
 _spec = importlib.util.spec_from_file_location("_l101_underselect_helpers", _L101_PATH)
 _l101 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_l101)

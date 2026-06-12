@@ -76,6 +76,7 @@ def _eval_orth_basis_column(
     degree: int,
     *,
     pre_transform: str = "raw",
+    preprocess_params: Optional[dict] = None,
 ) -> np.ndarray:
     """Preprocess x to the basis domain (z-score for hermite, min-max for
     legendre/chebyshev, shift for laguerre), then evaluate the single basis
@@ -90,6 +91,16 @@ def _eval_orth_basis_column(
     mapping, etc.). ``pre_transform='raw'`` (default) keeps Layer 21/57
     byte-identical -- existing recipes deserialized without the field
     behave unchanged.
+
+    BUG2 FIX (2026-06-12): ``preprocess_params`` carries the FROZEN fit-time
+    basis-preprocess statistics (z-score mean/std, min-max lo/hi, or shift lo,
+    plus any robust clip). When present the basis axis is rebuilt with the
+    basis ``apply`` function from these frozen params instead of REFITTING the
+    axis from ``x`` -- so a row-slice transform replays BYTE-EXACTLY against the
+    full-frame transform (a refit-from-slice recomputed mean/std drifting the
+    z-score by ~1e-3, which after the downstream quantisation produced a
+    |delta|=1 bin drift on a nested ``a__He2`` sub-operand). ``None`` (legacy /
+    pre-fix pickles) falls back to the refit path, byte-identical to before.
     """
     from ..hermite_fe import _POLY_BASES, polyeval_dispatch
     basis_info = _POLY_BASES[basis]
@@ -115,7 +126,13 @@ def _eval_orth_basis_column(
     if not finite_mask2.all():
         fill2 = float(np.nanmean(x[finite_mask2])) if finite_mask2.any() else 0.0
         x = np.where(finite_mask2, x, fill2)
-    z, _params = fit_fn(x)
+    if preprocess_params is not None:
+        # BUG2 FIX: replay the basis axis from the FROZEN fit-time params (no
+        # data-dependent refit -> byte-exact on any row-slice).
+        apply_fn = basis_info["apply"]
+        z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
+    else:
+        z, _params = fit_fn(x)
     z = np.ascontiguousarray(z, dtype=np.float64)
     coef = np.zeros(int(degree) + 1, dtype=np.float64)
     coef[int(degree)] = 1.0
@@ -147,9 +164,13 @@ def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # produced by Layer 21/57 byte-identical -- existing pickles missing the
     # ``pre_transform`` key replay unchanged.
     pre_transform = str(recipe.extra.get("pre_transform", "raw"))
+    # BUG2 FIX (2026-06-12): frozen fit-time basis-preprocess params (if the
+    # recipe was built with them) make replay byte-exact on any row-slice.
+    preprocess_params = recipe.extra.get("preprocess_params")
     vals = _extract_column(X, src_name)
     return _eval_orth_basis_column(
         vals, basis, degree, pre_transform=pre_transform,
+        preprocess_params=preprocess_params,
     )
 
 
@@ -175,11 +196,28 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     basis_j = str(recipe.extra["basis_j"])
     deg_a = int(recipe.extra["deg_a"])
     deg_b = int(recipe.extra["deg_b"])
+    # BUG2 FIX (2026-06-12): frozen per-operand fit-time preprocess params.
+    pp_i = recipe.extra.get("preprocess_params_i")
+    pp_j = recipe.extra.get("preprocess_params_j")
     vals_i = _extract_column(X, name_i)
     vals_j = _extract_column(X, name_j)
-    h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a)
-    h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b)
+    h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
+    h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
     return h_a * h_b
+
+
+def _freeze_preprocess_params(params: Optional[dict]) -> Optional[dict]:
+    """Coerce fit-time basis-preprocess params to a JSON-light, pickle-stable
+    dict of plain floats so the frozen recipe compares equal byte-for-byte and
+    survives pickle round-trips. ``None`` -> ``None`` (legacy refit path)."""
+    if not params:
+        return None
+    out: dict = {}
+    for k, v in params.items():
+        if v is None:
+            continue
+        out[str(k)] = float(v)
+    return out or None
 
 
 def build_orth_univariate_recipe(
@@ -189,6 +227,7 @@ def build_orth_univariate_recipe(
     basis: str,
     degree: int,
     pre_transform: str = "raw",
+    preprocess_params: Optional[dict] = None,
 ) -> EngineeredRecipe:
     """Frozen recipe for one orthogonal-polynomial univariate column
     ``basis_n(preprocess(pre_transform(X[src_name])))``. Replay is closed-form
@@ -205,6 +244,12 @@ def build_orth_univariate_recipe(
     # ``__eq__`` walks ``extra`` content).
     if pre_transform and pre_transform != "raw":
         extra["pre_transform"] = str(pre_transform)
+    # BUG2 FIX (2026-06-12): freeze the fit-time basis-preprocess params into the
+    # recipe so transform() replays the axis byte-exactly (no slice-vs-full mean/std
+    # refit drift). Omitted when None so legacy recipes stay byte-equal.
+    _pp = _freeze_preprocess_params(preprocess_params)
+    if _pp is not None:
+        extra["preprocess_params"] = _pp
     return EngineeredRecipe(
         name=name,
         kind="orth_univariate",
@@ -216,21 +261,31 @@ def build_orth_univariate_recipe(
 def build_orth_pair_cross_recipe(
     *, name: str, src_a_name: str, src_b_name: str,
     basis_i: str, basis_j: str, deg_a: int, deg_b: int,
+    preprocess_params_i: Optional[dict] = None,
+    preprocess_params_j: Optional[dict] = None,
 ) -> EngineeredRecipe:
     """Frozen recipe for one cross-basis pair column
     ``basis_i^{deg_a}(preprocess(X[a])) * basis_j^{deg_b}(preprocess(X[b]))``.
     """
     from . import EngineeredRecipe
+    extra = {
+        "basis_i": str(basis_i),
+        "basis_j": str(basis_j),
+        "deg_a": int(deg_a),
+        "deg_b": int(deg_b),
+    }
+    # BUG2 FIX (2026-06-12): freeze each operand's fit-time preprocess params.
+    _ppi = _freeze_preprocess_params(preprocess_params_i)
+    _ppj = _freeze_preprocess_params(preprocess_params_j)
+    if _ppi is not None:
+        extra["preprocess_params_i"] = _ppi
+    if _ppj is not None:
+        extra["preprocess_params_j"] = _ppj
     return EngineeredRecipe(
         name=name,
         kind="orth_pair_cross",
         src_names=(src_a_name, src_b_name),
-        extra={
-            "basis_i": str(basis_i),
-            "basis_j": str(basis_j),
-            "deg_a": int(deg_a),
-            "deg_b": int(deg_b),
-        },
+        extra=extra,
     )
 
 

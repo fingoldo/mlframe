@@ -44,6 +44,11 @@ class MRMRTreeRescued(MRMR):
       tree_rescue_n_estimators / tree_rescue_max_depth : the shallow GBM (default 80 / 3 -- cheap, ~0.4s).
     """
 
+    # The rescue's own params; the rest are forwarded to MRMR (404 params -- enumerating them in the signature would
+    # be unmaintainable), so the ctor keeps **kwargs and we report the merged param set for sklearn introspection.
+    _TREE_RESCUE_PARAMS = ("tree_rescue", "tree_rescue_top_k", "tree_rescue_min_p", "tree_rescue_min_ratio",
+                           "tree_rescue_min_features", "tree_rescue_n_estimators", "tree_rescue_max_depth")
+
     def __init__(self, *args, tree_rescue="auto", tree_rescue_top_k: int = 20, tree_rescue_min_p: int = 60,
                  tree_rescue_min_ratio: float = 0.04, tree_rescue_min_features: int = 5,
                  tree_rescue_n_estimators: int = 80, tree_rescue_max_depth: int = 3, **kwargs):
@@ -55,6 +60,12 @@ class MRMRTreeRescued(MRMR):
         self.tree_rescue_min_features = int(tree_rescue_min_features)
         self.tree_rescue_n_estimators = int(tree_rescue_n_estimators)
         self.tree_rescue_max_depth = int(tree_rescue_max_depth)
+
+    @classmethod
+    def _get_param_names(cls):
+        # The varargs ctor hides params from sklearn's introspection; report MRMR's params + the rescue's own so
+        # get_params / set_params / clone round-trip (clone reconstructs via **kwargs, which the ctor accepts).
+        return sorted(set(MRMR._get_param_names()) | set(cls._TREE_RESCUE_PARAMS))
 
     # ------------------------------------------------------------------
     def _tree_rescue_should_fire(self) -> bool:

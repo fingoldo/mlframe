@@ -65,6 +65,37 @@ class _NullCtx:
         return False
 
 
+def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
+    """Construct a fast, fully-deterministic ``MRMR`` for the biz_value layer suite.
+
+    The base preset is the lightest configuration shared across the layer files:
+    no feature engineering, no DCD/cluster-aggregate, no friend-graph, no cat-FE,
+    10-bin quantization, fixed seed. ``fe=True`` / ``dcd=True`` flip those two
+    axes on; any other constructor kwarg can be overridden via ``**overrides``.
+
+    MRMR is imported lazily inside the factory so importing this conftest does not
+    eagerly pull the heavy numba+sklearn MRMR subgraph (the import-cost avoidance
+    relied upon by the ``_clear_mrmr_fit_cache_between_tests`` fast-path above)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    kwargs = dict(
+        verbose=0,
+        interactions_max_order=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        quantization_nbins=10,
+        random_seed=0,
+    )
+    if fe:
+        kwargs["fe_max_steps"] = 1
+    if dcd:
+        kwargs["dcd_enable"] = True
+    kwargs.update(overrides)
+    return MRMR(**kwargs)
+
+
 # Re-export the canonical fast-mode flag and helper from the root conftest. Subdir tests historically imported ``IS_FAST_MODE`` from this conftest; preserve that name
 # but make the import-time snapshot a thin re-export of the live root value. ``is_fast_mode()`` is the authoritative live check used inside the collection hook below;
 # the constant captures the value at import time for callers that only need a parametrize-decorator-time snapshot.
@@ -397,16 +428,3 @@ def feature_engineering_example_data():
     })
 
     return df, y, ['a', 'b', 'c', 'd']
-
-
-@pytest.fixture
-def known_mi_data():
-    """Data with known mutual information for testing MI computation."""
-    rng = np.random.default_rng(42)
-    n = 1000
-
-    # Create perfectly predictable relationship
-    x = rng.integers(0, 5, n)
-    y = x.copy()  # MI(X,Y) = H(X) for identical variables
-
-    return x, y

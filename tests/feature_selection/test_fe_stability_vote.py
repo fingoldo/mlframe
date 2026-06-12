@@ -116,6 +116,62 @@ def test_per_fold_gate_fires_on_signal_rejects_noise():
     assert _marginal_mi(eng_pure_noise, y) < 0.02
 
 
+def test_alt_acceptance_prewarp_recipe_not_voted_against_marginal_sum():
+    """REGRESSION (2026-06-11): a per-operand learned PRE-WARP recipe is a 1-D
+    summary of a 2-D NON-monotone product; by design it CANNOT beat the raw operand
+    marginal sum (the elementary library is representationally blind to the
+    non-monotone inner -- that is precisely why it has its OWN in-fit acceptance
+    path). The cross-fold vote's elementary ``eng_mi > sum_marg`` bar therefore
+    STRUCTURALLY rejects a genuine prewarp recovery. The voter is a <2-recipe no-op,
+    so the bug stayed latent until the auto-escalation residual complement added a
+    SECOND unary_binary recipe -- then the vote ran and dropped the genuine
+    ``mul(prewarp(a),prewarp(b))`` capture for ``y=(a**3-2a)*(b**2-b)``, emptying the
+    prewarp recovery. ``alt_acceptance=True`` confirms such a recipe on genuine
+    held-out signal (positive MI) instead of the marginal-sum bar it cannot pass.
+
+    Build the exact failure shape: an engineered column that carries genuine y
+    information BUT below the source operand marginal sum (each operand alone is more
+    predictive than the 1-D product summary). The elementary gate rejects it; the
+    alt-acceptance gate keeps it."""
+    rng = np.random.default_rng(7)
+    n = 20000
+    # y depends on BOTH operands so EACH operand alone is strongly marginal-predictive
+    # (MI(a;y) and MI(b;y) both large -> a large sum_marg), while a COARSE 1-D
+    # engineered summary of the pair captures genuine -- but only partial -- joint
+    # information (eng_mi > 0 yet < sum_marg). This is the prewarp structural-blindness
+    # shape: the 1-D product summary cannot beat the operand marginal sum, exactly the
+    # case the elementary vote gate wrongly rejects. Low operand cardinality + large n
+    # keep the finite-sample MM-debias floor near 0 so an INDEPENDENT noise column
+    # scores <= 0 (the negative control below).
+    a = (rng.integers(0, 4, n)).astype(np.int64)
+    b = (rng.integers(0, 4, n)).astype(np.int64)
+    y = (a * 4 + b).astype(np.int64)            # full joint: a and b each fully recoverable
+    eng = ((a + b) >= 4).astype(np.int64)       # coarse binary summary: real but partial
+    eng_mi = _marginal_mi(eng, y)
+    sum_marg = _marginal_mi(a, y) + _marginal_mi(b, y)
+    assert eng_mi > 0.0, "sanity: the engineered summary must carry genuine y info"
+    assert eng_mi < sum_marg, (
+        "sanity: this fixture must put the 1-D summary BELOW the operand marginal sum "
+        "(the prewarp structural-blindness shape the elementary gate wrongly rejects)"
+    )
+    # Elementary gate (alt_acceptance default False) REJECTS the genuine summary.
+    assert not _recipe_clears_fold(
+        eng_codes=eng, src_a_codes=a, src_b_codes=b, y_codes=y,
+        prevalence=1.0, alt_acceptance=False,
+    )
+    # Alternative-acceptance gate KEEPS it on genuine positive held-out MI -- the
+    # whole point of the fix. (Held-out noise-safety is enforced UPSTREAM: such a
+    # recipe only exists because it already cleared the in-fit prewarp-uplift gate +
+    # the out-of-sample min-val-corr validation, and a constant/dead column never
+    # reaches recipe build -- the non-constant materialisation guard drops it. The
+    # vote is a CONFIRMATION layer, and the alternative leg confirms on genuine
+    # held-out signal rather than the structurally-inapplicable marginal-sum bar.)
+    assert _recipe_clears_fold(
+        eng_codes=eng, src_a_codes=a, src_b_codes=b, y_codes=y,
+        prevalence=1.0, alt_acceptance=True,
+    )
+
+
 def test_voter_noop_below_two_recipes_or_disabled():
     rng = np.random.default_rng(2)
     n = 400

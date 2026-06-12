@@ -137,7 +137,7 @@ def test_fs_low_rfecv_timeseries_autodetect_polars(caplog):
     import logging
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import TimeSeriesSplit
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     n = 60
     rng = np.random.default_rng(0)
@@ -149,7 +149,7 @@ def test_fs_low_rfecv_timeseries_autodetect_polars(caplog):
     y = (rng.normal(size=n) > 0).astype(np.int64)
     ts = np.arange(n, dtype=np.int64)  # strictly monotonic timestamps
 
-    caplog.set_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv")
+    caplog.set_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv")
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1)
     rfecv.fit(X, y, timestamps=ts)
     _cv = getattr(rfecv, "cv_", None) or getattr(rfecv, "cv", None)

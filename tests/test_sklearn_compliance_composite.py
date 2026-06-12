@@ -341,7 +341,7 @@ class TestRFECVCompliance:
     """
 
     def _make(self):
-        from mlframe.feature_selection.wrappers._rfecv import RFECV
+        from mlframe.feature_selection.wrappers.rfecv import RFECV
         # Quiet defaults to avoid swamping the test log; small budgets so the
         # CV-fold work stays under the per-test budget.
         return RFECV(

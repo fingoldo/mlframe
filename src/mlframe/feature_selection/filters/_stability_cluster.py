@@ -75,13 +75,29 @@ def cluster_stability_selection(
     Returns:
         selected_indices, per_feature_freq, info_dict
     """
-    X = np.asarray(X, dtype=np.float64)
+    _is_df = hasattr(X, "iloc")
     n, p = X.shape
     rng = np.random.default_rng(int(rng_seed))
-    # ---- step 1: cluster by |Pearson| >= corr_threshold ----
+    # Numeric view for the |Pearson| clustering. A raw categorical/string column (reaching here under skip_categorical_encoding) cannot enter a
+    # correlation graph, so coerce per-column and flag the non-numeric ones -- they stay SINGLETON clusters (never merged) yet remain selectable via
+    # the bootstrap selector below, which is handed dtype-preserved rows so a classic sub-MRMR factorises them itself. Pre-fix a blanket
+    # ``np.asarray(X, dtype=float64)`` raised "could not convert string to float" on such a column and the caller fell back to classic, disabling
+    # cluster stability entirely on any data carrying a raw categorical.
+    _num_ok = np.ones(p, dtype=bool)
+    if not _is_df and np.issubdtype(np.asarray(X).dtype, np.number):
+        Xn = np.asarray(X, dtype=np.float64)
+    else:
+        Xn = np.zeros((n, p), dtype=np.float64)
+        for _c in range(p):
+            _cv = X.iloc[:, _c].to_numpy() if _is_df else np.asarray(X)[:, _c]
+            try:
+                Xn[:, _c] = np.asarray(_cv, dtype=np.float64)
+            except (TypeError, ValueError):
+                _num_ok[_c] = False
+    # ---- step 1: cluster by |Pearson| >= corr_threshold (numeric columns only; non-numeric stay singletons) ----
     if p > 1:
         # Z-standardise then correlation = (1/n) * Z.T @ Z.
-        Z = (X - X.mean(axis=0)) / (X.std(axis=0) + 1e-12)
+        Z = (Xn - Xn.mean(axis=0)) / (Xn.std(axis=0) + 1e-12)
         C = np.abs(Z.T @ Z / n)
     else:
         C = np.ones((1, 1))
@@ -95,7 +111,7 @@ def cluster_stability_selection(
         return i
     for i in range(p):
         for j in range(i + 1, p):
-            if C[i, j] >= float(corr_threshold):
+            if _num_ok[i] and _num_ok[j] and C[i, j] >= float(corr_threshold):
                 ri, rj = _find(i), _find(j)
                 if ri != rj:
                     parent[ri] = rj
@@ -121,7 +137,7 @@ def cluster_stability_selection(
     for b in range(int(n_bootstrap)):
         idx = rng.permutation(n)[:half]
         try:
-            sel = selector_fn(X[idx], y[idx])
+            sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
         except Exception:
             n_failed += 1
             continue
@@ -187,7 +203,9 @@ def complementary_pairs_stability(
     is tighter than Meinshausen-Buhlmann's by leveraging the
     complementary-pair structure (no exchangeability assumption needed).
     """
-    X = np.asarray(X, dtype=np.float64)
+    # complementary_pairs uses X only to feed the bootstrap selector (no correlation/clustering step), so keep the ORIGINAL dtype -- a blanket
+    # float64 coercion crashed on a raw categorical column. The selector is handed dtype-preserved rows (a classic sub-MRMR factorises categoricals).
+    _is_df = hasattr(X, "iloc")
     n, p = X.shape
     rng = np.random.default_rng(int(rng_seed))
     half = n // 2
@@ -208,8 +226,8 @@ def complementary_pairs_stability(
         # one, but requires I ∪ I^c = all rows).
         idx_bc = idx[half:]
         try:
-            sel_b = np.asarray(selector_fn(X[idx_b], y[idx_b]), dtype=np.int64).ravel()
-            sel_bc = np.asarray(selector_fn(X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
+            sel_b = np.asarray(selector_fn(X.iloc[idx_b] if _is_df else X[idx_b], y[idx_b]), dtype=np.int64).ravel()
+            sel_bc = np.asarray(selector_fn(X.iloc[idx_bc] if _is_df else X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
         except Exception:
             n_failed += 1
             continue

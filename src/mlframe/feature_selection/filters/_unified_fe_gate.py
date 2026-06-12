@@ -45,7 +45,7 @@ rest. They never reference y at transform time (they run only at fit).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -81,8 +81,41 @@ def _coerce_y_classes(y) -> np.ndarray:
         # Continuous: 10-bin quantile discretisation.
         from ._mi_greedy_cmi_fe import _quantile_bin
         return _quantile_bin(y_arr, nbins=10)
+    # bench-attempt-rejected (2026-06-11, wave-2 W8 "extreme-imbalance / tiny-n target-binning
+    # guard"): hypothesis was that equi-frequency TARGET binning silently yields a single-class
+    # degenerate bin under rare<<1% / n<200 y, corrupting MI -> unstable rare-feature ranking, and
+    # that a merge-degenerate-bins + coarser-nbins fallback would stabilise it. FALSIFIED:
+    #   * Classification rare-1% (n=150, ~1.5 positives): y is integer -> the factorize branch above,
+    #     never _quantile_bin, so a degenerate target bin CANNOT form on the classification path.
+    #   * Regression continuous y: _quantile_bin already drops duplicate quantile edges via
+    #     np.unique(edges) (see _mi_greedy_cmi_fe._quantile_bin docstring + ``edges.size <= 2``
+    #     branch) so collapse to <nbins bins is EXPLICIT and documented, not silent; tied-value bins
+    #     produce finite, sane, stable plug-in MI (verified). Existing collapse guards already live at
+    #     _adaptive_nbins.py:534 / _discretization_edges.py:259 / info_theory/_entropy_kernels.py:67.
+    #   * The proposed cap-to-nbins / merge fix did NOT stabilise the rare-feature rank across 12
+    #     seeds at n=150/1% (mean rank 5.25->5.33, std 1.96->2.36 -- no gain, marginally worse). The
+    #     rank instability is intrinsic small-n statistics (rare signal vs noise-MI chance at ~1.5
+    #     positives), NOT a binning artefact; it is the cross-project "rare imbalance needs large-n"
+    #     fact and no target-binning trick rescues it. Distinct from (and confirms) rejected idea #18
+    #     (imbalance-MI rescore). Large-n balanced is byte-identical to the cap variant either way.
+    # Do not re-attempt a degenerate-target-bin merge / coarser-nbins guard here.
     _, y_bin = np.unique(y_arr, return_inverse=True)
     return y_bin.astype(np.int64)
+
+
+# bench-attempt-rejected (2026-06-11, backlog #2 / frontier-idea-3 "leave-candidate-out
+# noise floor"): the hypothesis was that ``median(pool) + 3.5*1.4826*MAD(pool)`` self-gates
+# a LONE strong signal (signal pooled into med/MAD lifts the floor above itself), fixable by
+# computing med/MAD leave-candidate-out or upper-trimmed. FALSIFIED by 300k-draw Monte Carlo:
+#   * median/MAD is already robust to a single outlier, so the self-gating bug fires in only
+#     ~10% of signal pools and there it is driven by WIDE NOISE spread, not signal self-pooling.
+#   * upper-trim (cap 10%) fixed 50.2% of bug cases; true per-candidate LOO only 39.6%.
+#   * BOTH catastrophically REGRESS the all-noise case: removing the top / held-out value lowers
+#     the median while barely moving MAD, so the floor drops below the remaining noise band ->
+#     all-noise leak rose classic 13575 -> trim 36741 / LOO 29619 (~2-3x more noise admitted).
+# Net: attacks the wrong term and admits noise. Keep the pooled median+MAD floor as-is. Do not
+# re-attempt LOO/trim on the noise floor; a real fix for the rare wide-noise miss would target
+# the SIGMA threshold or an absolute-MI anchor, not the pooling of the candidate.
 
 
 def raw_mi_noise_floor(
@@ -133,6 +166,7 @@ def local_mi_gate(
     nbins: int = 10,
     mad_mult: float = 3.5,
     floor: Optional[float] = None,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> list[str]:
     """Tier-1 local MI floor. Returns the subset of ``enc_df`` columns to keep.
 
@@ -162,6 +196,25 @@ def local_mi_gate(
         for j, col in enumerate(cand_cols)
         if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor
     ]
+    # W6 (class-closure): record every candidate the shared abs-MAD noise floor
+    # kills (raw_mi_noise_floor = med+k*MAD). Pure-record; the kept set is
+    # computed independently above so selection is byte-identical.
+    if reject_sink is not None:
+        for j, col in enumerate(cand_cols):
+            _mi = cand_mi[j]
+            if np.isfinite(_mi) and _mi < floor:
+                try:
+                    reject_sink(
+                        gate="marginal_uplift_floor",
+                        candidate=str(col),
+                        operands=None,
+                        operator="unified_local_mi_gate",
+                        observed=float(_mi),
+                        threshold=float(floor),
+                        reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
+                    )
+                except Exception:
+                    pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:
         scored = scored[: int(top_k)]

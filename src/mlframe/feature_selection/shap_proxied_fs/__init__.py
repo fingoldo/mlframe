@@ -36,6 +36,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _resolve_cluster_su_auto_max_features,
 )
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import ShapProxiedFitMixin
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_precomputed import restrict_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -745,7 +746,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         environments with only catboost installed still work without the user pinning the kwarg;
         an explicit user value always wins. Raises ``ValueError`` on an unknown kind so the typo
         surfaces at fit time instead of silently falling back."""
-        from mlframe.feature_selection._shap_proxy_explain import _VALID_BOOSTER_KINDS
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _VALID_BOOSTER_KINDS
 
         if self.booster_kind is not None:
             kind = str(self.booster_kind).lower()
@@ -761,7 +762,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
             import xgboost  # noqa: F401
             return "xgboost"
         except ImportError:
-            from mlframe.feature_selection._shap_proxy_catboost import catboost_available
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import catboost_available
 
             if catboost_available():
                 return "catboost"
@@ -850,7 +851,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
     def preflight(X, y, *, classification: bool = True, **kwargs):
         """Cheap "will-it-shine?" check BEFORE a full fit: returns a recommendation
         (run / caution / fallback) + dataset diagnostics + reasons. See ``_shap_proxy_preflight``."""
-        from mlframe.feature_selection._shap_proxy_preflight import preflight as _preflight
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import preflight as _preflight
 
         return _preflight(X, y, classification=classification, **kwargs)
 
@@ -903,7 +904,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         opt = self.optimizer
         if opt != "auto":
             return opt
-        from mlframe.feature_selection._shap_proxy_search import total_subsets
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import total_subsets
 
         if n_features <= self.brute_force_max_features:
             n_sub = total_subsets(n_features, self.min_features, self.max_features)
@@ -951,6 +952,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
 # Re-exported for external importers after the resolvers + fit-mixin carve.
 __all__ = [
     "ShapProxiedFS",
+    "restrict_artifacts",
     "_resolve_brute_force_max_features",
     "_resolve_brute_force_n_sub_gate",
     "_resolve_cluster_su_auto_max_features",

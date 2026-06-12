@@ -291,7 +291,7 @@ class TestTransformerContract:
         """
         X, y = make_classification(n_samples=100, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, verbose=1, random_state=0)
-        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         # At least one INFO line about the iteration progress / scoring.
         assert any(rec.levelname in ("INFO", "WARNING") for rec in caplog.records), \

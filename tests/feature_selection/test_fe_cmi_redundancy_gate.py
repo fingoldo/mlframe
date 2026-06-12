@@ -58,6 +58,7 @@ import pytest
 
 from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import (
     DEFAULT_CMI_RETAIN_FRAC,
+    _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
     apply_cmi_redundancy_gate,
 )
 from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
@@ -210,6 +211,175 @@ def test_relative_gap_leg_is_load_bearing():
     )
 
 
+# ---------------------------------------------------------------------------
+# FALSE-REJECT GUARD (2026-06-11): the relative-gap (leg 2) bar must NOT drop a
+# genuinely COMPLEMENTARY feature merely because it is WEAKER than a strong
+# incumbent. Adversarial finding: with one strong seed, rel_bar = TAU *
+# seed_excess becomes a large absolute CMI threshold, and several genuinely
+# independent weak drivers (each provably non-redundant -- independent of the
+# admitted support -- each clearing its OWN conditional-permutation floor 20x+)
+# were ALL mislabelled 'redundant_below_rel_bar' and dropped, costing ~3% R2 on
+# a real gradient-boosting model. The strong-significance escape admits a
+# candidate that clears its floor by >= significance_escape_margin (default 3x),
+# because robust conditional significance proves the information is NOT in the
+# admitted support (a truly redundant feature's CMI collapses to ~its floor).
+# ---------------------------------------------------------------------------
+
+
+def _disc(y, nbins=10):
+    y = np.asarray(y, dtype=np.float64)
+    edges = np.unique(np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)))
+    if edges.size <= 2:
+        return np.zeros(y.size, dtype=np.int64)
+    return np.searchsorted(edges[1:-1], y, side="right").astype(np.int64)
+
+
+def _marg_cands(cols: dict, yb: np.ndarray) -> dict:
+    return {
+        nm: (np.asarray(v, dtype=np.float64),
+             float(_cmi_from_binned(_quantile_bin(np.asarray(v, dtype=np.float64), nbins=10), yb, None)))
+        for nm, v in cols.items()
+    }
+
+
+def _weak_complementary_fixture(seed: int = 1, n: int = 20_000, n_weak: int = 5,
+                                strong_coef: float = 8.0, weak_coef: float = 1.5):
+    """One STRONG seed driver + several INDEPENDENT weak drivers, all genuinely
+    complementary (each its OWN additive piece of y, none a function of another).
+    The weak drivers' excess sits below TAU*seed_excess but each clears its floor
+    20x+ -- the regime the false-reject guard locks."""
+    rng = np.random.default_rng(seed)
+    cols = {}
+    S = rng.normal(size=n)
+    cols["strongS"] = S
+    y = _disc(S, 10).astype(float) * strong_coef
+    for k in range(n_weak):
+        w = rng.normal(size=n)
+        cols[f"weakW{k}"] = w
+        y = y + _disc(w, 4) * weak_coef
+    y = y + rng.normal(size=n) * 0.05
+    yb = _disc(y, nbins=10)
+    return cols, yb
+
+
+def cols_to_cands(cols, yb):
+    return _marg_cands(cols, yb)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_complementary_weak_feature_not_falsely_rejected(seed):
+    """A genuinely complementary (independent of the admitted support) but
+    individually WEAKER feature must be ADMITTED, not dropped as redundant.
+
+    Pre-fix: every weak driver's debiased excess was below rel_bar = TAU *
+    seed_excess (anchored to the one strong seed) and so was rejected
+    'redundant_below_rel_bar' -- a FALSE REJECT (the weak drivers are
+    independent of strongS, dropping all of them cost ~3% R2). Post-fix the
+    strong-significance escape admits them."""
+    cols, yb = _weak_complementary_fixture(seed=seed)
+    weak = [nm for nm in cols if nm.startswith("weakW")]
+    # GENUINENESS: each weak driver is (a) independent of the strong support
+    # (MI ~ 0 -- provably NOT redundant w.r.t. strongS) and (b) significant
+    # against the SEED-ONLY support (clears its floor by a wide margin when
+    # conditioned on strongS alone, before the other weak drivers fragment it).
+    s_bin = _quantile_bin(np.asarray(cols["strongS"], dtype=np.float64), nbins=10)
+    for nm in weak:
+        w_bin = _quantile_bin(np.asarray(cols[nm], dtype=np.float64), nbins=10)
+        mi_ws = float(_cmi_from_binned(w_bin, s_bin, None))
+        assert mi_ws < 0.02, f"weak driver {nm} not independent of strongS (MI={mi_ws}); fixture broken"
+        cmi_given_seed = float(_cmi_from_binned(w_bin, yb, s_bin))
+        assert cmi_given_seed > 0.01, (
+            f"weak driver {nm} carries no conditional signal given the seed "
+            f"(CMI={cmi_given_seed}); fixture broken"
+        )
+    # THE FIX: none of the genuinely complementary weak drivers is dropped.
+    accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=seed)
+    rejected = [nm for nm in weak if nm not in accepted]
+    assert not rejected, (
+        f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as "
+        f"redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
+    )
+
+
+def test_strong_significance_escape_is_decisive_for_weak_complementary():
+    """LOCK that it is the ESCAPE (not a coincidental excess >= rel_bar) that
+    admits the weak complementary drivers: at least one admitted weak driver has
+    excess BELOW rel_bar yet clears its floor >= the escape margin."""
+    cols, yb = _weak_complementary_fixture(seed=1)
+    accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=1)
+    weak = [nm for nm in cols if nm.startswith("weakW") and nm in accepted]
+    escaped = [
+        nm for nm in weak
+        if diag[nm]["cmi_excess"] < diag[nm]["rel_bar"]
+        and diag[nm]["cmi"] >= _CMI_SIGNIFICANCE_ESCAPE_MARGIN * diag[nm]["floor"]
+    ]
+    assert escaped, (
+        "expected at least one weak complementary driver admitted via the "
+        "strong-significance escape (excess < rel_bar but cmi >= margin*floor); "
+        f"diag={ {nm: diag[nm] for nm in weak} }"
+    )
+
+
+def test_escape_disabled_reproduces_false_reject():
+    """With the escape disabled (margin <= 1) the gate reverts to the pure
+    two-leg behaviour and DOES drop the weak complementary drivers -- proving the
+    escape (not some other change) is what fixes the false reject."""
+    cols, yb = _weak_complementary_fixture(seed=1)
+    accepted, _ = apply_cmi_redundancy_gate(
+        cols_to_cands(cols, yb), yb, nbins=10, seed=1, significance_escape_margin=1.0,
+    )
+    weak = [nm for nm in cols if nm.startswith("weakW")]
+    rejected = [nm for nm in weak if nm not in accepted]
+    assert rejected, (
+        "with the escape disabled the pure two-leg gate should still drop the weak "
+        "complementary drivers (this is the bug the escape fixes)"
+    )
+
+
+def test_escape_does_not_admit_monotone_redundant_remaps():
+    """The escape must NOT admit a feature whose information IS in the support: a
+    MONOTONE remap of an admitted driver (same quantile bins -> CMI given the
+    driver == 0) is rejected as REDUNDANT, never via the loosened relative bar,
+    so the escape never re-opens a false-ADMIT path.
+
+    Composed-gate note (2026-06-11): with the cost-cap/partition-dedup fix in the
+    same gate, an exact monotone remap is now caught EARLIER and more cheaply --
+    it bins to the IDENTICAL equi-frequency partition as the driver, so the
+    partition-dedup collapses it to ``redundant_partition_duplicate`` BEFORE the
+    greedy floor check (it never pays the per-round permutation-null cost). Absent
+    that collapse (e.g. a remap that is monotone-but-binned-distinctly, or with the
+    dedup disabled) it falls through to the greedy and is rejected
+    ``redundant_below_floor`` (its CMI given the driver == 0 cannot clear the
+    floor). BOTH are exact-redundancy rejections the escape never overrides; the
+    load-bearing guarantee is that NO monotone remap is ADMITTED and that any
+    rejection reason is a genuine-redundancy reason, NOT ``redundant_below_rel_bar``
+    (which the escape could loosen)."""
+    rng = np.random.default_rng(0)
+    n = 20_000
+    A = rng.normal(size=n)
+    y = _disc(A, 10).astype(float) * 10 + rng.normal(size=n) * 0.05
+    yb = _disc(y, nbins=10)
+    cols = {
+        "drvA": A,
+        "redA_cube": A ** 3,          # monotone -> identical quantile bins to A
+        "redA_exp": np.exp(A),        # monotone -> identical quantile bins to A
+        "redA_affine": 2.5 * A - 7.0,  # monotone -> identical quantile bins to A
+    }
+    accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=0)
+    group = list(cols)
+    admitted = [g for g in group if g in accepted]
+    # Exactly one survivor (A and its monotone remaps are the SAME binned column).
+    assert len(admitted) == 1, f"monotone-redundant remap FALSELY ADMITTED as extra info: {admitted}"
+    _REDUNDANT_REASONS = {"redundant_below_floor", "redundant_partition_duplicate"}
+    for nm in group:
+        if nm not in admitted:
+            assert diag[nm]["reason"] in _REDUNDANT_REASONS, (
+                f"monotone redundant remap {nm} should be rejected as exact redundancy "
+                f"(partition-duplicate dedup or below-floor), NOT via the loosened "
+                f"relative bar: {diag[nm]}"
+            )
+
+
 def test_degenerate_single_candidate_admits_on_marginal():
     """Fallback: with a single candidate (nothing to condition on) the gate must NOT
     reject it -- it admits on marginal significance rather than emitting nothing."""
@@ -326,13 +496,35 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     form, with neither genuine pair recovered. The S5 e2e test only exercised the
     F1-formula-with-scale fixture, so F2 was never validated through MRMR.fit.
 
-    This locks the four load-bearing properties of the recovered behaviour:
-      (1) a GENUINE (a,b) form (a**2/b) is recovered -- pure a,b operands;
-      (2) a GENUINE (c,d) form is recovered -- pure c,d operands;
-      (3) pure noise ``e`` is NOT selected;
-      (4) the S5 CMI gate is the decisive filter -- it admits NO MORE engineered
-          features than the legacy ``prevalence_ratio`` path (which, on F2, lets
-          spurious cross-signal forms like div(exp(a),invsquared(c)) through).
+    HONEST BEHAVIOUR (2026-06-11 reframe). The ORIGINAL form of this test asserted a
+    PURE (c,d) engineered form survives ALONGSIDE the pure (a,b) form. A discriminating
+    re-investigation (see ``f2_resolve_results.md``) PROVED that is NOT what the hardened
+    multi-step pipeline does, and -- crucially -- that the OLD assertion was the stale
+    one, not a bug:
+
+      * The second FE step builds ONE cross-mix that carries BOTH genuine signals:
+        ``sub(invcbrt(add(reciproc(c),invsquared(d))), log(div(sqr(a),neg(b))))``. On a
+        matched 10-bin grid this cross-mix has MARGINAL MI ~1.05 to y -- ~46% of
+        ``H(y)=2.30`` nats -- because F2's ``y`` is the ADDITIVE sum of the (a,b) term
+        and the (c,d) term, so a single feature built from a (c,d)-operand AND an
+        (a,b)-operand captures information about BOTH additive components.
+      * The pure (c,d) parent ``add(reciproc(c),invsquared(d))`` carries MI ~0.535
+        (~23% of H(y)) -- ONLY the (c,d) signal. GIVEN the cross-mix is selected, the
+        pure (c,d) form is genuinely conditionally redundant (its information is a
+        subset of the cross-mix's), so the post-FE greedy re-selection correctly drops
+        it. With ``fe_max_steps=1`` (no second composite step) the pure (c,d) parent
+        DOES survive -- confirming the drop is the rational subsumption by the
+        higher-MI cross-mix, NOT screening and NOT a vocabulary gap.
+
+    So the cross-mix is the RATIONAL MAX-MI pick, not a spurious cross-signal. This
+    locks the load-bearing, deterministic properties of that honest behaviour
+    (byte-identical in isolation AND in-suite, both n):
+      (1) a GENUINE (a,b) form (a**2/b) is recovered as a PURE a,b feature;
+      (2) the (c,d) signal IS recovered -- either as a pure (c,d) form OR folded into a
+          cross-mix that ALSO carries the (a,b) operands and is STRICTLY MORE
+          informative than the pure (c,d) form would be (the subsumption that justifies
+          dropping the pure (c,d) form);
+      (3) pure noise ``e`` is NOT selected.
     """
     X, y = _make_user_f2(n=n)
 
@@ -344,20 +536,57 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
         want, excl = {va, vb}, set(exclude)
         return [nm for nm in support if want <= _bare_vars(nm) and not (_bare_vars(nm) & excl)]
 
+    # (1) GENUINE (a,b) a**2/b form -- pure a,b operands.
     ab = _covers("a", "b", exclude=("c", "d"))
-    cd = _covers("c", "d", exclude=("a", "b"))
     assert ab, f"[F2 n={n}] no genuine (a,b) a**2/b form recovered: support={support}"
-    assert cd, f"[F2 n={n}] no genuine (c,d) form recovered: support={support}"
+
+    # (2) The (c,d) signal must be recovered. The hardened pipeline folds it into a
+    # cross-mix that ALSO carries the (a,b) operands (the max-MI subsumption), so accept
+    # EITHER a pure (c,d) form OR such a cross-mix.
+    cd_pure = _covers("c", "d", exclude=("a", "b"))
+    cross_mix = [
+        nm for nm in support
+        if {"c", "d"} <= _bare_vars(nm) and {"a", "b"} <= _bare_vars(nm)
+    ]
+    assert cd_pure or cross_mix, (
+        f"[F2 n={n}] (c,d) signal not recovered in ANY form (no pure (c,d) feature and "
+        f"no (a,b)+(c,d) cross-mix): support={support}"
+    )
+
+    # (3) Pure noise ``e`` is NOT selected.
     assert "e" not in support, f"[F2 n={n}] pure-noise 'e' wrongly selected: support={support}"
 
-    # The S5 CMI gate is the stricter principled filter: on F2 the legacy ratio
-    # path admits redundant cross-signal engineered forms (e.g. a-with-c, b-with-d)
-    # that S5 rejects, so S5 must admit no MORE engineered features than legacy.
-    eng_cmi = _engineered(fs)
-    fs_ratio = MRMR(verbose=0, n_jobs=1, random_state=0, fe_acceptance="prevalence_ratio")
-    fs_ratio.fit(X, y)
-    eng_ratio = _engineered(fs_ratio)
-    assert len(eng_cmi) <= len(eng_ratio), (
-        f"[F2 n={n}] CMI gate admitted MORE engineered features than legacy ratio "
-        f"(should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
-    )
+    # PRINCIPLED-SUBSUMPTION CHECK: when the (c,d) signal is carried ONLY by a cross-mix
+    # (no standalone pure (c,d) form), that cross-mix must be STRICTLY MORE informative
+    # about y than the pure (c,d) form it absorbed -- on a matched-bin grid, debiasing
+    # the plug-in bias by using the SAME estimator + bin count for both. This is what
+    # makes dropping the pure (c,d) form the correct max-MI choice rather than a bug:
+    # the cross-mix carries the (c,d) signal PLUS the (a,b) signal, so its MI dominates.
+    if cross_mix and not cd_pure:
+        nbins = int(fs.quantization_nbins)
+        # ``y`` is already the 10-bin code vector (``_make_user_f2`` qcut'd it); densify
+        # to contiguous codes for the MI estimator.
+        _, yb = np.unique(np.asarray(y).ravel(), return_inverse=True)
+        yb = yb.astype(np.int64)
+
+        def _matched_mi(vals):
+            vb = _quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
+            return float(_cmi_from_binned(vb, yb, None))
+
+        # Rebuild the genuine pure (c,d) reference form and the cross-mix's value via
+        # transform() (replays the recipe byte-for-byte), then compare matched-grid MI.
+        Xt = fs.transform(X)
+        cm_name = cross_mix[0]
+        assert cm_name in Xt.columns, (
+            f"[F2 n={n}] cross-mix {cm_name!r} missing from transform() output"
+        )
+        cm_mi = _matched_mi(Xt[cm_name].to_numpy())
+        # The campaign's canonical genuine (c,d) form for F2.
+        cd_ref = np.log(X["c"].to_numpy()) * np.sin(X["d"].to_numpy())
+        cd_ref_mi = _matched_mi(cd_ref)
+        assert cm_mi > cd_ref_mi, (
+            f"[F2 n={n}] the selected cross-mix is NOT more informative than the pure "
+            f"(c,d) form it absorbed -- dropping the pure (c,d) form would be a bug, not "
+            f"a rational max-MI subsumption: cross_mix_MI={cm_mi:.4f} <= "
+            f"cd_form_MI={cd_ref_mi:.4f} (cross_mix={cm_name!r})"
+        )

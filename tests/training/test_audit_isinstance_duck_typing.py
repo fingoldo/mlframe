@@ -77,8 +77,8 @@ def _read(rel: str) -> str:
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "feature_selection/boruta_shap.py":
-        # 2026-05-22 split: BorutaShap.fit + .explain moved to sibling.
-        sibling = _ROOT / "feature_selection" / "_boruta_shap_fit_explain.py"
+        # BorutaShap.fit + .explain live in the boruta_shap package submodule.
+        sibling = _ROOT / "feature_selection" / "boruta_shap" / "_fit_explain.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "training/pipeline.py":
@@ -89,10 +89,11 @@ def _read(rel: str) -> str:
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "feature_selection/filters/mrmr.py":
-        # 2026-05-21 split: helpers moved to _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py.
+    elif rel == "feature_selection/filters/mrmr/_mrmr_class.py":
+        # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
+        # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
         _dir = _ROOT / "feature_selection" / "filters"
-        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step.py", "_mrmr_validate_transform.py"):
+        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
@@ -124,7 +125,7 @@ def test_mrmr_fit_handles_polars_input_without_inplace_mutation():
     100+ GB frames) and uses non-mutating polars ops to inject the target
     column for MI computation. We pin both invariants by detecting EITHER the
     legacy pandas-coercion path OR the native-polars handling marker."""
-    src = _read("feature_selection/filters/mrmr.py")
+    src = _read("feature_selection/filters/mrmr/_mrmr_class.py")
 
     legacy_pandas_coerce = (
         "isinstance(X, _pl_for_isinstance.DataFrame)" in src

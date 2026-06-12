@@ -67,6 +67,7 @@ def _graph_fingerprint(graph):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy not available on this host")
 @pytest.mark.parametrize("n,k,seed", [(4000, 20, 7), (3000, 30, 3), (5000, 50, 5)])
 def test_cupy_stats_bit_identical_to_cpu(n, k, seed):
@@ -81,6 +82,7 @@ def test_cupy_stats_bit_identical_to_cpu(n, k, seed):
         assert gpu.edge_mi[e] == cpu.edge_mi[e], f"edge {e} MI differs"
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available on this host")
 @pytest.mark.parametrize("n,k,seed", [(4000, 20, 7), (3000, 30, 3), (5000, 50, 5)])
 def test_cuda_stats_bit_identical_to_cpu(n, k, seed):
@@ -113,6 +115,7 @@ def _redundant_hub_dataset(n=8000, seed=11):
     return data, nbins, np.array([5], dtype=np.int64), names, [0, 1, 2, 3, 4]
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not (_CUPY_AVAIL or _CUDA_AVAIL), reason="no GPU backend available")
 @pytest.mark.parametrize("backend", [b for b, ok in (("cupy", _CUPY_AVAIL), ("cuda", _CUDA_AVAIL)) if ok])
 def test_build_friend_graph_gpu_matches_cpu_build(backend):
@@ -128,6 +131,7 @@ def test_build_friend_graph_gpu_matches_cpu_build(backend):
     assert p_cpu == p_gpu
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not (_CUPY_AVAIL or _CUDA_AVAIL), reason="no GPU backend available")
 @pytest.mark.parametrize("backend", [b for b, ok in (("cupy", _CUPY_AVAIL), ("cuda", _CUDA_AVAIL)) if ok])
 def test_build_friend_graph_gpu_larger_set_matches_cpu(backend):
@@ -174,6 +178,7 @@ def test_force_unavailable_gpu_backend_returns_none():
         assert dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cuda") is None
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not (_CUPY_AVAIL or _CUDA_AVAIL), reason="no GPU backend available")
 def test_multi_target_relevance_falls_back_to_cpu():
     """The GPU relevance fast path is single-target only; a multi-column target must

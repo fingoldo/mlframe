@@ -24,23 +24,32 @@ LOC_LIMIT = 1000
 # wave; the goal is to drain this set to {} over consecutive PRs. Do NOT add
 # new entries without a documented PR-description reason.
 LOC_BUDGET_EXEMPT: set[str] = {
-    # FIXME(carve-wave-next): filters/mrmr.py at ~1.03k LOC after the
-    # in-flight feature_selection wrappers iteration grew the screening
-    # body; the validate/transform side is already carved (sibling
-    # ``_mrmr_validate_transform.py``). The remaining surface candidate is
-    # to lift the predictor-screening loop into ``_mrmr_screening_loop.py``.
-    "src/mlframe/feature_selection/filters/mrmr.py",
-    # FIXME(carve-wave-next): filters/_mrmr_fit_impl.py at ~1.1k LOC after
-    # the Wave 9.1 DCD + fallback hardening grew the post-screening section.
-    # Carve candidates: the empty-support fallback block + the FE/RFECV
-    # post-pass into ``_mrmr_fit_impl_finalise.py``.
-    "src/mlframe/feature_selection/filters/_mrmr_fit_impl.py",
-    # FIXME(carve-wave-next): filters/_mrmr_fe_step.py at ~1.03k LOC -- the
-    # per-step FE materialisation body grew past the budget. Carve candidate:
-    # lift the per-candidate scoring / quantile-discretization block into a
-    # sibling ``_mrmr_fe_step_score.py``. Pre-existing overflow, not from the
-    # engineered_recipes carve.
-    "src/mlframe/feature_selection/filters/_mrmr_fe_step.py",
+    # FIXME(carve-wave-next): filters/mrmr/_mrmr_class.py at ~3.7k LOC -- the irreducible
+    # ``MRMR`` estimator class body after the mrmr subpackage split (class moved verbatim;
+    # the package ``__init__.py`` facade re-exports it + runs the method bindings). Carve
+    # candidate if it must shrink: lift the predictor-screening loop and the FE-flag
+    # plumbing block off the class body into sibling helper functions bound the same way as
+    # ``_fit_impl`` / ``_run_fe_step`` already are; the validate/transform/fit/fe-step/
+    # partial-fit/provenance method bodies already live in sibling modules.
+    "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fit_impl/_fit_impl_core.py -- the irreducible
+    # single-function body of ``_fit_impl`` (bound onto ``MRMR``) after the _mrmr_fit_impl
+    # subpackage split. The four small free helpers (``_orth_fe_numeric_cols`` /
+    # ``_dispatch_default_scorer`` / ``_mrmr_instance_state_size_bytes`` /
+    # ``_mrmr_cache_bytes_total``) live in the sibling ``_helpers.py``; only the one giant
+    # fit-orchestration function remains over budget (mirrors ``_step_core.py`` /
+    # ``_pairs_core.py``). Carve candidate if it must shrink: lift the empty-support fallback
+    # block + the FE/RFECV post-pass into a ``_finalise.py`` helper.
+    "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_core.py at ~1.53k LOC --
+    # the irreducible single-function body of ``_run_fe_step`` after the
+    # _mrmr_fe_step subpackage split. The two small operand-pool helpers
+    # (``_non_numeric_column_indices`` / ``_synergy_bootstrap_can_supply_pool``)
+    # already live in the sibling ``_helpers.py``; only the one giant FE-step
+    # orchestration function remains over budget (mirrors ``_pairs_core.py``).
+    # Carve candidate if it must shrink: lift the per-candidate scoring /
+    # quantile-discretization materialise block into a ``_step_score.py`` helper.
+    "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py",
     # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
     # at ~1.02k LOC after the recurrent-ensemble integration + composite-
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
@@ -62,6 +71,16 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``recurrent_dataset_helpers.py`` sibling; keep the LightningModule
     # in the parent facade.
     "src/mlframe/training/neural/recurrent.py",
+    # FIXME(carve-wave-next): filters/_screen_predictors.py -- the irreducible single-function
+    # body of ``screen_predictors`` (one sequential orchestration: input validation, RNG
+    # snapshot/restore try/finally, the candidate-generate -> confirm -> select greedy loop with
+    # the inline Miller-Madow / maxT-floor / DCD-swap blocks). The two small free helpers
+    # (``_short_name`` / ``_pool_warmup_noop``) plus the confirmation math (``confirm_one_predictor``
+    # in ``_confirm_predictor.py``) and the prescreen (``_screen_predictors_prescreen.py``) already
+    # live in siblings; only the one giant orchestration function remains over budget (mirrors
+    # ``_step_core.py`` / ``_pairs_core.py``). Carve candidate if it must shrink: lift the
+    # inline DCD discover/swap block out of the select loop into a ``_screen_dcd_swap.py`` helper.
+    "src/mlframe/feature_selection/filters/_screen_predictors.py",
 }
 
 

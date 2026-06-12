@@ -27,6 +27,8 @@ from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
     dispatch_batch_pair_mi,
 )
 
+pytestmark = pytest.mark.gpu
+
 
 def _build_factor_data(n_samples: int, nbins_per_col, seed: int):
     rng = np.random.default_rng(seed)
