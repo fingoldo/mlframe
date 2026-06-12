@@ -398,40 +398,61 @@ def transform(self, X, y=None):
         else:
             base_out = X.iloc[:, support]
         return self._append_engineered(base_out, X, recipes)
+    elif hasattr(X, "schema") and hasattr(X, "columns"):
+        # Polars DataFrame. ``support`` indexes the FIT-TIME feature set positionally, but the polars frame
+        # passed at transform time may be narrower / reordered (e.g. a multi-model suite reuses one fitted MRMR
+        # across models after an upstream step narrowed the frame). Positional ``X[:, support]`` then indexes the
+        # wrong columns or raises ``IndexError`` when a fit-time index exceeds the narrower input width. Mirror the
+        # pandas-by-name branch: remap support -> fit-time names, validate them against the input, select by name.
+        _support_idx = np.asarray(support)
+        if _support_idx.dtype == bool:
+            _support_idx = np.flatnonzero(_support_idx)
+        elif not np.issubdtype(_support_idx.dtype, np.integer):
+            _support_idx = _support_idx.astype(np.intp)
+        selected_cols = [self.feature_names_in_[i] for i in _support_idx]
+        missing = [c for c in selected_cols if c not in X.columns]
+        if missing:
+            raise RuntimeError(
+                f"MRMR.transform: {len(missing)}/{len(selected_cols)} "
+                f"selected columns missing from input X ({missing[:8]}). "
+                f"The fitted support_ no longer matches the input's "
+                f"physical columns; an upstream step (constant-col "
+                f"removal / imputer drop / OD filter) is mutating the "
+                f"column set BETWEEN fit and transform. Investigate."
+            )
+        base_out = X.select(selected_cols)
     else:
-        # ``support`` indexes ndarray columns positionally, so it must be an
-        # integer (or boolean) array. An EMPTY full-mode selection (all signal
-        # folded into engineered recipes) stored via ``np.array([])`` is
-        # float64 and would raise ``IndexError: arrays used as indices must be
-        # of integer (or boolean) type`` here -- harmless for fresh fits after
-        # the int64 dtype fix in _mrmr_fit_impl, but old pickles can still carry
-        # a float empty array, so coerce defensively. Boolean masks pass through
-        # untouched (np.intp cast would corrupt them) -- only non-bool arrays
-        # are normalised to an integer index.
+        # Plain ndarray: ``support`` indexes columns positionally (the shape check above guards the width), so it
+        # must be an integer (or boolean) array. An EMPTY full-mode selection (all signal folded into engineered
+        # recipes) stored via ``np.array([])`` is float64 and would raise ``IndexError: arrays used as indices must
+        # be of integer (or boolean) type`` here -- harmless for fresh fits after the int64 dtype fix in
+        # _mrmr_fit_impl, but old pickles can still carry a float empty array, so coerce defensively. Boolean masks
+        # pass through untouched (np.intp cast would corrupt them) -- only non-bool arrays are normalised to int.
         _support_idx = np.asarray(support)
         if _support_idx.dtype != bool and not np.issubdtype(_support_idx.dtype, np.integer):
             _support_idx = _support_idx.astype(np.intp)
         base_out = X[:, _support_idx]
-        out = self._append_engineered(base_out, X, recipes)
-        # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
-        # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed
-        # dtypes: pl.Enum / pl.Categorical collapse to object; pl.Float32 turns to object-of-strings
-        # ('1.23' as text), and downstream HGB/XGB/SimpleImputer raise "could not convert string to float".
-        # Convert ourselves via polars' Arrow-preserving .to_pandas() whenever the consumer expects pandas.
+
+    out = self._append_engineered(base_out, X, recipes)
+    # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
+    # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed
+    # dtypes: pl.Enum / pl.Categorical collapse to object; pl.Float32 turns to object-of-strings
+    # ('1.23' as text), and downstream HGB/XGB/SimpleImputer raise "could not convert string to float".
+    # Convert ourselves via polars' Arrow-preserving .to_pandas() whenever the consumer expects pandas.
+    try:
+        from sklearn.utils._set_output import _get_output_config
+        _cfg = _get_output_config("transform", estimator=self)
+        _want_pandas = (_cfg.get("dense") or "default") == "pandas"
+    except Exception:
+        _want_pandas = False
+    if _want_pandas:
         try:
-            from sklearn.utils._set_output import _get_output_config
-            _cfg = _get_output_config("transform", estimator=self)
-            _want_pandas = (_cfg.get("dense") or "default") == "pandas"
-        except Exception:
-            _want_pandas = False
-        if _want_pandas:
-            try:
-                import polars as _pl
-                if isinstance(out, _pl.DataFrame):
-                    out = out.to_pandas()
-            except ImportError:
-                pass
-        return out
+            import polars as _pl
+            if isinstance(out, _pl.DataFrame):
+                out = out.to_pandas()
+        except ImportError:
+            pass
+    return out
 
 def _append_engineered(self, base_out, X, recipes):
     """Append engineered-recipe columns onto ``base_out``.
