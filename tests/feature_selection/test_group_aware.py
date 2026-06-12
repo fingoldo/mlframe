@@ -339,5 +339,46 @@ class TestDuplicateColumnNames:
         assert sel.transform(X).shape[1] == len(sel.support_)
 
 
+class TestRedundancyMatrixComputedOnce:
+    """GroupAwareMRMR.fit must build the p x p redundancy matrix ONCE, not once per clustering + once per medoid pick.
+
+    The matrix is a function of (X, corr_method) alone; rebuilding it for the medoid pass was a redundant O(p^2) SU/corr
+    pass. fit now computes it once and threads it through both via ``precomputed_corr``. This pins the single build so a
+    future refactor cannot silently reintroduce the double compute, and pins byte-identity of the threaded matrix.
+    """
+
+    def test_fit_builds_redundancy_matrix_once(self, monkeypatch):
+        import mlframe.feature_selection.filters.group_aware as _ga
+        from sklearn.feature_selection import SelectKBest, f_classif
+
+        calls = {"n": 0}
+        _orig = _ga._redundancy_matrix
+        monkeypatch.setattr(_ga, "_redundancy_matrix", lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1) or _orig(*a, **k)))
+
+        rng = np.random.default_rng(0)
+        n = 200
+        base = rng.standard_normal((n, 3))
+        X = pd.DataFrame(
+            np.column_stack([base[:, 0], base[:, 0] + 0.01 * rng.standard_normal(n), base[:, 1], base[:, 2], rng.standard_normal((n, 2))]),
+            columns=[f"c{i}" for i in range(6)],
+        )
+        y = (X["c0"] + X["c2"] > 0).astype(int)
+        _ga.GroupAwareMRMR(estimator=SelectKBest(f_classif, k=2), corr_threshold=0.8).fit(X, y)
+        assert calls["n"] == 1, f"redundancy matrix rebuilt {calls['n']}x per fit (expected 1 -- the double-compute regressed)"
+
+    def test_precomputed_corr_is_byte_identical(self):
+        from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+        rng = np.random.default_rng(2)
+        X = pd.DataFrame(rng.standard_normal((150, 5)), columns=list("abcde"))
+        corr = _redundancy_matrix(X, "spearman")
+        # threading the precomputed matrix must give the same clustering + medoids as letting each recompute.
+        c_pre = cluster_features_by_correlation(X, threshold=0.9, method="spearman", precomputed_corr=corr)
+        c_recompute = cluster_features_by_correlation(X, threshold=0.9, method="spearman")
+        assert np.array_equal(c_pre, c_recompute)
+        m_pre = _cluster_medoids(X, c_pre, method="spearman", precomputed_corr=corr)
+        m_recompute = _cluster_medoids(X, c_recompute, method="spearman")
+        assert m_pre == m_recompute
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x", "--no-cov"])
