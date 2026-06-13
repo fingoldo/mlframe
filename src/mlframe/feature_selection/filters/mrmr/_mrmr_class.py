@@ -2064,6 +2064,35 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_kfold_te_cols: tuple = (),
         fe_kfold_te_folds: int = 5,
         fe_kfold_te_smoothing: float = 10.0,
+        # Per-category target STATISTICS to emit. Each becomes a separate leak-safe ``{col}__te_{stat}`` column
+        # (``mean`` keeps the historical ``{col}__te`` name). ``std`` / ``skew`` / ``kurt`` carry the within-
+        # category spread / asymmetry / tailedness of y -- signal the mean cannot express when the category
+        # MODULATES a raw feature (heteroscedastic / varying-slope targets): measured +0.04..+0.09 OOS R^2 in
+        # those regimes. DEFAULT = full panel (2026-06-13): harmless elsewhere -- for a binary target std/skew/
+        # kurt are deterministic functions of the mean, so the MI screen drops them as redundant. Pass
+        # ``("mean",)`` to restore the lean single-stat encoder. See ``_target_encoding_fe.TE_SUPPORTED_STATS``
+        # and ``_benchmarks/bench_multistat_cell_encoding``.
+        fe_kfold_te_stats: tuple = ("mean", "std", "skew", "kurt"),
+        # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS (2026-06-13). Default OFF. When True, each
+        # eligible NaN-free numeric column is quantile-binned (UNSUPERVISED -- no y-leakage; equal-frequency
+        # cells -> uniform per-cell sample size for stable higher moments) into a group key, and the per-cell
+        # mean/std/skew/kurt of every OTHER numeric column become leak-safe ``binagg_{stat}(...)`` features. The
+        # within-cell SPREAD / SHAPE carries signal the cell mean cannot when the target is heteroscedastic /
+        # the cell modulates a feature (measured +0.9 OOS R2 on a sigma(cell) target where the cell mean is
+        # ~constant). Bin count = ``min(fe_binned_numeric_agg_nbins, moment_stability_cap)`` ties resolution to
+        # the highest requested moment (Freedman-Diaconis is bench-REJECTED: it over-bins at large n); high-order
+        # moments whose per-cell sample floor cannot be met are auto-dropped rather than coarsening everything.
+        # Edges stored per group column for leak-safe replay. See ``filters._binned_numeric_agg_fe``.
+        # DEFAULT OFF, consistent with every sibling FE master switch (kfold_te / count_encoded / grouped_agg /
+        # cat_num_residual ...): the within-cell spread/shape is a measured lift on heteroscedastic / cell-
+        # modulates-feature targets but is SITUATIONAL, and ON-by-default injects up to max_pairs*stats columns
+        # into every fit's screening -- a default-ON flip displaced raw categoricals from the selection on the
+        # kitchen-sink fixture (test_biz_value_mrmr_layer39), confirming broad selection perturbation on shared
+        # infra. Opt in with ``fe_binned_numeric_agg_enable=True`` where the target's cell-conditional spread matters.
+        fe_binned_numeric_agg_enable: bool = False,
+        fe_binned_numeric_agg_stats: tuple = ("mean", "std", "skew", "kurt"),
+        fe_binned_numeric_agg_nbins: int = 10,
+        fe_binned_numeric_agg_max_pairs: int = 64,
         # COUNT + FREQUENCY ENCODING for high-
         # cardinality categoricals, plus CATEGORICAL x NUMERIC INTERACTION
         # via OOF target-mean residual. Default OFF -- legacy behaviour

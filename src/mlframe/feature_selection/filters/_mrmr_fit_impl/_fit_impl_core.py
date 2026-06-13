@@ -2905,6 +2905,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # as Layer 23 / 26 / 32).
     self.kfold_te_features_ = []
     _kfold_te_pre_recipes: dict = {}
+    _binned_agg_pre_recipes: dict = {}
     if bool(getattr(self, "fe_kfold_te_enable", False)):
         _is_pandas_for_te = isinstance(X, pd.DataFrame)
         if not _is_pandas_for_te:
@@ -2966,6 +2967,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_te_reject_sink,
+                    # Multi-stat target encoding: beyond the per-cell mean(y), also emit std / skew / kurt of y per
+                    # category when requested. Helps when the category MODULATES a raw feature (heteroscedastic /
+                    # varying-slope): +0.04..+0.09 OOS R^2 in those regimes (bench_multistat_cell_encoding). Default
+                    # ("mean",) is byte-identical to the prior single-stat behaviour.
+                    stats=tuple(getattr(self, "fe_kfold_te_stats", ("mean",)) or ("mean",)),
                 )
                 # Guard against silent overlap with prior stages: the
                 # ``{col}__te`` suffix is dedicated to this stage so the
@@ -3000,6 +3006,41 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "without target-encoded columns.",
                     type(_te_exc).__name__, _te_exc,
                 )
+
+    # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS (2026-06-13). Appends leak-safe per-cell
+    # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
+    # pre-FE region (before categorize_dataset) so the appended columns enter screening like any numeric, and
+    # routes recipes through hybrid_orth_features_ so a selected binagg column lands in _engineered_recipes_.
+    if bool(getattr(self, "fe_binned_numeric_agg_enable", False)) and isinstance(X, pd.DataFrame):
+        try:
+            from .._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
+            _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
+            _X_before_ba = list(X.columns)
+            X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
+                X, _ba_y,
+                stats=tuple(getattr(self, "fe_binned_numeric_agg_stats", ("mean", "std", "skew", "kurt")) or ("mean",)),
+                nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
+                n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
+                random_state=int(getattr(self, "random_seed", 0) or 0),
+                max_pairs=int(getattr(self, "fe_binned_numeric_agg_max_pairs", 64)),
+            )
+            _ba_appended = [c for c in _ba_appended if c not in _X_before_ba]
+            if _ba_appended:
+                X = X_ba
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ba_appended)
+                for _r in _ba_recipes:
+                    if _r.name in _ba_appended:
+                        _binned_agg_pre_recipes[_r.name] = _r
+                if verbose:
+                    logger.info(
+                        "MRMR.fit binned_numeric_agg: appended %d engineered column(s): %s",
+                        len(_ba_appended), _ba_appended[:8],
+                    )
+        except Exception as _ba_exc:
+            logger.warning(
+                "MRMR.fit binned_numeric_agg FE raised %s: %s; continuing without binned-agg columns.",
+                type(_ba_exc).__name__, _ba_exc,
+            )
 
     # 2026-05-31 Layer 34 — COUNT + FREQUENCY ENCODING + CAT x NUM
     # INTERACTION (target-mean residual). Three independent master switches;
@@ -5229,6 +5270,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # replay. Fixpoint over all recipe dicts so multi-level chains stay intact.
             _all_pre_recipe_dicts = (
                 _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes, _kfold_te_pre_recipes,
+                _binned_agg_pre_recipes,
                 _count_enc_pre_recipes, _freq_enc_pre_recipes, _cat_num_pre_recipes,
                 _miss_ind_pre_recipes, _miss_cnt_pre_recipes, _miss_pat_pre_recipes,
                 _ratio_pre_recipes, _log_ratio_pre_recipes, _grouped_delta_pre_recipes,
@@ -5905,6 +5947,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 33: same routing pattern for K-fold target-encoded recipes.
     if _kfold_te_pre_recipes:
         engineered_recipes.update(_kfold_te_pre_recipes)
+    if _binned_agg_pre_recipes:
+        engineered_recipes.update(_binned_agg_pre_recipes)
     # Layer 34: same routing for count / frequency / cat_num residual recipes.
     if _count_enc_pre_recipes:
         engineered_recipes.update(_count_enc_pre_recipes)
@@ -5986,7 +6030,32 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if cat_fe_cfg is None:
         from ..cat_fe_state import CatFEConfig as _CatFEConfig
         cat_fe_cfg = _CatFEConfig()
-    if cat_fe_cfg.enable and len(categorical_vars) >= 2:
+    # include_numeric: collect raw numeric feature values (keyed by data-column index) so the cat-FE step can
+    # quantile-bin them into the candidate pool. Extracted from the ORIGINAL ``X`` (NaN visible) -- NOT the
+    # ffill'd ``_x_for_cat`` -- so a NaN-bearing column is correctly skipped at fit (v1 has no NaN bin in the
+    # quantile-edge replay) and fit/transform stay consistent (both read the user's raw frame).
+    _num_raw_values = None
+    if cat_fe_cfg.enable and getattr(cat_fe_cfg, "include_numeric", False):
+        from ..engineered_recipes._recipe_extract import _extract_column as _extract_col_for_num
+        _cat_idx_set = set(int(c) for c in categorical_vars)
+        _tgt_idx_set = set(int(t) for t in target_indices)
+        # RAW input columns only: pre-FE recipes (haar / ratio / grouped-agg ...) appended engineered numeric
+        # columns to data / cols / X before this step. Crossing those is unreplayable -- the engineered source
+        # is absent from the user's raw frame at transform time -> NaN column / silent feature drop. Restrict to
+        # ``feature_names_in_`` (the raw user columns, set above, excludes engineered names).
+        _raw_name_set = set(getattr(self, "feature_names_in_", None) or [])
+        _num_raw_values = {}
+        for _ci in range(len(cols)):
+            if _ci in _cat_idx_set or _ci in _tgt_idx_set:
+                continue
+            if _raw_name_set and cols[_ci] not in _raw_name_set:
+                continue
+            try:
+                _num_raw_values[_ci] = np.asarray(_extract_col_for_num(X, cols[_ci]))
+            except Exception:
+                continue
+    _cat_fe_pool_size = len(categorical_vars) + (len(_num_raw_values) if _num_raw_values else 0)
+    if cat_fe_cfg.enable and _cat_fe_pool_size >= 2:
         from ..cat_interactions import run_cat_interaction_step
         from ..info_theory import merge_vars as _merge_vars_for_cat_fe
 
@@ -6008,6 +6077,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             categorical_vars=categorical_vars,
             cfg=cat_fe_cfg,
             streaming_cache=_prev_cache,
+            numeric_raw_values=_num_raw_values,
             dtype=dtype, verbose=verbose,
         )
         self._cat_fe_state_ = cat_fe_state
