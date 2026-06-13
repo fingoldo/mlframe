@@ -15,7 +15,9 @@ specs sharing the same (n, cv_folds, seed).
 from __future__ import annotations
 
 import logging
+import re
 import time
+import warnings
 
 import numpy as np
 import pytest
@@ -233,3 +235,38 @@ def test_perf_cached_splits_faster_than_fresh():
     assert t_cache < 0.3 * t_fresh, (
         f"cache not faster: cache={t_cache*1e3:.2f}ms fresh={t_fresh*1e3:.2f}ms"
     )
+
+
+def test_silence_uses_precompiled_message_regexes_with_identical_semantics():
+    """``_silence_tiny_model_output`` installs four ignore filters using precompiled message regexes (``_FEATURE_NAMES_RE`` / ``_SKIPPING_FEATURES_RE``) rather than re-compiling per fold.
+
+    Pins both halves: (a) the four filter tuples inside the context exactly mirror what four ``warnings.filterwarnings("ignore", ...)`` calls produce (action/category/case-insensitive message), and (b) the matching warnings are suppressed inside and the prior filter state is restored on exit.
+    """
+    from sklearn.exceptions import ConvergenceWarning
+
+    # (a) shape + reuse of the module-level compiled regexes (no per-call recompile).
+    with _silence_tiny_model_output("ridge"):
+        top4 = list(warnings.filters[:4])
+    assert top4 == [
+        ("ignore", None, RuntimeWarning, None, 0),
+        ("ignore", None, ConvergenceWarning, None, 0),
+        ("ignore", S._SKIPPING_FEATURES_RE, UserWarning, None, 0),
+        ("ignore", S._FEATURE_NAMES_RE, UserWarning, None, 0),
+    ], top4
+    assert S._FEATURE_NAMES_RE.flags & re.IGNORECASE
+    assert S._SKIPPING_FEATURES_RE.flags & re.IGNORECASE
+
+    # (b) suppression inside + restoration outside (outer error-filter must bite again after exit).
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with _silence_tiny_model_output("lgb"):
+            warnings.warn("X has feature names, but X was fitted without", UserWarning)
+            warnings.warn("Skipping features without any observed values: [0]", UserWarning)
+            warnings.warn("conv", ConvergenceWarning)
+            warnings.warn("rt", RuntimeWarning)
+        raised = False
+        try:
+            warnings.warn("unrelated user warning", UserWarning)
+        except UserWarning:
+            raised = True
+        assert raised, "outer error filter must be restored after the silence context exits"

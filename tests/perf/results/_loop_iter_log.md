@@ -2270,3 +2270,44 @@ Existing contract tests (`test_silence_still_bumps_lgb_logger_for_lgb`, `test_si
 preserved. Full module green: 34 passed (test_screening_kfold_logger_perf 21 + screening_split + a5_a12_baseline) + composite biz_val 11 passed.
 
 Streak: 0/100 (iter66 RESOLVED -- streak reset). **Cumulative loop wave: 39 RESOLVED, 28 REJECT across 66 iterations.**
+
+---
+
+## iter67 -- composite-discovery `_silence_tiny_model_output` precompiled-regex warning filters -- RESOLVED +3.14x (isolated) / +0.49% (e2e CPU)
+
+Workload: `tests/perf/_iter66_profile.py` (CompositeTargetDiscovery.fit_with_stability_check, n=3000, 8 features, 5 bootstrap runs). Chosen because the
+discovery tiny-CV path is the only mlframe-own plain-Python frame moving e2e at modest n; iter66 already hoisted the lgb-logger level bump.
+
+Top-20 own-code by tottime (3 profiled fits): `_one_fold` (_screening_tiny:930, LGB-bound, skipped), `_y_train_clip_bounds` (estimator/__init__:53,
+already single-quantile-optimized iter65), `_tiny_cv_rmse_y_scale` (:757), **`_silence_tiny_model_output` (:87, 23040 calls)**, `_build_tiny_model`,
+`_mi_from_binned_pair`, transform forward/inverse frames. The transform/MI frames are sub-0.06s tottime; `_silence` is the hottest pure-Python
+non-LGB frame by call count (23040 = folds * specs * bootstrap).
+
+Hotspot: `_silence_tiny_model_output` -- tottime 0.125s / cumtime 1.575s over 3 fits, **23040 calls**, plain-Python (warnings machinery), moves e2e
+(per-CV-fold). repo=mlframe. Audit: every fold opened `warnings.catch_warnings()` then called `warnings.filterwarnings("ignore", ...)` x4; two of those
+pass `message=` regex strings that `filterwarnings` **re-compiles with `re.I` on every call** (verified via `inspect.getsource(warnings.filterwarnings)`)
+plus the per-call `_add_filter` list-scan/insert. The four filter patterns are static -> the regex compilation is pure repeated discarded work.
+
+Optimization: precompile the two message regexes once at module scope (`_FEATURE_NAMES_RE` / `_SKIPPING_FEATURES_RE`, both `re.I`) and prepend the four
+filter tuples directly to the fresh `catch_warnings`-copied `warnings.filters` list (`filters[:0] = [...]; warnings._filters_mutated()`), mirroring
+`filterwarnings`' exact tuple shape `(action, compiled_msg_or_None, category, None, 0)` and newest-first order. `catch_warnings.__enter__` has just
+copied the global filters into a fresh list, so a plain prepend reproduces the same state four `filterwarnings("ignore",...)` calls leave -- no dedup
+needed (fresh list), no behaviour change.
+
+Before/after:
+  - Isolated (warm, 50k iters, ridge family no-lgb-bump so pure warnings path): old 6.40 us -> new 2.04 us per fold = **3.14x** on the silence setup.
+  - e2e CPU (`time.process_time`, paired alternating old/new silence body, 4 fits/measure, 5 trials -- CPU-time chosen because wallclock A/B was
+    noise-buried, deltas swinging +/-10%): MEAN old 45893 ms -> new 45668 ms = **+0.49%** e2e CPU, FIXED faster in 4/5 trials. Discovery e2e is
+    LGB-fit-dominated so the warnings-path saving is a sub-1% slice; CPU-time pairing confirms the sign (wallclock too noisy on this contended box).
+
+Identity: BEHAVIOR-IDENTICAL by construction. The four installed filter tuples are byte-equal in shape to the `filterwarnings` output (verified: same
+action/category, case-insensitive message regex, same newest-first order). Suppression inside the context (feature-names / Skipping-features /
+Convergence / Runtime warnings) and restoration on exit (an outer `error` filter bites again after the context) both verified directly. Numerics
+untouched -- only warning filtering, no array path.
+
+Regression test: `test_screening_kfold_logger_perf.py::test_silence_uses_precompiled_message_regexes_with_identical_semantics` -- pins (a) the four
+filter tuples reference the module-level compiled regexes with `re.I`, and (b) suppression + restoration semantics. FAILS on pre-fix code
+(`_FEATURE_NAMES_RE`/`_SKIPPING_FEATURES_RE` absent -> AttributeError; baseline produces distinct freshly-compiled regex objects, not the module
+globals). Full module green: 22 passed.
+
+Streak: 0/100 (iter66 RESOLVED -- streak stays reset). **Cumulative loop wave: 40 RESOLVED, 28 REJECT across 67 iterations.**
