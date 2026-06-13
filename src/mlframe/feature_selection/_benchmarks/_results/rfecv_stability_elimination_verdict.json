@@ -1,0 +1,19 @@
+{
+  "label": "rfecv-stability-elimination",
+  "bench": "bench_rfecv_stability_elimination.py",
+  "setup": "RF impurity FI, cv=3, max_refits=8, 5 beds x 3 seeds, honest 30% holdout AUC, n=900",
+  "decision": "REJECTED as default (kept opt-in elimination_rule='stability'); default stays 'importance'",
+  "reason": "Not a replicated majority win: 1 win / 1 tiny loss / 13 ties of 15 (bed,seed) cells. The single decisive win (many_steady seed1: stability 0.8110 n=9 vs importance 0.7169 n=2, +0.094) is real but isolated; the one loss is noise (-0.0002). Mean delta +0.0063 driven entirely by that one cell.",
+  "subsumed_by_dispatched": false,
+  "subsumption_evidence": "stability_legacy == stability_dispatched bit-identical in every cell, AND importance_legacy == importance_dispatched here (RF impurity FI was steady fold-to-fold so dispatched's value-CV discount did not reorder). Stability adds a DIFFERENT, orthogonal signal (rank-survival frequency at the elimination cut) that dispatched does not capture; it is NOT subsumed, but the added value did not replicate across beds.",
+  "per_bed_mean_auc": {
+    "balanced_signal": {"importance": 0.8598, "stability": 0.8598},
+    "few_steady_lots_noise": {"importance": 0.8255, "stability": 0.8255},
+    "many_steady": {"importance": 0.7658, "stability": 0.7972},
+    "steady_mid_among_noise": {"importance": 0.8107, "stability": 0.8107},
+    "weak_steady": {"importance": 0.8042, "stability": 0.8042}
+  },
+  "pairwise_stability_vs_importance": {"mean_delta": 0.0063, "wins": 1, "losses": 1, "ties": 13, "n": 15},
+  "cprofile": "aggregate_stability 6.26ms->5.32ms/call (p=500x40 runs) after vectorising the per-feature dict build (was 100k Series.__getitem__ calls); remaining cost is shared DataFrame construction, ~once per outer iter, negligible vs CV refits.",
+  "biz_value": "test_biz_val_wrappers_rfecv_stability.py pins the many_steady-seed1 win: stability holdout AUC >= importance + 0.04 (measured +0.094) AND keeps more steady_* true features."
+}

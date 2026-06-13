@@ -396,6 +396,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         importance_agg: str = "dispatched",
         # k_cv: tree-family variance penalty strength in importance_agg='dispatched'; score=mean/(1+k_cv*cv).
         importance_agg_k_cv: float = 1.0,
+        # elimination_rule: how the per-iteration elimination ranking is formed from the cross-fold FI table.
+        #   'importance' (default): rank by aggregated importance (legacy / importance_agg path).
+        #   'stability'  (opt-in) : rank by mean_importance * fold_selection_frequency, where frequency is the
+        #       fraction of folds in which the feature lands in the top-N (survives the cut in that fold alone).
+        #       Protects steady-mid-rank features from one-fold-noise eviction. Operates on the raw per-fold
+        #       table independently of importance_agg (no double-count). Kept opt-in pending a replicated win.
+        elimination_rule: str = "importance",
     ):
 
         # checks
@@ -466,6 +473,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         if importance_agg not in ("legacy", "dispatched"):
             raise ValueError(
                 f"importance_agg must be 'legacy' or 'dispatched'; got {importance_agg!r}."
+            )
+
+        if elimination_rule not in ("importance", "stability"):
+            raise ValueError(
+                f"elimination_rule must be 'importance' or 'stability'; got {elimination_rule!r}."
             )
 
         if optimizer_target not in ("mean", "final_score"):

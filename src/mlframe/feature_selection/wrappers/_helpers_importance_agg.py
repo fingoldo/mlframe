@@ -200,6 +200,40 @@ def aggregate_linear(signed_importances: dict, eps: float = 1e-12) -> dict:
     return out
 
 
+def aggregate_stability(feature_importances: dict, cut_k: int, eps: float = 1e-12) -> dict:
+    """Stability-aware elimination score: mean importance * fold-selection-frequency.
+
+    For each run (CV fold) the features are ranked by that fold's importance; a feature's
+    ``fold_selection_frequency`` is the fraction of runs in which it lands in the top ``cut_k``
+    (i.e. would survive an elimination keeping ``cut_k`` features in that fold alone). The
+    elimination score is ``mean_importance * frequency``.
+
+    This protects a steadily-mid-rank feature (in the top-k of every fold) from being evicted
+    in favour of a high-mean-but-high-variance feature that spiked in one fold (top-k in 1 fold
+    of 5 -> frequency 0.2 -> score cut by 0.2). Differs from importance_agg='dispatched' tree
+    discounting, which penalises VALUE coefficient-of-variation; this penalises RANK volatility
+    around the elimination cut, a discrete "did it make the cut" signal rather than a value CV.
+
+    Single-run features get frequency 1.0 (in-or-out of the only fold's top-k decides 1.0 vs 0.0).
+    """
+    table = _table_from_runs(feature_importances)
+    if table.empty:
+        return {}
+    means = table.mean(axis=1, skipna=True).fillna(0.0)
+    k = max(1, int(cut_k))
+    n_runs = table.shape[1]
+    # Per-run survival indicator: rank each column descending, feature in top-k -> 1.
+    # rank(ascending=False) gives 1=highest; <= k means it survives the cut in that fold.
+    # NaN entries (feature absent in that run) never count as surviving.
+    ranks = table.rank(axis=0, ascending=False, method="min", na_option="bottom")
+    survived = (ranks <= k) & table.notna()
+    freq = survived.sum(axis=1) / float(max(1, n_runs))
+    scores = means * freq
+    # Vectorised dict build: per-feature Series.__getitem__ in a comprehension dominated the
+    # profile (100k getitem calls / ~0.7s at p=500x40). zip over the index + numpy values is ~5x cheaper.
+    return dict(zip(scores.index.tolist(), scores.to_numpy(dtype=float).tolist()))
+
+
 def aggregate_importances_dispatched(
     feature_importances: dict,
     family: str,
