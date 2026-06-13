@@ -98,6 +98,52 @@ if _NUMBA_AVAILABLE:
             s += width + penalty
         return s / n
 
+    @numba.njit(**_NJIT_KW)
+    def _fast_pit(P: np.ndarray, y: np.ndarray, a_arr: np.ndarray) -> np.ndarray:
+        """Whole-batch PIT: per-row sort the K predicted quantiles and linearly
+        interpolate ``y[i]`` onto the (sorted_q, sorted_a) curve. Reproduces the
+        per-row ``np.argsort`` + ``np.interp`` semantics exactly (interp uses the
+        first matching interval), clamped to the alpha endpoints outside the range."""
+        n = P.shape[0]
+        k = P.shape[1]
+        out = np.empty(n, dtype=np.float64)
+        sq = np.empty(k, dtype=np.float64)
+        sa = np.empty(k, dtype=np.float64)
+        for i in range(n):
+            for j in range(k):
+                sq[j] = P[i, j]
+                sa[j] = a_arr[j]
+            # Insertion sort by quantile value (stable, matches argsort tie order for
+            # the small K used in PIT diagrams); carry the paired alpha along.
+            for j in range(1, k):
+                vq = sq[j]
+                va = sa[j]
+                m = j - 1
+                while m >= 0 and sq[m] > vq:
+                    sq[m + 1] = sq[m]
+                    sa[m + 1] = sa[m]
+                    m -= 1
+                sq[m + 1] = vq
+                sa[m + 1] = va
+            yi = y[i]
+            if yi <= sq[0]:
+                out[i] = sa[0]
+            elif yi >= sq[k - 1]:
+                out[i] = sa[k - 1]
+            else:
+                # np.interp: locate first interval [sq[t], sq[t+1]] with yi <= sq[t+1].
+                t = 0
+                while t < k - 1 and yi > sq[t + 1]:
+                    t += 1
+                x0 = sq[t]
+                x1 = sq[t + 1]
+                if x1 == x0:
+                    out[i] = sa[t]
+                else:
+                    slope = (sa[t + 1] - sa[t]) / (x1 - x0)
+                    out[i] = slope * (yi - x0) + sa[t]
+        return out
+
 else:
     # Numpy fallbacks (slow path; identical contract).
     def _fast_pinball(y, q, alpha):
@@ -112,6 +158,8 @@ else:
         below = (y < q_lo) * (2.0 / max(alpha_miscov, 1e-12)) * (q_lo - y)
         above = (y > q_hi) * (2.0 / max(alpha_miscov, 1e-12)) * (y - q_hi)
         return float(np.mean(width + below + above))
+
+    _fast_pit = None  # type: ignore  (numpy fallback handled inline in pit_values)
 
 
 # ----------------------------------------------------------------------------
@@ -240,6 +288,9 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
             f"pit_values: shape mismatch y={y.shape}, preds={P.shape}, "
             f"alphas={a_arr.shape}"
         )
+    if _NUMBA_AVAILABLE and y.shape[0] > 0:
+        out = _fast_pit(np.ascontiguousarray(P), np.ascontiguousarray(y), a_arr)
+        return np.clip(out, 0.0, 1.0)
     out = np.empty(y.shape[0], dtype=np.float64)
     for i in range(y.shape[0]):
         row = P[i]

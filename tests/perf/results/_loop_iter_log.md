@@ -2617,3 +2617,25 @@ The speedup grows with n exactly as the quadratic-to-linear collapse predicts. (
 **Verdict: RESOLVED+225x@50k / >1000x@200k (isolated full-call, bit-identical).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 54 RESOLVED, 29 REJECT across 81 iterations.**
+
+---
+
+## iter82 (@200k) -- metrics.quantile.pit_values whole-batch njit kernel
+
+**Workload @200k + why:** PIT (probability-integral-transform) values for a quantile-regression model report, N=200000 rows x K=7 alphas. `pit_values` feeds the PIT-histogram diagnostic panel (`reporting/charts/quantile.py::_pit_hist_panel`); it is the only PIT consumer and runs over EVERY row. Fresh component (calibration/probabilistic-reporting seam), not in the avoid-list (MRMR layer37/sample_weight) nor TAPPED list.
+
+**Hotspot (isolated, leaf-loader to dodge the py3.14 cold-import segfault):** `pit_values` ran a pure-Python `for i in range(N)` loop doing a per-row `np.argsort(row)` + fancy-index gather + `np.interp` -- 200k Python iterations, each allocating 3 tiny arrays and paying interpreter + dispatch overhead. Plain-Python confirmed (not njit-misattributed): the other quantile kernels (`_fast_pinball/_fast_coverage/_fast_winkler`) are already njit; this one was the lone Python-loop outlier. tottime dominated the whole call (~0.59 s isolated @200k). e2e-fraction: ~`pit_values` IS ~99% of `_pit_hist_panel` (the 20-bin histogram of 200k is ~0.5 ms).
+
+**Optimization + audit:** added `_fast_pit` njit kernel (`fastmath=False, cache=True, nogil=True`) doing per-row insertion sort over the K (tiny) quantiles carrying the paired alpha, then a manual linear scan + `np.interp`-exact slope-first interpolation (`slope=(sa[t+1]-sa[t])/(x1-x0); out=slope*(yi-x0)+sa[t]`) with the same endpoint clamps. Whole batch in one njit call; no per-row Python, no per-row temp allocs. Numpy per-row loop kept verbatim as the `_NUMBA_AVAILABLE is False` fallback. Audit: per-ROW Python loop -> whole-batch njit (richest seam class).
+
+**Before/after:**
+- Isolated @200k (best-of-5, min): OLD 0.589 s -> NEW 0.0077 s = **~77x** (med 0.62 -> 0.0078).
+- E2e PIT panel @200k (histogram-density heights + mean): OLD ~0.59 s -> NEW ~0.008 s = **~77x**, panel output BIT-IDENTICAL.
+
+**Identity proof (BIT-IDENTICAL, `np.array_equal` exact ==):** OLD (`git show HEAD:...quantile.py`) vs NEW, `maxdiff=0.00e+00 exact=True` on ALL of distinct (N=200k), tied-quantile (all-equal rows), non-monotone (crossed quantiles), and K=3 minimal-grid inputs. The slope-first interp formula reproduces `np.interp`'s internal arithmetic exactly. PIT output is a histogram diagnostic; a 1e-16 delta could not move a decision anyway, but it is exact.
+
+**Regression test (`tests/training/test_quantile_metrics.py::TestPIT::test_pit_njit_kernel_bit_identical_to_numpy_reference`):** asserts the njit kernel output `np.array_equal` to an in-test pure-Python argsort+np.interp reference across distinct/tied/non-monotone rows. njit path confirmed active (`_NUMBA_AVAILABLE=True`, `_fast_pit is not None`); a perturbed kernel (+1e-6 on out[0]) verified to diverge from the reference (sensor catches future kernel breakage). 22 passed in test_quantile_metrics + 23 passed in bizvalue_quantile/tier2_metrics.
+
+**Verdict: RESOLVED+77x@200k (isolated AND e2e PIT panel, bit-identical).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 55 RESOLVED, 29 REJECT across 82 iterations.**

@@ -172,8 +172,47 @@ class TestPIT:
         y = np.array([0.5])
         preds = np.array([[-0.1, 0.0, -0.05]])  # q_0.5 < q_0.9 violated
         pit = pit_values(y, preds, (0.1, 0.5, 0.9))
-        # No crash; pit ∈ [0.1, 0.9]
+        # No crash; pit in [0.1, 0.9]
         assert 0.1 <= pit[0] <= 0.9
+
+    def test_pit_njit_kernel_bit_identical_to_numpy_reference(self):
+        """The whole-batch njit kernel must reproduce the explicit per-row
+        argsort + np.interp reference EXACTLY (bit-for-bit) across distinct,
+        tied, and non-monotone rows. A future kernel rewrite that changes the
+        sort tie-order or the interp slope formula trips this sensor."""
+        rng = np.random.default_rng(7)
+        alphas = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95])
+
+        def reference(y, P, a_arr):
+            out = np.empty(y.shape[0], dtype=np.float64)
+            for i in range(y.shape[0]):
+                order = np.argsort(P[i])
+                sq = P[i][order]
+                sa = a_arr[order]
+                if y[i] <= sq[0]:
+                    out[i] = float(sa[0])
+                elif y[i] >= sq[-1]:
+                    out[i] = float(sa[-1])
+                else:
+                    out[i] = float(np.interp(y[i], sq, sa))
+            return np.clip(out, 0.0, 1.0)
+
+        for tied, nonmono in ((False, False), (True, False), (False, True)):
+            base = rng.normal(size=4000)
+            P = base[:, None] + (alphas - 0.5)[None, :] * 2.0
+            if not tied:
+                P = P + rng.normal(scale=0.3, size=(4000, len(alphas)))
+            if nonmono:
+                P[:, 2], P[:, 3] = P[:, 3].copy(), P[:, 2].copy()
+            y = base + rng.normal(scale=0.5, size=4000)
+            got = pit_values(y, P, alphas)
+            ref = reference(np.asarray(y, dtype=np.float64),
+                            np.asarray(P, dtype=np.float64), alphas)
+            assert np.array_equal(got, ref), (
+                f"PIT njit kernel diverged from numpy reference "
+                f"(tied={tied}, nonmono={nonmono}); "
+                f"maxdiff={np.max(np.abs(got - ref)):.2e}"
+            )
 
 
 class TestSummary:
