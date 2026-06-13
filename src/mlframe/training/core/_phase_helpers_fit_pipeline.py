@@ -53,6 +53,19 @@ from ._phase_helpers_fit_split import FitPipelineResult  # noqa: E402
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")
 
 
+def _detect_native_cat_models(strategies) -> tuple[bool, bool]:
+    """Return ``(has_cb, all_native_cat)`` from RESOLVED strategy instances.
+
+    Keyed off strategy identity, not the model's string name, so an estimator passed as an INSTANCE (e.g. ``CatBoostClassifier()``)
+    is classified the same as its ``"cb"`` alias. A name-only check stringifies the instance to ``"catboostclassifier()"`` and
+    silently mis-classes it as non-CB / non-native, skipping the CB ordinal-encoding auto-flip footgun guard downstream.
+    Native-cat strategies (no upstream encoder needed to consume raw cats): CatBoost / LightGBM(tree) / XGBoost / HGB.
+    """
+    from ..strategies import CatBoostStrategy, TreeModelStrategy, XGBoostStrategy, HGBStrategy
+    native = (CatBoostStrategy, TreeModelStrategy, XGBoostStrategy, HGBStrategy)
+    has_cb = any(isinstance(s, CatBoostStrategy) for s in strategies)
+    all_native = bool(strategies) and all(isinstance(s, native) for s in strategies)
+    return has_cb, all_native
 
 
 def _phase_fit_pipeline(
@@ -121,8 +134,7 @@ def _phase_fit_pipeline(
     # most common polars input path. Cat columns are detected directly from the train_df schema because
     # FeatureTypesConfig doesn't carry a cat_features list (the public surface is text_features +
     # embedding_features; cat_features are auto-detected downstream).
-    _suite_models_lower = {str(m).lower() for m in (mlframe_models or [])}
-    _has_cb = bool(_suite_models_lower & {"cb", "catboost"})
+    _has_cb, _all_models_native_cat = _detect_native_cat_models(_strategies_for_polars_check)
     _ordinal = (
         getattr(pipeline_config, "categorical_encoding", None) == "ordinal"
         and not getattr(pipeline_config, "skip_categorical_encoding", False)
@@ -150,8 +162,6 @@ def _phase_fit_pipeline(
     # If a non-CB / non-native model is also in the suite (e.g. ``ridge``),
     # the ordinal encoder is required for that model to consume the cats and
     # the auto-flip would crash the non-CB legs downstream with raw strings.
-    _NATIVE_CAT_MODELS = {"cb", "catboost", "lgb", "lightgbm", "xgb", "xgboost", "hgb", "histgradientboosting"}
-    _all_models_native_cat = bool(_suite_models_lower) and _suite_models_lower.issubset(_NATIVE_CAT_MODELS)
     if _has_cb and _ordinal and _declared_cats and _all_models_native_cat:
         # Previously a WARN-only check. Surfaced by the diverse-harness
         # fuzz profile (iter#36 with cat_low + text_col + cb): the ordinal

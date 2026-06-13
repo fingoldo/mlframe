@@ -171,10 +171,15 @@ def get_training_configs(
     # tiny CB-GPU fit costs ~150ms per process and is wasted on
     # linear/ridge/lgb/xgb-only suites. ``models_in_scope`` is a hint;
     # when None we keep the conservative behaviour and probe.
-    _cb_in_scope = (
-        enabled_models is None
-        or any(str(m).lower() in ("cb", "catboost") for m in enabled_models)
-    )
+    # Resolve via strategy so a CatBoost passed as an estimator INSTANCE (stringifies to "catboostclassifier()", missed by a
+    # name-only check) still enables the CB-GPU probe; otherwise an instance-passed CB silently defaults to task_type="CPU".
+    def _is_cb(m) -> bool:
+        if isinstance(m, str):
+            return m.lower() in ("cb", "catboost")
+        from .strategies import get_strategy, CatBoostStrategy
+        return isinstance(get_strategy(m), CatBoostStrategy)
+
+    _cb_in_scope = enabled_models is None or any(_is_cb(m) for m in enabled_models)
     if has_gpu and _cb_in_scope:
         from .cb import _cb_gpu_usable as _cb_gpu_probe
         _cb_task = "GPU" if _cb_gpu_probe() else "CPU"
@@ -577,10 +582,18 @@ def get_training_configs(
     # pytorch + lightning import overhead on the first call to
     # get_training_configs in a process). Any caller that asks for
     # MLP_GENERAL_PARAMS later will get None.
-    _mlp_in_scope = (
-        enabled_models is None
-        or any(m in ("mlp", "recurrent") for m in enabled_models)
-    )
+    # The heavy MLP/pytorch config path is needed for the torch-backed MLP + recurrent estimators, but NOT for ngb (its own
+    # NGB_GENERAL_PARAMS path, no torch) even though ngb shares NeuralNetStrategy. So gate on the recurrent strategy (covers the
+    # lstm/gru/rnn/transformer aliases the old literal "recurrent" check missed) OR an explicit mlp alias / torch-MLP instance.
+    def _needs_mlp_config(m) -> bool:
+        from .strategies import get_strategy, RecurrentModelStrategy
+        if isinstance(get_strategy(m), RecurrentModelStrategy):
+            return True
+        if isinstance(m, str):
+            return m.lower() == "mlp"
+        return "PytorchLightning" in type(m).__name__ or "MLP" in type(m).__name__
+
+    _mlp_in_scope = enabled_models is None or any(_needs_mlp_config(m) for m in enabled_models)
 
     if not _mlp_in_scope:
         # Skip the heavy MLP path entirely. Downstream consumers must
