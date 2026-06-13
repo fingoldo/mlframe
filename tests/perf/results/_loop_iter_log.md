@@ -2196,3 +2196,36 @@ INDEPENDENT explicit `grouped.agg("mean"|"std")` reference across 5 adversarial-
 ddof=0 std). Full file 11/11 pass. Bench: `feature_selection/filters/_benchmarks/bench_composite_group_agg_mean_std_reuse.py`.
 
 Streak: 0/100 (iter64 RESOLVED -- streak reset). **Cumulative loop wave: 37 RESOLVED, 28 REJECT across 64 iterations.**
+
+## iter65 (2026-06-13) -- RESOLVED: `np.median` over `np.quantile(q=0.5)` for the ensemble outlier-gate cross-member anchor
+
+Workload: `profiling/profile_ensembling.py` -- `score_ensemble` warm (3 mock binary members, n=300k, 6 simple flavours x train/val/test). FRESH
+(prior iters tapped MRMR-FE / report paths / composite-discovery / RFECV / slice_finder / composite-group-agg). Why: this profiler had a ready
+harness and was never optimized in this loop.
+
+Hotspot: warm top-tottime frame was `{method 'partition' of numpy.ndarray}` (0.200s/run, 59 calls) feeding `numpy.lib._function_base_impl._quantile`
++ `_lerp`. Traced to `ensemble_probabilistic_predictions` (predict.py:135) outlier-gate anchor `np.quantile(_preds_arr, 0.5, axis=0)` over the
+(M, N, K) member tensor. Plain-numpy, e2e (runs once per `ensemble_probabilistic_predictions` with >2 members, fanned across flavours x splits in
+score_ensemble). Repo: mlframe-own.
+
+Audit: `np.quantile(q=0.5)` routes through numpy's generic `_quantile` -> `partition` + `_lerp` interpolation path; `np.median` uses numpy's
+dedicated C median reduction. Identical math for the UNWEIGHTED member-axis median -- and the site is provably unweighted (the existing comment at
+predict.py:125-134 documents that `sample_weight` is a per-row vector, meaningless on the member axis; no `weights=` was ever passed). Same fix already
+shipped for the combine_probs median FLAVOUR (iter119); the outlier-gate anchor still used the slow path.
+
+Optimization: `np.quantile(_preds_arr, 0.5, axis=0)` -> `np.median(_preds_arr, axis=0)`. Bit-identical by construction; no new alloc; one line.
+
+Before/after:
+  - Isolated (M=3, N=180k, K=2 anchor shape, warm best-of-30): quantile 19.8 ms -> median 14.0 ms = **1.42x**, 0.0 max-abs diff.
+  - e2e (separate-process A/B, predict.py old vs new from `git show HEAD:`, warm best-of-15 score_ensemble): OLD 930.8 ms -> NEW 798-865 ms =
+    **~1.08-1.16x** e2e, win survives across two NEW runs (864.9 / 798.4 ms).
+
+Identity: BIT-IDENTICAL. 0.0 max-abs diff on the full `ensemble_probabilistic_predictions` output (harm flavour, 6 members incl. an outlier so the
+>2-member gate path runs) comparing new `np.median` vs old `np.quantile(0.5)`. The anchor feeds per-member MAE/STD -> exclusion decisions, so identity
+guarantees the gate excludes exactly the same members.
+
+Regression test: `tests/test_ensembling_median_anchor_bit_identical.py::test_median_anchor_matches_quantile_q05_bit_identical` -- pins the gate output
+bit-identical between the `np.median` path and a monkeypatched `np.quantile(q=0.5)` emulation of the prior code, on a 6-member outlier-gate scenario.
+Ensembling suites green: `tests/test_ensembling.py` + `test_ensembling_quality_gate.py` + 2 inference replay/dispatch files = 75 passed.
+
+Streak: 0/100 (iter65 RESOLVED -- streak reset). **Cumulative loop wave: 38 RESOLVED, 28 REJECT across 65 iterations.**
