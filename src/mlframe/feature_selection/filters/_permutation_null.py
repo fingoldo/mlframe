@@ -36,7 +36,48 @@ from __future__ import annotations
 
 import logging
 
+import numba
 import numpy as np
+
+
+@numba.njit(cache=True)
+def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
+    """Per-shuffle MAX corrected marginal MI over the candidate pool, fused into one njit pass.
+
+    ``scaled_flat`` concatenates every candidate's ``x_code * nbins_y`` column (segment ``j`` is ``scaled_flat[offsets[j]:offsets[j+1]]``); ``y_perms[k]`` is the
+    pre-generated k-th target shuffle (numpy RNG owns the draw sequence so the floor stays bit-identical to the per-shuffle ``rng.shuffle`` path). For each shuffle the joint
+    H(x, y_perm) is the only term that changes, so ``h_x`` / ``h_y`` / ``mm_bias`` are precomputed once and threaded in. The per-cell ``-p*log(p)`` accumulates in
+    code-ascending order; the only divergence from the numpy ``-(p*log(p)).sum()`` reduction is FP reduction-order (~1e-16, far below selection scale)."""
+    nperm = y_perms.shape[0]
+    n = y_perms.shape[1]
+    ncand = offsets.shape[0] - 1
+    maxes = np.empty(nperm, dtype=np.float64)
+    max_jc = 0
+    for j in range(ncand):
+        if joint_card[j] > max_jc:
+            max_jc = joint_card[j]
+    counts = np.empty(max_jc, dtype=np.float64)
+    for k in range(nperm):
+        yp = y_perms[k]
+        best = 0.0
+        for j in range(ncand):
+            jc = joint_card[j]
+            for t in range(jc):
+                counts[t] = 0.0
+            s0 = offsets[j]
+            for i in range(n):
+                counts[scaled_flat[s0 + i] + yp[i]] += 1.0
+            h_xy = 0.0
+            for t in range(jc):
+                c = counts[t]
+                if c > 0.0:
+                    p = c * inv_n
+                    h_xy -= p * np.log(p)
+            mi = h_x[j] + h_y - h_xy - mm_bias[j]
+            if mi > best:
+                best = mi
+        maxes[k] = best
+    return maxes
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -185,20 +226,25 @@ def pooled_permutation_null_gain_floor(
     if n_cand < 2:
         return 0.0
 
+    nperm = int(n_permutations)
     rng = np.random.default_rng(random_seed)
+    # Pre-generate the K target shuffles in numpy (it owns the RNG draw sequence,
+    # matching the legacy per-shuffle ``rng.shuffle(y_perm)`` order exactly) so the
+    # fused njit MI pass below stays bit-identical to the pure-Python loop.
     y_perm = y_codes.copy()
-    maxes = np.empty(int(n_permutations), dtype=np.float64)
-    for k in range(int(n_permutations)):
-        rng.shuffle(y_perm)  # in-place uniform permutation of the target labels
-        best = 0.0
-        for j in range(n_cand):
-            jc = np.bincount(scaled_codes[j] + y_perm, minlength=joint_card[j]).astype(np.float64)
-            pj = jc[jc > 0] * inv_n
-            h_xy = -(pj * np.log(pj)).sum()
-            mi = h_x[j] + h_y - h_xy - mm_bias[j]
-            if mi > best:
-                best = mi
-        maxes[k] = best
+    y_perms = np.empty((nperm, n), dtype=np.int64)
+    for k in range(nperm):
+        rng.shuffle(y_perm)
+        y_perms[k] = y_perm
+    scaled_flat = np.concatenate(scaled_codes).astype(np.int64)
+    offsets = np.arange(n_cand + 1, dtype=np.int64) * n
+    maxes = _pooled_gain_floor_perms_njit(
+        scaled_flat, offsets,
+        np.asarray(joint_card, dtype=np.int64),
+        np.asarray(h_x, dtype=np.float64),
+        np.asarray(mm_bias, dtype=np.float64),
+        float(h_y), y_perms, float(inv_n),
+    )
 
     return float(np.quantile(maxes, float(quantile)))
 
