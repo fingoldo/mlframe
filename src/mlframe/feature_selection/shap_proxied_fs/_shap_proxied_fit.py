@@ -36,14 +36,13 @@ class ShapProxiedFitMixin:
             return brute_force_top_n(phi, base, y, min_card=self.min_features,
                                      parallel=(phi.shape[1] >= 14), **kw)
         if optimizer == "bruteforce_gpu":
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu, gpu_available
+            # Size-aware dispatcher: defaults to CPU, routes to the cupy kernel only when the KTC
+            # crossover says GPU wins, and auto-falls back to the CPU kernel on any cupy/OOM error
+            # (catch + log once). Keeps zero crash risk on hosts that segfault importing cupy.
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_subsetrank import brute_force_top_n_dispatch
 
-            if gpu_available():
-                return brute_force_top_n_gpu(phi, base, y, min_card=self.min_features, **kw)
-            logger.warning("ShapProxiedFS: use_gpu requested but no CUDA device; falling back to numba brute force.")
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
-
-            return brute_force_top_n(phi, base, y, min_card=self.min_features, parallel=True, **kw)
+            return brute_force_top_n_dispatch(phi, base, y, min_card=self.min_features,
+                                              parallel=True, prefer_gpu=True, **kw)
         from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 
         if optimizer == "beam":

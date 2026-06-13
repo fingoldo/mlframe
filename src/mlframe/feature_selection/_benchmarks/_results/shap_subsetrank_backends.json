@@ -1,0 +1,71 @@
+{
+  "gpu_available": true,
+  "host_note": "cupy import segfaults under contention; CPU is default",
+  "rows": [
+    {
+      "C": 39202,
+      "argmax_match": true,
+      "cpu_ref_s": 0.08202,
+      "cpu_s": 0.11952,
+      "f": 16,
+      "gpu_s": 0.05211,
+      "gpu_set_match": true,
+      "max_card": 8,
+      "n": 500,
+      "ref_set_match": true,
+      "speedup_gpu_vs_cpu": 2.294
+    },
+    {
+      "C": 31179,
+      "argmax_match": true,
+      "cpu_ref_s": 0.18061,
+      "cpu_s": 0.27431,
+      "f": 18,
+      "gpu_s": 0.1022,
+      "gpu_set_match": true,
+      "max_card": 6,
+      "n": 2000,
+      "ref_set_match": true,
+      "speedup_gpu_vs_cpu": 2.684
+    },
+    {
+      "C": 21699,
+      "argmax_match": true,
+      "cpu_ref_s": 0.12185,
+      "cpu_s": 0.12621,
+      "f": 20,
+      "gpu_s": 0.0666,
+      "gpu_set_match": true,
+      "max_card": 5,
+      "n": 2000,
+      "ref_set_match": true,
+      "speedup_gpu_vs_cpu": 1.895
+    },
+    {
+      "C": 9108,
+      "argmax_match": true,
+      "cpu_ref_s": 0.03217,
+      "cpu_s": 0.03731,
+      "f": 22,
+      "gpu_s": 0.02199,
+      "gpu_set_match": true,
+      "max_card": 4,
+      "n": 1000,
+      "ref_set_match": true,
+      "speedup_gpu_vs_cpu": 1.696
+    },
+    {
+      "C": 263949,
+      "argmax_match": true,
+      "cpu_ref_s": 1.54285,
+      "cpu_s": 1.36434,
+      "f": 20,
+      "gpu_s": 0.55209,
+      "gpu_set_match": true,
+      "max_card": 8,
+      "n": 2000,
+      "ref_set_match": true,
+      "speedup_gpu_vs_cpu": 2.471
+    }
+  ]
+}
