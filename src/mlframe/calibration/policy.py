@@ -31,7 +31,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_ECE_NBINS: int = 15
+# 10 bins beats 15 in 14/18 (scenario x n) cells on RMSE-vs-ground-truth and
+# has the lowest mean RMSE (0.0097 vs 0.0109); 15 over-binned -> upward bias at
+# small n. Bench: _benchmarks/bench_ece_nbins.py.
+DEFAULT_ECE_NBINS: int = 10
 DEFAULT_N_BOOTSTRAP: int = 1000
 DEFAULT_ALPHA: float = 0.05
 SMALL_SAMPLE_THRESHOLD: int = 1000
@@ -532,7 +535,7 @@ def pick_best_calibrator(
     n_bootstrap
         Resample count for the OOF ECE CI; ``DEFAULT_N_BOOTSTRAP=1000``.
     n_bins
-        ECE bin count; ``DEFAULT_ECE_NBINS=15`` mirrors the suite's standard report.
+        ECE bin count; ``DEFAULT_ECE_NBINS=10`` minimises RMSE vs ground-truth ECE.
     random_state
         Seed for the bootstrap RNG. Pin for reproducibility.
     emit_plot
