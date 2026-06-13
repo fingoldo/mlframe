@@ -8,6 +8,8 @@ Carved out of the ``boruta_shap`` package facade (LOC-budget submodule split, se
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 from numpy.random import choice
@@ -61,9 +63,40 @@ def calculate_hits(self):
 
     return padded_hits
 
+def _column_tie_fraction(values: np.ndarray) -> float:
+    """Fraction of entries that share their value with at least one other entry (the "tied mass" of a column).
+
+    0.0 == all-distinct (continuous); 1.0 == fully discrete with every value repeated. Used as the gate predicate
+    for any tie-sensitive shadow kernel: a value-PERMUTATION shadow (the shipped default) is tie-agnostic and keeps
+    the fast path at any tie fraction, but an argsort/rank-based shadow would break ties POSITIONALLY and bias the
+    shadow MI low on columns above ~0.20 tie fraction, so such a kernel must gate out (stable path) above the
+    threshold. Kept O(n) and dependency-free so it is free to call per column. See the shadow-kernel docstring."""
+    v = np.asarray(values)
+    n = v.size
+    if n <= 1:
+        return 0.0
+    _, counts = np.unique(v, return_counts=True)
+    tied = int(counts[counts > 1].sum())
+    return tied / n
+
+
+# Tie fraction above which a rank/argsort-based shadow kernel would bias shadow MI low (ties broken positionally).
+# The shipped value-permutation kernel is tie-agnostic and ignores this; it exists so any future fast argsort path
+# can gate on the SAME measured predicate. Exposed as a module constant + override env var (no hardcoded magic).
+SHADOW_TIE_GATE_FRACTION = float(os.environ.get("MLFRAME_BORUTA_SHADOW_TIE_GATE", "0.20"))
+
+
 def create_shadow_features(self):
     """
     Creates the random shadow features by shuffling the existing columns.
+
+    The shadow kernel is a value-PERMUTATION (``_rng.permutation`` per column): it reorders each column's existing
+    values, so the shadow's value-multiset is IDENTICAL to the real column's and its marginal distribution is exactly
+    preserved -- only the row alignment with y (and the other columns) is destroyed. This is tie-agnostic BY
+    CONSTRUCTION: permuting values never compares or sorts them, so a discrete / heavily-tied column is shuffled with
+    no positional bias and its shadow MI is unbiased. (Contrast: a rank/argsort-based shadow breaks ties positionally
+    and biases the shadow MI low on tied columns -- the failure class ``_column_tie_fraction`` /
+    ``SHADOW_TIE_GATE_FRACTION`` guard, should anyone replace this with such a fast path.)
 
     Returns:
         Datframe with random permutations of the original columns.
