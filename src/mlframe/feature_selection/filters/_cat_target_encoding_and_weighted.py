@@ -45,6 +45,7 @@ def _compute_target_encoding(
     n_oof_folds: int,
     smoothing: float,
     dtype,
+    seed: int = 0,
 ) -> tuple:
     """Compute target-encoded values per cell of (X[idx_tuple]). Returns (te_values, cell_means_oof_combined) -- a 1-D array of ``n_samples`` floats where each row is
     ``E[Y | merged_class]`` computed out-of-fold (to prevent leakage).
@@ -97,9 +98,16 @@ def _compute_target_encoding(
         te_values = cell_means[classes_merged.astype(np.int64)]
         return te_values, cell_means
 
-    # OOF encoding: for each fold, compute cell means from other folds
+    # OOF encoding: for each fold, compute cell means from other folds.
+    # Fold membership must be SHUFFLED, not positional: a raw ``arange % K`` ties fold id to row
+    # position, so if the input is sorted/clustered by the merged cell (common after an upstream
+    # groupby/sort) a cell's rows concentrate in one fold -> its OOF estimate collapses toward the
+    # in-fold mean -> partial target leak into ``te_values``. Mirror the leak-safe shuffle used by the
+    # sibling encoders (_target_encoding_fe / target_aware_group_bin). Seed keeps it reproducible.
     K = int(n_oof_folds)
-    fold_ids = np.arange(n_samples) % K
+    _perm = np.random.default_rng(int(seed)).permutation(n_samples)
+    fold_ids = np.empty(n_samples, dtype=np.int64)
+    fold_ids[_perm] = np.arange(n_samples) % K
     te_values = np.full(n_samples, te_global, dtype=np.float64)
     for f in range(K):
         train_mask = fold_ids != f

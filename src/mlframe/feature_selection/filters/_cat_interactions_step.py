@@ -714,6 +714,7 @@ def run_cat_interaction_step(
                 n_oof_folds=cfg.target_encoding_oof_folds,
                 smoothing=cfg.target_encoding_smoothing,
                 dtype=dtype,
+                seed=(i * 1000003 + j),  # deterministic per-interaction fold shuffle (decorrelates folds from row order)
             )
             # te_vals dtype is float64; we don't quantize -- caller's downstream model handles continuous encoded values.
             te_name = f"te({cols[i]}__{cols[j]})"
