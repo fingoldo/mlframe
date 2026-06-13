@@ -2683,3 +2683,25 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 56 RESOLVED, 2
 **Verdict: RESOLVED+1.4x@1M (sorted LTR path, the common case; bit-identical, unsorted path preserved).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 57 RESOLVED, 29 REJECT across 84 iterations.**
+
+---
+
+## iter85 (@1M) -- fairness subgroup indices factorize fast path
+
+**Workload@1M + why:** `create_fairness_subgroups_indices` (`metrics/_fairness_metrics.py`) at n=1,000,000 with a 200-bin string categorical (a realistic high-card demographic factor: region/zip/segment). Fresh component (fairness/robustness reporting seam), outside feature_selection/filters and not in the TAPPED list. This is the index-projection step that report_*_model_perf calls once per subgroup factor to split each train/val/test set into per-bin positional index arrays for per-subgroup metric computation.
+
+**Top mlframe-own by tottime (cProfile @1M, 3x, B=200 string):** `comp_method_OBJECT_ARRAY` 41.282 (1800 calls) ; `create_fairness_subgroups_indices` 0.678 ; `unique_with_mask` 0.090 ; `RangeIndex._get_indexer` 0.080. The 1800 = 200 bins x 3 splits x 3 repeats: the per-bin `bins == bin_name` ran a full object-dtype element-wise string comparison over all n rows, once per bin. Wall: ~12 s/call.
+
+**Hotspot (tottime/ncalls/cumtime + plain-Python + e2e-fraction):** the per-bin Python loop `for bin_name in unique_bins: idx = bins == bin_name; group_indices[bin_name] = np.where(idx)[0]` is O(n*B). At B=200, n=1M it does 200 full-n object comparisons per split = ~96.5% of the function's wall (41.3 / 42.8 s in cProfile). Plain pandas/numpy (no njit) -- confirmed via wall bench. e2e-fraction: this loop IS essentially the whole function on a high-card factor.
+
+**Optimization + audit:** replaced the per-bin compare loop with a single `pd.factorize(bins, sort=False)` + stable `np.argsort(codes)`; per-group positional index arrays are contiguous slices of the sorted order delimited by `searchsorted(side=left/right)`. One O(n log n) pass partitions ALL groups instead of B O(n) scans. Stable sort keeps within-group positions ascending -> bit-identical to `np.where`. NaN bin_name (code -1, absent from uniques) emits an empty array to match `bins == NaN` (matches nothing). Audit class: per-GROUP O(n) Python loop -> whole-batch single-pass factorize/argsort partition; reuse-before-write (stdlib `pd.factorize`, no new kernel).
+
+**Before/after (best-of-3, n=1M, B=200 string categorical; A/B vs real HEAD baseline loaded as sibling module):** OLD 12046.5 ms -> NEW 393.3 ms = **30.6x**. (Low-card numeric-qcut B=3 path: 66 ms baseline, dominated by `bins.loc[arr]`; the factorize path is neutral there and still bit-identical.)
+
+**Identity proof (bit-identical, exact `np.array_equal`):** string-200bins and numeric-qcut paths -- every per-bin index array `array_equal=True` OLD vs NEW (and vs a brute-force `np.where` reference) across train/test/val splits, including a NaN-bin injection case. NOTE: `**ORDER**`/`**RANDOM**` are NOT comparable run-to-run because `create_robustness_standard_bins` leaves the `npoints % cont_nbins` tail of an `np.empty` buffer uninitialized (pre-existing latent bug, untouched by this change which only modifies the categorical `.loc` path).
+
+**Regression test (`tests/metrics/test_fairness_subgroup_indices_factorize.py`):** `test_subgroup_indices_uses_factorize_not_per_bin_compare` spies `pd.factorize` and asserts >=3 calls (1 group x 3 splits); pre-fix per-bin `np.where` loop never calls factorize -> count 0 -> FAILS (verified via in-process rebind of the HEAD `create_fairness_subgroups_indices`: 0 calls). Two more tests pin bit-identity vs the brute-force `np.where` reference on string + numeric-qcut. 3 passed post-fix; `test_audit_assert_in_production.py` 17 passed. Bench committed: `metrics/_benchmarks/bench_fairness_subgroup_indices_factorize_iter85.py`.
+
+**Verdict: RESOLVED+30.6x@1M (high-card categorical fairness subgroup index projection; bit-identical on categorical paths).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 58 RESOLVED, 29 REJECT across 85 iterations.**

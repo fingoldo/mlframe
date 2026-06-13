@@ -178,9 +178,24 @@ def create_fairness_subgroups_indices(
                 else:
                     unique_bins = np.unique(bins)
 
+            # The per-bin ``np.where(bins == bin_name)[0]`` loop is O(n*B): for a high-card categorical (B bins) over object dtype it runs B full element-wise
+            # string comparisons over all n rows (B=200 over n=1M was ~12 s/call, dominated by pandas ``comp_method_OBJECT_ARRAY``). A single factorize +
+            # stable argsort partitions all groups in one O(n log n) pass; per-group positional index arrays are contiguous slices of the sorted order and stay
+            # ascending (stable sort) -- bit-identical to the per-bin ``np.where`` result.
+            bins_arr = bins.to_numpy() if isinstance(bins, pd.Series) else np.asarray(bins)
+            codes, uniques = pd.factorize(bins_arr, sort=False)
+            order = np.argsort(codes, kind="stable")
+            sorted_codes = codes[order]
+            boundaries = np.searchsorted(sorted_codes, np.arange(len(uniques)), side="left")
+            ends = np.searchsorted(sorted_codes, np.arange(len(uniques)), side="right")
+            code_of = {bin_name: i for i, bin_name in enumerate(uniques)}
             for bin_name in unique_bins:
-                idx = bins == bin_name
-                group_indices[bin_name] = np.where(idx)[0]
+                # A NaN bin_name (degenerate bin) factorizes to code -1 and is absent from ``uniques``; ``bins == NaN`` matched nothing, so emit an empty array.
+                c = code_of.get(bin_name, -1)
+                if c < 0:
+                    group_indices[bin_name] = np.empty(0, dtype=np.intp)
+                else:
+                    group_indices[bin_name] = order[boundaries[c]:ends[c]]
 
             fairness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
 
