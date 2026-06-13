@@ -53,11 +53,32 @@ try:
             counts[c] += 1.0
         return sums, counts
 
+    @numba.njit(cache=True, fastmath=False)
+    def _fused_sum_count_2col(c0: np.ndarray, c1: np.ndarray, stride0: int, err: np.ndarray, ncells: int):
+        # Arity-2 fast path (the dominant slice-finder regime: thousands of feature pairs). Fuses the mixed-radix
+        # flatten ``c0*stride0 + c1`` into the same row pass as the per-cell (sum_error, count) reduction, so the
+        # length-n ``flat`` int64 array is never materialised. The two code columns are passed pre-gathered and
+        # contiguous (1D, cache-friendly) by the caller, so this avoids the strided 2D ``codes[i, feat]`` access that
+        # regressed a fully-fused variant. Accumulation is row order -> float64 sums bit-identical to the bincount path.
+        sums = np.zeros(ncells, dtype=np.float64)
+        counts = np.zeros(ncells, dtype=np.float64)
+        for i in range(c0.shape[0]):
+            c = c0[i] * stride0 + c1[i]
+            sums[c] += err[i]
+            counts[c] += 1.0
+        return sums, counts
+
     _HAS_NUMBA_SLICE = True
 except Exception:  # numba unavailable: fall back to the two-bincount numpy path.
     _HAS_NUMBA_SLICE = False
 
     def _fused_sum_count(flat, err, ncells):  # type: ignore[misc]
+        counts = np.bincount(flat, minlength=ncells).astype(np.float64)
+        sums = np.bincount(flat, weights=err, minlength=ncells)
+        return sums, counts
+
+    def _fused_sum_count_2col(c0, c1, stride0, err, ncells):  # type: ignore[misc]
+        flat = c0 * stride0 + c1
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)
         sums = np.bincount(flat, weights=err, minlength=ncells)
         return sums, counts
@@ -145,23 +166,34 @@ def _aggregate_combo(
     ``np.bincount`` with ``weights=err`` gives per-cell error sums; a plain ``bincount`` gives per-cell counts.
     One O(n) pass per combination -- no python loop over rows.
     """
-    strides = np.ones(len(feat_idx), dtype=np.int64)
-    for k in range(len(feat_idx) - 1, 0, -1):
+    m = len(feat_idx)
+    strides = np.ones(m, dtype=np.int64)
+    for k in range(m - 1, 0, -1):
         strides[k - 1] = strides[k] * nbins_per[k]
+    ncells = 1
+    for k in range(m):
+        ncells *= int(nbins_per[k])
+    if m == 2:
+        # Arity-2 fast path (thousands of feature pairs dominate the search): the flatten is folded into the njit
+        # reduction, so no length-n ``flat`` array is allocated. The two code columns are gathered once into
+        # contiguous 1D arrays (cache-friendly) and passed straight in.
+        c0 = np.ascontiguousarray(codes[:, feat_idx[0]])
+        c1 = np.ascontiguousarray(codes[:, feat_idx[1]])
+        sums, counts = _fused_sum_count_2col(c0, c1, int(strides[0]), err, ncells)
+        return sums, counts, strides
     # Mixed-radix flatten, accumulated in place. codes is int64 (see _bin_matrix) so no per-combo re-cast; the last
     # feature has stride 1 (radix LSB) so it is added directly without a multiply.
     flat = codes[:, feat_idx[0]] * strides[0]
-    for k in range(1, len(feat_idx)):
+    for k in range(1, m):
         col = codes[:, feat_idx[k]]
         if strides[k] == 1:
             flat += col
         else:
             flat += col * strides[k]
-    ncells = int(np.prod([nbins_per[k] for k in range(len(feat_idx))]))
     # Single fused row-order pass accumulates per-cell error sum + count together, replacing the two
     # separate O(n) ``np.bincount`` walks (+ the int->float counts copy). Accumulation order is row
     # order in both paths, so the float64 sums are bit-identical (verified across adversarial trials).
-    sums, counts = _fused_sum_count(flat, np.ascontiguousarray(err), ncells)
+    sums, counts = _fused_sum_count(flat, err, ncells)
     return sums, counts, strides
 
 
@@ -196,6 +228,7 @@ def find_weak_slices(
     if not np.all(finite):
         err = err[finite]
         mat = mat[finite]
+    err = np.ascontiguousarray(err)  # hoisted out of the per-combo loop; the njit reduction kernels need it C-contig.
     n, p = mat.shape
     global_error = float(err.mean()) if err.size else float("nan")
     min_support = max(1, int(np.ceil(min_support_fraction * max(n, 1))))

@@ -2121,3 +2121,41 @@ Regression test: `test_aggregate_combo_fused_kernel_bit_identical_to_two_bincoun
 fused kernel bit-identical to the two-bincount reference across 120 adversarial-magnitude trials. Full file 9/9 pass.
 
 Streak: 0/100 (iter62 RESOLVED -- streak reset). **Cumulative loop wave: 35 RESOLVED, 28 REJECT across 62 iterations.**
+
+## iter63 (2026-06-13) -- RESOLVED: arity-2 fused flatten+reduce fast path in slice-finder `_aggregate_combo` (no `flat` alloc)
+
+Workload + why: full-pipeline `profile_mixed_dtypes.py` (CatBoost classification, n=60k, iterations=40, show_perf_chart + show_fi on). Same
+heavy post-fit reporting path as iter62; after iter62 fused the two bincounts, `_aggregate_combo` is STILL the single largest plain-Python/numpy
+own-code frame by tottime: **20,000 ncalls, 1.819s tottime, 2.481s cumtime** (caller `find_weak_slices` 0.844s tottime / 6.634s cumtime). Internals
+profile of the 5000-pair regime (p=120, n=48k) shows the body cost is the per-combo length-n `flat` int64 allocation + the two column gathers + the
+njit reduction; the `np.prod`/`ones`/`ascontiguousarray` overhead is negligible (~0.3s of 4.5s).
+
+Hotspot: arity-2 pairs dominate the search (thousands of feature pairs vs p singletons + few triples). Audit (recomputed/discarded work): per pair
+the code allocates a fresh length-n `flat = c0*stride0 + c1` array purely to feed one bincount walk -- the array is created, walked once, discarded.
+The flatten can be folded INTO the njit reduction row pass, so no `flat` array is materialised at all.
+
+Optimization: new `_fused_sum_count_2col(c0, c1, stride0, err, ncells)` njit kernel computes `c = c0[i]*stride0 + c1[i]` inline per row while
+accumulating `sums[c]+=err[i]` / `counts[c]+=1`. `_aggregate_combo` dispatches arity-2 to it (gathering the two code columns into contiguous 1D
+arrays first -- cache-friendly), keeping the generic flatten path for arity 1/3. `err` made C-contiguous ONCE in `find_weak_slices` (hoisted out of
+the per-combo loop). numpy two-bincount fallback kept for the no-numba case.
+
+Before/after:
+  - ISOLATED (warm, mixed-arity per-combo sweep, n=48k): ~1.4x on the aggregation step (the `flat` allocation + its bincount walk removed).
+  - E2E (`find_weak_slices`, warm best-of-5, n=48k, p=120 = 5000 pair combos, matching the profile's 20k calls): old best 2379ms -> new best 2141ms
+    = **1.11x** (3 interleaved repeats: 2585/2338, 2379/2151, 2391/2141 -- new consistently below old). Dilution from `_bin_matrix` (np.quantile per
+    column) + the per-record decode loop is why e2e (1.11x) trails the per-pair kernel win.
+
+REJECTED sub-attempt (kept, not in prod): a FULLY-fused single kernel reading `codes[i, feat_idx[k]]` (strided 2D gather) + flatten + reduce. The
+strided 2D access is cache-hostile; at the same 5000-pair regime it REGRESSED e2e to ~3400ms (0.65x vs baseline) despite a 1.42x isolated win at a
+smaller mixed-arity shape -- the classic "isolated win, e2e regression" trap. Bench committed at
+`src/mlframe/reporting/charts/_benchmarks/bench_slice_aggregate_combo.py` with all three variants + the numbers.
+
+Identity: BIT-IDENTICAL. `c0*stride0 + c1` and the prior `flat` produce the same cell ids; the njit accumulates in row order exactly as
+`np.bincount` does -> float64 sums identical by construction. Verified 0.0 max-abs diff across 120 adversarial-magnitude trials (errors scaled by
+1 / 1e6 / 1e-6 / 1e12) and `find_weak_slices` output tables byte-equal old-vs-new at p=40 and p=120 (3 interleaved A/B runs).
+
+Regression test: `test_aggregate_combo_2col_fast_path_bit_identical_to_bincount` in `tests/reporting/test_charts_slice_finder.py` -- pins the 2-col
+kernel bit-identical to the flatten + two-bincount reference across 120 adversarial trials over random bin grids. Fails on pre-fix code (symbol
+`_fused_sum_count_2col` absent on HEAD). Full file 10/10 pass.
+
+Streak: 0/100 (iter63 RESOLVED -- streak reset). **Cumulative loop wave: 36 RESOLVED, 28 REJECT across 63 iterations.**

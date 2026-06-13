@@ -171,3 +171,30 @@ def test_aggregate_combo_fused_kernel_bit_identical_to_two_bincount():
         if not np.array_equal(ref_sums, got_sums):
             max_diff = max(max_diff, float(np.max(np.abs(ref_sums - got_sums))))
     assert max_diff == 0.0, f"fused kernel sums diverged from bincount by {max_diff}"
+
+
+def test_aggregate_combo_2col_fast_path_bit_identical_to_bincount():
+    """The arity-2 fast path (``_fused_sum_count_2col``) folds the mixed-radix flatten ``c0*stride0 + c1`` into the
+    njit reduction. It must be bit-identical to the prior flatten + two-``np.bincount`` path across adversarial
+    error magnitudes and bin-count grids. Guards against a future "always use the generic flatten" revert and
+    against an accumulation-order change that would shift which pair slice ranks worst."""
+    import mlframe.reporting.charts.slice_finder as sf
+
+    rng = np.random.default_rng(11)
+    max_diff = 0.0
+    for _ in range(120):
+        n = int(rng.integers(50, 4000))
+        nb0 = int(rng.integers(2, 9))
+        nb1 = int(rng.integers(2, 9))
+        ncells = nb0 * nb1
+        c0 = rng.integers(0, nb0, size=n).astype(np.int64)
+        c1 = rng.integers(0, nb1, size=n).astype(np.int64)
+        err = (rng.random(n) - 0.5) * rng.choice([1.0, 1e6, 1e-6, 1e12])
+        flat = c0 * nb1 + c1
+        ref_counts = np.bincount(flat, minlength=ncells).astype(np.float64)
+        ref_sums = np.bincount(flat, weights=err, minlength=ncells)
+        got_sums, got_counts = sf._fused_sum_count_2col(c0, c1, nb1, np.ascontiguousarray(err), ncells)
+        assert np.array_equal(ref_counts, got_counts)
+        if not np.array_equal(ref_sums, got_sums):
+            max_diff = max(max_diff, float(np.max(np.abs(ref_sums - got_sums))))
+    assert max_diff == 0.0, f"2-col fast path sums diverged from bincount by {max_diff}"
