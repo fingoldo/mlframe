@@ -2,7 +2,7 @@
 
 The detector recovers a target that is an integer MODULUS of a COMBINATION of integer columns -- (a+b) mod m,
 (a*b) mod m, n-way parity, single hidden non-calendar period -- which smooth bases (poly / Fourier) cannot fit.
-It is wired into MRMR behind ``fe_pairwise_modular_enable`` (default OFF) with a column-count budget guard.
+It is wired into MRMR behind ``fe_pairwise_modular_enable`` (default ON, wide-frame validated) with a column-count budget guard.
 
 Contracts pinned (measured, never xfail):
 
@@ -10,7 +10,7 @@ Contracts pinned (measured, never xfail):
 * INTEGRATION (the public-API win): MRMR with the flag ON recovers + SELECTS the modular feature; transform() replays
   the frozen recipe identically at predict (leak-free, deterministic). Measured end-to-end LogReg AUC: 1.0 ON vs 0.49
   OFF (lift +0.51 on (a+b) mod 7); floor pinned at +0.40 (well below measured).
-* OFF default is a true no-op: no modular columns emitted.
+* ON is the default (wide-frame validated: zero FP at p=30, signal caught amid noise); opt-out (=False) is a true no-op.
 * BUDGET GUARD: above max_triple_cols the triple sweep is dropped (logged); above max_int_cols the whole sweep is
   skipped (logged); selection still completes.
 * pickle / clone round-trip recipes + ctor params.
@@ -123,13 +123,11 @@ class TestRecipeReplay:
 
 
 class TestMRMRIntegration:
-    def test_default_off_is_no_op(self):
+    def test_opt_out_is_no_op(self):
+        """The opt-out (fe_pairwise_modular_enable=False) must stay a byte-identical no-op for legacy/replay."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_pair_add_mod(42, n=2000)
-        m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_pairwise_modular_enable", False)) is False, (
-            "fe_pairwise_modular_enable must default to False."
-        )
+        m = MRMR(fe_pairwise_modular_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
         pm = list(getattr(m, "pairwise_modular_features_", []) or [])
         assert pm == [], f"pairwise-modular added columns with the flag disabled: {pm}"
@@ -137,6 +135,19 @@ class TestMRMRIntegration:
         assert not any(str(c).startswith("pmod_") for c in out.columns), (
             "no pmod column may appear in transform output when the flag is OFF."
         )
+
+    def test_default_on_detects_modular_signal(self):
+        """The DEFAULT (no flag passed) is now ON: a fresh MRMR recovers (a+b) mod 7 with no explicit flag."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _build_pair_add_mod(7, n=4000)
+        m = MRMR(max_runtime_mins=2)
+        assert bool(getattr(m, "fe_pairwise_modular_enable", False)) is True, (
+            "fe_pairwise_modular_enable must default to True (the validated ON default)."
+        )
+        m.fit(X, pd.Series(y, name="y"))
+        out = m.transform(X.iloc[:500])
+        pmod_cols = [c for c in out.columns if str(c).startswith("pmod_")]
+        assert pmod_cols, f"default-ON MRMR did not select a pairwise-modular feature; selected={list(out.columns)}"
 
     def test_enabled_selects_modular_feature_and_replays(self):
         from mlframe.feature_selection.filters.mrmr import MRMR

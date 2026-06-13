@@ -426,6 +426,7 @@ class TestDefaultDisabledByteIdentical:
             fe_group_distance_group_cols=("g",),
             fe_group_distance_num_cols=("v",),
             fe_group_distance_top_k=4,
+            fe_pairwise_modular_enable=False,  # isolate group_distance: keep the pmod residue off the integer group id
         )
         m.fit(X, pd.Series(y, name="y"))
         gd = list(getattr(m, "group_distance_features_", []) or [])
