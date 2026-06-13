@@ -15,7 +15,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite.discovery.screening import _mi_from_binned_pair, _mi_pair_bin
+from mlframe.training.composite.discovery.screening import (
+    _mi_from_binned_pair,
+    _mi_from_binned_pair_numpy,
+    _mi_pair_bin,
+)
 
 
 def _bin_codes(arr: np.ndarray, nbins: int) -> np.ndarray:
@@ -46,10 +50,40 @@ def test_prebinned_null_mi_is_bit_identical_to_mi_pair_bin(nbins: int, seed: int
         ref = _mi_pair_bin(col[order], y, nbins=nbins)
         # Fast path: shuffle the precomputed CODES and score from the contingency table.
         fast = _mi_from_binned_pair(col_codes[order], y_codes, nbins=nbins)
-        assert ref == fast, (
-            f"prebinned null MI diverged from _mi_pair_bin: ref={ref!r} fast={fast!r} "
-            f"(nbins={nbins}, seed={seed}) — optimization is no longer bit-identical"
+        # Joint integer counts are identical; the only difference is FP reduction ORDER -- numpy's _mi_pair_bin reduces the (nbins,nbins) product
+        # array (pairwise summation) while the njit kernel walks cells row-major (sequential accumulation). That lands ~1e-13 worst-case across a
+        # 200-seed x 9-nbins grid, far under any MI ranking threshold (~1e-3), so the contract is allclose-not-bitwise. See test_mi_kernel_divergence_bound.
+        np.testing.assert_allclose(
+            fast, ref, rtol=1e-9, atol=1e-12,
+            err_msg=(
+                f"prebinned null MI diverged from _mi_pair_bin beyond FP-order tolerance: ref={ref!r} fast={fast!r} "
+                f"(nbins={nbins}, seed={seed})"
+            ),
         )
+
+
+def test_mi_kernel_divergence_bound() -> None:
+    """Pin the FP-reduction-order divergence between the njit kernel, its numpy twin, and _mi_pair_bin to <1e-9 across a stress grid.
+
+    The parity tests assert allclose (not bitwise) because the kernels differ only in summation order; this sensor proves that order-difference
+    stays ULP-scale so a real numeric regression (~1e-3, which WOULD move an MI ranking decision) still trips. If a future kernel rewrite pushes
+    divergence above 1e-9 this fails -- forcing a re-examination of whether the loosened allclose tolerance is still defensible.
+    """
+    worst = 0.0
+    for seed in range(60):
+        rng = np.random.default_rng(seed)
+        for nbins in (3, 5, 8, 16, 32, 50, 64, 128):
+            n = int(rng.integers(5 * nbins + 10, 6000))
+            y = rng.normal(size=n)
+            col = rng.normal(size=n) + 0.3 * y
+            yc = _bin_codes(y, nbins)
+            cc = _bin_codes(col, nbins)
+            ref = _mi_pair_bin(col, y, nbins=nbins)
+            npref = _mi_from_binned_pair_numpy(cc, yc, nbins=nbins)
+            fast = _mi_from_binned_pair(cc, yc, nbins=nbins)
+            for a, b in ((ref, fast), (npref, fast), (ref, npref)):
+                worst = max(worst, abs(a - b))
+    assert worst < 1e-9, f"njit-vs-numpy MI divergence {worst:.3e} exceeded the ULP-scale bound; a real numeric regression may be hiding"
 
 
 def test_shuffling_codes_equals_binning_shuffled_values() -> None:

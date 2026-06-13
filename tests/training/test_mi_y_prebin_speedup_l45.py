@@ -63,7 +63,10 @@ def test_y_fixed_bit_exact_vs_naive_loop() -> None:
     naive = _naive_loop(x, y, nbins=nbins)
     hoisted = _mi_per_feature_y_fixed(x, y, nbins=nbins)
     assert hoisted.shape == naive.shape
-    np.testing.assert_array_equal(hoisted, naive)
+    # Same bin codes + same joint counts; the helper scores via the njit kernel whose final MI/marginal reduction walks cells row-major while
+    # _mi_pair_bin reduces via numpy pairwise summation. That FP-order difference is ULP-scale (<1e-9, pinned in test_mi_kernel_divergence_bound),
+    # well below any MI ranking threshold, so the contract is allclose rather than bitwise.
+    np.testing.assert_allclose(hoisted, naive, rtol=1e-9, atol=1e-12)
 
 
 @pytest.mark.parametrize("nbins", [16, 32, 50])
@@ -73,7 +76,8 @@ def test_y_fixed_matches_naive_across_nbins(nbins: int) -> None:
     x, y = _build_inputs(n=2000, k=6, seed=nbins)
     naive = _naive_loop(x, y, nbins=nbins)
     hoisted = _mi_per_feature_y_fixed(x, y, nbins=nbins)
-    np.testing.assert_array_equal(hoisted, naive)
+    # ULP-scale FP-reduction-order difference between njit kernel and _mi_pair_bin (see test_mi_kernel_divergence_bound); allclose, not bitwise.
+    np.testing.assert_allclose(hoisted, naive, rtol=1e-9, atol=1e-12)
 
 
 def test_y_fixed_short_circuit_below_5x_nbins() -> None:

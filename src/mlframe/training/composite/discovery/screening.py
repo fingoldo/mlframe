@@ -701,8 +701,12 @@ def _mi_from_binned_pair(
     per-permutation null loop in ``_auto_base``, so the cost multiplies with
     ``n_targets x auto_base_top_k x npermutations``). Dispatches to a ``numba.njit``
     single-pass histogram+MI kernel (``cache=True``) which is ~4x faster than the numpy
-    ``bincount``+log path at the production sample size and bit-identical within ~1e-12
-    (only the final-sum FP reduction order differs). The numpy reference stays callable as
+    ``bincount``+log path at the production sample size and matches it within ULP-scale FP
+    reduction-order error (<1e-9 worst-case, pinned by test_mi_kernel_divergence_bound; the
+    joint integer counts are identical, only the final-sum/marginal reduction order differs --
+    numpy reduces the (nbins,nbins) array pairwise, this walks cells row-major). That delta is
+    far below any MI ranking threshold (~1e-3), so it cannot move a feature-selection decision.
+    The numpy reference stays callable as
     ``_mi_from_binned_pair_numpy`` for tests / benches; falls back to it when numba is
     unavailable.
     """
