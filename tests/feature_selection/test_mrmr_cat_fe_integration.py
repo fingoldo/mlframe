@@ -99,7 +99,14 @@ class TestDefaultEnabled:
         )
 
     def test_explicit_disable_restores_legacy(self, xor_train_test):
-        """To get legacy behaviour explicitly: cat_fe_config=CatFEConfig(enable=False)."""
+        """To get legacy CAT-FE behaviour explicitly: cat_fe_config=CatFEConfig(enable=False).
+
+        This pins that CAT-FE is the disabled subsystem -- ``_cat_fe_state_`` stays None and NO cat-FE
+        -originated recipe (target encoding / merged categorical interaction) is emitted. It deliberately
+        does NOT assert a globally-empty ``_engineered_recipes_``: other FE subsystems (integer-lattice,
+        pairwise-modular, ...) ship default-ON behind their own flags and legitimately emit recipes here;
+        coupling this test to the full default-ON FE set made it break whenever any new generator landed.
+        """
         df_tr, y_tr, _, _ = xor_train_test
         mrmr = MRMR(
             full_npermutations=2, baseline_npermutations=2,
@@ -109,9 +116,11 @@ class TestDefaultEnabled:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(df_tr, y_tr)
-        # Cat-FE skipped; state stays None.
+        # Cat-FE skipped; its state stays None and it contributes no recipes.
         assert mrmr._cat_fe_state_ is None
-        assert mrmr._engineered_recipes_ == []
+        _CAT_FE_KINDS = {"target_encoding", "cat_interaction", "merged_categorical", "weighted_cat"}
+        cat_fe_recipes = [r for r in mrmr._engineered_recipes_ if r.kind in _CAT_FE_KINDS]
+        assert cat_fe_recipes == [], f"cat-FE disabled but emitted cat-FE recipes: {cat_fe_recipes}"
 
 
 # ---------------------------------------------------------------------------
