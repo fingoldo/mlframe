@@ -1,4 +1,4 @@
-"""ROW-ARGMAX + CONDITIONAL-GATE relationship detection FE (wired into MRMR; argmax default ON, gate default ON behind a HARDENED gate).
+"""ROW-ARGMAX + CONDITIONAL-GATE relationship detection FE (wired into MRMR; argmax default ON, gate default OFF / opt-in -- the gate's select sweep is an n-driven wide-frame cost blow-up the column-count budget cannot bound, so it ships validated but off-by-default).
 
 Two multi-column operators the rich catalog cannot express for the MI / linear-downstream selector (frontier discovery pass 2,
 confirmed by ``_benchmarks/bench_frontier_candidates`` + ``bench_conditional_gate_detection``):
