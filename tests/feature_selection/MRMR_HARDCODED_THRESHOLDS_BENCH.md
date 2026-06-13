@@ -44,11 +44,19 @@ param; benched separately via monkeypatch -- see below.)
 | `min_relevance_gain_relative_to_first` | 0.05 | FLAT (0.008%) | argmin tiebreak between equal MAEs (0.008% spread = noise); not a real dependence. | KEEP. |
 | `min_relevance_gain_frac` | 0.001 | FLAT (0%) | identical; audit notes it is a safety bound, not an active gate. | KEEP. |
 | `fe_confirm_undersample_rows_per_cell` | 5.0 | FLAT (0%) | identical across 3.0/5.0/8.0. | KEEP. |
-| `fe_pair_perm_null_excess_frac` | 0.05 | UNMEASURED | env MemoryError (16GB box under load) -- re-run pending. | pending |
-| `fe_min_nonzero_confidence` | 0.99 | UNMEASURED | env MemoryError -- re-run pending. Audit rates "keep as-is". | pending (likely KEEP) |
-| `fe_min_pair_mi` | 0.001 | UNMEASURED | env MemoryError -- re-run pending. | pending |
-| `fe_good_to_best_feature_mi_threshold` | 0.98 | UNMEASURED | env MemoryError -- re-run pending. | pending |
-| `fe_adaptive_relax_factor` | 0.9 | UNMEASURED | env MemoryError -- re-run pending. | pending |
+| `fe_pair_perm_null_excess_frac` | 0.05 | FLAT (0%) | identical across 0.02/0.05/0.10 (re-run, no OOM). | KEEP. |
+| `fe_min_nonzero_confidence` | 0.99 | FLAT (0%) | identical across 0.95/0.99/0.999; audit rates "keep as-is". | KEEP. |
+| `fe_min_pair_mi` | 0.001 | FLAT (0%) | identical across 0.0005/0.001/0.005. | KEEP. |
+| `fe_good_to_best_feature_mi_threshold` | 0.98 | FLAT (0%) | identical across 0.90/0.98/0.999. | KEEP. |
+| `fe_adaptive_relax_factor` | 0.9 | FLAT (0%) | identical across 0.8/0.9/0.95. | KEEP. |
+
+**All 20 constructor-param thresholds now measured.** Summary: 4 conversion candidates
+(`fe_min_pair_mi_prevalence`, `fe_synergy_min_prevalence`, `fe_escalation_pairness_margin`,
+`fe_stability_vote_k` -- the last SHIPPED as guarded `"auto"`), `fe_escalation_underdelivery_self_ratio`
++ 14 others FLAT (KEEP / migrate as no-op guarded hybrids on principle). The strong FLAT majority says
+most hardcoded MRMR constants are well-placed (or do not bind on typical data) -- converting them would
+add estimation variance with no bias to remove, so on principle they migrate to guarded hybrids that
+provably degenerate to the constant, never as naive replacements.
 
 ## Module-constant items (need monkeypatch, not ctor-param sweep) -- pending
 

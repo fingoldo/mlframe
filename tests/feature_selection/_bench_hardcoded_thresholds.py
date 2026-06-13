@@ -134,9 +134,18 @@ MEDLOW = [
 ]
 
 
+PENDING = [
+    ("fe_pair_perm_null_excess_frac", [0.02, 0.05, 0.10]),
+    ("fe_min_nonzero_confidence", [0.95, 0.99, 0.999]),
+    ("fe_min_pair_mi", [0.0005, 0.001, 0.005]),
+    ("fe_good_to_best_feature_mi_threshold", [0.90, 0.98, 0.999]),
+    ("fe_adaptive_relax_factor", [0.8, 0.9, 0.95]),
+]
+
+
 def main():
     group = sys.argv[1] if len(sys.argv) > 1 else "high"
-    table = {"high": HIGH, "medlow": MEDLOW, "all": HIGH + MEDLOW}.get(group, HIGH)
+    table = {"high": HIGH, "medlow": MEDLOW, "pending": PENDING, "all": HIGH + MEDLOW}.get(group, HIGH)
     print(f"== threshold sensitivity bench ({group}) ==")
     for param, values in table:
         t = time.perf_counter()
