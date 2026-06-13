@@ -41,6 +41,48 @@ class _SigmoidAdapter:
         return self.lr.predict_proba(_np.asarray(x).reshape(-1, 1))[:, 1]
 
 
+def _fit_per_class_calibrator(p: "np.ndarray", y_k: "np.ndarray", method: str):
+    """Fit one one-vs-rest calibrator. Returns an object with a ``.predict(col)`` API
+    (``_SigmoidAdapter`` or ``IsotonicRegression``). Sigmoid fits a logistic on the logit of the
+    column; if the column is degenerate (no spread) it falls back to isotonic so the map is never
+    constant. ``method`` is normalised here; unknown values fall back to sigmoid."""
+    import numpy as _np
+    from sklearn.linear_model import LogisticRegression
+
+    if method == "isotonic":
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(p, y_k)
+        return iso
+
+    eps = 1e-6
+    pc = _np.clip(_np.asarray(p, dtype=_np.float64), eps, 1.0 - eps)
+    z = _np.log(pc / (1.0 - pc)).reshape(-1, 1)
+    if not _np.isfinite(z).all() or float(_np.ptp(z)) < 1e-12:
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(p, y_k)
+        return iso
+    lr = LogisticRegression(C=1e6, solver="lbfgs")
+    lr.fit(z, y_k)
+    return _SigmoidLogitAdapter(lr)
+
+
+class _SigmoidLogitAdapter:
+    """Platt adapter for the per-class path: maps a probability column through ``logit -> logistic``.
+    ``.predict(col)`` returns calibrated positive-class probabilities; picklable (holds only the
+    fitted LogisticRegression), so it satisfies the post-hoc calibrator pickle contract."""
+
+    def __init__(self, lr):
+        self.lr = lr
+
+    def predict(self, x):
+        import numpy as _np
+
+        eps = 1e-6
+        xc = _np.clip(_np.asarray(x, dtype=_np.float64), eps, 1.0 - eps)
+        z = _np.log(xc / (1.0 - xc)).reshape(-1, 1)
+        return self.lr.predict_proba(z)[:, 1]
+
+
 class _PostHocCalibratedModel:
     """Transparent wrapper that applies isotonic post-hoc calibration to
     predict_proba outputs of a fitted binary classifier.
@@ -132,7 +174,8 @@ class _PerClassIsotonicCalibrator:
 
     def __init__(self, calibrators, is_exclusive: bool, n_classes: int):
         """
-        calibrators: dict {class_idx: IsotonicRegression or None (skip)}
+        calibrators: dict {class_idx: per-class calibrator (.predict(col) API) or None (identity skip)}.
+            Each entry is a _SigmoidLogitAdapter (default method) or an IsotonicRegression (method='isotonic').
         is_exclusive: True for MULTICLASS softmax, False for MULTILABEL sigmoid
         n_classes: K
         """
@@ -141,8 +184,17 @@ class _PerClassIsotonicCalibrator:
         self.n_classes = n_classes
 
     @classmethod
-    def fit(cls, probs_NK, y_true, target_type, classes=None):
-        """Fit K independent isotonic regressions on the calibration set.
+    def fit(cls, probs_NK, y_true, target_type, classes=None, method: str = "sigmoid"):
+        """Fit K independent one-vs-rest calibrators on the calibration set.
+
+        method : {"sigmoid", "isotonic"}, default "sigmoid"
+            Per-class map. ``"sigmoid"`` is a 2-parameter Platt fit (logistic on the column logit);
+            ``"isotonic"`` is a free-form monotone step map. Default is sigmoid: on the small per-class
+            OOF / calibration slices this path typically sees, isotonic interpolates the training
+            calibration and generalises worse on held-out data. Bench (5 scenarios x 3 seeds x calib
+            sizes 200/1000/8000): sigmoid wins held-out mean-per-class ECE 15/15, 15/15, 13/15 with
+            lower mean ECE at every size (_benchmarks/bench_per_class_method_isotonic_vs_sigmoid.py).
+            Pass ``method="isotonic"`` for non-parametric / saturating miscalibration with abundant data.
 
         Parameters
         ----------
@@ -200,9 +252,7 @@ class _PerClassIsotonicCalibrator:
             if n_pos < 2 or n_pos >= (len(y_k) - 1):
                 calibrators[k] = None  # identity mapping
                 continue
-            iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-            iso.fit(probs[:, k], y_k)
-            calibrators[k] = iso
+            calibrators[k] = _fit_per_class_calibrator(probs[:, k], y_k, method)
 
         return cls(calibrators, is_exclusive, K)
 
