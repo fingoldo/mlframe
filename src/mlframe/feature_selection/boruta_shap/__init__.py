@@ -102,6 +102,16 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     structure above. A further measured win for redundant/monotone data is to collapse raw-correlation clusters to
     one representative BEFORE the gate and re-expand accepted reps afterward (the gate sees cleaner, fewer columns);
     this lives naturally in a caller that already computes the clustering (see the fs_hybrid HybridSelector).
+
+    AUTO DISPATCH (importance_measure='auto', opt-in): one cheap RandomForest probe on (X, y) at fit
+    start picks the driver per-fit -- permutation on noisy / overfit-prone / small-n-relative-to-p beds
+    (where gini over-credits noise via split-frequency bias), gini on clean / large-n beds (where the
+    ~11x permutation cost buys nothing). Signals: n/p ratio, train-vs-OOB gap, real-vs-shadow impurity
+    fraction. The resolution + signals are exposed on ``auto_dispatch_diagnostics_`` after fit. The
+    default stays 'gini': on the fs_hybrid bed auto matched gini's holdout on clean beds without paying
+    permutation there and tied/won permutation on noisy beds, but did NOT beat the static gini default
+    on a REPLICATED majority of scenarios+seeds, so auto remains opt-in (see _benchmarks bench). See
+    ``_auto_dispatch.py``.
     """
 
     def __init__(
@@ -140,7 +150,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             be returned.
 
         importance_measure: String
-            Which importance measure to use: "Shap", "gini"/"gain", or "permutation". Permutation uses sklearn's
+            Which importance measure to use: "Shap", "gini"/"gain", "permutation", or "auto". "auto" runs a cheap
+            noise/overfit probe on (X, y) at fit start and routes to permutation on noisy/small-n-per-feature beds and
+            gini on clean/large-n beds (resolution stored on auto_dispatch_diagnostics_; see _auto_dispatch.py).
+            Permutation uses sklearn's
             permutation_importance on the held-out 30% split when train_or_test="test" (debiased held-out
             degradation, the signal that beat impurity/SHAP in the importance shootout), else falls back to
             in-bag permutation on the full data. permutation_n_repeats controls its repeat count.
@@ -242,6 +255,40 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # the run cleanly, returning the features classified so far).
         self.max_runtime_mins = max_runtime_mins
         self.stop_file = stop_file
+
+    def _active_importance_measure(self) -> str:
+        """The concrete importance measure in effect for this fit. Equals ``importance_measure`` for
+        the explicit choices; for ``"auto"`` it is the per-fit resolution (gini/permutation) computed
+        once in ``fit`` via the cheap noise/overfit probe (``_resolved_importance_measure_``). Falls
+        back to the raw value if accessed before resolution (e.g. a direct helper call in a test)."""
+        return str(getattr(self, "_resolved_importance_measure_", None) or self.importance_measure).lower()
+
+    def _resolve_auto_importance_measure(self, X, y) -> None:
+        """When ``importance_measure='auto'``, probe (X, y) ONCE and pin the concrete driver for this
+        fit into ``_resolved_importance_measure_`` (+ diagnostics in ``auto_dispatch_diagnostics_``).
+        permutation needs a holdout to be the honest noise-leader, so auto also pins train_or_test to
+        'test' for that branch (only when the user left the default 'train'). Explicit measures untouched."""
+        if str(self.importance_measure).lower() != "auto":
+            self._resolved_importance_measure_ = str(self.importance_measure).lower()
+            self.auto_dispatch_diagnostics_ = None
+            return
+        from ._auto_dispatch import resolve_auto_importance_measure
+
+        measure, diag = resolve_auto_importance_measure(
+            X, y, classification=bool(self.classification), random_state=int(self.random_state),
+        )
+        self._resolved_importance_measure_ = measure
+        self.auto_dispatch_diagnostics_ = diag
+        # Honest held-out permutation requires the 30% holdout; only override the *default* 'train'.
+        if measure == "permutation" and str(self.train_or_test).lower() == "train":
+            self._auto_forced_test_split_ = True
+            self.train_or_test = "test"
+        if self.verbose:
+            logger.info(
+                "BorutaShap importance_measure='auto' -> '%s' (n/p=%.1f, oob_gap=%.3f, shadow_gap=%.3f; %s)",
+                measure, diag.get("np_ratio", float("nan")), diag.get("oob_gap", float("nan")),
+                diag.get("shadow_gap", float("nan")), ", ".join(diag.get("reasons", [])) or "clean",
+            )
 
     def check_model(self):
         """
