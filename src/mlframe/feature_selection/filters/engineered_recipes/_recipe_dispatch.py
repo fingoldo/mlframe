@@ -210,6 +210,11 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return apply_pairwise_modular(
             X, str(recipe.extra["op"]), recipe.src_names, int(recipe.extra["modulus"]),
         )
+    if recipe.kind == "pairwise_integer_lattice":
+        # Pairwise integer-lattice column: cast both source columns to int then apply gcd / lcm / bitwise_and.
+        # Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
+        from .._integer_lattice_fe import apply_integer_lattice
+        return apply_integer_lattice(X, str(recipe.extra["op"]), recipe.src_names)
     if recipe.kind == "group_distance":
         # Layer 95 PART B (2026-06-01): per-group distribution-distance FE
         # (group-level z / KL / Wasserstein-1 from the global distribution).

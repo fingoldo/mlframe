@@ -3418,6 +3418,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.temporal_agg_features_ = []
     self.modular_features_ = []
     self.pairwise_modular_features_ = []
+    self.integer_lattice_features_ = []
     self.group_distance_features_ = []
     _cat_pair_pre_recipes: dict = {}
     _cat_triple_pre_recipes: dict = {}
@@ -3425,6 +3426,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _temporal_agg_pre_recipes: dict = {}
     _modular_pre_recipes: dict = {}
     _pairwise_modular_pre_recipes: dict = {}
+    _integer_lattice_pre_recipes: dict = {}
     _group_distance_pre_recipes: dict = {}
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
@@ -4216,6 +4218,64 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit pairwise-modular FE raised %s: %s; continuing without "
                     "pairwise-modular columns.",
                     type(_pm_exc).__name__, _pm_exc,
+                )
+
+    # Pairwise integer-lattice FE (sibling of pairwise-modular): detect a target that is a function of a hidden common
+    # divisor (gcd), its dual lcm, or a bit-level co-occurrence (a & b) of integer columns -- structure smooth/arithmetic/
+    # modular ops cannot express. Cheap-first pairs-only scan + dual margin/permutation-null gate; budget-guarded.
+    if bool(getattr(self, "fe_integer_lattice_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: integer-lattice FE enabled but X is not a pandas DataFrame; "
+                "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._integer_lattice_fe import (
+                    apply_integer_lattice,
+                    hybrid_integer_lattice_fe_with_recipes,
+                )
+
+                _y_for_il = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
+                    X, _y_for_il,
+                    cols=None,
+                    top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
+                    seed=int(getattr(self, "random_seed", 0) or 0),
+                    max_int_cols=int(getattr(self, "fe_integer_lattice_max_int_cols", 30)),
+                )
+                _il_appended = [c for c in _il_appended if c not in X.columns]
+                if _il_appended:
+                    _il_new = {
+                        _r.name: apply_integer_lattice(
+                            X, _r.extra["op"], _r.src_names,
+                        )
+                        for _r in _il_recipes if _r.name in _il_appended
+                    }
+                    X = pd.concat(
+                        [X, pd.DataFrame(_il_new, index=X.index)], axis=1,
+                    )
+                    self.integer_lattice_features_ = list(_il_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_il_appended)
+                    )
+                    for _r in _il_recipes:
+                        if _r.name in _il_appended:
+                            _integer_lattice_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit integer_lattice: appended %d engineered "
+                            "column(s): %s",
+                            len(_il_appended), _il_appended[:8],
+                        )
+            except Exception as _il_exc:
+                logger.warning(
+                    "MRMR.fit integer-lattice FE raised %s: %s; continuing without "
+                    "integer-lattice columns.",
+                    type(_il_exc).__name__, _il_exc,
                 )
 
     # Layer 95 PART B (2026-06-01): per-group distribution-distance. For each
@@ -5048,7 +5108,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _composite_group_agg_pre_recipes, _grouped_quantile_pre_recipes,
                 _cat_pair_pre_recipes, _cat_triple_pre_recipes,
                 _numeric_decompose_pre_recipes, _modular_pre_recipes,
-                _pairwise_modular_pre_recipes,
+                _pairwise_modular_pre_recipes, _integer_lattice_pre_recipes,
                 _group_distance_pre_recipes, _rare_category_pre_recipes,
                 _conditional_residual_pre_recipes,
                 _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
@@ -5222,6 +5282,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_pairwise_modular_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _pairwise_modular_pre_recipes.pop(_c, None)
+            for _c in list(_integer_lattice_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _integer_lattice_pre_recipes.pop(_c, None)
             for _c in list(_group_distance_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _group_distance_pre_recipes.pop(_c, None)
@@ -5347,6 +5410,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _cat_triple_pre_recipes,
                         _numeric_decompose_pre_recipes,
                         _modular_pre_recipes, _pairwise_modular_pre_recipes,
+                        _integer_lattice_pre_recipes,
                         _group_distance_pre_recipes,
                         _rare_category_pre_recipes,
                         _conditional_residual_pre_recipes,
@@ -5739,6 +5803,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_modular_pre_recipes)
     if _pairwise_modular_pre_recipes:
         engineered_recipes.update(_pairwise_modular_pre_recipes)
+    if _integer_lattice_pre_recipes:
+        engineered_recipes.update(_integer_lattice_pre_recipes)
     # Layer 95 PART B: same routing for per-group distribution-distance recipes.
     if _group_distance_pre_recipes:
         engineered_recipes.update(_group_distance_pre_recipes)

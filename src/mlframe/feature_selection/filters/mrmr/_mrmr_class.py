@@ -2286,6 +2286,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_pairwise_modular_top_k: int = 4,
         fe_pairwise_modular_max_int_cols: int = 30,
         fe_pairwise_modular_max_triple_cols: int = 20,
+        # PAIRWISE INTEGER-LATTICE FE (sibling of pairwise-modular). Detects a target that is a function of a hidden
+        # COMMON DIVISOR (gcd(a,b) -- shared factor / grid alignment), its dual lcm(a,b), or a bit-level co-occurrence
+        # of integer codes (a & b), which smooth bases + the existing arithmetic/modular ops cannot express (gcd is
+        # number-theoretic, non-smooth, non-monotone in either argument). XOR is EXCLUDED as redundant with the modular
+        # residue operator (measured lift ~0.09); only the three measured-distinct ops (gcd / lcm / bitwise_and) ship.
+        # Cheap-first pairs-only scan gated by a dual test (the engineered column's MI must beat BOTH operands' raw MI
+        # by a margin AND a 12-permutation null upper band), so a non-lattice frame injects nothing. Each responded
+        # detection becomes a frozen recipe (cast both operands to int, take gcd/lcm/and) replayed leak-free at predict.
+        # DEFAULT-ON (measured-safe): bench_integer_lattice_fe measured 6.97x MI lift on a gcd-shared-factor target with
+        # 0 false-positive on smooth/noise controls; bench_integer_lattice_wideframe confirmed 0 FP at p=30 over 3 seeds,
+        # signal still caught amid 25 noise int cols, and bounded added wall-time (pairs-only, cheaper than modular).
+        # Opt out with fe_integer_lattice_enable=False for byte-identical legacy / replay. BUDGET GUARD: max_int_cols=30
+        # skips the whole sweep above 30 integer-eligible columns (logged, never silent). No triple budget -- gcd/lcm/AND
+        # are binary, so the sweep is pairs-only (O(C(p,2))), no n-way analogue.
+        fe_integer_lattice_enable: bool = True,
+        fe_integer_lattice_top_k: int = 4,
+        fe_integer_lattice_max_int_cols: int = 30,
         # PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
         # (extends Layer 88). For each (group, num) emit how far the row's GROUP
         # distribution sits from the GLOBAL one: group-level z
