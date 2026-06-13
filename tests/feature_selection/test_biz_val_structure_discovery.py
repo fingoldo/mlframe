@@ -1,0 +1,207 @@
+"""biz_value + unit tests for ``discover_structure`` -- the standalone discrete-structure EDA tool.
+
+biz_value: on synthetics with KNOWN structure (gcd / modular / regime-switch / argmax), ``discover_structure`` surfaces the right relation
+with the right columns + parameter, clearing a measured MI / lift floor. specificity: a smooth / linear / noise frame returns an EMPTY
+report (the anti-false-discovery guarantee). robustness: 2D y skips cleanly with a warning; all-noise + tiny frames don't crash.
+human-readable: ``str(report)`` carries the column names + kind.
+"""
+from __future__ import annotations
+
+import warnings
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from mlframe.feature_selection import discover_structure, StructureReport, DiscoveredRelation
+
+
+N = 2000
+
+
+def _rng(seed=0):
+    return np.random.default_rng(seed)
+
+
+def test_biz_val_discover_gcd_classification_top_relation():
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=N), "c3": rng.integers(0, 5, N)})
+    y = np.gcd(a, b)
+    report = discover_structure(X, y)
+    assert isinstance(report, StructureReport)
+    assert report.relations, "gcd target must produce at least one discovered relation"
+    top = report.relations[0]
+    assert top.kind == "gcd"
+    assert set(top.columns) == {"price", "quantity"}
+    assert top.mi >= 0.8, f"gcd MI floor (measured ~0.97); got {top.mi}"
+    assert top.lift >= 3.0, f"gcd lift floor (measured ~6.4x); got {top.lift}"
+
+
+def test_biz_val_discover_gcd_regression_variant():
+    rng = _rng(2)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"p": a, "q": b, "noise": rng.normal(size=N)})
+    y = np.gcd(a, b).astype(float) + rng.normal(0, 0.1, N)  # continuous y -> internal qcut binning
+    report = discover_structure(X, y)
+    assert report.relations
+    top = report.relations[0]
+    assert top.kind == "gcd"
+    assert set(top.columns) == {"p", "q"}
+
+
+def test_biz_val_discover_modular_modulus():
+    rng = _rng(1)
+    a = rng.integers(0, 50, N)
+    b = rng.integers(0, 50, N)
+    X = pd.DataFrame({"a": a, "b": b, "z": rng.normal(size=N)})
+    y = (a + b) % 7
+    report = discover_structure(X, y)
+    mod = [r for r in report.relations if r.kind in ("modular", "parity")]
+    assert mod, "a (a+b) mod 7 target must surface a modular relation"
+    top = mod[0]
+    assert set(top.columns) == {"a", "b"}
+    # The escalate stage may pin a MULTIPLE of the true modulus (7 | 14 | 21 ... all carry the residue signal).
+    assert top.parameter is not None and int(round(top.parameter)) % 7 == 0, f"modulus must be a multiple of 7; got {top.parameter}"
+    assert top.mi >= 0.5
+
+
+def test_biz_val_discover_gate_regime_switch():
+    rng = _rng(3)
+    base = rng.normal(size=N)
+    discount = rng.normal(size=N)
+    tenure = rng.normal(size=N)
+    X = pd.DataFrame({"base": base, "discount": discount, "tenure": tenure, "n1": rng.normal(size=N)})
+    y = np.where(tenure > 0.4, discount, base)
+    yb = pd.qcut(y, 10, labels=False, duplicates="drop")
+    report = discover_structure(X, yb)
+    gate = [r for r in report.relations if r.kind.startswith("gate")]
+    assert gate, "a regime-switch target must surface a gate relation"
+    top = gate[0]
+    assert top.kind == "gate_select"
+    # gate select cols = (a, b, c) for ``c>tau ? a : b``; here a=discount, b=base, c=tenure.
+    assert top.columns[-1] == "tenure", f"gating column must be tenure; got {top.columns}"
+    assert set(top.columns) == {"base", "discount", "tenure"}
+    assert top.parameter is not None
+    assert top.mi >= 1.0
+
+
+def test_biz_val_discover_argmax():
+    rng = _rng(4)
+    c0, c1, c2 = (rng.normal(size=N) for _ in range(3))
+    X = pd.DataFrame({"x0": c0, "x1": c1, "x2": c2, "n": rng.normal(size=N)})
+    y = np.argmax(np.stack([c0, c1, c2], axis=1), axis=1)
+    report = discover_structure(X, y)
+    am = [r for r in report.relations if r.kind == "argmax"]
+    assert am, "an argmax target must surface an argmax relation"
+    top = am[0]
+    assert set(top.columns) == {"x0", "x1", "x2"}
+    assert top.mi >= 0.7
+
+
+def test_specificity_linear_frame_empty():
+    rng = _rng(5)
+    X = pd.DataFrame({f"f{i}": rng.normal(size=N) for i in range(8)})
+    y = 2 * X["f0"] + X["f1"] - 0.5 * X["f2"] + rng.normal(0, 0.1, N)
+    report = discover_structure(X, y)
+    assert len(report.relations) == 0, f"linear frame must yield 0 discoveries; got {[r.kind for r in report.relations]}"
+
+
+def test_specificity_noise_frame_empty():
+    rng = _rng(6)
+    X = pd.DataFrame({f"g{i}": rng.normal(size=N) for i in range(8)})
+    y = rng.normal(size=N)
+    report = discover_structure(X, y)
+    assert len(report.relations) == 0
+    assert "no discrete structural relationships detected" in str(report)
+
+
+def test_robustness_2d_y_skips_with_warning():
+    rng = _rng(7)
+    a = rng.integers(1, 40, 500)
+    b = rng.integers(1, 40, 500)
+    X = pd.DataFrame({"a": a, "b": b})
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        report = discover_structure(X, np.stack([a, b], axis=1))
+    assert len(report.relations) == 0
+    assert report.skipped is not None
+    assert any("2D" in str(wi.message) or "multi-target" in str(wi.message) for wi in w)
+
+
+def test_robustness_tiny_frame_no_crash():
+    rng = _rng(8)
+    X = pd.DataFrame({"a": rng.integers(0, 5, 30), "b": rng.integers(0, 5, 30)})
+    y = rng.integers(0, 2, 30)
+    report = discover_structure(X, y)  # must not raise
+    assert isinstance(report, StructureReport)
+
+
+def test_numpy_X_fallback():
+    rng = _rng(9)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    Xnp = np.column_stack([a, b, rng.normal(size=N)])
+    y = np.gcd(a, b)
+    report = discover_structure(Xnp, y)
+    assert report.relations
+    assert report.relations[0].kind == "gcd"
+    assert report.relations[0].columns == ("f0", "f1")  # positional names
+
+
+def test_human_readable_str_contains_columns_and_kind():
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=N)})
+    y = np.gcd(a, b)
+    report = discover_structure(X, y)
+    s = str(report)
+    assert "gcd" in s
+    assert "price" in s and "quantity" in s
+    assert "StructureReport" in s
+
+
+def test_top_k_cap():
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"price": a, "quantity": b, "c3": rng.integers(0, 8, N), "c4": rng.integers(0, 8, N)})
+    y = np.gcd(a, b)
+    report = discover_structure(X, y, top_k=2)
+    assert len(report.relations) <= 2
+
+
+def test_include_filter():
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=N)})
+    y = np.gcd(a, b)
+    report = discover_structure(X, y, include=("lattice",))
+    assert all(r.kind in ("gcd", "lcm", "bitwise_and") for r in report.relations)
+    assert any(r.kind == "gcd" for r in report.relations)
+
+
+def test_mrmr_discovered_structure_accessor():
+    """The fitted-MRMR ``discovered_structure_`` accessor reads the frozen FE recipes into a StructureReport."""
+    from mlframe.feature_selection.structure_discovery import structure_report_from_recipes
+    from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
+    recipes = [
+        EngineeredRecipe(name="il_gcd__p__q", kind="pairwise_integer_lattice", src_names=("p", "q"), extra={"op": "gcd"}),
+        EngineeredRecipe(name="pmod_sum__a__b__m7", kind="pairwise_modular", src_names=("a", "b"), extra={"op": "sum", "modulus": 7}),
+        EngineeredRecipe(name="gate_select__d__base__ten__t0.4", kind="conditional_gate", src_names=("d", "base", "ten"),
+                         extra={"mode": "select", "tau": 0.4}),
+        EngineeredRecipe(name="argmax__x0__x1__x2", kind="row_argmax", src_names=("x0", "x1", "x2")),
+        EngineeredRecipe(name="orth_he2__c", kind="orth_univariate", src_names=("c",), extra={"basis": "hermite", "degree": 2}),
+    ]
+    report = structure_report_from_recipes(recipes, n_columns=10)
+    kinds = {r.kind for r in report.relations}
+    assert kinds == {"gcd", "modular", "gate_select", "argmax"}  # orth_univariate is not a structural FE kind -> excluded
+    gcd = next(r for r in report.relations if r.kind == "gcd")
+    assert gcd.columns == ("p", "q")
+    mod = next(r for r in report.relations if r.kind == "modular")
+    assert mod.parameter == 7.0

@@ -28,6 +28,11 @@ from mlframe.feature_selection.compare_selectors import (
     compare_selectors,
     SelectorComparison,
 )
+from mlframe.feature_selection.structure_discovery import (
+    discover_structure,
+    StructureReport,
+    DiscoveredRelation,
+)
 
 __all__ = [
     # general
@@ -47,4 +52,8 @@ __all__ = [
     # read-only diagnostics: compare what each selector keeps (agreement / Jaccard / consensus)
     "compare_selectors",
     "SelectorComparison",
+    # structure discovery / EDA: surface hidden discrete relationships (gcd / modular / regime-switch / argmax) in (X, y)
+    "discover_structure",
+    "StructureReport",
+    "DiscoveredRelation",
 ]

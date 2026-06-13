@@ -4030,6 +4030,21 @@ class MRMR(BaseEstimator, TransformerMixin):
             names += [cand.name for cand in self._usability_union_extra(names)]
         return np.asarray(names, dtype=object)
 
+    @property
+    def discovered_structure_(self):
+        """Read-only EDA view of the discrete STRUCTURAL relationships the four FE detectors found during ``fit`` (modular / lattice /
+        argmax / conditional-gate). Assembled near-free from the frozen ``_engineered_recipes_`` metadata (op / modulus / tau / src_names)
+        the operators already emitted -- no re-scan, no y. Returns a :class:`~mlframe.feature_selection.structure_discovery.StructureReport`;
+        MI / lift are ``nan`` here (the fit did not freeze the scan's MI), the kind + columns + parameter are exact. For MI / lift, call the
+        standalone ``discover_structure(X, y)`` instead."""
+        from ...structure_discovery import structure_report_from_recipes
+
+        recipes = getattr(self, "_engineered_recipes_", []) or []
+        if isinstance(recipes, dict):
+            recipes = list(recipes.values())
+        n_cols = int(getattr(self, "n_features_in_", 0) or 0)
+        return structure_report_from_recipes(recipes, n_columns=n_cols)
+
     def _usability_union_extra(self, base_names):
         """Ordered ``UsableCandidate`` list from ``support_linear_`` + ``support_universal_`` whose name
         is NOT already present in ``base_names`` (the pure-MI transform output), deduped across the two
