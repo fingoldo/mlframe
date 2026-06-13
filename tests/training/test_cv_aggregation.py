@@ -132,6 +132,14 @@ def test_pareto_frontier_max_direction() -> None:
     assert front == [2, 3, 4]
 
 
+def test_pareto_frontier_equal_mean_excludes_dominated_higher_std() -> None:
+    # Two points share the mean; the higher-std one is strictly dominated and must be dropped.
+    # Pre-fix argsort kept both (it only rejected domination by a strictly-better-mean predecessor).
+    assert compute_pareto_frontier([(0.1, 0.5), (0.1, 0.2)], mean_direction="min") == [1]
+    assert compute_pareto_frontier([(0.1, 0.2), (0.1, 0.5)], mean_direction="min") == [0]
+    assert compute_pareto_frontier([(0.1, 0.5), (0.1, 0.2)], mean_direction="max") == [1]
+
+
 def test_pareto_frontier_empty() -> None:
     assert compute_pareto_frontier([], mean_direction="min") == []
 

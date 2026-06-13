@@ -187,6 +187,8 @@ def compute_pareto_frontier(
 
     O(T log T) via mean-sort + running best-std scan. For ``mean_direction="min"`` we sort
     ascending by mean and keep points whose std improves; for ``"max"`` we sort descending.
+    Mean ties are broken by ascending std so the lower-std point is scanned first and the
+    higher-std equal-mean point is correctly rejected as dominated.
     """
     if len(points) == 0:
         return []
@@ -197,7 +199,7 @@ def compute_pareto_frontier(
 
     means = arr[:, 0]
     stds = arr[:, 1]
-    order = np.argsort(means) if mean_direction == "min" else np.argsort(-means)
+    order = np.lexsort((stds, means)) if mean_direction == "min" else np.lexsort((stds, -means))
     best_std = np.inf
     keep: list[int] = []
     for idx in order:
