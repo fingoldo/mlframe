@@ -137,12 +137,21 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     """Squared Pearson correlation of ``v`` with a pre-centered ``y`` whose
     sum-of-squares is ``y_ss``. Avoids ``np.corrcoef`` (2x2-matrix build + two
     std passes) -- a direct centered dot product. Returns 0.0 on a degenerate
-    ``v``."""
-    vc = v - v.mean()
-    v_ss = float(vc @ vc)
+    ``v``.
+
+    Computes the centered SS / numerator from RAW ``v`` dot products so no
+    length-n ``v - v.mean()`` temporary is allocated (~1.2-2.2x faster on the
+    hot periodogram path, scene train-slice sizes): ``v_ss = v@v - sum(v)^2/n``,
+    and ``num = v @ y_centered`` is IDENTITY-equal to the centered ``vc @ y_centered``
+    because ``y_centered`` sums to zero (the ``v.mean()*sum(y_centered)`` cross
+    term vanishes). The reduction-order shift is ~1e-15 (single ULP), far below
+    any selection-altering scale."""
+    n = v.shape[0]
+    sv = float(v.sum())
+    v_ss = float(v @ v) - sv * sv / n
     if v_ss < 1e-24 or y_ss < 1e-24:
         return 0.0
-    num = float(vc @ y_centered)
+    num = float(v @ y_centered)
     return (num * num) / (v_ss * y_ss)
 
 
@@ -330,6 +339,13 @@ def _detect_fourier_freqs_for_col(
     # on z, not y, so deflation iterations reuse them (cProfile: the per-freq
     # np.sin/np.cos + np.corrcoef was the dominant cost at p=200; this drops
     # the coarse sweep to a centered dot product per cached basis).
+    # bench-attempt-rejected (2026-06-13): batching the coarse-basis build (and the
+    # refine-peak scan) into one ``np.outer`` + matrix ``np.sin``/``np.cos`` eval LOSES
+    # at the scene train-slice sizes -- the m*n temporary's allocation + memory-bandwidth
+    # cost dominates the saved per-call overhead (0.5-0.7x at n>=1100, only winning at
+    # n~533), and the ``axis=1`` reduction shifts power by ~1e-12. benches:
+    # profiling/bench_coarse_basis_batched.py, profiling/bench_refine_peak_batched.py.
+    # The shipped win is the per-call no-alloc rewrite of ``_corr_sq_centered`` instead.
     _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
     for f in grid:
         ang = 2.0 * np.pi * f * z_tr

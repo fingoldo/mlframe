@@ -1764,6 +1764,8 @@ production-scale bugs that the fuzz-cell loop missed:
 
 | 47 | `_wavelet_basis_fe._binned_mi` (mlframe-OWN tottime 0.602s / **6370 calls**, scene-2500 MRMR; discretize_2d=iter44/cupy-gate=GPU/`_conditional_perm_null`=iter45/`_renumber_joint`=iter46 all excluded). The held-out wavelet scale-selection's plug-in MI built its contingency table with an O(\|fa\|*\|yb\|*n) double loop -- one full-length `np.mean(mask_a & (yb==b))` boolean reduction per (a,b) cell -- recomputing an O(n) mask for every cell | replaced the cell-by-cell mask scan with a single `np.bincount` over the dense joint code `fa_inv*n_b + yb_inv`, then derived the marginals by axis-sum; the row-major (a asc, b asc) over-nonzero-pab summation order + the count/n float64 plug-in arithmetic are preserved, so BIT-IDENTICAL by construction (0.0 abs diff over 400 random ternary/discrete/continuous configs). Isolated **2.64x** (293.7->111.3 ms / 400 calls); end-to-end MRMR selection BIT-IDENTICAL (83 selected / 6 engineered, identical column set). bench: `_benchmarks/bench_binned_mi_hist.py` | `b9f5283a` |
 
+| 48 | `_orth_extra_basis_fe._corr_sq_centered` (the periodogram-power leaf of the adaptive-Fourier detector; called from `_power_centered`=13860 calls + `_periodogram_power` + the coarse sweep, child of `_detect_fourier_freqs_for_col` 1.03s-own/630 calls, scene-2500 MRMR; discretize_2d=iter44 / cupy-gate=GPU / `_conditional_perm_null`=iter45 / `_renumber_joint`=iter46 / `_binned_mi`=iter47 all excluded). Each call allocated a length-n `vc = v - v.mean()` temporary purely to derive the centered SS + numerator | rewrote to compute both from RAW dots: `v_ss = v@v - sum(v)^2/n` and `num = v @ y_centered` (IDENTITY-equal to `vc @ y_centered` because `y_centered` sums to zero, so the `v.mean()*sum(yc)` cross term vanishes) -- no length-n temporary. Isolated **1.16-2.18x** (n=533/1100/1667/3333 train-slices); reduction-order shift ~1e-15 (single ULP, far below selection scale); end-to-end MRMR selection BIT-IDENTICAL (83 selected / 6 engineered, identical column set; Fourier byte-for-byte replay test green). REJECTED sub-attempts: matrix-batched coarse-basis build + matrix-batched refine-peak scan -- both LOSE at scene train-slice sizes (m*n temporary alloc + memory bandwidth, 0.5-0.7x at n>=1100; ~1e-12 axis=1 reduction shift). benches: `profiling/bench_corr_sq_noalloc.py` (shipped), `profiling/bench_coarse_basis_batched.py` + `profiling/bench_refine_peak_batched.py` (rejected) | `PENDING` |
+
 **Production-scale profile signal:**
 
 | n_rows | wall | mlframe-OWN tottime | % |
@@ -1783,5 +1785,5 @@ the machine's 16 GB RAM ceiling is the binding constraint, not
 mlframe code. Loop continues -- 4 RESOLVED in this iter group,
 0 REJECT.
 
-Streak: 0/100 (iter47 RESOLVED -- reset). **Cumulative loop wave: 21 RESOLVED, 27 REJECT
-across 47 iterations.**
+Streak: 0/100 (iter48 RESOLVED -- reset). **Cumulative loop wave: 22 RESOLVED, 27 REJECT
+across 48 iterations.**
