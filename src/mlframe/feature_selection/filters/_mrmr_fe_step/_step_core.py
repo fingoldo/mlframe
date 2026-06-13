@@ -94,6 +94,19 @@ def _run_fe_step(
     )
     if _prevalence_debias_auto:
         fe_min_pair_mi_prevalence = 1.05
+    # SYNERGY prevalence "auto" (conversion #3, 2026-06-13): the synergy-pair bar
+    # (``max(fe_min_pair_mi_prevalence, fe_synergy_min_prevalence)``, default 1.5) gates the
+    # bootstrap-added synergy operands. "auto" activates the SAME MM-debias mechanism for the
+    # prevalence comparison and resolves the bar to its 1.5 default float -- so a synergy pair is
+    # admitted only when its DEBIASED joint MI clears 1.5x the marginal sum, tightening against the
+    # finite-sample noise that a fixed 1.5 on the RAW MI lets through. ``_synergy_prev_resolved`` is
+    # the float used at the gate; an explicit float (incl. the 1.15/1.5 defaults) is honoured verbatim.
+    _synergy_prev_raw = getattr(self, "fe_synergy_min_prevalence", 1.15)
+    if isinstance(_synergy_prev_raw, str) and _synergy_prev_raw.strip().lower() == "auto":
+        _prevalence_debias_auto = True  # share the prevalence-comparison debias (consistent mechanism)
+        _synergy_prev_resolved = 1.5
+    else:
+        _synergy_prev_resolved = float(_synergy_prev_raw)
     # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
     # binding -> any top-level ``from .mrmr import ...`` here creates a hard
     # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
@@ -694,7 +707,7 @@ def _run_fe_step(
                 )
                 _prev_thresh = fe_min_pair_mi_prevalence
                 if _is_synergy_pair:
-                    _prev_thresh = max(fe_min_pair_mi_prevalence, float(getattr(self, "fe_synergy_min_prevalence", 1.15)))
+                    _prev_thresh = max(fe_min_pair_mi_prevalence, _synergy_prev_resolved)
                 # ORDER-2 maxT floor (computed once above) applied IN ADDITION to the
                 # per-pair prevalence gate: the pair's JOINT MI must clear the pool's
                 # permutation-null max as well, rejecting best-of-p chance-max noise

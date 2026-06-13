@@ -115,7 +115,12 @@ gates can be migrated safely. Each conversion is benched BOTH directions (does i
    reproducible -- benches MUST hold the train/test split fixed across configs; multi-seed averages over
    the genuine data-dependence, not over RNG noise. (The requested "root RNG-instability fix" was found
    UNNECESSARY -- the system is already correctly seeded; no spurious change made.)
-2. `fe_synergy_min_prevalence` (HIGH) -- CV permutation null on the synergy ratio.
+2. `fe_synergy_min_prevalence` (HIGH) -- DONE: accepts `"auto"`, which keeps the 1.5 synergy bar but
+   shares the prevalence MM-debias mechanism (a synergy pair is admitted only when its DEBIASED joint
+   MI clears 1.5x the marginal sum). Multi-seed bench (bilinear, fixed split) gives the SAME result as
+   prevalence "auto" (mean 1.5=0.162 vs auto=0.127, ~22% data-averaged win, no-harm additive), since
+   both route through the same debiased comparison. Shipped OPT-IN; explicit float byte-identical. Test
+   `test_adaptive_prevalence.py::test_auto_synergy_prevalence_runs_and_no_harm_additive`.
 3. `fe_escalation_pairness_margin` (HIGH, 5.7%) -- fold-adaptive null margin.
 4. `fe_stability_vote_k` (MED) -- DONE: `resolve_adaptive_vote_k` (`_fe_stability_vote.py`) accepts
    `"auto"` = n-floored guarded K (== 5 for n>=500, downward only for tiny n; explicit int incl. the

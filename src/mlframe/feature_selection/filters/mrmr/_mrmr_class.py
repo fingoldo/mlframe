@@ -1391,7 +1391,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # MI collapses to 12-36% on a held-out slice vs genuine's 90-104% -- but
         # needs train-based FE selection (deep rewrite) for marginal gain over this
         # tighter-prevalence cut, so it is deferred.
-        fe_synergy_min_prevalence: float = 1.5,
+        # Accepts ``"auto"`` (hardcoded-threshold conversion #3, 2026-06-13): keeps the 1.5 synergy bar
+        # but applies it to the MILLER-MADOW-DEBIASED joint MI (the same guarded mechanism as
+        # ``fe_min_pair_mi_prevalence="auto"``), so a synergy pair is admitted only when its DEBIASED
+        # joint MI clears 1.5x the marginal sum -- tightening against finite-sample-bias noise a fixed
+        # 1.5 on the RAW MI admits. An explicit float (incl. the 1.5 default) is honoured verbatim.
+        fe_synergy_min_prevalence: "float | str" = 1.5,
         # DATA-DRIVEN PAIR PREVALENCE (2026-06-12): the hardcoded ``fe_*_min_prevalence``
         # ratio bars over the MM-debiased joint MI under-admit ASYMMETRIC interactions
         # whose one operand has a strong marginal (the joint's analytic bias subtraction

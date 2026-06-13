@@ -21,7 +21,7 @@ import pytest
 from tests.feature_selection.conftest import is_fast_mode
 
 
-def _fit_linear_mae(prevalence, df, y, seed=0):
+def _fit_linear_mae(prevalence, df, y, seed=0, *, synergy=None):
     from mlframe.feature_selection.filters import MRMR
     from sklearn.linear_model import LinearRegression
     from sklearn.preprocessing import StandardScaler
@@ -33,10 +33,12 @@ def _fit_linear_mae(prevalence, df, y, seed=0):
     tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n):]
     Xtr, Xte = df.iloc[tr].reset_index(drop=True), df.iloc[te].reset_index(drop=True)
     ytr, yte = np.asarray(y)[tr], np.asarray(y)[te]
+    kw = dict(verbose=0, random_seed=seed, fe_min_pair_mi_prevalence=prevalence)
+    if synergy is not None:
+        kw["fe_synergy_min_prevalence"] = synergy
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=seed, fe_min_pair_mi_prevalence=prevalence).fit(
-            X=Xtr, y=pd.Series(ytr, name="y"))
+        fs = MRMR(**kw).fit(X=Xtr, y=pd.Series(ytr, name="y"))
     Ztr = fs.transform(Xtr).apply(lambda s: pd.to_numeric(s, errors="coerce")).fillna(0.0)
     Zte = fs.transform(Xte).apply(lambda s: pd.to_numeric(s, errors="coerce")).fillna(0.0)
     m = make_pipeline(StandardScaler(), LinearRegression()).fit(Ztr.values, ytr)
@@ -86,4 +88,23 @@ def test_auto_prevalence_does_not_harm_additive():
     # allow a tiny tolerance for nondeterministic FE ordering; "auto" must not be materially worse.
     assert mae_auto <= mae_fixed * 1.02 + 1e-3, (
         f"auto prevalence ({mae_auto:.4f}) degraded the additive target vs fixed 1.05 ({mae_fixed:.4f})"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_auto_synergy_prevalence_runs_and_no_harm_additive():
+    """fe_synergy_min_prevalence="auto" shares the prevalence MM-debias mechanism (verified to give the
+    same multi-seed mean win on bilinear as fe_min_pair_mi_prevalence="auto"); here we pin that it is
+    accepted, fits, and does not degrade the additive target vs the fixed 1.5 default."""
+    n = 6000
+    rng = np.random.default_rng(0)
+    a, b, c, d, e, f = (rng.random(n) for _ in range(6))
+    y = 1.5 * a + 1.0 * c - 0.7 * d + f / 5.0
+    df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
+    mae_fixed = _fit_linear_mae(1.05, df, y, synergy=1.5)
+    mae_auto = _fit_linear_mae(1.05, df, y, synergy="auto")
+    assert np.isfinite(mae_auto)
+    assert mae_auto <= mae_fixed * 1.02 + 1e-3, (
+        f"auto synergy ({mae_auto:.4f}) degraded the additive target vs fixed 1.5 ({mae_fixed:.4f})"
     )
