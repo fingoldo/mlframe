@@ -39,6 +39,16 @@ from .utils import (
 logger = logging.getLogger("mlframe.training.core.predict")
 
 
+def _resolve_float_ensemble_flavour(metadata: Any) -> str:
+    """Flavour for the float (regression / quantile) member aggregation. Defaults to ``"mean"`` (legacy raw
+    average -- optimal when folds are clean). ``"robust"`` (MAD-gated mean) is available via a stamped
+    metadata key for outlier-fold protection, but is NOT the default: at small K the 3.5-MAD gate over-fires
+    on normal fold spread and costs ~6% RMSE in the clean regime, so robustness is opt-in per the bench."""
+    if isinstance(metadata, dict):
+        flavour = metadata.get("float_ensemble_flavour")
+        if isinstance(flavour, str) and flavour:
+            return flavour
+    return "mean"
 
 
 def predict_mlframe_models_suite(
@@ -510,7 +520,10 @@ def predict_mlframe_models_suite(
         # surfaced by the 1M regression x lgb predict profile).
         _stacked = np.stack(all_preds)
         if np.issubdtype(_stacked.dtype, np.floating):
-            results["ensemble_predictions"] = _stacked.mean(axis=0)
+            from mlframe.models.ensembling import combine_float_predictions
+            results["ensemble_predictions"] = combine_float_predictions(
+                _stacked, flavour=_resolve_float_ensemble_flavour(metadata),
+            )
         else:
             ensemble_preds, _ = stats.mode(_stacked, axis=0)
             results["ensemble_predictions"] = ensemble_preds.flatten()

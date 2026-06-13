@@ -59,6 +59,10 @@ from .predict import (  # noqa: E402,F401
 )
 from .process_method import _process_single_ensemble_method  # noqa: E402,F401
 from .score import score_ensemble  # noqa: E402,F401
+from .float_aggregation import (  # noqa: E402,F401
+    combine_float_predictions,
+    robust_float_ensemble,
+)
 
 
 class EnsembleLeaderboard:

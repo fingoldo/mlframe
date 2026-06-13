@@ -637,7 +637,11 @@ def predict_from_models(
         # point had the same regression-via-mode bug.
         _stacked = np.stack(all_preds)
         if np.issubdtype(_stacked.dtype, np.floating):
-            results["ensemble_predictions"] = _stacked.mean(axis=0)
+            from mlframe.models.ensembling import combine_float_predictions
+            from ._predict_main_suite import _resolve_float_ensemble_flavour
+            results["ensemble_predictions"] = combine_float_predictions(
+                _stacked, flavour=_resolve_float_ensemble_flavour(metadata),
+            )
         else:
             ensemble_preds, _ = stats.mode(_stacked, axis=0)
             results["ensemble_predictions"] = ensemble_preds.flatten()
