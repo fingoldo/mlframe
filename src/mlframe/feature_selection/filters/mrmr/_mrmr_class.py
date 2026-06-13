@@ -1614,7 +1614,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Bump to 2 only if your domain has known cubic-in-each-leg
         # 3-way interactions; otherwise the deg-1 cell carries every
         # multiplicative 3-way target the literature pins.
-        fe_hybrid_orth_triplet_enable: bool = False,
+        # DEFAULT ON (2026-06-13): the seed_k cap keeps it bounded (C(seed_k,3) triplets, a handful of
+        # candidates regardless of p), and the replay P0 (per-leg preprocess refit) is now fixed. Bench:
+        # on a genuine 3-way a*b*c target the linear downstream goes 0.094 -> 0.049 (the floor) because
+        # it finally gets the a*b*c feature, with NO harm on an additive target and ~negligible fit cost.
+        # Set False to restore the pre-2026-06-13 behaviour (no triplet-cross candidates).
+        fe_hybrid_orth_triplet_enable: bool = True,
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
         fe_hybrid_orth_triplet_top_count: int = 2,
@@ -1629,7 +1634,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # quadruplet * deg^4 cells; seed_k=5 yields C(5,4)=5 quadruplets
         # * deg^4 cells (~80 candidates at deg=2). Recipe kind
         # ``orth_quadruplet_cross``; replay reads X only, no y.
-        fe_hybrid_orth_quadruplet_enable: bool = False,
+        # DEFAULT ON (2026-06-13): bounded by seed_k (C(seed_k,4) quadruplets -- 1 at seed_k=4), replay
+        # P0 fixed, captures genuine 4-way interactions a linear model cannot otherwise form. Set False
+        # to restore the pre-2026-06-13 behaviour.
+        fe_hybrid_orth_quadruplet_enable: bool = True,
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
         fe_hybrid_orth_quadruplet_seed_k: int = 4,
         fe_hybrid_orth_quadruplet_top_count: int = 2,
