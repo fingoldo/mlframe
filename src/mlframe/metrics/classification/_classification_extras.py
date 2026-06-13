@@ -95,6 +95,33 @@ def _confusion_counts_binary_dispatch(y_true: np.ndarray, y_pred: np.ndarray) ->
     return _confusion_counts_binary(yt, yp)
 
 
+def precision_recall_f1_from_counts(tp: int, fp: int, fn: int) -> Tuple[float, float, float]:
+    """Precision / Recall / F1 derived from confusion counts (no data pass).
+
+    Bit-identical to ``compute_pr_recall_f1_metrics`` by construction (same
+    closed form on the same TP/FP/FN). Lets a caller that already holds the
+    binary confusion counts skip a second full-n scan over the same arrays.
+    """
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    return precision, recall, f1
+
+
+def matthews_corrcoef_from_counts(tp: int, fp: int, tn: int, fn: int) -> float:
+    """MCC derived from confusion counts (no data pass). Bit-identical to
+    ``matthews_corrcoef_binary`` -- same closed form on the same counts."""
+    num = float(tp) * tn - float(fp) * fn
+    d1 = tp + fp
+    d2 = tp + fn
+    d3 = tn + fp
+    d4 = tn + fn
+    if d1 == 0 or d2 == 0 or d3 == 0 or d4 == 0:
+        return 0.0
+    denom = sqrt(float(d1) * d2 * d3 * d4)
+    return num / denom
+
+
 # ---------- KS statistic ----------
 
 # Below this n the fused-gather kernel (indexes through ``order`` inline, no gather temporaries) reliably wins 1.05-1.7x; above it the saving is noise-band. Retune per hardware.
@@ -260,15 +287,7 @@ def matthews_corrcoef_binary(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     when one row or column of the confusion matrix is all zeros).
     """
     tp, fp, tn, fn = _confusion_counts_binary_dispatch(y_true, y_pred)
-    num = float(tp) * tn - float(fp) * fn
-    d1 = tp + fp
-    d2 = tp + fn
-    d3 = tn + fp
-    d4 = tn + fn
-    if d1 == 0 or d2 == 0 or d3 == 0 or d4 == 0:
-        return 0.0
-    denom = sqrt(float(d1) * d2 * d3 * d4)
-    return num / denom
+    return matthews_corrcoef_from_counts(tp, fp, tn, fn)
 
 
 # ---------- Cohen's kappa (binary) ----------

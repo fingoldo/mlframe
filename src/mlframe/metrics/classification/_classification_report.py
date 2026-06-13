@@ -324,26 +324,28 @@ def fast_calibration_report(
         ll = None
 
     _y_pred_thr = y_pred >= binary_threshold
-    precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=_y_pred_thr)
 
-    # 2026-05-28 audit batch: compute KS / MCC / BSS / GINI for the new
-    # title tokens. Each is cheap (<3% added wall vs the historical block):
-    # - KS:   one argsort + scan
-    # - MCC:  derived from the same threshold-binned (TP, FP, TN, FN) counts
-    # - BSS:  closed form on (brier_loss, base_rate)
-    # - GINI: 2 * ROC_AUC - 1
-    # All gated by a narrow try-block so degenerate inputs (single-class
-    # row / shape mismatch) emit N/A and the rest of the render survives.
+    # KS / MCC / BSS title tokens. KS is one argsort+scan (reuses the AUC desc order when present);
+    # MCC + the precision/recall/f1 family both derive from one shared binary confusion-counts pass.
+    # KS/MCC/BSS stay gated by a narrow try-block so degenerate inputs emit N/A and the render survives.
     ks_val = float("nan")
     mcc_val = float("nan")
     bss_val = float("nan")
+    # Single binary confusion-counts pass over (y_true, _y_pred_thr) feeds BOTH the
+    # precision/recall/f1 family and MCC -- previously two independent full-n scans
+    # over the identical arrays. P/R/F1/MCC are pure closed forms on the same
+    # (TP, FP, TN, FN), so deriving them is bit-identical by construction.
+    from ._classification_extras import (
+        ks_statistic, brier_skill_score,
+        _confusion_counts_binary_dispatch,
+        precision_recall_f1_from_counts, matthews_corrcoef_from_counts,
+    )
+    _yt_int = np.asarray(y_true).astype(np.int64, copy=False)
+    _tp, _fp, _tn, _fn = _confusion_counts_binary_dispatch(_yt_int, _y_pred_thr)
+    precision, recall, f1 = precision_recall_f1_from_counts(_tp, _fp, _fn)
     try:
-        from ._classification_extras import (
-            ks_statistic, matthews_corrcoef_binary, brier_skill_score,
-        )
-        _yt_int = np.asarray(y_true).astype(np.int64, copy=False)
         ks_val = ks_statistic(_yt_int, y_pred, desc_order=_auc_desc_order)
-        mcc_val = matthews_corrcoef_binary(_yt_int, np.asarray(_y_pred_thr).astype(np.int64, copy=False))
+        mcc_val = matthews_corrcoef_from_counts(_tp, _fp, _tn, _fn)
         bss_val = brier_skill_score(_yt_int, y_pred)
     except (ValueError, TypeError, FloatingPointError) as _ext_err:
         logger.debug("title-token extras (KS/MCC/BSS) skipped: %s", _ext_err)

@@ -288,6 +288,36 @@ def test_mcc_all_one_class_returns_zero():
     assert matthews_corrcoef_binary(y, p) == pytest.approx(0.0)
 
 
+def test_shared_confusion_counts_derivations_bit_identical():
+    """fast_calibration_report derives precision/recall/f1 AND MCC from ONE shared
+    binary confusion-counts pass; the from-counts closed forms must be byte-identical
+    to the standalone full-pass kernels they replaced (compute_pr_recall_f1_metrics /
+    matthews_corrcoef_binary). Pins the de-duplication so a future refactor cannot
+    silently diverge the derived metrics."""
+    from mlframe.metrics.classification._classification_extras import (
+        _confusion_counts_binary_dispatch,
+        precision_recall_f1_from_counts,
+        matthews_corrcoef_from_counts,
+    )
+    from mlframe.metrics.classification._classification_report import compute_pr_recall_f1_metrics
+
+    rng = np.random.default_rng(7)
+    for n in (4, 100, 5000, 120000):
+        for prev in (0.05, 0.3, 0.5):
+            y = (rng.uniform(size=n) > (1 - prev)).astype(np.float64)
+            thr = rng.uniform(size=n) >= 0.5
+            yt_int = y.astype(np.int64)
+            tp, fp, tn, fn = _confusion_counts_binary_dispatch(yt_int, thr)
+
+            p_ref, r_ref, f_ref = compute_pr_recall_f1_metrics(y_true=y, y_pred=thr)
+            p_new, r_new, f_new = precision_recall_f1_from_counts(tp, fp, fn)
+            assert (p_new, r_new, f_new) == (p_ref, r_ref, f_ref)
+
+            mcc_ref = matthews_corrcoef_binary(yt_int, thr.astype(np.int64))
+            mcc_new = matthews_corrcoef_from_counts(tp, fp, tn, fn)
+            assert mcc_new == mcc_ref or (np.isnan(mcc_new) and np.isnan(mcc_ref))
+
+
 # ----- Cohen's kappa -----
 
 

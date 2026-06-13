@@ -1877,3 +1877,30 @@ Regression test `test_ks_shared_desc_order_bit_identical` (5 tie regimes incl. n
 `profiling/bench_ks_share_auc_desc_order.py`.
 
 Streak: 0/100 (iter54 RESOLVED -- streak reset). **Cumulative loop wave: 27 RESOLVED, 28 REJECT across 54 iterations.**
+
+---
+
+## iter55 -- `fast_calibration_report` shared binary confusion-counts pass (eliminate a duplicate full-n scan)
+
+Workload: SAME mlframe-own metric path as iter54 -- `fast_calibration_report`, the rich Python/numpy classification report called 4x per
+train-suite run. Continued here (vs the heavy full-train profilers, which timed out at 580s on this contended box) because it is a clean,
+fast-to-iterate, plain-Python/numpy mlframe-own path with a real end-to-end fraction. Profiled with `NUMBA_DISABLE_CUDA=1`; warm best-of bench
+at n=20k (CPU quicksort path, below the n=50k GPU-argsort gate, so the measurement is free of the hardware-relative cupy-argsort variance that
+swamps the n=100k wall on this box) AND n=100k for context.
+
+Top mlframe-OWN warm-isolated (100 iters / 100k): `fast_aucs_per_group_optimized` 6.31 ms (24.4%, GPU-argsort-gated -- NOT my target),
+`calibration_metrics_from_freqs` 6.03 ms (23.3% -- but warm steady-state microbench is 65 us; the report-bench figure was numba dispatch/recompile
+overhead, kernel itself already at floor), then the two binary-confusion consumers: `compute_pr_recall_f1_metrics` 0.11 ms own +
+`matthews_corrcoef_binary` -> `_confusion_counts_binary_dispatch` 0.50 ms own. Both make a FULL-n pass over the IDENTICAL `(y_true, _y_pred_thr)`.
+
+| iter | hotspot (tottime / ncalls, pure-Python confirm) | optimization + audit | before/after (isolated + e2e) | verdict |
+|---|---|---|---|---|
+| 55 | `fast_calibration_report` ran TWO independent full-n scans over the same `(y_true, _y_pred_thr)` binary arrays: `compute_pr_recall_f1_metrics` (njit TP/FP/FN counter, ~183 us/100k) for precision/recall/f1, and `matthews_corrcoef_binary` -> `_confusion_counts_binary_dispatch` (njit TP/FP/TN/FN counter, ~497 us/100k incl. int64 casts) for MCC. Confirmed plain njit element loops; the two scans are pure duplicated per-row work and both are a real fraction of the ~1.2 ms/call (n=20k) report wall. | Compute the binary confusion counts ONCE in the report (`_confusion_counts_binary_dispatch`), then derive BOTH metric groups via two new pure-closed-form helpers `precision_recall_f1_from_counts(tp,fp,fn)` and `matthews_corrcoef_from_counts(tp,fp,tn,fn)` (added to `_classification_extras.py`). `matthews_corrcoef_binary` refactored to call the new from-counts helper (zero behavior change for its other callers). Bit-identical BY CONSTRUCTION: P/R/F1/MCC are exact closed forms on the SAME (TP,FP,TN,FN), and `_confusion_counts_binary_dispatch` treats `!=0` as positive -- identical semantics to the old PRF1 kernel's `==1`-on-binary inputs. Audited callers: only `fast_calibration_report` wired to the shared pass; `compute_pr_recall_f1_metrics` + `matthews_corrcoef_binary` remain public + unchanged for all other callers. | ISOLATED: eliminates one full n-length confusion scan per report (the ~183 us PRF1 pass folds into the MCC pass that was already running). E2E `fast_calibration_report` warm best-of n=20k (CPU path, no GPU noise): BEFORE 1.257 -> AFTER 1.156 ms/call (**1.087x**, ~8%, stable across 3 runs each). Output BYTE-IDENTICAL vs origin/master across seeds {0,1,7,42} on all 15 numeric fields incl. P/R/F1/MCC, and the full `metrics_string` (diff IDENTICAL). | RESOLVED |
+
+Verdict: a clean cross-function redundant-pass elimination on the same iter54 report path, distinct lever (confusion counts, not argsort). The
+n=100k report wall is dominated by the hardware-relative cupy-argsort (high variance 4-5.5 ms, gated GPU path left intact per "skip GPU cupy"),
+so the stable measurement is the n=20k CPU path where the 8% e2e win reproduces reliably. Regression test
+`test_shared_confusion_counts_derivations_bit_identical` (n in {4,100,5000,120000} x prevalence {0.05,0.3,0.5}) pins both from-counts helpers
+byte-identical to the standalone kernels they fold into -- fails on pre-fix code (the helpers don't exist).
+
+Streak: 0/100 (iter55 RESOLVED -- streak reset). **Cumulative loop wave: 28 RESOLVED, 28 REJECT across 55 iterations.**
