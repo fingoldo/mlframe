@@ -107,8 +107,12 @@ def compute_probabilistic_multiclass_error(
         probs = y_score
     else:
         if len(y_score.shape) == 1:
-            y_score = np.vstack([1 - y_score, y_score]).T
-        probs = [y_score[:, i] for i in range(y_score.shape[1])]
+            # ``[1 - y_score, y_score]`` directly: the prior ``vstack(...).T`` then re-sliced both columns out, allocating a
+            # transposed (n, 2) copy purely to undo it. Same two 1-D views, no transposed intermediate. (The binary path skips
+            # class 0 downstream, but the column is kept so ``len(probs)==2`` and the multilabel/non-binary contracts are unchanged.)
+            probs = [1 - y_score, y_score]
+        else:
+            probs = [y_score[:, i] for i in range(y_score.shape[1])]
 
     # Auto-detect multilabel from shape: a 2D y_true with width matching probs count is
     # an indicator matrix; caller can also set ``multilabel=True`` explicitly.
@@ -157,6 +161,11 @@ def compute_probabilistic_multiclass_error(
         and isinstance(y_true, np.ndarray)
         and y_true.ndim == 1
         and y_true.dtype.kind in ("i", "u")
+        # Cheap min/max pre-gate so the full O(n log n) ``np.unique`` is skipped on the common already-0..K-1 path. When
+        # ``min==0 and max==K-1`` the remap branch below provably cannot fire: any sorted-unique that spans [0, K-1] either
+        # has size==K (then it equals ``arange(K)`` so the ``!= arange`` test is False) or size<K (then the ``size==K`` test
+        # is False). Either way no remap -- skipping ``unique`` is bit-identical. Only out-of-range integer labels need the unique scan.
+        and not (y_true.size > 0 and y_true.min() == 0 and y_true.max() == len(probs) - 1)
     ):
         _uniq = np.unique(y_true)
         if _uniq.size == len(probs) and not np.array_equal(_uniq, np.arange(len(probs))):

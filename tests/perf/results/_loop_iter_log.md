@@ -2311,3 +2311,40 @@ filter tuples reference the module-level compiled regexes with `re.I`, and (b) s
 globals). Full module green: 22 passed.
 
 Streak: 0/100 (iter66 RESOLVED -- streak stays reset). **Cumulative loop wave: 40 RESOLVED, 28 REJECT across 67 iterations.**
+
+## Iter 68 -- 2026-06-14
+
+Fresh workload: the ICE scorer `compute_probabilistic_multiclass_error` (`metrics/_ice_metric.py`), wired as the DEFAULT `make_scorer(...)` for both MRMR
+(`_mrmr_fit_impl/_fit_impl_core.py`) and RFECV (`wrappers/rfecv/_fit_setup.py`) -- called per-feature-subset per-fold, a hot e2e path NOT tapped before
+(iters 43-67 covered MRMR core kernels / reports / discovery / RFECV aggregate / slice_finder / ensembling, never the scorer's Python orchestration).
+Harness `tests/perf/_iter68_profile.py` (binary K=1 + multiclass K=3 at n=20k, 4000 reps each).
+
+Top own-code (tottime, kernel-dominated): `compute_probabilistic_multiclass_error` 20.14s/21.67s (cumtime; the batched numba kernel is inside). Removable
+plain-Python overhead surfaced by ncalls: `numpy._unique_hash` 0.415s + `_unique1d`/`unique` 0.526cum + `array_equal` 0.068 + `arange`/`all` -- ALL from the
+non-0-indexed integer-label auto-detect block (lines 153-168) running a full `np.unique(y_true)` on EVERY K>2 call; plus `column_stack`/`vstack` 0.109s from the
+binary 1-D `np.vstack([1-y,y]).T` path. Both plain-Python/numpy, both per-call on the scorer's hottest callers.
+
+Hotspot: label-remap `np.unique` (4000 calls, O(n log n) sort discarded on the common already-0..K-1 path) + binary `vstack().T` (4000 calls, transposed
+(n,2) copy allocated then immediately re-sliced back into 2 columns). repo=mlframe. Audit (discarded-work): the remap sets `labels=_uniq` ONLY when
+`_uniq.size==K and _uniq != arange(K)`; the `vstack` builds 2 columns of which binary always skips class 0.
+
+Optimization (both bit-identical-by-construction):
+  1. Cheap min/max pre-gate `not (min==0 and max==K-1)` short-circuits the `np.unique` scan. Proof: a sorted-unique spanning [0,K-1] is either size==K (==arange(K),
+     so `!=arange` is False -> no remap) or size<K (`size==K` False -> no remap); skipping unique cannot change the result. Out-of-range labels still hit unique.
+  2. Binary 1-D builds `probs=[1-y, y]` directly instead of `np.vstack([1-y,y]).T` + 2 column re-slices -- same two 1-D arrays, no transposed intermediate.
+
+Before/after:
+  - Isolated identity: bin/mc3/mc5 ALL `identical=True` vs the HEAD baseline function (exec'd in the live package namespace); mc3==shift3 confirms the remap still
+    fires correctly on shifted labels [10,20,30].
+  - Wall A/B (UNCONTENDED box, best-of-trials, mc5+binary pair @ n=20k): baseline 3261.6 ms -> new 3187.4 ms = **+2.27% faster** (per-pair 6523->6375 us, ~148 us
+    saved). Light-bench cross-check (different reps) agreed: +3.73%. A CPU-time bench run mid-session under 6-way python contention read -13% -- discarded as a
+    contention artifact (work-removal cannot be slower in steady state; the uncontended wall A/B is the trustworthy measure, per "dev box can hide a win").
+    The win is a sub-pct slice of each call (numba kernel ~6ms dominates) but pure removable overhead that scales with n and compounds across the thousands of
+    scorer calls per MRMR/RFECV fit.
+
+Identity: BIT-IDENTICAL by construction (proven above for both transforms across binary / mc3 / mc5 / shifted-label / missing-class regimes). No numeric path touched.
+
+Regression test: `tests/metrics/test_ice_metric_iter68_fastpaths.py` -- 4 sensors pinning output identity: binary-1d==2col, shifted-labels remap still fires,
+gate-skip==explicit-labels path (k=3,5), missing-middle-class full-range no-remap. All pass; existing `test_ice_return_per_class.py` (8) green.
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 41 RESOLVED, 28 REJECT across 68 iterations.**
