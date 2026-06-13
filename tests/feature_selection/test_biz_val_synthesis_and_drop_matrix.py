@@ -71,6 +71,12 @@ _RAW_ONLY = dict(
     fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
     fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
     cluster_aggregate_enable=False, dcd_enable=False,
+    # The four discrete structural operators are default-ON; the raw baseline must disable them via the master switch,
+    # else a gate_/il_/pmod_/argmax_ feature leaks into "raw-only" and collapses the FE-vs-raw delta this matrix measures.
+    fe_discrete_structural_operators_enable=False,
+    # Same for the now-default-ON triplet/quadruplet cross-basis synthesizers, else the He1*He1*He1 XOR3 feature leaks
+    # into "raw-only" and the XOR3 delta collapses to ~0.
+    fe_hybrid_orth_triplet_enable=False, fe_hybrid_orth_quadruplet_enable=False,
 )
 # Full FE mode includes the 3-way cross-basis synthesizer (``fe_hybrid_orth_triplet_enable``); it stays a separate ctor opt-out because the triplet stage
 # runs regardless of fe_max_steps, so default-ON would add the seed_k-bounded O(C(k,3)) stage to EVERY fit. The pair-only synthesis families are byte-identical
@@ -145,9 +151,12 @@ _SYNTH_FAMILIES = [
     # 3-way XOR: recovered by the ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer (He1*He1*He1 cell), wired into _FE_FULL. Pair search alone misses it
     # (every pair MI is ~0); the triplet stage emits the single feature that carries the joint sign-product, and a linear downstream lifts to ~0.99 AUC.
     ("XOR3",         lambda X, r: X[:, 0] * X[:, 1] * X[:, 2],            0.0,      0.40,   None),
-    # --- documented GAP: FE machinery cannot synthesize this ---
+    # --- documented GAP: the shipped mod generator is INTEGER-only by design ---
     ("MODULAR",      lambda X, r: ((np.floor(X[:, 0] * 3).astype(int)) % 2).astype(float), 0.5, 0.10,
-     "FS GAP: cannot synthesize MODULAR/parity target (no mod generator; smooth basis cannot fit a sawtooth)"),
+     "FS GAP: the pairwise-modular operator is integer-only (a+b mod m / hidden integer period); this single CONTINUOUS "
+     "column's floor-then-parity is not covered -- binning a continuous column before mod is deliberately not generated "
+     "(it would re-introduce the FP-explosion the integer-only eligibility prevents), and real tabular parity-of-a-binned-"
+     "continuous structure is almost always an already-encoded categorical. Smooth bases still cannot fit the sawtooth."),
 ]
 
 
@@ -206,7 +215,10 @@ def test_synthesis_xor3_recovered_by_triplet_synthesizer():
     fe_auc, fe_names = _sel_auc(_FE_FULL, df, y)
     raw_auc, _ = _sel_auc(_RAW_ONLY, df, y)
     pair_auc, pair_names = _sel_auc(
-        dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False), df, y)
+        dict(fe_max_steps=2, cluster_aggregate_enable=False, dcd_enable=False,
+             # genuinely pair-only: disable the now-default-ON triplet/quad synthesizers so this baseline truly cannot
+             # form the 3-way feature (else the He1*He1*He1 column leaks in and the pair-vs-triplet contrast vanishes).
+             fe_hybrid_orth_triplet_enable=False, fe_hybrid_orth_quadruplet_enable=False), df, y)
     print(f"XOR3 triplet FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} pair_auc={pair_auc:.3f} fe_names={fe_names[:4]}")
     assert fe_auc > 0.90, f"triplet synthesizer must carry 3-way XOR (FE_auc={fe_auc:.3f}); names={fe_names}"
     assert fe_auc - raw_auc >= 0.40, f"triplet FE must beat raw-only by >=0.40 on 3-way XOR; got {fe_auc - raw_auc:+.3f}"
