@@ -1932,3 +1932,32 @@ are each a single necessary rank pass on distinct inputs -- no further free dupl
 fails on pre-fix code only if the derivation drifts.
 
 Streak: 0/100 (iter56 RESOLVED -- streak reset). **Cumulative loop wave: 29 RESOLVED, 28 REJECT across 56 iterations.**
+
+## iter57 -- residual-audit `_spearman_corr` ranks via one argsort + scatter (kill the double-argsort)
+
+Workload: SAME mlframe-own pool as iter56 -- `report_regression_model_perf` e2e at n=20k via `profiling/profile_regression_report.py`
+(print_report/chart off). Profiled warm, 60 reps, `NUMBA_DISABLE_CUDA=1`, contended box.
+
+Top mlframe-OWN-relevant warm-isolated (cProfile, 60 reps / n=20k, pre-fix): `numpy.argsort` 0.385s tottime / **480 calls (8/report)** is the single
+dominant frame, `pyutilz.stats.normality.normality_verdict` 0.120s (residual-audit, GPU/sort mix -- not pure-Python), `scipy.stats.kendalltau`
+0.147s cumtime, `numpy.partition` 0.037s (mdape median), `_spearmanr_batched_numpy` 0.239s cumtime (scipy rankdata), `audit_residuals` 0.314s
+cumtime, `_spearman_corr` 0.138s cumtime / 60 calls (the residual-audit heteroscedasticity Spearman). The 480 argsorts decompose as: 4/report from
+`_spearman_corr` (`argsort(argsort(x))` on x AND y = 2 sorts each), the rest from scipy `_rankdata` (report Spearman + Kendall) and mdape.
+
+Hotspot: `_spearman_corr` (residual_audit:252) computed ordinal ranks via `np.argsort(np.argsort(x))` -- a DOUBLE sort -- for BOTH x and y. The inner
+sort yields the order permutation; the outer sort inverts it to ranks. The inversion is a scatter, not a sort: `ranks[argsort(x)] = arange(n)` gives
+the identical 0-based ordinal ranks with HALF the sorting work. Pure plain-Python/numpy; moves e2e (the audit-spearman is ~1.4 ms of the ~12 ms report).
+
+| iter | hotspot (tottime / ncalls, pure-Python confirm) | optimization + audit | before/after (isolated + e2e) | verdict |
+|---|---|---|---|---|
+| 57 | `regression_residual_audit._spearman_corr` ranked both args with `np.argsort(np.argsort(x))` (numpy double-sort), 4 argsorts / audit, 60 audits / 60 reps in the profile. The outer argsort only INVERTS the order permutation to ranks -- that inversion is a scatter (`ranks[order]=arange(n)`), not a second sort. Pure discarded work: half the sorting. | New `_ranks_via_scatter(x)` helper: `order=argsort(x); ranks[order]=arange(n)`. Byte-identical to `argsort(argsort(x)).astype(f64)` on continuous (pure ordinal), tied (both forms break ties by argsort's stable position, identically), and constant inputs. `_spearman_corr` now calls it for x and y. No public API change. | ISOLATED rank(20k): double-argsort 634.8 us -> single argsort+scatter 307.4 us = **2.07x**, 2 such calls/audit. `_spearman_corr` cumtime 0.138s -> 0.056s (60 calls). argsort frame 480 calls/0.385s -> 360 calls/0.282s. E2E report warm best-of-8 (n=20k, 40 reps): 12.3 -> 9.81 ms/call (box-noisy; profile-mode 12.29 -> 9.91). Output BYTE-IDENTICAL: `_spearman_corr` == double-argsort reference across seeds {0,1,7,42} x n {2,3,100,5000,20000} + tied + constant inputs. | RESOLVED |
+
+Verdict: a clean caller-discards-recompute elimination (CLAUDE.md "audit hot kernels for wasted per-call work") on the iter56 report path -- the
+audit's heteroscedasticity Spearman paid for a second full sort it threw away. Distinct lever from iters 54/55/56 (residual-audit ordinal ranking,
+not classification argsort/confusion nor Kendall recompute). Regression test `test_spearman_corr_single_sort_byte_identical_to_double_argsort`
+pins the single-sort ranks byte-identical to the canonical double-argsort form (continuous/tied/constant/short-circuit). Note: the same
+`argsort(argsort(...))` shape exists at other sites (model_card/model_comparison charts, composite discovery) but none are on this profiled hot
+report path; left untouched this pass (some need average-rank tie semantics per the 2026-06-10 composite audit S22 -- a correctness change, not this
+byte-identical perf change).
+
+Streak: 0/100 (iter57 RESOLVED -- streak reset). **Cumulative loop wave: 30 RESOLVED, 28 REJECT across 57 iterations.**

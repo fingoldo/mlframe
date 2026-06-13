@@ -249,14 +249,26 @@ def _sample(arr: np.ndarray, size: int, seed: int = 0) -> np.ndarray:
     return arr[idx]
 
 
+def _ranks_via_scatter(x: np.ndarray) -> np.ndarray:
+    """Ordinal ranks (0-based) of ``x`` via one argsort + a scatter, instead of the
+    ``argsort(argsort(x))`` double-sort. One sort produces the order permutation; scattering
+    positional indices back through it yields the same ranks with half the sorting work.
+    Bit-identical to ``np.argsort(np.argsort(x)).astype(np.float64)`` (no ties: pure ordinal
+    ranking; ties: both forms break them by argsort's stable position, identically)."""
+    order = np.argsort(x)
+    ranks = np.empty(x.size, dtype=np.float64)
+    ranks[order] = np.arange(x.size, dtype=np.float64)
+    return ranks
+
+
 def _spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
     """Spearman rank correlation. Self-contained (no scipy dep) so the
     audit doesn't add a new mandatory import; same definition as
     ``scipy.stats.spearmanr``."""
     if x.size < 3:
         return 0.0
-    rx = np.argsort(np.argsort(x)).astype(np.float64)
-    ry = np.argsort(np.argsort(y)).astype(np.float64)
+    rx = _ranks_via_scatter(x)
+    ry = _ranks_via_scatter(y)
     rx -= rx.mean()
     ry -= ry.mean()
     denom = math.sqrt(float((rx ** 2).sum())) * math.sqrt(float((ry ** 2).sum()))

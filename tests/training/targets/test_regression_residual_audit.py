@@ -409,3 +409,42 @@ def test_plot_handles_too_few_obs_gracefully():
 def test_default_diag_sample_size_constant():
     assert DEFAULT_DIAG_SAMPLE_SIZE == 50_000
     assert HETERO_SPEARMAN_THRESHOLD == 0.30
+
+
+def test_spearman_corr_single_sort_byte_identical_to_double_argsort():
+    """``_spearman_corr`` ranks via one argsort + a scatter instead of the legacy
+    ``argsort(argsort(x))`` double-sort. The result must stay byte-identical to the
+    double-argsort form across continuous, tied, and constant inputs, and across the
+    short-circuit guard (size < 3)."""
+    import math
+
+    from mlframe.training.targets.regression_residual_audit import _spearman_corr
+
+    def _double_argsort_reference(x, y):
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+        if x.size < 3:
+            return 0.0
+        rx = np.argsort(np.argsort(x)).astype(np.float64)
+        ry = np.argsort(np.argsort(y)).astype(np.float64)
+        rx -= rx.mean()
+        ry -= ry.mean()
+        denom = math.sqrt(float((rx ** 2).sum())) * math.sqrt(float((ry ** 2).sum()))
+        if denom == 0.0:
+            return 0.0
+        return float((rx * ry).sum() / denom)
+
+    for seed in (0, 1, 7, 42):
+        rng = np.random.default_rng(seed)
+        for n in (2, 3, 100, 5000, 20000):
+            x = np.abs(rng.standard_normal(n))
+            y = rng.standard_normal(n)
+            assert _spearman_corr(x, y) == _double_argsort_reference(x, y), (seed, n)
+
+    x_tied = np.array([1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 3.0])
+    y_tied = np.array([5.0, 5.0, 1.0, 9.0, 2.0, 2.0, 8.0])
+    assert _spearman_corr(x_tied, y_tied) == _double_argsort_reference(x_tied, y_tied)
+
+    x_const = np.zeros(50)
+    y_rand = rng.standard_normal(50)
+    assert _spearman_corr(x_const, y_rand) == _double_argsort_reference(x_const, y_rand)
