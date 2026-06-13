@@ -57,6 +57,85 @@ def _split_by_group(
     return boundaries, yt, ys
 
 
+# ----- Whole-batch group kernels -----
+#
+# The per-metric Python ``for g in range(n_groups)`` loops below each dispatch
+# one single-group njit kernel per group. At n=200k with ~20k query groups that
+# is ~20k Python->njit transitions per metric (each ~few-us dispatch + slice).
+# These whole-batch kernels walk the ``boundaries`` array INTERNALLY in machine
+# code, collapsing the per-group dispatch overhead into one call. Arithmetic per
+# group is identical to the single-group kernels, so the averaged scalar is
+# bit-identical to the per-group dispatch path.
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _dcg_batch_kernel(
+    boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int, exp_gain: bool,
+):
+    n_groups = boundaries.shape[0] - 1
+    total = 0.0
+    counted = 0
+    for g in range(n_groups):
+        s = boundaries[g]
+        e = boundaries[g + 1]
+        if e - s == 0:
+            continue
+        total += _dcg_per_group_kernel(y_true[s:e], y_score[s:e], k, exp_gain)
+        counted += 1
+    return total, counted
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _err_batch_kernel(
+    boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int, max_grade: float,
+):
+    n_groups = boundaries.shape[0] - 1
+    total = 0.0
+    counted = 0
+    for g in range(n_groups):
+        s = boundaries[g]
+        e = boundaries[g + 1]
+        if e - s == 0:
+            continue
+        total += _err_per_group_kernel(y_true[s:e], y_score[s:e], k, max_grade)
+        counted += 1
+    return total, counted
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _hit_batch_kernel(
+    boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int,
+):
+    n_groups = boundaries.shape[0] - 1
+    total = 0.0
+    counted = 0
+    for g in range(n_groups):
+        s = boundaries[g]
+        e = boundaries[g + 1]
+        if e - s == 0:
+            continue
+        total += _hit_at_k_per_group_kernel(y_true[s:e], y_score[s:e], k)
+        counted += 1
+    return total, counted
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _precision_batch_kernel(
+    boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int,
+):
+    n_groups = boundaries.shape[0] - 1
+    total = 0.0
+    counted = 0
+    for g in range(n_groups):
+        s = boundaries[g]
+        e = boundaries[g + 1]
+        if e - s == 0:
+            continue
+        total += _precision_at_k_per_group_kernel(y_true[s:e], y_score[s:e], k)
+        counted += 1
+    return total, counted
+
+
 # ----- DCG@k -----
 
 
@@ -112,17 +191,7 @@ def dcg_at_k(
     n_groups = boundaries.shape[0] - 1
     if n_groups == 0:
         return np.nan
-    total = 0.0
-    counted = 0
-    for g in range(n_groups):
-        s = boundaries[g]
-        e = boundaries[g + 1]
-        if e - s == 0:
-            continue
-        total += _dcg_per_group_kernel(
-            yt_s[s:e], ys_s[s:e], int(k), bool(exp_gain),
-        )
-        counted += 1
+    total, counted = _dcg_batch_kernel(boundaries, yt_s, ys_s, int(k), bool(exp_gain))
     return total / counted if counted > 0 else np.nan
 
 
@@ -181,15 +250,7 @@ def expected_reciprocal_rank(
     n_groups = boundaries.shape[0] - 1
     if n_groups == 0:
         return np.nan
-    total = 0.0
-    counted = 0
-    for g in range(n_groups):
-        s = boundaries[g]
-        e = boundaries[g + 1]
-        if e - s == 0:
-            continue
-        total += _err_per_group_kernel(yt_s[s:e], ys_s[s:e], int(k), mg)
-        counted += 1
+    total, counted = _err_batch_kernel(boundaries, yt_s, ys_s, int(k), mg)
     return total / counted if counted > 0 else np.nan
 
 
@@ -248,15 +309,7 @@ def hit_at_k(
     n_groups = boundaries.shape[0] - 1
     if n_groups == 0:
         return np.nan
-    total = 0.0
-    counted = 0
-    for g in range(n_groups):
-        s = boundaries[g]
-        e = boundaries[g + 1]
-        if e - s == 0:
-            continue
-        total += _hit_at_k_per_group_kernel(yt_s[s:e], ys_s[s:e], int(k))
-        counted += 1
+    total, counted = _hit_batch_kernel(boundaries, yt_s, ys_s, int(k))
     return total / counted if counted > 0 else np.nan
 
 
@@ -281,13 +334,5 @@ def precision_at_k(
     n_groups = boundaries.shape[0] - 1
     if n_groups == 0:
         return np.nan
-    total = 0.0
-    counted = 0
-    for g in range(n_groups):
-        s = boundaries[g]
-        e = boundaries[g + 1]
-        if e - s == 0:
-            continue
-        total += _precision_at_k_per_group_kernel(yt_s[s:e], ys_s[s:e], int(k))
-        counted += 1
+    total, counted = _precision_batch_kernel(boundaries, yt_s, ys_s, int(k))
     return total / counted if counted > 0 else np.nan
