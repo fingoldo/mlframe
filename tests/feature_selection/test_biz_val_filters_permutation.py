@@ -338,3 +338,35 @@ def test_biz_val_significance_gate_keeps_weak_signal_demotes_noise():
     assert rel_w > 5.0 * max(rel_n, 1e-9), (
         f"significance-gated weak signal relevance ({rel_w:.5f}) must dominate gated noise ({rel_n:.5f})"
     )
+
+
+def test_biz_val_null_signif_alpha_default_is_005_and_decision_stable_across_band():
+    """Pins the production default ``_MRMR_NULL_SIGNIF_ALPHA == 0.05`` (the constant ``evaluate_candidate`` reads on the CPU MRMR relevance path) AND the KEEP verdict of
+    bench_mrmr_null_signif_alpha: the keep/demote decision is INVARIANT across the whole benched 0.01-0.15 alpha band for clear signal and clear noise, because the
+    permutation p-value distribution is bimodal (signal p ~ 0, noise p ~ 0.3-0.7) far from any cutoff. A future flip of the default (or a regression that smears the
+    p-value distribution toward the cutoffs) trips this sensor."""
+    from mlframe.feature_selection.filters import evaluation
+    from mlframe.feature_selection.filters.permutation import mi_direct
+
+    assert evaluation._MRMR_NULL_SIGNIF_ALPHA == 0.05, "production default significance level must stay the standard 0.05"
+
+    fnb = np.array([10, 2], dtype=np.int64)
+    rng = np.random.default_rng(23)
+    n = 4000
+
+    xs, ys = _make_strong_signal(n=n, seed=23)
+    sig = np.column_stack([xs, ys]).astype(np.int32)
+    _, _, _, p_sig = mi_direct(sig, x=(0,), y=(1,), factors_nbins=fnb,
+                               npermutations=2, base_seed=1, prefer_gpu=False, return_null_mean=True)
+
+    xn = np.clip(rng.integers(0, 50, n), 0, 49).astype(np.int32)
+    yn = rng.integers(0, 2, n).astype(np.int32)
+    fnb_noise = np.array([50, 2], dtype=np.int64)
+    noise = np.column_stack([xn, yn]).astype(np.int32)
+    _, _, _, p_noise = mi_direct(noise, x=(0,), y=(1,), factors_nbins=fnb_noise,
+                                 npermutations=2, base_seed=1, prefer_gpu=False, return_null_mean=True)
+
+    # Decision (significant => keep) is identical for every alpha in the benched band: signal always kept, noise always demoted.
+    for alpha in (0.01, 0.031, 0.05, 0.0625, 0.10, 0.15):
+        assert (p_sig < alpha) is True, f"clear signal must be kept (significant) at alpha={alpha}; p_sig={p_sig:.4f}"
+        assert (p_noise >= alpha) is True, f"clear noise must be demoted (non-significant) at alpha={alpha}; p_noise={p_noise:.4f}"
