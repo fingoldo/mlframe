@@ -879,6 +879,14 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         except ImportError:
             pass
         y = np.asarray(y)
+        # ShapProxiedFS is single-output: the booster fit + OOF-SHAP + numba proxy-loss kernels all assume a 1D target.
+        # A 2D y (multilabel / multi-output) silently survived np.unique/astype and only blew up deep inside numba with an
+        # opaque TypingError; surface a clear error at fit entry instead.
+        if y.ndim > 1:
+            extra = "" if y.ndim != 2 or y.shape[1] != 1 else " (pass y.ravel() for a single-column 2D target)."
+            raise ValueError(
+                f"ShapProxiedFS supports a single-output 1D target only; got y with shape {y.shape}." + extra
+            )
         if self.classification:
             classes = np.unique(y)
             if len(classes) != 2:

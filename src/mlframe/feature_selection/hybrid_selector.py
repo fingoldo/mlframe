@@ -157,7 +157,12 @@ class HybridSelector:
         from sklearn.model_selection import train_test_split
         from sklearn.inspection import permutation_importance
         import lightgbm as lgb
-        Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=y)
+        # Stratify only when every class has >=2 members; a rare class (high-cardinality multiclass, count-like target)
+        # would otherwise crash train_test_split with an opaque "least populated class has 1 member" error.
+        _yv = np.asarray(y)
+        _, _counts = np.unique(_yv, return_counts=True)
+        _strat = y if _counts.min() >= 2 else None
+        Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
         m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1)
         m.fit(Xtr, ytr)
         pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=-1)
@@ -364,6 +369,26 @@ class HybridSelector:
             raise ValueError(
                 f"HybridSelector.fit: duplicate column names not supported: {dup_names[:10]}. "
                 f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+            )
+        # HybridSelector is intrinsically CLASSIFICATION-only: the shared FI uses a stratified split + LGBMClassifier, and
+        # the ShapProxiedFS / BorutaShap members are wired with classification=True (binary). A continuous / multi-output
+        # target previously crashed deep inside sklearn's stratify ("least populated class has 1 member") or the LGBM 1d
+        # check -- opaque tracebacks. Detect the unsupported target shape up front and raise an actionable error.
+        from sklearn.utils.multiclass import type_of_target
+        y_arr = np.asarray(y)
+        if y_arr.ndim > 1 and not (y_arr.ndim == 2 and y_arr.shape[1] == 1):
+            raise ValueError(
+                f"HybridSelector supports a single-output classification target only; got y with shape {y_arr.shape} "
+                f"(multilabel / multi-output is not supported)."
+            )
+        try:
+            _ttype = type_of_target(y_arr.ravel())
+        except Exception:
+            _ttype = "unknown"
+        if _ttype not in ("binary", "multiclass", "unknown"):
+            raise ValueError(
+                f"HybridSelector supports classification targets only (binary / multiclass); got a "
+                f"'{_ttype}' target. For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
             )
         # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
