@@ -114,9 +114,29 @@ HIGH = [
 ]
 
 
+# MED + LOW constructor-param thresholds (module-constant items handled by monkeypatch separately).
+MEDLOW = [
+    ("fe_engineered_cmi_retain_frac", [0.08, 0.15, 0.25]),
+    ("fe_sufficient_summary_maxt_quantile", [0.90, 0.95, 0.99]),
+    ("fe_sufficient_summary_residual_frac", [0.15, 0.25, 0.40]),
+    ("fe_rung_rel_floor", [0.25, 0.40, 0.55]),
+    ("fe_stability_vote_k", [3, 5, 7]),
+    ("fe_stability_vote_quorum", [0.5, 0.6, 0.75]),
+    ("fe_escalation_min_val_corr", [0.08, 0.15, 0.25]),
+    ("min_relevance_gain_relative_to_first", [0.02, 0.05, 0.10]),
+    ("min_relevance_gain_frac", [0.0005, 0.001, 0.005]),
+    ("fe_confirm_undersample_rows_per_cell", [3.0, 5.0, 8.0]),
+    ("fe_pair_perm_null_excess_frac", [0.02, 0.05, 0.10]),
+    ("fe_min_nonzero_confidence", [0.95, 0.99, 0.999]),
+    ("fe_min_pair_mi", [0.0005, 0.001, 0.005]),
+    ("fe_good_to_best_feature_mi_threshold", [0.90, 0.98, 0.999]),
+    ("fe_adaptive_relax_factor", [0.8, 0.9, 0.95]),
+]
+
+
 def main():
     group = sys.argv[1] if len(sys.argv) > 1 else "high"
-    table = HIGH
+    table = {"high": HIGH, "medlow": MEDLOW, "all": HIGH + MEDLOW}.get(group, HIGH)
     print(f"== threshold sensitivity bench ({group}) ==")
     for param, values in table:
         t = time.perf_counter()
