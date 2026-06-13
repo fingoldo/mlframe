@@ -1791,3 +1791,24 @@ mlframe code. Loop continues -- 4 RESOLVED in this iter group,
 
 Streak: 0/100 (iter50 RESOLVED -- reset). **Cumulative loop wave: 24 RESOLVED, 27 REJECT
 across 50 iterations.**
+
+## FS/FE-focused probe (2026-06-13, separate session) -- REJECT (no actionable speedup)
+
+Profiled a fresh-data `MRMR.fit` at n=8000 (12 noise + 4 signal cols, all default-on FE), with the
+kernel_tuning_cache pre-warmed at the same size (the first-touch grid sweep otherwise pollutes the dump)
+and on FRESH data per fit (the content-fingerprint cache returns a cached selection in 0.08s on identical
+data -- profiling a repeat fit measures only the replay path, not real FE). Clean steady-state: 34.4s wall,
+dominant mlframe-OWN tottime `hermite_fe._plugin_mi_classif_batch_njit` 24.0s / 1146 calls (70%), then the
+FE-pairs discretiser `_quantile_edges_2d_njit` (7.4s/10) + `_searchsorted_2d_right_njit_parallel` (7.4s/10).
+
+HYPOTHESIS TESTED + REJECTED: `plugin_mi_classif_batch_dispatch` (`_hermite_fe_mi.py:311`) routes only
+njit-vs-cuda, never to the sibling `plugin_mi_classif_batch_fast` whose docstring claims it beats the njit
+path for "small k (<=~10)". Looked like a missing CPU dispatch arm. Instrumented the actual k-distribution
+of the 1146 calls: the bulk is k=17 (705 calls) / k=18 (285) -- NOT small-k. Micro-bench at the dominant
+shape (n=8000, k=17): njit=4473us vs fast=15216us -> `_fast` is 3.4x SLOWER (MI bit-identical, diff 0.0).
+So the dispatcher already picks the optimal kernel for the real k; adding a `_fast` arm keyed on the
+docstring's "small-k" claim would have REGRESSED these calls 3.4x. The hotspot is genuine necessary MI work
+(k~17 basis columns x n=8000 via the prange kernel), not a routing miss. No actionable caller-side speedup
+-- consistent with the 500k-scale finding above that the MI plug-in path is already tuned. Bench harness:
+ad-hoc (not committed); reproducible from this note. Do not re-flag the fast-vs-njit arm without first
+re-checking the call-site k-distribution.
