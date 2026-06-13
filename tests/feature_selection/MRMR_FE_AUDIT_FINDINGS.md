@@ -45,18 +45,44 @@ NET: triplet/quad were the genuine general-numeric default-on win; the FE-defaul
   BUG2 fix) across the 2 builders + 2 apply fns + 4 fit-emit sites, exported `_freeze_preprocess_params`.
   Direct slice-replay unit test (frozen -> byte-exact; unfrozen -> drifts on a slice). Was the
   PREREQUISITE for enabling triplet/quad FE by default. 117 existing triplet/quad tests green.
+- **orth DIFF_BASIS recipe refit-at-replay** (same P0 class, last orth straggler) -> froze the diff's
+  basis-preprocess params. `_orthogonal_diff_basis_fe.py` + builder. Slice-replay test. (c714fa1e)
+- **transform vs get_feature_names_out width mismatch on legacy pickles** (P1, breaks sklearn Pipelines)
+  -> get_feature_names_out mirrors the `requires_refit_for_replay` filter transform applies. (8f517a77)
+- **usability lists embedded full-n TRAINING DATA in the pickle** (privacy leak + ~n*8 bytes/candidate
+  bloat) -> clear each selected candidate's `values` post-fit (transform_usability replays from recipe/
+  name, never reads values). `_usability_lists.py`. (413d410f)
 
 ## VERIFIED CLEAN (no triggerable bug)
 
-- `_fe_raw_redundancy_drop.py` -- keep/drop sign, nested clean-subexpression anchoring, fail-closed
-  replay, determinism all correct; the one P2 (`cols.index` first-match) cannot trigger (raw names unique).
-- pair/cluster recipe replay (`_recipe_unary_binary.py`, `_recipe_poly_cluster.py`) -- frozen anchors
-  (log_shift, gate_med, prewarp preprocess, cluster member stats) all read from `recipe.extra`; continuous
-  output; registry-mismatch raises. Clean.
+- `_fe_raw_redundancy_drop.py` -- keep/drop sign, nested anchoring, fail-closed replay, determinism.
+- pair/cluster recipe replay -- frozen anchors (log_shift, gate_med, prewarp, cluster stats), continuous.
+- spline/fourier/encoding/grouped recipe families -- all freeze fit-time state (no refit-at-replay).
+- `row_argmax` / `conditional_gate` FE -- tau frozen + replayed, row-pure argmax, genuine slice-replay test.
+- MRMR transform/validate path -- name-based selection (robust to reordered frames), NotFittedError on
+  missing cols, no y leakage, ndarray dtype-promotion, empty-support fallback (the one P1 fixed above).
+- MRMR screening CORE (greedy relevance/redundancy, both stop floors, Fleuret min-over-Z, unbiased
+  permutation shuffle, degenerate handling, determinism) -- correct at default config.
+- DISCRETIZATION / binning (quantile+MDLP edges monotone, separate-bin NaN per-column, constant single-bin,
+  `factors_nbins == max(code)+1` by construction so no MI-kernel OOB) -- correct on all paths.
 
 ## OPEN
 
-(none currently -- the orth triplet/quadruplet replay P0 below was RESOLVED, see FIXED list above.)
+### [P2, OFF-DEFAULT, untested] screening-core `last_checked_k` stale resume under interactions_order >= 2
+
+The greedy's per-candidate `partial_gains` resume (evaluation.py `evaluate_gain`, resumed at the
+`cand_idx in partial_gains` branch) stores a global `last_checked_k` index into
+`generate_combinations_recursive_njit(selected_vars, order)`. At the DEFAULT
+`max_veteranes_interactions_order=1` a newly-selected var always appends at the END, so resuming from
+`last_checked_k` correctly picks it up -- the audit confirmed NO bug at default. But with
+`max_veteranes_interactions_order >= 2`, growing `selected_vars` inserts the new singleton in the MIDDLE
+of the global k-sequence, so a resumed candidate with stored `last_checked_k` SKIPS the new singleton Z
+-> its redundancy against the most-recently-selected feature is never measured -> a feature fully
+redundant with that Z can survive (P1-class wrong-selection, but only on the off-default research path,
+and currently UNTESTED). Fix: when `selected_vars` has grown since a candidate's `partial_gains` entry
+was written, invalidate the entry (re-evaluate from `last_checked_k=-1`) rather than resume; key the
+resume on the size of `selected_vars` at write time, not the raw `k`. Deferred (off-default + needs a
+new test exercising order>=2 + the resume path -- craft with fresh context, do not rush untested code).
 
 ### [RESOLVED] Orth TRIPLET / QUADRUPLET cross-basis recipes refit per-leg preprocess at replay
 
