@@ -150,6 +150,13 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
                 # below misses it. Mask NaN directly off the numeric array for
                 # parity with the pandas/numpy branches (NaN -> sentinel).
                 mask_null = mask_null | np.isnan(arr)
+            elif values.dtype == pl.Boolean:
+                # polars casts bool to lowercase "true"/"false", but the numpy/pandas/list paths emit
+                # canonical "True"/"False" via _canonical_cat_token. Without this branch a bool categorical
+                # fit as polars then transformed as pandas (or vice versa) misses every key and returns the
+                # prior for every row -- the same drift the float canonicalisation guards against.
+                arr = values.to_numpy()
+                return np.where(mask_null, _NULL_SENTINEL, np.where(arr, "True", "False")).astype(object)
             else:
                 # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
                 out = values.cast(pl.Utf8).to_numpy().astype(object)

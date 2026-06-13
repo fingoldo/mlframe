@@ -45,6 +45,45 @@ def test_polars_float_nan_maps_to_null_sentinel() -> None:
     assert np_out[1] == _NULL_SENTINEL
 
 
+def test_polars_bool_token_matches_pandas_numpy() -> None:
+    """Polars bool must yield canonical ``"True"``/``"False"`` tokens, like pandas/numpy/list.
+
+    Pre-fix the polars Boolean branch went through ``cast(pl.Utf8)``, which emits lowercase
+    ``"true"``/``"false"`` -- diverging from every other backend's ``_canonical_cat_token`` form. A bool
+    categorical fit as polars then transformed as pandas (strategy-layer frame swap) missed every key and
+    returned the prior for every row.
+    """
+    pl = pytest.importorskip("polars")
+    pl_out = _categorical_to_string_array(pl.Series("b", [True, False, True, None], dtype=pl.Boolean))
+    assert list(pl_out) == ["True", "False", "True", _NULL_SENTINEL]
+    # Cross-backend parity (no nulls): pandas / numpy / list all canonicalise to "True"/"False".
+    pd_out = _categorical_to_string_array(pd.Series([True, False, True]))
+    np_out = _categorical_to_string_array(np.array([True, False, True]))
+    list_out = _categorical_to_string_array([True, False, True])
+    assert list(pd_out) == list(np_out) == list(list_out) == ["True", "False", "True"]
+    assert list(pl_out)[:3] == list(pd_out)
+
+
+def test_leakage_safe_encoder_transform_robust_to_bool_frame_drift() -> None:
+    """Fit on polars bool categories, transform the SAME categories as pandas bool.
+
+    Pre-fix: polars keyed "true"/"false", pandas transform produced "True"/"False" -> every row missed its
+    key and collapsed to the global prior (a single distinct value). Post-fix: both levels recovered.
+    """
+    pl = pytest.importorskip("polars")
+    rng = np.random.default_rng(7)
+    n = 800
+    flags = rng.integers(0, 2, n).astype(bool)
+    y = (flags * 0.4 + rng.standard_normal(n) * 0.05).astype(np.float64)
+
+    enc = LeakageSafeEncoder(method="target_mean", smoothing=1.0, cv=5)
+    enc.fit(pl.Series("b", flags, dtype=pl.Boolean), y)
+    out = enc.transform(pd.Series(flags))
+    # Two bool levels recovered, not collapsed to the single global prior.
+    assert len(np.unique(np.round(out, 6))) == 2
+    assert not np.allclose(out, float(enc._global_prior))
+
+
 def test_categorical_to_string_array_int_float_agree() -> None:
     a = _categorical_to_string_array(pd.Series([1, 2, 1], dtype="int64"))
     b = _categorical_to_string_array(pd.Series([1.0, 2.0, 1.0], dtype="float64"))
