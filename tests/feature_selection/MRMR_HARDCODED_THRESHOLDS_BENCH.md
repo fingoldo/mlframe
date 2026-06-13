@@ -79,7 +79,10 @@ gates can be migrated safely. Each conversion is benched BOTH directions (does i
 1. `fe_min_pair_mi_prevalence` (HIGH) -- permutation-null debiased prevalence floor.
 2. `fe_synergy_min_prevalence` (HIGH) -- CV permutation null on the synergy ratio.
 3. `fe_escalation_pairness_margin` (HIGH, 5.7%) -- fold-adaptive null margin.
-4. `fe_stability_vote_k` (MED) -- n-floored adaptive K (guarded; never below 5 for n>=500).
+4. `fe_stability_vote_k` (MED) -- DONE: `resolve_adaptive_vote_k` (`_fe_stability_vote.py`) accepts
+   `"auto"` = n-floored guarded K (== 5 for n>=500, downward only for tiny n; explicit int incl. the
+   default 5 honoured verbatim -> byte-identical). Opt-in until a tiny-n bench confirms default-on.
+   Test `test_adaptive_vote_k.py` (31 cells: byte-identity of explicit int + the guarded "auto" band).
 
 All other measured gates are FLAT -> migrate as no-op guarded hybrids on principle (cannot degrade)
 or keep the constant.

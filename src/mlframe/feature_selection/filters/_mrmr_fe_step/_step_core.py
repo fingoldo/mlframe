@@ -1789,7 +1789,7 @@ def _run_fe_step(
             and _newly_engineered_indices
         ):
             try:
-                from .._fe_stability_vote import confirm_recipes_cross_fold
+                from .._fe_stability_vote import confirm_recipes_cross_fold, resolve_adaptive_vote_k
 
                 _vote_diag: dict = {}
                 _failed_eng = confirm_recipes_cross_fold(
@@ -1798,7 +1798,9 @@ def _run_fe_step(
                     y_codes=classes_y,
                     feature_names_in=list(self.feature_names_in_),
                     nbins=int(self.quantization_nbins),
-                    k=int(getattr(self, "fe_stability_vote_k", 5)),
+                    # guarded-hybrid K: explicit int honoured verbatim (default 5 -> byte-identical);
+                    # only "auto" adapts, and only downward for tiny n (== 5 for n >= 500).
+                    k=resolve_adaptive_vote_k(getattr(self, "fe_stability_vote_k", 5), int(getattr(X, "shape", (0,))[0]) or len(X)),
                     quorum=float(getattr(self, "fe_stability_vote_quorum", 0.6)),
                     rng=np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)),
                     verbose=int(verbose),

@@ -455,7 +455,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec -- enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
-        fe_stability_vote_k: int = 5,
+        # Accepts ``"auto"`` (hardcoded-threshold bench follow-up, 2026-06-13): a GUARDED
+        # n-floored K that equals 5 for n >= 500 and only drops to 2-4 for genuinely tiny n
+        # that cannot keep ~100 rows/fold across 5 folds. An explicit int (incl. the default
+        # 5) is honoured verbatim -- byte-identical to the pre-2026-06-13 behaviour. The bench
+        # showed LOWERING K degrades the vote (k=3 lost the F2 feature), so "auto" never raises
+        # the noise by going below 5 on data that can sustain it.
+        fe_stability_vote_k: "int | str" = 5,
         # Fraction of folds a recipe must clear (pass bar = ceil(quorum*K) folds). 0.6 ->
         # "in at least 3 of 5 folds" (the Meinshausen-Buhlmann-style support threshold).
         # Higher = stricter (drops more as fold-specific); 0 disables the vote.

@@ -49,6 +49,23 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def resolve_adaptive_vote_k(k_param: Any, n_rows: int, *, min_rows_per_fold: int = 100) -> int:
+    """Resolve ``fe_stability_vote_k`` into the K actually used for the cross-fold recipe vote.
+
+    Audit follow-up (hardcoded-threshold bench, 2026-06-13): a fixed K is independent of n, but the
+    bench showed LOWERING K degrades the vote (k=3 on the F2 archetype at n=2500 lost the good
+    feature: MAE 1.985 vs 0.917 at k=5), so a naive "small K on small n" would HURT. This resolver is
+    the GUARDED hybrid: an explicit int is honoured VERBATIM (default 5 -> byte-identical to the
+    pre-2026-06-13 behaviour), and only the opt-in sentinel ``"auto"`` adapts -- and it adapts ONLY
+    DOWNWARD for genuinely tiny n where 5 folds cannot keep ``min_rows_per_fold`` rows each, never
+    above 5. So ``"auto"`` == 5 for n >= 5*min_rows_per_fold (=500 by default) and degrades to 2-4
+    only when the data cannot sustain 5 reliable folds.
+    """
+    if isinstance(k_param, str) and k_param.strip().lower() == "auto":
+        return int(min(5, max(2, int(n_rows) // int(min_rows_per_fold))))
+    return int(k_param)
+
+
 def _fold_indices(n: int, k: int, rng: np.random.Generator) -> list[np.ndarray]:
     """K disjoint held-out fold index arrays (shuffled, near-equal sizes).
 
