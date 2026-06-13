@@ -2383,3 +2383,21 @@ Other surveyed sites: all one-shot scalars (chi2.sf / chisquare / entropy / ks_1
 Bench kept committed (`tests/perf/_iter70_bench.py`) with the rankdata-only microbench (runnable in a clean numba-free process) + the documented `# bench-attempt-rejected` rationale so the next agent re-runs it instead of re-trying the swap. No prod code touched.
 
 Streak: 1/100 consecutive rejects (RESOLVED at iter69 reset to 0; this is the first reject after). **Cumulative loop wave: 42 RESOLVED, 29 REJECT across 70 iterations.**
+
+## Iter 71 -- 2026-06-14 (@200k)
+
+Workload: `profiling/profile_mixed_dtypes.py` at **n=200000** (mixed numeric+categorical, CatBoost classification, 580 cols / 68 cat). Log: `profiling/_prof200k_iter71.log`.
+
+PRIMARY LEAD (per-column unconditional `gc.collect()` in the categorize/prep path, prior run cited `transforms.py` ~line 733 + siblings 95/121/...): **NOT PRESENT on origin/master** -- already removed in a prior iteration. Verified by grepping all prod `gc.collect()` (none per-column; the survivors are RAM-aware `maybe_clean_ram_and_gpu`, the once-per-run post-pipeline 2x collect at `_phase_helpers.py:664`, once-per-fit `_training_loop.py:191`, once-per-call `fleuret.py:61`). The 200k profile confirms prep is cheap now: `prepare_dfs_for_catboost_joint: 1.0s (cat_features=68)`. Lead did not pan out -> profiled the 200k path for the next mlframe-own hotspot (per the prompt's fallback clause).
+
+RESOLVED: slice_finder ``codes`` matrix -> **Fortran-order** (zero-copy column gather). The top plain-Python mlframe hotspot at 200k was `reporting/charts/slice_finder.py` (`find_weak_slices` 1.254s tottime, `_bin_matrix` 1.175s, `_aggregate_combo` 1.070s over 20000 calls). The arity-2 fast path (dominant: thousands of feature pairs) does `np.ascontiguousarray(codes[:, feat_idx[k]])` per call; with C-order `(n,p)` `codes` each column slice is strided, so ascontiguousarray COPIES n int64 -> 2 length-n copies x N_pairs. One-line fix in `_bin_matrix`: `np.zeros((n,p), dtype=np.int64, order="F")` makes `codes[:, j]` C-contiguous so the gather is a zero-copy view. Layout-only, **bit-identical by construction** (same values).
+
+Measure (warm best-of-N, paired; @200k diag regime = DIAG_ROW_CAP sub-sample n=100k):
+  - Isolated `_aggregate_combo` A/B (`src/mlframe/reporting/_benchmarks/bench_slice_finder_codes_layout_iter71.py`, n=100k, 300 pairs, best-of-30): C-order min 313.2ms -> F-order min 42.5ms = **7.37x** (median 7.21x), F faster 30/30, sums+counts array-equal.
+  - e2e full `find_weak_slices` A/B (`_e2e_slice_finder_ab_iter71.py`, OLD = `git show HEAD:` C-order module loaded in-process, n=100k x 30, best-of-11): OLD min 619.2ms -> NEW min 232.4ms = **2.66x** (median 2.72x), NEW faster 11/11, table BIT-IDENTICAL (15 rows, identical scores+bounds, global_error 0.48488486835670175 ==). Called 4x/suite-run -> ~1.5s off the report path at 200k.
+
+Identity: bit-identical (np.array_equal) on `_aggregate_combo` sums+counts (arity-2 + arity-3) and on the full `find_weak_slices` table (scores, bounds, global_error). Layout change cannot alter numerics.
+
+Regression test: `tests/reporting/test_slice_finder_codes_layout_iter71.py` -- 3 sensors: (1) `_bin_matrix` codes are F-contiguous with contiguous columns (FAILS on pre-fix C-order `np.zeros((n,p))` -- the layout property that delivers the win), (2) `_aggregate_combo` bit-identical across C/F layout, (3) `find_weak_slices` table deterministic + non-empty on a weak-region synthetic. All 21 slice tests green.
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 43 RESOLVED, 29 REJECT across 71 iterations.**
