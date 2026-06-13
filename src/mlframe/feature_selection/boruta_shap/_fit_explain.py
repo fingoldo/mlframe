@@ -348,6 +348,11 @@ def fit(self, X, y):
     # before either the stability orchestration (which clones self.model) or the single-pass body uses it.
     self.check_model()
 
+    # importance_measure='auto': probe (X, y) ONCE here and pin the concrete driver (gini/permutation)
+    # for this fit. No-op for explicit measures. Done before stability orchestration / single-pass body
+    # so every sub-fit and the trial loop read the resolved value via _active_importance_measure().
+    self._resolve_auto_importance_measure(X, y)
+
     # premerge_clusters (opt-in, off by default): collapse raw-corr clusters to one representative BEFORE the shadow
     # gate, so BOTH the stability path and the single-pass body run on the de-duplicated representative columns; the
     # finalization re-expands accepted reps to their members. Stored state is consumed at both finalization sites.

@@ -186,7 +186,8 @@ def feature_importance(self, normalize):
             If no Importance measure was specified
     """
 
-    if str(self.importance_measure).lower() == "shap":
+    _measure = self._active_importance_measure() if hasattr(self, "_active_importance_measure") else str(self.importance_measure).lower()
+    if _measure == "shap":
         self.explain()
         vals = self.shap_values
 
@@ -199,7 +200,7 @@ def feature_importance(self, normalize):
         X_feature_import = vals[: len(self.X.columns)]
         Shadow_feature_import = vals[len(self.X.columns) :]
 
-    elif str(self.importance_measure).lower() == "gini":
+    elif _measure == "gini":
         feature_importances_ = np.abs(self.model.feature_importances_)
 
         if normalize:
@@ -208,7 +209,7 @@ def feature_importance(self, normalize):
         X_feature_import = feature_importances_[: len(self.X.columns)]
         Shadow_feature_import = feature_importances_[len(self.X.columns) :]
 
-    elif str(self.importance_measure).lower() == "permutation":
+    elif _measure == "permutation":
         from sklearn.inspection import permutation_importance
 
         # Debiased held-out permutation when a 30% holdout exists (train_or_test="test"): permuting there
