@@ -229,12 +229,17 @@ def get_next_features_subset(
         return original_features
 
     # +1 on the upper bound includes the all-features candidate.
-    remaining = list(set(np.arange(1, len(original_features) + 1)) - set(evaluated_scores_mean.keys()))
+    # sort: set-difference order is PYTHONHASHSEED-dependent; a positional pick must be over a stable order.
+    remaining = sorted(set(np.arange(1, len(original_features) + 1)) - set(evaluated_scores_mean.keys()))
     if len(remaining) == 0:
         return []
 
     if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
-        next_nfeatures_to_check = random.choice(remaining)
+        # use the threaded seeded rng (np.random.default_rng); module-global random is unseeded -> not reproducible.
+        if rng is not None and hasattr(rng, "integers"):
+            next_nfeatures_to_check = int(remaining[int(rng.integers(0, len(remaining)))])
+        else:
+            next_nfeatures_to_check = random.choice(remaining)
     elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
         next_nfeatures_to_check = Optimizer.suggest_candidate()
     elif top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:
