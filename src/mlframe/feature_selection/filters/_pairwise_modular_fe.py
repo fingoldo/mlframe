@@ -30,6 +30,15 @@ Cost (cProfile, n=2000, full coarse grid): ~0.3s/call, ~100% in the shipped binn
 (``_mi_classif_batch``); the new orchestration is <2% of wall. The residue-MI calls over the modulus
 grid could batch into a single kernel call (all residues stacked column-wise) to cut the per-call
 dispatch -- a wiring concern for the public path, not the prototype.
+
+cProfile (enabled MRMR FE path, n=2000, p=20 int cols, 3 reps): ~1.05s/call. ~99% is the shipped binned-MI kernel
+(``_mi`` -> ``_mi_classif_batch`` -> ``plugin_mi_classif_batch_dispatch``), called 9444x (per-residue grid scan +
+12-permutation null per combiner); orchestration (``_scan_one`` / ``_residue_mi`` / ``_perm_null_hi``) is ~5% of wall.
+No actionable speedup IN THIS MODULE: each call is a single-column MI; the only meaningful lever is batching the whole
+residue grid into one multi-column kernel call, which is a change to the shared ``_mi_classif_batch`` dispatch API
+surface (used by every FE family), not this orchestrator -- out of scope here. Absolute cost is bounded by the budget
+guard (p<=30 -> scan ~1.1s, a few % of a typical MRMR fit), and the cheap gate means a non-modular frame pays the scan
+once and escalates nothing.
 """
 from __future__ import annotations
 
@@ -48,7 +57,14 @@ __all__ = [
     "cheap_modular_scan",
     "escalate_modulus",
     "detect_pairwise_modular",
+    "PAIRWISE_MODULAR_PREFIX",
+    "engineered_name_pairwise_modular",
+    "apply_pairwise_modular",
+    "build_pairwise_modular_recipe",
+    "hybrid_pairwise_modular_fe_with_recipes",
 ]
+
+PAIRWISE_MODULAR_PREFIX = "pmod"
 
 # Coarse modulus ladder for the cheap stage: small primes (so a hidden PRIME period spikes -- a
 # prime m has no proper divisor in a composite-only grid, so it must be listed) + common composite /
@@ -267,3 +283,116 @@ def detect_pairwise_modular(
         if len(out) >= top_k:
             break
     return out
+
+
+# Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays
+# the residue column at predict time identically. Replay is pure integer arithmetic on X (combine columns, take mod) --
+# no y reference, so it is leak-free + deterministic + train/test exact, mirroring the single-column ``_periodic_fe`` path.
+
+_RECIPE_VALID_OPS = ("self", "sum", "diff", "prod", "sum3")
+
+
+def engineered_name_pairwise_modular(op: str, cols: Sequence[str], modulus: int) -> str:
+    """Canonical engineered column name for one pairwise/n-way modular residue, e.g. ``pmod_sum__a__b__m7``.
+
+    The op + source columns + modulus fully determine the residue, so the name round-trips through ``_parse`` back to a
+    recipe. Source columns are joined with ``__`` (the codebase's source-link convention) and the modulus suffixed ``m{k}``."""
+    if op not in _RECIPE_VALID_OPS:
+        raise ValueError(f"pairwise-modular op must be one of {_RECIPE_VALID_OPS}; got {op!r}")
+    joined = "__".join(str(c) for c in cols)
+    return f"{PAIRWISE_MODULAR_PREFIX}_{op}__{joined}__m{int(modulus)}"
+
+
+def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.ndarray:
+    """Replay one pairwise/n-way modular residue: combine the source columns via ``op`` then take ``mod modulus``.
+
+    Pure integer arithmetic on the source columns -- no y reference, no fitted state, so transform() is leak-free and
+    train/test exact. Output float64 in ``[0, modulus)``; the residue is the materialised selector feature."""
+    if op not in _RECIPE_VALID_OPS:
+        raise ValueError(f"pairwise-modular op must be one of {_RECIPE_VALID_OPS}; got {op!r}")
+    m = int(modulus)
+    if m < 2:
+        raise ValueError(f"pairwise-modular modulus must be >= 2; got {m!r}")
+    arrs = [np.asarray(X[c]) for c in cols]
+    c_arr = _combine(arrs, op)
+    return np.mod(c_arr, m).astype(np.float64)
+
+
+def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], modulus: int):
+    """Frozen recipe for one pairwise/n-way modular residue. Replay is pure integer arithmetic on the source columns."""
+    from .engineered_recipes import EngineeredRecipe
+
+    if op not in _RECIPE_VALID_OPS:
+        raise ValueError(f"pairwise-modular op must be one of {_RECIPE_VALID_OPS}; got {op!r}")
+    m = int(modulus)
+    if m < 2:
+        raise ValueError(f"pairwise-modular modulus must be >= 2; got {m!r}")
+    return EngineeredRecipe(
+        name=name,
+        kind="pairwise_modular",
+        src_names=tuple(str(c) for c in cols),
+        extra={"op": str(op), "modulus": m},
+    )
+
+
+def hybrid_pairwise_modular_fe_with_recipes(
+    X,
+    y: np.ndarray,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    moduli: Sequence[int] = COARSE_MODULI,
+    top_k: int = 4,
+    nbins: int = 12,
+    seed: int = 0,
+    max_int_cols: int = 30,
+    max_triple_cols: int = 20,
+):
+    """Detect responded pairwise/n-way modular structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.
+
+    Column-count BUDGET GUARD (the wide-frame cost is O(p) self-scan + budgeted pairs/triples; see
+    ``_benchmarks/bench_pairwise_modular_cost``): when the number of integer-eligible columns exceeds ``max_int_cols`` the
+    whole sweep is SKIPPED (logged, never silent); when it is within ``max_int_cols`` but exceeds the tighter
+    ``max_triple_cols`` the expensive C(p,3) triple sweep is dropped (pairs-only, logged).
+
+    Returns ``(appended_names, recipes)`` -- the materialised columns are NOT concatenated here (the MRMR caller appends
+    them under its own RAM-safe path); each recipe replays the exact residue column from X alone, leak-free."""
+    if cols is None:
+        int_cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+    else:
+        int_cols = [c for c in cols if c in X.columns and _is_integer_col(np.asarray(X[c]))]
+
+    p = len(int_cols)
+    if p > int(max_int_cols):
+        logger.info(
+            "pairwise_modular FE: %d integer-eligible columns exceeds max_int_cols=%d; skipping the "
+            "pairwise/n-way modular sweep for budget.", p, int(max_int_cols),
+        )
+        return [], []
+
+    max_triples = 12
+    if p > int(max_triple_cols):
+        logger.info(
+            "pairwise_modular FE: %d integer-eligible columns exceeds max_triple_cols=%d; limiting to "
+            "PAIRS-ONLY (dropping the C(p,3) triple sweep) for budget.", p, int(max_triple_cols),
+        )
+        max_triples = 0
+
+    hits = cheap_modular_scan(
+        X, y, int_cols, moduli=moduli, nbins=nbins, seed=seed, max_triples=max_triples,
+    )
+    appended: list[str] = []
+    recipes = []
+    seen: set[str] = set()
+    for h in hits:
+        if not h.responded:
+            continue
+        best_m, _best_mi, _residue = escalate_modulus(X, y, h, nbins=nbins)
+        name = engineered_name_pairwise_modular(h.op, h.cols, best_m)
+        if name in seen:
+            continue
+        seen.add(name)
+        appended.append(name)
+        recipes.append(build_pairwise_modular_recipe(name=name, op=h.op, cols=h.cols, modulus=best_m))
+        if len(appended) >= int(top_k):
+            break
+    return appended, recipes

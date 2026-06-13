@@ -203,6 +203,13 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return apply_modular(
             vals, float(recipe.extra["period"]), str(recipe.extra["op"]),
         )
+    if recipe.kind == "pairwise_modular":
+        # Pairwise / n-way modular residue: combine the source columns (sum/diff/prod/sum3/self) then take mod modulus.
+        # Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
+        from .._pairwise_modular_fe import apply_pairwise_modular
+        return apply_pairwise_modular(
+            X, str(recipe.extra["op"]), recipe.src_names, int(recipe.extra["modulus"]),
+        )
     if recipe.kind == "group_distance":
         # Layer 95 PART B (2026-06-01): per-group distribution-distance FE
         # (group-level z / KL / Wasserstein-1 from the global distribution).

@@ -2250,6 +2250,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_modular_enable: bool = False,
         fe_modular_periods: tuple = (7, 12, 24, 30, 365),
         fe_modular_top_k: int = 6,
+        # PAIRWISE / N-WAY MODULAR FE (extends the single-column modular path above).
+        # Detects a target that is an integer MODULUS of a COMBINATION of columns -- (a+b) mod m,
+        # (a*b) mod m, n-way parity (a+b+c) mod 2, or a single column's hidden non-calendar period --
+        # which smooth bases (poly / Fourier) cannot fit (a sawtooth residue needs unbounded harmonics).
+        # Cheap-first / escalate: a coarse modular scan gated by a permutation-null (only escalates after
+        # the cheap gate responds, so a non-modular frame costs ~the scan and emits nothing), then a fine
+        # modulus refine. Each responded detection becomes a frozen recipe (combine cols, mod m) replayed
+        # leak-free at predict. Default OFF -> byte-identical legacy path.
+        # BUDGET GUARD (cost is O(p) self-scan + budgeted pairs/triples; see
+        # _benchmarks/bench_pairwise_modular_cost.py: cheap scan ~1.05s at p=30, ~1.9s at p=100, n=2000):
+        # max_int_cols=30 skips the whole sweep above 30 integer-eligible columns (scan stays a few % of a
+        # typical MRMR fit); max_triple_cols=20 drops the C(p,3) triple sweep above 20 cols (pairs-only).
+        # Both skips are logged, never silent. Triples stay ON within the tighter triple budget because the
+        # bench shows the triple overhead is flat (~0.13s, capped by max_triples) -- cheap enough to keep on.
+        fe_pairwise_modular_enable: bool = False,
+        fe_pairwise_modular_top_k: int = 4,
+        fe_pairwise_modular_max_int_cols: int = 30,
+        fe_pairwise_modular_max_triple_cols: int = 20,
         # PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
         # (extends Layer 88). For each (group, num) emit how far the row's GROUP
         # distribution sits from the GLOBAL one: group-level z

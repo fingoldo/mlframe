@@ -3417,12 +3417,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.numeric_decompose_features_ = []
     self.temporal_agg_features_ = []
     self.modular_features_ = []
+    self.pairwise_modular_features_ = []
     self.group_distance_features_ = []
     _cat_pair_pre_recipes: dict = {}
     _cat_triple_pre_recipes: dict = {}
     _numeric_decompose_pre_recipes: dict = {}
     _temporal_agg_pre_recipes: dict = {}
     _modular_pre_recipes: dict = {}
+    _pairwise_modular_pre_recipes: dict = {}
     _group_distance_pre_recipes: dict = {}
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
@@ -4154,6 +4156,66 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit modular FE raised %s: %s; continuing without "
                     "modular columns.",
                     type(_md_exc).__name__, _md_exc,
+                )
+
+    # Pairwise / n-way modular FE: detect a target that is an integer modulus of a
+    # combination of integer columns -- (a+b) mod m, (a*b) mod m, n-way parity, or a
+    # single column's hidden non-calendar period -- which smooth bases cannot fit.
+    # Cheap-first / escalate + permutation-null gate; budget-guarded on wide frames.
+    if bool(getattr(self, "fe_pairwise_modular_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: pairwise-modular FE enabled but X is not a pandas DataFrame; "
+                "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._pairwise_modular_fe import (
+                    apply_pairwise_modular,
+                    hybrid_pairwise_modular_fe_with_recipes,
+                )
+
+                _y_for_pm = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
+                    X, _y_for_pm,
+                    cols=None,
+                    top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
+                    seed=int(getattr(self, "random_seed", 0) or 0),
+                    max_int_cols=int(getattr(self, "fe_pairwise_modular_max_int_cols", 30)),
+                    max_triple_cols=int(getattr(self, "fe_pairwise_modular_max_triple_cols", 20)),
+                )
+                _pm_appended = [c for c in _pm_appended if c not in X.columns]
+                if _pm_appended:
+                    _pm_new = {
+                        _r.name: apply_pairwise_modular(
+                            X, _r.extra["op"], _r.src_names, _r.extra["modulus"],
+                        )
+                        for _r in _pm_recipes if _r.name in _pm_appended
+                    }
+                    X = pd.concat(
+                        [X, pd.DataFrame(_pm_new, index=X.index)], axis=1,
+                    )
+                    self.pairwise_modular_features_ = list(_pm_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_pm_appended)
+                    )
+                    for _r in _pm_recipes:
+                        if _r.name in _pm_appended:
+                            _pairwise_modular_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit pairwise_modular: appended %d engineered "
+                            "column(s): %s",
+                            len(_pm_appended), _pm_appended[:8],
+                        )
+            except Exception as _pm_exc:
+                logger.warning(
+                    "MRMR.fit pairwise-modular FE raised %s: %s; continuing without "
+                    "pairwise-modular columns.",
+                    type(_pm_exc).__name__, _pm_exc,
                 )
 
     # Layer 95 PART B (2026-06-01): per-group distribution-distance. For each
@@ -4986,6 +5048,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _composite_group_agg_pre_recipes, _grouped_quantile_pre_recipes,
                 _cat_pair_pre_recipes, _cat_triple_pre_recipes,
                 _numeric_decompose_pre_recipes, _modular_pre_recipes,
+                _pairwise_modular_pre_recipes,
                 _group_distance_pre_recipes, _rare_category_pre_recipes,
                 _conditional_residual_pre_recipes,
                 _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
@@ -5156,6 +5219,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_modular_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _modular_pre_recipes.pop(_c, None)
+            for _c in list(_pairwise_modular_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _pairwise_modular_pre_recipes.pop(_c, None)
             for _c in list(_group_distance_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _group_distance_pre_recipes.pop(_c, None)
@@ -5280,7 +5346,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _grouped_quantile_pre_recipes, _cat_pair_pre_recipes,
                         _cat_triple_pre_recipes,
                         _numeric_decompose_pre_recipes,
-                        _modular_pre_recipes, _group_distance_pre_recipes,
+                        _modular_pre_recipes, _pairwise_modular_pre_recipes,
+                        _group_distance_pre_recipes,
                         _rare_category_pre_recipes,
                         _conditional_residual_pre_recipes,
                         _conditional_dispersion_pre_recipes,
@@ -5670,6 +5737,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 95 PART A: same routing for periodic / modular recipes.
     if _modular_pre_recipes:
         engineered_recipes.update(_modular_pre_recipes)
+    if _pairwise_modular_pre_recipes:
+        engineered_recipes.update(_pairwise_modular_pre_recipes)
     # Layer 95 PART B: same routing for per-group distribution-distance recipes.
     if _group_distance_pre_recipes:
         engineered_recipes.update(_group_distance_pre_recipes)
