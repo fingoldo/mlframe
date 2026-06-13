@@ -2366,3 +2366,20 @@ Identity: BIT-IDENTICAL (np.array_equal True) on all sites -- quantile_normal fw
 Regression test: `tests/feature_selection/test_normal_special_kernel_iter69.py` -- 4 sensors pinning array-equality to the norm-based reference (probit incl. +/-inf edge, rank_to_gauss, quantile_normal fwd+inv at n=2k/20k). Guards the bit-identity invariant: a future non-identical kernel swap fails here. All pass; existing `test_composite_unary_transforms.py` (16) + 15 fastmi/extra_fe/rankgauss tests green.
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 42 RESOLVED, 28 REJECT across 69 iterations.**
+
+## Iter 70 -- 2026-06-14
+
+Fresh workload: the remaining `scipy.stats.<dist>` wrapper calls on report / metric paths -- a follow-on to iter69 (which swapped the array-valued `norm.ppf/cdf -> ndtri/ndtr`). Surveyed every non-`norm` distribution call: `chi2.sf` (Hosmer-Lemeshow, `_classification_calibration.py:97`), `chisquare`/`entropy`/`ks_1samp`/`cramervonmises` (calibration `quality.py`), `norm.cdf` (DeLong p-value, `bootstrap.py:486`), `t`/`norm` Tukey-fence helpers (`core/stats.py`). The only genuinely BATCHED `scipy.stats` site left is `_spearmanr_batched_numpy` (`metrics/rank_correlation.py`) and its scalar wrapper `fast_spearman_corr`.
+
+Candidate investigated: route `fast_spearman_corr`'s scalar (1-row) path through a dedicated 1-D `rankdata(x, method='average')` + scalar reduction instead of reshaping to `(1,N)` and going through the 2-D batched `_spearmanr_batched_numpy` (full `axis=1` rankdata + keepdims reductions on a single row). Prototype + bench: `tests/perf/_iter70_bench.py`.
+
+Why REJECT (measured + e2e + env-safety):
+  - Isolated rankdata-only A/B (warm, best-of-20): 1-D vs 2-D-on-1-row = only **1.09x @ n=2000 / 1.02x @ n=50000** -- rankdata is C; the 2-D-on-one-row overhead is small. The surrounding keepdims-vs-scalar reductions add a little more but stay sub-pct of a ~250us-8.5ms call.
+  - **Fails "moves e2e":** `fast_spearman_corr` has NO active caller wired into any report/fit hot path (grep src: only re-exports in `metrics/core.py` + `regression/__init__.py`); it is a public utility. A local win there cannot survive to e2e.
+  - **Env-unsafe:** with mlframe imported (numba loaded), calling BOTH the 1-D `rankdata(x, method='average')` and the batched `rankdata(X, axis=1, nan_policy='propagate')` signatures in one process SEGFAULTS this py3.14 store build (numba+scipy.stats ABI fragility, same class as the GPU native-AV suite-abort). The proposed 1-D path would introduce exactly that mixed-signature pattern. A marginal, non-hot win is not worth a segfault risk.
+
+Other surveyed sites: all one-shot scalars (chi2.sf / chisquare / entropy / ks_1samp / cramervonmises / DeLong norm.cdf are <=1 call per report, sub-ms each -- iter69 already deliberately left the scalar `norm` sites for the same reason); `core/stats.py` Tukey/dist helpers are `@lru_cache`'d scalar one-shots; the regression-metric kernels (`_regression_metrics.py`) are all numba njit and already tuned (fused 2-pass + par/seq variants). No fresh plain-Python/numpy/scipy frame with a real e2e fraction surfaced.
+
+Bench kept committed (`tests/perf/_iter70_bench.py`) with the rankdata-only microbench (runnable in a clean numba-free process) + the documented `# bench-attempt-rejected` rationale so the next agent re-runs it instead of re-trying the swap. No prod code touched.
+
+Streak: 1/100 consecutive rejects (RESOLVED at iter69 reset to 0; this is the first reject after). **Cumulative loop wave: 42 RESOLVED, 29 REJECT across 70 iterations.**
