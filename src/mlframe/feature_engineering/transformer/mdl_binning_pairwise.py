@@ -11,7 +11,89 @@ import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
 
+try:
+    from numba import njit
+
+    _HAS_NUMBA = True
+except ImportError:  # pragma: no cover
+    _HAS_NUMBA = False
+
+    def njit(*args, **kwargs):
+        def wrap(fn):
+            return fn
+
+        if args and callable(args[0]):
+            return args[0]
+        return wrap
+
+
 logger = logging.getLogger(__name__)
+
+
+@njit(cache=True)
+def _entropy_from_counts(counts, total):
+    """Multi-class entropy in bits from an integer class-count vector and its sum.
+
+    Replicates ``_entropy_multi`` numerics: ``p = count/total``, ``-sum(p*log2(p))`` over classes in index order, skipping p<=0.
+    """
+    if total == 0:
+        return 0.0
+    e = 0.0
+    for c in range(counts.shape[0]):
+        pi = counts[c] / total
+        if pi > 0.0:
+            e -= pi * np.log2(pi)
+    return e
+
+
+@njit(cache=True)
+def _best_mdl_split_kernel(y_sorted, x_sorted, n_classes, min_size):
+    """Single-pass Fayyad-Irani best-split scan over a range pre-sorted by x.
+
+    Replaces the O(n^2) inner loop (which recomputed two ``np.bincount`` entropies per candidate split) with running prefix class
+    counts updated incrementally as the split index advances; entropy is evaluated from the count vectors at each candidate, so the
+    arithmetic order over classes matches ``_entropy_multi`` exactly (bit-identical selection).
+
+    Returns (best_idx, best_thresh, best_gain, E_left_best, E_right_best). best_idx = -1 when no valid split exists.
+    """
+    n = y_sorted.shape[0]
+    # H_S over the whole range.
+    total_counts = np.zeros(n_classes, dtype=np.int64)
+    for i in range(n):
+        total_counts[y_sorted[i]] += 1
+    H_S = _entropy_from_counts(total_counts, n)
+
+    left_counts = np.zeros(n_classes, dtype=np.int64)
+    # Prime left counts for the first candidate i == min_size.
+    for i in range(min_size):
+        left_counts[y_sorted[i]] += 1
+    right_counts = total_counts - left_counts
+
+    best_gain = -1.0
+    best_idx = -1
+    best_thresh = 0.0
+    E_left_best = 0.0
+    E_right_best = 0.0
+
+    for i in range(min_size, n - min_size):
+        if i > 0 and x_sorted[i] == x_sorted[i - 1]:
+            left_counts[y_sorted[i]] += 1
+            right_counts[y_sorted[i]] -= 1
+            continue
+        E_left = _entropy_from_counts(left_counts, i)
+        E_right = _entropy_from_counts(right_counts, n - i)
+        weighted = (i / n) * E_left + ((n - i) / n) * E_right
+        gain = H_S - weighted
+        if gain > best_gain:
+            best_gain = gain
+            best_idx = i
+            best_thresh = (x_sorted[i - 1] + x_sorted[i]) / 2.0
+            E_left_best = E_left
+            E_right_best = E_right
+        left_counts[y_sorted[i]] += 1
+        right_counts[y_sorted[i]] -= 1
+
+    return best_idx, best_thresh, best_gain, E_left_best, E_right_best, H_S
 
 
 def _entropy_binary(p: float) -> float:
@@ -47,30 +129,19 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
             return
         # Sort by x within range
         order = np.argsort(sub_x, kind="stable")
-        x_sorted = sub_x[order]
-        y_sorted = sub_y[order]
-        best_gain = -1.0
-        best_idx = -1
-        best_thresh = None
-        for i in range(min_size, n - min_size):
-            if i > 0 and x_sorted[i] == x_sorted[i - 1]:
-                continue
-            left_y = y_sorted[:i]
-            right_y = y_sorted[i:]
-            E_left = _entropy_multi(left_y, n_classes)
-            E_right = _entropy_multi(right_y, n_classes)
-            weighted = (i / n) * E_left + ((n - i) / n) * E_right
-            gain = H_S - weighted
-            if gain > best_gain:
-                best_gain = gain
-                best_idx = i
-                best_thresh = (x_sorted[i - 1] + x_sorted[i]) / 2.0
+        x_sorted = np.ascontiguousarray(sub_x[order])
+        y_sorted = np.ascontiguousarray(sub_y[order], dtype=np.int64)
+        # Single-pass njit best-split scan (replaces the prior O(n^2) double-bincount inner loop). Returns the same best split + the
+        # left/right entropies needed for the MDL stop term, bit-identical to recomputing _entropy_multi over the same slices.
+        best_idx, best_thresh, best_gain, E_left_best, E_right_best, _H_S_sorted = _best_mdl_split_kernel(
+            y_sorted, x_sorted, n_classes, min_size
+        )
         if best_idx < 0:
             return
         # MDL stop criterion
         k = n_classes
-        delta = np.log2(3 ** k - 2) - (k * H_S - 2 * _entropy_multi(y_sorted[:best_idx], n_classes) * (best_idx / n) -
-                                       (n - best_idx) / n * 2 * _entropy_multi(y_sorted[best_idx:], n_classes))
+        delta = np.log2(3 ** k - 2) - (k * H_S - 2 * E_left_best * (best_idx / n) -
+                                       (n - best_idx) / n * 2 * E_right_best)
         if best_gain * n < np.log2(n - 1) + delta:
             return
         edges.append(float(best_thresh))

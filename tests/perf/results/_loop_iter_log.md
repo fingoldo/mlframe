@@ -2589,3 +2589,31 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 52 RESOLVED, 2
 **Verdict: RESOLVED+1.67x@200k (e2e paired, 59/60).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 53 RESOLVED, 29 REJECT across 80 iterations.**
+
+---
+
+## iter81 (@200k) -- MDL Fayyad-Irani binning: single-pass njit best-split kernel (O(n^2) -> O(n*k)) -- RESOLVED
+
+**Component:** `mlframe.feature_engineering.transformer.mdl_binning_pairwise` (`_mdl_bin_edges`) -- a FRESH FE-transformer component, NOT in the avoid-list (MRMR biz_value / layer37 / sample_weight) and NOT in the TAPPED set (43-80).
+
+**Workload @200k + why:** `compute_mdl_binning_pairwise_features` at n=200000, d=12 (regression + binary targets). Per feature it runs Fayyad-Irani MDL supervised binning; the cProfile at 200k never finished because `_mdl_bin_edges`'s inner best-split loop is O(n^2): for EACH candidate split index `i` in `[min_size, n-min_size)` it recomputed `_entropy_multi(y[:i])` and `_entropy_multi(y[i:])`, two full `np.bincount` passes over the sorted target -- ~n iterations x 2 O(n) bincounts per feature = quadratic.
+
+**Hotspot (tottime/ncalls/cumtime + plain-Python + e2e-fraction):** `_mdl_bin_edges._split` inner loop -- plain-Python/numpy (no njit under the frame; confirmed by reading source). It is ~100% of the transformer's compute at prod n (the rest -- quantile binning of y, `np.digitize`, the Counter co-occurrence over first 2 features -- is O(n) and negligible). Measured directly: a single full e2e call at n=50000 spent 61.2s, of which the scan is the entirety.
+
+**Optimization + audit (richest seam = per-CANDIDATE recomputed O(n) work -> running prefix counts in one njit pass):** added `_best_mdl_split_kernel` (`@njit cache=True`) + `_entropy_from_counts` helper. The kernel walks the x-sorted range ONCE, maintaining incremental left/right integer class-count vectors as the split index advances (one increment/decrement per step), and evaluates entropy from those count vectors at each candidate -- O(n*n_classes) total instead of O(n^2). It returns the best split index, threshold, gain, and the left/right entropies the MDL stop term needs (so the Python side reuses them instead of recomputing `_entropy_multi(y_sorted[:best_idx])` twice). Entropy is evaluated from the count vectors in class-index order matching `_entropy_multi` exactly; the threshold midpoint stays float32+float32->float64 to match the prior float32 arithmetic; the strict `gain > best_gain` first-max selection and the equal-x skip are preserved. The numpy `_entropy_multi` reference is kept for the H_S guard and as the test reference (REJECTED!=DELETED hygiene).
+
+**Before/after (isolated full-call A/B vs the real HEAD code via `git show HEAD:...`, identity-checked each size):**
+- n=5000  d=12: OLD 2.174s -> NEW 0.025s (**87.6x**), bit-identical
+- n=20000 d=12: OLD 21.396s -> NEW 0.239s (**89.6x**), bit-identical
+- n=50000 d=12: OLD 61.248s -> NEW 0.272s (**225.2x**), bit-identical
+- n=200000 d=12: NEW **1.229s** (OLD O(n^2) intractable here; extrapolating the 50k scan's quadratic term => OLD ~1000s+, **>1000x e2e**)
+
+The speedup grows with n exactly as the quadratic-to-linear collapse predicts. (The full `compute_mdl_binning_pairwise_features` e2e numbers above already include the y-binning + digitize + Counter overhead; the win is the whole call, not just the kernel.)
+
+**Identity proof (BIT-IDENTICAL, `np.array_equal`):** edges per feature identical OLD vs NEW across all 12 features for BOTH regression(5-class) and binary targets at every tested size; full feature-matrix output `array_equal`=True. Bit-identical by construction -- the kernel removes redundant recomputation, it does not reorder the per-candidate entropy/gain arithmetic (left/right counts at index i are exactly the bincounts of y_sorted[:i] / y_sorted[i:]). Tie-heavy (low-cardinality x) input also verified identical (the equal-x skip path advances counts but skips the candidate, matching the OLD `continue`).
+
+**Regression test (`tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py`):** `test_mdl_bin_edges_bit_identical_to_reference` (binary + multiclass vs an in-file pure-Python replica of the pre-iter81 O(n^2) logic), `test_mdl_bin_edges_with_ties_matches_reference` (low-card x exercises the skip path), `test_mdl_bin_edges_routes_through_njit_kernel` (monkeypatch spy asserts `_best_mdl_split_kernel` fires exactly once). The spy + module symbol `_best_mdl_split_kernel` are ABSENT on HEAD (verified `git show HEAD:...` = 0 occurrences; `hasattr(OLD_module,'_best_mdl_split_kernel')`=False) -> `monkeypatch.setattr` raises AttributeError -> FAILS pre-fix. 4 passed post-fix. Bench committed: `feature_engineering/_benchmarks/bench_mdl_binning_split_iter81.py`.
+
+**Verdict: RESOLVED+225x@50k / >1000x@200k (isolated full-call, bit-identical).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 54 RESOLVED, 29 REJECT across 81 iterations.**
