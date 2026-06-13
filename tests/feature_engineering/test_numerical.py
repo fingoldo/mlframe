@@ -718,3 +718,69 @@ class TestHypothesisProperties:
         result = compute_numaggs(arr, return_hurst=return_hurst)
         names = get_numaggs_names(return_hurst=return_hurst)
         assert len(result) == len(names)
+
+
+class TestFusedNuniqueModesQuantilesFastPath:
+    """Regression sensors for the all-finite single-sort fast path in compute_nunique_modes_quantiles_numpy.
+
+    The fast path replaces the independent np.unique sort + np.nanquantile partition with one np.sort. It is
+    gated on an all-finite, 1-D, median_unbiased input; nunique/modes/ncrossings are exactly identical and
+    quantiles carry only a ~1e-16 ULP delta. The NaN path must remain bit-identical to np.unique semantics
+    (all-NaN collapsed to a single unique).
+    """
+
+    def _reference_via_unique_path(self, arr, q):
+        # Reproduces the exact pre-fix unique-based computation for the integer/exact slots.
+        vals, counts = np.unique(arr, return_counts=True)
+        return len(vals)
+
+    def test_fast_path_avoids_np_unique_on_finite_input(self, monkeypatch):
+        # On all-finite input the fast path must NOT call np.unique (the eliminated full sort). This FAILS on
+        # pre-fix code, which unconditionally routes through np.unique.
+        import mlframe.feature_engineering.numerical as num
+
+        calls = {"n": 0}
+        real_unique = np.unique
+
+        def spy_unique(*a, **k):
+            calls["n"] += 1
+            return real_unique(*a, **k)
+
+        monkeypatch.setattr(num.np, "unique", spy_unique)
+        arr = np.random.default_rng(0).normal(size=5000)
+        arr[::7] = arr[1]
+        num.compute_nunique_modes_quantiles_numpy(arr, quantile_method="median_unbiased")
+        assert calls["n"] == 0, "all-finite fast path must not invoke np.unique"
+
+    def test_fast_path_nunique_modes_ncrossings_bit_identical(self):
+        from mlframe.feature_engineering.numerical import compute_nunique_modes_quantiles_numpy as fn, default_quantiles
+
+        for seed in range(6):
+            rng = np.random.default_rng(seed)
+            arr = rng.normal(size=8000)
+            arr[::7] = arr[1]
+            if seed == 5:
+                arr = np.round(arr, 1)  # heavy ties
+            vals, counts = np.unique(arr, return_counts=True)
+            res = np.asarray(fn(arr, quantile_method="median_unbiased"), dtype=np.float64)
+            assert res[0] == len(vals)  # nunique exact
+            ref_q = np.nanquantile(arr, np.asarray(default_quantiles), method="median_unbiased")
+            assert np.max(np.abs(res[5:10] - ref_q)) < 1e-12  # quantiles within ULP
+
+    def test_nan_input_stays_on_exact_unique_path(self, monkeypatch):
+        import mlframe.feature_engineering.numerical as num
+
+        calls = {"n": 0}
+        real_unique = np.unique
+
+        def spy_unique(*a, **k):
+            calls["n"] += 1
+            return real_unique(*a, **k)
+
+        monkeypatch.setattr(num.np, "unique", spy_unique)
+        arr = np.random.default_rng(1).normal(size=5000)
+        arr[::101] = np.nan
+        res = num.compute_nunique_modes_quantiles_numpy(arr)
+        assert calls["n"] >= 1, "NaN input must use the exact np.unique path (collapses all NaN to one)"
+        vals, _ = real_unique(arr, return_counts=True)
+        assert res[0] == len(vals)

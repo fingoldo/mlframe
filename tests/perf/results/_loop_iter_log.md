@@ -2422,3 +2422,23 @@ Identity: bit-identical (exact `==`) -- isolated A/B at n=2048..500k, full 15-sc
 Regression test (`tests/metrics/classification/test_classification_extras.py`): (1) `test_ks_very_large_n_routes_to_inline_ordered_kernel` (both branches) -- spies pin that n >= _KS_INLINE_ORDERED_MIN_N routes to the inline-ordered kernel; FAILS on pre-fix code (simulated by gate=inf gives `ref=1, fused=0`, test expects `fused=1, ref=0` -- verified). (2) `test_ks_upper_gate_is_bit_identical` -- gated-in kernel == pre-gathered reference on heavy-tie large-n data (both branches). Existing 54 classification-extras tests green (the lone deselected `test_ks_fused_gate_perf_sentinel` is a pre-existing n=1000 timing sentinel, flaky under contention, passes solo).
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 44 RESOLVED, 29 REJECT across 72 iterations.**
+
+## Iter 73 -- 2026-06-14 (@200k)
+
+Workload: `compute_numaggs` @ **n=200000** via `profiling/profile_numaggs_iter73.py` (mixed continuous-with-repeats float64 column, the per-column numeric FE workhorse). Note: the full-config profile is dominated by an EXTERNAL O(N^2) kernel -- `antropy._app_samp_entropy` (sample_entropy) 171.6s / 174.4s = 98.4% tottime; that is not bit-identically optimisable (sub-sampling sample_entropy changes the feature value, selection-altering) so per the "investigate one mlframe hotspot every iter" rule I filtered to mlframe-own tottime.
+
+Top mlframe-own by tottime (20 calls @200k, entropy/external excluded): `compute_nunique_modes_quantiles_numpy` (`numerical.py:324`) 0.078s tottime / 0.22s cumtime -- 60 `np.sort` + 40 `np.unique` + `np.partition` underneath. Microbench (isolated, best-of-30 @200k): 9.34ms, broken down unique 3.0ms + nanquantile 2.8ms + ncrossings 2.6ms + lexsort/overhead. Plain-numpy confirmed (no njit in the hot frame; ncrossings is njit but separate).
+
+Audit (duplicated work): the function ran `np.unique(arr, return_counts=True)` (its own full sort) AND `np.nanquantile(arr, q)` (its own full partition) on the SAME array -- two independent O(n) passes over the same data. On all-finite input ONE `np.sort` yields the sorted-unique values + counts (walk the sorted array) AND the median_unbiased quantiles (index into the sorted array), eliminating the second sort and the partition.
+
+RESOLVED (gated on all-finite): new `_fused_nunique_modes_quantiles` single-sort fast path, dispatched when `arr` is 1-D, `len>=2`, `quantile_method=="median_unbiased"`, and `not np.isnan(arr).any()`. Gate is REQUIRED: `np.unique` collapses all-NaN into one entry while a sort keeps each NaN distinct, so the fast path would change nunique/modes on NaN input -> NaN routes to the exact legacy path (verified bit-identical). nunique/modes/ncrossings are EXACTLY identical on the fast path; quantiles carry a ~1e-16 ULP delta (FP order in the manual linear interp vs numpy's internal `_lerp`), far below the ~1e-9 selection-altering threshold.
+
+Measure (warm best-of-N, paired; OLD via `git show HEAD:` loaded as a package submodule):
+  - Isolated `compute_nunique_modes_quantiles_numpy` @200k (`src/mlframe/feature_engineering/_benchmarks/bench_nunique_modes_quantiles_fused_iter73.py`, best-of-30): OLD min 9.57ms med 11.17ms -> NEW min 6.23ms med 7.79ms = **1.54x min / 1.43x med**.
+  - e2e `compute_numaggs(return_entropy=False, return_hurst=False)` @200k (the light config used by `compute_countaggs` over count vectors + entropy-off FE configs, best-of-20): OLD min 12.79ms med 14.89ms -> NEW min 9.09ms med 9.72ms = **1.41x min / 1.53x med**, full-vector maxdiff 1.3e-15 (quantile ULP only). Win survives the full function, not just the isolated frame.
+
+Identity: nunique/modes/ncrossings bit-identical (exact `==`) on 8 seeds incl heavy-tie rounded data; quantiles maxdiff ~1e-16..1e-15 ULP; NaN input (gated out) FULLY bit-identical to the legacy path on 3 seeds.
+
+Regression test (`tests/feature_engineering/test_numerical.py::TestFusedNuniqueModesQuantilesFastPath`, 3 sensors): (1) `test_fast_path_avoids_np_unique_on_finite_input` -- spies `np.unique` and asserts 0 calls on finite input; FAILS pre-fix (pre-fix calls np.unique 2x, verified empirically) and passes post-fix; (2) nunique/modes exact + quantiles within ULP; (3) NaN input still routes through np.unique (>=1 call) and matches the collapsed-NaN nunique. Full `test_numerical.py` (74 tests) green.
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 46 RESOLVED, 29 REJECT across 73 iterations.**

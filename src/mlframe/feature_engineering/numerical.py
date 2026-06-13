@@ -321,6 +321,53 @@ def get_basic_feature_names(
     return res
 
 
+def _fused_nunique_modes_quantiles(arr: np.ndarray, q: np.ndarray, quantile_method: str, max_modes: int) -> tuple:
+    """All-finite fast path for ``compute_nunique_modes_quantiles_numpy``: one ``np.sort`` feeds the sorted-unique
+    values + counts AND the ``median_unbiased`` quantiles, replacing the independent ``np.unique`` sort and
+    ``np.nanquantile`` partition. Caller guarantees ``arr`` is 1-D, all-finite, ``len>=2``, method=median_unbiased.
+    """
+    s = np.sort(arr)
+    n = s.size
+
+    boundary = np.empty(n, dtype=bool)
+    boundary[0] = True
+    np.not_equal(s[1:], s[:-1], out=boundary[1:])
+    idx = np.nonzero(boundary)[0]
+    vals = s[idx]
+    counts = np.diff(np.append(idx, n))
+
+    max_modes = min(max_modes, len(counts))
+    modes_indices = np.lexsort((vals, -counts))[:max_modes]
+    first_mode_count = counts[modes_indices[0]]
+    if first_mode_count == 1:
+        modes_min, modes_max, modes_mean, modes_qty = np.nan, np.nan, np.nan, np.nan
+    else:
+        best_modes = [vals[modes_indices[0]]]
+        for i in range(1, max_modes):
+            next_idx = modes_indices[i]
+            if counts[next_idx] < first_mode_count:
+                break
+            best_modes.append(vals[next_idx])
+        best_modes = np.asarray(best_modes)
+        modes_min = best_modes.min()
+        modes_max = best_modes.max()
+        modes_mean = best_modes.mean()
+        modes_qty = len(best_modes)
+
+    res = (len(vals), modes_min, modes_max, modes_mean, modes_qty)
+
+    # median_unbiased (Hyndman-Fan type 8): virtual index h = (n + 1/3)*p + 1/3, clamp to [1, n], linear interp.
+    h = (n + 1.0 / 3.0) * q + 1.0 / 3.0
+    np.clip(h, 1.0, float(n), out=h)
+    lo = np.floor(h).astype(np.intp) - 1
+    hi = np.minimum(lo + 1, n - 1)
+    g = h - np.floor(h)
+    quantiles = s[lo] * (1.0 - g) + s[hi] * g
+    res = res + tuple(quantiles)
+    res = res + tuple(compute_ncrossings(arr=arr, marks=quantiles))
+    return res
+
+
 def compute_nunique_modes_quantiles_numpy(
     arr: np.ndarray, q: Sequence[float] = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10, return_unsorted_stats: bool = True
 ) -> list:
@@ -331,6 +378,22 @@ def compute_nunique_modes_quantiles_numpy(
     number of quantiles crossings
     Can NOT be numba jitted (yet).
     """
+    # Fused single-sort fast path: np.unique (its own sort) + np.nanquantile (its own partition) both walk the array
+    # independently. When arr is all-finite (the common numeric-column case) a single np.sort yields the sorted-unique
+    # values + counts AND the quantiles, eliminating one full sort and one full partition. Gated on no-NaN because
+    # np.unique collapses all NaN into a single entry while a sort keeps each NaN distinct -> the fast path would change
+    # nunique/modes. Quantiles carry a ~1e-16 ULP delta vs np.nanquantile (FP order in the linear-interp), far below any
+    # selection-altering threshold; nunique/modes/ncrossings are exactly identical.
+    _fused_ok = (
+        return_unsorted_stats
+        and arr.ndim == 1
+        and quantile_method == "median_unbiased"
+        and arr.size >= 2
+        and not np.isnan(arr).any()
+    )
+    if _fused_ok:
+        return _fused_nunique_modes_quantiles(arr, np.asarray(q, dtype=np.float64), quantile_method, max_modes)
+
     if return_unsorted_stats:
         vals, counts = np.unique(arr, return_counts=True)
 
