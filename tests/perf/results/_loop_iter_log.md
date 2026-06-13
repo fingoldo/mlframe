@@ -2795,3 +2795,25 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 61 RESOLVED, 2
 **Verdict: RESOLVED+15-34x e2e @1M (per_group_rank whole-batch njit; bit-identical to per-group scipy.rankdata).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 62 RESOLVED, 29 REJECT across 89 iterations.**
+
+---
+
+### iter90 (@1M) -- ncrossings mark-parallel (numaggs quantile-crossing feature)
+
+**Workload@1M + why:** `compute_numaggs` over a continuous 1M-row numeric column (FE numerical aggregator -- an untapped family at 1M beyond the iter73 fused-moments and iter74 cleaning work). The all-finite fast path `_fused_nunique_modes_quantiles` does one `np.sort` (8.7ms) then computes nunique/modes/quantiles and finally `compute_ncrossings` over the ORIGINAL (unsorted) array to count per-quantile-mark sign crossings.
+
+**Top mlframe-own by tottime/ncalls (fused path @1M, isolated):** `compute_ncrossings` 15.0ms (~41% of the 36.5ms fused total) -- the single largest mlframe-own component, above `np.sort` (8.7ms). Confirmed plain numba (not cProfile mis-attribution) via standalone microbench. e2e-fraction: ncrossings is ~41% of `_fused_nunique_modes_quantiles`, which is itself the dominant mlframe-own piece of a continuous-column `compute_numaggs` (the rest of numaggs is external antropy entropy, SKIP per prompt).
+
+**Hotspot:** `_compute_ncrossings_serial` (the prior `compute_ncrossings` njit body): element-major double loop `for next_value in arr: for i,mark in enumerate(marks)`, re-reading/writing the length-M `prev_ds` float32 array for every one of the 1M samples (strided, non-sequential per mark, serial). tottime 15.0ms, 1 call/column, marks=7.
+
+**Optimization + audit (within-series unexploited parallelism + layout):** each mark is independent and the crossing scan is a sequential reduction over `arr`. New `_compute_ncrossings_marks_prange` gives each `prange` lane one mark, walking `arr` once with its previous diff held in a register -- perfect cache locality, no shared length-M state, parallel across marks. Public `compute_ncrossings` becomes a thin dispatcher: int32 (both prod callers) -> parallel kernel; other dtypes -> serial reference (kept). Bit-identity by construction: per-element diff truncated to `np.float32` and crossing test kept `< float32(0.0)`, exactly matching the original float32 `prev_ds` storage.
+
+**Before/after:** isolated `compute_ncrossings` @1M (marks=7) 15.0ms -> 0.48ms (**~31x**). e2e `_fused_nunique_modes_quantiles` @1M 36.5ms -> 24.6ms (**1.49x**, -33% wall).
+
+**Identity proof:** `_compute_ncrossings_marks_prange` `np.array_equal` to `_compute_ncrossings_serial` (verbatim HEAD body) across normal / int-lowcard / heavy-ties / near-mark (1e-9 around the mark) / NaN-in-arr / single-mark / NaN-marks inputs. The serial fallback IS the byte-for-byte HEAD implementation, so the full numaggs output is identical by construction.
+
+**Regression test (`tests/feature_engineering/test_numerical.py::TestNcrossingsMarkParallel`):** parametrized serial-vs-parallel-vs-public identity over 5 data kinds + a spy asserting the int32 path dispatches to the parallel kernel + a non-default-dtype-uses-serial test. FAILS on pre-fix code (neither `_compute_ncrossings_serial` nor `_compute_ncrossings_marks_prange` exists at HEAD -> ImportError/AttributeError). 81/81 test_numerical.py green post-fix.
+
+**Verdict: RESOLVED+31x isolated / 1.49x e2e @1M (ncrossings mark-parallel njit; bit-identical to serial float32 reference).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 63 RESOLVED, 29 REJECT across 90 iterations.**

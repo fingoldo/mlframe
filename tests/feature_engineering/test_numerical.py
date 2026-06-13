@@ -784,3 +784,55 @@ class TestFusedNuniqueModesQuantilesFastPath:
         assert calls["n"] >= 1, "NaN input must use the exact np.unique path (collapses all NaN to one)"
         vals, _ = real_unique(arr, return_counts=True)
         assert res[0] == len(vals)
+
+
+class TestNcrossingsMarkParallel:
+    """``compute_ncrossings`` int32 path dispatches to the mark-parallel kernel, bit-identical to the serial reference."""
+
+    @pytest.mark.parametrize("kind", ["normal", "int_lowcard", "heavy_ties", "near_mark", "with_nan"])
+    def test_mark_parallel_matches_serial(self, kind):
+        from mlframe.feature_engineering.numerical import _compute_ncrossings_serial, _compute_ncrossings_marks_prange
+
+        rng = np.random.default_rng(13)
+        if kind == "normal":
+            arr = rng.standard_normal(20000)
+        elif kind == "int_lowcard":
+            arr = rng.integers(0, 50, 20000).astype(np.float64)
+        elif kind == "heavy_ties":
+            arr = np.round(rng.standard_normal(20000), 1)
+        elif kind == "near_mark":
+            arr = np.array([0.0, 1e-9, -1e-9, 2e-9, -2e-9, 1.0, -1.0] * 3000, dtype=np.float64)
+        else:
+            arr = rng.standard_normal(20000)
+            arr[::97] = np.nan
+        marks = np.array([0.0, 0.05, 0.25, 0.5, 0.75, 0.95, 1.0], dtype=np.float64)
+
+        serial = _compute_ncrossings_serial(arr, marks)
+        par = _compute_ncrossings_marks_prange(arr, marks)
+        public = compute_ncrossings(arr, marks)
+        assert np.array_equal(serial, par), f"mark-parallel diverged from serial on {kind}: {serial} vs {par}"
+        assert np.array_equal(serial, public), f"public dispatch diverged from serial on {kind}"
+
+    def test_int32_path_uses_parallel_kernel(self, monkeypatch):
+        # The default int32 path MUST route through the mark-parallel kernel; pre-fix there was only the serial kernel.
+        import mlframe.feature_engineering.numerical as num
+
+        called = {"n": 0}
+        real = num._compute_ncrossings_marks_prange
+
+        def spy(arr, marks):
+            called["n"] += 1
+            return real(arr, marks)
+
+        monkeypatch.setattr(num, "_compute_ncrossings_marks_prange", spy)
+        rng = np.random.default_rng(1)
+        arr = rng.standard_normal(5000)
+        num.compute_ncrossings(arr, np.array([0.0, 0.5, 1.0]))
+        assert called["n"] == 1, "int32 compute_ncrossings must dispatch to the mark-parallel kernel"
+
+    def test_nondefault_dtype_uses_serial(self):
+        rng = np.random.default_rng(2)
+        arr = rng.standard_normal(5000)
+        marks = np.array([0.0, 0.5])
+        out = compute_ncrossings(arr, marks, dtype=np.int64)
+        assert out.dtype == np.int64
