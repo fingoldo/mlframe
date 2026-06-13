@@ -67,6 +67,38 @@ def test_ks_single_class_returns_nan():
     assert np.isnan(ks_statistic(y, s))
 
 
+@pytest.mark.parametrize("kind", ["random", "lowcard_ties", "all_tied", "imbalanced", "large"])
+def test_ks_shared_desc_order_bit_identical(kind):
+    """ks_statistic must return a BYTE-IDENTICAL result whether it computes its
+    own ascending argsort or reuses a precomputed DESCENDING order (the one
+    fast_aucs_per_group_optimized already builds for AUC over the same scores).
+    Bit-identity holds on heavy ties because the KS kernel folds tied scores
+    into a single CDF jump, so within-tie order of the order array is irrelevant.
+    """
+    rng = np.random.default_rng(11)
+    if kind == "random":
+        n, dec = 3000, 6
+    elif kind == "lowcard_ties":
+        n, dec = 3000, 1
+    elif kind == "all_tied":
+        n, dec = 3000, 0
+    elif kind == "imbalanced":
+        n, dec = 5000, 2
+    else:
+        n, dec = 100_000, 6
+    s = np.round(rng.uniform(size=n), dec).astype(np.float64)
+    y = (rng.uniform(size=n) < (0.1 if kind == "imbalanced" else 0.45)).astype(np.int64)
+    if y.sum() == 0 or y.sum() == n:
+        y[0] = 1 - y[0]
+    own = ks_statistic(y, s)
+    desc = np.argsort(s)[::-1]
+    shared = ks_statistic(y, s, desc_order=desc)
+    if np.isnan(own):
+        assert np.isnan(shared)
+    else:
+        assert own == shared, (kind, own, shared)
+
+
 def test_ks_matches_scipy_for_2_sample():
     """For binary classification KS, scipy's 2-sample ks_2samp on
     class-conditional score arrays produces the same statistic."""

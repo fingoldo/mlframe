@@ -1855,3 +1855,25 @@ call sites; rejected kernels kept (self-contained) in `feature_selection/_benchm
 re-flag the gate-grid build as a fusion candidate without first re-checking the build's fraction of the whole-call wall (it is ~10%, MI-bound).
 
 Streak: 1/100 (iter53 REJECT). **Cumulative loop wave: 26 RESOLVED, 28 REJECT across 53 iterations.**
+
+## iter54 (2026-06-13) -- RESOLVED (+1.36-1.44x e2e on fast_calibration_report; share AUC desc argsort with KS)
+
+Workload: FRESH workload -- `fast_calibration_report` (mlframe-OWN classification metric report, rich Python/numpy orchestration, NOT
+external-lib-bound), n=100k binary, warm best-of-5 x 200/300 iters. Chosen because the MRMR.fit FE pool is floor-bound (iters 43-53); this
+report is a distinct mlframe-own metric path called 4x per train-suite run. Profiled with `NUMBA_DISABLE_CUDA=1` (mlframe GPU dispatch -> CPU).
+
+Top mlframe-OWN by tottime (200 iters): `numpy.argsort` 0.510s/200 (the dominant pure-numpy frame), cupy `.get`/argsort/array ~0.62s (the
+hardware-relative GPU-AUC argsort path, gated + env-tunable, NOT my target -- slow on this contended box, wins on datacenter GPU), then
+`_confusion_counts_binary_dispatch` 0.130s, `ks_statistic` 0.109s own / 0.620s cum, `fast_aucs_per_group_optimized` 0.101s own / 0.727s cum.
+
+| iter | hotspot (tottime / ncalls, pure-Python confirm) | optimization + audit | before/after (isolated + e2e) | verdict |
+|---|---|---|---|---|
+| 54 | `numpy.argsort` of `y_pred` 0.510s / 200 calls (2.55 ms/call). Per `fast_calibration_report` call the SAME float64 `y_pred` (n=100k) is argsorted independently TWICE: descending in `fast_aucs_per_group_optimized` (for AUC) and ascending in `ks_statistic` -- confirmed plain `np.argsort`, both real fractions of the ~8 ms/call report wall. | Share the AUC descending order with KS: add `return_order=` to `fast_aucs_per_group_optimized` (returns the `desc_score_indices` it already builds) + `desc_order=` to `ks_statistic` (reuses it reversed). Bit-identical BY CONSTRUCTION -- the KS kernel folds tied scores into a single CDF jump, so within-tie order of the order array is irrelevant (verified on heavy-tie / all-tied / imbalanced / continuous inputs, byte-identical). Audited callers: the report is the only one wiring the share; the 3-tuple `fast_aucs_per_group_optimized` callers are untouched (`return_order` defaults False); `_precomputed_aucs` path leaves `desc_order=None` so KS falls back to its own sort. | ISOLATED: eliminates one full n=100k CPU argsort per report (~2.4 ms). E2E `fast_calibration_report` n=100k best-of-5: CPU-sort path BEFORE 7.918 -> AFTER 5.515 ms/call (**1.44x**, -2.40 ms); default GPU-AUC path BEFORE 8.993 -> AFTER 6.602 ms/call (**1.36x**, -2.39 ms). The eliminated KS argsort is always a CPU argsort so the saving is hardware-independent. Output byte-identical (KS/AUC/all tokens). | RESOLVED |
+
+Verdict: a real cross-function redundant-argsort elimination on a metric path the prior iters never profiled. The 2026-05 `# bench-attempt-rejected`
+note in `ks_statistic` (sharing the AUC sort "unimplementable") applied to the BATCHED/GPU `compute_batch_aucs` path which returns scalars not
+orders; the per-call non-batched `fast_calibration_report` path DOES have the order in hand, so the share is implementable + bit-identical here.
+Regression test `test_ks_shared_desc_order_bit_identical` (5 tie regimes incl. n=100k) pins both the new param + bit-identity. Bench kept at
+`profiling/bench_ks_share_auc_desc_order.py`.
+
+Streak: 0/100 (iter54 RESOLVED -- streak reset). **Cumulative loop wave: 27 RESOLVED, 28 REJECT across 54 iterations.**

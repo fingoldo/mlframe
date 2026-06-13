@@ -66,7 +66,7 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
     return overall_roc_auc, overall_pr_auc, group_aucs
 
 
-def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
+def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None, return_order: bool = False):
     """
     More memory-efficient version that groups data by group first.
     Better for cases with many groups and reasonable group sizes.
@@ -138,6 +138,8 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
     else:
         group_aucs = {}
 
+    if return_order:
+        return overall_roc_auc, overall_pr_auc, group_aucs, desc_score_indices
     return overall_roc_auc, overall_pr_auc, group_aucs
 
 

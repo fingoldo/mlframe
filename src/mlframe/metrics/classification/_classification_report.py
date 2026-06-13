@@ -298,11 +298,14 @@ def fast_calibration_report(
         y_true=y_true, y_pred=y_pred, nbins=nbins,
     )
 
+    _auc_desc_order = None
     if _precomputed_aucs is not None and group_ids is None:
         roc_auc, pr_auc = _precomputed_aucs
         group_aucs = {}
     else:
-        roc_auc, pr_auc, group_aucs = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=group_ids)
+        roc_auc, pr_auc, group_aucs, _auc_desc_order = fast_aucs_per_group_optimized(
+            y_true=y_true, y_score=y_pred, group_ids=group_ids, return_order=True
+        )
     mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
 
     ice = integral_calibration_error_from_metrics(
@@ -339,7 +342,7 @@ def fast_calibration_report(
             ks_statistic, matthews_corrcoef_binary, brier_skill_score,
         )
         _yt_int = np.asarray(y_true).astype(np.int64, copy=False)
-        ks_val = ks_statistic(_yt_int, y_pred)
+        ks_val = ks_statistic(_yt_int, y_pred, desc_order=_auc_desc_order)
         mcc_val = matthews_corrcoef_binary(_yt_int, np.asarray(_y_pred_thr).astype(np.int64, copy=False))
         bss_val = brier_skill_score(_yt_int, y_pred)
     except (ValueError, TypeError, FloatingPointError) as _ext_err:

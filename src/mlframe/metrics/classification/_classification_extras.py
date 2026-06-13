@@ -201,7 +201,7 @@ def _ks_statistic_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return float(_ks_statistic_kernel(yt[order], ys[order]))
 
 
-def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
+def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: np.ndarray = None) -> float:
     """Kolmogorov-Smirnov statistic between class-conditional score CDFs.
 
     Returns max_s |F_neg(s) - F_pos(s)| in [0, 1]. Higher is better;
@@ -209,12 +209,25 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
     scoring / fraud / churn.
 
     NaN when either class is empty (no class-conditional CDF defined).
+
+    ``desc_order`` is an optional precomputed DESCENDING argsort of
+    ``y_score`` (e.g. the one ``fast_aucs_per_group_optimized`` already
+    builds for AUC over the same scores). When supplied, KS reuses it
+    (reversed to ascending) instead of running a second independent
+    argsort over the same array -- bit-identical because the KS kernel
+    folds tied scores into a single CDF jump, so within-tie ordering of
+    the order array never affects the statistic.
     """
     yt = np.asarray(y_true).astype(np.int64, copy=False)
     ys = np.asarray(y_score, dtype=np.float64)
     n = yt.shape[0]
     if n == 0:
         return np.nan
+    if desc_order is not None and desc_order.shape[0] == n:
+        order = desc_order[::-1]
+        if n < _KS_FUSED_MAX_N:
+            return float(_ks_statistic_kernel_ordered(np.ascontiguousarray(order), yt, ys))
+        return float(_ks_statistic_kernel(yt[order], ys[order]))
     # bench-attempt-rejected (_benchmarks/bench_ks_shared_sort.py): sharing this
     # sort with the AUC score-desc argsort is bit-identical but unimplementable
     # -- the report's AUC sort is inside the batched/GPU compute_batch_aucs
