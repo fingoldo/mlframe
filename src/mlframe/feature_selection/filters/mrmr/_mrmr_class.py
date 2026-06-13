@@ -2060,7 +2060,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the encoded ``{col}__te`` column is appended to X. The recipe
         # (``kfold_target_encoded``) stores the FULL-data per-category
         # mean for deterministic replay -- no y is referenced at transform.
-        fe_kfold_te_enable: bool = False,
+        fe_kfold_te_enable: bool = True,
         fe_kfold_te_cols: tuple = (),
         fe_kfold_te_folds: int = 5,
         fe_kfold_te_smoothing: float = 10.0,
@@ -2089,7 +2089,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # into every fit's screening -- a default-ON flip displaced raw categoricals from the selection on the
         # kitchen-sink fixture (test_biz_value_mrmr_layer39), confirming broad selection perturbation on shared
         # infra. Opt in with ``fe_binned_numeric_agg_enable=True`` where the target's cell-conditional spread matters.
-        fe_binned_numeric_agg_enable: bool = False,
+        fe_binned_numeric_agg_enable: bool = True,
         fe_binned_numeric_agg_stats: tuple = ("mean", "std", "skew", "kurt"),
         fe_binned_numeric_agg_nbins: int = 10,
         fe_binned_numeric_agg_max_pairs: int = 64,

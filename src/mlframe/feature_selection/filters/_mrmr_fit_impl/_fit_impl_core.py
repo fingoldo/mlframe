@@ -71,6 +71,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         screen_predictors,
         sort_dict_by_value,
     )
+    # include_numeric NaN guard: snapshot raw NaN/inf-bearing NUMERIC columns at the VERY START of fit, before
+    # _validate_inputs / categorize / any GPU-discretisation path can impute X. include_numeric must skip a column
+    # the user supplied with NaN -- its quantile-edge transform replay has no NaN bin, so a NaN test value would
+    # silently clip to the top bin (train/serve skew). Captured here so a downstream in-place impute (e.g. the GPU
+    # categorize path that is active when the harness sets CUDA_PATH) cannot erase the NaN before the candidate
+    # scan and defeat the guard.
+    _include_numeric_input_nan_cols = set()
+    if hasattr(X, "columns"):
+        for _c in list(X.columns):
+            try:
+                _cv = X[_c]
+                _cv = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=np.float64)
+            except (ValueError, TypeError):
+                continue
+            if not np.isfinite(_cv).all():
+                _include_numeric_input_nan_cols.add(_c)
     X = self._validate_inputs(X, y)
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -6080,6 +6096,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _ci in _cat_idx_set or _ci in _tgt_idx_set:
                 continue
             if _raw_name_set and cols[_ci] not in _raw_name_set:
+                continue
+            # Skip columns the user supplied with NaN (snapshot at fit entry, robust to any downstream impute):
+            # the quantile-edge replay has no NaN bin, so crossing them would skew serving.
+            if cols[_ci] in _include_numeric_input_nan_cols:
                 continue
             try:
                 _num_raw_values[_ci] = np.asarray(_extract_col_for_num(X, cols[_ci]))
