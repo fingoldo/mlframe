@@ -309,7 +309,16 @@ def generate_composite_group_agg_features(
             global_std = _global_value_for_stat(x, "std")
 
             for stat in stats:
-                agg_series = grouped.agg(_agg_func_for_stat(stat))
+                # mean / std are already materialised above for the z / ratio
+                # residuals; reuse them instead of re-running the (O(n)) cython
+                # groupby a second time. ``grouped.mean()`` == ``grouped.agg("mean")``
+                # and ``grouped.std(ddof=1)`` == ``grouped.agg("std")`` bit-for-bit.
+                if stat == "mean":
+                    agg_series = mean_series
+                elif stat == "std":
+                    agg_series = std_series
+                else:
+                    agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {
                     str(k): (float(v) if np.isfinite(v) else 0.0)
                     for k, v in agg_series.items()

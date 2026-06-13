@@ -451,3 +451,48 @@ class TestPickleClone:
         assert tuple(c.fe_composite_group_agg_num_cols) == ("x",)
         assert int(c.fe_composite_group_agg_max_arity) == 3
         assert int(c.fe_composite_group_agg_top_k) == 7
+
+
+class TestMeanStdReuseBitIdentical:
+    """The mean/std stat broadcasts reuse the per-group series already materialised for the
+    z / ratio residuals rather than re-running ``grouped.agg``. Pin that the reused values are
+    bit-identical to an independent explicit ``grouped.agg("mean"|"std")`` reference, across
+    adversarial magnitudes, so a future 'just recompute it' cannot silently drift the encoding."""
+
+    def test_mean_std_broadcast_matches_explicit_groupby_agg(self):
+        from mlframe.feature_selection.filters._composite_group_agg_fe import (
+            build_composite_keys,
+            engineered_name_composite_agg,
+            generate_composite_group_agg_features,
+        )
+        rng = np.random.default_rng(11)
+        for trial in range(5):
+            n = int(rng.integers(2000, 8000))
+            scale = float(rng.uniform(0.1, 50.0)) * (10.0 ** rng.integers(-6, 7))
+            X = pd.DataFrame(
+                {
+                    "a": rng.integers(0, 15, n),
+                    "b": rng.integers(0, 9, n),
+                    "v": rng.normal(0.0, scale, n),
+                }
+            )
+            gset = ("a", "b")
+            enc, _ = generate_composite_group_agg_features(
+                X, [gset], num_cols=["v"], stats=("mean", "std", "count"),
+            )
+            keys = build_composite_keys(X, gset)
+            grouped = pd.DataFrame({"_g": keys, "_v": X["v"].to_numpy(dtype=float)}).groupby(
+                "_g", observed=True, sort=False,
+            )["_v"]
+            ref_mean = {str(k): float(v) for k, v in grouped.agg("mean").items()}
+            ref_std = {
+                str(k): (float(v) if np.isfinite(v) else 0.0)
+                for k, v in grouped.agg("std").items()
+            }
+            keys_str = np.array([str(k) for k in keys], dtype=object)
+            exp_mean = np.array([ref_mean[k] for k in keys_str], dtype=np.float64)
+            exp_std = np.array([ref_std[k] for k in keys_str], dtype=np.float64)
+            got_mean = enc[engineered_name_composite_agg("v", gset, "mean")].to_numpy()
+            got_std = enc[engineered_name_composite_agg("v", gset, "std")].to_numpy()
+            assert np.max(np.abs(got_mean - exp_mean)) == 0.0, f"trial {trial}: mean drift"
+            assert np.max(np.abs(got_std - exp_std)) == 0.0, f"trial {trial}: std drift"

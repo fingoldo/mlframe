@@ -2159,3 +2159,40 @@ kernel bit-identical to the flatten + two-bincount reference across 120 adversar
 `_fused_sum_count_2col` absent on HEAD). Full file 10/10 pass.
 
 Streak: 0/100 (iter63 RESOLVED -- streak reset). **Cumulative loop wave: 36 RESOLVED, 28 REJECT across 63 iterations.**
+
+## iter64 (2026-06-13) -- RESOLVED: drop redundant `grouped.agg("mean"|"std")` recompute in composite-group-agg FE
+
+Workload: a FRESH frame. First profiled RFECV.fit (LogisticRegression, n=800, p=100, cv=3, 20 refits, warm) -- but the top-25 by tottime held
+only two mlframe own-code frames: `compute_probabilistic_multiclass_error` (njit-mis-attributed -- its 4.25ms/call tottime is the inlined
+`_batch_per_class_ice_kernel`, confirmed by an isolated re-profile showing ~0.1ms own-code -> SKIP per the loop rules) and
+`_helpers_importance._fast_value` (already iter-tuned; tottime tiny, cumtime is `_est.predict`). RFECV at this scale is sklearn-dominated, no
+own-code lever. Pivoted to `feature_selection/filters/_composite_group_agg_fe.generate_composite_group_agg_features` -- a plain-Python/pandas FE
+path that moves e2e in MRMR composite-key feature engineering.
+
+Hotspot: `generate_composite_group_agg_features` (cProfile cumtime ~0.36s/call at n=60k; the per-(key-set,num_col) groupby aggregations are
+`_cython_agg_general` x360 = ~0.42s over 10 runs). Plain-Python/pandas, real e2e fraction in MRMR FE.
+
+Audit (recomputed/discarded work): the function ALWAYS materialises `mean_series = grouped.mean()` and `std_series = grouped.std(ddof=1)` for the
+z-within / ratio residuals. The default stats are `("mean","std","count")`, so the stat loop then re-ran `grouped.agg("mean")` and
+`grouped.agg("std")` -- the IDENTICAL cython groupby a second time per (key-set, num_col). Two redundant O(n) aggregations per pair.
+
+Optimization: in the stat loop, dispatch `stat == "mean" -> mean_series`, `stat == "std" -> std_series`, else `grouped.agg(...)`. Bit-identical by
+construction (`grouped.mean() == grouped.agg("mean")`; pandas `grouped.std()` defaults to ddof=1 == `grouped.agg("std")`). No new alloc, code is
+clearer (one fewer aggregation).
+
+Before/after (warm, best-of-6, interleaved A/B old-vs-new in one process):
+  - groupby-dominated regime (n=150k, 1 low-card key 8x6 x 12 num_cols -- cheap `np.unique`, aggs dominate): old ~430ms -> new ~385ms = **1.04-1.12x**,
+    new consistently <= old across 3 interleaved runs (1.117x / 1.036x / 1.015x).
+  - unique-dominated regime (n=60k, 3 key-sets x 3 num_cols -- the object-key `np.unique`/argsort is ~0.9s and dwarfs the aggs): ~1.0x (noise),
+    new never slower. The removed work is a small slice when the key-sort is the bottleneck; the win is real but gated to the agg-heavy regime.
+
+Identity: BIT-IDENTICAL. 0.0 max-abs diff across 5 adversarial-magnitude trials (scales 1e-6..1e6) over stats mean/std/count/min/max/median, encoded
+tables compared old-vs-new (old loaded via `importlib` from `git show HEAD:`). Verified the z/ratio residuals (which consume mean_series/std_series)
+are untouched.
+
+Regression test: `TestMeanStdReuseBitIdentical::test_mean_std_broadcast_matches_explicit_groupby_agg` in
+`tests/feature_selection/test_biz_value_mrmr_grouped_cat_fe/test_composite_group_key.py` -- pins the reused mean/std broadcasts bit-identical to an
+INDEPENDENT explicit `grouped.agg("mean"|"std")` reference across 5 adversarial-magnitude trials (guards a future 'reuse the wrong series', e.g.
+ddof=0 std). Full file 11/11 pass. Bench: `feature_selection/filters/_benchmarks/bench_composite_group_agg_mean_std_reuse.py`.
+
+Streak: 0/100 (iter64 RESOLVED -- streak reset). **Cumulative loop wave: 37 RESOLVED, 28 REJECT across 64 iterations.**
