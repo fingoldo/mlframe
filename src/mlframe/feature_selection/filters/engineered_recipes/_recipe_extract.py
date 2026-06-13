@@ -112,10 +112,16 @@ def build_category_code_map(values: Any, block_has_nan: bool | None = None) -> d
 def _coerce_to_int_with_nan_handling(
     vals: np.ndarray, n_bins: int, recipe_name: str, col_name: str,
     unknown_strategy: str, cat_code_map: dict | None = None,
+    bin_edges: np.ndarray | None = None,
 ) -> np.ndarray:
     """Coerce test-time values to int64 for factorize lookup, handling NaN/non-integer per ``unknown_strategy`` (clip -> max bin, sentinel -> new bin,
     raise -> error). Float non-NaN casts to int (rounds toward zero); object/categorical via the stored fit-time ``cat_code_map`` (``raw_value -> code``)
     when supplied, else ``astype(int64)``.
+
+    ``bin_edges``: when supplied (``include_numeric`` quantile-binned numeric source), raw values are binned via
+    ``np.searchsorted(bin_edges, value, side="right")`` -- the EXACT fit-time convention (``_quantile_bin_with_edges``)
+    -- reproducing identical codes with no train/serve skew. Takes precedence over the int-cast / ``cat_code_map``
+    paths. Non-finite values resolve via ``unknown_strategy`` (``raise`` -> error; else clip to the top bin).
 
     ``cat_code_map``: the fit-time ``str(value) -> code`` table built by
     ``build_category_code_map``. When the source column is categorical / string,
@@ -124,6 +130,20 @@ def _coerce_to_int_with_nan_handling(
     coerced to all-zero codes (every cell -> the same wrong lookup cell), which
     destroyed cat-interaction features at serving time. Unseen values resolve via
     ``unknown_strategy`` (sentinel bin ``n_bins - 1`` for clip/sentinel)."""
+    # Numeric source binned at fit via stored quantile edges (include_numeric): reproduce the SAME codes.
+    if bin_edges is not None and len(bin_edges) > 0:
+        v = np.asarray(vals, dtype=np.float64)
+        nan_mask = ~np.isfinite(v)
+        if nan_mask.any() and unknown_strategy == "raise":
+            raise ValueError(
+                f"Recipe '{recipe_name}': numeric column '{col_name}' has "
+                f"{int(nan_mask.sum())} non-finite value(s) at transform time. Set "
+                f"unknown_strategy='clip' or 'sentinel' to handle silently."
+            )
+        codes = np.searchsorted(np.asarray(bin_edges, dtype=np.float64), v, side="right").astype(np.int64)
+        if nan_mask.any():
+            codes[nan_mask] = n_bins - 1  # clip non-finite to the top bin
+        return np.clip(codes, 0, n_bins - 1)
     # Categorical / string source: replay via the stored fit-time code map so
     # transform reproduces the EXACT codes (category-order for Categorical,
     # first-appearance order for object via pd.factorize). Numeric columns skip

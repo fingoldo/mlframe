@@ -235,15 +235,18 @@ def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     cell_means: np.ndarray = recipe.extra["cell_means"]
     global_mean: float = recipe.extra["global_mean"]
 
-    # ``cat_code_maps`` reproduces fit-time categorical / string codes (see _apply_factorize); numeric sources fall through to the int-cast path.
+    # ``cat_code_maps`` reproduces fit-time categorical / string codes (see _apply_factorize); ``src_bin_edges``
+    # reproduces fit-time quantile codes for include_numeric numeric sources; numeric sources without edges fall
+    # through to the int-cast path.
     _cat_maps = recipe.extra.get("cat_code_maps") or {}
+    _edges = recipe.extra.get("src_bin_edges") or {}
     vals_a = _coerce_to_int_with_nan_handling(
         _extract_column(X, name_a), nbins_a, recipe.name, name_a, recipe.unknown_strategy,
-        _cat_maps.get(name_a),
+        _cat_maps.get(name_a), _edges.get(name_a),
     )
     vals_b = _coerce_to_int_with_nan_handling(
         _extract_column(X, name_b), nbins_b, recipe.name, name_b, recipe.unknown_strategy,
-        _cat_maps.get(name_b),
+        _cat_maps.get(name_b), _edges.get(name_b),
     )
     vals_a = np.clip(vals_a, 0, nbins_a - 1)
     vals_b = np.clip(vals_b, 0, nbins_b - 1)

@@ -41,7 +41,16 @@ __all__ = [
     "apply_target_encoding",
     "kfold_target_encode_with_recipes",
     "engineered_name_te",
+    "engineered_name_te_stat",
+    "TE_SUPPORTED_STATS",
 ]
+
+# Per-cell target STATISTICS the encoder can emit (beyond the plain mean). std / skew / kurtosis of y within a
+# category carry signal the mean cannot when the cell MODULATES a raw feature (heteroscedastic / varying-slope
+# regimes): measured +0.04..+0.09 OOS R^2 on varying-slope regression with the encoded stats fed alongside the
+# raw feature (bench_multistat_cell_encoding). For a pure mean-shift / homoscedastic / binary target the extra
+# moments are redundant (Bernoulli moments are functions of the mean), so ``("mean",)`` stays the default.
+TE_SUPPORTED_STATS = ("mean", "std", "skew", "kurt")
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +66,69 @@ def engineered_name_te(col: str) -> str:
     grep ``__te`` in column names already exist (sklearn pipelines /
     plotting helpers)."""
     return f"{col}__te"
+
+
+def engineered_name_te_stat(col: str, stat: str) -> str:
+    """Engineered column name for a target-encoded source column + statistic. ``mean`` keeps the historical
+    ``{col}__te`` name (back-compat with existing recipes / grep consumers); other stats get ``{col}__te_{stat}``."""
+    return engineered_name_te(col) if stat == "mean" else f"{col}__te_{stat}"
+
+
+def _per_category_stats_smoothed(
+    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, stats: Sequence[str],
+    global_stats: dict, smoothing: float,
+) -> dict:
+    """Vectorised per-category target statistics (mean/std/skew/kurt) from raw moments via ``np.bincount``,
+    each shrunk toward its global value (Micci-Barreca) so rare categories stay robust. Returns ``{stat: arr}``
+    of length ``n_cats``. O(n) per fold -- replaces the prior per-row Python loop (a real speedup on wide cat sets)."""
+    cnt = np.bincount(inverse, minlength=n_cats).astype(np.float64)
+    safe = np.maximum(cnt, 1.0)
+    s1 = np.bincount(inverse, weights=y_arr, minlength=n_cats)
+    mean = s1 / safe
+    need_hi = any(s in ("std", "skew", "kurt") for s in stats)
+    out: dict = {}
+    if need_hi:
+        s2 = np.bincount(inverse, weights=y_arr * y_arr, minlength=n_cats)
+        m2 = np.maximum(s2 / safe - mean * mean, 0.0)  # variance (clip tiny negatives from fp error)
+        std = np.sqrt(m2)
+    for stat in stats:
+        if stat == "mean":
+            raw = mean
+        elif stat == "std":
+            raw = std
+        elif stat == "skew":
+            s3 = np.bincount(inverse, weights=y_arr ** 3, minlength=n_cats)
+            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean ** 3
+            raw = np.where(std > 1e-9, m3 / (std ** 3 + 1e-12), 0.0)
+        elif stat == "kurt":
+            s3 = np.bincount(inverse, weights=y_arr ** 3, minlength=n_cats)
+            s4 = np.bincount(inverse, weights=y_arr ** 4, minlength=n_cats)
+            m4 = (s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean ** 2 * (s2 / safe) - 3.0 * mean ** 4)
+            raw = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)  # excess kurtosis
+        else:
+            raise ValueError(f"target-encoding stat {stat!r} not in {TE_SUPPORTED_STATS}")
+        g = float(global_stats[stat])
+        # Shrink toward the global statistic; empty categories (cnt==0) -> global value.
+        smoothed = np.where(cnt > 0, (cnt * raw + smoothing * g) / (cnt + smoothing), g)
+        out[stat] = smoothed
+    return out
+
+
+def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
+    """Global (all-rows) value of each requested statistic -- the shrink target / unseen-category fallback."""
+    from scipy.stats import kurtosis as _kurt, skew as _skew
+    g = {}
+    sd = float(np.std(y_arr))
+    for stat in stats:
+        if stat == "mean":
+            g[stat] = float(np.mean(y_arr))
+        elif stat == "std":
+            g[stat] = sd
+        elif stat == "skew":
+            g[stat] = float(_skew(y_arr)) if (y_arr.size > 2 and sd > 1e-12) else 0.0
+        elif stat == "kurt":
+            g[stat] = float(_kurt(y_arr)) if (y_arr.size > 3 and sd > 1e-12) else 0.0
+    return {k: (v if np.isfinite(v) else 0.0) for k, v in g.items()}
 
 
 def auto_detect_te_cols(
@@ -150,6 +222,7 @@ def kfold_target_encode_fit(
     n_folds: int = 5,
     smoothing: float = 10.0,
     random_state: int = 0,
+    stats: Sequence[str] = ("mean",),
 ) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Fit K-fold out-of-fold target encoding for each column in ``cat_cols``.
 
@@ -206,9 +279,14 @@ def kfold_target_encode_fit(
             f"kfold_target_encode_fit: columns missing from X: {missing}"
         )
 
+    stats = tuple(stats) if stats else ("mean",)
+    bad = [s for s in stats if s not in TE_SUPPORTED_STATS]
+    if bad:
+        raise ValueError(f"kfold_target_encode_fit: unsupported stats {bad}; supported {TE_SUPPORTED_STATS}")
+
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     n = len(X)
-    global_mean = float(y_arr.mean())
+    global_stats = _global_target_stats(y_arr, stats)
 
     # Deterministic fold assignment via numpy generator. Round-robin over
     # SHUFFLED indices so categories that happen to cluster in the input
@@ -228,53 +306,38 @@ def kfold_target_encode_fit(
         unique_cats, inverse = np.unique(cats, return_inverse=True)
         n_cats = unique_cats.shape[0]
 
-        # OOF encoding: for each fold f, build per-category sum/count from
-        # rows in folds != f and apply to rows in fold f. Single pass over
-        # the data per fold; total O(n * K) which is fine for K=5.
-        oof_values = np.full(n, global_mean, dtype=np.float64)
+        # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f (vectorised via
+        # np.bincount moments -- O(n) per fold, no per-row Python loop) and apply to rows in fold f.
+        oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
         for f in range(int(n_folds)):
             train_mask = fold_ids != f
-            test_mask = ~train_mask
             if not train_mask.any():
                 continue
-            cell_sum = np.zeros(n_cats, dtype=np.float64)
-            cell_cnt = np.zeros(n_cats, dtype=np.float64)
-            train_idx = np.where(train_mask)[0]
-            for row in train_idx:
-                c = int(inverse[row])
-                cell_sum[c] += y_arr[row]
-                cell_cnt[c] += 1.0
-            cell_means_fold = np.full(n_cats, global_mean, dtype=np.float64)
-            for c in range(n_cats):
-                if cell_cnt[c] > 0.0:
-                    raw = cell_sum[c] / cell_cnt[c]
-                    cell_means_fold[c] = _smooth(raw, cell_cnt[c], global_mean, smoothing)
-            test_idx = np.where(test_mask)[0]
-            for row in test_idx:
-                oof_values[row] = cell_means_fold[int(inverse[row])]
-        encoded_cols[engineered_name_te(col)] = oof_values
+            per_cat = _per_category_stats_smoothed(
+                inverse[train_mask], y_arr[train_mask], n_cats, stats, global_stats, smoothing,
+            )
+            test_idx = np.where(~train_mask)[0]
+            inv_test = inverse[test_idx]
+            for s in stats:
+                oof[s][test_idx] = per_cat[s][inv_test]
 
-        # Full-data lookup for transform-time replay. This is the table
-        # ``apply_target_encoding`` consults; not used for training rows
-        # (those got their OOF values above).
-        full_sum = np.zeros(n_cats, dtype=np.float64)
-        full_cnt = np.zeros(n_cats, dtype=np.float64)
-        for row in range(n):
-            c = int(inverse[row])
-            full_sum[c] += y_arr[row]
-            full_cnt[c] += 1.0
-        lookup: dict[str, float] = {}
-        for c in range(n_cats):
-            cat_str = str(unique_cats[c])
-            if full_cnt[c] > 0.0:
-                raw = full_sum[c] / full_cnt[c]
-                lookup[cat_str] = _smooth(raw, full_cnt[c], global_mean, smoothing)
-            else:
-                lookup[cat_str] = global_mean
+        # Full-data lookups for transform-time replay (one table per statistic).
+        full_per_cat = _per_category_stats_smoothed(inverse, y_arr, n_cats, stats, global_stats, smoothing)
+        cat_strs = [str(unique_cats[c]) for c in range(n_cats)]
+        stat_lookups: dict[str, dict] = {}
+        for s in stats:
+            stat_lookups[s] = {cat_strs[c]: float(full_per_cat[s][c]) for c in range(n_cats)}
+            encoded_cols[engineered_name_te_stat(col, s)] = oof[s]
+
         recipes[col] = {
-            "lookup": lookup,
-            "global_mean": global_mean,
+            # Back-compat: ``lookup`` / ``global_mean`` are the MEAN statistic (historical single-stat shape).
+            "lookup": stat_lookups.get("mean", stat_lookups[stats[0]]),
+            "global_mean": float(global_stats.get("mean", global_stats[stats[0]])),
             "smoothing": float(smoothing),
+            # Multi-stat payload: per-statistic lookup table + global fallback, in emit order.
+            "stats": list(stats),
+            "stat_lookups": stat_lookups,
+            "global_stats": {s: float(global_stats[s]) for s in stats},
         }
 
     te_df = pd.DataFrame(encoded_cols, index=X.index)
@@ -356,6 +419,7 @@ def kfold_target_encode_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    stats: Sequence[str] = ("mean",),
 ):
     """End-to-end: detect / accept cat cols, fit OOF encoding, build
     ``EngineeredRecipe`` objects ready for ``MRMR.transform`` replay.
@@ -379,11 +443,13 @@ def kfold_target_encode_with_recipes(
     if not cat_cols:
         return X.copy(), [], []
 
+    stats = tuple(stats) if stats else ("mean",)
     te_df, raw_recipes = kfold_target_encode_fit(
         X, y, cat_cols,
         n_folds=n_folds,
         smoothing=smoothing,
         random_state=random_state,
+        stats=stats,
     )
 
     # Tier-1 local MI floor (Layer 91): drop target-encoded columns whose
@@ -395,24 +461,32 @@ def kfold_target_encode_with_recipes(
         keep = set(local_mi_gate(te_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
             return X.copy(), [], []
-        kept_src = [c for c in cat_cols if engineered_name_te(c) in keep]
-        te_df = te_df[[engineered_name_te(c) for c in kept_src]]
-        cat_cols = kept_src
+        # Gate operates per OUTPUT column (one per (col, stat)); keep the columns it admits.
+        te_df = te_df[[c for c in te_df.columns if c in keep]]
+        cat_cols = [c for c in cat_cols if any(engineered_name_te_stat(c, s) in keep for s in stats)]
 
     # Append the encoded columns without disturbing the source columns
     # (MRMR's screening handles them as ordinary numeric features).
     X_aug = pd.concat([X, te_df], axis=1)
     appended = list(te_df.columns)
+    _kept = set(appended)
 
+    # One recipe per appended (col, stat) output column. A std / skew / kurt recipe is structurally identical to
+    # the mean recipe -- same replay path -- just a different per-category lookup table and global fallback.
     recipes = []
     for col in cat_cols:
-        rec = build_kfold_target_encoded_recipe(
-            name=engineered_name_te(col),
-            src_name=col,
-            lookup=raw_recipes[col]["lookup"],
-            global_mean=raw_recipes[col]["global_mean"],
-            smoothing=raw_recipes[col]["smoothing"],
-        )
-        recipes.append(rec)
+        rec_info = raw_recipes[col]
+        for s in rec_info.get("stats", ["mean"]):
+            out_name = engineered_name_te_stat(col, s)
+            if out_name not in _kept:
+                continue
+            rec = build_kfold_target_encoded_recipe(
+                name=out_name,
+                src_name=col,
+                lookup=rec_info["stat_lookups"][s],
+                global_mean=rec_info["global_stats"][s],
+                smoothing=rec_info["smoothing"],
+            )
+            recipes.append(rec)
 
     return X_aug, appended, recipes
