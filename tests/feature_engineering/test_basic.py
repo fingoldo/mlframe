@@ -214,3 +214,54 @@ class TestResolvePandasMethod:
         from mlframe.feature_engineering.basic import _resolve_pandas_method
         with pytest.raises(ValueError, match="Unknown pandas .dt accessor"):
             _resolve_pandas_method(self._dt(), "not_a_real_field", np.float64)
+
+
+def test_cyclical_pass_reuses_precomputed_date_fields_not_redecode(monkeypatch):
+    """create_date_features must NOT re-decode .dt for cyclical periods whose integer field
+    it already extracted (day/weekday/month/day_of_year overlap the default cyclical periods).
+    Pre-fix the pandas cyclical branch called _resolve_pandas_method once per cyclical period,
+    re-walking the int64-ns array; the fix reuses the already-extracted integer column.
+    Spy on _resolve_pandas_method: with the default methods+periods only `hour` (the single
+    cyclical period absent from the integer methods) may be resolved during the cyclical pass."""
+    import mlframe.feature_engineering.basic as basic
+
+    dates = [datetime(2023, 1, 1) + timedelta(hours=i * 7) for i in range(200)]
+    df = pd.DataFrame({"ts": pd.to_datetime(dates)})
+
+    calls = []
+    real = basic._resolve_pandas_method
+
+    def spy(series_dt, method, dtype):
+        calls.append((method, np.dtype(dtype).kind))
+        return real(series_dt, method, dtype)
+
+    monkeypatch.setattr(basic, "_resolve_pandas_method", spy)
+    out = basic.create_date_features(df, cols=["ts"])
+
+    # Float (kind 'f') resolutions happen ONLY in the cyclical pass. With reuse, the only
+    # cyclical period not already extracted as an integer field is `hour`.
+    float_methods = sorted({m for m, k in calls if k == "f"})
+    assert float_methods == ["hour"], (
+        f"cyclical pass re-decoded already-extracted fields {float_methods}; "
+        "expected only 'hour' to need a fresh float extraction"
+    )
+    assert "ts_month_sin" in out.columns and "ts_hour_cos" in out.columns
+
+
+def test_cyclical_reuse_bit_identical_to_fresh_extraction():
+    """The reuse path must be byte-identical to recomputing every cyclical base from .dt."""
+    dates = [datetime(2021, 3, 4) + timedelta(hours=i * 5) for i in range(5000)]
+    df = pd.DataFrame({"ts": pd.to_datetime(dates)})
+
+    with_reuse = create_date_features(df, cols=["ts"])
+    # Force the no-reuse path by calling the cyclical helper standalone (no _precomputed_bases).
+    from mlframe.feature_engineering.basic import add_cyclical_date_features
+    base = create_date_features(df, cols=["ts"], add_cyclical=False, delete_original_cols=False)
+    fresh = add_cyclical_date_features(base, cols=["ts"], delete_original_cols=True)
+
+    cyc_cols = [c for c in with_reuse.columns if c.endswith("_sin") or c.endswith("_cos")]
+    for c in cyc_cols:
+        np.testing.assert_array_equal(
+            with_reuse[c].to_numpy(), fresh[c].to_numpy(),
+            err_msg=f"cyclical reuse diverged from fresh extraction on {c}",
+        )

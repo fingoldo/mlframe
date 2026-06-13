@@ -2751,3 +2751,24 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 59 RESOLVED, 2
 **Verdict: RESOLVED+2.2x isolated / 1.86x e2e @1M (within-series parallel Spearman; bit-identical ~1e-12 FP reduction-order, non-selection-altering).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 60 RESOLVED, 29 REJECT across 87 iterations.**
+
+## iter88 (2026-06-14, @1M) -- datetime FE: cyclical pass reuses already-extracted integer date fields (no .dt re-decode)
+
+**Workload @1M + why:** FE transformer family (datetime), untapped before this iter. `create_date_features` on a 1M-row datetime column (default Kaggle-style methods + default cyclical periods). Chosen because the datetime-decomposition family had not been profiled and `.dt` field extraction at 1M is a heavy O(n) int64-ns decode per field.
+
+**Top-20 mlframe-own (tottime, 3 iters @1M):** the profile is dominated by pandas internals, not mlframe Python: `pandas/arrays/datetimes.py:127(f)` (the `.dt` `_field_accessor` getter) **36 calls / 0.954s tottime / 62% of wall**; `add_cyclical_date_features` 0.234s; `datetimes.py:1490(isocalendar)` 0.103s; `take.py:120(_take_nd_ndarray)` 0.072s; `ndarray.copy` 0.047s; `ndarray.astype` 0.028s. `create_date_features` itself 0.010s tottime / 1.536s cumtime. `_resolve_pandas_method` 0.002s tottime / 1.163s cumtime (it is plain-Python dispatch in front of the pandas `.dt` decode -- confirmed, not njit-misattributed).
+
+**Hotspot:** `.dt` field extraction (`datetimes.py:127(f)`) -- tottime 0.954s, 36 calls (=12 field extractions/iter), cumtime 0.975s; e2e fraction ~62% of `create_date_features` wall @1M. The seam: `create_date_features` extracts 8 integer date fields, then `add_cyclical_date_features` RE-extracts 4 of the 5 default cyclical periods (day/weekday/month/day_of_year -- all already in the integer methods) from `df[col].dt`, a second full decode of the int64-ns array. Only `hour` is genuinely new (absent from the default integer methods).
+
+**Optimization + audit (discarded/duplicated second-pass O(n) recompute):** added an internal `_precomputed_bases` map `{(col, period_name): int_field_array}` that `create_date_features` fills with the integer fields it already extracted, passed into the cyclical helper. The cyclical pass reuses the integer field (cast to float64) as the sin/cos base instead of re-decoding `.dt`. Verified the integer field cast to float64 equals the direct float extraction bit-for-bit for day/weekday/month/day_of_year (the only overlapping periods); `hour` still gets a fresh extraction. Pandas-only fast path; polars branch unchanged (its lazy `.dt` exprs already fuse).
+
+**Before/after (best-of-7, warm, separate-process A/B vs `git show HEAD` baseline; 3 interleaved repeats):**
+- e2e `create_date_features` @1M: OLD median 571-608 ms / min 549-585 ms -> NEW median 445-477 ms / min 431-449 ms. **~1.27x e2e median**, ~125 ms saved/call. NEW faster in 3/3 interleaved pairs.
+
+**Identity proof:** full-output MD5 over all 18 sorted output columns (int date fields + float32 sin/cos pairs) BYTE-IDENTICAL across OLD and NEW in every run (`8bd494b3d97b610b4801a4e5aeea03e2`). Reuse is bit-identical by construction (same integer values, same `_cyclical_sincos_njit`).
+
+**Regression test (`tests/feature_engineering/test_basic.py`, 2 tests):** `test_cyclical_pass_reuses_precomputed_date_fields_not_redecode` spies `_resolve_pandas_method`, asserts only `hour` is resolved as float in the cyclical pass (pre-fix resolves all of day/day_of_year/hour/month/weekday -> FAILS; verified read-only via the HEAD copy: pre-fix `float_methods=['day','day_of_year','hour','month','weekday']`). `test_cyclical_reuse_bit_identical_to_fresh_extraction` pins reuse-path == standalone fresh-extraction byte-equal on all sin/cos cols. Both pass post-fix; 56 date-FE tests green.
+
+**Verdict: RESOLVED+1.27x e2e @1M (datetime cyclical FE reuses already-extracted integer fields; output byte-identical).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 61 RESOLVED, 29 REJECT across 88 iterations.**
