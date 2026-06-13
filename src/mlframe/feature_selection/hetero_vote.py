@@ -18,8 +18,12 @@ disagreement is the mechanism (not cross-trial), so 2-3 trials match 5 at lower 
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _importance(est, X, y, *, n_perm_repeats: int = 3, random_state: int = 0) -> np.ndarray:
@@ -75,7 +79,12 @@ def _cv_skill(est, X, y, *, classification: bool, folds: int, random_state: int)
         chance = 0.0
     try:
         score = float(np.mean(cross_val_score(clone(est), X, y, cv=cv, scoring=scoring)))
-    except Exception:
+    except Exception as e:
+        # A genuine scoring failure (too few rows/folds, single-class fold) legitimately maps to
+        # zero above-chance skill, but a silent 0.0 also hides real bugs (shape/dtype/wiring) that
+        # would otherwise mis-weight the panel vote. Log so the failure is visible, then fall back.
+        logger.warning("_cv_skill: CV scoring failed for %s (%s: %s); treating skill as 0.0",
+                       type(est).__name__, type(e).__name__, e)
         return 0.0
     return max(0.0, score - chance)
 
