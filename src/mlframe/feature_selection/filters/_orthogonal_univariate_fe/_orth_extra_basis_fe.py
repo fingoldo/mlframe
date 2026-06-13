@@ -11,10 +11,12 @@ in-body to avoid a cycle.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional, Sequence
 
 import numba
 import numpy as np
+from numba import prange
 import pandas as pd
 
 from ..hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
@@ -131,6 +133,52 @@ def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) 
     z = (x - float(mean)) / max(float(std), 1e-12)
     u = np.sign(z) * (z * z)
     return (u - float(lo)) / max(float(span), 1e-12)
+
+
+@numba.njit(parallel=True, fastmath=True, cache=True)
+def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
+    """Build the per-frequency centered sin/cos coarse basis in ONE fused prange-over-freqs pass.
+
+    Returns ``(sin_centered (nf,n), cos_centered (nf,n), sin_ss (nf,), cos_ss (nf,))`` -- the same four quantities the
+    numpy build loop produces per grid frequency, but with the sin/cos transcendentals + the mean / sum-of-squares
+    reductions fused into a single njit kernel parallelised across the frequencies. The sequential per-element reduction
+    differs from numpy's pairwise summation by ~1e-13 (single-ULP class), so this is dispatched only on the held-out
+    Fourier detector's coarse sweep, whose ``best_f`` argmax is re-localised by ``_refine_peak_freq`` and whose
+    end-to-end MRMR selection is verified byte-identical; the exact numpy path stays as the fallback."""
+    nf = freqs.shape[0]
+    n = z.shape[0]
+    sc = np.empty((nf, n))
+    cc = np.empty((nf, n))
+    sss = np.empty(nf)
+    css = np.empty(nf)
+    for fi in prange(nf):
+        f = freqs[fi]
+        smean = 0.0
+        cmean = 0.0
+        sbuf = np.empty(n)
+        cbuf = np.empty(n)
+        for i in range(n):
+            ang = 2.0 * np.pi * f * z[i]
+            s = np.sin(ang)
+            c = np.cos(ang)
+            sbuf[i] = s
+            cbuf[i] = c
+            smean += s
+            cmean += c
+        smean /= n
+        cmean /= n
+        s_ss = 0.0
+        c_ss = 0.0
+        for i in range(n):
+            sv = sbuf[i] - smean
+            cv = cbuf[i] - cmean
+            sc[fi, i] = sv
+            cc[fi, i] = cv
+            s_ss += sv * sv
+            c_ss += cv * cv
+        sss[fi] = s_ss
+        css[fi] = c_ss
+    return sc, cc, sss, css
 
 
 def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> float:
@@ -350,12 +398,25 @@ def _detect_fourier_freqs_for_col(
     # temporaries per freq (the same no-alloc identity shipped in ``_corr_sq_centered``) is bit-identical to ~1e-15 BUT NEUTRAL at the detector level: same-process
     # A/B of the full detector at n=1667 chirp48 was 3.645 -> 3.644ms (1.000x). The build is only ~37% of the detector and the alloc-savings are swamped by the
     # dominant sin/cos+dot cost. Isolated build-loop bench is pure noise (0.47x-2.35x scatter). bench: profiling/bench_coarse_basis_nocenter.py.
+    # Coarse-basis build (the detector's dominant own-frame cost: scene n=12000 cProfile 1.050s/68 calls). The per-freq
+    # numpy sin/cos + center + SS loop fuses into ONE njit(parallel=True) prange-over-freqs kernel (iter52): the
+    # transcendentals + reductions run in machine code, parallelised across the 16/48 grid frequencies. Measured 2.45-9.2x
+    # warm over the numpy loop across n=533..8000 (bench_coarse_basis_njit_parallel). The fused reduction shifts the
+    # sin/cos SS by ~1e-13 (single-ULP, sequential-vs-pairwise sum) which only perturbs the coarse-sweep ``best_f``
+    # argmax that ``_refine_peak_freq`` re-localises -- end-to-end MRMR scene selection is byte-identical. Set
+    # ``MLFRAME_FOURIER_COARSE_BASIS_EXACT=1`` to force the exact numpy build.
     _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
-    for f in grid:
-        ang = 2.0 * np.pi * f * z_tr
-        s = np.sin(ang); c = np.cos(ang)
-        sc = s - s.mean(); cc = c - c.mean()
-        _coarse_basis.append((sc, float(sc @ sc), cc, float(cc @ cc)))
+    _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
+    if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
+        _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=np.float64))
+        for gi in range(len(grid)):
+            _coarse_basis.append((_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])))
+    else:
+        for f in grid:
+            ang = 2.0 * np.pi * f * z_tr
+            s = np.sin(ang); c = np.cos(ang)
+            sc = s - s.mean(); cc = c - c.mean()
+            _coarse_basis.append((sc, float(sc @ sc), cc, float(cc @ cc)))
     out: list[float] = []
     for _ in range(max(1, int(max_freqs))):
         if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
