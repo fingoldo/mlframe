@@ -203,6 +203,40 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
         uniq, inv = np.unique(arr, return_inverse=True)
         toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
         return toks[inv]
+    # object / mixed dtype: canonicalise per-UNIQUE then gather (was a per-ROW
+    # Python loop -- 200k calls of ``canonical_group_token`` per 200k-row object
+    # column collapse to one call per distinct value). ``pd.factorize`` tolerates
+    # the unorderable mixed-type object arrays that ``np.unique`` rejects, and
+    # collapses None + NaN into a single sentinel category (use_na_sentinel=False
+    # keeps it as a real code, not -1). The per-unique token map is bit-identical
+    # to the old per-row map: None / float-NaN uniques -> "__nan__" (the old
+    # sentinel), every other unique -> canonical_group_token.
+    #
+    # GATE: factorize keys on Python equality, so ``True`` collapses with ``1``
+    # / ``1.0`` (all == 1) into ONE category -- but the old per-row map emits
+    # DISTINCT tokens "True" vs "1" for them. That divergence only arises when
+    # the column actually mixes bool with equal-valued numerics; in that case
+    # fall back to the exact per-row loop. (Pure-string / pure-numeric / NaN
+    # object columns -- the overwhelming common case -- take the fast path.)
+    codes, uniq = pd.factorize(arr, use_na_sentinel=False)
+    # factorize keys on Python equality, so a bool collapses with an equal-valued
+    # numeric / string (``True == 1 == 1.0``) into ONE code -- but the per-row map
+    # emits DISTINCT tokens ("True" vs "1"). A lone bool survives as its own unique
+    # (caught by the isinstance scan); a COLLIDED bool hides behind a surviving
+    # unique that compares == 0 or == 1. So when no unique is bool AND none equals
+    # 0/1, no collision is possible and the per-unique fast path is bit-identical;
+    # otherwise fall back to the exact per-row loop (rare: bool-in-object column).
+    _bool_risk = any(isinstance(v, (bool, np.bool_)) for v in uniq) or any(
+        (not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in uniq
+    )
+    if not _bool_risk:
+        toks = np.empty(len(uniq), dtype=object)
+        for j, v in enumerate(uniq):
+            if v is None or (isinstance(v, float) and v != v):  # None or NaN
+                toks[j] = "__nan__"
+            else:
+                toks[j] = canonical_group_token(v)
+        return toks[codes]
     out = np.empty(len(arr), dtype=object)
     for i, v in enumerate(arr):
         if v is None:

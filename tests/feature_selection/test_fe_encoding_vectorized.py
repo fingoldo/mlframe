@@ -102,3 +102,71 @@ def test_cat_pair_cross_empty():
     empty = pd.DataFrame({"ci": pd.Series([], dtype=object), "cj": pd.Series([], dtype=object)})
     assert apply_cat_pair_cross(empty, "ci", "cj", mapping, encoding="raw").shape == (0,)
     assert apply_cat_pair_cross(empty, "ci", "cj", mapping, encoding="target", global_mean=0.3).shape == (0,)
+
+
+def _ref_column_to_str(arr):
+    """Pre-fix per-row reference: canonicalise every row independently."""
+    from mlframe.feature_selection.filters._internals import canonical_group_token
+    out = np.empty(len(arr), dtype=object)
+    for i, v in enumerate(arr):
+        if v is None or (isinstance(v, float) and v != v):
+            out[i] = "__nan__"
+        else:
+            out[i] = canonical_group_token(v)
+    return out
+
+
+def test_column_to_str_object_per_unique_canonicalises_not_per_row(monkeypatch):
+    """The object-column fast path canonicalises once per UNIQUE value, not per
+    row. Spy on ``canonical_group_token``: pre-fix (per-row loop) it fires len(arr)
+    times; post-fix it fires <= n_unique << n. Sensor fails on the per-row code."""
+    import mlframe.feature_selection.filters._internals as _internals
+    import mlframe.feature_selection.filters._target_encoding_fe as _te
+
+    calls = {"n": 0}
+    real = _internals.canonical_group_token
+
+    def spy(v):
+        calls["n"] += 1
+        return real(v)
+
+    monkeypatch.setattr(_internals, "canonical_group_token", spy)
+
+    n, n_unique = 5000, 25
+    vals = np.array([f"c{k}" for k in range(n_unique)], dtype=object)
+    rng = np.random.default_rng(3)
+    col = pd.Series(vals[rng.integers(0, n_unique, n)])
+    out = _te._column_to_str(col)
+    n_calls = calls["n"]  # capture BEFORE the reference (which also calls the spy)
+
+    assert n_calls <= n_unique, f"per-unique path expected <= {n_unique} canonical_group_token calls; got {n_calls} (per-row regression)"
+    monkeypatch.setattr(_internals, "canonical_group_token", real)
+    np.testing.assert_array_equal(out.astype(str), _ref_column_to_str(col.to_numpy()).astype(str))
+
+
+def test_column_to_str_bit_identical_across_dtypes_and_nan():
+    """Per-unique fast path is bit-identical to the per-row reference on
+    string / mixed-None-NaN / int / float / bool-in-object / all-NaN columns.
+    The bool-in-object case must take the gated-out per-row branch."""
+    rng = np.random.default_rng(1)
+    from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
+
+    pool_mixed = np.array(["a", "b", None, float("nan"), 1, 1.0, 2, 2.5, "1"], dtype=object)
+    pool_bool = np.array([True, False, 1, 0, "x"], dtype=object)
+    cases = [
+        pd.Series(np.array([f"c{k}" for k in rng.integers(0, 50, 800)], dtype=object)),
+        pd.Series(pool_mixed[rng.integers(0, len(pool_mixed), 600)]),
+        pd.Series(rng.integers(0, 40, 700)),
+        pd.Series(rng.integers(0, 20, 700).astype(float)),
+        pd.Series(pool_bool[rng.integers(0, len(pool_bool), 500)]),  # gated-out
+        pd.Series(np.array([None] * 300, dtype=object)),
+    ]
+    for i, col in enumerate(cases):
+        got = _column_to_str(col)
+        arr = col.to_numpy()
+        if arr.dtype.kind in ("i", "u", "b"):
+            from mlframe.feature_selection.filters._internals import canonical_group_token
+            ref = np.array([canonical_group_token(v) for v in arr], dtype=object)
+        else:
+            ref = _ref_column_to_str(arr)
+        np.testing.assert_array_equal(got.astype(str), ref.astype(str), err_msg=f"case {i}")
