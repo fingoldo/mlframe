@@ -115,6 +115,13 @@ tau on a FEATURE). Only the cat-interaction TE kernel's positional folds (fixed 
   bit-identity test + this dispatch guarantee fully cover it; the formula is branchless w.r.t. cardinality,
   so no further test needed (would be padding).
 
+- **bincount joint-histogram `_binned_mi`** (`_wavelet_basis_fe.py`, commit 1dc05e37, 2.64x): verified
+  BIT-IDENTICAL to the prior double-loop -- the bincount over the dense joint code yields the same plug-in
+  counts, `count/n` float64 probabilities, and ascending-unique summation order. Independently confirmed
+  max abs diff 0.0 across edge cases (single-unique feat/y, n=1, exactly-nbins vs quantile branch,
+  ternary/continuous). The shipped bench only PRINTS the diff (no CI guard), so HARDENED with an asserting
+  regression test `test_binned_mi_bincount_identity.py` (7 edge cases + 300-config random battery, exact ==).
+
 ## VERIFIED CLEAN (no triggerable bug)
 
 - `_fe_raw_redundancy_drop.py` -- keep/drop sign, nested anchoring, fail-closed replay, determinism.
