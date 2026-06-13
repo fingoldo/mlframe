@@ -2563,3 +2563,29 @@ Identity: BIT-IDENTICAL by construction (direct bit-index packing of the same in
 Regression test (`tests/training/test_multilabel_metrics_numba.py`): `test_pack_for_bitmap_njit_bit_identical_to_numpy` (10 K-values x 3 row patterns, seq+par vs numpy ref) + `test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold` (spy asserts par fires at >=threshold, seq below, both bit-identical). Imports `_pack_for_bitmap_numpy` / `_pack_for_bitmap_kernel_{seq,par}` -- ALL absent on HEAD (verified `git show HEAD:...` = 0 occurrences) -> ImportError -> FAILS pre-fix. File: 37 passed; wider multilabel surface (`test_multilabel_extras` + `test_multi_output_corner_cases`): 16 passed. Bench committed: `_benchmarks/bench_multilabel_pack_bitmap_iter79.py`.
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 52 RESOLVED, 29 REJECT across 79 iterations.**
+
+---
+
+## iter80 (@200k) -- calibration PIT: fused njit Anderson-Darling kernel -- RESOLVED
+
+**Component:** `mlframe.calibration.quality` (PIT goodness-of-fit stats) -- a FRESH component, NOT in the avoid-list (MRMR biz_value / layer37 / sample_weight) and NOT in the TAPPED set (43-79).
+
+**Workload @200k + why:** profiled the seven mlframe-own PIT statistic functions (`anderson_darling_statistic`, `entropy_calibration_index`, `chi_square_statistic`, `mean_squared_deviation`, `weighted_pit_deviation`, `cramer_von_mises_statistic`, `kolmogorov_smirnov_statistic`) over n=200000 PIT values, 20 reps. These score how uniform a model's PIT distribution is (calibration diagnostics) and are O(n)/O(n log n) per call at prod probability-vector scale.
+
+**Top mlframe-own by tottime (cProfile, 20 reps):** `np.ndarray.sort` 0.607s (140 calls -- shared by AD + KS + CvM), `anderson_darling_statistic` 0.081s tottime / 0.132s cumtime (20 calls), `weighted_pit_deviation` 0.048s, `mean_squared_deviation` 0.016s; the rest scipy-internal (cramervonmises `_compute_d`, ks `_kolmogn`). Confirmed plain-numpy (no njit dispatch under the flagged frame) by reading the source.
+
+**Hotspot:** `anderson_darling_statistic` -- the single largest mlframe-own Python frame. Its numpy body did one `np.sort`, then allocated `arange(1,n+1)`, a `clip` array, two full `np.log` arrays, and a reversed copy `sorted_pit[::-1]`, summing `(2i-1)*(log F_i + log(1-F_{n+1-i}))` -- five extra length-n buffers + multiple O(n) passes over the same sorted data.
+
+**Optimization + audit (richest seam = per-element work fused into one njit pass):** added `_anderson_darling_kernel` (`@njit cache=True nogil=True fastmath=True`): the public fn still does the one unavoidable `np.sort` (now with an `np.asarray(float64)` so the kernel sees a contiguous typed array) and the kernel walks the sorted array once, clipping each element + its order-symmetric partner in-register, log-summing in a single accumulator. No `arange`, no reversed copy, no temp log/clip arrays.
+
+**Before/after:**
+- Isolated (best-of, 50 reps @200k): old 6.21ms median / 5.78ms min -> new 3.19ms median / 3.03ms min (~1.9x).
+- Paired e2e A/B vs the real HEAD code (reconstruction verified `==` `git show HEAD:...quality.py` lines 437-457), 60 trials @200k: **NEW faster in 59/60**; old 5.94ms median / 5.60ms min -> new 3.56ms median / 3.10ms min; **median speedup 1.67x**.
+
+**Identity proof (~1e-9, diagnostic stat -- non-selection-altering):** reldiff vs the numpy reference: uniform 5.1e-10, tied(round-2dp) 4.5e-12, boundary(clip-normal) 1.6e-13, all-zero 1.0e-15, all-one 3.5e-16; empty -> NaN preserved; single-element exact. Divergence is pure FP summation-order (the loop vs `np.sum`), bounded <=5e-10.
+
+**Regression test (`tests/calibration/test_quality.py`):** `test_anderson_darling_fused_matches_numpy_reference` (5 input kinds: uniform/tied/boundary/all_zero/all_one, identity <=1e-7 rel) + `test_anderson_darling_uses_fused_njit_kernel` (spy asserts the public path routes through `_anderson_darling_kernel` exactly once) + `test_anderson_darling_empty_is_nan`. The spy test references `q._anderson_darling_kernel`, which is ABSENT on HEAD (verified `git show HEAD` has 0 occurrences) -> AttributeError -> FAILS pre-fix. 10 passed post-fix.
+
+**Verdict: RESOLVED+1.67x@200k (e2e paired, 59/60).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 53 RESOLVED, 29 REJECT across 80 iterations.**

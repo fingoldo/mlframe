@@ -434,6 +434,31 @@ def cramer_von_mises_statistic(pit_values):
     return result.statistic
 
 
+@njit(cache=True, nogil=True, fastmath=True)
+def _anderson_darling_kernel(sorted_pit: np.ndarray, n: int) -> float:
+    """Fused single-pass A-D accumulation over the already-sorted PIT array.
+
+    Replaces the numpy path's ``arange`` + reversed-copy + two full ``log`` arrays + ``clip`` array
+    with one in-register loop: each element is clipped to [eps, 1-eps], log'd, paired with its
+    order-symmetric partner, and weighted by ``(2k-1)`` in a single accumulator.
+    """
+    eps = 1e-12
+    acc = 0.0
+    for k in range(n):
+        a = sorted_pit[k]
+        if a < eps:
+            a = eps
+        elif a > 1.0 - eps:
+            a = 1.0 - eps
+        b = sorted_pit[n - 1 - k]
+        if b < eps:
+            b = eps
+        elif b > 1.0 - eps:
+            b = 1.0 - eps
+        acc += (2 * (k + 1) - 1) * (np.log(a) + np.log(1.0 - b))
+    return -n - (1.0 / n) * acc
+
+
 def anderson_darling_statistic(pit_values):
     """
     Calculate the Anderson-Darling statistic for a uniform distribution.
@@ -446,15 +471,8 @@ def anderson_darling_statistic(pit_values):
     # Wave 47 (2026-05-20): (1/n) on empty pit_values divides by zero.
     if n == 0:
         return float("nan")
-    sorted_pit = np.sort(pit_values)
-    i = np.arange(1, n + 1)  # Index from 1 to n
-
-    # Clip PIT values away from 0 and 1 before taking logs to avoid -inf/NaN on boundary samples.
-    eps = 1e-12
-    sorted_pit = np.clip(sorted_pit, eps, 1.0 - eps)
-    # Compute the Anderson-Darling statistic
-    ad_stat = -n - (1 / n) * np.sum((2 * i - 1) * (np.log(sorted_pit) + np.log(1 - sorted_pit[::-1])))
-    return ad_stat
+    sorted_pit = np.sort(np.asarray(pit_values, dtype=np.float64))
+    return _anderson_darling_kernel(sorted_pit, n)
 
 
 def chi_square_statistic(pit_values, bins=10):

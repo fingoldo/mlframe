@@ -49,3 +49,69 @@ def test_ks_statistic_uniform_small():
     pit = rng.uniform(0.0, 1.0, size=2_000)
     stat = kolmogorov_smirnov_statistic(pit)
     assert 0.0 <= stat < 0.10
+
+
+def _ad_reference(pit_values):
+    """Reference numpy A-D statistic (the pre-fused implementation)."""
+    n = len(pit_values)
+    if n == 0:
+        return float("nan")
+    sorted_pit = np.sort(pit_values)
+    i = np.arange(1, n + 1)
+    eps = 1e-12
+    sorted_pit = np.clip(sorted_pit, eps, 1.0 - eps)
+    return -n - (1 / n) * np.sum((2 * i - 1) * (np.log(sorted_pit) + np.log(1 - sorted_pit[::-1])))
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("kind", ["uniform", "tied", "boundary", "all_zero", "all_one"])
+def test_anderson_darling_fused_matches_numpy_reference(kind):
+    """Fused njit A-D kernel reproduces the reference numpy formula to FP reduction-order (~1e-9)."""
+    from mlframe.calibration.quality import anderson_darling_statistic
+
+    rng = np.random.default_rng(7)
+    n = 20_000
+    if kind == "uniform":
+        pit = rng.uniform(0.0, 1.0, size=n)
+    elif kind == "tied":
+        pit = np.round(rng.uniform(0.0, 1.0, size=n), 2)
+    elif kind == "boundary":
+        pit = np.clip(rng.normal(0.5, 2.0, size=n), 0.0, 1.0)
+    elif kind == "all_zero":
+        pit = np.zeros(n)
+    else:
+        pit = np.ones(n)
+
+    got = anderson_darling_statistic(pit)
+    ref = _ad_reference(pit)
+    assert abs(got - ref) <= 1e-7 * max(abs(ref), 1.0), f"{kind}: {got} vs {ref}"
+
+
+@pytest.mark.fast
+def test_anderson_darling_uses_fused_njit_kernel():
+    """Sensor: the public A-D path must route through the fused njit kernel, not the numpy loop."""
+    from mlframe.calibration import quality as q
+
+    called = {"n": 0}
+    orig = q._anderson_darling_kernel
+
+    def spy(sorted_pit, n):
+        called["n"] += 1
+        return orig(sorted_pit, n)
+
+    q._anderson_darling_kernel = spy
+    try:
+        q.anderson_darling_statistic(np.linspace(0.01, 0.99, 1000))
+    finally:
+        q._anderson_darling_kernel = orig
+    assert called["n"] == 1, "anderson_darling_statistic did not call the fused kernel"
+
+
+@pytest.mark.fast
+def test_anderson_darling_empty_is_nan():
+    """Empty input returns NaN (guards the n==0 division)."""
+    from mlframe.calibration.quality import anderson_darling_statistic
+
+    import math
+
+    assert math.isnan(anderson_darling_statistic(np.array([])))
