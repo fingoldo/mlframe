@@ -661,6 +661,49 @@ class ShapProxiedFitMixin:
             candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
             report["interaction_aware"] = dict(applied=True, n_proxy=int(phi.shape[1]), n_interaction_candidates=len(icands))
 
+        # proxy_mode="interaction" (OPT-IN): re-score the additive search's candidates under the
+        # INTERACTION-AWARE coalition proxy ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` and add a
+        # gated singleton/pair sweep, so a subset whose value comes from a non-additive PAIR (XOR /
+        # multiplicative) earns credit the additive proxy denies it. The pairwise term is GATED to the
+        # top-k features by mean |phi| so the cost is O(k^2) not O(P^2). Default stays "additive"
+        # (bench_shap_interaction_proxy: interaction wins the competing-XOR bed by ~+0.24 AUC replicated
+        # 3/3 seeds, but is only 1/6 beds and slightly regresses one additive-redundant seed -- not the
+        # majority+no-regression win a default flip requires; kept opt-in). Tree models only (needs the
+        # TreeSHAP interaction tensor); non-tree falls back to additive cleanly (compute_interaction_
+        # tensor returns None-equivalent and the block no-ops).
+        if str(getattr(self, "proxy_mode", "additive")).lower() == "interaction" and phi.shape[1] >= 2:
+            with _stage("proxy_mode_interaction"):
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
+                    compute_interaction_tensor)
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import (
+                    interaction_proxy_top_n)
+
+                applied = False
+                n_int_cands = 0
+                try:
+                    X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+                    Phi_ip, _ibase = compute_interaction_tensor(
+                        model_template, X_proxy_kept, y_search, classification=self.classification,
+                        rng=self._rng)
+                    icands = interaction_proxy_top_n(
+                        phi, Phi_ip, base, y_phi, classification=self.classification, metric=self.metric,
+                        min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
+                        interaction_top_k=int(self.interaction_proxy_top_k),
+                        candidate_subsets=[c for _l, c in candidates])
+                    merged = {tuple(sorted(c)): l for l, c in candidates}
+                    for l, c in icands:
+                        key = tuple(sorted(c))
+                        if key not in merged or l < merged[key]:
+                            merged[key] = l
+                            n_int_cands += 1
+                    candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
+                    applied = True
+                except Exception as exc:  # unsupported model / tensor failure -> additive fallback
+                    logger.warning("proxy_mode=interaction fell back to additive: %s", exc)
+                report["proxy_mode_interaction"] = dict(
+                    applied=applied, n_proxy=int(phi.shape[1]),
+                    interaction_top_k=int(self.interaction_proxy_top_k), n_added=int(n_int_cands))
+
         # su_seeded_interactions merge (#5b, OPT-IN): the CHEAP sparse alternative to
         # ``interaction_aware``'s O(P^2) tensor. The synergy screen + SNR gate ran above (operands
         # already rescued past the prescreen, so they are present in ``phi``). Here the interaction
