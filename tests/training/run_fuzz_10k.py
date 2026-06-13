@@ -225,6 +225,22 @@ def _kill_process_tree(pid: int) -> None:
         pass
 
 
+def _reap_bounded(p, timeout_s: float) -> bool:
+    """Wait at most ``timeout_s`` for ``p`` to exit. Returns True if it died,
+    False if it is still alive (undead AV'd process the OS won't reap). NEVER
+    blocks longer than ``timeout_s`` -- an access-violation'd child can land in
+    an OS-undead state that ``proc.wait()`` / ``psutil.wait_procs()`` never
+    return from, which is exactly the wedge this guards against."""
+    try:
+        p.wait(timeout=timeout_s)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        # poll() is non-blocking; if it has a returncode it is dead.
+        return p.poll() is not None
+
+
 def _classify_native_crash(rc: int) -> bool:
     """True when ``rc`` looks like a native crash (access violation / segfault)
     rather than a clean pytest exit (0 pass / 1 tests-failed / 2-5 usage)."""
@@ -273,15 +289,38 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     tail_lines: list[str] = []
     timed_out = False
 
-    # Wall-timeout watchdog: a background timer fires the tree-kill at exactly
-    # ``per_combo_timeout_s`` REGARDLESS of stdout activity. This is the crux the
-    # old per-seed timeout got wrong -- it only checked the clock when a new line
-    # arrived, so a SILENT hung child (no output) would never trip it (the 2.5h
-    # hang). The watchdog kills on wall-time even with zero output; the stdout
-    # read loop then ends naturally when the killed pipe closes.
     import threading
     _killed = threading.Event()
 
+    # Drain the child's stdout/stderr in a BACKGROUND thread so the main driver
+    # loop NEVER blocks on a child's pipe. A child that hits a native access
+    # violation can land in an OS-undead state with its stdout handle still
+    # open (inherited by an orphaned grandchild, or held by the dying process);
+    # a synchronous ``for line in p.stdout`` then never returns and the whole
+    # sweep wedges on that one combo -- even after the watchdog tree-kills it,
+    # because killing the process does not necessarily close an inherited pipe.
+    # The drain thread isolates that blocking read; the main thread waits on the
+    # process via a BOUNDED reap (below) and proceeds regardless.
+    _tail_lock = threading.Lock()
+
+    def _drain() -> None:
+        try:
+            for line in p.stdout:  # type: ignore[union-attr]
+                with _tail_lock:
+                    if len(tail_lines) > 80:
+                        tail_lines.pop(0)
+                    tail_lines.append(line.rstrip("\n"))
+        except Exception:
+            pass
+
+    drain_thread = threading.Thread(target=_drain, daemon=True)
+    drain_thread.start()
+
+    # Wall-timeout watchdog: a background timer fires the tree-kill at exactly
+    # ``per_combo_timeout_s`` REGARDLESS of stdout activity (a silent hung child
+    # with zero output would never trip a read-driven clock check -- the old
+    # 2.5h hang). The bounded reap below then proceeds whether or not the kill
+    # actually reaped the process.
     def _watchdog() -> None:
         _killed.set()
         _kill_process_tree(p.pid)
@@ -290,34 +329,44 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     timer.daemon = True
     timer.start()
     try:
-        for line in p.stdout:  # type: ignore[union-attr]
-            if len(tail_lines) > 80:
-                tail_lines.pop(0)
-            tail_lines.append(line.rstrip("\n"))
-        # Drain + reap. If the watchdog already tree-killed, wait returns fast.
-        p.wait(timeout=30)
+        # Bounded wait for normal exit. The watchdog will tree-kill at the wall
+        # timeout; this reap polls within a generous ceiling (timeout + slack)
+        # so a process that exits on its own returns promptly, while a wedged
+        # one is handed to the kill-and-bounded-reap path below.
+        if not _reap_bounded(p, per_combo_timeout_s + 30):
+            timed_out = True
+            _kill_process_tree(p.pid)
         if _killed.is_set():
             timed_out = True
-            tail_lines.append(
-                f"[driver] per-combo wall-timeout {per_combo_timeout_s}s reached -- killed process tree."
-            )
-    except subprocess.TimeoutExpired:
-        # The streamed read finished but the process is still alive (e.g. a
-        # hung native finalizer holding stdout open closed but not exiting).
-        timed_out = True
-        _kill_process_tree(p.pid)
-        try:
-            p.wait(timeout=10)
-        except Exception:
-            pass
-        tail_lines.append("[driver] child did not exit after stdout close -- tree-killed.")
+            with _tail_lock:
+                tail_lines.append(
+                    f"[driver] per-combo wall-timeout {per_combo_timeout_s}s reached -- killed process tree."
+                )
+        # Bounded reap after any kill: an access-violation'd child can be OS-
+        # undead and never reap. Wait at most 10s; if it still won't die, LOG it
+        # and ORPHAN it -- the next combo runs in a fresh process regardless.
+        if timed_out and not _reap_bounded(p, 10):
+            with _tail_lock:
+                tail_lines.append(
+                    f"[driver] child pid={p.pid} undead after kill -- orphaning + continuing."
+                )
     except Exception as e:
         _kill_process_tree(p.pid)
-        tail_lines.append(f"[driver] exception while running combo: {e}")
+        _reap_bounded(p, 10)
+        with _tail_lock:
+            tail_lines.append(f"[driver] exception while running combo: {e}")
     finally:
         timer.cancel()
+
+    # Join the drain thread with a SHORT timeout; if its read is wedged on an
+    # undead child's still-open pipe it will not join -- proceed anyway (the
+    # thread is a daemon and dies with the driver).
+    drain_thread.join(timeout=5)
+
+    with _tail_lock:
+        tail_text = "\n".join(tail_lines)
     rc = p.returncode if p.returncode is not None else 0
-    return rc, "\n".join(tail_lines), timed_out
+    return rc, tail_text, timed_out
 
 
 def _run_isolate(args: argparse.Namespace) -> int:

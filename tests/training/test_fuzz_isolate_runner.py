@@ -63,6 +63,67 @@ def test_kill_process_tree_terminates_child_and_grandchild():
     assert not parent.is_running()
 
 
+def test_reap_bounded_returns_false_for_undead_process_within_timeout():
+    """A child that ignores kill (simulated by a long sleep we never kill) must
+    NOT block ``_reap_bounded`` past its timeout -- it returns False promptly so
+    the driver can orphan + continue rather than wedge waiting for an OS-undead
+    access-violation'd process to reap."""
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        t0 = time.time()
+        alive_reaped = R._reap_bounded(p, 1.0)
+        elapsed = time.time() - t0
+        assert alive_reaped is False, "still-running process must report not-reaped"
+        assert elapsed < 5.0, f"_reap_bounded blocked {elapsed:.1f}s past its 1s bound"
+    finally:
+        R._kill_process_tree(p.pid)
+        R._reap_bounded(p, 10)
+
+
+def test_reap_bounded_returns_true_for_exited_process():
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    assert R._reap_bounded(p, 10) is True
+
+
+def test_run_one_combo_does_not_wedge_on_child_holding_pipe_open_after_kill(monkeypatch):
+    """Regression for the seed-0 AV wedge: an undead child whose stdout pipe
+    stays open after the tree-kill (here simulated by a grandchild that inherits
+    the pipe and outlives the parent) must NOT hang the driver's pipe drain. The
+    background-drain + bounded-reap design must return within a bounded wall time
+    even though the inherited pipe never closes.
+
+    We monkeypatch the spawned command so no real pytest/fuzz suite runs: the
+    fake child prints one line, spawns a grandchild that holds stdout open and
+    sleeps, then itself hangs -- mimicking an AV'd parent with a live orphan."""
+    pytest.importorskip("psutil")
+
+    # Child: spawn a grandchild that INHERITS stdout (so the pipe stays open even
+    # after the parent dies / is killed), print a marker, then hang forever.
+    child_code = (
+        "import subprocess,sys,time;"
+        "subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']);"  # inherits stdout
+        "print('FAKE_CHILD_MARKER',flush=True);"
+        "time.sleep(120)"
+    )
+    real_popen = subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        return real_popen([sys.executable, "-c", child_code], **kwargs)
+
+    monkeypatch.setattr(R.subprocess, "Popen", fake_popen)
+
+    t0 = time.time()
+    rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=2)
+    elapsed = time.time() - t0
+
+    # The whole call must return shortly after the 2s wall-timeout + bounded
+    # reaps (2 + 30 ceiling is only hit if the process won't die; the watchdog
+    # kills at 2s so the parent dies and reap returns fast). Generous ceiling.
+    assert elapsed < 45.0, f"_run_one_combo wedged {elapsed:.1f}s on pipe-holding child"
+    assert timed_out is True, "wall-timeout combo must be flagged timed_out"
+    assert "FAKE_CHILD_MARKER" in tail, "drain thread should have captured child output"
+
+
 def test_log_driver_row_writes_schema(tmp_path, monkeypatch):
     """Driver-logged timeout/native_crash rows reuse the JSONL schema and carry
     the combo fields + master_seed + error_class + isolated marker."""
