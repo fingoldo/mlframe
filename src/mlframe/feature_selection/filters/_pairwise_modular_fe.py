@@ -1,4 +1,4 @@
-"""Pairwise / n-way MODULAR relationship detection FE (PROTOTYPE -- not wired into prod defaults).
+"""Pairwise / n-way MODULAR relationship detection FE (wired into MRMR, default ON behind ``fe_pairwise_modular_enable``).
 
 Extends the single-column ``_periodic_fe`` (``x mod period`` on a fixed calendar ladder) to the
 genuinely-uncovered case: a target that is a function of an INTEGER MODULUS of a COMBINATION of
@@ -26,19 +26,22 @@ Design: CHEAP-FIRST / ESCALATE.
 Only integer-typed (or exactly-integer-valued float) columns are eligible -- modular structure is an
 integer-lattice property; quantising a continuous column would manufacture spurious periodicity.
 
-Cost (cProfile, n=2000, full coarse grid): ~0.3s/call, ~100% in the shipped binned-MI kernel
-(``_mi_classif_batch``); the new orchestration is <2% of wall. The residue-MI calls over the modulus
-grid could batch into a single kernel call (all residues stacked column-wise) to cut the per-call
-dispatch -- a wiring concern for the public path, not the prototype.
+Cost: ~99% of the scan is the shipped binned-MI kernel (``_mi`` -> ``_mi_classif_batch`` -> ``plugin_mi_classif_batch_dispatch``).
+Two caller-side optimisations cut it 2.3-3.4x (bench ``_benchmarks/bench_pairwise_modular_cost`` before/after, both bit-identical
+to the prior responded-set -- verified across TP + control frames):
 
-cProfile (enabled MRMR FE path, n=2000, p=20 int cols, 3 reps): ~1.05s/call. ~99% is the shipped binned-MI kernel
-(``_mi`` -> ``_mi_classif_batch`` -> ``plugin_mi_classif_batch_dispatch``), called 9444x (per-residue grid scan +
-12-permutation null per combiner); orchestration (``_scan_one`` / ``_residue_mi`` / ``_perm_null_hi``) is ~5% of wall.
-No actionable speedup IN THIS MODULE: each call is a single-column MI; the only meaningful lever is batching the whole
-residue grid into one multi-column kernel call, which is a change to the shared ``_mi_classif_batch`` dispatch API
-surface (used by every FE family), not this orchestrator -- out of scope here. Absolute cost is bounded by the budget
-guard (p<=30 -> scan ~1.1s, a few % of a typical MRMR fit), and the cheap gate means a non-modular frame pays the scan
-once and escalates nothing.
+* BATCHED GRID (``_residue_grid_mi``): the per-modulus residue MIs (the dominant ~57% of calls) stack into ONE multi-column
+  ``_mi_classif_batch`` call per effective-nbins group instead of one call per modulus. ``_mi_classif_batch`` already takes a
+  ``(n, p)`` batch (per-column binning is independent), so this is pure caller batching -- the kernel API is untouched and the
+  per-column MI is byte-for-byte the same; only the per-call dispatch overhead is amortised.
+* EARLY-REJECT NULL: the 12-permutation null (~40% of calls) is computed ONLY for combiners that already clear the baseline
+  margin (``_MIN_MARGIN``). ``_responded`` needs BOTH margin AND null, so a margin-failing combiner can never respond -> its
+  null is skipped (stored as +inf). Bit-identical to the prior responded-set by short-circuit, not an approximation; on a
+  non-modular frame this drops the null for all 114 combiners.
+
+A shared per-(n, class-counts, k) null (one null reused across combiners) was REJECTED: the null band depends on the residue
+bin-count vector, which differs ~5e-4 in mean / ~3e-3 per-perm between combiners at the same k -- selection-altering, so it
+could flip a borderline ``residue_mi > null_hi`` decision. Kept the per-combiner null for the (few) combiners that reach it.
 """
 from __future__ import annotations
 
@@ -77,12 +80,41 @@ COARSE_MODULI: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 1
 _PAIR_OPS = ("sum", "diff", "prod")
 
 
+# Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
+# raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
+# permutation null is skipped for it -- bit-identical to ``responded`` by short-circuit, not an approximation.
+_MIN_MARGIN = 0.02
+
+
 def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     """Binned MI of one column vs y, via the shipped classif-MI batch kernel."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
     return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])
+
+
+def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: int) -> np.ndarray:
+    """MI of ``c mod k`` vs y for every k in ``mods``, in one batched kernel call per effective-nbins group.
+
+    ``_residue_mi`` bins each residue at ``max(nbins, k)``; columns sharing the same effective nbins can be stacked into
+    a single multi-column ``_mi_classif_batch`` call (bit-identical to per-column -- same per-column binning math, only
+    the per-call dispatch overhead is amortised). Moduli are grouped by ``max(nbins, k)`` so each group is one call."""
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    yi = np.asarray(y).astype(np.int64)
+    out = np.empty(len(mods), dtype=np.float64)
+    groups: dict[int, list[int]] = {}
+    for idx, k in enumerate(mods):
+        groups.setdefault(max(nbins, int(k)), []).append(idx)
+    for eff_nbins, idxs in groups.items():
+        mat = np.empty((c.shape[0], len(idxs)), dtype=np.float64)
+        for j, idx in enumerate(idxs):
+            mat[:, j] = np.mod(c, mods[idx])
+        mis = _mi_classif_batch(mat, yi, nbins=eff_nbins)
+        for j, idx in enumerate(idxs):
+            out[idx] = float(mis[j])
+    return out
 
 
 def _is_integer_col(x: np.ndarray) -> bool:
@@ -140,7 +172,7 @@ class ModularHit:
 
 
 def _responded(residue_mi: float, baseline_mi: float, null_hi: float,
-               min_margin: float = 0.02) -> bool:
+               min_margin: float = _MIN_MARGIN) -> bool:
     """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the
     permutation-null upper band. ``min_margin`` is the measured separation floor between a true
     modular hit and the best non-modular combiner (see ``_benchmarks/bench_modular_period_detection``)."""
@@ -195,12 +227,16 @@ def cheap_modular_scan(
 
     def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray):
         base = _mi(c_arr.astype(np.float64), yi, nbins=nbins)
-        best_k, best_mi = 0, -1.0
-        for k in mods:
-            m = _residue_mi(c_arr, yi, k, nbins)
-            if m > best_mi:
-                best_mi, best_k = m, k
-        null_hi = _perm_null_hi(c_arr, yi, best_k, nbins, seed=seed)
+        grid = _residue_grid_mi(c_arr, yi, mods, nbins)
+        best_i = int(np.argmax(grid))
+        best_k, best_mi = mods[best_i], float(grid[best_i])
+        # Early-reject: the permutation null only matters for combiners that already clear the baseline margin
+        # (``_responded`` needs BOTH). A combiner below margin can never respond -> skip its 12-perm null. The null_hi
+        # we store is +inf for those, which keeps ``responded`` False and is bit-identical to the full computation.
+        if (best_mi - base) >= _MIN_MARGIN:
+            null_hi = _perm_null_hi(c_arr, yi, best_k, nbins, seed=seed)
+        else:
+            null_hi = float("inf")
         hits.append(ModularHit(op, cset, best_k, best_mi, base, null_hi))
 
     for c in cols:

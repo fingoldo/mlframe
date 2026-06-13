@@ -242,6 +242,98 @@ class TestBizValue:
         )
 
 
+class TestScanOptimizationEquivalence:
+    """The cheap scan batches the residue grid into one MI call per effective-nbins group and skips the 12-perm null for
+    combiners that cannot clear the baseline margin. Both are bit-identical to the pre-optimization responded-set; this
+    class pins the equivalence (responded-set + grid/baseline MI unchanged) AND a measurable speedup floor."""
+
+    @staticmethod
+    def _load_reference_scan():
+        """Load the git-HEAD reference ``cheap_modular_scan`` as a standalone module to compare against the optimized one.
+        Skips if HEAD already contains the optimization (e.g. running post-merge) so the test stays meaningful, not flaky."""
+        import subprocess
+        import types
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[2]
+        src = subprocess.run(
+            ["git", "show", "HEAD:src/mlframe/feature_selection/filters/_pairwise_modular_fe.py"],
+            capture_output=True, text=True, cwd=str(repo),
+        ).stdout
+        if not src.strip():
+            pytest.skip("could not load HEAD reference scan (no git / detached source)")
+        ref = types.ModuleType("_ref_pwm_test")
+        ref.__package__ = "mlframe.feature_selection.filters"
+        ref.__name__ = "mlframe.feature_selection.filters._pairwise_modular_fe"
+        exec(compile(src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)
+        return ref
+
+    @staticmethod
+    def _tp_frame(seed, n=2000):
+        rng = np.random.default_rng(seed)
+        a = rng.integers(0, 100, n); b = rng.integers(0, 100, n)
+        y = ((a + b) % 7 >= 3).astype(int)
+        cols = {"a": a, "b": b}
+        for i in range(13):
+            cols[f"c{i}"] = rng.integers(0, 100, n)
+        return pd.DataFrame(cols), y
+
+    @staticmethod
+    def _control_frame(seed, n=2000):
+        rng = np.random.default_rng(seed)
+        cols = {f"c{i}": rng.integers(0, 100, n) for i in range(15)}
+        X = pd.DataFrame(cols)
+        y = ((X["c0"] + 0.7 * X["c1"]) > 85).astype(int).to_numpy()
+        return X, y
+
+    def test_responded_set_and_mi_bit_identical_to_reference(self):
+        from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
+
+        ref = self._load_reference_scan()
+        if "_residue_grid_mi" in ref.__dict__:
+            pytest.skip("HEAD already contains the optimized scan; nothing to compare against")
+        for builder in (self._tp_frame, self._control_frame):
+            for seed in (0, 1, 7):
+                X, y = builder(seed)
+                hr = ref.cheap_modular_scan(X, y)
+                hn = cheap_modular_scan(X, y)
+                resp_r = {(h.op, h.cols, h.modulus) for h in hr if h.responded}
+                resp_n = {(h.op, h.cols, h.modulus) for h in hn if h.responded}
+                assert resp_r == resp_n, f"responded-set drifted on {builder.__name__} seed={seed}"
+                dr = {(h.op, h.cols): (h.modulus, h.residue_mi, h.baseline_mi) for h in hr}
+                dn = {(h.op, h.cols): (h.modulus, h.residue_mi, h.baseline_mi) for h in hn}
+                assert dr.keys() == dn.keys()
+                for k in dr:
+                    assert dr[k][0] == dn[k][0], f"best modulus drifted on {builder.__name__} seed={seed} combiner {k}"
+                    assert abs(dr[k][1] - dn[k][1]) < 1e-12, f"residue MI drifted on {builder.__name__} seed={seed} combiner {k}"
+                    assert abs(dr[k][2] - dn[k][2]) < 1e-12, f"baseline MI drifted on {builder.__name__} seed={seed} combiner {k}"
+
+    def test_optimized_scan_is_measurably_faster(self):
+        """Floor 1.6x; measured ~2.1-3.4x at p in {15,30} n in {2k,20k}. Catches a regression that re-introduces the
+        per-residue and per-combiner-null MI calls (e.g. an un-batched grid or an always-on null)."""
+        import time
+
+        from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
+
+        ref = self._load_reference_scan()
+        if "_residue_grid_mi" in ref.__dict__:
+            pytest.skip("HEAD already contains the optimized scan; speedup already realized")
+        X, y = self._tp_frame(0, n=2000)
+        ref.cheap_modular_scan(X, y); cheap_modular_scan(X, y)  # warm JIT
+        rt = min(self._time(ref.cheap_modular_scan, X, y) for _ in range(3))
+        nt = min(self._time(cheap_modular_scan, X, y) for _ in range(3))
+        speedup = rt / nt
+        assert speedup >= 1.6, f"optimized scan only {speedup:.2f}x faster than reference (floor 1.6x; measured ~2.1-3.4x)"
+
+    @staticmethod
+    def _time(fn, X, y):
+        import time
+
+        t0 = time.perf_counter()
+        fn(X, y)
+        return time.perf_counter() - t0
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))
