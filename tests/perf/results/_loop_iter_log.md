@@ -2542,3 +2542,24 @@ Identity: exact `==` (maxdiff 0.0) on tied/discrete inputs (integer-valued a/b -
 Regression test (`tests/metrics/test_ranking_drift_extras.py::test_fused_drift_kernels_bit_identical_to_numpy_reference`): imports `_wasserstein_1d_fused` / `_ks_distance_fused` (absent on HEAD -> ImportError -> FAILS pre-fix, verified via stubbed-loader dump of HEAD: `hasattr` both False) and pins exact equality vs an inline numpy reference on ties + approx(1e-12) on continuous. Existing scipy-match tests (`test_wasserstein_matches_scipy`, `test_ks_distribution_distance_matches_scipy`) still green. Drift suite: 51 passed; file: 16 passed.
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 51 RESOLVED, 29 REJECT across 78 iterations.**
+
+## iter79 (@200k) -- RESOLVED: fused njit packer for the K<=64 bitmap-Jaccard multilabel fast path
+
+Component: `mlframe.metrics._multilabel_metrics` (multilabel metrics: hamming_loss / subset_accuracy / jaccard_score_multilabel; NOT in the avoid-list -- distinct from MRMR biz_value / sample_weight / Layer37). Workload: the 3-metric multilabel block (jaccard + hamming + subset) over `(N=200000, K=32)` uint8 indicator matrices, the per-eval multilabel metrics path. Picked because `jaccard_score_multilabel` routes K in [16,64] through a bitmap-popcount fast path that calls `_pack_for_bitmap` TWICE per call (yt, yp) -- a per-call wasted-allocation seam.
+
+Hotspot (n=200k, K=32, cProfile, 30 iters of the 3-metric block): `_pack_for_bitmap` dominated -- **0.396s / 0.564s = 70%** across 60 calls (2 per `jaccard_score_multilabel`), confirmed plain-numpy (not njit). The old packer allocated a full `(N, 64)` uint8 zero buffer, wrote `padded[:, :K] = arr`, then ran `np.packbits` over all 64 columns even when only K<64 are populated -- ~2x the packbits work plus a large zeroed alloc, both discarded.
+
+Optimization: new `@njit` kernels `_pack_for_bitmap_kernel_seq` / `_pack_for_bitmap_kernel_par` pack `(N, K<=64) uint8 -> (N,) uint64` in ONE pass, computing each label's final bit index directly (`(j>>3)*8 + (7-(j&7))` -- np.packbits is big-endian within a byte and the LE uint64 view reverses byte order). No `(N,64)` buffer, no 64-wide packbits. `_pack_for_bitmap` now dispatches to the parallel twin above `_PARALLEL_MULTILABEL_THRESHOLD` (50k) rows, serial njit below (prange spawn not amortised on tiny frames). Numpy reference kept as `_pack_for_bitmap_numpy` for the bit-identity bench/test (REJECTED!=DELETED hygiene -- here the option is the verification reference).
+
+Before/after (isolated, n=200k, best-of-50):
+- K=16: old 4.452ms -> njit_par 0.409ms (**10.9x**)
+- K=32: old 4.633ms -> njit_par 0.548ms (**8.5x**)
+- K=64: old 1.646ms -> njit_par 0.795ms (**2.1x**; serial njit LOSES at K=64 (2.30ms) because the old path skips the zero-buffer at K==64 -- hence parallel is the default, not serial).
+
+End-to-end (3-metric block jaccard+hamming+subset, K=32, 30 iters, in-process leaf-module loader to dodge the py3.14 `metrics.core` eager-warmup segfault): block total **0.564s -> 0.154s (2.7x)**; `jaccard_score_multilabel` cumtime **0.459s -> 0.049s (9.4x)**; `_pack_for_bitmap` tottime 0.396s -> 0.042s.
+
+Identity: BIT-IDENTICAL by construction (direct bit-index packing of the same indicator) -- `np.array_equal` vs the numpy reference verified across K in {16,17,23,24,31,32,33,40,63,64} (incl. non-byte-aligned K), and all-zero / all-one / first-bit-only / last-bit-only rows, for BOTH seq and par kernels. Downstream Jaccard match-vs-sklearn tests unchanged and green.
+
+Regression test (`tests/training/test_multilabel_metrics_numba.py`): `test_pack_for_bitmap_njit_bit_identical_to_numpy` (10 K-values x 3 row patterns, seq+par vs numpy ref) + `test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold` (spy asserts par fires at >=threshold, seq below, both bit-identical). Imports `_pack_for_bitmap_numpy` / `_pack_for_bitmap_kernel_{seq,par}` -- ALL absent on HEAD (verified `git show HEAD:...` = 0 occurrences) -> ImportError -> FAILS pre-fix. File: 37 passed; wider multilabel surface (`test_multilabel_extras` + `test_multi_output_corner_cases`): 16 passed. Bench committed: `_benchmarks/bench_multilabel_pack_bitmap_iter79.py`.
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 52 RESOLVED, 29 REJECT across 79 iterations.**

@@ -23,7 +23,60 @@ from mlframe.metrics.core import (
     _fast_subset_accuracy_par,
     _fast_jaccard_score_seq,
     _fast_jaccard_score_par,
+    _pack_for_bitmap,
+    _pack_for_bitmap_numpy,
+    _pack_for_bitmap_kernel_seq,
+    _pack_for_bitmap_kernel_par,
 )
+
+
+# ---------------------------------------------------------------------------
+# Bitmap packer: fused njit kernels must be bit-identical to the numpy
+# reference (np.packbits-pad64-view) across byte-aligned + non-aligned K,
+# all-zero / all-one rows, and the parallel-dispatch threshold.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("K", [16, 17, 23, 24, 31, 32, 33, 40, 63, 64])
+def test_pack_for_bitmap_njit_bit_identical_to_numpy(K):
+    rng = np.random.default_rng(K)
+    for arr in (
+        (rng.random((1000, K)) < 0.3).astype(np.uint8),
+        np.zeros((50, K), dtype=np.uint8),
+        np.ones((50, K), dtype=np.uint8),
+    ):
+        ref = _pack_for_bitmap_numpy(arr)
+        assert np.array_equal(_pack_for_bitmap_kernel_seq(arr), ref), f"seq mismatch K={K}"
+        assert np.array_equal(_pack_for_bitmap_kernel_par(arr), ref), f"par mismatch K={K}"
+
+
+def test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold(monkeypatch):
+    from mlframe.metrics import _multilabel_metrics as mlm
+
+    thr = mlm._PARALLEL_MULTILABEL_THRESHOLD
+    seen = {"par": 0, "seq": 0}
+    orig_par, orig_seq = mlm._pack_for_bitmap_kernel_par, mlm._pack_for_bitmap_kernel_seq
+
+    def spy_par(arr):
+        seen["par"] += 1
+        return orig_par(arr)
+
+    def spy_seq(arr):
+        seen["seq"] += 1
+        return orig_seq(arr)
+
+    monkeypatch.setattr(mlm, "_pack_for_bitmap_kernel_par", spy_par)
+    monkeypatch.setattr(mlm, "_pack_for_bitmap_kernel_seq", spy_seq)
+
+    rng = np.random.default_rng(0)
+    big = (rng.random((thr, 32)) < 0.2).astype(np.uint8)
+    small = (rng.random((10, 32)) < 0.2).astype(np.uint8)
+    out_big = mlm._pack_for_bitmap(big)
+    out_small = mlm._pack_for_bitmap(small)
+
+    assert seen["par"] == 1 and seen["seq"] == 1
+    assert np.array_equal(out_big, _pack_for_bitmap_numpy(big))
+    assert np.array_equal(out_small, _pack_for_bitmap_numpy(small))
 
 
 # ---------------------------------------------------------------------------

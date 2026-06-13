@@ -96,7 +96,8 @@ from ._multilabel_metrics import (  # noqa: E402,F401
     _fast_subset_accuracy_seq, _fast_subset_accuracy_par,
     _fast_jaccard_score_seq, _fast_jaccard_score_par,
     _popcount64, _fast_jaccard_bitmap_seq,
-    _can_use_bitmap_jaccard, _pack_for_bitmap,
+    _can_use_bitmap_jaccard, _pack_for_bitmap, _pack_for_bitmap_numpy,
+    _pack_for_bitmap_kernel_seq, _pack_for_bitmap_kernel_par,
     _coerce_multilabel_array, _validate_multilabel_pair,
     hamming_loss, subset_accuracy, jaccard_score_multilabel,
 )
