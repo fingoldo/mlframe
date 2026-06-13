@@ -140,6 +140,22 @@ class TestMRMRIntegration:
         for c in il_cols:
             np.testing.assert_array_equal(out[c].to_numpy(), out2[c].to_numpy())
 
+    def test_both_operators_on_no_nested_engineered_recipe_replays_clean(self):
+        """With pairwise-modular AND integer-lattice both default ON, the lattice operand pool must stay raw-only.
+        Combining gcd onto an engineered pmod_ column would build a recipe whose engineered source is unresolved at
+        replay time -- transform() would emit a NaN column and silently drop the feature. Regression for that bug."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _build_gcd_target(1, n=4000)
+        m = MRMR(fe_integer_lattice_enable=True, fe_pairwise_modular_enable=True, max_runtime_mins=2)
+        m.fit(X, pd.Series(y, name="y"))
+        out = m.transform(X.iloc[:500])
+        il_cols = [c for c in out.columns if str(c).startswith("il_")]
+        assert il_cols, "integer-lattice produced no replayable column with both operators on."
+        nested = [c for c in il_cols if "pmod" in str(c) or "__il_" in str(c)]
+        assert not nested, f"integer-lattice built a recipe on an engineered source (unresolvable at replay): {nested}"
+        nan_cols = [c for c in out.columns if out[c].isna().any()]
+        assert not nan_cols, f"replay emitted NaN columns (nested-engineered recipe): {nan_cols}"
+
     def test_budget_guard_skips_whole_sweep_and_logs(self, caplog):
         rng = np.random.default_rng(7)
         n = 2000

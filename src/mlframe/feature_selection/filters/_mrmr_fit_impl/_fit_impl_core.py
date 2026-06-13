@@ -4181,9 +4181,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _y_for_pm = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
+                # Restrict operands to raw input columns: combining on already-engineered columns yields nested recipes
+                # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
+                _pm_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                 _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
                     X, _y_for_pm,
-                    cols=None,
+                    cols=_pm_raw_cols,
                     top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     max_int_cols=int(getattr(self, "fe_pairwise_modular_max_int_cols", 30)),
@@ -4240,9 +4243,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _y_for_il = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
+                # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
+                _il_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                 _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
                     X, _y_for_il,
-                    cols=None,
+                    cols=_il_raw_cols,
                     top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     max_int_cols=int(getattr(self, "fe_integer_lattice_max_int_cols", 30)),
