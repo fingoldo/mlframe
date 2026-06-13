@@ -43,7 +43,7 @@ from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 # time (paid once at startup, amortised across the whole suite) and
 # fast_spearman_corr's runtime profile drops the import attribution
 # entirely. Per-call cost becomes ~4.2 ms (just _spearmanr_batched_numpy).
-from ..rank_correlation import _spearmanr_batched_numpy
+from ..rank_correlation import _spearmanr_batched_numpy, spearmanr_scalar_dispatch
 
 
 # ============================================================================
@@ -561,18 +561,14 @@ def fast_pearson_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def fast_spearman_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Spearman rank correlation (scalar wrapper).
 
-    Reuses ``mlframe.metrics.rank_correlation._spearmanr_batched_numpy``
-    on a 1-row batch to avoid duplicating the rank+Pearson pipeline.
-    Tied values handled via average-rank.
+    Routes to ``spearmanr_scalar_dispatch``, which parallelises WITHIN the single series (the two rankings concurrent, the Pearson reduction a prange sum)
+    when numba is available and falls back to the scipy ``rankdata`` numpy path otherwise. Tied values handled via average-rank; bit-identical (~1e-12 FP
+    reduction-order) to the numpy path. On a single long series the batched paths (which parallelise across rows) buy nothing, so the within-series kernel
+    is the faster default at all n -- ~1.5-2.7x over scipy across n in {5k..1M}.
     """
-    yt = np.asarray(y_true, dtype=np.float64).reshape(1, -1)
-    yp = np.asarray(y_pred, dtype=np.float64).reshape(1, -1)
-    if yt.shape[1] < 2:
+    if np.asarray(y_true).size < 2:
         return np.nan
-    # iter592: ``_spearmanr_batched_numpy`` import hoisted to module-level
-    # at the top of this file. The lazy-import here paid 140 ms / call
-    # on the cold-cache first invocation per the c0103 profile.
-    return float(_spearmanr_batched_numpy(yt, yp)[0])
+    return spearmanr_scalar_dispatch(y_true, y_pred)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

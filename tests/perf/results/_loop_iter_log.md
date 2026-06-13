@@ -2727,3 +2727,27 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 58 RESOLVED, 2
 **Verdict: RESOLVED+~30% e2e @1M (fused ROC/PR/KS single-pass; ROC/PR bit-identical, KS byte-identical at report precision).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 59 RESOLVED, 29 REJECT across 86 iterations.**
+
+---
+
+## iter87 (@1M) -- single-series Spearman within-series parallel njit kernel (regression report extras)
+
+**Workload@1M + why:** regression report "extended metric extras" at n=1,000,000 -- the sort/log/parameterised metrics that do NOT factor into the fused MAE/RMSE/R2 block, called by `report_regression_model_perf` (`training/reporting/_reporting_regression/__init__.py:282-296`): `fast_rmsle`, `fast_mdape`, `fast_spearman_corr`, `fast_huber_loss`. Fresh seam (spearman scalar path never tapped; classification AUC/KS tapped iter72/86).
+
+**Top mlframe-own by tottime (cProfile, 10x extras loop @1M):** `argsort` 2.145s (the scipy `rankdata` cost, 2 per spearman call); `scipy _rankdata` 0.209s + tie machinery (`take_along_axis` 0.156s / `put_along_axis` 0.140s / `diff` 0.064s / `repeat` 0.064s / `arange` 0.055s); `fast_rmsle` 0.121s; `fast_mdape` 0.105s; `_spearmanr_batched_numpy` 0.089s; `partition` (mdape median) 0.066s; `fast_regression_metrics_block_extended` 0.017s; `fast_huber_loss` 0.011s.
+
+**Hotspot:** `fast_spearman_corr` -- isolated wall **288 ms/call @1M**, vs ext_block 1.06ms, mdape 17.8ms, rmsle 13.1ms, huber 0.9ms. ~90% of the extras-block wall. Plain-Python wrapper around scipy `rankdata` on a (1, 1M) batch (genuinely a numpy/scipy path, not njit-misattributed). The batched njit path parallelises across ROWS, so on a single 1M series (N=1 row) it is single-threaded -- no win there.
+
+**Optimization + audit:** the scalar single-series case has unexploited WITHIN-series parallelism: the two rank computations (rank x, rank y) are independent and the final Pearson reduction over ranks is a sum. New `_spearmanr_scalar_njit` (parallel=True): 2-way `prange` runs the two argsort-based average-rank rankings concurrently, then a `prange` Pearson reduction; mean rank is exactly (n+1)/2 by construction (ties preserve the rank sum). Wired via new `spearmanr_scalar_dispatch` (numba->scalar kernel, else scipy numpy fallback) into `fast_spearman_corr`. scipy's extra tie machinery (diff/repeat/arange/take/put_along_axis -- multiple O(n) temp passes) is folded into one linear tie-avg pass.
+
+**Before/after (best-of-7, warm):**
+- Isolated `fast_spearman_corr` @1M: 288 -> 131 ms (**2.2x**). Size sweep (kernel vs scipy): N=5k 2.74x, N=50k 2.12x, N=200k 1.53x, N=1M 2.15x -- wins at all sizes, no crossover.
+- e2e extras block (ext_block + rmsle + mdape + spearman + huber) @1M: ~321 -> 172 ms (**1.86x**).
+
+**Identity proof:** `_spearmanr_scalar_njit` vs `_spearmanr_batched_numpy` (the prior path): continuous diff 1.18e-12, tied/discrete diff 3.7e-16 (FP reduction-order, NOT selection-altering). vs `scipy.stats.spearmanr`: 1.18e-12 continuous / 3.7e-16 tied. Edge cases match: len<2 / NaN-in-row / constant-row -> NaN.
+
+**Regression test (`tests/metrics/test_rank_correlation.py::TestSpearmanScalarKernel`, 4 tests):** scalar-dispatch == numpy on continuous + tied (<1e-9); `fast_spearman_corr` routes through `_spearmanr_scalar_njit` via spy (pre-fix: symbol absent at HEAD -> `orig = rc._spearmanr_scalar_njit` AttributeError -> test FAILS, verified read-only via `git show HEAD`); edge cases NaN. 4 passed post-fix; 68 rank+regression metric tests green.
+
+**Verdict: RESOLVED+2.2x isolated / 1.86x e2e @1M (within-series parallel Spearman; bit-identical ~1e-12 FP reduction-order, non-selection-altering).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 60 RESOLVED, 29 REJECT across 87 iterations.**

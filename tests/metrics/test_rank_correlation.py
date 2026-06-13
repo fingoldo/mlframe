@@ -178,3 +178,62 @@ class TestDispatcher:
         got_np = spearmanr_batched(X, Y)
         # Same numerical answer regardless of path.
         np.testing.assert_allclose(got_disp, got_np, atol=1e-10, equal_nan=True)
+
+
+class TestSpearmanScalarKernel:
+    """Single-series Spearman routes through the within-series parallel njit kernel and stays bit-identical to the scipy ``rankdata`` path."""
+
+    def test_scalar_dispatch_matches_numpy_continuous(self) -> None:
+        pytest.importorskip("numba")
+        from mlframe.metrics.rank_correlation import (
+            spearmanr_scalar_dispatch, _spearmanr_batched_numpy,
+        )
+        rng = np.random.default_rng(7)
+        x = rng.normal(100.0, 20.0, 50_000)
+        y = x + rng.normal(0.0, 5.0, 50_000)
+        got = spearmanr_scalar_dispatch(x, y)
+        ref = float(_spearmanr_batched_numpy(x.reshape(1, -1), y.reshape(1, -1))[0])
+        assert abs(got - ref) < 1e-9
+
+    def test_scalar_dispatch_matches_numpy_tied(self) -> None:
+        pytest.importorskip("numba")
+        from mlframe.metrics.rank_correlation import (
+            spearmanr_scalar_dispatch, _spearmanr_batched_numpy,
+        )
+        rng = np.random.default_rng(11)
+        x = rng.integers(0, 8, 40_000).astype(np.float64)
+        y = rng.integers(0, 8, 40_000).astype(np.float64)
+        got = spearmanr_scalar_dispatch(x, y)
+        ref = float(_spearmanr_batched_numpy(x.reshape(1, -1), y.reshape(1, -1))[0])
+        assert abs(got - ref) < 1e-9
+
+    def test_fast_spearman_corr_uses_scalar_njit_kernel(self, monkeypatch) -> None:
+        """Regression sensor: ``fast_spearman_corr`` must call the within-series scalar njit kernel, not the scipy batched-numpy path.
+
+        Pre-fix, ``fast_spearman_corr`` routed straight to ``_spearmanr_batched_numpy`` (single-threaded scipy ``rankdata``, ~288 ms / 1M series) and the
+        scalar kernel did not exist, so this spy is never tripped -- the test FAILS on pre-fix code (AttributeError on the missing symbol / spy uncalled).
+        """
+        pytest.importorskip("numba")
+        import mlframe.metrics.rank_correlation as rc
+        calls = {"n": 0}
+        orig = rc._spearmanr_scalar_njit
+
+        def spy(x, y):
+            calls["n"] += 1
+            return orig(x, y)
+
+        monkeypatch.setattr(rc, "_spearmanr_scalar_njit", spy)
+        from mlframe.metrics.core import fast_spearman_corr
+        rng = np.random.default_rng(3)
+        x = rng.normal(0.0, 1.0, 10_000)
+        y = x + rng.normal(0.0, 0.3, 10_000)
+        rho = fast_spearman_corr(x, y)
+        assert calls["n"] == 1, "fast_spearman_corr must route through _spearmanr_scalar_njit"
+        assert 0.9 < rho <= 1.0
+
+    def test_scalar_edge_cases(self) -> None:
+        pytest.importorskip("numba")
+        from mlframe.metrics.rank_correlation import spearmanr_scalar_dispatch
+        assert np.isnan(spearmanr_scalar_dispatch(np.array([1.0]), np.array([2.0])))
+        assert np.isnan(spearmanr_scalar_dispatch(np.array([1.0, np.nan, 3.0]), np.array([1.0, 2.0, 3.0])))
+        assert np.isnan(spearmanr_scalar_dispatch(np.array([5.0, 5.0, 5.0]), np.array([1.0, 2.0, 3.0])))
