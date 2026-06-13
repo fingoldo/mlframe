@@ -101,14 +101,20 @@ gates can be migrated safely. Each conversion is benched BOTH directions (does i
 1. `fe_min_pair_mi_prevalence` (HIGH) -- DONE: accepts `"auto"` = the 1.05 ratio bar applied to the
    MILLER-MADOW-DEBIASED pair MI (analytic bias, no shuffles), with a per-pair rows-per-occupied-cell
    under-sample guard (skip debias below `fe_confirm_undersample_rows_per_cell`) so tiny n degrades to
-   the fixed bar. **Rigorous multi-seed finding (the single-draw "win" was RNG noise):** the bilinear
-   FE selection is RNG-unstable (MRMR.fit consumes global np.random), so per-seed `auto` swings from
-   big win (seed 2: 0.209->0.050) to loss (seed 0: 0.051->0.112). Over 5 seeds the MEAN is
-   1.05=0.140+-0.073 vs auto=0.112+-0.056 -- a ~20% mean improvement AND lower variance, with no-harm
-   on additive/F2 + byte-identical default. So shipped as OPT-IN `"auto"` (NOT default), documented as
-   a modest+noisy mean win, not a uniform one. Test `test_adaptive_prevalence.py` (multi-seed
-   no-mean-harm on bilinear + no-harm on additive). KEY LESSON: FE-selection RNG instability dominates
-   single-draw threshold benches -> the remaining conversions need MULTI-SEED benching too.
+   the fixed bar. **Rigorous multi-seed finding (CORRECTED):** the per-seed `auto` swings -- big win
+   (seed 2: 0.209->0.050) to loss (seed 0: 0.051->0.112) -- are GENUINE DATA-DEPENDENCE, not RNG noise.
+   A reproducibility diagnostic proved MRMR FE selection is DETERMINISTIC (identical across repeat fits
+   for both `random_seed=0` and `None`, and robust to prior global-RNG consumption: `_screen_predictors`
+   already seeds the numpy+numba globals and uses a `pid^id` derivation for None). My initial "RNG
+   noise" read was a BENCHMARK BUG (inconsistent train/test splits across scripts -- one used the
+   data-RNG's advanced state, the other a fresh RNG), NOT FE nondeterminism. The swings therefore mean
+   the OPTIMAL bar genuinely differs per dataset -- precisely the case for a data-derived value. Over 5
+   seeds (each a distinct dataset, reproducible fit) the MEAN is 1.05=0.140+-0.073 vs auto=0.112+-0.056
+   -- a real ~20% data-averaged improvement + lower variance, no-harm on additive/F2, byte-identical
+   default. Shipped OPT-IN `"auto"`. Test `test_adaptive_prevalence.py`. KEY LESSON: the fit is
+   reproducible -- benches MUST hold the train/test split fixed across configs; multi-seed averages over
+   the genuine data-dependence, not over RNG noise. (The requested "root RNG-instability fix" was found
+   UNNECESSARY -- the system is already correctly seeded; no spurious change made.)
 2. `fe_synergy_min_prevalence` (HIGH) -- CV permutation null on the synergy ratio.
 3. `fe_escalation_pairness_margin` (HIGH, 5.7%) -- fold-adaptive null margin.
 4. `fe_stability_vote_k` (MED) -- DONE: `resolve_adaptive_vote_k` (`_fe_stability_vote.py`) accepts
