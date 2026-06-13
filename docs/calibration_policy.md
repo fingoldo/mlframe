@@ -16,7 +16,7 @@ result = pick_best_calibrator(
     oof_probs, oof_y,         # OOF probs/labels that drive the selection
     candidates=None,          # default: all of NoCal / Sigmoid / Isotonic
     n_bootstrap=...,          # bootstrap reps for the ECE CI
-    n_bins=15,                # ECE bin count (DEFAULT_ECE_NBINS)
+    n_bins=10,                # ECE bin count (DEFAULT_ECE_NBINS)
     random_state=0,
 )
 # -> {"chosen": <name>, "ece_mean": float, "ece_ci": (lo, hi),
