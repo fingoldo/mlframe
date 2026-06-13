@@ -5,6 +5,15 @@ Compares the four feature selectors alone and in hybrid combinations, scored by 
 biases: **LightGBM** (trees), **Logistic** (linear), **kNN** (distance). Also reports ground-truth
 recovery, parsimony, and selector wall-time.
 
+## HybridSelector innovations (round 5)
+- `round5_innovate_cooccur_clusterrep_bench.py` — benches two HybridSelector defaults on honest holdout (LightGBM
+  refit on the selected features), 6 scenarios x 3 seeds:
+  - `cooccur_weight` ("count" vs "gain"): the tree member ranks co-occurrence interaction PAIRS by summed split GAIN
+    (default "gain") instead of raw split frequency. gain won 5/9 interaction-bed cells, mean_delta +0.026 -> default.
+  - `cluster_rep` ("first" / "max_fi" / "sum_fi"): a collapsed correlation cluster keeps its highest summed-per-repeat
+    perm-FI member (default "sum_fi") instead of the arbitrary first column. sum_fi won 2/3 cluster scenarios -> default.
+  Both old values stay recoverable via the flags. Unit + biz_value: `tests/feature_selection/test_biz_val_hybrid_cooccur_clusterrep.py`.
+
 ## Files
 - `synth.py` — controlled generator. 8 causal latents (linear + a multiplicative interaction `inf_4*inf_5`
   + a quadratic `inf_6**2`), redundant correlated clusters around 3 of them, and pure noise. This shape

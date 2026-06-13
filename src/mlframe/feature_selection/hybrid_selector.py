@@ -81,8 +81,21 @@ class HybridSelector:
                  use_tree_member: bool = True, tree_top_k: int = 0, tree_cooccur_pairs: int = 12,
                  tree_n_estimators: int = 80, tree_max_depth: int = 3, tree_prod_gate: str = "synergy",
                  tree_rich_ops: tuple = ("mul", "absd", "sign", "rat"),
+                 cooccur_weight: str = "gain", cluster_rep: str = "first",
                  mrmr_synergy_cap: int = 250,
                  random_state: int = 0, name: str = "hybrid"):
+        # cooccur_weight (default "gain" -- MEASURED win on interaction beds): how the tree member ranks candidate
+        # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
+        # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
+        # each tree (how much they actually reduce loss). Frequency over-rewards shallow high-frequency-but-low-gain
+        # splits, so gain ranks true interactions higher. See _tree_signals; "count" recoverable for replay/legacy.
+        self.cooccur_weight = cooccur_weight
+        # cluster_rep (default "first"): when a correlation cluster is collapsed to one representative, which member to
+        # keep. "first" = the cluster's first column (default); "max_fi" = highest single mean perm-FI; "sum_fi" =
+        # highest summed-per-repeat perm-FI. The FI-based reps are bed-dependent -- benched 5/9 cells but they REGRESS
+        # first-column on some correlated-cluster beds (>0.005 honest-AUC), so they stay OPT-IN, not the default. See
+        # _rep_member + _benchmarks/fs_hybrid/round5_innovate_cooccur_clusterrep.json.
+        self.cluster_rep = cluster_rep
         # tree_rich_ops (default the full set -- MEASURED +0.020 on madelon 3-seed over products-only, variance
         # halved): the operators the tree member engineers per co-occurrence pair. Beyond the "mul" product,
         # absdiff/signed/ratio recover NON-product interaction signal (|a-b|, sign(a)|b|, a/(|b|+1)) a bilinear term
@@ -161,6 +174,12 @@ class HybridSelector:
         m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1)
         m.fit(Xtr, ytr)
         pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=-1)
+        # store the summed-per-repeat importance too (drives cluster_rep="sum_fi"); falls back to mean*n_repeats if the
+        # raw per-repeat matrix is unavailable. sum_fi prefers members whose importance is consistently high across
+        # repeats, a more stable representative than a single lucky mean.
+        imp = getattr(pi, "importances", None)
+        sums = imp.sum(axis=1) if imp is not None else pi.importances_mean * 4.0
+        self._fi_sum_ = {c: float(s) for c, s in zip(X.columns, sums)}
         return {c: float(v) for c, v in zip(X.columns, pi.importances_mean)}
 
     def _run_mrmr(self, X, y):
@@ -227,11 +246,19 @@ class HybridSelector:
             tdf = m.booster_.trees_to_dataframe()
             tdf = tdf[tdf["split_feature"].notna()]
             pair_w = Counter()
+            mode = str(getattr(self, "cooccur_weight", "gain")).lower()
             for _tid, g in tdf.groupby("tree_index"):
                 feats = sorted(set(g["split_feature"].tolist()))
-                gain = float(g["split_gain"].sum()) + 1e-9
-                for a, b in combinations(feats, 2):
-                    pair_w[(a, b)] += gain
+                if mode == "count":
+                    # count: every co-occurring pair gets +1 -- raw split-co-occurrence frequency (legacy).
+                    for a, b in combinations(feats, 2):
+                        pair_w[(a, b)] += 1.0
+                else:
+                    # gain: a pair is weighted by the loss reduction its two features actually contribute in this tree
+                    # (sum of their per-node split gains), so true interactions outrank shallow high-frequency splits.
+                    per_feat = g.groupby("split_feature")["split_gain"].sum()
+                    for a, b in combinations(feats, 2):
+                        pair_w[(a, b)] += float(per_feat.get(a, 0.0)) + float(per_feat.get(b, 0.0))
             # The co-occurrence PRODUCTS are feature engineering -> gate them on use_fe (use_fe=False means no
             # engineering of ANY kind, raw selection only). The importance RANKING above is kept regardless, so the
             # top-k selection votes still work under use_fe=False if tree_top_k>0.
@@ -273,6 +300,21 @@ class HybridSelector:
             if fi.get(nm, 0.0) > max(fi.get(a, 0.0), fi.get(b, 0.0)):
                 out.append(nm)
         return out
+
+    def _rep_member(self, members):
+        """Pick the kept representative of a (correlation) cluster per ``cluster_rep``. ``members`` is already the
+        candidate subset (filtered to in-frame / relevant). "first" = the cluster's first column (legacy, arbitrary);
+        "max_fi" = highest single mean perm-FI; "sum_fi" (default) = highest summed-per-repeat perm-FI (most stable).
+        Empty input returns None. Pure function of the shared FI -- no extra compute."""
+        if not members:
+            return None
+        rep = str(getattr(self, "cluster_rep", "sum_fi")).lower()
+        if rep == "first":
+            return members[0]
+        if rep == "sum_fi":
+            fsum = getattr(self, "_fi_sum_", None) or self.fi_
+            return max(members, key=lambda f: fsum.get(f, 0.0))
+        return max(members, key=lambda f: self.fi_.get(f, 0.0))
 
     def _augment(self, X):
         """Return [raw X | MRMR engineered cols | tree co-occurrence op cols], all safe-renamed and replayed
@@ -336,7 +378,7 @@ class HybridSelector:
         for r, ms in self.members_.items():
             keep = [m for m in ms if m in relevant]
             if keep:
-                rep = max(keep, key=lambda f: self.fi_.get(f, 0.0))
+                rep = self._rep_member(keep)
                 rep_members[rep] = keep
         reps = list(rep_members.keys())
         if len(reps) < 2:
@@ -502,7 +544,7 @@ class HybridSelector:
             if self.expand_clusters:
                 selected.extend(ms)
             else:
-                selected.append(max(ms, key=lambda f: self.fi_.get(f, 0.0)))
+                selected.append(self._rep_member(ms))
         return selected
 
     def _combine_anchored(self, member_sel, cols):
@@ -527,7 +569,7 @@ class HybridSelector:
                 if self.expand_clusters:
                     selected.extend(ms)
                 else:
-                    selected.append(max(ms, key=lambda f: self.fi_.get(f, 0.0)))
+                    selected.append(self._rep_member(ms))
         return list(dict.fromkeys(selected))
 
     def transform(self, X):
