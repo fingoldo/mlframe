@@ -440,6 +440,22 @@ def _captum_integrated_gradients_importance(
     return attrs.detach().abs().mean(axis=0).cpu().numpy().astype(np.float64)
 
 
+def _collapse_coef(coef: np.ndarray) -> np.ndarray:
+    """Collapse a (possibly 2-D) ``coef_`` to a per-feature importance vector.
+
+    Binary classifiers / single-target regressors have ``coef_`` shape ``(n,)``
+    or ``(1, n)`` -- return the single signed row as-is. Multiclass / multi-
+    target models have shape ``(n_classes, n)``; aggregate as ``mean(|coef|,
+    axis=0)`` so a feature important for ANY class ranks high. Pre-fix code took
+    ``coef[-1, :]`` (last class only), silently discarding every other class.
+    """
+    if coef.ndim == 1:
+        return coef
+    if coef.shape[0] == 1:
+        return coef[0, :]
+    return np.abs(coef).mean(axis=0)
+
+
 def get_model_feature_importances(
     model: Any,
     columns: Sequence[str],
@@ -496,8 +512,7 @@ def get_model_feature_importances(
     if hasattr(inner, "feature_importances_"):
         feature_importances = np.asarray(inner.feature_importances_)
     elif hasattr(inner, "coef_"):
-        coef = np.asarray(inner.coef_)
-        feature_importances = coef if coef.ndim == 1 else coef[-1, :]
+        feature_importances = _collapse_coef(np.asarray(inner.coef_))
     elif (
         # MultiOutputClassifier / MultiOutputRegressor wrap a base estimator
         # one-per-label; the wrapper exposes ``estimators_`` (the fitted list)
@@ -562,8 +577,7 @@ def get_model_feature_importances(
                 per_child.append(np.asarray(child.feature_importances_))
                 kinds.append("native_fi")
             elif hasattr(child, "coef_"):
-                coef = np.asarray(child.coef_)
-                per_child.append(coef if coef.ndim == 1 else coef[-1, :])
+                per_child.append(_collapse_coef(np.asarray(child.coef_)))
                 kinds.append("native_coef")
             else:
                 # Placeholder; filled in pass 2 if X+y are available.
