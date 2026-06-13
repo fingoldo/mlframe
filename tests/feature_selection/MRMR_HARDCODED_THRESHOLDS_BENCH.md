@@ -80,6 +80,24 @@ artefact (`sub(exp(a),invcbrt(c))`, uplift 1.441 > 1.30) is NOT gated by the upl
 uplift bar cannot improve the case that actually binds, while adding estimation variance (the bias-variance
 guard). KEEP the fixed 1.30; the conversion well for this constant is dry. Bench kept (REJECTED != DELETED).
 
+**Two-tier JOINT-RECOVERY floor (`_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO` 0.82 / `_STRICT` 0.84) -- KEEP;
+conversion NOT assessable by a naive gate-level harness (honest negative result).** `bench_joint_recovery_floor.py`.
+Rationale to even try: this IS the axis that binds the hard cross-signal artefact (uplift-ratio bench
+showed the uplift bar does not), and joint_ratio = eng_1D_MI / pair_2D_joint_MI is 1-D/2-D -- the SAME
+debias-able asymmetry that made `fe_min_pair_mi_prevalence` "auto" win. BUT the naive reconstruction
+(raw generating column as the engineered summary + raw plug-in MI) INVERTS the gate's validated ordering:
+it puts the artefact's joint-recovery (mean 0.787) ABOVE the genuine pairs (mean 0.668), i.e. a NEGATIVE
+genuine-vs-artefact separation (raw -0.454, MM-debiased -0.216) -- the opposite of the documented
+genuine 0.829/0.849 > artefact 0.814. The "debiasing widens by +0.238" delta is therefore meaningless (a
+less-negative inverted ranking). The infidelity is structural: the REAL gate searches the whole
+elementary-op LIBRARY for the BEST engineered summary (recovers more of the joint -> higher genuine eng MI)
+and uses `mi_direct` (permutation-debias / `min_nonzero_confidence`), not a raw single-column plug-in.
+LESSON (the bench self-guards on it now): a gate-level harness that cannot reproduce the validated
+genuine>artefact ordering cannot assess this conversion -- do NOT trust its verdict. The fixed two-tier
+floor is HW-calibrated on the REAL pipeline numbers (0.006-margin); KEEP it. A faithful assessment would
+require reproducing the op-library search + the mi_direct kernel -- out of scope for a quick harness, and
+the FLAT/calibrated status (bias-variance guard) makes the expected payoff low. Bench kept (REJECTED != DELETED).
+
 **Measurement method finding (2026-06-13).** These are MODULE-LEVEL constants, NOT constructor
 params, so they are absent from MRMR's fit-key. The ctor-param sweep is valid because the fit cache
 invalidates on ANY parameter change; a module constant changed via monkeypatch does NOT invalidate
