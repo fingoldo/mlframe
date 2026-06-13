@@ -96,24 +96,32 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def _max_abs_pct_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int]:
-    """Returns (max MAPE value, count of y_true==0 entries encountered).
+def _max_abs_pct_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int, int]:
+    """Returns (max MAPE value, count of y_true==0 entries, count of non-finite pairs).
 
     The zero-count is surfaced so the Python wrapper can emit a warning - silently
     swallowing y_true==0 hides the fact that the epsilon fallback dominates the ratio
     and the "percentage" becomes meaningless.
+
+    A non-finite y_true/y_pred makes that row's error unknown; ``np.nanmax`` would
+    silently drop it and report a misleadingly-finite max. We count such rows so the
+    wrapper can propagate NaN (matching smape/wmape/mdape/pinball which all return NaN
+    on non-finite input) instead of masking a corrupt row as a clean score.
     """
     epsilon = np.finfo(np.float64).eps
     n_zero = 0
+    n_nonfinite = 0
     for i in range(len(y_true)):
         if y_true[i] == 0.0:
             n_zero += 1
+        if not (np.isfinite(y_true[i]) and np.isfinite(y_pred[i])):
+            n_nonfinite += 1
     mape = np.abs(y_pred - y_true) / np.maximum(np.abs(y_true), epsilon)
-    return np.nanmax(mape), n_zero
+    return np.nanmax(mape), n_zero, n_nonfinite
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
-def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tuple[float, int]:
+def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tuple[float, int, int]:
     """Parallel variant. ~2.3x faster than seq at N=1M.
 
     NOTE: ``if err > max_err: max_err = err`` inside ``prange`` is a
@@ -130,9 +138,12 @@ def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: 
     epsilon = np.finfo(np.float64).eps
     per_thread_max = np.zeros(nthr, dtype=np.float64)
     n_zero = 0
+    n_nonfinite = 0
     for i in numba.prange(n):
         if y_true[i] == 0.0:
             n_zero += 1
+        if not (np.isfinite(y_true[i]) and np.isfinite(y_pred[i])):
+            n_nonfinite += 1
         denom = abs(y_true[i])
         if denom < epsilon:
             denom = epsilon
@@ -146,7 +157,7 @@ def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: 
     for t in range(nthr):
         if per_thread_max[t] > max_err:
             max_err = per_thread_max[t]
-    return max_err, n_zero
+    return max_err, n_zero, n_nonfinite
 
 
 # Module-level set: (n_zero, n_total) tuples for which the
@@ -162,9 +173,13 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
     # max via per-thread accumulator + final reduction; lose-band runs
     # to ~200k due to setup cost).
     if len(y_true) >= 500_000:
-        value, n_zero = _max_abs_pct_error_kernel_par(y_true, y_pred, numba.get_num_threads())
+        value, n_zero, n_nonfinite = _max_abs_pct_error_kernel_par(y_true, y_pred, numba.get_num_threads())
     else:
-        value, n_zero = _max_abs_pct_error_kernel(y_true, y_pred)
+        value, n_zero, n_nonfinite = _max_abs_pct_error_kernel(y_true, y_pred)
+    # A non-finite y_true/y_pred row makes the max error unknown; nanmax silently drops
+    # it and returns a finite value that looks like a clean score. Propagate NaN instead.
+    if n_nonfinite > 0:
+        return np.nan
     if n_zero > 0:
         # Rate-limit: emit the warning once per (n_zero, n_total) shape per
         # process. The metric is computed on train/val/test/OOF splits and

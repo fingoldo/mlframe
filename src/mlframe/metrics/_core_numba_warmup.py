@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os as _os
 
+import numba
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -294,7 +295,7 @@ def _prewarm_numba_cache_body():
         _ = _cb_logits_to_probs_binary_par(_logits_b)
         _logits_mc = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
         _ = _cb_logits_to_probs_multiclass_par(_logits_mc)
-        _ = _max_abs_pct_error_kernel_par(_yt_f64, _yp_f64)
+        _ = _max_abs_pct_error_kernel_par(_yt_f64, _yp_f64, numba.get_num_threads())
         _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
         _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
 
