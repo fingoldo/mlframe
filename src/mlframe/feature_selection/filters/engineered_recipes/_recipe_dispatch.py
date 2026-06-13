@@ -264,4 +264,9 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         if recipe.kind == "grouped_quantile":
             return _apply_grouped_quantile_recipe(recipe, X)
         return _apply_target_aware_group_bin_recipe(recipe, X)
+    if recipe.kind == "binned_numeric_agg":
+        # Grouped aggregation over quantile-binned numeric cells (2026-06-13): replay bins the raw group
+        # column through the stored quantile edges and gathers the per-cell statistic; reads only X.
+        from .._binned_numeric_agg_fe import apply_binned_numeric_agg
+        return apply_binned_numeric_agg(X, dict(recipe.extra))
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")

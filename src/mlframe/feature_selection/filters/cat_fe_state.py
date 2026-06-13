@@ -58,7 +58,16 @@ class CatFEConfig:
     interaction information (synergy minus redundancy), not pure synergy."""
 
     include_numeric: bool = False
-    """Mix discretized numeric columns into the cat pool. Default ``False`` because noisy floats produce spurious aliasing interactions; opt-in only when domain knowledge supports it."""
+    """Mix numeric columns into the cat pool. Default ``False`` because noisy floats produce spurious aliasing interactions; opt-in only when domain knowledge supports it.
+    When ``True``, eligible NaN-free numeric columns are quantile-binned (``numeric_nbins`` bins, edges fitted on train and STORED in the recipe for leak-safe transform
+    replay) and become cat-FE candidates -- their pair/k-way crosses capture axis-aligned AND non-product (e.g. diagonal / rotated) interactions that the numeric unary/binary
+    FE cannot express (measured: +0.42 OOS AUC on a rotated quadrant target where ``mul(a,b)`` gives +0.00; +0.013 on an axis-aligned one, LogisticRegression downstream).
+    NaN-bearing numeric columns are skipped in v1 (the quantile-edge replay path does not yet encode a NaN bin); pre-impute or one-hot the missingness to include them."""
+
+    numeric_nbins: int = 10
+    """Quantile bins for numeric columns when ``include_numeric=True``. The edges are fitted on the fit-time data and stored per source column in the engineered recipe so
+    ``transform`` reproduces identical bin codes (no train/serve skew). 10 mirrors the MRMR default ``quantization_nbins``; raise for finer interaction grids at the cost of
+    sparser cells (cardinality is still capped by ``max_combined_nbins`` and the ``sqrt(n)*2`` per-column ceiling)."""
 
     shortlist_npermutations: int = 0
     """Permutations for the search-phase point estimate. ``0`` skips permutation entirely during search; surviving pairs get a separate confirmation pass with ``full_npermutations``."""
