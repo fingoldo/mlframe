@@ -182,9 +182,16 @@ def test_bizvalue_selection_identical_canonical():
     assert not lost, f"rung schedule dropped genuine selected feature(s): {sorted(lost)}"
 
 
+@pytest.mark.slow
 def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     """On a WIDE noisy pool (many gate-passing pairs), the rung schedule is FASTER
-    (wall-time) than the flat sweep while keeping the same engineered selection."""
+    (wall-time) than the flat sweep while keeping the same engineered selection.
+
+    Marked slow: this is a wall-time speedup bench (two full wide-pool MRMR fits, ~4-5 min), the exact
+    "heavy bench" category the slow marker gates out of fast iteration. A timing assertion needs the pool
+    at scale to be meaningful, so it cannot be shrunk into the fast suite without going flaky; the rung
+    -schedule CODE PATH stays covered in fast mode by test_bizvalue_selection_identical_canonical (the
+    selection-identity gate, no timing)."""
     df, y = _make_canonical(n=5000, p_noise=35, seed=42)
     base = dict(verbose=0, random_seed=42, n_jobs=1, **_RELAXED)
 
