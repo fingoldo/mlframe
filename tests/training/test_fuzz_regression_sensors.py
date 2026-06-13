@@ -884,9 +884,15 @@ def test_sensor_fuzz_mrmr_fillna_zero_x_all_null_col_does_not_corrupt_mi():
         assert np.all(np.isfinite(rel_arr)), (
             f"fillna_zero x all-null column produced non-finite MRMR relevance: {rel}"
         )
-    support = np.asarray(getattr(sel, "support_", []), dtype=bool)
-    assert support.size == 0 or support.any(), (
+    # MRMR.support_ is an array of POSITIONAL INDICES into feature_names_in_ (not a sklearn boolean mask), so test it
+    # by index membership -- a bool-cast would read index 0 as False and wrongly fail when x_informative (index 0) is picked.
+    support = np.asarray(getattr(sel, "support_", []), dtype=np.int64).ravel()
+    assert support.size >= 1, (
         "MRMR with all-null injected column must still select at least one feature when an informative column exists"
+    )
+    informative_idx = list(sel.feature_names_in_).index("x_informative")
+    assert informative_idx in support.tolist(), (
+        f"fillna_zero x all-null column corrupted MI: informative feature was dropped; support indices={support.tolist()}"
     )
 
 
