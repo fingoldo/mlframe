@@ -382,24 +382,24 @@ class TestPickleCloneRoundTrip:
 class TestDefaultDisabledByteIdentical:
     def test_no_te_attrs_populated_when_disabled(self):
         X, y = _build_cat_signal(seed=1)
-        m = _make_mrmr(fe_ntop_features=3)
+        # ``fe_kfold_te_enable`` defaults to True (the accuracy lever is ON by default since commit 94147e02); pin it OFF here to exercise the disabled-master contract.
+        m = _make_mrmr(fe_ntop_features=3, fe_kfold_te_enable=False)
         m.fit(X, y)
-        # Default OFF -> kfold_te_features_ stays empty.
+        # Master OFF -> kfold_te_features_ stays empty.
         assert getattr(m, "kfold_te_features_", []) == []
 
     def test_transform_unchanged_when_disabled(self):
-        """With ``fe_kfold_te_enable=False`` (default), transform output
-        is bit-identical to a fresh instance with the same params -- the
-        TE knobs are no-ops when the master switch is off."""
+        """With ``fe_kfold_te_enable=False`` (pinned OFF here; the constructor default is now True), transform output is bit-identical to a fresh instance with
+        the same params -- the TE knobs are no-ops when the master switch is off."""
         X, y = _build_cat_signal(seed=7)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=7)
-        m1 = _make_mrmr(fe_ntop_features=3)
+        m1 = _make_mrmr(fe_ntop_features=3, fe_kfold_te_enable=False)
         m1.fit(X_tr, y_tr)
         out1 = m1.transform(X_ho)
-        # Same defaults except the TE knobs are explicitly set -- still
-        # equivalent because the master is False.
+        # Same params except the TE knobs are explicitly set -- still equivalent because the master is False.
         m2 = _make_mrmr(
             fe_ntop_features=3,
+            fe_kfold_te_enable=False,
             fe_kfold_te_cols=("cat_region",),
             fe_kfold_te_folds=5,
             fe_kfold_te_smoothing=10.0,
@@ -414,3 +414,26 @@ class TestDefaultDisabledByteIdentical:
                 np.testing.assert_allclose(
                     out1[c].to_numpy(), out2[c].to_numpy(), atol=1e-12,
                 )
+
+
+class TestNeverEmptyRescueSupportIndexSpace:
+    """When the only confirmed feature is an engineered TE column, the never-empty raw-representative re-attach picks a raw OPERAND and writes its index into
+    ``support_``. That index MUST be in ``feature_names_in_`` space (raw user columns), not the cols-space of the categorize_dataset-reordered augmented matrix.
+    The reordering pushes a categorical operand to a cols-space index >= n_features_in_, and assigning it raw made ``transform`` crash with IndexError on the
+    ``feature_names_in_[i]`` lookup. Pins the remap so support_ always indexes feature_names_in_ and transform replays without error."""
+
+    def test_support_indices_within_feature_names_in_and_transform_runs(self):
+        X, y = _build_cat_signal(seed=1, n=2000)
+        m = _make_mrmr(fe_ntop_features=3)  # TE ON by default -> cat_region__te becomes the only confirmed feature, support_ rescues the cat_region operand.
+        m.fit(X, y)
+        n_in = len(m.feature_names_in_)
+        support = np.asarray(m.support_)
+        if support.dtype != bool:
+            assert support.size == 0 or int(support.max()) < n_in, (
+                f"support_ {support.tolist()} has an index >= n_features_in_={n_in}; "
+                f"a cols-space index leaked into support_ (never-empty rescue remap regression)."
+            )
+        # The exact pre-fix crash: transform raises IndexError on feature_names_in_[i].
+        out = m.transform(X)
+        assert len(out) == len(X)
+        assert "cat_region__te" in out.columns

@@ -7664,13 +7664,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _rel_ne > _best_rel_ne:
                         _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
                 if _best_idx_ne >= 0:
-                    selected_vars = [_best_idx_ne]
+                    # ``_best_idx_ne`` is a COLS-space index (the augmented, categorize_dataset-reordered matrix that carries the injected target +
+                    # engineered columns). ``support_`` must index ``feature_names_in_`` (raw user columns only), so remap the chosen operand by NAME --
+                    # the same translation the main selection does at the ``selected_vars_names`` split. Assigning the raw cols-space index directly let an
+                    # out-of-range index (>= n_features_in_) reach ``support_`` and crashed ``transform`` with IndexError when feature_names_in_ was narrower.
+                    _operand_name_ne = cols[_best_idx_ne]
+                    selected_vars = [self.feature_names_in_.index(_operand_name_ne)]
                     if verbose:
                         logger.info(
                             "MRMR never-empty raw representative: support_ would be empty (only engineered "
                             "feature(s) selected); re-attached raw operand %r (marginal MI %.4f) as the raw "
                             "stand-in (carries residual signal beyond the engineered child).",
-                            cols[_best_idx_ne], _best_rel_ne,
+                            _operand_name_ne, _best_rel_ne,
                         )
             elif _operand_idxs and _subsumed_operand_names:
                 # EVERY engineered operand is conditionally subsumed by a surviving
