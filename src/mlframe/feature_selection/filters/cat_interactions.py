@@ -23,6 +23,7 @@ References
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 from typing import Any, Optional
@@ -57,6 +58,18 @@ def _column_signature(values: np.ndarray, nbins: int) -> np.ndarray:
     return counts / n
 
 
+def _target_signature(target_codes: np.ndarray) -> str:
+    """Content signature of the (discretized) target column(s) used to gate marginal-MI cache reuse.
+
+    The cached marginal MI is ``MI(X; Y)`` -- it depends on the JOINT (X, Y), not on X's distribution alone.
+    ``_column_signature`` captures only X's bincount, so two fits with an identical X distribution but a
+    different / relabelled / re-aligned Y would otherwise collide and reuse a STALE MI. Hashing the exact
+    target codes invalidates the whole cache whenever Y changes, which is the only sound reuse predicate.
+    """
+    arr = np.ascontiguousarray(np.asarray(target_codes, dtype=np.int64))
+    return hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()
+
+
 def _kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-9) -> float:
     """KL(p || q) with epsilon smoothing for zero cells."""
     p_safe = p + eps
@@ -72,21 +85,27 @@ def _restore_cached_marginal_mis(
     nbins: np.ndarray,
     cache: dict,
     kl_threshold: float,
+    target_sig: str | None = None,
 ) -> tuple:
     """Decide per candidate column whether the cached marginal MI is reusable; returns ``(reusable_mask, marginal_mi_reused, new_signatures)``.
 
     The mask is True for columns whose signature KL-divergence vs the cached version is below ``kl_threshold`` -- those rows reuse the cached MI and skip the screen pass.
+
+    Reuse additionally REQUIRES the cached target signature to match ``target_sig``: the cached value is ``MI(X; Y)``, so a changed Y must invalidate every column even when X's distribution is unchanged (otherwise a stale MI is reused and columns are mis-pruned).
     """
     reusable_mask = np.zeros(len(candidate_idxs), dtype=bool)
     marginal_mi_reused = np.full(len(candidate_idxs), np.nan, dtype=np.float64)
     new_signatures: dict = {}
     cached_sigs = cache.get("col_signatures", {})
     cached_mis = cache.get("marginal_mis", {})
+    # Whole-cache target gate: if the cached fit saw a different Y, nothing is reusable.
+    cached_target_sig = cache.get("target_sig")
+    target_matches = (target_sig is not None) and (cached_target_sig == target_sig)
     for k, col_idx in enumerate(candidate_idxs):
         col_int = int(col_idx)
         sig = _column_signature(factors_data[:, col_int], int(nbins[col_int]))
         new_signatures[col_int] = sig
-        if col_int in cached_sigs and col_int in cached_mis:
+        if target_matches and col_int in cached_sigs and col_int in cached_mis:
             kl = _kl_divergence(sig, cached_sigs[col_int])
             if kl < kl_threshold:
                 reusable_mask[k] = True
