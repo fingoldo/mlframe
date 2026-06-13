@@ -31,6 +31,9 @@ scale without changing the loss, or vice-versa) -- not folded onto one flag.
 """
 from __future__ import annotations
 
+import os
+
+import numba
 import numpy as np
 
 # Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the
@@ -58,15 +61,95 @@ def _robust_axis_enabled() -> bool:
     return flag not in ("0", "false", "off", "no")
 
 
+@numba.njit(cache=True)
+def _detect_heavy_tail_core_njit(xf: np.ndarray, outer_k: float, gap: float, max_frac: float) -> int:
+    """Compiled core of ``_detect_heavy_tail`` for the common MAD>0 case. Returns 1 (trip) / 0 (no trip) / -1 (MAD
+    collapsed -> caller must run the exact ``np.quantile`` IQR fallback). ``xf`` is the pre-filtered finite subset
+    (size>=8 guaranteed by the caller). Numerics mirror the numpy body verbatim: ``np.median`` for the centre and the
+    MAD, the same ``1.4826*MAD`` robust scale, the same threshold / count / masked-max / masked-min reductions -- so the
+    boolean verdict is bit-identical to the numpy path on every column whose MAD does not collapse to zero."""
+    med = np.median(xf)
+    mad = np.median(np.abs(xf - med))
+    scale = 1.4826 * mad
+    if scale <= 1e-12:
+        return -1  # MAD collapsed; exact IQR fallback handled in Python (np.quantile not njit-supported)
+    thr = outer_k * scale
+    n_outer = 0
+    bulk_edge = -1.0
+    outer_min = np.inf
+    n = xf.size
+    for i in range(n):
+        dev = abs(xf[i] - med)
+        if dev > thr:
+            n_outer += 1
+            if dev < outer_min:
+                outer_min = dev
+        elif dev > bulk_edge:
+            bulk_edge = dev
+    if n_outer == 0 or n_outer > max_frac * n:
+        return 0
+    be = bulk_edge if bulk_edge > 1e-12 else 1e-12
+    return 1 if (outer_min / be) >= gap else 0
+
+
+def _detect_heavy_tail_njit(x: np.ndarray) -> bool:
+    """njit-accelerated ``_detect_heavy_tail``: identical verdict, fewer per-call passes / temporaries. Falls back to the
+    exact numpy IQR path only when the MAD collapses (discrete/tied core), which ``np.quantile`` (not njit-supported) must
+    handle to stay bit-identical."""
+    xf = x[np.isfinite(x)]
+    if xf.size < 8:
+        return False
+    if xf.dtype != np.float64:
+        xf = xf.astype(np.float64)
+    verdict = _detect_heavy_tail_core_njit(xf, _ROBUST_AXIS_OUTER_K, _ROBUST_AXIS_GAP, _ROBUST_AXIS_MAX_FRAC)
+    if verdict >= 0:
+        return verdict == 1
+    # MAD collapsed: exact IQR-fallback scale, then the same gap test as the numpy body.
+    med = float(np.median(xf))
+    robust_scale = _robust_scale(xf, med)
+    if robust_scale <= 1e-12:
+        return False
+    dev = np.abs(xf - med)
+    thr = _ROBUST_AXIS_OUTER_K * robust_scale
+    outer_mask = dev > thr
+    n_outer = int(np.count_nonzero(outer_mask))
+    if n_outer == 0 or n_outer > _ROBUST_AXIS_MAX_FRAC * xf.size:
+        return False
+    bulk_edge = float(dev[~outer_mask].max())
+    outer_min = float(dev[outer_mask].min())
+    return (outer_min / max(bulk_edge, 1e-12)) >= _ROBUST_AXIS_GAP
+
+
+# Finite-subset size below which the fused njit core (one loop, no boolean-mask / abs-array temporaries) beats the numpy
+# body; above it numpy's introselect ``np.median`` outpaces numba's sort-based median. Crossover ~3000 measured on the dev
+# box (bench_detect_heavy_tail_njit.py: 1.31x@2407 / 1.20x@1000 win; 0.86-0.90x loss at n>=4000). Env-overridable per HW.
+_DETECT_HEAVY_TAIL_NJIT_MAX_N = int(os.environ.get("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", "3000"))
+
+
 def _detect_heavy_tail(x: np.ndarray) -> bool:
-    """Cheap per-column SPIKE-contamination gate. True iff a thin fraction of points sit beyond ``_ROBUST_AXIS_OUTER_K``
-    robust scales AND are separated from the bulk by a multiplicative GAP of at least ``_ROBUST_AXIS_GAP``.
+    """Cheap per-column SPIKE-contamination gate (size-gated dispatcher). True iff a thin fraction of points sit beyond
+    ``_ROBUST_AXIS_OUTER_K`` robust scales AND are separated from the bulk by a multiplicative GAP of >= ``_ROBUST_AXIS_GAP``.
 
     The gap test is what distinguishes injected spike contamination (a dense bulk + a handful of order-of-magnitude
     outliers with empty space between them) from a genuinely heavy-tailed-but-clean column (lognormal / Student-t /
     exponential), whose tail is CONTINUOUS with the bulk (gap ~ 1.0-1.3, measured). Only spike contamination corrupts the
     raw scale; a smooth heavy tail is the legitimate home of the skewed bases and must stay on the byte-identical legacy
-    path. Degenerate columns (<8 finite values, near-constant, all-non-finite) never trip -- there is no scale to corrupt."""
+    path. Degenerate columns (<8 finite values, near-constant, all-non-finite) never trip -- there is no scale to corrupt.
+
+    Below ``_DETECT_HEAVY_TAIL_NJIT_MAX_N`` finite values the fused njit core (``_detect_heavy_tail_njit``) is the faster
+    BIT-IDENTICAL path (the per-column FE search calls this thousands of times on small columns); above it the numpy body
+    wins on its introselect median, so we route there."""
+    finite = np.isfinite(x)
+    n_finite = int(np.count_nonzero(finite))
+    if n_finite < 8:
+        return False
+    if n_finite < _DETECT_HEAVY_TAIL_NJIT_MAX_N:
+        return _detect_heavy_tail_njit(x)
+    return _detect_heavy_tail_numpy(x)
+
+
+def _detect_heavy_tail_numpy(x: np.ndarray) -> bool:
+    """Reference numpy body of ``_detect_heavy_tail`` (the large-n path of the dispatcher; also the bit-identity oracle)."""
     xf = x[np.isfinite(x)]
     if xf.size < 8:
         return False

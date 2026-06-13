@@ -210,3 +210,51 @@ def test_env_override_forces_legacy(monkeypatch):
 def test_env_default_on(monkeypatch):
     monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     assert _robust_axis_enabled() is True
+
+
+def test_detect_heavy_tail_njit_bit_identical_to_numpy():
+    """The size-gated njit core (``_detect_heavy_tail_njit``) must return the EXACT same boolean verdict as the numpy
+    reference body (``_detect_heavy_tail_numpy``) on every column class -- clean gaussian, continuous heavy tail, spike
+    contamination, NaN-laden, discrete/tied (the MAD-collapse IQR-fallback branch), and near-constant. A divergence here
+    would silently change which columns take the robust preprocess path, i.e. change engineered byte values."""
+    from mlframe.feature_selection.filters.hermite_fe._hermite_robust import (
+        _detect_heavy_tail_njit,
+        _detect_heavy_tail_numpy,
+    )
+
+    rng = np.random.default_rng(1)
+    for n in (8, 9, 50, 500, 2407, 3000, 4000, 10000):
+        for trial in range(40):
+            kind = trial % 6
+            if kind == 0:
+                x = rng.standard_normal(n)
+            elif kind == 1:
+                x = rng.lognormal(0.0, 1.0, n)
+            elif kind == 2:
+                x = rng.standard_normal(n)
+                x[rng.choice(n, max(1, n // 200), replace=False)] += 50.0
+            elif kind == 3:
+                x = rng.standard_normal(n)
+                x[rng.choice(n, n // 10, replace=False)] = np.nan
+            elif kind == 4:
+                x = np.round(rng.standard_normal(n))  # discrete/tied core -> MAD collapses -> IQR fallback branch
+            else:
+                x = np.full(n, 2.0)
+                x[rng.choice(n, 3, replace=False)] += 100.0
+            x = x.astype(np.float64)
+            assert _detect_heavy_tail_njit(x) == _detect_heavy_tail_numpy(x), f"njit/numpy verdict diverged n={n} kind={kind}"
+
+
+def test_detect_heavy_tail_dispatch_routes_by_size(monkeypatch):
+    """Below ``MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N`` finite values the dispatcher routes to the njit core; at/above it
+    routes to the numpy body. Both agree with each other, so the public verdict is identical regardless of the threshold."""
+    import mlframe.feature_selection.filters.hermite_fe._hermite_robust as R
+
+    rng = np.random.default_rng(7)
+    x_small = rng.standard_normal(500)
+    x_small[rng.choice(500, 5, replace=False)] += 50.0
+    x_big = rng.standard_normal(5000)
+    x_big[rng.choice(5000, 25, replace=False)] += 50.0
+    for x in (x_small, x_big):
+        x = x.astype(np.float64)
+        assert _detect_heavy_tail(x) == R._detect_heavy_tail_numpy(x) == R._detect_heavy_tail_njit(x)
