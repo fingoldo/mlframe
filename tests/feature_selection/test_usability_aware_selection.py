@@ -19,6 +19,26 @@ import pytest
 from tests.feature_selection.conftest import is_fast_mode
 
 
+def test_usability_greedy_tiny_n_does_not_crash_on_empty_folds():
+    """Regression (audit #1, 2026-06-13): the CV greedy used a random multinomial fold assignment
+    that could leave a fold EMPTY at small n / large n_folds -> empty train fold crashed fit, empty
+    test fold yielded NaN MAE. The balanced-partition fix must let tiny n run cleanly. Also covers
+    n < n_folds and n < 2."""
+    from mlframe.feature_selection.filters._usability_aware_selection import select_usability_aware_features
+    rng = np.random.default_rng(0)
+    for n in (3, 8, 15):
+        df = pd.DataFrame({k: rng.random(n) for k in ("a", "b", "c", "d", "e")})
+        y = (df["a"].to_numpy() ** 2 / np.clip(df["b"].to_numpy(), 1e-3, None))
+        # n_folds (8) deliberately >= n for the n=3/8 cases -> would crash/NaN pre-fix.
+        sel = select_usability_aware_features(df, y, list(df.columns), w=0.7, K=3, seed=0,
+                                              pool_kwargs=dict(max_pairs=4, max_per_pair=4),
+                                              greedy_kwargs=dict(n_folds=8, shortlist=10))
+        assert isinstance(sel, list)  # returns cleanly (possibly empty), never raises / NaN-poisons
+    # n < 2 short-circuits to []
+    df1 = pd.DataFrame({k: rng.random(1) for k in ("a", "b", "c")})
+    assert select_usability_aware_features(df1, np.array([1.0]), list(df1.columns)) == []
+
+
 def _case2(n: int, seed: int = 0):
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))

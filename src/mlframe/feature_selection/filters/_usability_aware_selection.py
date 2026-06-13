@@ -196,8 +196,16 @@ def usability_greedy(
         return []
     y_cont = _scrub(y_cont)
     n = y_cont.shape[0]
+    if n < 2:
+        return []  # cannot cross-validate a usability greedy on < 2 rows
     rng = np.random.default_rng(int(seed))
-    folds = rng.integers(0, n_folds, size=n)
+    # BALANCED PARTITION (audit fix, 2026-06-13): a random ``rng.integers(0, n_folds)`` multinomial
+    # assignment can leave a fold EMPTY at small n / large n_folds -> an empty TRAIN fold crashes
+    # ``fit`` and an empty TEST fold yields a NaN MAE that poisons the per-fold consistency gate. A
+    # shuffled ``arange(n) % k`` partition guarantees every fold has floor/ceil(n/k) >= 1 rows.
+    n_folds = max(2, min(int(n_folds), n))
+    folds = np.arange(n) % n_folds
+    rng.shuffle(folds)
     mi_max = max((c.mi for c in pool), default=1.0) or 1.0
 
     # PERF TODO (2026-06-13): this refits a full StandardScaler+LinearRegression for EVERY
@@ -223,18 +231,26 @@ def usability_greedy(
 
     # cheap residual-aware pre-rank to a bounded shortlist (so per-step CV stays cheap).
     def _shortlist(sel_idx) -> list[int]:
+        # HELD-OUT residual (audit fix, 2026-06-13): fit on the fold-0-out train rows but score the
+        # candidate correlation on the HELD-OUT fold-0 residual only -- the prior code predicted over
+        # ALL rows (in-sample for the ~(k-1)/k training rows), which is the leakage the module's
+        # "held-out residual" design explicitly avoids. The no-selection case uses the mean residual
+        # over all rows (no model fit -> no leakage).
         if sel_idx:
             Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
-            tr = folds != 0
+            ho = folds == 0
+            tr = ~ho
             m = make_pipeline(StandardScaler(), LinearRegression()).fit(Xs[tr], y_cont[tr])
-            resid = y_cont - m.predict(Xs)
+            resid = y_cont[ho] - m.predict(Xs[ho])
+            rows = ho
         else:
             resid = y_cont - float(np.mean(y_cont))
+            rows = slice(None)
         scored = []
         for i in range(len(pool)):
             if i in sel_idx:
                 continue
-            use = _abscorr(pool[i].values, resid)
+            use = _abscorr(pool[i].values[rows], resid)
             scored.append((i, (1.0 - w) * (pool[i].mi / mi_max) + w * use))
         scored.sort(key=lambda t: t[1], reverse=True)
         return [i for i, _ in scored[: max(1, shortlist)]]
