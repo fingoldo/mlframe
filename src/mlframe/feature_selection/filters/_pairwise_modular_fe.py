@@ -1,0 +1,269 @@
+"""Pairwise / n-way MODULAR relationship detection FE (PROTOTYPE -- not wired into prod defaults).
+
+Extends the single-column ``_periodic_fe`` (``x mod period`` on a fixed calendar ladder) to the
+genuinely-uncovered case: a target that is a function of an INTEGER MODULUS of a COMBINATION of
+columns -- ``y = (a + b) mod m``, ``y = (a * b) mod m``, n-way parity ``y = (sum_i x_i) mod 2`` --
+or a single column with a HIDDEN integer period not in the calendar ladder. Smooth bases (poly /
+Fourier) need unboundedly many harmonics to fit a sawtooth residue, so they never clear the MI
+floor; the exact residue ``c mod m`` recovers the signal in one column.
+
+Design: CHEAP-FIRST / ESCALATE.
+
+* CHEAP stage (``cheap_modular_scan``): for a small set of integer COMBINERS of the candidate
+  columns (``a``, ``a+b``, ``a-b``, ``a*b``) and a COARSE modulus grid, compute binned MI of
+  ``combiner mod k`` vs ``y``. A real modulus spikes MI at the true ``m`` (and its multiples);
+  smooth / noise combiners stay flat. Cost is O(n * #combiners * #moduli), all integer arithmetic
+  plus the existing binned-MI kernel.
+
+* GATE (``_responded``): the best ``combiner mod k`` MI must beat BOTH a smooth-basis baseline MI
+  (the raw combiner's own MI, which is what a poly/Fourier leg can at best recover) by a measured
+  margin AND a permutation-null upper band (so noise never escalates).
+
+* ESCALATE stage (``escalate_modulus``): only when the cheap stage responded, refine the modulus on
+  a FINE integer grid around the coarse winner and emit the materialised ``combiner mod m`` column
+  for the selector to pick. Pure arithmetic on X, no y at replay time -> leak-free.
+
+Only integer-typed (or exactly-integer-valued float) columns are eligible -- modular structure is an
+integer-lattice property; quantising a continuous column would manufacture spurious periodicity.
+
+Cost (cProfile, n=2000, full coarse grid): ~0.3s/call, ~100% in the shipped binned-MI kernel
+(``_mi_classif_batch``); the new orchestration is <2% of wall. The residue-MI calls over the modulus
+grid could batch into a single kernel call (all residues stacked column-wise) to cut the per-call
+dispatch -- a wiring concern for the public path, not the prototype.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from itertools import combinations
+from typing import Optional, Sequence
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "ModularHit",
+    "COARSE_MODULI",
+    "cheap_modular_scan",
+    "escalate_modulus",
+    "detect_pairwise_modular",
+]
+
+# Coarse modulus ladder for the cheap stage: small primes (so a hidden PRIME period spikes -- a
+# prime m has no proper divisor in a composite-only grid, so it must be listed) + common composite /
+# byte cycles. A composite true modulus that is a MULTIPLE of a grid entry still spikes (its divisors
+# carry the signal); the escalate stage pins the exact m on a fine grid afterwards.
+COARSE_MODULI: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 19, 23, 24, 32)
+
+# Combiner op codes: how a pair (a, b) is folded into one integer column before taking the residue.
+# "self" uses column a alone (single-column hidden period); the rest are the pair combiners.
+_PAIR_OPS = ("sum", "diff", "prod")
+
+
+def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
+    """Binned MI of one column vs y, via the shipped classif-MI batch kernel."""
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
+    return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])
+
+
+def _is_integer_col(x: np.ndarray) -> bool:
+    """True iff x is integer-typed OR exactly-integer-valued float (no fractional part), finite."""
+    a = np.asarray(x)
+    if np.issubdtype(a.dtype, np.integer):
+        return True
+    if not np.issubdtype(a.dtype, np.floating):
+        return False
+    finite = a[np.isfinite(a)]
+    return finite.size > 0 and np.all(finite == np.floor(finite))
+
+
+def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
+    """Fold one to three integer columns into a single combiner column."""
+    ai = np.asarray(arrs[0], dtype=np.int64)
+    if op == "self":
+        return ai
+    bi = np.asarray(arrs[1], dtype=np.int64)
+    if op == "sum":
+        return ai + bi
+    if op == "diff":
+        return ai - bi
+    if op == "prod":
+        return ai * bi
+    if op == "sum3":
+        return ai + bi + np.asarray(arrs[2], dtype=np.int64)
+    raise ValueError(f"unknown combiner op {op!r}")
+
+
+def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
+    """MI of ``c mod k`` vs y. For k <= nbins the residue is used as its own bin index (no rebin)."""
+    r = np.mod(c, k).astype(np.float64)
+    return _mi(r, y, nbins=max(nbins, k))
+
+
+@dataclass(frozen=True)
+class ModularHit:
+    """One cheap-scan candidate: a combiner over given columns, its best coarse modulus + MI."""
+
+    op: str
+    cols: tuple[str, ...]
+    modulus: int
+    residue_mi: float
+    baseline_mi: float  # raw-combiner MI = the best a smooth basis could recover
+    null_hi: float      # permutation-null upper band on residue MI
+
+    @property
+    def margin_over_baseline(self) -> float:
+        return self.residue_mi - self.baseline_mi
+
+    @property
+    def responded(self) -> bool:
+        return _responded(self.residue_mi, self.baseline_mi, self.null_hi)
+
+
+def _responded(residue_mi: float, baseline_mi: float, null_hi: float,
+               min_margin: float = 0.02) -> bool:
+    """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the
+    permutation-null upper band. ``min_margin`` is the measured separation floor between a true
+    modular hit and the best non-modular combiner (see ``_benchmarks/bench_modular_period_detection``)."""
+    return (residue_mi - baseline_mi) >= min_margin and residue_mi > null_hi
+
+
+def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int,
+                  n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
+    """Upper band (mean + z*std) of ``c mod k`` MI under y permutation -- the noise reference the
+    residue MI must clear. Cheap: n_perm small, the residue is computed once and only y is shuffled."""
+    r = np.mod(c, k).astype(np.float64)
+    rng = np.random.default_rng(seed)
+    yi = np.asarray(y).astype(np.int64)
+    vals = np.empty(n_perm, dtype=np.float64)
+    for i in range(n_perm):
+        vals[i] = _mi(r, yi[rng.permutation(yi.size)], nbins=max(nbins, k))
+    return float(vals.mean() + z * vals.std())
+
+
+def cheap_modular_scan(
+    X,
+    y: np.ndarray,
+    cols: Optional[Sequence[str]] = None,
+    *,
+    moduli: Sequence[int] = COARSE_MODULI,
+    max_pairs: int = 24,
+    max_triples: int = 12,
+    nbins: int = 12,
+    seed: int = 0,
+) -> list[ModularHit]:
+    """Cheap first-pass scan for modular structure over integer columns of X.
+
+    For each integer column (``self`` op), each integer pair (``sum`` / ``diff`` / ``prod``) and a
+    budgeted set of integer TRIPLES (``sum3`` -- the n-way parity combiner ``(a+b+c) mod m``, which no
+    pair can reach), take the residue at every coarse modulus, score MI vs y, and keep the best-modulus
+    hit per combiner. The triple sweep is what makes 3-way parity ``y = (x0+x1+x2) mod 2`` detectable;
+    pairwise parity of a 3-way target is independent of y, so the pair combiners stay at the null floor.
+    Returns hits sorted by ``margin_over_baseline`` descending. A hit's ``.responded`` flag applies the
+    measured gate. The permutation null is computed ONLY for the per-combiner best modulus (keeps the
+    null cost off the inner grid loop)."""
+    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
+
+    if cols is None:
+        cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+    else:
+        cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
+    yi = np.asarray(y).astype(np.int64)
+    arrs = {c: np.asarray(X[c]) for c in cols}
+    mods = [int(k) for k in moduli if int(k) >= 2]
+
+    hits: list[ModularHit] = []
+
+    def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray):
+        base = _mi(c_arr.astype(np.float64), yi, nbins=nbins)
+        best_k, best_mi = 0, -1.0
+        for k in mods:
+            m = _residue_mi(c_arr, yi, k, nbins)
+            if m > best_mi:
+                best_mi, best_k = m, k
+        null_hi = _perm_null_hi(c_arr, yi, best_k, nbins, seed=seed)
+        hits.append(ModularHit(op, cset, best_k, best_mi, base, null_hi))
+
+    for c in cols:
+        _scan_one("self", (c,), _combine([arrs[c]], "self"))
+
+    pair_budget = max_pairs
+    for a, b in combinations(cols, 2):
+        if pair_budget <= 0:
+            break
+        for op in _PAIR_OPS:
+            _scan_one(op, (a, b), _combine([arrs[a], arrs[b]], op))
+        pair_budget -= 1
+
+    triple_budget = max_triples
+    for a, b, c in combinations(cols, 3):
+        if triple_budget <= 0:
+            break
+        _scan_one("sum3", (a, b, c), arrs[a].astype(np.int64) + arrs[b].astype(np.int64) + arrs[c].astype(np.int64))
+        triple_budget -= 1
+
+    hits.sort(key=lambda h: h.margin_over_baseline, reverse=True)
+    return hits
+
+
+def escalate_modulus(
+    X,
+    y: np.ndarray,
+    hit: ModularHit,
+    *,
+    nbins: int = 12,
+    span: int = 6,
+) -> tuple[int, float, np.ndarray]:
+    """Refine the modulus for a responded hit on a FINE integer grid around the coarse winner.
+
+    Searches ``[max(2, k0 - span), k0 + span]`` plus the small-multiple ladder ``{2*k0, 3*k0}`` (a
+    coarse divisor often spikes at a multiple of the true modulus). Returns ``(best_m, best_mi,
+    residue_column)``; the residue column is the materialised ``combiner mod best_m`` for the selector."""
+    k0 = hit.modulus
+    arrs = [np.asarray(X[c]) for c in hit.cols]
+    c_arr = _combine(arrs, hit.op)
+    yi = np.asarray(y).astype(np.int64)
+
+    grid = set(range(max(2, k0 - span), k0 + span + 1))
+    grid.update({2 * k0, 3 * k0})
+    best_m, best_mi = k0, -1.0
+    for m in sorted(grid):
+        mi = _residue_mi(c_arr, yi, m, nbins)
+        if mi > best_mi:
+            best_mi, best_m = mi, m
+    residue = np.mod(c_arr, best_m).astype(np.float64)
+    return best_m, best_mi, residue
+
+
+def detect_pairwise_modular(
+    X,
+    y: np.ndarray,
+    cols: Optional[Sequence[str]] = None,
+    *,
+    moduli: Sequence[int] = COARSE_MODULI,
+    top_k: int = 4,
+    nbins: int = 12,
+    seed: int = 0,
+):
+    """End-to-end cheap-first + escalate. Returns the list of responded+refined hits (each a dict with
+    the final modulus, MI, and the materialised residue column), capped at ``top_k``. Empty when
+    nothing responds -- a non-modular frame escalates nothing."""
+    hits = cheap_modular_scan(X, y, cols, moduli=moduli, nbins=nbins, seed=seed)
+    out = []
+    for h in hits:
+        if not h.responded:
+            continue
+        best_m, best_mi, residue = escalate_modulus(X, y, h, nbins=nbins)
+        out.append(
+            {
+                "op": h.op, "cols": h.cols, "coarse_modulus": h.modulus,
+                "modulus": best_m, "residue_mi": best_mi, "baseline_mi": h.baseline_mi,
+                "margin": best_mi - h.baseline_mi, "residue": residue,
+            }
+        )
+        if len(out) >= top_k:
+            break
+    return out
