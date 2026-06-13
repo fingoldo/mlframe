@@ -109,6 +109,37 @@ def test_discretize_2d_quantile_batch_parallel_flag_byte_identical():
     assert np.array_equal(a, b)
 
 
+@pytest.mark.parametrize("parallel", [False, True])
+@pytest.mark.parametrize("dtype_in", [np.float32, np.float64])
+@pytest.mark.parametrize("n_rows,K", [(7, 4), (256, 64), (2407, 600)])
+def test_discretize_2d_quantile_batch_assume_finite_byte_identical(n_rows, K, dtype_in, parallel):
+    """``assume_finite=True`` skips the per-call ``np.isnan(arr2d).any()`` scan; on a NaN-free
+    buffer (the FE-chunk caller scrubs with nan_to_num right before the call) the default path's
+    scan returns False and runs the SAME ``_quantile_edges_2d_njit`` branch, so the codes MUST be
+    byte-identical. Pins the wasted-work removal (iter44) so a future change cannot perturb output."""
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+    rng = np.random.default_rng(101 + n_rows + K)
+    arr2d = np.ascontiguousarray(rng.standard_normal((n_rows, K)).astype(dtype_in))
+    ref = discretize_2d_quantile_batch(arr2d, n_bins=10, dtype=np.int32, parallel=parallel)
+    fast = discretize_2d_quantile_batch(arr2d, n_bins=10, dtype=np.int32, parallel=parallel, assume_finite=True)
+    assert np.array_equal(ref, fast)
+
+
+def test_discretize_2d_quantile_batch_default_still_nan_aware():
+    """The DEFAULT (``assume_finite=False``) path keeps the NaN guard: a NaN-bearing buffer routes
+    through ``np.nanpercentile`` so a NaN column does not collapse to a constant. Pins that the
+    iter44 fast path did NOT remove the safety net from the default."""
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+    rng = np.random.default_rng(202)
+    arr2d = rng.standard_normal((400, 8)).astype(np.float64)
+    arr2d[:50, 3] = np.nan  # NaN-bearing column
+    codes_default = discretize_2d_quantile_batch(arr2d, n_bins=10, dtype=np.int32, parallel=False)
+    # The non-NaN rows of the NaN column must still span multiple bins (nanpercentile gives real edges);
+    # a regression that always skipped the scan would feed NaN into the njit edges sort and degrade them.
+    finite_rows = ~np.isnan(arr2d[:, 3])
+    assert np.unique(codes_default[finite_rows, 3]).size > 1, "NaN-aware default path collapsed the column"
+
+
 def test_dispatch_predicate_gates_on_serial_main_thread():
     """The OPT-A dispatch predicate MUST return False on the joblib path
     (``serial_main_thread`` False) regardless of column count OR the per-host tuned cache --

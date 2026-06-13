@@ -253,6 +253,10 @@ def _compute_one_fe_chunk(
         chunk_buffer[:, :col], n_bins=quantization_nbins,
         dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
         parallel=_fe_use_parallel_kernels(col, serial_main_thread),  # OPT-A
+        # ``chunk_buffer[:, :col]`` is NaN-free here on BOTH branches: the njit materialise kernel
+        # scrubs inline, and the numpy-fallback path ran the vectorised nan_to_num just above. So the
+        # discretiser's per-call ``np.isnan().any()`` scan is guaranteed-False wasted work; skip it.
+        assume_finite=True,
     )
     fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
         disc_2d=disc_2d,

@@ -1758,6 +1758,7 @@ production-scale bugs that the fuzz-cell loop missed:
 | 41c | Code-reuse refactor (user ask): adding axes touched 6 sites | shared `build_mrmr_kwargs` / `build_composite_discovery_config` builders | `05166b7` |
 | 41d | 1M harness missed iter-23.5 + iter-32.5 axes + no save phase | wired all axes + added save-to-disk profile block | `0c99acb` |
 | 43 | `apply_preprocessing_extensions` crash on non-numeric leak (cat_mid='M03', emb list-of-float) -- two chained errors (SimpleImputer median + PolynomialFeatures truth-value-ambiguous) | numeric-only filter at extensions-pipeline entry + WARN | `989f9f3` |
+| 44 | `discretize_2d_quantile_batch` (top mlframe-OWN tottime: 77.3s/1373 calls, scene 2500 MRMR) runs a full `np.isnan(arr2d).any()` scan + bool alloc on every call, but the two FE-chunk callers (`_pairs_core.py:1115`, `_pairs_chunks.py:252`) scrub the buffer with `nan_to_num(copy=False)` immediately before -- guaranteed-False wasted work | added `assume_finite=` fast path (skips the scan, bit-identical by construction on NaN-free buffer); wired `=True` at both scrubbed call sites; default stays NaN-aware. Isolated isnan cost ~2.8-3.5% of the discretiser at 600-2000 cols; selection BIT-IDENTICAL (83 selected / 6 engineered) | `_PENDING_` |
 
 **Production-scale profile signal:**
 
@@ -1778,5 +1779,5 @@ the machine's 16 GB RAM ceiling is the binding constraint, not
 mlframe code. Loop continues -- 4 RESOLVED in this iter group,
 0 REJECT.
 
-Streak: 0/100. **Cumulative loop wave: 17 RESOLVED, 27 REJECT
-across 43 iterations.**
+Streak: 0/100 (iter44 RESOLVED -- reset). **Cumulative loop wave: 18 RESOLVED, 27 REJECT
+across 44 iterations.**

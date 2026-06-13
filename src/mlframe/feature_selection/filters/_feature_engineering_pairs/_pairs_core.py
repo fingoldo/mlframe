@@ -1119,6 +1119,10 @@ def check_prospective_fe_pairs(
                         # gate as the chunk + marginal-uplift discretise -- byte-identical
                         # column-prange twin when serial_main_thread (no joblib nest).
                         parallel=_fe_use_parallel_kernels(i, serial_main_thread),
+                        # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
+                        # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
+                        # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
+                        assume_finite=True,
                     )
 
                     # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate

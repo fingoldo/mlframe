@@ -474,7 +474,7 @@ from ._kernels import (  # noqa: F401
 )
 
 
-def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: object = np.int8, parallel: bool = False) -> np.ndarray:
+def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: object = np.int8, parallel: bool = False, assume_finite: bool = False) -> np.ndarray:
     """Batch (quantile-only) discretiser: bit-identical to per-column ``discretize_array(method='quantile')``.
 
     ``arr2d`` is ``(n_rows, n_cols)``; each column is discretised independently into ``n_bins`` ordinal codes
@@ -524,7 +524,14 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     # (scene 1500x299 cProfile: 114.5s / 20% of fit in ``partition``, re-partitioning the
     # whole buffer once per quantile). NaN path keeps ``np.nanpercentile`` (the njit kernel
     # does not NaN-handle; callers that pass NaN are rare and stay correct + bit-identical).
-    if np.isnan(arr2d).any():
+    # ``assume_finite``: the caller already scrubbed NaN/inf out of ``arr2d`` (e.g. the FE-chunk
+    # path does ``np.nan_to_num(buf, copy=False)`` on the line immediately before this call), so the
+    # per-call ``np.isnan(arr2d).any()`` scan -- a full O(n_rows*n_cols) pass plus a full bool-array
+    # allocation, run on every one of 1000+ discretise calls in a wide FE sweep -- is pure wasted work
+    # whose result is always False. Skipping it goes straight to the fast ``_quantile_edges_2d_njit``
+    # branch; BIT-IDENTICAL by construction on a NaN-free buffer (the scan would pick exactly that branch).
+    # Leave the default False so any caller that has NOT scrubbed keeps the safe NaN-aware path.
+    if not assume_finite and np.isnan(arr2d).any():
         edges = np.nanpercentile(arr2d, quantiles, axis=0)
     else:
         edges = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)
