@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Sequence
 
+import numba
 import numpy as np
 import pandas as pd
 
@@ -173,6 +174,12 @@ def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
 def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
     """Periodogram power at ``freq`` against a pre-centered ``y`` (``yc``,
     sum-of-squares ``y_ss``). Hot-loop variant that skips re-centering y."""
+    # bench-attempt-rejected (2026-06-13): a fused 2-pass njit kernel (sin/cos
+    # sums + centered SS in one walk, no temporaries) measured 1.06x@n800 /
+    # 0.89x@n1667 / 1.26x@n5000 -- LOSES at the scene train-slice size (~1667)
+    # because numba's scalar np.sin/np.cos loop is slower than numpy's vectorised
+    # transcendental ufunc here, and the ascontiguousarray wrapper adds overhead.
+    # bench: _benchmarks/bench_power_centered_njit.py.
     ang = 2.0 * np.pi * float(freq) * z
     return (
         _corr_sq_centered(np.sin(ang), yc, y_ss)

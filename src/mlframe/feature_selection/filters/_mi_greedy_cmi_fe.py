@@ -195,6 +195,50 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
     return inv, nc
 
 
+@njit(cache=True)
+def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
+    """Fused ``factorize(joint + c*mult)`` in ONE pass, no temporaries.
+
+    Equivalent to ``_factorize_dense_njit(joint + c*mult)`` but folds the
+    multiply-add into the factorize walk -- avoids the two numpy temp arrays
+    (``c*mult`` and the sum) the `_renumber_joint` per-column step allocated, and
+    walks the data once instead of three times. First-seen dense ids, so the
+    induced partition + nclasses match the numpy form exactly (bit-identical)."""
+    n = joint.size
+    if n == 0:
+        return joint, 0
+    kmax = 0
+    for i in range(n):
+        v = joint[i] + c[i] * mult
+        if v > kmax:
+            kmax = v
+    inv = np.empty(n, dtype=np.int64)
+    nc = 0
+    if 0 <= kmax < _FAC_ARRAY_CAP:
+        seen = np.full(kmax + 1, -1, dtype=np.int64)
+        for i in range(n):
+            v = joint[i] + c[i] * mult
+            s = seen[v]
+            if s >= 0:
+                inv[i] = s
+            else:
+                seen[v] = nc
+                inv[i] = nc
+                nc += 1
+    else:
+        d = _NbDict.empty(key_type=_nb_types.int64, value_type=_nb_types.int64)
+        for i in range(n):
+            v = joint[i] + c[i] * mult
+            s = d.get(v, -1)
+            if s >= 0:
+                inv[i] = s
+            else:
+                d[v] = nc
+                inv[i] = nc
+                nc += 1
+    return inv, nc
+
+
 def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     """Collapse multiple integer class arrays into a single dense class id.
 
@@ -225,12 +269,14 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
         mult = 1
     for c in cols[1:]:
         c64 = np.ascontiguousarray(c, dtype=np.int64).ravel()
-        joint = joint + c64 * mult
-        # Renumber after every fold so ``mult`` stays bounded by the actual
-        # occupied joint cardinality (~ <= n) instead of the cartesian
+        # Fused multiply-add + refactorize: one njit walk, no ``c64*mult`` /
+        # sum temp arrays. Renumber after every fold so ``mult`` stays bounded by
+        # the actual occupied joint cardinality (~ <= n) instead of the cartesian
         # product (which would blow up at d=4+ support cols * 10 bins).
         if n:
-            joint, mult = _factorize_dense_njit(joint)
+            joint, mult = _combine_factorize_njit(joint, c64, mult)
+        else:
+            joint = joint + c64 * mult
     return joint, int(mult)
 
 
