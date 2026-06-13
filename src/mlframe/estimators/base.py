@@ -30,10 +30,25 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         fitted_estimator = clone(self.base_estimator)
 
         if "CatBoost" in type(fitted_estimator).__name__:
-            X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=self.stratify
+            # sample_weight must be split alongside X/y so train-fold weights align with
+            # train rows and val-fold weights feed the eval_set; passing the full-length
+            # weight to the train fold desyncs rows and errors on the length mismatch.
+            sample_weight = fit_params.pop("sample_weight", None)
+            arrays = [X, y] if sample_weight is None else [X, y, sample_weight]
+            splits = train_test_split(
+                *arrays, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=self.stratify
             )
-            fitted_estimator.fit(X_train, y_train, eval_set=(X_val, y_val), plot=self.plot, **fit_params)
+            if sample_weight is None:
+                X_train, X_val, y_train, y_val = splits
+                eval_set = (X_val, y_val)
+                fit_params_train = fit_params
+            else:
+                X_train, X_val, y_train, y_val, w_train, w_val = splits
+                from catboost import Pool
+
+                eval_set = Pool(X_val, y_val, weight=w_val)
+                fit_params_train = {"sample_weight": w_train, **fit_params}
+            fitted_estimator.fit(X_train, y_train, eval_set=eval_set, plot=self.plot, **fit_params_train)
         else:
             logger.warning(f"Early stopping params for estimator of type {type(self.base_estimator)} unknown.")
             fitted_estimator.fit(X, y, **fit_params)
