@@ -24,9 +24,11 @@ modular). Only two general-numeric (A) candidates surfaced; both BENCHED:
   hitting. The isolated docstring metric does not survive the pipeline. It would only help if its
   pseudo-unaries fed the USABILITY-AWARE list (linear-usability binary selection), not the MI-greedy
   search -- a deeper, speculative integration, not pursued. Do not enable by default.
-- **`fe_numeric_decompose_enable` -> not benched (weak/narrow).** Scout's #2: general-numeric but a
-  narrow price/digit-structure target class near the data-type-specific boundary; deprioritised after
-  gate_med rejected.
+- **`fe_numeric_decompose_enable` -> REJECTED (keep OFF, no-win + cost).** Scout's #2. Benched OFF vs ON
+  multi-seed on a step/rounding target (`round(a/10)*10 + floor(c*5)/5`, where its rounding features
+  should win) + a smooth control: IDENTICAL linMAE on both (step 0.1561, smooth 0.1073) -- its candidates
+  do not surface/get-selected (the default hinge/binning FE already captures the step structure) -- and
+  ~1.6x slower. No benefit, only cost. Keep OFF.
 
 NET: triplet/quad were the genuine general-numeric default-on win; the FE-default-on lever is now worked
 (every other disabled generator is correctly opt-in or benched-harmful).
