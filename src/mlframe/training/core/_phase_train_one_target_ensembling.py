@@ -194,7 +194,7 @@ def _finalize_per_target_ensembling(
                 if _should_tune(_mode, _y):
                     _vp_arr = _np.asarray(_best_val_probs)
                     _pos = _vp_arr[:, 1] if _vp_arr.ndim == 2 and _vp_arr.shape[1] >= 2 else _vp_arr.ravel()
-                    _metric = str(getattr(behavior_config, "tune_decision_threshold_metric", "f1"))
+                    _metric = str(getattr(behavior_config, "tune_decision_threshold_metric", "balanced_accuracy"))
                     _thr = _tune(_y, _pos, metric=_metric)
                     metadata.setdefault("decision_thresholds", {})[_key] = _thr
                     metadata.setdefault("decision_threshold_paths", {})[_key] = "tuned"
