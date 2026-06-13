@@ -3,6 +3,34 @@
 Findings from the optimization loop's audit agents. FIXED items are listed for provenance; OPEN
 items are precisely scoped for a fresh-context iteration to implement + test.
 
+## FE DEFAULT-ON CANDIDATE BENCHES (which disabled generators to enable)
+
+A scout categorized all `fe_*_enable=False` generators: most are correctly opt-in -- DATA-TYPE-SPECIFIC
+(cat/missingness/grouped/temporal), RESEARCH-GRADE ALT SCORERS (ksg/copula/dcor/hsic/jmim/tc/cmim/
+lasso/elasticnet/auto/ensemble/meta -- duplicate the tuned plug-in MI hot path over byte-identical
+engineered values), EXPENSIVE/UNBOUNDED (gbm_seeder, gradient_interaction, conditional_gate's O(p^3)
+n-driven select sweep), or SUBSUMED (mi_greedy, pairwise_ratio/log_ratio, rankgauss, adaptive_arity,
+modular). Only two general-numeric (A) candidates surfaced; both BENCHED:
+
+- **`fe_hybrid_orth_triplet_enable` / `fe_hybrid_orth_quadruplet_enable` -> ENABLED (shipped, a28e19f4).**
+  3-way `a*b*c` linear test MAE 0.094 -> 0.049, no-harm additive, seed_k-bounded, replay-fixed.
+- **`fe_gate_med_enable` -> REJECTED (keep OFF, harmful as default-on).** The scout flagged it (docstring
+  claims +0.0355 single-column linear-usability). But a multi-seed end-to-end bench (gate target on
+  shifted/skewed marginals, linear downstream) showed it HURTS: gate target mean linMAE 0.865 -> 1.256,
+  smooth control 0.107 -> 0.157, and ~2x slower. DIAGNOSIS: gate_med is a pseudo-unary fed to the
+  MI-GREEDY pair search, which wraps it into high-MI but linearly-USELESS composites
+  (`div(gate_med(a),exp(b))`, `div(gate_med(c),neg(d))`) instead of the clean `mul(gate_med(a),b)` =
+  `(a>med)*b` the linear model needs -- the SAME MI-vs-linear-usability blindness this session keeps
+  hitting. The isolated docstring metric does not survive the pipeline. It would only help if its
+  pseudo-unaries fed the USABILITY-AWARE list (linear-usability binary selection), not the MI-greedy
+  search -- a deeper, speculative integration, not pursued. Do not enable by default.
+- **`fe_numeric_decompose_enable` -> not benched (weak/narrow).** Scout's #2: general-numeric but a
+  narrow price/digit-structure target class near the data-type-specific boundary; deprioritised after
+  gate_med rejected.
+
+NET: triplet/quad were the genuine general-numeric default-on win; the FE-default-on lever is now worked
+(every other disabled generator is correctly opt-in or benched-harmful).
+
 ## FIXED (shipped this session)
 
 - **div-by-zero in `resolve_adaptive_vote_k(min_rows_per_fold=0)`** (P2) -> clamp floor >=1. (cf03d387)
