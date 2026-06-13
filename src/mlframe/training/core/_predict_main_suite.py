@@ -435,6 +435,7 @@ def predict_mlframe_models_suite(
                     is_calibrated_per_model=per_target_calib_flags.get((_tt_k, _tn_k)),
                     metadata=metadata,
                     target_label=f"{_tt_k}/{_tn_k}",
+                    target_type=_tt_k,
                 )
             else:
                 _combined = _probs_list[0]
@@ -463,11 +464,16 @@ def predict_mlframe_models_suite(
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
         _suite_flavour = _resolve_chosen_flavour(metadata)
+        # Renorm the suite simplex only when the suite is homogeneously multiclass (mixed / binary / multilabel
+        # suites must not be renormalised -- see the gate rationale in _combine_probs).
+        _suite_tts = {tt for (tt, _tn) in per_target_probs.keys()}
+        _suite_tt = next(iter(_suite_tts)) if len(_suite_tts) == 1 else None
         avg_probs = _combine_probs(
             all_probs, _suite_flavour,
             is_calibrated_per_model=all_calib_flags or None,
             metadata=metadata,
             target_label="suite",
+            target_type=_suite_tt,
         )
         results["ensemble_probabilities"] = avg_probs
         # Expose the ensemble inside the per-model probabilities dict under the
