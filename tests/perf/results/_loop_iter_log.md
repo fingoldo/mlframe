@@ -2442,3 +2442,23 @@ Identity: nunique/modes/ncrossings bit-identical (exact `==`) on 8 seeds incl he
 Regression test (`tests/feature_engineering/test_numerical.py::TestFusedNuniqueModesQuantilesFastPath`, 3 sensors): (1) `test_fast_path_avoids_np_unique_on_finite_input` -- spies `np.unique` and asserts 0 calls on finite input; FAILS pre-fix (pre-fix calls np.unique 2x, verified empirically) and passes post-fix; (2) nunique/modes exact + quantiles within ULP; (3) NaN input still routes through np.unique (>=1 call) and matches the collapsed-NaN nunique. Full `test_numerical.py` (74 tests) green.
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 46 RESOLVED, 29 REJECT across 73 iterations.**
+
+## Iter 74 -- 2026-06-14 (@200k)
+
+Workload: `is_variable_truly_continuous` (`preprocessing/cleaning.py:157`) @ **n=200000** via `src/mlframe/preprocessing/_benchmarks/prof74.py` (5 numeric columns: continuous, fractional, int-like, wide-span -- the per-column continuity/outlier detector run over every numeric feature in `analyse_and_clean_features`). Import-order note: a COLD import of `mlframe.preprocessing.cleaning` native-segfaults on py3.14 (it pulls `mlframe.core.stats`); `import scipy.stats; import numba` BEFORE the mlframe import avoids the AV (benches do this).
+
+Top mlframe-own by tottime (100 calls @200k): `_get_nunique` (`cleaning.py:68`) 700 calls, tottime 0.312s / cumtime 1.538s = **61% of the 2.53s wall**; underneath it `numpy._unique1d` 900 calls + ndarray `sort` 0.844s. `is_variable_truly_continuous` itself 0.245s tottime. `_get_nunique` is plain-numpy (np.unique + boolean-mask filters), confirmed not an njit frame.
+
+Audit (discarded output): `_get_nunique` calls `np.unique(vals)` (full sort + builds the sorted-unique ARRAY) then drops NaN + `skip_vals` via trailing `unique_vals != val` boolean-mask passes -- but the caller only ever reads `len(...)`. The unique-array materialization + the post-filter passes are pure waste: the count is all that is consumed.
+
+RESOLVED (float fast path, bit-identical by construction): for float/complex-kind input `_get_nunique` now does one `np.sort` + a lazy-compiled njit `_count_distinct_sorted_float` single pass that counts distinct finite values, skipping NaN + skip0/skip1 inline (NaN-coded skip = "no skip", matching the existing falsy `skip_vals=(0.0)` scalar quirk at the int_part call site). No unique array, no mask passes. Non-float / object input keeps the exact `np.unique` + `pd.isna` route untouched.
+
+Measure (warm best-of-N, PAIRED interleaved OLD/NEW on a contended box; OLD = the exact pre-fix np.unique impl monkeypatched into the live function):
+  - Isolated `_get_nunique` @200k (`bench_nunique74.py`, best-of-200): int-part array (low-card) **1.53x**; high-card fract array 0.94x (sort-bound, njit count a wash) -- net positive because the function mixes both per call.
+  - e2e `is_variable_truly_continuous` over the 5 cols @200k (`bench_paired74.py`, 50 paired trials): NEW faster in **48/50** trials; OLD min 109.7ms med 126.0ms -> NEW min 98.3ms med 111.1ms = **1.12x min / 1.13x med**. Win survives the full function.
+
+Identity: e2e (continuous?, outliers%) verdict tuples **bit-identical** on all 5 cols. Direct `_get_nunique` count identical to the np.unique reference on 7 inputs: plain, NaN-laced, falsy-scalar skip, None skip, all-equal, all-NaN, and an int-dtype array (exercises the np.unique fallback). Removing work, not changing numerics -> bit-identical by construction.
+
+Regression test (`tests/preprocessing/test_cleaning.py::test_get_nunique_float_fastpath_bit_identical_to_npunique`): pins the float fast-path count == the np.unique filter reference across plain / NaN-laced / falsy-skip / None-skip / all-equal / all-NaN float inputs. A broken fast path (counting NaN, or not skipping) diverges from the reference and trips the assert (the NaN case 857-vs-858 is the tightest sensor). Full `tests/preprocessing/` (4 tests) green.
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 47 RESOLVED, 29 REJECT across 74 iterations.**

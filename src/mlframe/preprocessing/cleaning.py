@@ -65,7 +65,56 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+_COUNT_DISTINCT_NJIT = None
+
+
+def _get_count_distinct_njit():
+    """Lazily compile the njit count-distinct kernel. Deferred so module import stays light and does not force numba's native init at the wrong point in the ABI-sensitive import order on py3.14."""
+    global _COUNT_DISTINCT_NJIT
+    if _COUNT_DISTINCT_NJIT is None:
+        import numba
+
+        @numba.njit(cache=True)
+        def _count_distinct_sorted_float(sorted_vals, skip0, skip1):
+            # sorted ascending; NaNs sort to the end for float arrays. Counts distinct finite values excluding skip0/skip1 (NaN-coded skip = "no skip").
+            n = sorted_vals.shape[0]
+            count = 0
+            have_prev = False
+            prev = 0.0
+            for i in range(n):
+                v = sorted_vals[i]
+                if v != v:  # NaN
+                    continue
+                if v == skip0 or (skip1 == skip1 and v == skip1):
+                    continue
+                if (not have_prev) or v != prev:
+                    count += 1
+                    prev = v
+                    have_prev = True
+            return count
+
+        _COUNT_DISTINCT_NJIT = _count_distinct_sorted_float
+    return _COUNT_DISTINCT_NJIT
+
+
 def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = None) -> int:
+    # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
+    # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
+    # Sort once + count distinct in a single njit pass (skipping NaN + skip_vals inline). Bit-identical to the
+    # np.unique count for finite-or-NaN float input. Non-float / object paths keep the exact np.unique route.
+    if skip_nan and getattr(vals, "dtype", None) is not None and vals.dtype.kind == "f":
+        sv = np.sort(vals)
+        if not skip_vals:
+            skip0 = np.nan
+            skip1 = np.nan
+        elif len(skip_vals) == 1:
+            skip0 = float(skip_vals[0])
+            skip1 = np.nan
+        else:
+            skip0 = float(skip_vals[0])
+            skip1 = float(skip_vals[1])
+        return _get_count_distinct_njit()(sv, skip0, skip1)
+
     unique_vals = np.unique(vals)
     if skip_nan:
         # np.isnan raises TypeError on object/string arrays — use pd.isna which handles
