@@ -59,6 +59,16 @@ from ._pairwise_modular_fe import _mi
 
 logger = logging.getLogger(__name__)
 
+# bench-attempt-rejected (2026-06-13, iter53): fusing the per-candidate (n, 17-tau) mask / select feature-grid build into a
+# single njit kernel (replacing the per-tau ``np.where`` / ``(cv>tau)*av`` Python loop). The ISOLATED build kernel is a real
+# win -- njit(parallel) 1.26-2.46x over the numpy loop across n=533..12000, bit-identical -- but it LOSES end-to-end inside
+# ``cheap_conditional_gate_scan`` (whole-call njit 0.89-0.90x vs the numpy loop): the build is only ~0.4s of the ~4s scan and
+# the parallel kernel's per-candidate spawn + core contention with the MI prange (``_gate_grid_mi``) swamps the small per-call
+# saving over 648 candidates. The single-thread njit variant is slower even in isolation at n=12000 (890us vs 765us numpy --
+# numpy's vectorised ``np.where`` over a contiguous column is already memory-bandwidth-bound at the floor, numba's scalar loop
+# has no SIMD edge), and a numpy broadcast build (``cv[:,None]>taus[None,:]``) regresses 0.65x@n12000 (the (n,17) bool temporary
+# blows the cache). All three measured + e2e-rejected; the numpy per-tau loop stays. bench: _benchmarks/bench_gate_grid_njit.py.
+
 __all__ = [
     "ArgmaxHit",
     "GateHit",
@@ -390,6 +400,11 @@ def cheap_conditional_gate_scan(
         cv = arrs[cgate]
         taus = np.quantile(cv, _TAU_QUANTILES)
         others = [cn for cn in operand_cols if cn != cgate]
+        # bench-attempt-rejected (2026-06-13, iter53): hoisting the per-(gate, tau) threshold masks ``cv[:, None] > taus[None, :]``
+        # out of the operand loops (the comparison depends only on (cv, tau), not a / b, so the per-candidate recompute repeats it
+        # O(k_operand^2) times per gate) measured FLAT whole-call (~4069ms vs ~4070ms numpy-loop): the build is a small fraction of
+        # the MI-kernel-bound ~4s scan, so removing the redundant comparisons (+ the (n, 17) broadcast temporaries) nets no
+        # measurable win. The per-tau numpy loop stays. The scan wall is plug-in-MI-bound (already tuned), not build-bound.
         # mask: one active column a (cols = (a, c)); baseline over {a, c}.
         for a in others:
             av = arrs[a]
