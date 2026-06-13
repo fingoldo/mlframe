@@ -16,9 +16,13 @@ confirmed by ``_benchmarks/bench_frontier_candidates`` + ``bench_conditional_gat
 GATE HARDENING (the discovery caveat): the prototype gate detector gated only vs the RAW single-operand MI floor, so it ALSO fired
 on ``smooth`` / ``ordinary_mul`` controls (a hard threshold can partly reconstruct an XOR-sign regime; bench measured FP lift
 +0.17 smooth / +0.32 ordinary_mul). The production detector gates the engineered MI vs the BEST-EXISTING-OP MI on the SAME operands
--- the max MI over the cheap arithmetic ops a selector already has (product, ratio, diff, min, max), mirroring the
-``bench_frontier_candidates`` baseline -- NOT the raw single-operand MI. With that floor the gate clears 0 false-positives on
-smooth / noise / ordinary_mul at p=30 over 3 seeds (``bench_conditional_gate_wideframe``), while the regime targets still respond.
+-- the max MI over the cheap arithmetic ops a selector already has (product, ratio, diff, min, max) AND the ADDITIVE/linear
+combinations (pairwise sums + the full sum of the involved columns), mirroring the ``bench_frontier_candidates`` baseline -- NOT the
+raw single-operand MI. The additive terms close a specificity hole on the COMMON additive-linear target shape: a piecewise
+``c>tau ? a : b`` partially reconstructs a purely additive ``y = a+b+c``, so without ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` in the
+floor the gate fired a spurious feature on a multi-driver additive (binned-regression / 4-driver) target. With this floor the gate
+clears 0 false-positives on smooth / noise / ordinary_mul / multi-driver-additive at p=30 over 3 seeds
+(``bench_conditional_gate_wideframe``), while the true regime targets (no additive combo reconstructs the switch) still respond.
 
 Design mirrors ``_pairwise_modular_fe`` / ``_integer_lattice_fe``: CHEAP-FIRST scan + a dual ``_responded`` gate -- the engineered
 column's MI must beat the operand baseline by ``_MIN_MARGIN`` AND a 12-permutation null upper band (so a non-structured frame
@@ -128,10 +132,17 @@ def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.
 
 def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int) -> float:
     """Max binned-MI over the cheap operators a selector already has on the given operands: raw columns + pairwise
-    product / ratio / diff + row-max / row-min. This is the HARDENED baseline both detectors must beat -- the prototype gated only
-    vs the raw single-operand MI, which let a hard threshold reconstruct an XOR-sign regime on smooth / ordinary_mul controls AND
-    let a spurious row-argmax clear the floor on an ordinary-multiplicative target (false positives, measured in
-    ``bench_conditional_gate_wideframe``). Mirrors the ``bench_frontier_candidates`` 'best existing op' reference.
+    product / ratio / diff + row-max / row-min + ADDITIVE/linear combinations (pairwise sums + the full sum of all involved
+    columns). This is the HARDENED baseline both detectors must beat -- the prototype gated only vs the raw single-operand MI,
+    which let a hard threshold reconstruct an XOR-sign regime on smooth / ordinary_mul controls AND let a spurious row-argmax clear
+    the floor on an ordinary-multiplicative target (false positives, measured in ``bench_conditional_gate_wideframe``).
+
+    The ADDITIVE terms close the gate's additive-target specificity hole: a piecewise ``c>tau ? a : b`` partially reconstructs a
+    purely additive signal (e.g. ``y = a + b + c``), so on a multi-driver additive target the gate's MI cleared a floor that knew
+    only the pairwise arithmetic ops -- not the additive combinations ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` that a linear selector
+    trivially captures. Including those sums makes a purely-additive target FAIL the floor (the additive baseline captures it) while
+    a TRUE regime switch (where no additive combo reconstructs the data-dependent branch) still clears it. Mirrors the
+    ``bench_frontier_candidates`` 'best existing op' reference.
 
     All candidate columns stack into ONE batched ``_mi_classif_batch`` call (bit-identical to per-candidate -- the kernel bins
     each column independently, only the per-call dispatch overhead is amortised); cProfile showed the per-``_mi`` dispatch was the
@@ -147,9 +158,12 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             cands.append(u * v)
             cands.append(u - v)
             cands.append(u / (np.abs(v) + 1e-6))
+            cands.append(u + v)  # pairwise additive baseline a+b / a+c / b+c -- a linear selector captures it for free
     stk = np.stack(cols_arr, axis=1)
     cands.append(stk.max(axis=1))
     cands.append(stk.min(axis=1))
+    if len(cols_arr) >= 3:
+        cands.append(stk.sum(axis=1))  # full additive sum a+b+c -- the multi-driver additive signal the gate must not reconstruct
     mat = np.column_stack(cands).astype(np.float64, copy=False)
     mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins)
     return float(np.max(mis))

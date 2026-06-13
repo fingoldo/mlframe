@@ -99,6 +99,31 @@ class TestPrototypeDirect:
                     f"hardened gate fired on {gen.__name__} control (seed={s}) -- the hardening regressed."
                 )
 
+    def test_gate_silent_on_multidriver_additive_target(self):
+        """Regression sensor: a purely ADDITIVE target ``y = x0+x1+x2`` (no regime structure) must NOT fire the gate on ANY target
+        type. A piecewise ``c>tau ? a : b`` partially reconstructs the additive sum, so the prototype floor (pairwise product /
+        ratio / diff / min / max only) was cleared on the binned-regression / 4-driver cases (1 spurious feature emitted). The
+        broadened best-existing-op baseline -- now also scoring ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` -- captures the additive
+        signal so the gate cannot manufacture lift over it. Pins 0 emission on binary + 10-bin-regression + 4-driver additive."""
+        def _additive(seed, ndrivers, ttype, n=2000):
+            rng = np.random.default_rng(seed)
+            X = pd.DataFrame({f"x{i}": rng.normal(0, 1, n) for i in range(6)})
+            sig = sum(X[f"x{i}"].to_numpy() for i in range(ndrivers))
+            if ttype == "binary":
+                y = (sig > np.median(sig)).astype(int)
+            else:
+                y = pd.qcut(sig, 10, labels=False, duplicates="drop")
+            return X, np.asarray(y)
+
+        for ndrivers in (3, 4):
+            for ttype in ("binary", "10bin"):
+                for s in (0, 1, 2):
+                    X, y = _additive(s, ndrivers, ttype)
+                    hits = detect_conditional_gate(X, y, list(X.columns), seed=s)
+                    assert hits == [], (
+                        f"gate fired on {ndrivers}-driver additive {ttype} target (seed={s}): {hits} -- additive-floor regressed."
+                    )
+
 
 class TestRecipeReplay:
     def test_argmax_recipe_replay_bit_identical(self):
@@ -255,10 +280,9 @@ class TestMRMRIntegration:
         previously exploded under the int64 cast). On a single-driver smooth regression target with no regime structure the gate MUST
         stay SPECIFIC -- fit completes fast, conditional_gate_features_ stays empty. The no-hang safety contract is permanent.
 
-        NB: a multi-DRIVER ADDITIVE target (y = x0+x1+x2) is deliberately NOT used as the specificity control here -- a `select` gate
-        `x2 if x4>tau else x1` partially reconstructs an additive sum, so the gate fires on it on EVERY target type (verified identical
-        on a 3-/10-class quantized additive classification target); that is a pre-existing gate limitation on additive targets, not a
-        regression-binning artifact. The honest specificity control is a target driven by ONE feature, where no gate can manufacture lift."""
+        Multi-DRIVER ADDITIVE specificity is now covered separately (see ``test_gate_silent_on_multidriver_additive_target``): the
+        broadened best-existing-op baseline (which includes ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c``) captures the additive signal a
+        piecewise ``c>tau ? a : b`` used to partially reconstruct, so the gate no longer fires on a purely additive target."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rng = np.random.default_rng(42)
         n = 600

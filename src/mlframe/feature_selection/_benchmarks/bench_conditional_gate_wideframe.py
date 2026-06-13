@@ -121,6 +121,35 @@ def _fp_at_scale(op: str) -> dict:
     return {"zero_fp_at_p30": ok, "runs": results}
 
 
+def _additive_fp_gate() -> dict:
+    """ADDITIVE specificity gate: a purely additive y = sum(x0..x{nd-1}) (NO regime structure) must inject ZERO gate features on
+    binary AND 10-bin-regression targets over 3 seeds x {3,4}-driver. The broadened best-existing-op baseline (a+b/a+c/b+c/a+b+c)
+    captures the additive signal a piecewise gate used to partially reconstruct -- without it the binned-regression / 4-driver
+    cases injected 1 spurious gate feature."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    results = []
+    ok = True
+    for ndrivers in (3, 4):
+        for ttype in ("binary", "reg10"):
+            for seed in (0, 1, 2):
+                rng = np.random.default_rng(seed)
+                n, p = 4000, 6
+                X = pd.DataFrame({f"c{i}": rng.normal(0, 1, n) for i in range(p)})
+                sig = sum(X[f"c{i}"].to_numpy() for i in range(ndrivers))
+                if ttype == "binary":
+                    y = (sig > np.median(sig)).astype(int)
+                else:
+                    y = np.asarray(pd.qcut(sig, 10, labels=False, duplicates="drop"))
+                m = MRMR(max_runtime_mins=1, **_enable_kwargs("gate", True))
+                m.fit(X, pd.Series(y, name="y"))
+                n_fp = len(_injected(m, "gate"))
+                ok = ok and (n_fp == 0)
+                results.append({"ndrivers": ndrivers, "ttype": ttype, "seed": seed, "n_injected": n_fp})
+                print(f"  [gate] additive-FP nd={ndrivers} {ttype:7s} seed={seed} -> injected={n_fp}  {'OK' if n_fp == 0 else 'FAIL'}")
+    return {"zero_fp_on_additive": ok, "runs": results}
+
+
 def _mixed_realism_argmax() -> dict:
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -184,8 +213,12 @@ def main():
         fp = _fp_at_scale(op)
         print("== MIXED-REALISM (real signal + 25 noise) ==")
         mixed = _mixed_realism_argmax() if op == "argmax" else _mixed_realism_gate()
-        safe = bool(fp["zero_fp_at_p30"]) and bool(mixed["real_signal_caught_with_25_noise"])
-        out[op] = {"cost_table": cost, "fp_at_scale": fp, "mixed_realism": mixed, "gate_verdict_measured_safe": safe}
+        add_fp = None
+        if op == "gate":
+            print("== ADDITIVE FALSE-POSITIVE (multi-driver additive y, must be 0; binary + 10-bin reg) ==")
+            add_fp = _additive_fp_gate()
+        safe = bool(fp["zero_fp_at_p30"]) and bool(mixed["real_signal_caught_with_25_noise"]) and (add_fp is None or bool(add_fp["zero_fp_on_additive"]))
+        out[op] = {"cost_table": cost, "fp_at_scale": fp, "mixed_realism": mixed, "additive_fp": add_fp, "gate_verdict_measured_safe": safe}
         print(f"  [{op}] gate_verdict_measured_safe={safe}")
 
     RESULTS_DIR.mkdir(exist_ok=True)
