@@ -76,6 +76,39 @@ def test_biz_val_robust_float_ensemble_beats_mean_on_outlier_folds(seed):
     assert rmse_robust <= 0.55 * rmse_mean, f"robust {rmse_robust:.4f} vs mean {rmse_mean:.4f}"
 
 
+def test_mad_factor_sweep_verdict_keeps_default_mean():
+    """Verdict sensor: NO mad_factor in {3.5..8.0} reaches <=1% clean cost while keeping >=2x outlier
+    protection (bench_mad_factor_sweep). The MAD gate over-fires on normal fold spread at small K (K=3
+    clean cost ~14% at 3.5, still ~7.5% at 8.0) so the production resolver must stay ``"mean"``. If a
+    future kernel change makes some factor pass both gates, this test trips and the default can flip."""
+    from mlframe.models.ensembling.float_aggregation import robust_float_ensemble
+
+    def rmse(a, b):
+        return float(np.sqrt(np.mean((a - b) ** 2)))
+
+    def passes(f):
+        clean_max = 0.0
+        for k in (3, 5, 8):
+            for seed in range(5):
+                rng = np.random.default_rng(seed)
+                y = rng.normal(size=3000) * 5.0
+                m = np.stack([y + rng.normal(0.0, 1.5, size=3000) for _ in range(k)])
+                clean_max = max(clean_max, rmse(robust_float_ensemble(m, mad_factor=f), y) / rmse(m.mean(0), y))
+        protect_min = np.inf
+        for k, n_bad in ((5, 1), (5, 2), (8, 1), (8, 2)):
+            for seed in range(5):
+                rng = np.random.default_rng(100 + seed)
+                y = rng.normal(size=3000) * 5.0
+                mem = [y + rng.normal(0.0, 1.5, size=3000) for _ in range(k - n_bad)]
+                for j in range(n_bad):
+                    mem.append(y + 20.0 if j % 2 == 0 else 2.5 * y + rng.normal(0.0, 1.5, size=3000))
+                m = np.stack(mem)
+                protect_min = min(protect_min, rmse(m.mean(0), y) / max(rmse(robust_float_ensemble(m, mad_factor=f), y), 1e-12))
+        return clean_max <= 1.01 and protect_min >= 2.0
+
+    assert not any(passes(f) for f in (3.5, 4.0, 4.5, 5.0, 6.0, 8.0)), "a factor now passes both gates; revisit the default flip"
+
+
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_biz_val_robust_float_ensemble_clean_regime_within_10pct_of_mean(seed):
     """Robust must NOT materially hurt when all members are clean: RMSE within 10% of raw mean.

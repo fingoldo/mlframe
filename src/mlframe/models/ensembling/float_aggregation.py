@@ -11,10 +11,12 @@ while costing only ~6% in the all-clean regime.
 
 :func:`robust_float_ensemble` (``flavour="robust"``) drops, per output column, members whose deviation from
 the column median exceeds ``mad_factor`` scaled-MADs, then averages the survivors. It is OPT-IN, not the
-production default: at small K the 3.5-MAD gate over-fires on normal fold spread (it does not reduce to the
-plain mean in practice) and costs ~6% RMSE in the clean regime, so the production resolver keeps
-``flavour="mean"`` (legacy raw average) and robustness is enabled per-model via the ``float_ensemble_flavour``
-metadata key. ``flavour="median"`` is the full-breakdown analogue.
+production default: the MAD gate over-fires on normal fold spread at small K and no factor recovers a clean
+default. ``bench_mad_factor_sweep`` (factors 3.5..8.0, clean K=3/5/8 + outlier 1-2-of-K, 5 seeds) shows the
+smallest factor with <=1% clean cost would need K>=8, while K=3 clean cost stays ~14% at 3.5 / ~7.5% at 8.0
+and raising the factor erodes protection (8.0 -> 1.25x min). No factor reaches <=1% clean cost AND >=2x
+protection, so the production resolver keeps ``flavour="mean"`` and robustness is enabled per-model via the
+``float_ensemble_flavour`` metadata key. ``flavour="median"`` is the full-breakdown analogue.
 """
 
 from __future__ import annotations
