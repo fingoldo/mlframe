@@ -7285,6 +7285,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
+    # USABILITY-AWARE MULTI-LIST POST-PASS (2026-06-13). ``support_`` above is the pure-MI selection
+    # (the nonlinear / tree list, byte-identical to today). When ``usability_aware_lists`` is on AND
+    # a continuous target is available, ALSO produce a linear-downstream list (``support_linear_``)
+    # and a blended universal list (``support_universal_``) -- each a replayable candidate list --
+    # WITHOUT touching ``support_``. Fully guarded: a degenerate pool / non-numeric target / row
+    # mismatch leaves the extra lists ``None`` and never breaks the fit. ``support_nonlinear_`` is
+    # always set as the alias of ``support_`` so downstream routing has a stable name to read.
+    try:
+        if getattr(self, "usability_aware_lists", False):
+            from .._usability_lists import build_usability_lists
+            build_usability_lists(self, X=X, y_cont=getattr(self, "_fe_prewarp_y_continuous_", None))
+        else:
+            self.support_nonlinear_ = self.support_
+            self.support_linear_ = None
+            self.support_universal_ = None
+    except Exception as _usability_exc:  # never let the optional second list break a fit
+        self.support_nonlinear_ = getattr(self, "support_", None)
+        self.support_linear_ = None
+        self.support_universal_ = None
+        if verbose:
+            logger.info("Usability-aware multi-list post-pass skipped (%s: %s).",
+                        type(_usability_exc).__name__, _usability_exc)
+
     # SELECTION-STABILITY REPLAY STATE (backlog W3, 2026-06-11). Store a compact slice of the
     # already-discretised screening matrix ``data`` + the target codes + the per-column selection
     # outcome so ``MRMR.selection_stability_report(n_boot=K)`` can recompute per-feature selection-

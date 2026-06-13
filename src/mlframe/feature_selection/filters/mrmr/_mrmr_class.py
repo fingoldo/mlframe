@@ -2422,6 +2422,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         embedding_passthrough: bool = True,
         embedding_passthrough_detect_embeddings: bool = True,
         embedding_passthrough_detect_text: bool = True,
+        # USABILITY-AWARE MULTI-LIST SELECTION (2026-06-13). After the pure-MI fit
+        # (``support_``, byte-identical to today) optionally run a SECOND selection pass tuned for a
+        # LINEAR / additive downstream. MI is rank-based and blind to linear usability, so the
+        # pure-MI list can carry raw operands (c, d) without the engineered interaction (c*d) a
+        # linear model needs; the usability pass re-selects from a fresh pool with a relevance that
+        # blends MI with the held-out partial corr of each candidate with the RESIDUAL after the
+        # selected features (see ``_usability_lists`` / ``_usability_aware_selection``). It exposes
+        # ``support_linear_`` (w->1), ``support_universal_`` (blend) and ``support_nonlinear_``
+        # (alias of ``support_``), each replayable via ``transform_usability(X, which=...)``.
+        # OFF by default: the CV-MAE forward selection it runs costs seconds-to-minutes and must not
+        # be charged to every fit; the suite turns it on and routes linear models to the linear list.
+        usability_aware_lists: bool = False,
+        usability_w_linear: float = 0.85,
+        usability_w_universal: float = 0.5,
+        usability_feature_dtype: object = np.float32,
+        usability_max_base_features: int = 16,
+        usability_pool_kwargs: dict = None,
+        usability_greedy_kwargs: dict = None,
     ):
 
         # checks
@@ -3937,3 +3955,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         """
         from .._mrmr_validate_transform import transform as _t
         return _t(self, X, y)
+
+    def transform_usability(self, X, which: str = "linear"):
+        """Materialise a USABILITY-AWARE feature space on ``X`` -- the linear-downstream selection
+        produced when the estimator was fit with ``usability_aware_lists=True``.
+
+        ``which='linear'`` -> ``support_linear_`` (the ``w->1`` usability list, for linear / additive
+        models); ``which='universal'`` -> ``support_universal_`` (the blended list); ``which=
+        'nonlinear'`` returns the standard pure-MI ``transform`` output (the tree list). Each entry
+        is replayed from its stored ``EngineeredRecipe`` (or passed through as a raw column), so the
+        returned DataFrame is the exact feature space the usability greedy scored at fit time.
+
+        Raises if the requested list was not computed (estimator fit with the pass OFF, or a
+        non-numeric target / degenerate pool left it ``None``)."""
+        if which == "nonlinear":
+            return self.transform(X)
+        attr = {"linear": "support_linear_", "universal": "support_universal_"}.get(which)
+        if attr is None:
+            raise ValueError(f"transform_usability: which must be 'linear'|'universal'|'nonlinear', got {which!r}")
+        candidates = getattr(self, attr, None)
+        if candidates is None:
+            raise AttributeError(
+                f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous "
+                f"target to populate it (the '{which}' usability list)."
+            )
+        from .._usability_lists import materialize_usability_features
+        return materialize_usability_features(candidates, X)

@@ -1,0 +1,151 @@
+"""MRMR usability-aware multi-list POST-PASS (wiring layer, 2026-06-13).
+
+``MRMR.fit`` produces ``support_`` -- a pure-MI selection that is the right
+objective for nonlinear / tree downstreams (they build interactions internally;
+MI relevance + redundancy is model-agnostic). It is NOT the right list for a
+LINEAR / additive downstream: MI is rank-based and blind to linear usability, so
+it ranks a high-MI monotone warp above the lower-MI but linearly-aligned
+interaction a linear model needs (measured on F2: linear test MAE 0.096 with the
+pure-MI list ``[d, c, a**2/b]`` -- which has raw c and d but no c*d interaction --
+vs ~0.05 once a ``mul(log(c),sin(d))``-shaped form is selected).
+
+This module runs the standalone ``select_usability_aware_features`` (see
+``_usability_aware_selection.py``) as a SECOND pass over a freshly-built
+candidate pool and stores TWO additional selections on the fitted estimator:
+
+* ``support_linear_``    -- ``w -> 1`` usability-only relevance (for linear / additive models).
+* ``support_universal_`` -- a blended ``MI + lambda*usability`` list (a universal / linear-leaning list).
+
+plus ``support_nonlinear_`` (an alias for the existing ``support_``). Each entry
+is a ``UsableCandidate`` carrying a replayable ``EngineeredRecipe`` (or ``None``
+for a raw column), so ``MRMR.transform_usability(X, which=...)`` can reproduce the
+exact feature space on test data.
+
+The pass is OFF by default (``usability_aware_lists=False``): the CV-MAE forward
+selection it runs costs seconds-to-minutes, which must not be charged to every
+fit. The suite turns it on and routes linear/additive models to the linear list.
+``support_`` is never touched -- the existing tree pipelines stay byte-identical.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+
+def _raw_numeric_frame(X: Any, feature_names: list[str]):
+    """Return a pandas DataFrame of the CONTINUOUS-numeric raw columns of ``X`` (named by
+    ``feature_names``), dropping non-numeric / all-constant columns. ``X`` may be a DataFrame or a
+    2-D ndarray aligned to ``feature_names``."""
+    import pandas as pd
+
+    if isinstance(X, pd.DataFrame):
+        df = X
+    else:
+        arr = np.asarray(X)
+        if arr.ndim != 2 or arr.shape[1] != len(feature_names):
+            raise ValueError("ndarray X shape does not match feature_names; cannot build raw frame")
+        df = pd.DataFrame(arr, columns=list(feature_names))
+
+    keep: dict[str, np.ndarray] = {}
+    for name in feature_names:
+        if name not in df.columns:
+            continue
+        col = pd.to_numeric(df[name], errors="coerce")
+        v = np.asarray(col, dtype=np.float64)
+        if not np.isfinite(v).any():
+            continue
+        v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+        if float(np.nanstd(v)) < 1e-12:
+            continue  # constant column carries no usability signal
+        keep[name] = v
+    if not keep:
+        raise ValueError("no continuous-numeric raw columns available for the usability pass")
+    return pd.DataFrame(keep)
+
+
+def _scope_base_names(df, y_cont: np.ndarray, max_base_features: int) -> list[str]:
+    """Cap the base-name set to the ``max_base_features`` columns with the highest marginal MI with
+    the (binned) target, so the O(p^2) pair enumeration stays tractable on wide inputs. For small p
+    (<= cap) every column is kept."""
+    names = list(df.columns)
+    if len(names) <= max_base_features:
+        return names
+    from ._usability_aware_selection import _binned_mi
+    from ._mi_greedy_cmi_fe import _quantile_bin
+
+    y_codes = _quantile_bin(np.asarray(y_cont, dtype=np.float64), 10)
+    scored = [(name, _binned_mi(df[name].to_numpy(), y_codes, 10)) for name in names]
+    scored.sort(key=lambda t: t[1], reverse=True)
+    return [name for name, _ in scored[:max_base_features]]
+
+
+def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> None:
+    """Compute ``support_linear_`` / ``support_universal_`` (and the ``support_nonlinear_`` alias)
+    on the fitted ``mrmr`` from a fresh usability-aware candidate pool. No-op (lists set to ``None``)
+    when ``y_cont`` is unavailable (non-numeric target) or no usable raw columns exist. Never raises
+    into the fit -- the caller guards it, but degenerate inputs short-circuit cleanly here too."""
+    # support_nonlinear_ is always the existing pure-MI selection (alias, not a copy of the array's
+    # identity-sensitive semantics -- callers read it as "the tree list").
+    mrmr.support_nonlinear_ = getattr(mrmr, "support_", None)
+    mrmr.support_linear_ = None
+    mrmr.support_universal_ = None
+
+    if y_cont is None:
+        return
+    y_cont = np.asarray(y_cont, dtype=np.float64).ravel()
+    if y_cont.size == 0 or not np.isfinite(y_cont).any() or float(np.nanstd(y_cont)) < 1e-12:
+        return
+
+    feature_names = list(getattr(mrmr, "feature_names_in_", []) or [])
+    if not feature_names:
+        return
+    df = _raw_numeric_frame(X, feature_names)
+    if df.shape[0] != y_cont.size:
+        return  # row mismatch (e.g. target-row dropping); skip rather than misalign
+
+    from ._usability_aware_selection import select_usability_aware_features
+
+    max_base = int(getattr(mrmr, "usability_max_base_features", 16) or 16)
+    base_names = _scope_base_names(df, y_cont, max_base)
+
+    pool_kwargs = dict(getattr(mrmr, "usability_pool_kwargs", None) or {})
+    pool_kwargs.setdefault("feature_dtype", getattr(mrmr, "usability_feature_dtype", np.float32))
+    pool_kwargs.setdefault("quantization_nbins", int(getattr(mrmr, "quantization_nbins", 10) or 10))
+    greedy_kwargs = dict(getattr(mrmr, "usability_greedy_kwargs", None) or {})
+    seed = int(getattr(mrmr, "random_seed", None) or 0)
+    w_lin = float(getattr(mrmr, "usability_w_linear", 0.85))
+    w_uni = float(getattr(mrmr, "usability_w_universal", 0.5))
+
+    mrmr.support_linear_ = select_usability_aware_features(
+        df, y_cont, base_names, w=w_lin, seed=seed,
+        pool_kwargs=pool_kwargs, greedy_kwargs=greedy_kwargs,
+    )
+    mrmr.support_universal_ = select_usability_aware_features(
+        df, y_cont, base_names, w=w_uni, seed=seed,
+        pool_kwargs=pool_kwargs, greedy_kwargs=greedy_kwargs,
+    )
+
+
+def materialize_usability_features(candidates: list, X: Any):
+    """Build the feature DataFrame for a usability list (``support_linear_`` / ``support_universal_``)
+    on new data: a raw candidate (``recipe is None``) passes its named column through; an engineered
+    candidate replays its ``EngineeredRecipe``. Output columns are in selection order, scrubbed."""
+    import pandas as pd
+    from .engineered_recipes import apply_recipe
+
+    if not candidates:
+        return pd.DataFrame(index=getattr(X, "index", None))
+
+    def _col(cand):
+        if cand.recipe is None:
+            src = X[cand.name] if isinstance(X, pd.DataFrame) else None
+            if src is None:
+                raise ValueError(f"raw usability feature {cand.name!r} needs a DataFrame X to replay")
+            return np.nan_to_num(pd.to_numeric(src, errors="coerce").to_numpy(dtype=np.float64),
+                                 nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=np.float64),
+                             nan=0.0, posinf=0.0, neginf=0.0)
+
+    data = {cand.name: _col(cand) for cand in candidates}
+    return pd.DataFrame(data, index=getattr(X, "index", None))
