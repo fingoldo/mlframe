@@ -2295,6 +2295,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # columns (above 30 the added cost is near-zero by construction); max_triple_cols=20 drops the C(p,3)
         # triple sweep above 20 cols (pairs-only). Both skips are logged, never silent. Triples stay ON within
         # the tighter triple budget because the bench shows the triple overhead is flat (~0.13s, capped by max_triples).
+        #
+        # DISCRETE STRUCTURAL FE OPERATORS — master switch. The four operators below (pairwise-modular, integer-lattice,
+        # row-argmax, conditional-gate) each detect a target whose signal lives in a discrete / non-smooth structure that
+        # the smooth + arithmetic basis catalog cannot express in one column: modular periods/parity, gcd/lcm grid alignment,
+        # ordinal row-comparisons, and data-dependent regime switches respectively. All four are cheap-first (a bounded scan
+        # gated by a best-existing-op margin + a permutation null, so a frame without that structure injects ZERO columns),
+        # leak-free + bit-identical at predict (frozen recipes replayed as pure functions of X), budget-guarded on wide frames,
+        # and work on classification AND regression (continuous y is quantile-binned for the class-MI floor; 2D y is skipped).
+        # All default ON (measured downstream model lift, e.g. gcd +0.087 held-out AUC where a tree cannot form gcd(a,b)).
+        # Set fe_discrete_structural_operators_enable=False to disable ALL FOUR at once (pure classical FE), regardless of the
+        # individual flags; leave it True (default) and the per-operator fe_*_enable flags govern individually.
+        fe_discrete_structural_operators_enable: bool = True,
         fe_pairwise_modular_enable: bool = True,
         fe_pairwise_modular_top_k: int = 4,
         fe_pairwise_modular_max_int_cols: int = 30,

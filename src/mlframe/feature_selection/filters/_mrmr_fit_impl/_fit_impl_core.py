@@ -4168,7 +4168,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # combination of integer columns -- (a+b) mod m, (a*b) mod m, n-way parity, or a
     # single column's hidden non-calendar period -- which smooth bases cannot fit.
     # Cheap-first / escalate + permutation-null gate; budget-guarded on wide frames.
-    if bool(getattr(self, "fe_pairwise_modular_enable", False)):
+    _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True))
+    if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: pairwise-modular FE enabled but X is not a pandas DataFrame; "
@@ -4238,7 +4239,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Pairwise integer-lattice FE (sibling of pairwise-modular): detect a target that is a function of a hidden common
     # divisor (gcd), its dual lcm, or a bit-level co-occurrence (a & b) of integer columns -- structure smooth/arithmetic/
     # modular ops cannot express. Cheap-first pairs-only scan + dual margin/permutation-null gate; budget-guarded.
-    if bool(getattr(self, "fe_integer_lattice_enable", False)):
+    if _discrete_fe_master and bool(getattr(self, "fe_integer_lattice_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: integer-lattice FE enabled but X is not a pandas DataFrame; "
@@ -4304,7 +4305,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum -- an
     # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
     # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
-    if bool(getattr(self, "fe_row_argmax_enable", False)):
+    if _discrete_fe_master and bool(getattr(self, "fe_row_argmax_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: row-argmax FE enabled but X is not a pandas DataFrame; "
@@ -4369,7 +4370,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
     # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
     # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
-    if bool(getattr(self, "fe_conditional_gate_enable", False)):
+    if _discrete_fe_master and bool(getattr(self, "fe_conditional_gate_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: conditional-gate FE enabled but X is not a pandas DataFrame; "
