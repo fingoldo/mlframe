@@ -319,7 +319,12 @@ def render_target_drift_diagnostics(
                         logger.exception("diagnostics_dispatch: cusum_drift failed; continuing.")
                         _record(charts, "cusum_drift", False)
             try:
-                higher_is_better = metric not in ("mse", "brier")
+                # Direction from the canonical metric-direction table, not a 2-item
+                # allowlist that mislabeled rmse/mae/mape/log_loss/ice/ece/pinball as
+                # higher-is-better and inverted the "over time" trend annotation.
+                from mlframe.training.metrics_registry import metric_name_higher_is_better
+                _dir = metric_name_higher_is_better(metric)
+                higher_is_better = True if _dir is None else _dir
                 spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
                 ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
                 _record(charts, "metric_over_time", ok)
