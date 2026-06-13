@@ -154,6 +154,7 @@ def run_outer_loop_iteration(
             fi_family=getattr(self, "_fi_family", None),
             signed_importances=getattr(self, "_signed_importances", None),
             importance_agg_k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
+            elimination_rule=getattr(self, "elimination_rule", "importance"),
         )
 
     if current_features is None or len(current_features) == 0:

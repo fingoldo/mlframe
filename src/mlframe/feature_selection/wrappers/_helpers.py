@@ -227,6 +227,7 @@ def get_next_features_subset(
     signed_importances: Union[dict, None] = None,
     importance_agg_k_cv: float = 1.0,
     dichotomic_step: str = "midpoint",
+    elimination_rule: str = "importance",
 ) -> list:
     """Generate the next 'next_nfeatures_to_check' candidate to evaluate.
     Combines FIs from prior runs into ranks via voting, returns the top-N."""
@@ -309,6 +310,20 @@ def get_next_features_subset(
                 k: (1.0 - _decay) ** (_n_runs - 1 - i)
                 for i, k in enumerate(_ordered_keys)
             }
+    # elimination_rule='stability' (opt-in): rank for elimination by mean_importance discounted
+    # by cross-fold selection-frequency at the elimination cut, protecting steady-mid-rank features
+    # from one-fold-noise eviction. Operates on the RAW per-fold table independently of importance_agg
+    # (no double-count: dispatched discounts value-CV in the ranking, stability discounts rank-volatility
+    # around the cut). Falls through to the legacy/dispatched path when fewer than 2 runs are available.
+    if elimination_rule == "stability" and len(fi_to_consider) >= 2:
+        from ._helpers_importance_agg import aggregate_stability
+        _stab = aggregate_stability(fi_to_consider, cut_k=next_nfeatures_to_check)
+        if _stab:
+            ranks = sorted(
+                _stab.keys(),
+                key=lambda k: (-(_stab[k] if np.isfinite(_stab[k]) else -np.inf), str(k)),
+            )
+            return ranks[:next_nfeatures_to_check]
     if importance_agg == "dispatched" and fi_family in ("tree", "linear"):
         from ._helpers_importance_agg import aggregate_importances_dispatched
         _signed_subset = None
