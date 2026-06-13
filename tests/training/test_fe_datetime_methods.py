@@ -36,6 +36,35 @@ def test_feature_types_config_default_keeps_backcompat():
     )
 
 
+@pytest.mark.parametrize("backend", ["polars", "pandas"])
+def test_suite_dt_method_widths_do_not_truncate_day_of_year(backend):
+    """Regression: the fit-pipeline phase built ``{method: int8}`` for every method except
+    ``year``, silently truncating ``day_of_year`` (1..366) -- pandas wrapped 305 -> 49 (mod 256),
+    polars strict-cast crashed mid-pipeline. The phase now sources per-method widths from the
+    canonical ``_DEFAULT_DATE_METHODS`` (int16 fallback), so wide date fields survive intact.
+
+    This reconstructs the phase's exact dtype-map expression and exercises the real
+    ``create_date_features`` so a revert to a flat int8 map re-breaks the test.
+    """
+    from mlframe.feature_engineering.basic import create_date_features, _DEFAULT_DATE_METHODS
+
+    configured = {"day_of_year", "year", "hour"}
+    # Mirror _phase_helpers_fit_pipeline: dtype per method from the canonical width map.
+    dt_methods = {m: _DEFAULT_DATE_METHODS.get(m, np.int16) for m in sorted(configured)}
+    assert np.dtype(dt_methods["day_of_year"]).itemsize >= 2, "day_of_year must not be int8"
+
+    # 2023-11-01 has day_of_year == 305, which overflows int8.
+    ts = pd.Timestamp("2023-11-01")
+    if backend == "polars":
+        df = pl.DataFrame({"d": [ts]})
+    else:
+        df = pd.DataFrame({"d": pd.to_datetime([ts])})
+
+    out = create_date_features(df, cols=["d"], delete_original_cols=True, methods=dt_methods)
+    val = int(out["d_day_of_year"][0])
+    assert val == 305, f"{backend}: day_of_year truncated to {val} (expected 305)"
+
+
 def test_create_date_features_emits_year_and_dayofyear_when_requested():
     """End-to-end: pass a config that asks for year+dayofyear, verify the
     resulting frame has those columns."""

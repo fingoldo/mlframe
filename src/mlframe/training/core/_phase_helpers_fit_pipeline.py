@@ -225,12 +225,13 @@ def _phase_fit_pipeline(
             if feature_types_config is not None and getattr(feature_types_config, "datetime_methods", None)
             else {"day", "weekday", "month", "hour"}
         )
-        # ``create_date_features`` expects {accessor: np_dtype}. int8 fits most
-        # cyclical fields; year exceeds int8 range so it needs int32. Pick
-        # dtype per-method so the user doesn't have to know polars dtype rules.
-        _wide_int_methods = {"year"}
+        # ``create_date_features`` expects {accessor: np_dtype}. Per-method width comes from the canonical
+        # ``_DEFAULT_DATE_METHODS`` map so wide fields are never silently truncated: year needs int32, and
+        # day_of_year (1..366) needs int16 -- a flat int8 wraps day_of_year (pandas: silent mod-256; polars:
+        # strict-cast crash mid-pipeline). Unmapped methods default to int16 (covers every date field bar year).
+        from mlframe.feature_engineering.basic import _DEFAULT_DATE_METHODS
         _dt_methods = {
-            m: (np.int32 if m in _wide_int_methods else np.int8)
+            m: _DEFAULT_DATE_METHODS.get(m, np.int16)
             for m in sorted(_configured_methods)
         }
         if verbose:
