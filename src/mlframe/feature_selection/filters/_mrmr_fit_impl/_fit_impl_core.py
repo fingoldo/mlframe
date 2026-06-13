@@ -4182,20 +4182,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_pairwise_modular_fe_with_recipes,
                 )
 
+                from .._fe_accuracy_gate import class_mi_fe_applicable
+
                 _y_for_pm = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
-                # Restrict operands to raw input columns: combining on already-engineered columns yields nested recipes
-                # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
-                _pm_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
-                _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
-                    X, _y_for_pm,
-                    cols=_pm_raw_cols,
-                    top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
-                    seed=int(getattr(self, "random_seed", 0) or 0),
-                    max_int_cols=int(getattr(self, "fe_pairwise_modular_max_int_cols", 30)),
-                    max_triple_cols=int(getattr(self, "fe_pairwise_modular_max_triple_cols", 20)),
-                )
+                # The detector's relevance floor is class-MI; on a continuous (regression/quantile) or 2D (multilabel/multi-target) y
+                # the int64 cast yields inflated-garbage / dead MI -- skip the modular operator cleanly there (see class_mi_fe_applicable).
+                _pm_appended, _pm_recipes = ([], [])
+                if class_mi_fe_applicable(_y_for_pm):
+                    # Restrict operands to raw input columns: combining on already-engineered columns yields nested recipes
+                    # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
+                    _pm_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
+                        X, _y_for_pm,
+                        cols=_pm_raw_cols,
+                        top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                        max_int_cols=int(getattr(self, "fe_pairwise_modular_max_int_cols", 30)),
+                        max_triple_cols=int(getattr(self, "fe_pairwise_modular_max_triple_cols", 20)),
+                    )
                 _pm_appended = [c for c in _pm_appended if c not in X.columns]
                 if _pm_appended:
                     _pm_new = {
@@ -4244,18 +4250,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_integer_lattice_fe_with_recipes,
                 )
 
+                from .._fe_accuracy_gate import class_mi_fe_applicable
+
                 _y_for_il = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
-                # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
-                _il_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
-                _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
-                    X, _y_for_il,
-                    cols=_il_raw_cols,
-                    top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
-                    seed=int(getattr(self, "random_seed", 0) or 0),
-                    max_int_cols=int(getattr(self, "fe_integer_lattice_max_int_cols", 30)),
-                )
+                # Class-MI floor -> skip on continuous / 2D y (see class_mi_fe_applicable), mirroring the modular operator.
+                _il_appended, _il_recipes = ([], [])
+                if class_mi_fe_applicable(_y_for_il):
+                    # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
+                    _il_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
+                        X, _y_for_il,
+                        cols=_il_raw_cols,
+                        top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                        max_int_cols=int(getattr(self, "fe_integer_lattice_max_int_cols", 30)),
+                    )
                 _il_appended = [c for c in _il_appended if c not in X.columns]
                 if _il_appended:
                     _il_new = {
@@ -4304,19 +4315,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_row_argmax_fe_with_recipes,
                 )
 
+                from .._fe_accuracy_gate import class_mi_fe_applicable
+
                 _y_for_am = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
-                # Raw-column operands only (excludes pmod_/il_/orth engineered columns added upstream); combining on already-
-                # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
-                _am_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
-                _am_appended, _am_recipes = hybrid_row_argmax_fe_with_recipes(
-                    X, _y_for_am,
-                    cols=_am_raw_cols,
-                    top_k=int(getattr(self, "fe_row_argmax_top_k", 4)),
-                    seed=int(getattr(self, "random_seed", 0) or 0),
-                    max_cols=int(getattr(self, "fe_row_argmax_max_cols", 30)),
-                )
+                # Class-MI floor -> skip on continuous / 2D y (see class_mi_fe_applicable), mirroring the modular operator.
+                _am_appended, _am_recipes = ([], [])
+                if class_mi_fe_applicable(_y_for_am):
+                    # Raw-column operands only (excludes pmod_/il_/orth engineered columns added upstream); combining on already-
+                    # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
+                    _am_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _am_appended, _am_recipes = hybrid_row_argmax_fe_with_recipes(
+                        X, _y_for_am,
+                        cols=_am_raw_cols,
+                        top_k=int(getattr(self, "fe_row_argmax_top_k", 4)),
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                        max_cols=int(getattr(self, "fe_row_argmax_max_cols", 30)),
+                    )
                 _am_appended = [c for c in _am_appended if c not in X.columns]
                 if _am_appended:
                     _am_new = {
@@ -4363,16 +4379,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_conditional_gate_fe_with_recipes,
                 )
 
-                from .._fe_accuracy_gate import infer_classification
+                from .._fe_accuracy_gate import class_mi_fe_applicable
 
                 _y_for_cg = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
                 # The gate detector's MI floor is class-MI (_mi_classif_batch); on a CONTINUOUS regression target the cast-to-int64
                 # y becomes ~n distinct classes -> the tau-grid + conditional-divergence MI explode (measured: a 600-row regression
-                # fit never completes). The regime-switch operator is a classification construct, so skip it on regression targets.
+                # fit never completes), and on a 2D y the kernel reads a dead signal. Skip cleanly there (class_mi_fe_applicable).
                 _cg_appended, _cg_recipes = ([], [])
-                if infer_classification(_y_for_cg):
+                if class_mi_fe_applicable(_y_for_cg):
                     # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
                     _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(

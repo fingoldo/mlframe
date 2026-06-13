@@ -210,6 +210,50 @@ class TestBizValue:
         )
 
 
+class TestIntegerLatticeTargetTypeRobustness:
+    """gcd/lcm/AND detector gates on class-MI; on continuous (regression/quantile/count) or 2D (multilabel/multi-target) y the int64
+    cast of y is garbage / dead -> the operator MUST clean-skip there (default ON), no crash/hang, no engineered column."""
+
+    def _xy(self, kind, n=600, seed=0):
+        rng = np.random.default_rng(seed)
+        xi = rng.integers(0, 20, size=(n, 4)).astype(float)
+        xf = rng.normal(size=(n, 4))
+        df = pd.DataFrame(np.column_stack([xi, xf]), columns=[f"x{i}" for i in range(8)])
+        score = xf[:, 0] + xf[:, 1]
+        if kind == "regression":
+            y = pd.Series(score + 0.1 * rng.normal(size=n), name="y")
+        elif kind == "quantile":
+            y = pd.Series(score * 1000 + rng.normal(0, 500, size=n), name="y")
+        elif kind == "count":
+            y = pd.Series(rng.poisson(np.exp(0.5 * xf[:, 0] + 0.5 * xf[:, 1])), name="y")
+        elif kind == "multilabel":
+            y = pd.DataFrame(np.column_stack([(xf[:, 0] > 0).astype(int), (xf[:, 1] > 0).astype(int)]), columns=["l0", "l1"])
+        elif kind == "multitarget":
+            y = pd.DataFrame(np.column_stack([xf[:, 0], xf[:, 1]]), columns=["o0", "o1"])
+        else:
+            raise ValueError(kind)
+        return df, y
+
+    @pytest.mark.parametrize("kind", ["regression", "quantile", "count", "multilabel", "multitarget"])
+    def test_integer_lattice_skipped_on_non_classification_target_no_crash_or_hang(self, kind):
+        import time
+        from mlframe.feature_selection.filters.mrmr import MRMR
+
+        df, y = self._xy(kind)
+        m = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
+                 cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
+                 quantization_nbins=10, random_seed=0,
+                 fe_pairwise_modular_enable=False, fe_integer_lattice_enable=True,
+                 fe_row_argmax_enable=False, fe_conditional_gate_enable=False)
+        assert bool(m.fe_integer_lattice_enable) is True
+        t0 = time.time()
+        m.fit(df, y)
+        assert time.time() - t0 < 30.0, f"integer-lattice fit on {kind} exceeded 30s wall (hang-class bug)"
+        assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
+            f"integer-lattice FE must clean-skip on {kind} (class-MI floor undefined on continuous / 2D y)"
+        )
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))

@@ -129,6 +129,21 @@ def infer_classification(y: np.ndarray) -> bool:
     return np.unique(finite).size <= max(20, int(0.02 * finite.size))
 
 
+def class_mi_fe_applicable(y: np.ndarray) -> bool:
+    """True iff the MI-floor FE operators (pairwise-modular, integer-lattice, row-argmax, conditional-gate) can score a candidate against y.
+
+    These detectors gate every candidate on plug-in class-MI (``_mi_classif_batch``), which treats y as raw discrete class labels. On a
+    CONTINUOUS target the int64 cast collapses to ~n distinct classes -> the MI is inflated garbage (a pure-noise column scores >2 nats),
+    the per-call cost balloons, and at high spread the kernel can even segfault; the conditional-gate's tau-grid x conditional-divergence
+    sweep additionally HANGS (the late-caught regression bug). On a 2D y (multilabel / multi-target regression) the kernel cannot consume
+    the label matrix and silently returns 0, so the whole sweep runs on a dead signal. Both are class-MI misuse -> skip the operator cleanly
+    (emit nothing) rather than scan garbage. Applicable only when y is 1D AND classification-shaped (discrete, low-cardinality)."""
+    arr = np.asarray(y)
+    if arr.ndim > 1 and arr.shape[-1] > 1:
+        return False
+    return infer_classification(arr)
+
+
 def keep_engineered_over_source(
     src_vals: np.ndarray,
     eng_mat: np.ndarray,
