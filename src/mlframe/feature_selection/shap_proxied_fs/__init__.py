@@ -32,6 +32,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _DEFAULT_BRUTE_FORCE_MAX_FEATURES, _DEFAULT_BRUTE_FORCE_N_SUB_GATE,
     _DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES, _EXACT_OPTIMIZERS, _HEURISTIC_OPTIMIZERS,
     _resolve_adaptive_prescreen_thresholds, _resolve_adaptive_prescreen_width,
+    _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap,
     _resolve_brute_force_max_features, _resolve_brute_force_n_sub_gate,
     _resolve_cluster_su_auto_max_features,
 )
@@ -80,7 +81,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         parsimony_tol: float = 0.02,
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
-        n_anchors: int = 30,
+        n_anchors: int | str = "auto",
         # ``None`` is the "unset" sentinel that resolves to 0.5 at fit time. A real float (incl. an
         # explicit 0.5) means the user pinned it, so the both-floors-set conflict guard below can
         # detect ``spearman_floor`` + an explicit ``fidelity_floor=0.5`` instead of mistaking the
@@ -118,6 +119,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         beam_width: int = 8,
         brute_force_max_features: int | None = None,
         adaptive_prescreen_by_stability: bool = False,
+        prescreen_ladder_mode: str = "hardcoded",
         use_gpu: bool = False,
         prefilter_top: int | None = 2000,
         prefilter_method: str = "auto",
@@ -238,10 +240,30 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         # anchor disagreement zeros it). trust_guard wall cut is also marginal until n=8: 1.54s (30) ->
         # 1.30s (24) -> 1.22s (16) -> 1.52s (12) -> 0.97s (8); the wall is parallelism-overhead bound,
         # not anchor-count bound, until cardinality drops far enough to shrink the dispatch fan-out.
-        # Keep n_anchors=30: the chosen-subset parity says the gate would still pass at lower anchors,
-        # but the trust SCORE is what downstream consumers (bias corrector, fidelity reporting) read,
-        # and degrading its margin to the floor for a sub-second wall cut is the wrong trade.
+        # ADAPTIVE anchor budget (default ``"auto"``, bench-FLIPPED from fixed 30): the historical
+        # fixed 30 anchors thinly cover a very wide raw feature space, weakening the trust guard exactly
+        # where the proxy is least trustworthy. ``"auto"`` self-tunes n_anchors = clip(round(6*sqrt(p)),
+        # 10, 100) from the RAW input width ``p = n_features_in_`` (resolved at fit time in
+        # _shap_proxied_fit): ~30 at p=25, ceiling 100 for p>=278. bench_shapproxied_adaptive_guards
+        # WIDE majority win (5/6 seeds x {p=2000, p=6000}): proxy_fidelity_score auto>=fixed at 100
+        # anchors -- e.g. p=6000 fid 0.913/0.960/0.974 (auto) vs 0.830/0.907/0.907 (fixed); the one
+        # loss is a near-tie (0.898 vs 0.914). A literal int pins the count (recovers legacy fixed-30
+        # via ``n_anchors=30``). The iter93 note below explains why a fixed small count erodes the trust
+        # SCORE margin -- the adaptive scale lifts the count exactly on the wide frames it was thinnest.
         self.n_anchors = n_anchors
+        # ``prescreen_ladder_mode`` (default ``"hardcoded"``): how the post-OOF prescreen cap narrows.
+        #   - ``"hardcoded"`` (DEFAULT): the legacy stability-table ladder (requires
+        #     ``adaptive_prescreen_by_stability=True`` + OOF to fire; otherwise a no-op).
+        #   - ``"knee"`` (OPT-IN, bench-rejected as default): data-driven -- read the sorted |phi|
+        #     importance distribution and narrow the cap toward the kneedle knee of the cumulative-
+        #     importance curve. Dense-signal keeps the full cap; sparse prunes to the knee. Always runs,
+        #     only ever narrows. REJECTED as default (bench_shapproxied_adaptive_guards): on WIDE DENSE
+        #     frames (p=2000, 30 inf) it over-prunes to the floor and LOSES held-out AUC ~0.04-0.06
+        #     (knee 0.749/0.751/0.762 vs off 0.791/0.798/0.819); on sparse frames it ties. Net loss on
+        #     dense, so not the majority win required to flip the default. Kept recoverable for callers
+        #     who know their signal is sparse.
+        #   - ``"off"``: no narrowing.
+        self.prescreen_ladder_mode = str(prescreen_ladder_mode).lower()
         # ``fidelity_floor`` (iter18, effective default 0.5): below this composite the trust-guard
         # fires LOW. ``None`` is the "unset" sentinel resolved to 0.5 at fit time; storing it raw
         # (no coercion here) keeps the both-floors-set conflict guard able to distinguish an explicit
@@ -958,6 +980,8 @@ __all__ = [
     "_resolve_cluster_su_auto_max_features",
     "_resolve_adaptive_prescreen_thresholds",
     "_resolve_adaptive_prescreen_width",
+    "_resolve_adaptive_n_anchors",
+    "_resolve_knee_prescreen_cap",
     "_DEFAULT_BRUTE_FORCE_MAX_FEATURES",
     "_DEFAULT_BRUTE_FORCE_N_SUB_GATE",
     "_DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES",

@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_adaptive_prescreen_width
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
+    _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap)
 from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
@@ -523,7 +524,15 @@ class ShapProxiedFitMixin:
         # block below so the resolved cap drives that block's keep count.
         effective_brute_force_cap = self.brute_force_max_features
         adaptive_info: Optional[dict] = None
-        if want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
+        ladder_mode = getattr(self, "prescreen_ladder_mode", "knee")
+        if ladder_mode == "knee":
+            # Data-driven ladder: narrow the cap toward the knee of the sorted |phi| importance curve.
+            # Dense-signal frames keep the full cap; sparse frames prune harder. Always runs.
+            importance_full = np.abs(phi).mean(axis=0)
+            effective_brute_force_cap, adaptive_info = _resolve_knee_prescreen_cap(
+                importance_full, default_cap=self.brute_force_max_features)
+            report["adaptive_prescreen"] = adaptive_info
+        elif ladder_mode == "hardcoded" and want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_phi_rank_stability
 
             stability = compute_phi_rank_stability(
@@ -817,10 +826,22 @@ class ShapProxiedFitMixin:
                     DeprecationWarning, stacklevel=2,
                 )
                 effective_floor = self.spearman_floor
+            # Resolve the adaptive anchor budget. ``"auto"`` self-tunes from the RAW input width
+            # ``n_features_in_`` (NOT the post-prefilter phi width): the sparsity problem the lever
+            # targets is "p>> raw features -> 30 anchors thinly cover the space the proxy was asked to
+            # rank". A literal int pins the legacy fixed count.
+            if isinstance(self.n_anchors, str) and self.n_anchors.lower() == "auto":
+                resolved_n_anchors = _resolve_adaptive_n_anchors(int(self.n_features_in_))
+            else:
+                resolved_n_anchors = int(self.n_anchors)
+            report["trust_n_anchors"] = dict(
+                resolved=int(resolved_n_anchors), raw_width=int(self.n_features_in_),
+                search_width=int(phi.shape[1]),
+                mode=("auto" if isinstance(self.n_anchors, str) else "fixed"))
             with _stage("trust_guard"):
                 report["trust"] = proxy_trust_guard(
                     phi, base, y_phi, model_template, X_search, X_hold, y_hold,
-                    n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
+                    n_anchors=resolved_n_anchors, rng=self._rng, min_card=self.min_features,
                     max_card=self.max_features, fidelity_floor=effective_floor,
                     n_estimators_cap=self.trust_guard_n_estimators,
                     unit_f_scores=unit_f_scores,
