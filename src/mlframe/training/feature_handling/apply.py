@@ -462,6 +462,7 @@ def _apply_target_encoder(
         enc = LeakageSafeEncoder(
             method=method,
             smoothing=params.smoothing,
+            woe_smoothing=params.woe_smoothing,
             cv=params.cv,
             prior=params.prior,
             random_state=params.random_state,

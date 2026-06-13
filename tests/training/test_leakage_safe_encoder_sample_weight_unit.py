@@ -82,7 +82,8 @@ def test_woe_weighted_pos_neg_mass():
     n_neg_a = float(sw[a_mask & (y == 0.0)].sum())
     total_pos = float(sw[y == 1.0].sum())
     total_neg = float(sw[y == 0.0].sum())
-    expected_p = (n_pos_a + enc.smoothing) / (total_pos + enc.smoothing)
-    expected_q = (n_neg_a + enc.smoothing) / (total_neg + enc.smoothing)
+    a = enc.woe_smoothing  # WoE Laplace alpha is its own knob (default 0.5), not the mean smoothing
+    expected_p = (n_pos_a + a) / (total_pos + a)
+    expected_q = (n_neg_a + a) / (total_neg + a)
     np.testing.assert_allclose(enc._woe_pos["a"], expected_p, rtol=1e-10)
     np.testing.assert_allclose(enc._woe_neg["a"], expected_q, rtol=1e-10)

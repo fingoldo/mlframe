@@ -335,8 +335,15 @@ class LeakageSafeEncoder:
         identical to ``target_mean`` so we treat them interchangeably
         with a different default ``smoothing``.
     smoothing : float
-        Regularisation toward the prior. Higher -> rare categories
-        encoded closer to the prior.
+        Regularisation toward the prior for the MEAN encoders
+        (target_mean / m_estimate / james_stein / loo). Higher -> rare
+        categories encoded closer to the prior.
+    woe_smoothing : Optional[float]
+        Laplace alpha for the ``woe`` method only (added to pos/neg cell
+        mass). ``None`` -> 0.5 (Jeffreys-style cushion). Separate from
+        ``smoothing`` because WoE log-odds need only a tiny cushion: a
+        large alpha pulls every category toward 0 and destroys signal on
+        rare / high-card / imbalanced data.
     cv : int
         K-fold count for OOF estimation (default 5). Higher reduces
         leak risk further but increases compute.
@@ -361,6 +368,7 @@ class LeakageSafeEncoder:
             "target_james_stein", "target_loo", "woe",
         ] = "target_mean",
         smoothing: float = 10.0,
+        woe_smoothing: Optional[float] = None,
         cv: int = 5,
         prior: Literal["mean", "median"] = "mean",
         random_state: Optional[int] = None,
@@ -380,8 +388,17 @@ class LeakageSafeEncoder:
         if smoothing < 0:
             raise ValueError(f"smoothing must be >= 0, got {smoothing}")
 
+        if woe_smoothing is not None and woe_smoothing < 0:
+            raise ValueError(f"woe_smoothing must be >= 0, got {woe_smoothing}")
+
         self.method = method
         self.smoothing = smoothing
+        # WoE Laplace alpha is a separate knob from the mean-encoder smoothing: a mean
+        # encoder wants strong shrinkage (10) toward the prior, but the WoE log-odds need
+        # only a tiny Laplace cushion (0.5) -- a large alpha pulls every category's WoE
+        # toward 0 and destroys real signal on rare/high-card/imbalanced data (bench:
+        # _benchmarks/bench_woe_laplace_alpha.py, 0.5 wins 9/15 cells, +0.06 AUC on 1pct).
+        self.woe_smoothing = 0.5 if woe_smoothing is None else woe_smoothing
         self.cv = cv
         self.prior = prior
         self.random_state = 42 if random_state is None else random_state
@@ -611,8 +628,9 @@ class LeakageSafeEncoder:
                 neg_w = np.where(neg_mask, sample_weight, 0.0)
             pos_counts_arr = np.bincount(codes, weights=pos_w, minlength=K)
             neg_counts_arr = np.bincount(codes, weights=neg_w, minlength=K)
-            p_arr = (pos_counts_arr + self.smoothing) / (n_pos + self.smoothing)
-            q_arr = (neg_counts_arr + self.smoothing) / (n_neg + self.smoothing)
+            a = self.woe_smoothing
+            p_arr = (pos_counts_arr + a) / (n_pos + a)
+            q_arr = (neg_counts_arr + a) / (n_neg + a)
             woe_pos = {str(u): float(p) for u, p in zip(uniq, p_arr)}
             woe_neg = {str(u): float(q) for u, q in zip(uniq, q_arr)}
             return woe_pos, woe_neg
@@ -640,9 +658,10 @@ class LeakageSafeEncoder:
         all_cats = set(pos_counts) | set(neg_counts)
         woe_pos = {}
         woe_neg = {}
+        a = self.woe_smoothing
         for c in all_cats:
-            p = (pos_counts.get(c, 0.0) + self.smoothing) / (n_pos + self.smoothing)
-            q = (neg_counts.get(c, 0.0) + self.smoothing) / (n_neg + self.smoothing)
+            p = (pos_counts.get(c, 0.0) + a) / (n_pos + a)
+            q = (neg_counts.get(c, 0.0) + a) / (n_neg + a)
             woe_pos[c] = p
             woe_neg[c] = q
         return woe_pos, woe_neg
@@ -790,7 +809,8 @@ class LeakageSafeEncoder:
     def __repr__(self) -> str:
         return (
             f"LeakageSafeEncoder(method={self.method!r}, smoothing={self.smoothing}, "
-            f"cv={self.cv}, prior={self.prior!r}, fitted={self._is_fitted})"
+            f"woe_smoothing={self.woe_smoothing}, cv={self.cv}, prior={self.prior!r}, "
+            f"fitted={self._is_fitted})"
         )
 
 

@@ -113,6 +113,7 @@ class TargetEncodeParams(BaseModel):
         "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe"
     ]
     smoothing: float = 10.0
+    woe_smoothing: Optional[float] = None
     cv: int = 5
     prior: Literal["mean", "median"] = "mean"
     random_state: Optional[int] = None
