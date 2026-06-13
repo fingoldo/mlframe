@@ -229,6 +229,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     outlier_detector = _outlier_detector_for_combo(combo)
     custom_pre = _custom_pre_pipelines_for_combo(combo)
 
+    # Chart/report rendering: mirror the canonical_key gate (small n_rows tier only) so the suite call below renders charts exactly on the
+    # combos whose identity reflects rendering-on. Force the matplotlib Agg backend so the figure path runs without a display (headless box).
+    _viz_on = bool(combo.enable_viz_rendering_cfg) and combo.n_rows <= 1000
+    if _viz_on:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+
     from mlframe.training.core import train_mlframe_models_suite
 
     # LTR combos: filter mlframe_models to {cb,xgb,lgb} (HGB/Linear have
@@ -524,16 +531,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     pre_screen_variance_threshold=combo.fs_pre_screen_variance_threshold_cfg,
                 ),
             ),
-            # save_charts=False / show_perf_chart=False / show_fi=False:
-            # the fuzz suite runs ~150 combos × ~5 charts per combo. Each
-            # matplotlib figure leaks ~1-2 MB through plt.savefig + tight_-
-            # layout warnings. Across the run that compounds to >2 GB and
-            # blows up pytest's traceback formatter (``MemoryError: bad
-            # allocation`` / pytest INTERNALERROR observed 2026-04-27).
-            # We never look at the artefacts in fuzz; turn them off.
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False),
+            # Chart rendering is OFF by default (the ~150-combo × ~5-fig run compounds to >2 GB and historically blew up pytest's traceback
+            # formatter with MemoryError / INTERNALERROR, 2026-04-27). The enable_viz_rendering_cfg axis turns it ON for a gated subset (small
+            # n_rows tier only, see canonical_key) so the chart/report-generation code (perf chart, FI, calibration/reliability, slice_finder,
+            # model_card, decision_curve, pdp_ice, shap_panels, model_comparison, risk_coverage) actually executes and is fuzz-exercised. The
+            # matplotlib Agg backend is forced below so a headless box renders without a display; _fuzz_combo_cleanup plt.close("all")s per combo.
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=_viz_on),
             reporting_config=ReportingConfig(
-                show_perf_chart=False, show_fi=False,
+                show_perf_chart=_viz_on, show_fi=_viz_on,
                 # iter162: nested ReportingConfig fields. matplotlib_rcparams
                 # parsed from JSON-string axis value (so the axis dict stays
                 # hashable for canonical_key).

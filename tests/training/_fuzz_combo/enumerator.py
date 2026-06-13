@@ -280,6 +280,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         fhc_text_min_alphabet_entropy_cfg=axes.get("fhc_text_min_alphabet_entropy_cfg", 4.5),
         fhc_repro_deterministic_torch_cfg=axes.get("fhc_repro_deterministic_torch_cfg", False),
         fhc_auto_locale_detection_cfg=axes.get("fhc_auto_locale_detection_cfg", "fallback_only"),
+        enable_viz_rendering_cfg=axes.get("enable_viz_rendering_cfg", False),
         reporting_prob_histogram_yscale_cfg=axes.get("reporting_prob_histogram_yscale_cfg", "auto"),
         reporting_title_metrics_template_cfg=axes.get(
             "reporting_title_metrics_template_cfg",

@@ -533,6 +533,15 @@ AXES: dict[str, tuple[Any, ...]] = {
     "fhc_text_min_alphabet_entropy_cfg": (4.5, 3.0),
     "fhc_repro_deterministic_torch_cfg": (False, True),
     "fhc_auto_locale_detection_cfg": ("fallback_only", "off", "always"),
+    # 2026-06-14 -- chart/report RENDERING path. Every reporting axis above tunes ReportingConfig FIELDS, but the fuzz runner hardcoded
+    # show_perf_chart=False / show_fi=False / save_charts=False, so the actual matplotlib figure-generation code (perf chart, FI plot,
+    # calibration/reliability panels, slice_finder, model_card, decision_curve, pdp_ice, shap_panels, model_comparison, risk_coverage, ...)
+    # was NEVER invoked by any combo -- a large untested surface where iters 54-63 historically found perf bugs/hotspots. When True the runner
+    # forces the matplotlib Agg backend (no display) + save_charts=True + show_perf_chart=True + show_fi=True so the rendering code executes and
+    # is caught by the post-train invariants. The autouse _fuzz_combo_cleanup fixture already plt.close("all")s after every combo, so leaked
+    # figures don't compound. Canonicalised to False on the large n_rows tier (rendering ~5 figs/combo × 200k-row scores is the memory blow-up
+    # that motivated the original hardcoded-off) -- the small (1000-row) tier carries the rendering coverage cheaply.
+    "enable_viz_rendering_cfg": (False, True),
     # --- ReportingConfig nested DSL / matplotlib
     "reporting_prob_histogram_yscale_cfg": ("auto", "log", "linear"),
     "reporting_title_metrics_template_cfg": (

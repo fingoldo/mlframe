@@ -207,6 +207,7 @@ class FuzzCombo:
     fhc_text_min_alphabet_entropy_cfg: float = 4.5
     fhc_repro_deterministic_torch_cfg: bool = False
     fhc_auto_locale_detection_cfg: str = "fallback_only"
+    enable_viz_rendering_cfg: bool = False
     reporting_prob_histogram_yscale_cfg: str = "auto"
     reporting_title_metrics_template_cfg: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC"
     reporting_matplotlib_rcparams_cfg: "str | None" = None
@@ -2597,6 +2598,9 @@ class FuzzCombo:
             # doesn't waste combos on a no-op axis.
             self.mlp_use_learnable_cat_embeddings_cfg if (self.cat_feature_count > 0 and _has_neural) else True,
             self.mlp_categorical_embed_dim_cfg if (self.cat_feature_count > 0 and _has_neural and self.mlp_use_learnable_cat_embeddings_cfg) else None,
+            # Chart/report RENDERING toggle. Canon to False on the large n_rows tier: rendering ~5 figures per combo against 200k-row scores is
+            # the memory blow-up the runner originally hardcoded show/save off to avoid; the small tier carries the rendering coverage cheaply.
+            self.enable_viz_rendering_cfg if self.n_rows <= 1000 else False,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
