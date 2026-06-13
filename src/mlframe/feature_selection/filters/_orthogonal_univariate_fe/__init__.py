@@ -471,7 +471,11 @@ def generate_univariate_basis_features(
             continue
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
-            x = np.where(finite_mask, x, np.nanmean(x[finite_mask]) if finite_mask.any() else 0.0)
+            # An orthogonal-polynomial basis over a NaN-containing column is unsound: the recipe replay path does NOT impute (NaN in -> NaN out, so
+            # transform() emits an all-NaN engineered column), and fit-time the nanmean-imputed basis becomes a MISSINGNESS PROXY whose binned MI ties /
+            # beats the genuine missingness-FE columns (is_missing__/missingness_pattern), displacing them from MRMR selection. Skip the column; the
+            # missingness signal belongs to the dedicated missingness-FE family, not to a non-replayable mean-imputed polynomial.
+            continue
         aux_col = None
         if _aux_pool is not None and col in _aux_pool:
             aux_col = _aux_pool[col]

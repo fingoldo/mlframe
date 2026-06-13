@@ -78,15 +78,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # categorize path that is active when the harness sets CUDA_PATH) cannot erase the NaN before the candidate
     # scan and defeat the guard.
     _include_numeric_input_nan_cols = set()
+    # Per-column boolean NaN mask snapshot at fit entry, before any in-place impute (the include_numeric / binned_numeric_agg cat-FE path GPU-categorizes
+    # and imputes X in place when CUDA_PATH is set). The missingness-FE family (is_missing__/missingness_count/missingness_pattern) derives its signal
+    # from where the input was NaN; it runs AFTER that impute, so it must read this snapshot, not the live (now-finite) X, or the signal is silently erased.
+    _fit_entry_nan_mask = {}
     if hasattr(X, "columns"):
         for _c in list(X.columns):
             try:
                 _cv = X[_c]
-                _cv = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=np.float64)
+                _cv_np = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=np.float64)
             except (ValueError, TypeError):
                 continue
-            if not np.isfinite(_cv).all():
+            _nan_mask_c = ~np.isfinite(_cv_np)
+            if _nan_mask_c.any():
                 _include_numeric_input_nan_cols.add(_c)
+                _fit_entry_nan_mask[_c] = _nan_mask_c
     X = self._validate_inputs(X, y)
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -3308,6 +3314,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 missingness_pattern_with_recipes,
             )
             from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+            # Restore the fit-entry NaN positions on the snapshot columns before deriving missingness encodings. An earlier include_numeric /
+            # binned_numeric_agg cat-FE stage GPU-categorizes and imputes X in place (when CUDA_PATH is set), which erases the very NaNs the
+            # missingness-FE family encodes -- is_missing__ would be all-zeros and missingness_pattern would collapse to a single pattern. The raw
+            # NaNs are the user's input; MRMR's nan_strategy='separate_bin' scorer handles them downstream, so reinstating them here is correct, not a hack.
+            if _fit_entry_nan_mask:
+                for _mc, _mask in _fit_entry_nan_mask.items():
+                    if _mc in X.columns and len(_mask) == len(X):
+                        _col_now = X[_mc]
+                        if not _col_now.isna().to_numpy().any():
+                            _restored = _col_now.to_numpy().astype(np.float64, copy=True)
+                            _restored[_mask] = np.nan
+                            X[_mc] = _restored
 
             # W6 follow-up: missingness-indicator family's unified local-MI
             # abs-MAD floor kills (pure-record; selection byte-identical).

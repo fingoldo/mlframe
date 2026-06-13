@@ -401,6 +401,42 @@ class TestMRMRSelectsMissingnessPattern:
         )
 
 
+class TestMissingnessSurvivesInPlaceImpute:
+    """Regression: a default-ON cat-FE family (binned_numeric_agg / include_numeric) GPU-categorizes and imputes X
+    in place BEFORE the missingness-FE stage runs. Pre-fix, the indicator/pattern then read the (now-finite) X and
+    silently emitted an all-zero / single-pattern column carrying no signal, so the genuine MNAR/pattern feature
+    never entered support. The fit-entry NaN-mask snapshot must reinstate the original NaNs so the encoding survives.
+    Also pins that auto basis-FE (Hermite/Fourier/hinge/wavelet) over a NaN column does not manufacture a
+    missingness PROXY that displaces the dedicated missingness feature."""
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_indicator_survives_binned_numeric_agg_inplace_impute(self, seed: int):
+        X, y = _build_mnar_indicator_signal(seed)
+        sel = _make_mrmr(
+            fe_missingness_indicator_enable=True,
+            fe_missingness_indicator_cols=("credit_history",),
+            fe_binned_numeric_agg_enable=True,
+        ).fit(X, y)
+        names = list(sel.get_feature_names_out())
+        assert "is_missing__credit_history" in names, (
+            f"is_missing__credit_history must survive the in-place impute of an earlier cat-FE stage; got {names}"
+        )
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_pattern_survives_binned_numeric_agg_inplace_impute(self, seed: int):
+        X, y = _build_missing_pattern_signal(seed)
+        sel = _make_mrmr(
+            fe_missingness_pattern_enable=True,
+            fe_missingness_indicator_cols=("field_a", "field_b", "field_c"),
+            fe_missingness_pattern_top_k=4,
+            fe_binned_numeric_agg_enable=True,
+        ).fit(X, y)
+        names = list(sel.get_feature_names_out())
+        assert "missingness_pattern" in names, (
+            f"missingness_pattern must survive the in-place impute of an earlier cat-FE stage; got {names}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Leakage: recipe replay reads only X (no y)
 # ---------------------------------------------------------------------------

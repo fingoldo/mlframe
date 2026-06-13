@@ -417,7 +417,10 @@ def generate_wavelet_features(
         if not finite_mask.any():
             continue
         if not finite_mask.all():
-            x = np.where(finite_mask, x, float(np.nanmean(x[finite_mask])))
+            # A wavelet basis over a NaN column is unsound: the nanmean-imputed wavelet becomes a missingness proxy that displaces the genuine
+            # missingness-FE columns, and the recipe replay does not impute (transform() emits all-NaN). Skip; the missingness signal belongs to the
+            # dedicated missingness-FE family.
+            continue
         xf = x[np.isfinite(x)]
         lo = float(xf.min())
         hi = float(xf.max())

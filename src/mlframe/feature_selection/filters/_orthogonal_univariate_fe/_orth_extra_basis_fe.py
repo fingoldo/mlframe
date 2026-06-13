@@ -718,7 +718,10 @@ def generate_extra_basis_features(
         if not finite_mask.any():
             continue
         if not finite_mask.all():
-            x = np.where(finite_mask, x, float(np.nanmean(x[finite_mask])))
+            # A Fourier/spline/chirp basis over a NaN-containing column is unsound: the nanmean-imputed basis becomes a MISSINGNESS PROXY (its binned
+            # MI ties / beats the genuine missingness-FE columns and displaces them from MRMR selection) AND the recipe replay does not impute
+            # (transform() emits all-NaN). Skip; the missingness signal belongs to the dedicated missingness-FE family.
+            continue
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
         _adaptive_fe_ok = True
         if _y_adapt is not None and (fourier_adaptive or fourier_chirp):

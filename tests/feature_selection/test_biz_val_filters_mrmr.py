@@ -696,7 +696,13 @@ def test_biz_val_mrmr_interactions_min_max_order_range(interactions_min, interac
         interactions_max_order=interactions_max,
     )
     sel.fit(df, ys)
-    assert 1 <= len(sel.support_) <= df.shape[1]
+    # ``support_`` holds RAW column indices only; engineered features (e.g. order-2 binagg/interaction columns) live in the get_feature_names_out
+    # surface, not in support_. With interactions_min_order>=2 the order-1 raw features are excluded from selection BY DESIGN, so the fit legitimately
+    # returns an engineered-only support (empty raw support_). The contract this sensor pins is "the combination completes and yields >=1 selected
+    # feature", so assert on the full selected surface, not the raw-only subset.
+    n_selected = len(list(sel.get_feature_names_out()))
+    assert 1 <= n_selected
+    assert len(sel.support_) <= df.shape[1]
 
 
 @pytest.mark.parametrize("factors_names_subset", [
@@ -1288,9 +1294,16 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
     recency_w = np.where(is_recent, 1.0, 0.0001)
 
     def _top1_with_weights(sw):
-        # Gate FE off: this test measures the sample_weight -> top-1 flip on the RAW features (A vs B); the default-ON
-        # conditional-gate operator injects an engineered column that perturbs the uniform-weight top-1, masking the flip.
-        sel = MRMR(verbose=0, random_seed=11, max_runtime_mins=1.0, fe_conditional_gate_enable=False)
+        # Gate FE off: this test measures the sample_weight -> top-1 flip on the RAW features (A vs B). Any default-ON FE family that engineers a
+        # column out of A and B (the conditional-gate operator, binned_numeric_agg's ``binagg(A|qbin(B))``, k-fold target encoding) reorders the raw
+        # relevance ranking and pulls the uniform-weight top-1 to A, masking the older-regime B-edges-A signal the flip relies on. Disable them so the
+        # sensor isolates the weight -> raw-feature mechanism it is meant to pin; these families are measured-better defaults elsewhere, just orthogonal here.
+        sel = MRMR(
+            verbose=0, random_seed=11, max_runtime_mins=1.0,
+            fe_conditional_gate_enable=False,
+            fe_binned_numeric_agg_enable=False,
+            fe_kfold_te_enable=False,
+        )
         sel.fit(df, ys, sample_weight=sw)
         if len(sel.support_) == 0:
             return None

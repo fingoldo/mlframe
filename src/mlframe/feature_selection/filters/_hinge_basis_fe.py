@@ -415,7 +415,9 @@ def generate_hinge_features(
         if not finite_mask.any():
             continue
         if not finite_mask.all():
-            x = np.where(finite_mask, x, float(np.nanmean(x[finite_mask])))
+            # A hinge basis over a NaN column is unsound: the nanmean-imputed hinge becomes a missingness proxy that displaces the genuine missingness-FE
+            # columns, and the recipe replay does not impute (transform() emits all-NaN). Skip; the missingness signal belongs to the missingness-FE family.
+            continue
         try:
             taus = _detect_hinge_breakpoints(
                 x, y_arr, max_breakpoints=max_breakpoints,
