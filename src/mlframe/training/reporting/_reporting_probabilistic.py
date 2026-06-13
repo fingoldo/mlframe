@@ -797,12 +797,28 @@ def report_probabilistic_model_perf(
             # diagnosed at the call site instead of silently dropped.
             logger.debug("multilabel metrics registry skipped: %s", e)
 
+    # Binary positive-class indicator (0/1) for the fairness + calibration-chart paths.
+    # Those consumers (fast_roc_auc, ECE binning) assume y_true is a 0/1 indicator;
+    # the raw ``targets`` may carry non-0/1 binary labels (e.g. {1,2} or strings),
+    # which silently inverts / NaNs the AUC and corrupts ECE base rates. Map once to
+    # the positive class (column 1 of probs == classes[1] by sklearn convention).
+    _y_true_pos_bin = None
+    if probs is not None and probs.shape[1] == 2:
+        _pos_label = classes[1] if classes is not None and len(classes) > 1 else 1
+        _y_true_pos_bin = (np.asarray(targets) == _pos_label).astype(np.int8)
+
     if subgroups:
         subgroups_metrics = {"ICE": custom_ice_metric}
         metrics_higher_is_better = {"ICE": False}
 
         if probs.shape[1] == 2:
-            subgroups_metrics["ROC AUC"] = fast_roc_auc
+
+            def _fair_roc_auc(y_true, y_pred):
+                y_bin = (np.asarray(y_true) == _pos_label).astype(np.int8)
+                y_score = y_pred[:, 1] if getattr(y_pred, "ndim", 1) == 2 else y_pred
+                return fast_roc_auc(y_bin, y_score)
+
+            subgroups_metrics["ROC AUC"] = _fair_roc_auc
             metrics_higher_is_better["ROC AUC"] = True
 
         with phase("compute_fairness_metrics"):
@@ -825,7 +841,7 @@ def report_probabilistic_model_perf(
         # plot DSL is active; a no-op for multiclass / when no plot dir is configured.
         if fairness_calibration_charts and plot_file and probs.shape[1] == 2:
             _render_fairness_calibration(
-                subgroups=subgroups, subset_index=subset_index, y_true=targets, pos_score=probs[:, 1],
+                subgroups=subgroups, subset_index=subset_index, y_true=_y_true_pos_bin, pos_score=probs[:, 1],
                 plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
             )
 
@@ -834,7 +850,7 @@ def report_probabilistic_model_perf(
     # top-importance feature(s) for binary targets. Default-ON when charts are saved AND a feature frame is present.
     if calibration_by_feature_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
         _render_calibration_by_feature(
-            df=df, columns=columns, model=model, y_true=targets, pos_score=probs[:, 1],
+            df=df, columns=columns, model=model, y_true=_y_true_pos_bin, pos_score=probs[:, 1],
             plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
         )
 
@@ -842,7 +858,7 @@ def report_probabilistic_model_perf(
     # AND high f1) that either 1D per-feature view averages away. Render the ECE grid for the top-2-importance pair.
     if calibration_heatmap_2d_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
         _render_calibration_heatmap_2d(
-            df=df, columns=columns, model=model, y_true=targets, pos_score=probs[:, 1],
+            df=df, columns=columns, model=model, y_true=_y_true_pos_bin, pos_score=probs[:, 1],
             plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
         )
 
