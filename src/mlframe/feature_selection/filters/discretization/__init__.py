@@ -371,12 +371,24 @@ def categorize_1d_array(
 
 @njit(cache=True)
 def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
+    # Values above the last edge (e.g. a transform-time row exceeding the
+    # fit-time max) must clamp to the top bin. Pre-fix the inner break never
+    # fired for ``val > bins[-1]``, leaving ``res[i]`` at its uninitialised
+    # ``np.empty`` value -> garbage codes (run-to-run nondeterministic). The
+    # sibling ``quantize_search`` correctly routes out-of-range high values
+    # to the top bin; match that contract here.
+    n_bins = len(bins)
+    last = n_bins - 1
     res = np.empty(len(arr), dtype=dtype)
     for i, val in enumerate(arr):
+        assigned = False
         for j, bin_edge in enumerate(bins):
             if val <= bin_edge:
                 res[i] = j
+                assigned = True
                 break
+        if not assigned:
+            res[i] = last
     return res
 
 
@@ -432,6 +444,13 @@ def discretize_array(
     if method not in ("uniform", "quantile"):
         raise ValueError(f"Unsupported discretization method: '{method}'. Supported methods: 'uniform', 'quantile'")
     dtype = _safe_code_dtype(n_bins, dtype)  # widen so n_bins>128 codes don't wrap negative
+    arr = np.asarray(arr)
+    if arr.size == 0:
+        # Empty input: the uniform sibling already returns an empty array; the
+        # quantile path used to raise an opaque IndexError from
+        # ``np.nanpercentile([])`` slicing. Return an empty result for both so
+        # siblings agree on the degenerate-input contract.
+        return np.empty(0, dtype=dtype)
     if method == "uniform":
         return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
     # quantile path -- raw numpy.
