@@ -192,6 +192,15 @@ def usability_greedy(
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
 
+    # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
+    # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000
+    # IDENTICAL (0.0554 per-seed -- the design is never singular here, K<=8 features vs folds of 1000s
+    # of rows), n=500 marginally WORSE (0.0670 -> 0.0672). The singular regime needs per-fold rows <
+    # selected-feature count, which cannot happen given the shortlist + the small K, so Ridge buys
+    # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
+    def _mk():
+        return make_pipeline(StandardScaler(), LinearRegression())
+
     if not pool:
         return []
     y_cont = _scrub(y_cont)
@@ -225,7 +234,7 @@ def usability_greedy(
         errs = []
         for fo in range(n_folds):
             trm, vam = folds != fo, folds == fo
-            m = make_pipeline(StandardScaler(), LinearRegression()).fit(Xs[trm], y_cont[trm])
+            m = _mk().fit(Xs[trm], y_cont[trm])
             errs.append(float(np.mean(np.abs(y_cont[vam] - m.predict(Xs[vam])))))
         return np.asarray(errs, dtype=np.float64)
 
@@ -240,7 +249,7 @@ def usability_greedy(
             Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
             ho = folds == 0
             tr = ~ho
-            m = make_pipeline(StandardScaler(), LinearRegression()).fit(Xs[tr], y_cont[tr])
+            m = _mk().fit(Xs[tr], y_cont[tr])
             resid = y_cont[ho] - m.predict(Xs[ho])
             rows = ho
         else:
