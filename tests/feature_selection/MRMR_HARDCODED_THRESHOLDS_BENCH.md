@@ -121,7 +121,16 @@ gates can be migrated safely. Each conversion is benched BOTH directions (does i
    prevalence "auto" (mean 1.5=0.162 vs auto=0.127, ~22% data-averaged win, no-harm additive), since
    both route through the same debiased comparison. Shipped OPT-IN; explicit float byte-identical. Test
    `test_adaptive_prevalence.py::test_auto_synergy_prevalence_runs_and_no_harm_additive`.
-3. `fe_escalation_pairness_margin` (HIGH, 5.7%) -- fold-adaptive null margin.
+3. `fe_escalation_pairness_margin` (HIGH, 5.7%) -- DEFERRED with rationale (honest no-fix, not a no-op
+   "auto"). The gate is `pair_heldout_corr < margin * single_best_heldout_corr` inside `_propose_poly`
+   (the orth-poly ALS) -- a ratio of TWO held-out CORRELATIONS, not an MI with a clean finite-sample
+   bias. Under shuffled y both corrs collapse to a noisy ~0 floor, so the RATIO null is ill-defined
+   (small/small) -- there is no principled cheap data-derived margin analogous to the prevalence MM
+   debias. A real permutation-null would require re-running the COSTLY ALS proposer under shuffled y,
+   and the bench shows this gate is only weakly sensitive (5.7% max spread) AND low-prevalence (the
+   escalation path fires rarely). So the cost/benefit does not justify the deep ALS-internal null;
+   the fixed 1.15 (already the per-archetype optimum in the bench) is kept. Revisit only if a future
+   workload shows the escalation path binding hard with a shifted optimum.
 4. `fe_stability_vote_k` (MED) -- DONE: `resolve_adaptive_vote_k` (`_fe_stability_vote.py`) accepts
    `"auto"` = n-floored guarded K (== 5 for n>=500, downward only for tiny n; explicit int incl. the
    default 5 honoured verbatim -> byte-identical). Opt-in until a tiny-n bench confirms default-on.
