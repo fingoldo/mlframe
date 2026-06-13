@@ -1,0 +1,57 @@
+{
+  "generated": "2026-06-13T09:20:55.275846",
+  "nbins": 12,
+  "total_s": 0.28638379997573793,
+  "rows": [
+    {
+      "target": "gcd_shared_factor",
+      "proto_mi": 0.4713,
+      "best_existing_mi": 0.0676,
+      "lift": 6.969,
+      "n_hits": 2,
+      "top_hit": "gcd",
+      "scan_s": 0.145,
+      "verdict": "GENUINE-EDGE"
+    },
+    {
+      "target": "bitwise_xor_lowbits",
+      "proto_mi": 0.0312,
+      "best_existing_mi": 0.3305,
+      "lift": 0.094,
+      "n_hits": 0,
+      "top_hit": null,
+      "scan_s": 0.003,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "bitwise_and_flag",
+      "proto_mi": 0.5388,
+      "best_existing_mi": 0.439,
+      "lift": 1.227,
+      "n_hits": 3,
+      "top_hit": "and",
+      "scan_s": 0.02,
+      "verdict": "GENUINE-EDGE"
+    },
+    {
+      "target": "control_smooth_monotone",
+      "proto_mi": 0.2469,
+      "best_existing_mi": 0.5447,
+      "lift": 0.453,
+      "n_hits": 0,
+      "top_hit": null,
+      "scan_s": 0.003,
+      "verdict": "SPECIFIC-OK"
+    },
+    {
+      "target": "control_noise",
+      "proto_mi": 0.0107,
+      "best_existing_mi": 0.0129,
+      "lift": 0.833,
+      "n_hits": 0,
+      "top_hit": null,
+      "scan_s": 0.003,
+      "verdict": "SPECIFIC-OK"
+    }
+  ]
+}

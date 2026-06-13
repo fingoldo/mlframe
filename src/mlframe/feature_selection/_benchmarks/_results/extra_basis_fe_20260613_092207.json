@@ -1,0 +1,79 @@
+{
+  "generated": "2026-06-13T09:22:07.130529",
+  "degree": 8,
+  "rows": [
+    {
+      "target": "bounded_saturation",
+      "family": "bernstein",
+      "family_mi": 0.6819,
+      "best_existing_mi": 0.6819,
+      "lift": 1.0,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "bounded_saturation",
+      "family": "jacobi",
+      "family_mi": 0.6819,
+      "best_existing_mi": 0.6819,
+      "lift": 1.0,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "bounded_saturation",
+      "family": "gegenbauer",
+      "family_mi": 0.6819,
+      "best_existing_mi": 0.6819,
+      "lift": 1.0,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "smooth_poly",
+      "family": "bernstein",
+      "family_mi": 0.6544,
+      "best_existing_mi": 0.6672,
+      "lift": 0.981,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "smooth_poly",
+      "family": "jacobi",
+      "family_mi": 0.6544,
+      "best_existing_mi": 0.6672,
+      "lift": 0.981,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "smooth_poly",
+      "family": "gegenbauer",
+      "family_mi": 0.6544,
+      "best_existing_mi": 0.6672,
+      "lift": 0.981,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "endpoint_monotone",
+      "family": "bernstein",
+      "family_mi": 0.6819,
+      "best_existing_mi": 0.6819,
+      "lift": 1.0,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "endpoint_monotone",
+      "family": "jacobi",
+      "family_mi": 0.6819,
+      "best_existing_mi": 0.6819,
+      "lift": 1.0,
+      "verdict": "REDUNDANT"
+    },
+    {
+      "target": "endpoint_monotone",
+      "family": "gegenbauer",
+      "family_mi": 0.6819,
+      "best_existing_mi": 0.6819,
+      "lift": 1.0,
+      "verdict": "REDUNDANT"
+    }
+  ],
+  "total_s": 0.30684739991556853
+}
