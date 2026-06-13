@@ -838,8 +838,23 @@ def check_prospective_fe_pairs(
                     min_nonzero_confidence=fe_min_nonzero_confidence, npermutations=fe_npermutations,
                 )
                 _mi_val = float(_m)
-            except Exception:
-                _mi_val = 0.0
+            except Exception as _mm_exc:
+                # FAIL-CLOSED (audit A3, 2026-06-13): the previous ``0.0`` was FAIL-OPEN -- it fed
+                # the marginal-uplift gate's ``max(operand marginals)``, so a FAILED marginal on the
+                # operand that actually has the LARGER marginal would shrink that max and LOOSEN the
+                # admission bar (``best_nonprewarp_mi >= max_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO``),
+                # wrongly admitting a feature whose uplift was never validated. Return +inf instead so
+                # an UNKNOWN marginal can only TIGHTEN the gate (the pair fails the uplift fallback and
+                # is dropped-on-uncertainty); it can still be admitted by the joint/prewarp gates, which
+                # do not use this marginal. The whole-pair both-operand-fail case was already
+                # fail-closed via the ``_max_operand_marginal > 0.0`` guard.
+                if verbose:
+                    logger.warning(
+                        "MRMR FE: operand %s marginal-MI computation failed (%s); failing the "
+                        "marginal-uplift gate CLOSED (+inf) so it cannot loosen admission.",
+                        _var, type(_mm_exc).__name__,
+                    )
+                _mi_val = float("inf")
         _operand_marginal_mi_cache[_var] = _mi_val
         return _mi_val
 
