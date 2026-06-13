@@ -62,7 +62,9 @@ def resolve_adaptive_vote_k(k_param: Any, n_rows: int, *, min_rows_per_fold: int
     only when the data cannot sustain 5 reliable folds.
     """
     if isinstance(k_param, str) and k_param.strip().lower() == "auto":
-        return int(min(5, max(2, int(n_rows) // int(min_rows_per_fold))))
+        # guard a degenerate min_rows_per_fold (public param) against div-by-zero.
+        _rpf = max(1, int(min_rows_per_fold))
+        return int(min(5, max(2, int(n_rows) // _rpf)))
     return int(k_param)
 
 

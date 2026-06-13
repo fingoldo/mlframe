@@ -42,3 +42,10 @@ def test_min_rows_per_fold_override():
     # a stricter per-fold floor reduces K sooner (needs more rows to sustain 5 folds).
     assert resolve_adaptive_vote_k("auto", 1000, min_rows_per_fold=300) == 3
     assert resolve_adaptive_vote_k("auto", 2000, min_rows_per_fold=300) == 5
+
+
+def test_min_rows_per_fold_zero_does_not_divide_by_zero():
+    # degenerate public-param value must not raise (audit P2): the floor is clamped to >=1.
+    assert resolve_adaptive_vote_k("auto", 5000, min_rows_per_fold=0) == 5
+    assert resolve_adaptive_vote_k("auto", 3, min_rows_per_fold=0) == 3
+    assert resolve_adaptive_vote_k(5, 5000, min_rows_per_fold=0) == 5  # explicit int unaffected

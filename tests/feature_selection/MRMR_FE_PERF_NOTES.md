@@ -16,7 +16,19 @@ these as CANDIDATES to verify, not assumed wins. Always bench before/after; docu
 
 Total fit ~50s (n=20k, includes FE + escalation + orth basis).
 
-### Lead candidate for next iteration
+### VERDICT (2026-06-13, investigated): both top hotspots are INTRINSIC -> NO perf win
+
+- `discretize_2d_quantile_batch` (the 18x calls): each call discretises a FRESH chunk of MATERIALISED
+  FE-candidate columns (`chunk_buffer[:, :col]` in `_pairs_chunks.py:252`), NOT a re-discretisation of
+  the same matrix. Distinct data per call -> not redundant; the kernel is already njit_parallel. REJECTED.
+- `_detect_fourier_freqs_for_col` (34 calls): per-candidate-column FFT frequency detection for the
+  adaptive-Fourier FE generator (`_orth_extra_basis_fe.py:702/757`) -- intrinsic per-column work. REJECTED.
+
+Consistent with the standing finding that mlframe FS/FE perf is MATURE (kernels njit-tuned; small-n
+yields no wins). The optimization loop should focus on FE QUALITY / correctness, not perf re-grinding,
+unless profiling an UNCONTENDED large-n run surfaces a genuinely redundant call.
+
+### (superseded) original lead candidate
 The 18x `_searchsorted_2d_right` + `_quantile_edges_2d` calls (7.3s combined, ~15% of fit) suggest the
 discretised matrix / quantile edges are RECOMPUTED per FE step rather than cached+extended when FE
 appends columns. If the existing columns' edges are stable across steps, caching them and only
