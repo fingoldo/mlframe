@@ -96,6 +96,19 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         uncertainty_penalty: float = 0.0,
         interaction_aware: bool = False,
         max_interaction_features: int = 16,
+        # ``proxy_mode`` ("additive" DEFAULT | "interaction"): how a feature SUBSET is scored by the
+        # proxy. "additive" = ``base + sum_{j in S} phi_j`` (purely additive SHAP coalition; blind to
+        # non-additive pairs). "interaction" re-scores the additive candidates under
+        # ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` (adds the off-diagonal TreeSHAP interaction
+        # values) + a gated pair sweep, so an XOR / multiplicative pair earns the joint credit the
+        # additive proxy denies it. The pairwise term is GATED to the top-``interaction_proxy_top_k``
+        # features by mean |phi| (O(k^2) memory/cost, not O(P^2)). Default stays "additive": bench
+        # (_benchmarks/bench_shap_interaction_proxy.py) shows interaction WINS the competing-XOR bed by
+        # ~+0.24 honest-holdout AUC REPLICATED 3/3 seeds, but only 1/6 beds and slightly regresses one
+        # additive-redundant seed -- not the majority+no-regression win a default flip requires. Tree
+        # models only; non-tree falls back to additive cleanly. REJECTED-as-default != deleted.
+        proxy_mode: str = "additive",
+        interaction_proxy_top_k: int = 30,
         # su_seeded_interactions (lever A4-4, OPT-IN, default OFF -- mirrors ``interaction_aware``):
         # a CHEAP pairwise-SU SYNERGY screen ranks candidate interaction PAIRS at O(P)+O(K) cost, then
         # the interaction objective runs on ONLY the top-K synergistic pairs (a sparse product-column
@@ -286,6 +299,11 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         self.uncertainty_penalty = uncertainty_penalty
         self.interaction_aware = interaction_aware
         self.max_interaction_features = max_interaction_features
+        # Store raw for sklearn clone() identity; validate at use-site (lower()) to avoid mutating params.
+        if str(proxy_mode).lower() not in ("additive", "interaction"):
+            raise ValueError(f"proxy_mode must be 'additive' or 'interaction'; got {proxy_mode!r}")
+        self.proxy_mode = proxy_mode
+        self.interaction_proxy_top_k = int(interaction_proxy_top_k)
         self.su_seeded_interactions = su_seeded_interactions
         self.su_seeded_top_k = int(su_seeded_top_k)
         self.su_seeded_n_bins = int(su_seeded_n_bins)
