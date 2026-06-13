@@ -87,21 +87,64 @@ _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 # narrower chunk simply means more (smaller) batched passes over the SAME candidates.
 _FE_PEAK_OVERHEAD_FACTOR: float = 3.0
 
+# ABSOLUTE FREE-RAM FLOOR (2026-06-13). The ``_FE_BUFFER_RAM_BUDGET_RATIO`` (0.4) cap is RELATIVE: on
+# a small-RAM host with lots of free RAM it still sizes a multi-GB buffer (observed ~9 GiB peak for a
+# full-n diagnostic), leaving NO guaranteed free headroom for the rest of the process / other procs.
+# This adds an ABSOLUTE floor: the allocator must always leave at least ``_fe_min_free_ram_bytes()``
+# of host RAM free. We carve the reserve off ``available`` FIRST (``usable = max(0, available -
+# reserve)``), then apply the existing ratio/overhead/worker divide to ``usable`` -- so the reserve is
+# host-global (subtracted ONCE, before the per-worker divide), independent of n_workers. The reserve is
+# overridable via env ``MLFRAME_FE_MIN_FREE_RAM_GB`` (mirrors the existing ``MLFRAME_*`` FE knobs --
+# mlframe is shared infra, no project-specific prefix) AND the module constant ``_FE_MIN_FREE_RAM_GB``.
+# Set the reserve to 0 (env or constant) to get BYTE-IDENTICAL legacy behaviour (usable == available).
+# When the reserve cannot be met (available <= reserve) the budget collapses toward 0; callers floor the
+# chunk width to the hard minimum (>= one pair's worth) so the loop ALWAYS makes progress, never deadlocks.
+_FE_MIN_FREE_RAM_GB: float = 1.0
+
+
+def _fe_min_free_ram_bytes() -> int:
+    """Absolute host-RAM reserve (bytes) the FE buffer allocator must always leave free.
+
+    Resolution order: env ``MLFRAME_FE_MIN_FREE_RAM_GB`` (if set + parseable) overrides the module
+    constant ``_FE_MIN_FREE_RAM_GB`` (default 1.0 GiB). A value <= 0 disables the floor (byte-identical
+    legacy behaviour). Read live each call so tests / callers can monkeypatch the constant or env."""
+    import os
+
+    gb = _FE_MIN_FREE_RAM_GB
+    env = os.environ.get("MLFRAME_FE_MIN_FREE_RAM_GB")
+    if env is not None:
+        try:
+            gb = float(env)
+        except (TypeError, ValueError):
+            gb = _FE_MIN_FREE_RAM_GB
+    if gb <= 0.0:
+        return 0
+    return int(gb * 2**30)
+
 
 def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) -> int:
     """Per-call byte budget for the FE candidate buffer that keeps the SUM of the
     coexisting buffers (chunk float32 + disc codes + batch-MI working set + the
     held-alive single-pair buffer) AND the concurrent-worker multiplication inside
-    ``_FE_BUFFER_RAM_BUDGET_RATIO * available`` (see the block comment above).
+    ``_FE_BUFFER_RAM_BUDGET_RATIO * available`` (see the block comment above), AND keeps
+    an ABSOLUTE ``_fe_min_free_ram_bytes()`` of host RAM free (the 2026-06-13 floor: the
+    relative 0.4 ratio alone left no guaranteed headroom on small-RAM hosts).
 
     ``available_bytes < 0`` (no psutil) preserves the legacy permissive behaviour by
     returning ``-1`` (callers treat that as "no cap"). ``n_workers`` is the number of
     threads that may run ``check_prospective_fe_pairs`` CONCURRENTLY (1 on the
-    serial-main-thread path; ``n_jobs`` on the joblib ``backend="threading"`` path)."""
+    serial-main-thread path; ``n_jobs`` on the joblib ``backend="threading"`` path).
+
+    The reserve is HOST-GLOBAL: subtracted from ``available`` ONCE before the per-worker
+    divide (``usable = max(0, available - reserve)``), so concurrency cannot multiply the
+    reserve away. With reserve == 0 this is byte-identical to the legacy formula."""
     if available_bytes < 0:
         return -1
     nw = max(1, int(n_workers))
-    raw = float(available_bytes) * _FE_BUFFER_RAM_BUDGET_RATIO
+    usable = available_bytes - _fe_min_free_ram_bytes()
+    if usable < 0:
+        usable = 0
+    raw = float(usable) * _FE_BUFFER_RAM_BUDGET_RATIO
     return int(raw / (_FE_PEAK_OVERHEAD_FACTOR * nw))
 
 
