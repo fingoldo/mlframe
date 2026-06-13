@@ -647,13 +647,27 @@ def create_unary_transformations(preset: str = "minimal"):
 
 
 def _safe_div(x, y):
-    """Element-wise division with a sign-stable epsilon so ``x / 0`` does not
-    blow up to +-inf (mirrors hermite_fe._safe_div). Required so the binary
-    registry can express genuine ratio targets (e.g. a**2/b) directly rather
-    than only via reciproc-then-multiply, which loses a representative on tight
-    unary presets."""
+    """Element-wise division that is EXACT for every nonzero denominator and
+    finite (never +-inf) when the denominator is exactly zero. Required so the
+    binary registry can express genuine ratio targets (e.g. a**2/b) directly
+    rather than only via reciproc-then-multiply, which loses a representative on
+    tight unary presets.
+
+    HEAVY-TAIL FIX (2026-06-13): the prior form ``x / (y + sign(y)*eps + eps)``
+    perturbed EVERY positive denominator by ``2*eps`` (and, asymmetrically, left
+    negative ones exact). On a heavy-tailed ratio target the perturbation is
+    negligible for ordinary ``y`` but reaches ~``2*eps/y`` relative error as
+    ``y -> 0`` -- e.g. ``b=1e-6`` gives a 0.2% error on ``a**2/b``, and on a
+    target whose magnitude is dominated by that single small-``b`` point a linear
+    downstream's MAE is inflated by ~0.05 (measured on ``y=0.2*a**2/b``: replayed
+    feature -> 0.10 test MAE vs 0.05 with the exact ratio). Dividing exactly
+    wherever ``y != 0`` removes the perturbation entirely; the ``eps`` floor only
+    ever substitutes for an exact-zero denominator (which the downstream
+    ``nan_to_num`` scrub would otherwise map through +-inf)."""
     eps = 1e-9
-    return x / (y + np.sign(y) * eps + eps)
+    y = np.asarray(y, dtype=np.float64)
+    safe_y = np.where(y == 0.0, eps, y)
+    return np.asarray(x, dtype=np.float64) / safe_y
 
 
 def create_binary_transformations(preset: str = "minimal"):

@@ -858,13 +858,15 @@ class HermiteResult:
 
 
 def _safe_div(a, b):
-    """Element-wise division with sign-stable epsilon; avoids the x_a / 0 blowup that prevents polynomials from capturing ratio targets."""
+    """Element-wise division that is EXACT for every nonzero denominator and finite (never x_a/0 blowup) at exact zero,
+    so polynomials can capture ratio targets without distorting them."""
     eps = 1e-9
-    # Push the denominator at least eps away from zero in its own sign direction (eps when b==0). The prior
-    # ``b + sign(b)*eps + eps`` cancelled to exactly ``b`` for negative b (no protection -> divide-by-zero blowup
-    # on small negative denominators); this guarantees |denom| >= eps for every b, sign-stable on both branches.
+    # HEAVY-TAIL FIX (2026-06-13): substitute ``eps`` ONLY for an exactly-zero denominator; every nonzero ``b`` divides
+    # exactly. The prior ``np.where(b >= 0, b + eps, b - eps)`` guaranteed ``|denom| >= eps`` but perturbed EVERY
+    # denominator by ``eps`` -- negligible for ordinary ``b`` yet ~``eps/b`` relative error as ``b -> 0`` (a 0.1% error
+    # at ``b=1e-6``), which on a heavy-tailed ratio target inflates a linear downstream's MAE on the small-``b`` tail.
     b = np.asarray(b, dtype=np.float64)
-    denom = np.where(b >= 0, b + eps, b - eps)
+    denom = np.where(b == 0.0, eps, b)
     with np.errstate(divide="ignore", invalid="ignore"):
         return a / denom
 
