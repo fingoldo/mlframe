@@ -189,7 +189,7 @@ def create_fairness_subgroups_indices(
     return res
 
 
-def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: int) -> tuple:
+def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: int, seed: int = 0) -> tuple:
 
     step_size = npoints // cont_nbins
     # int16 wraps if cont_nbins > 32767. Use a range-aware narrowest dtype
@@ -208,7 +208,9 @@ def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: i
         bins[start : start + step_size] = i
         start += step_size
     if group_name == "**RANDOM**":
-        np.random.shuffle(bins)
+        # local seeded generator: the global np.random.shuffle is unseeded -> the random
+        # fairness baseline differed run-to-run; same inputs+seed must give the same bins.
+        np.random.default_rng(seed).shuffle(bins)
 
     return bins, unique_bins
 
