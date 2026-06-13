@@ -622,7 +622,15 @@ def evaluate_candidate(
             # predictor plus noise has real value zero -- I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
             # knowledge with the rest and has no value alone, but that requires all real factors already in S; otherwise 'connected-to-all' trash dominates.
             # Solution: compute sum(X, Z) not only when adding Z, but repeat for all Zs once a new X is added -- some Zs may become useless after.
-            if cand_idx in partial_gains:
+            # P2 FIX (2026-06-13): the (current_gain, last_checked_k) cross-step resume is only VALID
+            # when newly-selected vars APPEND to the end of the combination sequence -- true at the
+            # default max_veteranes_interactions_order == 1 (a new singleton appends at the tail), but
+            # NOT at order >= 2, where growing selected_vars inserts the new singleton in the MIDDLE of
+            # the global k-sequence. Resuming from a stale last_checked_k then SKIPS measuring the new
+            # var's redundancy against the candidate, so a feature fully redundant with the
+            # most-recently-selected var could survive. For order >= 2 evaluate from scratch (re-min over
+            # ALL combinations incl. the new ones); order == 1 keeps the byte-identical resume optimisation.
+            if max_veteranes_interactions_order < 2 and cand_idx in partial_gains:
                 current_gain, last_checked_k = partial_gains[cand_idx]
                 if best_gain is not None and (current_gain <= best_gain):
                     return current_gain, sink_reasons

@@ -54,6 +54,12 @@ NET: triplet/quad were the genuine general-numeric default-on win; the FE-defaul
 - **usability lists embedded full-n TRAINING DATA in the pickle** (privacy leak + ~n*8 bytes/candidate
   bloat) -> clear each selected candidate's `values` post-fit (transform_usability replays from recipe/
   name, never reads values). `_usability_lists.py`. (413d410f)
+- **screening-core stale partial-gain resume under `max_veteranes_interactions_order >= 2`** (P2,
+  off-default research path): the (current_gain, last_checked_k) resume skipped the newest selected var's
+  redundancy because at order>=2 a new singleton inserts mid-sequence (not at the tail). Guarded the
+  resume on `order < 2` -> order>=2 evaluates from scratch (re-min over all combinations); order==1
+  (default) byte-identical. `evaluation.py`. Test `test_interactions_order2_resume.py` (order>=2 drops an
+  exact-duplicate redundant feature + recovers signal); default core tests green.
 
 ## VERIFIED CLEAN (no triggerable bug)
 
@@ -70,7 +76,9 @@ NET: triplet/quad were the genuine general-numeric default-on win; the FE-defaul
 
 ## OPEN
 
-### [P2, OFF-DEFAULT, untested] screening-core `last_checked_k` stale resume under interactions_order >= 2
+(none.)
+
+### [RESOLVED] screening-core `last_checked_k` stale resume under interactions_order >= 2
 
 The greedy's per-candidate `partial_gains` resume (evaluation.py `evaluate_gain`, resumed at the
 `cand_idx in partial_gains` branch) stores a global `last_checked_k` index into
