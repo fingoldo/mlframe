@@ -62,3 +62,47 @@ def test_biz_val_boruta_shap_filters_noise_keeps_informative():
     # support_ must be consistent with selected_features_.
     support_named = {c for c, m in zip(cols, sel.support_) if m}
     assert support_named == selected, f"support_ disagrees with selected_features_: {support_named} vs {selected}"
+
+
+def test_biz_val_boruta_early_stop_tentative_saves_wall_at_accepted_equivalence():
+    """biz_value for the opt-in ``early_stop_tentative`` margin-gated trial-stop: on a dataset with a residual
+    tentative tail it must (a) reclaim a large fraction of trials/wall vs the full ``n_trials`` cap and (b) keep the
+    ACCEPTED (confirmed) set IDENTICAL -- the load-bearing decision. Floors set below the committed bench
+    (bench_boruta_early_stop_tentative.py: mean 47.9% wall saved, accepted-Jaccard mean 0.982): require >= 30% trials
+    saved AND identical accepted set. This pins the measured win even though the default stays OFF (the bench's
+    per-scenario accepted-Jaccard dips to 0.944 on noise-heavy beds -> kept opt-in, REJECTED-not-DELETED)."""
+    pytest.importorskip("shap")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    z = rng.standard_normal((n, 8))
+    logit = (1.4 * z[:, 0] + 1.1 * z[:, 1] - 1.0 * z[:, 2] + 0.9 * z[:, 3]
+             + 1.6 * z[:, 4] * z[:, 5] + 1.3 * (z[:, 6] ** 2 - 1.0) + 0.8 * z[:, 7]) / 1.6
+    y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(int))
+    cols = {f"inf_{i}": z[:, i] for i in range(8)}
+    for parent in (0, 4, 6):
+        for j in range(4):
+            cols[f"red_{parent}_{j}"] = z[:, parent] + 0.30 * rng.standard_normal(n)
+    for i in range(28):
+        cols[f"noise_{i}"] = rng.standard_normal(n)
+    X = pd.DataFrame(cols)
+
+    def _mk(es):
+        return BorutaShap(
+            model=RandomForestClassifier(n_estimators=50, n_jobs=4, random_state=0),
+            importance_measure="gini", classification=True, n_trials=70, percentile=95,
+            pvalue=0.05, verbose=False, random_state=0,
+            early_stop_tentative=es, early_stop_patience=20, early_stop_margin=0.15,
+        )
+
+    off = _mk(False); off.fit(X, y)
+    on = _mk(True); on.fit(X, y)
+
+    assert off.n_trials_run_ == off.n_trials, "OFF run must burn the cap (else no tail to reclaim)"
+    trials_saved = (off.n_trials_run_ - on.n_trials_run_) / off.n_trials_run_
+    assert trials_saved >= 0.30, f"early-stop reclaimed only {trials_saved:.1%} of trials (floor 30%)"
+    assert set(on.accepted) == set(off.accepted), (
+        f"early-stop accepted set diverged: on={sorted(on.accepted)} off={sorted(off.accepted)}"
+    )
