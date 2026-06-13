@@ -114,7 +114,7 @@ def tune_decision_threshold(
     y_true: np.ndarray,
     pos_proba: np.ndarray,
     *,
-    metric: str = "f1",
+    metric: str = "balanced_accuracy",
     default: float = DEFAULT_PROBABILITY_THRESHOLD,
     n_candidates: int = 200,
 ) -> float:

@@ -498,7 +498,8 @@ class TrainingBehaviorConfig(BaseConfig):
     # Per-target binary decision-threshold tuning on val/OOF (NEVER test), maximising ``tune_decision_threshold_metric``; the tuned value is stamped into ``metadata["decision_thresholds"]`` so predict reuses it (0.5 stays the leak-safe fallback). Affects only hard-label ``preds``; probabilities are untouched.
     # Tri-state: "auto" (default) tunes only when the val target is imbalanced (minority fraction < DECISION_THRESHOLD_IMBALANCE_FRACTION) and leaves 0.5 on balanced targets where val-tuning only adds variance; True always tunes; False forces 0.5. bool kept for back-compat.
     tune_decision_threshold: Union[bool, str] = "auto"
-    tune_decision_threshold_metric: str = "f1"  # "f1" or "balanced_accuracy"
+    # "balanced_accuracy" (default) recovers the Bayes-optimal operating point ~10x closer than "f1" and wins test balanced-accuracy in 29/30 imbalance x seed cells (bench_threshold_objective.py); F1 chases precision/recall trade and drifts the threshold high under imbalance.
+    tune_decision_threshold_metric: str = "balanced_accuracy"  # "f1" or "balanced_accuracy"
 
     # Curve-shape ES detector (default ON).
     # Triggers when, starting from the best-known iteration, the monitored val metric
