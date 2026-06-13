@@ -695,10 +695,11 @@ def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     """Map 0-based ranks in ``[0, n-1]`` to Gaussian quantiles via
     ``norm.ppf((rank + 0.5) / n)`` (the (r + 0.5)/n plotting position keeps the
     transform finite at the extremes -- no +/-inf at rank 0 / n-1)."""
-    from scipy.stats import norm
+    from scipy.special import ndtri
     u = (np.asarray(ranks, dtype=np.float64) + 0.5) / float(max(n, 1))
     u = np.clip(u, 1e-6, 1.0 - 1e-6)
-    return norm.ppf(u).astype(np.float64)
+    # ndtri == norm.ppf for the standard normal (bit-identical), ~2.4x faster -- skips the rv_continuous broadcast/validation wrapper.
+    return ndtri(u).astype(np.float64)
 
 
 def generate_rankgauss_features(

@@ -2348,3 +2348,21 @@ Regression test: `tests/metrics/test_ice_metric_iter68_fastpaths.py` -- 4 sensor
 gate-skip==explicit-labels path (k=3,5), missing-middle-class full-range no-remap. All pass; existing `test_ice_return_per_class.py` (8) green.
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 41 RESOLVED, 28 REJECT across 68 iterations.**
+
+## Iter 69 -- 2026-06-14
+
+Fresh workload: the standard-normal inverse-CDF / CDF calls on the y-transform + FE hot paths -- `quantile_normal_y_forward`/`_inverse` (`training/composite/transforms/unary.py`, per-fold refit), `_probit` in the fastmi probit-KDE MI estimator (`feature_selection/filters/_fastmi.py`, 2 calls/MI pair), and `_rank_to_gauss` (RankGauss FE family, `feature_selection/filters/_extra_fe_families.py`, full-column). All previously called `scipy.stats.norm.ppf` / `norm.cdf`. Not tapped before (iters 43-68 covered MRMR kernels / reports / discovery / RFECV / slice_finder / ensembling / ICE scorer, never the normal-special wrappers). Profiler `tests/perf/_iter69_profile.py` (skewed-target discovery) confirmed the discovery e2e is LightGBM-bound (only mlframe-own frame in top 40 was 0.21s); pivoted to the direct transform/FE frames which ARE plain-scipy and drivable.
+
+Hotspot: `scipy.stats.norm.ppf` / `norm.cdf` route every call through the `rv_continuous` machinery (arg broadcast, parameter validation, masking) on top of the bare special-function kernel. The bare kernels `scipy.special.ndtri` / `ndtr` ARE exactly what norm.ppf/cdf call internally for the standard normal -- bit-identical output (verified incl. the +/-inf edge at exactly 0/1), none of the wrapper overhead. repo=mlframe (scipy is the dep; the swap is ours). Plain-Python/scipy, NOT njit-misattributed.
+
+Optimization (bit-identical by construction -- same kernel, wrapper removed): swap `norm.ppf -> scipy.special.ndtri` and `norm.cdf -> scipy.special.ndtr` at the three array-valued hot sites. Left the scalar one-shot `norm.ppf`/`norm.pdf` sites (bootstrap p-value, calibration CI, diagnostics QQ, bayesian tail, resid-worm chart already decimated to <=2000 pts) untouched -- sub-ms, not worth the churn.
+
+Before/after:
+  - Isolated kernel A/B (warm, best-of-60): ppf old 161.7us/1981.0us (n=5k/50k) -> ndtri new 95.9us/856.9us = 1.69x / 2.31x; cdf old 109.5us/1402.6us -> ndtr new 51.1us/605.2us = 2.14x / 2.32x.
+  - e2e A/B (paired, warm, best-of-15, n=50k): `fastmi(x,y)` old(norm.ppf) 214.66ms -> new(ndtri) 187.38ms = **+14.6% (1.146x) faster**, result BIT-IDENTICAL (==). The 2 probit calls were ~13% of fastmi wall (rest is FFT-KDE); cutting them ~2.3x nets the full-function win.
+
+Identity: BIT-IDENTICAL (np.array_equal True) on all sites -- quantile_normal fwd/inv (n=2k/5k/20k/50k), _probit (n=20k+0/1 edge), _rank_to_gauss (n=20k). ndtri/ndtr are the literal kernels norm.ppf/cdf dispatch to; maxdiff 0.0 over 100k random points incl. ndtri(0)=-inf, ndtri(1)=+inf.
+
+Regression test: `tests/feature_selection/test_normal_special_kernel_iter69.py` -- 4 sensors pinning array-equality to the norm-based reference (probit incl. +/-inf edge, rank_to_gauss, quantile_normal fwd+inv at n=2k/20k). Guards the bit-identity invariant: a future non-identical kernel swap fails here. All pass; existing `test_composite_unary_transforms.py` (16) + 15 fastmi/extra_fe/rankgauss tests green.
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 42 RESOLVED, 28 REJECT across 69 iterations.**
