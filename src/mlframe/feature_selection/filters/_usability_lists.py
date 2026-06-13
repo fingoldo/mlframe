@@ -117,14 +117,30 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     w_lin = float(getattr(mrmr, "usability_w_linear", 0.85))
     w_uni = float(getattr(mrmr, "usability_w_universal", 0.5))
 
-    mrmr.support_linear_ = select_usability_aware_features(
+    mrmr.support_linear_ = _drop_stored_values(select_usability_aware_features(
         df, y_cont, base_names, w=w_lin, seed=seed,
         pool_kwargs=pool_kwargs, greedy_kwargs=greedy_kwargs,
-    )
-    mrmr.support_universal_ = select_usability_aware_features(
+    ))
+    mrmr.support_universal_ = _drop_stored_values(select_usability_aware_features(
         df, y_cont, base_names, w=w_uni, seed=seed,
         pool_kwargs=pool_kwargs, greedy_kwargs=greedy_kwargs,
-    )
+    ))
+
+
+def _drop_stored_values(candidates: list):
+    """Clear each selected candidate's full-n ``values`` array before it is attached to the fitted
+    estimator. The greedy needed those arrays DURING selection (CV folds), but ``transform_usability``
+    replays each feature from its ``recipe`` (or passes a raw column through by NAME) and never reads
+    ``values`` -- so keeping them would EMBED THE TRAINING DATA in the pickled model (a privacy leak +
+    bloat: ~n*8 bytes per selected candidate, tens of MB at large n). Replace with a 0-length array of
+    the same dtype so the field stays a type-stable ndarray. The recipe / name / mi / src / ops survive."""
+    if not candidates:
+        return candidates
+    for c in candidates:
+        v = getattr(c, "values", None)
+        if isinstance(v, np.ndarray) and v.size:
+            c.values = np.empty(0, dtype=v.dtype)
+    return candidates
 
 
 def materialize_usability_features(candidates: list, X: Any):
