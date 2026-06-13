@@ -78,6 +78,22 @@ def _run_fe_step(
     ``(data, cols, nbins, X, selected_vars, n_recommended_features)``. ``n_recommended_features == 0`` signals
     the outer loop to stop. Private; external callers should use ``MRMR.fit()`` or ``MRMR.fit_transform()``.
     """
+    # GUARDED-ADAPTIVE PREVALENCE (2026-06-13, hardcoded-threshold conversion). When
+    # ``fe_min_pair_mi_prevalence == "auto"``, keep the proven 1.05 ratio bar but apply it to the
+    # MILLER-MADOW-DEBIASED pair MI (the analytic finite-sample joint-MI bias subtracted, the value
+    # the maxT floor already uses) rather than the raw ``pair_mi``. Debiasing can ONLY LOWER the
+    # observed joint MI, so the gate can only TIGHTEN -- it drops the best-of-pool finite-sample-noise
+    # pairs a fixed 1.05 admits (the bench showed a higher effective bar helps the bilinear archetype:
+    # 0.207 -> 0.092) while a genuine high-signal pair (joint MI >> bias, e.g. F2's c*d) is untouched.
+    # Resolve to the float HERE so every downstream float use is byte-identical to the default path;
+    # only the per-pair prevalence comparison below switches to the debiased observed value. An
+    # explicit float (incl. the default 1.05) is honoured verbatim -> byte-identical to pre-conversion.
+    _prevalence_debias_auto = (
+        isinstance(fe_min_pair_mi_prevalence, str)
+        and fe_min_pair_mi_prevalence.strip().lower() == "auto"
+    )
+    if _prevalence_debias_auto:
+        fe_min_pair_mi_prevalence = 1.05
     # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
     # binding -> any top-level ``from .mrmr import ...`` here creates a hard
     # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
@@ -559,6 +575,42 @@ def _run_fe_step(
         verbose=verbose,
     )
 
+    # "auto" prevalence debias needs the per-pair MM joint-MI bias; compute_pair_maxt_floor only
+    # populates it when ``fe_mm_debias_prevalence`` is on, so fill it here (analytic, no shuffles)
+    # when "auto" is active and the maxT path left it empty. On failure fall back to the fixed bar
+    # (degrade to the proven default rather than risk a wrong gate).
+    if _prevalence_debias_auto and not _pair_mm_bias:
+        try:
+            from .._permutation_null import pairwise_mm_joint_bias
+            _auto_pairs = list(combinations(numeric_vars_to_consider, 2))
+            if _auto_pairs:
+                _auto_pa = np.fromiter((p[0] for p in _auto_pairs), dtype=np.int64, count=len(_auto_pairs))
+                _auto_pb = np.fromiter((p[1] for p in _auto_pairs), dtype=np.int64, count=len(_auto_pairs))
+                _auto_ky = int(np.asarray(freqs_y).shape[0])
+                _auto_bias = pairwise_mm_joint_bias(data, _auto_pa, _auto_pb, nbins, _auto_ky)
+                # UNDER-SAMPLE GUARD (bias-variance, 2026-06-13): the MM bias (k_joint-1)(k_y-1)/2n is
+                # only a reliable correction when the joint table is adequately occupied. At tiny n the
+                # bias is large/noisy and over-tightening the prevalence gate feeds the synergy-rescue
+                # path, which can ADMIT worse features (measured: F2 n=2500 0.917 -> 1.079, but n=8000
+                # unchanged). So skip the debias (bias -> 0, raw pair_mi) for any pair whose rows-per-
+                # occupied-joint-cell falls below ``fe_confirm_undersample_rows_per_cell`` (default 5),
+                # mirroring the existing CMI-fallback rule. This FORGOES the (unreliable) tiny-n win
+                # rather than risk the tiny-n harm -- the large-n win (bilinear n=8000 0.195 -> 0.052)
+                # is preserved because there rows-per-cell clears the floor. k_joint is recovered from
+                # the bias: k_joint = 1 + bias*2n/(k_y-1).
+                _auto_n = int(data.shape[0])
+                _auto_min_rpc = float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0))
+                for _api, _apr in enumerate(_auto_pairs):
+                    _b = float(_auto_bias[_api])
+                    if _b > 0.0 and _auto_ky > 1:
+                        _kj = 1.0 + (_b * 2.0 * _auto_n) / float(_auto_ky - 1)
+                        _rpc = _auto_n / max(1.0, _kj * _auto_ky)
+                        if _rpc < _auto_min_rpc:
+                            _b = 0.0  # under-sampled joint -> unreliable bias -> use raw pair_mi
+                    _pair_mm_bias[tuple(sorted(_apr))] = _b
+        except Exception:
+            _prevalence_debias_auto = False
+
     # ---------------------------------------------------------------------------------------------------------------
     # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
     # ---------------------------------------------------------------------------------------------------------------
@@ -648,7 +700,11 @@ def _run_fe_step(
                 # permutation-null max as well, rejecting best-of-p chance-max noise
                 # pairs the per-pair prevalence bar misses. No-op when floor==0.0.
                 # ``_pair_mi_floor_cmp`` is the MM-debiased joint MI (IRON RULE, see above).
-                _passes_prevalence = pair_mi > ind_elems_mi_sum * _prev_thresh
+                # GUARDED "auto" (2026-06-13): compare the MM-DEBIASED pair MI against the same
+                # ratio bar -- tightens the gate by the per-pair finite-sample bias, never loosens.
+                # Default (explicit float) uses the raw pair_mi -> byte-identical.
+                _obs_for_prevalence = _pair_mi_floor_cmp if _prevalence_debias_auto else pair_mi
+                _passes_prevalence = _obs_for_prevalence > ind_elems_mi_sum * _prev_thresh
                 _passes_maxt = _pair_mi_floor_cmp >= _pair_maxt_floor
                 # DATA-DRIVEN PREVALENCE (2026-06-12, EXPERIMENTAL, default OFF pending the
                 # 3-model RMSE A/B/C): the HARDCODED ratio bar over the MM-debiased joint MI

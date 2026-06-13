@@ -98,7 +98,17 @@ gates can be migrated safely. Each conversion is benched BOTH directions (does i
 
 ## Conversion candidates (to implement as guarded hybrids)
 
-1. `fe_min_pair_mi_prevalence` (HIGH) -- permutation-null debiased prevalence floor.
+1. `fe_min_pair_mi_prevalence` (HIGH) -- DONE: accepts `"auto"` = the 1.05 ratio bar applied to the
+   MILLER-MADOW-DEBIASED pair MI (analytic bias, no shuffles), with a per-pair rows-per-occupied-cell
+   under-sample guard (skip debias below `fe_confirm_undersample_rows_per_cell`) so tiny n degrades to
+   the fixed bar. **Rigorous multi-seed finding (the single-draw "win" was RNG noise):** the bilinear
+   FE selection is RNG-unstable (MRMR.fit consumes global np.random), so per-seed `auto` swings from
+   big win (seed 2: 0.209->0.050) to loss (seed 0: 0.051->0.112). Over 5 seeds the MEAN is
+   1.05=0.140+-0.073 vs auto=0.112+-0.056 -- a ~20% mean improvement AND lower variance, with no-harm
+   on additive/F2 + byte-identical default. So shipped as OPT-IN `"auto"` (NOT default), documented as
+   a modest+noisy mean win, not a uniform one. Test `test_adaptive_prevalence.py` (multi-seed
+   no-mean-harm on bilinear + no-harm on additive). KEY LESSON: FE-selection RNG instability dominates
+   single-draw threshold benches -> the remaining conversions need MULTI-SEED benching too.
 2. `fe_synergy_min_prevalence` (HIGH) -- CV permutation null on the synergy ratio.
 3. `fe_escalation_pairness_margin` (HIGH, 5.7%) -- fold-adaptive null margin.
 4. `fe_stability_vote_k` (MED) -- DONE: `resolve_adaptive_vote_k` (`_fe_stability_vote.py`) accepts

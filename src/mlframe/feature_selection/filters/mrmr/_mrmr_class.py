@@ -673,7 +673,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # strict statistical rigor without the unreachable-gate trap.
         fe_min_nonzero_confidence: float = 0.99,
         fe_min_pair_mi: float = 0.001,
-        fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
+        # mi of entire pair must be at least that higher than the mi of its individual factors, to consider the pair at all.
+        # Accepts ``"auto"`` (hardcoded-threshold conversion, 2026-06-13): a GUARDED data-derived mode
+        # that keeps the 1.05 ratio bar but applies it to the MILLER-MADOW-DEBIASED pair MI (the
+        # analytic finite-sample joint-MI bias subtracted), so the gate can only TIGHTEN -- it drops
+        # the best-of-pool finite-sample-noise pairs a fixed 1.05 admits (bench: bilinear archetype
+        # 0.207 -> 0.092) while a genuine high-signal pair (joint MI >> bias) is untouched. The bias
+        # is analytic (no extra shuffles). An explicit float (incl. the default 1.05) is honoured
+        # verbatim -> byte-identical to the pre-conversion behaviour.
+        fe_min_pair_mi_prevalence: "float | str" = 1.05,
         # default-flip 0.98 -> 0.90: a 1-D engineered column summarising
         # a 2-D pair-joint structurally cannot retain 98% of the (finite-sample-bias-
         # inflated) 2-D joint MI. On the canonical fixture y=a**2/b + f/5 + log(c)*sin(d)
