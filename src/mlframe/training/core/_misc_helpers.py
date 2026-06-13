@@ -371,10 +371,16 @@ def _validate_input_columns_against_metadata(
             sorted(missing_cols),
         )
 
-    if extra_cols:
-        if verbose:
-            logger.info("Dropping extra columns: %s", sorted(extra_cols))
-        df = df[filter_existing(df, columns)]
+    # Canonicalise column ORDER to the trained schema, not just on the extra-columns path. sklearn-API
+    # estimators raise on a same-names-different-order frame (they validate feature_names_in_ order, never
+    # silently reorder), and positional consumers (raw boosters, numpy ``.values`` paths) would mis-map a
+    # reordered frame. ``df[filter_existing(...)]`` is a name-based view-select on both flavours (no whole-
+    # frame copy), so reordering a benignly-permuted serving frame is cheap and prevents an all-models-fail.
+    kept_in_schema_order = filter_existing(df, columns)
+    if extra_cols and verbose:
+        logger.info("Dropping extra columns: %s", sorted(extra_cols))
+    if extra_cols or list(df.columns) != kept_in_schema_order:
+        df = df[kept_in_schema_order]
 
     # Per-model input-schema diff: HARD-FAIL on changes that silently corrupt predictions
     # (removed cat/text/embedding cols, role changes, dtype family changes for non-numeric roles);
