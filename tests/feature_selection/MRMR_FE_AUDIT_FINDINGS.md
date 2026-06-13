@@ -70,7 +70,27 @@ NET: triplet/quad were the genuine general-numeric default-on win; the FE-defaul
   (singleton falls back to global not self; seed-determinism fails RED on the positional version). Surfaced
   by the supervised-FE target-leakage audit. (c87cebcd)
 
+- **integer-lattice + pairwise-modular replay emitted INT64_MIN garbage for non-finite operands** (P0,
+  both DEFAULT-ON). The apply paths cast source columns to int64 with no eligibility re-check; a drifted
+  test frame with NaN/inf in a column that was integer-valued on train casts to INT64_MIN
+  (`asarray(nan).astype(int64)`), which gcd/lcm/bitwise_and/mod turn into a wrong, NON-NaN value -- silent
+  garbage, untested. NaN-out rows where any operand is non-finite (feature undefined there); clean data
+  byte-identical (both biz-value suites unchanged). `_integer_lattice_fe.py` + `_pairwise_modular_fe.py`.
+  Test `test_lattice_modular_nonfinite_replay.py`. NON-fixed (logged for the owning design): the int-cast
+  rule differs across the two modules (lattice rint vs modular trunc) + isn't stored in the recipe; and
+  bitwise_and on negatives is two's-complement -- both DETERMINISTIC (not silent garbage), so left as the
+  feature owner's call. (1721e144)
+
 ## TARGET-LEAKAGE AUDIT of supervised FE generators (2026-06-13) -- verdict CLEAN bar the above
+
+## REPLAY-CORRECTNESS AUDIT of integer-lattice + pairwise-modular FE (2026-06-13)
+
+Both newly default-ON. Found + fixed the P0 above (NaN/inf -> INT64_MIN garbage). Verified CLEAN: leak-free
+(apply references only X + frozen recipe.extra, modulus frozen at fit not recomputed), deterministic (seeded
+permutation null, stable sort, no dict/set iteration feeding output order), lcm int64-overflow correctly
+guarded (|a|*|b|/gcd in float64 with safe_g for gcd==0). The cast-rule divergence + negative bitwise_and are
+deterministic observations logged for the owner, not replay bugs.
+
 
 Audited every FE generator that derives a feature from y, tracing fit-time MI-scored values vs replay:
 `kfold_te` (OOF + shuffled + frozen-lookup replay -- clean), `grouped_delta` / `grouped_agg` /
