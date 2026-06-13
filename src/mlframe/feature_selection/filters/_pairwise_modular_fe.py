@@ -42,6 +42,16 @@ to the prior responded-set -- verified across TP + control frames):
 A shared per-(n, class-counts, k) null (one null reused across combiners) was REJECTED: the null band depends on the residue
 bin-count vector, which differs ~5e-4 in mean / ~3e-3 per-perm between combiners at the same k -- selection-altering, so it
 could flip a borderline ``residue_mi > null_hi`` decision. Kept the per-combiner null for the (few) combiners that reach it.
+
+Generalisation audit (does this batching lever apply to OTHER FE families?): NULL RESULT. Every other MI-scoring FE family on the
+default path already scores its engineered columns with ONE ``_mi_classif_batch(full_matrix, y)`` call -- the orthogonal families
+(univariate / triplet / quadruplet / cluster / diff / routing / cmim / jmim / total-correlation / adaptive-arity / adaptive-degree /
+three-gate / pair-cross), the mi-greedy families, ``_extra_fe_families``, and the bootstrap / periodic scorers (which route through
+``score_features_by_bootstrap_mi``, one batch call per replicate). The modular scan was the sole unbatched per-column MI loop on the
+default path because it materialised ``c mod k`` per-modulus inside Python. The one remaining genuine per-column MI loop --
+``_orth_auto_scorer_fe.select_best_scorer_per_column`` (per column x per bootstrap x per scorer) -- is gated behind
+``fe_hybrid_orth_auto_scorer_enable`` (default OFF) and interleaves plug-in MI with four per-column-native scorers (KSG / copula /
+dCor / HSIC), so batching just the plug-in leg would fork the uniform scorer dispatch for an opt-in path with no default-path win.
 """
 from __future__ import annotations
 
