@@ -71,7 +71,12 @@ class DiscoveredRelation:
         ``mi / baseline_mi`` (clamped; ``inf`` when the baseline is ~0). How much the discovered structure adds over what a selector
         already had from the raw columns / cheap ops.
     description
-        One-line human-readable summary, e.g. ``"y depends on gcd(price, quantity)  [MI 0.47, lift 6.9x]"``.
+        One-line human-readable summary, e.g. ``"y depends on gcd(price, quantity)  [MI 0.47, lift 6.9x, p<0.01]"``.
+    p_value
+        Permutation-test significance of the discovered structure: the fraction of ``significance_n_perm`` permuted-y nulls whose
+        engineered-column MI matched or exceeded the observed MI, ``(1 + #ge) / (1 + n_perm)``. ``nan`` when significance testing is
+        off (``significance_n_perm=0``) or unavailable (the fitted-MRMR accessor, which has no y). The detectors' own 12-perm gate
+        already filtered false discovery; this is a deeper, reportable p-value for the EDA surface where the user wants a confidence.
     """
 
     kind: str
@@ -81,6 +86,7 @@ class DiscoveredRelation:
     baseline_mi: float
     lift: float
     description: str
+    p_value: float = float("nan")
 
 
 @dataclass
@@ -135,6 +141,33 @@ def _fmt_lift(lift: float) -> str:
     return "inf" if not np.isfinite(lift) else f"{lift:.1f}x"
 
 
+def _perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> float:
+    """Deeper permutation p-value for one engineered column vs the (already-binned) target. ``(1 + #{perm_mi >= obs}) / (1 + n_perm)``.
+
+    The detectors gate on a cheap 12-perm null (enough for a yes/no decision); this offline EDA pass affords a larger ``n_perm`` so the
+    reported p-value resolves below ~0.01. Returns ``nan`` when disabled (``n_perm<=0``) or the column is degenerate."""
+    if int(n_perm) <= 0:
+        return float("nan")
+    from .filters._pairwise_modular_fe import _mi
+
+    col = np.ascontiguousarray(np.asarray(feat_col, dtype=np.float64))
+    yb = np.asarray(yb)
+    obs = _mi(col, yb, nbins=nbins)
+    if not np.isfinite(obs):
+        return float("nan")
+    rng = np.random.default_rng(int(seed))
+    ge = sum(1 for _ in range(int(n_perm)) if _mi(col, rng.permutation(yb), nbins=nbins) >= obs)
+    return (1.0 + ge) / (1.0 + int(n_perm))
+
+
+def _fmt_p(p: float, n_perm: int) -> str:
+    """``p<lo`` at the permutation-resolution floor, else ``p=value``; empty string when significance is off (nan)."""
+    if not np.isfinite(p):
+        return ""
+    lo = 1.0 / (1.0 + int(n_perm))
+    return f", p<{lo:.3f}" if p <= lo + 1e-12 else f", p={p:.3f}"
+
+
 def _modular_kind(op: str, modulus: int) -> str:
     """Fine kind label for a modular hit: ``parity`` (mod 2), ``period`` (single-column self op), else ``modular``."""
     if int(modulus) == 2:
@@ -144,8 +177,8 @@ def _modular_kind(op: str, modulus: int) -> str:
     return "modular"
 
 
-def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols):
-    from .filters._pairwise_modular_fe import cheap_modular_scan, escalate_modulus, _is_integer_col
+def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
+    from .filters._pairwise_modular_fe import cheap_modular_scan, escalate_modulus, _is_integer_col, apply_pairwise_modular
 
     int_cols = [c for c in names_ok if _is_integer_col(np.asarray(X[c]))]
     if len(int_cols) > int(max_int_cols) or len(int_cols) < 1:
@@ -158,15 +191,16 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols):
         kind = _modular_kind(h.op, best_m)
         lift = _lift(best_mi, h.baseline_mi)
         cols = tuple(str(c) for c in h.cols)
+        pval = _perm_pvalue(apply_pairwise_modular(X, h.op, h.cols, best_m), y, nbins, n_perm, seed)
         opdesc = {"self": cols[0], "sum": " + ".join(cols), "diff": " - ".join(cols),
                   "prod": " * ".join(cols), "sum3": " + ".join(cols)}.get(h.op, " ? ".join(cols))
-        desc = f"y depends on ({opdesc}) mod {best_m}  [{kind}, MI {best_mi:.3f}, lift {_fmt_lift(lift)}]"
-        out.append(DiscoveredRelation(kind, cols, float(best_m), float(best_mi), float(h.baseline_mi), lift, desc))
+        desc = f"y depends on ({opdesc}) mod {best_m}  [{kind}, MI {best_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
+        out.append(DiscoveredRelation(kind, cols, float(best_m), float(best_mi), float(h.baseline_mi), lift, desc, pval))
     return out
 
 
-def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols):
-    from .filters._integer_lattice_fe import cheap_integer_lattice_scan
+def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
+    from .filters._integer_lattice_fe import cheap_integer_lattice_scan, apply_integer_lattice
     from .filters._pairwise_modular_fe import _is_integer_col
 
     int_cols = [c for c in names_ok if _is_integer_col(np.asarray(X[c]))]
@@ -178,13 +212,14 @@ def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols):
             continue
         lift = _lift(h.feat_mi, h.operand_floor)
         cols = tuple(str(c) for c in h.cols)
-        desc = f"y depends on {h.op}({', '.join(cols)})  [MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}]"
-        out.append(DiscoveredRelation(h.op, cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc))
+        pval = _perm_pvalue(apply_integer_lattice(X, h.op, h.cols), y, nbins, n_perm, seed)
+        desc = f"y depends on {h.op}({', '.join(cols)})  [MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
+        out.append(DiscoveredRelation(h.op, cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc, pval))
     return out
 
 
-def _argmax_relations(X, y, names_ok, nbins, seed):
-    from .filters._conditional_gate_fe import cheap_row_argmax_scan
+def _argmax_relations(X, y, names_ok, nbins, seed, n_perm):
+    from .filters._conditional_gate_fe import cheap_row_argmax_scan, apply_row_argmax
 
     out = []
     for h in cheap_row_argmax_scan(X, y, names_ok, nbins=nbins, seed=seed):
@@ -192,13 +227,15 @@ def _argmax_relations(X, y, names_ok, nbins, seed):
             continue
         lift = _lift(h.feat_mi, h.operand_floor)
         cols = tuple(str(c) for c in h.cols)
-        desc = f"y depends on which of ({', '.join(cols)}) is largest (argmax)  [MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}]"
-        out.append(DiscoveredRelation("argmax", cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc))
+        pval = _perm_pvalue(apply_row_argmax(X, h.cols), y, nbins, n_perm, seed)
+        desc = (f"y depends on which of ({', '.join(cols)}) is largest (argmax)  "
+                f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]")
+        out.append(DiscoveredRelation("argmax", cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc, pval))
     return out
 
 
-def _gate_relations(X, y, names_ok, nbins, seed):
-    from .filters._conditional_gate_fe import cheap_conditional_gate_scan
+def _gate_relations(X, y, names_ok, nbins, seed, n_perm):
+    from .filters._conditional_gate_fe import cheap_conditional_gate_scan, apply_conditional_gate
 
     out = []
     for h in cheap_conditional_gate_scan(X, y, names_ok, nbins=nbins, seed=seed):
@@ -206,15 +243,18 @@ def _gate_relations(X, y, names_ok, nbins, seed):
             continue
         lift = _lift(h.feat_mi, h.baseline_mi)
         cols = tuple(str(c) for c in h.cols)
+        pval = _perm_pvalue(apply_conditional_gate(X, h.mode, h.cols, h.tau), y, nbins, n_perm, seed)
         if h.mode == "select":
             a, b, c = cols
             kind = "gate_select"
-            desc = f"regime switch: y ~ ({a} if {c}>{h.tau:.3g} else {b})  [MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}]"
+            desc = (f"regime switch: y ~ ({a} if {c}>{h.tau:.3g} else {b})  "
+                    f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]")
         else:
             a, c = cols
             kind = "gate_mask"
-            desc = f"masked interaction: y ~ {a} * 1[{c}>{h.tau:.3g}]  [MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}]"
-        out.append(DiscoveredRelation(kind, cols, float(h.tau), float(h.feat_mi), float(h.baseline_mi), lift, desc))
+            desc = (f"masked interaction: y ~ {a} * 1[{c}>{h.tau:.3g}]  "
+                    f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]")
+        out.append(DiscoveredRelation(kind, cols, float(h.tau), float(h.feat_mi), float(h.baseline_mi), lift, desc, pval))
     return out
 
 
@@ -227,6 +267,7 @@ def discover_structure(
     top_k: int = 20,
     include: Sequence[str] = _FAMILIES,
     seed: int = 0,
+    significance_n_perm: int = 100,
 ) -> StructureReport:
     """Discover hidden DISCRETE structural relationships between the columns of ``X`` and the target ``y``.
 
@@ -253,7 +294,11 @@ def discover_structure(
     include : sequence of str, default ("modular", "lattice", "argmax", "gate")
         Which detector families to run.
     seed : int, default 0
-        Permutation-null seed (passed to each detector).
+        Permutation-null seed (passed to each detector and to the significance test).
+    significance_n_perm : int, default 100
+        Permutations for the reportable p-value attached to each discovered relation (``DiscoveredRelation.p_value``). The detectors'
+        own 12-perm gate already filtered false discovery; this deeper offline null resolves a confidence below ~0.01 for the EDA
+        surface. Set to 0 to skip significance testing (faster; ``p_value`` is then ``nan`` and the p is omitted from the description).
 
     Returns
     -------
@@ -295,16 +340,17 @@ def discover_structure(
     n_int = sum(1 for c in X.columns if _is_integer_col(np.asarray(X[c])))
 
     include = tuple(include)
+    n_perm = int(significance_n_perm)
     relations: list[DiscoveredRelation] = []
     try:
         if "modular" in include:
-            relations += _modular_relations(X, yb, names, nbins, seed, max_int_cols)
+            relations += _modular_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)
         if "lattice" in include:
-            relations += _lattice_relations(X, yb, names, nbins, seed, max_int_cols)
+            relations += _lattice_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)
         if "argmax" in include:
-            relations += _argmax_relations(X, yb, names, nbins, seed)
+            relations += _argmax_relations(X, yb, names, nbins, seed, n_perm)
         if "gate" in include:
-            relations += _gate_relations(X, yb, names, nbins, seed)
+            relations += _gate_relations(X, yb, names, nbins, seed, n_perm)
     except Exception as exc:  # pragma: no cover - a detector failure must not break the EDA call
         logger.warning("discover_structure: detector raised (%s); returning partial report", exc)
 

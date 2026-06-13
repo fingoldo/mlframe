@@ -205,3 +205,40 @@ def test_mrmr_discovered_structure_accessor():
     assert gcd.columns == ("p", "q")
     mod = next(r for r in report.relations if r.kind == "modular")
     assert mod.parameter == 7.0
+
+
+def test_biz_val_significance_pvalue_strong_on_gcd():
+    """A genuine gcd structure must get a strong (small) permutation p-value, reported in the description."""
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=N)})
+    y = (np.gcd(a, b) >= 4).astype(int)
+    report = discover_structure(X, y, significance_n_perm=200)
+    assert report.relations, "gcd target must produce a discovered relation"
+    top = report.relations[0]
+    assert np.isfinite(top.p_value) and top.p_value < 0.05, f"gcd structure must be significant; p={top.p_value}"
+    assert "p<" in top.description or "p=" in top.description, f"description must carry the p-value: {top.description}"
+
+
+def test_biz_val_significance_off_omits_pvalue():
+    """significance_n_perm=0 disables the test: p_value is nan and the p is omitted from the description."""
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=N)})
+    y = (np.gcd(a, b) >= 4).astype(int)
+    report = discover_structure(X, y, significance_n_perm=0)
+    assert report.relations
+    top = report.relations[0]
+    assert np.isnan(top.p_value), "p_value must be nan when significance testing is off"
+    assert "p<" not in top.description and "p=" not in top.description, f"no p-value when off: {top.description}"
+
+
+def test_biz_val_significance_does_not_create_false_discovery_on_noise():
+    """Significance testing must not manufacture discoveries: a pure-noise frame stays empty even with the deeper null on."""
+    rng = _rng(3)
+    X = pd.DataFrame({f"f{i}": rng.normal(size=N) for i in range(5)})
+    y = (rng.normal(size=N) > 0).astype(int)
+    report = discover_structure(X, y, significance_n_perm=200)
+    assert len(report) == 0, f"noise frame must yield 0 discovered relations; got {[r.description for r in report]}"
