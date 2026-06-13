@@ -1989,3 +1989,34 @@ Distinct lever from iters 54/55/56/57 (AUC-argsort share / confusion-counts shar
 this kills a duplicate full-n model-Brier scan in the classification report.
 
 Streak: 0/100 (iter58 RESOLVED -- streak reset). **Cumulative loop wave: 31 RESOLVED, 28 REJECT across 58 iterations.**
+
+## iter59 (2026-06-13) -- RESOLVED (fold residual median into the [1,99] percentile partition; one fewer partial-sort per audit)
+
+Workload: `profiling/profile_regression_report.py` (`report_regression_model_perf`, n=20k, 60 reps warm). Continuing the regression-report
+vein (iters 56/57). cProfile top own-code: `normality_verdict` 0.134 tot (Anderson-Darling njit, cProfile-mis-attributed to its py wrapper --
+verified by microbench: AD kernel 1.41ms ~= the whole 1.46ms wrapper; SKIP per the njit-mis-attrib rule), then the `argsort` (360 calls) and
+`partition` (240 calls / 0.042 tot = 4 partial-sorts per rep) frames.
+
+Hotspot: the residual-quantile cluster in `audit_residuals` (`regression_residual_audit.py:542-548`). It ran `np.median(residuals)` (one
+partition), then `np.median(np.abs(residuals - median))` (a second, on the distinct abs-dev array), then `np.percentile(residuals, [1, 99])`
+(a third). The median partition and the [1,99] partition both partial-sort the SAME `residuals` array -- recomputed-invariant / duplicated
+partial-sort work (sibling to the prior fusion that already collapsed two `np.percentile` calls into one [1,99]).
+
+Optimization: fold the median into the existing percentile call -- `np.percentile(residuals, [1, 50, 99])` does one partial sort and returns
+all three; `median = p[1]`. Drops the separate `np.median(residuals)` partition entirely. The MAD median stays separate (distinct abs-dev array).
+
+Isolated cluster (n=20k, warm best-of-8): old `median + median(abs-dev) + percentile[1,99]` 0.537 ms/call -> new `percentile[1,50,99] +
+median(abs-dev)` 0.489 ms/call = **1.10x** (the MAD median dominates; the eliminated partition is the delta). cProfile `partition` frame
+240 calls / 0.042 tot -> 180 calls / 0.034 tot (one fewer per rep). Warm full-audit e2e (n=20k, best-of-8): ~2.72 ms/call; the saved ~0.05 ms
+is ~1.8% of the audit, real and clean per the don't-dismiss-small-speedups rule.
+
+Identity: `np.median(x) == np.percentile(x, [..50..])[1]` to FP reduction-order; measured worst diff **0.0** across n in {7,50,5000,50000} x
+12 seeds (median / mad / p01 / p99 all bit-identical to the pre-fix separate-call path). Well inside ~1e-9 even in the worst theoretical ULP
+case; cannot move any diagnostic verdict (median/mad feed skew/kurt-class thresholds). Regression test
+`test_audit_median_folded_into_p01_50_99_partition_matches_separate_calls` pins median/mad/p01/p99 byte-equal to the separate
+`np.median` + `np.percentile([1,99])` reference across sizes + seeds.
+
+Distinct lever from iters 54/55/56/57/58 (AUC-argsort share / confusion share / C-index-from-Kendall / residual double-sort / BSS-from-brier):
+this removes a duplicate partial-sort of the residual array in the regression audit.
+
+Streak: 0/100 (iter59 RESOLVED -- streak reset). **Cumulative loop wave: 32 RESOLVED, 28 REJECT across 59 iterations.**

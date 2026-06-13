@@ -448,3 +448,30 @@ def test_spearman_corr_single_sort_byte_identical_to_double_argsort():
     x_const = np.zeros(50)
     y_rand = rng.standard_normal(50)
     assert _spearman_corr(x_const, y_rand) == _double_argsort_reference(x_const, y_rand)
+
+
+def test_audit_median_folded_into_p01_50_99_partition_matches_separate_calls():
+    """``audit_residuals`` derives the residual median from a single ``np.percentile(residuals, [1, 50, 99])``
+    partition (folding away the separate ``np.median(residuals)`` partition). The reported median / mad / p01 /
+    p99 must match the pre-fix path (separate ``np.median`` + ``np.percentile([1, 99])``) bit-for-bit; median is
+    percentile-50, equal to ``np.median`` to FP reduction-order (observed 0.0 diff on these shapes)."""
+    from mlframe.training.targets.regression_residual_audit import audit_residuals
+
+    for seed in (0, 1, 7, 42):
+        rng = np.random.default_rng(seed)
+        for n in (7, 50, 5000, 50000):
+            y_true = rng.standard_normal(n)
+            y_pred = y_true + rng.standard_normal(n) * 0.5
+            audit = audit_residuals(y_true, y_pred, seed=0)
+
+            resid = y_true - y_pred
+            finite = np.isfinite(y_true) & np.isfinite(y_pred)
+            resid = resid[finite]
+            median_ref = float(np.median(resid))
+            p01_ref, p99_ref = (float(v) for v in np.percentile(resid, [1, 99]))
+            mad_ref = float(np.median(np.abs(resid - median_ref)))
+
+            assert audit.median == median_ref, (seed, n)
+            assert audit.mad == mad_ref, (seed, n)
+            assert audit.p01 == p01_ref, (seed, n)
+            assert audit.p99 == p99_ref, (seed, n)
