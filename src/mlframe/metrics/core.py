@@ -54,7 +54,7 @@ from ._core_cb_logits import (  # noqa: F401, E402
 from ._core_auc_brier import (  # noqa: F401, E402
     fast_roc_auc, fast_roc_auc_unstable, fast_numba_auc_nonw, fast_numba_auc_weighted,
     make_bootstrap_auc_resampler,
-    fast_aucs, fast_numba_aucs,
+    fast_aucs, fast_numba_aucs, fast_numba_aucs_with_ks,
     _fast_brier_score_loss_seq, _fast_brier_score_loss_par,
     fast_brier_score_loss, brier_score_loss,
     brier_and_precision_score, make_brier_precision_scorer,

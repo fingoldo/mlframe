@@ -2705,3 +2705,25 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 57 RESOLVED, 2
 **Verdict: RESOLVED+30.6x@1M (high-card categorical fairness subgroup index projection; bit-identical on categorical paths).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 58 RESOLVED, 29 REJECT across 85 iterations.**
+
+---
+
+## iter86 (2026-06-14, @1M) -- fused ROC/PR/KS single-pass kernel in the calibration report
+
+**Workload @1M:** `fast_calibration_report(y_true, y_pred, nbins=10, show_plots=False)`, n=1,000,000 binary (y_pred~Beta(2,5), y_true~Bernoulli(y_pred)). This is the per-class probabilistic-model report path; it computes overall ROC/PR AUC over a descending score-argsort, then the KS statistic over the SAME scores.
+
+**Top-20 mlframe-own (cProfile @1M, tottime, JIT-compile noise filtered):** `{method 'argsort'}` 0.291s/5 (the AUC desc-sort, shared with KS), `_classification_extras.ks_statistic` 0.116s/5 (~23ms each), `_auc_per_group.fast_aucs_per_group_optimized` 0.062s/5, `calibration_binning` 0.019s/5, `compute_ece_and_brier_decomposition`/`fast_brier_score_loss` njit. Remaining top frames were llvmlite/numba compile of the first real-size `_confusion_counts_binary_par` (one-time, not steady-state).
+
+**Hotspot (steady-state wall, warm, best-of-9 @1M):** full report 90ms; the AUC desc-argsort 30ms (needed, already the iter338 unstable-quicksort dispatcher, shared with KS via desc_order); **KS shared-order scan 18ms** -- a SECOND full ascending pass over the already-sorted scores. AUC walk and KS walk are the same tie-aware class-conditional CDF accumulation over the same order: AUC needs the trapezoid area, KS needs `max|tps/total_pos - fps/total_neg|` at each distinct-score boundary -- which the AUC loop already has in registers.
+
+**Optimization + audit:** new njit kernel `fast_numba_aucs_with_ks` (metrics/_core_auc_brier.py) folds KS into the descending-order AUC walk -- one pass, KS for free, and it indexes through `desc_score_indices` inline (drops the two N-length `y_score[desc]`/`y_true[desc]` gather temporaries that `fast_numba_aucs` materializes). `return_ks=True` threads it through `fast_aucs_per_group_optimized`; `fast_calibration_report` consumes the fused overall KS instead of the standalone `ks_statistic` call (degenerate precomputed-AUC path keeps the standalone fallback). Prewarm added.
+
+**Before/after:** ISOLATED @1M (best-of-7): fused auc+ks 12.0ms vs auc-only 13.0ms + ks-separate 16.5ms = 29.5ms -> 12.0ms (~2.5x on the auc+ks block; even auc-alone is faster fused via dropped gathers). END-TO-END @1M full report (separate-process A/B, OLD via temp HEAD worktree, best-of-N over multiple trials): OLD 115/116/135ms vs NEW 81/72/74ms -- **~30% wall, every trial NEW < every OLD**, ~34ms saved.
+
+**Identity proof:** ROC AUC bit-identical (`==`), PR AUC drift <1e-12, KS drift ~1e-12 (FP reduction-order) -- verified n in {1k,50k,1M} continuous AND a 200k 2-decimal tied/discrete case. End-to-end `metrics_string` BYTE-IDENTICAL OLD vs NEW (`KS=0.318` and every other token), the 3-digit KS rounding fully absorbs the ~1e-12 delta; far below any decision boundary.
+
+**Regression test (`tests/metrics/test_fused_aucs_with_ks_iter86.py`, 5 tests):** fused-vs-separate identity (continuous + tied/discrete + single-class NaN), `return_ks=True` 4-tuple/5-tuple contract, end-to-end report KS-token == round(standalone KS,3). Pre-fix sensor verified read-only via `git show HEAD`: neither `fast_numba_aucs_with_ks` nor `return_ks` exists at HEAD -> import/kwarg raises -> tests FAIL pre-fix. 5 passed post-fix; 163 related metrics tests (ks/auc/calibration/report) passed. Bench committed: `metrics/_benchmarks/bench_fused_aucs_with_ks_iter86.py`.
+
+**Verdict: RESOLVED+~30% e2e @1M (fused ROC/PR/KS single-pass; ROC/PR bit-identical, KS byte-identical at report precision).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 59 RESOLVED, 29 REJECT across 86 iterations.**

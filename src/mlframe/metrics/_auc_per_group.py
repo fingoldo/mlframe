@@ -66,7 +66,7 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
     return overall_roc_auc, overall_pr_auc, group_aucs
 
 
-def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None, return_order: bool = False):
+def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None, return_order: bool = False, return_ks: bool = False):
     """
     More memory-efficient version that groups data by group first.
     Better for cases with many groups and reasonable group sizes.
@@ -85,7 +85,15 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
 
     # Overall AUCs
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338 dispatcher
-    overall_roc_auc, overall_pr_auc = _fast_numba_aucs(y_true, y_score, desc_score_indices)
+    ks_overall = None
+    if return_ks:
+        from ._core_auc_brier import fast_numba_aucs_with_ks as _fast_numba_aucs_with_ks
+        # iter86: KS folds into the same desc-order AUC walk (no separate ascending re-scan). KS NaN stays NaN -> the report drops
+        # the desc_order arg and recomputes via ks_statistic only on the degenerate single-class fallback path.
+        overall_roc_auc, overall_pr_auc, _ks = _fast_numba_aucs_with_ks(y_true, y_score, np.ascontiguousarray(desc_score_indices))
+        ks_overall = float(_ks)
+    else:
+        overall_roc_auc, overall_pr_auc = _fast_numba_aucs(y_true, y_score, desc_score_indices)
 
     # By group very efficiently
     if group_ids is not None:
@@ -138,8 +146,12 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
     else:
         group_aucs = {}
 
+    if return_order and return_ks:
+        return overall_roc_auc, overall_pr_auc, group_aucs, desc_score_indices, ks_overall
     if return_order:
         return overall_roc_auc, overall_pr_auc, group_aucs, desc_score_indices
+    if return_ks:
+        return overall_roc_auc, overall_pr_auc, group_aucs, ks_overall
     return overall_roc_auc, overall_pr_auc, group_aucs
 
 

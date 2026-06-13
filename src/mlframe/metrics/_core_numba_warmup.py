@@ -223,6 +223,8 @@ def _prewarm_numba_cache_body():
     try:
         _ = compute_ece_and_brier_decomposition(_yt_bool, _yp_f64, nbins=10)
         _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None)
+        # iter86: the report now takes the fused ROC/PR/KS walk (return_ks=True -> fast_numba_aucs_with_ks), a distinct numba signature.
+        _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None, return_order=True, return_ks=True)
         _ = fast_log_loss(_yt_bool, _yp_f64)
         _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
     except Exception:

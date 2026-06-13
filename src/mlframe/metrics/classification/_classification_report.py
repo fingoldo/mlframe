@@ -299,12 +299,13 @@ def fast_calibration_report(
     )
 
     _auc_desc_order = None
+    _ks_fused = None
     if _precomputed_aucs is not None and group_ids is None:
         roc_auc, pr_auc = _precomputed_aucs
         group_aucs = {}
     else:
-        roc_auc, pr_auc, group_aucs, _auc_desc_order = fast_aucs_per_group_optimized(
-            y_true=y_true, y_score=y_pred, group_ids=group_ids, return_order=True
+        roc_auc, pr_auc, group_aucs, _auc_desc_order, _ks_fused = fast_aucs_per_group_optimized(
+            y_true=y_true, y_score=y_pred, group_ids=group_ids, return_order=True, return_ks=True
         )
     mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
 
@@ -344,7 +345,12 @@ def fast_calibration_report(
     _tp, _fp, _tn, _fn = _confusion_counts_binary_dispatch(_yt_int, _y_pred_thr)
     precision, recall, f1 = precision_recall_f1_from_counts(_tp, _fp, _fn)
     try:
-        ks_val = ks_statistic(_yt_int, y_pred, desc_order=_auc_desc_order)
+        # iter86: KS was folded into the desc-order AUC walk (fast_numba_aucs_with_ks) -- reuse it. Fall back to a standalone
+        # ks_statistic only on the precomputed-AUC path (no fused KS available) where _auc_desc_order is None too.
+        if _ks_fused is not None:
+            ks_val = _ks_fused
+        else:
+            ks_val = ks_statistic(_yt_int, y_pred, desc_order=_auc_desc_order)
         mcc_val = matthews_corrcoef_from_counts(_tp, _fp, _tn, _fn)
         bss_val = brier_skill_score_from_brier(brier_loss, _yt_int)
     except (ValueError, TypeError, FloatingPointError) as _ext_err:

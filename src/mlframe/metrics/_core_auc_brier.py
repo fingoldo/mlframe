@@ -366,6 +366,67 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def fast_numba_aucs_with_ks(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> tuple[float, float, float]:
+    """ROC AUC, PR AUC, and the KS statistic in ONE descending-order pass.
+
+    The reliability/title report needs all three over the SAME score-desc order; computing them separately costs two passes plus
+    KS's own ascending re-scan. KS = max over thresholds of |F_pos - F_neg|; the AUC walk already tracks (tps, fps, total_pos,
+    total_neg) at every distinct-score boundary, so KS folds in for free as max|tps/total_pos - fps/total_neg| (signs cancel under
+    abs vs the ascending CDF form, ties fold into the same single jump as the AUC boundary check). Indexes through
+    ``desc_score_indices`` inline (no y_score/y_true gather temporaries). Bit-identical ROC/PR vs ``fast_numba_aucs``; KS within FP
+    reduction-order (~1e-12, far below the 3-digit report precision and any decision boundary) vs ``ks_statistic``."""
+    n = len(desc_score_indices)
+    total_pos = 0.0
+    for i in range(n):
+        total_pos += y_true[desc_score_indices[i]]
+    total_neg = n - total_pos
+    if total_pos == 0 or total_neg == 0:
+        return np.nan, np.nan, np.nan
+
+    last_counted_fps = 0
+    last_counted_tps = 0
+    tps, fps = 0, 0
+    roc_auc = 0.0
+    prev_recall = 0.0
+    pr_auc = 0.0
+    ks = 0.0
+    inv_pos = 1.0 / total_pos
+    inv_neg = 1.0 / total_neg
+
+    for i in range(n):
+        idx = desc_score_indices[i]
+        yt = y_true[idx]
+        tps += yt
+        fps += 1 - yt
+        if i == n - 1 or y_score[desc_score_indices[i + 1]] != y_score[idx]:
+            delta_fps = fps - last_counted_fps
+            sum_tps = last_counted_tps + tps
+            roc_auc += delta_fps * sum_tps
+            last_counted_fps = fps
+            last_counted_tps = tps
+
+            current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
+            current_recall = tps / total_pos
+            delta_recall = current_recall - prev_recall
+            pr_auc += delta_recall * current_precision
+            prev_recall = current_recall
+
+            d = tps * inv_pos - fps * inv_neg
+            if d < 0.0:
+                d = -d
+            if d > ks:
+                ks = d
+
+    denom_roc = tps * fps * 2
+    if denom_roc > 0:
+        roc_auc /= denom_roc
+    else:
+        roc_auc = np.nan
+
+    return roc_auc, pr_auc, ks
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> tuple[float, float]:
     y_score_sorted = y_score[desc_score_indices]
     y_true_sorted = y_true[desc_score_indices]
