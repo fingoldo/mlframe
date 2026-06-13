@@ -1904,3 +1904,31 @@ so the stable measurement is the n=20k CPU path where the 8% e2e win reproduces 
 byte-identical to the standalone kernels they fold into -- fails on pre-fix code (the helpers don't exist).
 
 Streak: 0/100 (iter55 RESOLVED -- streak reset). **Cumulative loop wave: 28 RESOLVED, 28 REJECT across 55 iterations.**
+
+## iter56 -- `report_regression_model_perf` derive ConcordanceIndex from the already-computed Kendall (kill a duplicate tau-b pass)
+
+Workload: FRESH mlframe-own pool -- `report_regression_model_perf` (the regression analog of the iter54/55 classification report), driven
+e2e at n=20k via a new `profiling/profile_regression_report.py` (print_report/chart off so the profile is pure metric + extras + residual-audit
+orchestration). Picked over the heavy full-train profilers (timed out ~580s on this contended box). Profiled `NUMBA_DISABLE_CUDA=1`, warm.
+
+Top-20 mlframe-OWN-relevant warm-isolated (cProfile, 60 reps / n=20k): `numpy.argsort` 0.384s (600 calls = 10/report -- the rank-based metrics),
+`pyutilz.stats.normality.normality_verdict` 0.097s (residual-audit, GPU/sort mix), `scipy.stats.kendalltau` 0.238s cumtime (120 calls = **2 per
+report**), `numpy.partition` 0.031s (mdape median), `fast_rmsle` 0.012s, `audit_residuals` 0.233s cumtime, `fast_regression_metrics_block_extended`
+0.005s, `_spearmanr_batched_numpy` 0.209s cumtime, `fast_mdape` 0.013s, `fast_huber_loss` 0.001s.
+
+Hotspot: the report calls `fast_kendall_tau(targets, preds)` THEN `fast_concordance_index(targets, preds)` back-to-back on the IDENTICAL arrays.
+`fast_concordance_index` internally recomputes the full tau-b (scipy.kendalltau at n>500 / O(N^2) numba kernel below) -- 2 kendalltau passes per
+report (120 calls / 60 reps). Pure-Python orchestration + scipy/numba kernel; real e2e fraction (the kendall sub-block is ~3.7 ms of a ~12.5 ms report).
+
+| iter | hotspot (tottime / ncalls, pure-Python confirm) | optimization + audit | before/after (isolated + e2e) | verdict |
+|---|---|---|---|---|
+| 56 | `report_regression_model_perf` computed `_ext_Kendall = fast_kendall_tau(t,p)` and then `_ext_Cindex = fast_concordance_index(t,p)` on the SAME (targets, preds). `fast_concordance_index` is exactly `(fast_kendall_tau(t,p)+1)/2` -- it re-ran the whole tau-b (a duplicate scipy.kendalltau O(N log N) pass at n>500; 2 kendalltau calls / report in the profile, ncalls 120/60). The recompute is pure discarded work: C-index is a closed-form transform of the Kendall tau already in hand. | Derive `_ext_Cindex = (_ext_Kendall + 1.0)/2.0 if isfinite(_ext_Kendall) else nan` from the Kendall tau just computed; drop the `fast_concordance_index` call + its import at this site. Bit-identical BY CONSTRUCTION: `fast_concordance_index(t,p) == (fast_kendall_tau(t,p)+1)/2` exactly (verified). `fast_concordance_index` stays public + unchanged for all other callers. | ISOLATED kendall+cindex sub-block (best-of-80, n=20k): BEFORE (kendall+concordance recompute) 3.667 ms -> AFTER (kendall + arithmetic derive) 2.171 ms = **1.689x**, ~1.50 ms saved/report. E2E report warm best-of n=20k: 12.68 -> ~10.5 ms/call (~1.5 ms = ~12%, box-noisy 10.5-12.4). Output BYTE-IDENTICAL: `metrics['ConcordanceIndex']` == standalone `fast_concordance_index` across seeds {0,1,7,42} x n {600,5000,20000}. | RESOLVED |
+
+Verdict: a clean caller-discards-recompute elimination (CLAUDE.md "audit hot kernels for wasted per-call work") on a FRESH report path -- the
+report had the Kendall tau in hand and threw it away by re-deriving the C-index from scratch. Distinct lever from iters 54/55 (regression report,
+Kendall recompute, not classification argsort/confusion). The remaining 10 argsort/report (spearman x2, kendall, audit-spearman x2, mdape median)
+are each a single necessary rank pass on distinct inputs -- no further free duplicate found this pass. Regression test
+`test_report_cindex_byte_identical_to_standalone_concordance` (seed x n grid) pins the stamped C-index byte-identical to the standalone kernel;
+fails on pre-fix code only if the derivation drifts.
+
+Streak: 0/100 (iter56 RESOLVED -- streak reset). **Cumulative loop wave: 29 RESOLVED, 28 REJECT across 56 iterations.**

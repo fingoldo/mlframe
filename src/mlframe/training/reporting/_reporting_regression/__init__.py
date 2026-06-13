@@ -274,7 +274,7 @@ def report_regression_model_perf(
         try:
             from mlframe.metrics.core import (
                 fast_rmsle, fast_mdape, fast_spearman_corr,
-                fast_kendall_tau, fast_concordance_index, fast_huber_loss,
+                fast_kendall_tau, fast_huber_loss,
             )
             # RMSLE only on non-negative targets; otherwise NaN is the right
             # signal (the metric isn't defined and the kernel warns).
@@ -287,7 +287,10 @@ def report_regression_model_perf(
             # dominate the whole evaluation pass.
             if targets_arr.shape[0] <= 50_000:
                 _ext_Kendall = fast_kendall_tau(targets_arr, preds_arr)
-                _ext_Cindex = fast_concordance_index(targets_arr, preds_arr)
+                # C-index == (tau_b + 1) / 2 exactly; derive it from the Kendall tau just computed on the SAME
+                # (targets, preds) instead of calling fast_concordance_index, which recomputes the full tau-b
+                # (a duplicate O(N log N) scipy.kendalltau pass / numba O(N^2) kernel) on identical inputs.
+                _ext_Cindex = (_ext_Kendall + 1.0) / 2.0 if np.isfinite(_ext_Kendall) else np.nan
             # Huber loss: delta=1.0 default (callers can override via
             # ReportingConfig in a future iteration). Pure 1-pass kernel.
             _ext_Huber = fast_huber_loss(targets_arr, preds_arr, delta=1.0)
