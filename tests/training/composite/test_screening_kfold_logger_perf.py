@@ -144,6 +144,46 @@ def test_silence_default_none_still_bumps():
     assert lgb_logger.level == logging.DEBUG
 
 
+def test_silence_reentrant_only_outermost_touches_level(monkeypatch):
+    """Nested silence contexts (outer per-CV-call wrap + inner per-fold) must call
+    ``setLevel`` exactly twice total (one bump on outer enter, one restore on outer
+    exit), NOT 2x per nesting level. Each setLevel fires Manager._clear_cache over
+    the whole tree, so collapsing N inner calls into the outer is the perf win."""
+    lgb_logger = logging.getLogger("lightgbm")
+    lgb_logger.setLevel(logging.DEBUG)
+    calls = {"n": 0}
+    real_setlevel = type(lgb_logger).setLevel
+
+    def _counting_setlevel(self, level):
+        if self is lgb_logger:
+            calls["n"] += 1
+        return real_setlevel(self, level)
+
+    monkeypatch.setattr(type(lgb_logger), "setLevel", _counting_setlevel)
+    with _silence_tiny_model_output("lgb"):
+        assert lgb_logger.level == logging.ERROR
+        for _ in range(5):  # emulate 5 per-fold inner silences
+            with _silence_tiny_model_output("lgb"):
+                assert lgb_logger.level == logging.ERROR  # still silenced
+    assert lgb_logger.level == logging.DEBUG  # restored by outermost only
+    assert calls["n"] == 2, f"expected 2 setLevel calls (bump+restore), got {calls['n']}"
+
+
+def test_silence_reentrant_restores_after_inner_exits():
+    """The reentrancy depth must not leak: after a full nested enter/exit cycle the
+    depth returns to 0 so the next top-level call bumps again (and restores)."""
+    lgb_logger = logging.getLogger("lightgbm")
+    lgb_logger.setLevel(logging.WARNING)
+    with _silence_tiny_model_output("lgb"):
+        with _silence_tiny_model_output("lgb"):
+            pass
+    assert lgb_logger.level == logging.WARNING
+    # A fresh top-level call must work identically (depth was reset to 0).
+    with _silence_tiny_model_output("lgb"):
+        assert lgb_logger.level == logging.ERROR
+    assert lgb_logger.level == logging.WARNING
+
+
 # --------------------------------------------------------------------------- #
 # Perf sentinels (wall, generous floors to avoid CI flakiness)
 # --------------------------------------------------------------------------- #

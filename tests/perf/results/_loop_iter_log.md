@@ -2229,3 +2229,44 @@ bit-identical between the `np.median` path and a monkeypatched `np.quantile(q=0.
 Ensembling suites green: `tests/test_ensembling.py` + `test_ensembling_quality_gate.py` + 2 inference replay/dispatch files = 75 passed.
 
 Streak: 0/100 (iter65 RESOLVED -- streak reset). **Cumulative loop wave: 38 RESOLVED, 28 REJECT across 65 iterations.**
+
+## iter66 (2026-06-13) -- RESOLVED: hoist the lightgbm-logger silence bump out of the per-fold CV loop (reentrant `_silence_tiny_model_output`)
+
+Workload: `tests/perf/_iter66_profile.py` -- `CompositeTargetDiscovery.fit_with_stability_check` warm (n=3000, 8 features, 4 real-signal + 4 noise, 5
+bootstrap runs, mi_sample_n=2000). FRESH composite-discovery screening phase (prior iters tapped MRMR-FE 43-53 / report paths 54-59 / RAM-guard 60 /
+RFECV 61 / slice_finder 62-63 / composite-group-agg 64 / ensembling 65). Why: discovery screening drives thousands of tiny-model CV folds and was
+never profiled at the per-fold-orchestration level in this loop.
+
+Top-20 own-code (tottime, 3x warm under cProfile): `_screening_tiny.py:_one_fold` 0.398s (8640 calls, mostly LGB fit/predict), `estimator:_y_train_clip_bounds`
+0.182s (8640), `_screening_tiny:_tiny_cv_rmse_y_scale` 0.140s (2880), `_build_tiny_model` 0.101s (8640), **`_silence_tiny_model_output` 0.099s / cumtime
+2.858s (17280 calls)**, plus transform forward/inverse frames (yj/monres/spline) all <0.07s.
+
+Hotspot: `_silence_tiny_model_output` (17280 calls, cumtime 2.86s) -> `logging.__init__._clear_cache` (8640 calls, **1.296s tottime**, the 4th-hottest
+frame overall). Plain-Python; moves e2e (called per CV fold across every candidate spec x bootstrap run). Repo: mlframe-own.
+
+Audit: the context manager bumps `logging.getLogger('lightgbm').setLevel(ERROR)` on enter and restores on exit. `Logger.setLevel` UNCONDITIONALLY calls
+`Manager._clear_cache()` over the WHOLE process logger tree (verified via `inspect.getsource`) -- even when the level is unchanged. The lightgbm logger
+sits at NOTSET (0) the whole run (verified: stays 0 across a real LGBMRegressor fit), so every fold did bump-to-ERROR + restore-to-NOTSET = TWO full
+tree cache-clears per fold, all to silence the same logger that no other fold un-silences in between. The per-fold enter/exit is pure repeated work.
+
+Optimization: thread-local reentrancy depth in `_silence_tiny_model_output` (only the OUTERMOST silence on a thread touches the level) + one outer
+`with _silence_tiny_model_output(family)` wrap around the whole fold-dispatch block in `_tiny_cv_rmse_y_scale` AND `_tiny_cv_rmse_raw_y`. The inner
+per-fold `with` becomes a cheap reentrant no-op. Threading-backend parallel folds keep correct per-thread behaviour (thread-local).
+
+Before/after:
+  - Isolated (300-logger tree, 5-fold CV silence pattern, 20k iters): per-fold-bump 488.6 us -> hoisted+reentrant 108.8 us per CV = **4.5x** on the
+    silence overhead (~380 us saved per CV call; scales with logger-tree size).
+  - e2e (alternating serial A/B, base d4574157 vs fixed, 8 warm fit_with_stability_check per run, 3 paired reps): BASE 12682/15048/13402 ms vs
+    FIXED 12204/11626/13244 ms -- FIXED faster in ALL 3 paired reps; min-to-min **8.3%**, median-to-median **8.9%** (heavy box noise; pairing confirms
+    the sign). Discovery e2e is LGB-fit-dominated so the silence saving is a single-digit-% slice that survives e2e.
+
+Identity: OUTPUT-IDENTICAL. Discovery `specs_` (11 specs), `tiny_rerank_scores_` (32 entries, equal to 9 decimals), and `stability_counts_` all
+bit-identical between base d4574157 and fixed on the n=3000 8-feature fixture. The effective lightgbm level during every fold is ERROR either way
+(INFO/DEBUG suppressed identically); only the redundant cache-clears are removed -- numerics untouched by construction.
+
+Regression test: `tests/training/composite/test_screening_kfold_logger_perf.py::test_silence_reentrant_only_outermost_touches_level` (setLevel spy: 2
+calls on fixed, FAILS with 12 on pre-fix d4574157) + `::test_silence_reentrant_restores_after_inner_exits` (depth-leak guard). Pre-fix-fail verified.
+Existing contract tests (`test_silence_still_bumps_lgb_logger_for_lgb`, `test_silence_default_none_still_bumps`) still pass -- the silencing contract is
+preserved. Full module green: 34 passed (test_screening_kfold_logger_perf 21 + screening_split + a5_a12_baseline) + composite biz_val 11 passed.
+
+Streak: 0/100 (iter66 RESOLVED -- streak reset). **Cumulative loop wave: 39 RESOLVED, 28 REJECT across 66 iterations.**

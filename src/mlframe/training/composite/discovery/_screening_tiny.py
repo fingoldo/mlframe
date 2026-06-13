@@ -20,6 +20,7 @@ import io
 import logging
 import math
 import os
+import threading
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple
 if TYPE_CHECKING:
@@ -68,6 +69,11 @@ def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
     return splits
 
 
+# Thread-local reentrancy state for the lightgbm-logger level bump in _silence_tiny_model_output.
+# Only the outermost silence context on a given thread touches the logger level, so an outer per-CV-call wrap collapses N per-fold setLevel/_clear_cache pairs into a single one.
+_silence_tiny_state = threading.local()
+
+
 def _family_uses_lgb(family: str | None) -> bool:
     """True when ``family`` actually drives LightGBM. Only then is the
     lightgbm-logger level bump (logging.Manager._clear_cache, which walks the
@@ -107,9 +113,17 @@ def _silence_tiny_model_output(family: str | None = None):
     import logging as _logging
     _bump_lgb = _family_uses_lgb(family)
     _lgb_logger = _logging.getLogger("lightgbm") if _bump_lgb else None
-    _prev_level = _lgb_logger.level if _lgb_logger is not None else None
+    # setLevel ALWAYS calls Manager._clear_cache() over the whole logger tree (even when the level is unchanged); on a large process logger tree that is ~100-150us per call, and it fires twice per CV fold (bump + restore).
+    # Across a screening run the lightgbm logger sits at NOTSET and we always bump-to-ERROR / restore-to-NOTSET, so consecutive folds keep re-clearing the cache for no net level change. Use a reentrancy depth so only the OUTERMOST silence bump touches the level: nested / sequential-within-an-outer-silence entries skip both setLevel calls.
+    # Numerically identical: throughout the yield the effective lightgbm level is ERROR (INFO/DEBUG suppressed) exactly as before, and the level is restored to its original value when the outermost context exits.
+    _do_bump = False
     if _lgb_logger is not None:
-        _lgb_logger.setLevel(_logging.ERROR)
+        _depth = getattr(_silence_tiny_state, "lgb_depth", 0)
+        if _depth == 0:
+            _silence_tiny_state.lgb_prev_level = _lgb_logger.level
+            _lgb_logger.setLevel(_logging.ERROR)
+            _do_bump = True
+        _silence_tiny_state.lgb_depth = _depth + 1
     try:
         from sklearn.exceptions import ConvergenceWarning
     except Exception:  # pragma: no cover - sklearn always installed in our deps
@@ -138,7 +152,9 @@ def _silence_tiny_model_output(family: str | None = None):
             yield
         finally:
             if _lgb_logger is not None:
-                _lgb_logger.setLevel(_prev_level)
+                _silence_tiny_state.lgb_depth -= 1
+                if _do_bump:
+                    _lgb_logger.setLevel(_silence_tiny_state.lgb_prev_level)
 
 
 def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
@@ -429,17 +445,19 @@ def _tiny_cv_rmse_raw_y(
         if _precomputed_splits is not None
         else list(kf.split(x_clean))
     )
-    if n_jobs > 1 and len(splits) > 1:
-        try:
-            from joblib import Parallel, delayed
-            fold_results = Parallel(
-                n_jobs=min(n_jobs, len(splits)),
-                backend="threading",
-            )(delayed(_one_fold)(tr, va) for tr, va in splits)
-        except ImportError:
+    # Outer silence wrap: the lightgbm-logger level bump (and its whole-tree _clear_cache) happens ONCE here instead of once per fold via the reentrancy guard in _silence_tiny_model_output.
+    with _silence_tiny_model_output(family):
+        if n_jobs > 1 and len(splits) > 1:
+            try:
+                from joblib import Parallel, delayed
+                fold_results = Parallel(
+                    n_jobs=min(n_jobs, len(splits)),
+                    backend="threading",
+                )(delayed(_one_fold)(tr, va) for tr, va in splits)
+            except ImportError:
+                fold_results = [_one_fold(tr, va) for tr, va in splits]
+        else:
             fold_results = [_one_fold(tr, va) for tr, va in splits]
-    else:
-        fold_results = [_one_fold(tr, va) for tr, va in splits]
     # Emit a single WARN when ANY fold returned NaN. The
     # outer ``except Exception`` in ``_one_fold`` swallows every failure into a
     # NaN result, and downstream ``np.nanmean`` silently shifts the screening
@@ -1017,40 +1035,42 @@ def _tiny_cv_rmse_y_scale(
 
     # ``splits`` was built above (GroupKFold path inserted before this
     # function body so groups-aware tiny-CV uses the same fold contract).
-    if n_jobs > 1 and len(splits) > 1:
-        try:
-            from joblib import Parallel, delayed
-            fold_results = Parallel(
-                n_jobs=min(n_jobs, len(splits)),
-                backend="threading",
-            )(delayed(_one_fold)(tr, va) for tr, va in splits)
-        except ImportError:
-            fold_results = [_one_fold(tr, va) for tr, va in splits]
-    else:
-        # Serial early-stop: track partial-sum and break when
-        # the final mean is GUARANTEED to exceed early_stop_threshold,
-        # i.e. ``sum_so_far > early_stop_threshold * cv_folds``. Even if
-        # all remaining folds return 0, the mean = sum / cv_folds > thr.
-        # Saves 30-66% of fold-fit compute on candidates that the gate
-        # will reject anyway.
-        fold_results = []
-        _sum_so_far = 0.0
-        _n_finite_so_far = 0
-        for _fi, (tr, va) in enumerate(splits):
-            _rmse, _pb = _one_fold(tr, va)
-            fold_results.append((_rmse, _pb))
-            if math.isfinite(_rmse):
-                _sum_so_far += _rmse
-                _n_finite_so_far += 1
-            if (
-                math.isfinite(early_stop_threshold)
-                and _n_finite_so_far > 0
-                and _fi < len(splits) - 1
-                and _sum_so_far > early_stop_threshold * cv_folds
-                and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
-            ):
-                # Final mean cannot reach <= threshold; abort remaining folds.
-                break
+    # Outer silence wrap: the lightgbm-logger level bump (and its whole-tree _clear_cache) happens ONCE here instead of once per fold via the reentrancy guard in _silence_tiny_model_output.
+    with _silence_tiny_model_output(family):
+        if n_jobs > 1 and len(splits) > 1:
+            try:
+                from joblib import Parallel, delayed
+                fold_results = Parallel(
+                    n_jobs=min(n_jobs, len(splits)),
+                    backend="threading",
+                )(delayed(_one_fold)(tr, va) for tr, va in splits)
+            except ImportError:
+                fold_results = [_one_fold(tr, va) for tr, va in splits]
+        else:
+            # Serial early-stop: track partial-sum and break when
+            # the final mean is GUARANTEED to exceed early_stop_threshold,
+            # i.e. ``sum_so_far > early_stop_threshold * cv_folds``. Even if
+            # all remaining folds return 0, the mean = sum / cv_folds > thr.
+            # Saves 30-66% of fold-fit compute on candidates that the gate
+            # will reject anyway.
+            fold_results = []
+            _sum_so_far = 0.0
+            _n_finite_so_far = 0
+            for _fi, (tr, va) in enumerate(splits):
+                _rmse, _pb = _one_fold(tr, va)
+                fold_results.append((_rmse, _pb))
+                if math.isfinite(_rmse):
+                    _sum_so_far += _rmse
+                    _n_finite_so_far += 1
+                if (
+                    math.isfinite(early_stop_threshold)
+                    and _n_finite_so_far > 0
+                    and _fi < len(splits) - 1
+                    and _sum_so_far > early_stop_threshold * cv_folds
+                    and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
+                ):
+                    # Final mean cannot reach <= threshold; abort remaining folds.
+                    break
 
     # NaN-fold aggregate WARN (twin of the y-scale branch).
     _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
