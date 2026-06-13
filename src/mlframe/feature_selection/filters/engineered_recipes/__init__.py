@@ -129,6 +129,7 @@ from ._orth_basis_recipes import (  # noqa: F401
     _bspline_basis_values,
     _eval_orth_basis_column,
     _fit_spline_knots,
+    _freeze_preprocess_params,
     build_orth_cluster_basis_recipe,
     build_orth_diff_basis_recipe,
     build_orth_fourier_recipe,

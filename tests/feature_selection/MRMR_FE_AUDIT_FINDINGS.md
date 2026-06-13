@@ -12,6 +12,11 @@ items are precisely scoped for a fresh-context iteration to implement + test.
   **+ in-sample shortlist residual** -> held-out. `_usability_aware_selection.py`. (cb182c44)
 - **non-row-wise-pure FE ops** (grad1/grad2/logn) admitted to FE pair candidates -> slice-replay
   corruption; excluded from the candidate dicts. `_fit_impl_core.py:5725`. (a375b580)
+- **orth TRIPLET/QUADRUPLET cross-basis recipes refit the per-leg preprocess at replay** (P0/P1
+  slice-replay corruption) -> froze the fit-time basis-preprocess params per leg (mirroring the pair
+  BUG2 fix) across the 2 builders + 2 apply fns + 4 fit-emit sites, exported `_freeze_preprocess_params`.
+  Direct slice-replay unit test (frozen -> byte-exact; unfrozen -> drifts on a slice). Was the
+  PREREQUISITE for enabling triplet/quad FE by default. 117 existing triplet/quad tests green.
 
 ## VERIFIED CLEAN (no triggerable bug)
 
@@ -21,14 +26,16 @@ items are precisely scoped for a fresh-context iteration to implement + test.
   (log_shift, gate_med, prewarp preprocess, cluster member stats) all read from `recipe.extra`; continuous
   output; registry-mismatch raises. Clean.
 
-## OPEN -- P0/P1, OPT-IN gated (next-iteration target)
+## OPEN
 
-### Orth TRIPLET / QUADRUPLET cross-basis recipes refit per-leg preprocess at replay (slice-replay corruption)
+(none currently -- the orth triplet/quadruplet replay P0 below was RESOLVED, see FIXED list above.)
 
-**Severity P0/P1** (silent wrong feature values on test/slice replay), but **gated behind the
-default-OFF** `fe_hybrid_orth_triplet_enable` / `fe_hybrid_orth_quadruplet_enable` -> no production-default
-impact, so deferred to a fresh-context iteration (the fix is a 6-site change to REPLAY-CRITICAL code and
-must not be rushed).
+### [RESOLVED] Orth TRIPLET / QUADRUPLET cross-basis recipes refit per-leg preprocess at replay
+
+**Severity P0/P1** (silent wrong feature values on test/slice replay), gated behind the default-OFF
+`fe_hybrid_orth_triplet_enable` / `fe_hybrid_orth_quadruplet_enable`. FIXED this session (the user asked
+to enable these by default, which made the replay fix the mandatory prerequisite). Detail kept below for
+provenance.
 
 **The bug:** `_apply_orth_triplet_cross` / `_apply_orth_quadruplet_cross` call
 `_eval_orth_basis_column(vals, basis, deg)` with `preprocess_params=None`

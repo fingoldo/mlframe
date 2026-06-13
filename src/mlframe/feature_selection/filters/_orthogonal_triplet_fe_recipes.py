@@ -50,12 +50,19 @@ def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     deg_a = int(recipe.extra["deg_a"])
     deg_b = int(recipe.extra["deg_b"])
     deg_c = int(recipe.extra["deg_c"])
+    # REPLAY-FIDELITY FIX (2026-06-13): per-leg FROZEN fit-time basis-preprocess params, mirroring the
+    # pair "BUG2 FIX". Without them ``_eval_orth_basis_column`` REFITS the z-score mean/std (or min-max
+    # lo/hi) from the APPLY-time rows, so a row-slice / drifted test frame shifts the basis axis and
+    # silently emits wrong values. ``None`` (legacy pickles) falls back to the refit path, byte-identical.
+    pp_i = recipe.extra.get("preprocess_params_i")
+    pp_j = recipe.extra.get("preprocess_params_j")
+    pp_k = recipe.extra.get("preprocess_params_k")
     vals_i = _extract_column(X, name_i)
     vals_j = _extract_column(X, name_j)
     vals_k = _extract_column(X, name_k)
-    h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a)
-    h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b)
-    h_c = _eval_orth_basis_column(vals_k, basis_k, deg_c)
+    h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
+    h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
+    h_c = _eval_orth_basis_column(vals_k, basis_k, deg_c, preprocess_params=pp_k)
     return h_a * h_b * h_c
 
 
@@ -64,24 +71,37 @@ def build_orth_triplet_cross_recipe(
     src_a_name: str, src_b_name: str, src_c_name: str,
     basis_i: str, basis_j: str, basis_k: str,
     deg_a: int, deg_b: int, deg_c: int,
+    preprocess_params_i: "dict | None" = None,
+    preprocess_params_j: "dict | None" = None,
+    preprocess_params_k: "dict | None" = None,
 ) -> "EngineeredRecipe":
     """Frozen recipe for one triplet cross-basis column
     ``basis_i^{deg_a}(preprocess(X[a])) *
       basis_j^{deg_b}(preprocess(X[b])) *
       basis_k^{deg_c}(preprocess(X[c]))``.
     """
-    from .engineered_recipes import EngineeredRecipe
+    from .engineered_recipes import EngineeredRecipe, _freeze_preprocess_params
 
+    extra = {
+        "basis_i": str(basis_i),
+        "basis_j": str(basis_j),
+        "basis_k": str(basis_k),
+        "deg_a": int(deg_a),
+        "deg_b": int(deg_b),
+        "deg_c": int(deg_c),
+    }
+    # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params so replay
+    # reproduces the axis byte-exactly (no slice-vs-full mean/std refit drift). Omitted when None so
+    # legacy recipes stay byte-equal.
+    for _key, _pp in (("preprocess_params_i", preprocess_params_i),
+                      ("preprocess_params_j", preprocess_params_j),
+                      ("preprocess_params_k", preprocess_params_k)):
+        _frozen = _freeze_preprocess_params(_pp)
+        if _frozen is not None:
+            extra[_key] = _frozen
     return EngineeredRecipe(
         name=name,
         kind="orth_triplet_cross",
         src_names=(src_a_name, src_b_name, src_c_name),
-        extra={
-            "basis_i": str(basis_i),
-            "basis_j": str(basis_j),
-            "basis_k": str(basis_k),
-            "deg_a": int(deg_a),
-            "deg_b": int(deg_b),
-            "deg_c": int(deg_c),
-        },
+        extra=extra,
     )

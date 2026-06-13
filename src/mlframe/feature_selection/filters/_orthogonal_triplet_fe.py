@@ -570,21 +570,33 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 continue
             # Same auto-routing fixup as Layer 22 pair recipe builder.
             col_i, col_j, col_k = legs
+            x_i = X[col_i].to_numpy(dtype=np.float64)
+            x_j = X[col_j].to_numpy(dtype=np.float64)
+            x_k = X[col_k].to_numpy(dtype=np.float64)
             if basis == "auto":
                 try:
-                    x_i = X[col_i].to_numpy(dtype=np.float64)
-                    x_j = X[col_j].to_numpy(dtype=np.float64)
-                    x_k = X[col_k].to_numpy(dtype=np.float64)
                     basis_a = basis_route_by_moments(x_i)
                     basis_b = basis_route_by_moments(x_j)
                     basis_c = basis_route_by_moments(x_k)
                 except Exception:
                     pass
+            # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params
+            # (z-score mean/std, min-max lo/hi, ...) so ``transform()`` replays the basis axis
+            # byte-exactly instead of refitting it from the apply-time rows (slice-replay corruption).
+            # Guarded -> on any failure params stay None (legacy refit path), never crashing the emit.
+            _pp_a = _pp_b = _pp_c = None
+            try:
+                _, _pp_a = _evaluate_basis_column(x_i, basis_a, deg_a, return_params=True)
+                _, _pp_b = _evaluate_basis_column(x_j, basis_b, deg_b, return_params=True)
+                _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
+            except Exception:
+                pass
             recipes.append(build_orth_triplet_cross_recipe(
                 name=name,
                 src_a_name=col_i, src_b_name=col_j, src_c_name=col_k,
                 basis_i=basis_a, basis_j=basis_b, basis_k=basis_c,
                 deg_a=deg_a, deg_b=deg_b, deg_c=deg_c,
+                preprocess_params_i=_pp_a, preprocess_params_j=_pp_b, preprocess_params_k=_pp_c,
             ))
         elif len(legs) == 1:
             # univariate: "{col}__{code}{degree}"
@@ -597,9 +609,18 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                     "degree from %r; skipping recipe.", name,
                 )
                 continue
+            # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params (mirrors
+            # the orth_univariate BUG2 fix); without them replay refits the axis from apply-time rows.
+            _pp_u = None
+            try:
+                _x_u = X[src].to_numpy(dtype=np.float64)
+                _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
+            except Exception:
+                pass
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,
                 basis=chosen_basis, degree=chosen_degree,
+                preprocess_params=_pp_u,
             ))
         else:
             logger.warning(
