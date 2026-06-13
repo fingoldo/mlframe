@@ -338,6 +338,56 @@ def _cmi_from_binned(
     return max(0.0, cmi_plugin - cmi_bias)
 
 
+def precompute_cmi_yz_terms(
+    y: np.ndarray, z_joint: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float, float, int, int, float]:
+    """Hoist the y/z-only terms of the conditional ``_cmi_from_binned`` out of a
+    permutation loop that only resamples ``x``.
+
+    Within a conditional-permutation null only the candidate ``x`` is reshuffled
+    (within support strata); ``y`` and ``z`` are fixed across all permutations,
+    so ``H(Y,Z)``, ``H(Z)`` and their occupied-cell counts ``k_yz`` / ``k_z`` are
+    invariant. Recomputing them per permutation (the plain ``_cmi_from_binned``
+    path) re-renumbers ``yz`` and re-bins ``z`` every iteration and discards the
+    result -- pure wasted work. This returns the invariant block once; pair with
+    :func:`cmi_from_binned_fixed_yz` for the per-permutation evaluation.
+
+    Returns ``(y_i, z_i, h_yz, h_z, k_yz, k_z, n)`` where ``y_i`` / ``z_i`` are
+    contiguous int64 views reused by every permutation.
+    """
+    y_i = np.ascontiguousarray(y, dtype=np.int64).ravel()
+    z_i = np.ascontiguousarray(z_joint, dtype=np.int64).ravel()
+    n = float(max(1, y_i.size))
+    yz, _ = _renumber_joint(y_i, z_i)
+    h_z, k_z = _entropy_from_classes(z_i)
+    h_yz, k_yz = _entropy_from_classes(yz)
+    return y_i, z_i, h_yz, h_z, k_yz, k_z, n
+
+
+def cmi_from_binned_fixed_yz(
+    x: np.ndarray,
+    y_i: np.ndarray,
+    z_i: np.ndarray,
+    h_yz: float,
+    h_z: float,
+    k_yz: int,
+    k_z: int,
+    n: float,
+) -> float:
+    """``CMI(X; Y | Z)`` for a fresh ``x`` reusing the y/z-invariant terms from
+    :func:`precompute_cmi_yz_terms`. Computes only the x-dependent ``xz`` / ``xyz``
+    renumberings + their entropies; bit-identical to :func:`_cmi_from_binned` on
+    the same inputs (it is the same arithmetic with the y/z block factored out)."""
+    x_i = np.ascontiguousarray(x, dtype=np.int64).ravel()
+    xz, _ = _renumber_joint(x_i, z_i)
+    xyz, _ = _renumber_joint(x_i, y_i, z_i)
+    h_xz, k_xz = _entropy_from_classes(xz)
+    h_xyz, k_xyz = _entropy_from_classes(xyz)
+    cmi_plugin = h_xz + h_yz - h_z - h_xyz
+    cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+    return max(0.0, cmi_plugin - cmi_bias)
+
+
 # ---------------------------------------------------------------------------
 # Public CMI scorer
 # ---------------------------------------------------------------------------

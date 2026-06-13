@@ -206,7 +206,7 @@ def _conditional_perm_null(
     # point estimate are directly comparable, and the memory stays bounded by n
     # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
     # joint cardinality climbs into the thousands).
-    from ._mi_greedy_cmi_fe import _cmi_from_binned
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
 
     x = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
@@ -233,12 +233,16 @@ def _conditional_perm_null(
     groups = [g for g in np.split(order, boundaries) if g.size > 1]
     if not groups:
         return 0.0, 0.0
+    # y and z are fixed across permutations (only x is reshuffled within strata),
+    # so the H(Y,Z) / H(Z) block of the conditional CMI is invariant -- hoist it
+    # out of the loop and recompute only the x-dependent xz / xyz terms per perm.
+    y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
     nulls = np.empty(int(n_permutations), dtype=np.float64)
     for i in range(int(n_permutations)):
         x_perm = x.copy()
         for g in groups:
             x_perm[g] = x[g[rng.permutation(g.size)]]
-        nulls[i] = float(_cmi_from_binned(x_perm, y, z))
+        nulls[i] = float(cmi_from_binned_fixed_yz(x_perm, y_i, z_i, h_yz, h_z, k_yz, k_z, n_f))
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 

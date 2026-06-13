@@ -590,3 +590,27 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
             f"a rational max-MI subsumption: cross_mix_MI={cm_mi:.4f} <= "
             f"cd_form_MI={cd_ref_mi:.4f} (cross_mix={cm_name!r})"
         )
+
+
+def test_conditional_perm_null_fixed_yz_bit_identical():
+    """The hoisted y/z-invariant CMI path in ``_conditional_perm_null`` (recompute
+    only x-dependent xz/xyz per permutation) must be bit-identical to the full
+    per-permutation ``_cmi_from_binned`` it replaced. Pins the optimization so a
+    future refactor of either helper cannot silently diverge the null."""
+    import numpy as np
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
+        _cmi_from_binned,
+        cmi_from_binned_fixed_yz,
+        precompute_cmi_yz_terms,
+    )
+
+    rng = np.random.default_rng(7)
+    for _ in range(200):
+        n = int(rng.integers(500, 3000))
+        x = rng.integers(0, int(rng.integers(2, 12)), n).astype(np.int64)
+        y = rng.integers(0, int(rng.integers(2, 8)), n).astype(np.int64)
+        z = rng.integers(0, int(rng.integers(2, 30)), n).astype(np.int64)
+        ref = _cmi_from_binned(x, y, z)
+        yi, zi, h_yz, h_z, k_yz, k_z, nf = precompute_cmi_yz_terms(y, z)
+        got = cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)
+        assert ref == got, f"fixed-yz CMI diverged: ref={ref!r} got={got!r}"

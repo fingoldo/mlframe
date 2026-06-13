@@ -1759,6 +1759,7 @@ production-scale bugs that the fuzz-cell loop missed:
 | 41d | 1M harness missed iter-23.5 + iter-32.5 axes + no save phase | wired all axes + added save-to-disk profile block | `0c99acb` |
 | 43 | `apply_preprocessing_extensions` crash on non-numeric leak (cat_mid='M03', emb list-of-float) -- two chained errors (SimpleImputer median + PolynomialFeatures truth-value-ambiguous) | numeric-only filter at extensions-pipeline entry + WARN | `989f9f3` |
 | 44 | `discretize_2d_quantile_batch` (top mlframe-OWN tottime: 77.3s/1373 calls, scene 2500 MRMR) runs a full `np.isnan(arr2d).any()` scan + bool alloc on every call, but the two FE-chunk callers (`_pairs_core.py:1115`, `_pairs_chunks.py:252`) scrub the buffer with `nan_to_num(copy=False)` immediately before -- guaranteed-False wasted work | added `assume_finite=` fast path (skips the scan, bit-identical by construction on NaN-free buffer); wired `=True` at both scrubbed call sites; default stays NaN-aware. Isolated isnan cost ~2.8-3.5% of the discretiser at 600-2000 cols; selection BIT-IDENTICAL (83 selected / 6 engineered) | `ae04d606` |
+| 45 | `_fe_cmi_redundancy_gate._conditional_perm_null` (top remaining CPU mlframe-OWN tottime after iter44: 6.79s / 452 calls, scene 2500 MRMR; discretize_2d excluded, cupy gate is GPU). Each call runs 25 within-stratum permutations of `x` and calls full `_cmi_from_binned(x_perm, y, z)` -- but only `x` is reshuffled, so the H(Y,Z)/H(Z) block (yz renumber + z bincount + k_yz/k_z) is recomputed every permutation and discarded (caller-discards-output pattern) | added `precompute_cmi_yz_terms` + `cmi_from_binned_fixed_yz` to `_mi_greedy_cmi_fe`: hoist the y/z-invariant terms once, per-perm recompute only x-dependent xz/xyz. Bit-identical (0.0 abs diff over 600 random binned configs). Isolated 25-perm block 2.061->1.476 ms = **1.40x**; end-to-end MRMR selection BIT-IDENTICAL (83 selected / 6 engineered) | `<pending>` |
 
 **Production-scale profile signal:**
 
@@ -1779,5 +1780,5 @@ the machine's 16 GB RAM ceiling is the binding constraint, not
 mlframe code. Loop continues -- 4 RESOLVED in this iter group,
 0 REJECT.
 
-Streak: 0/100 (iter44 RESOLVED -- reset). **Cumulative loop wave: 18 RESOLVED, 27 REJECT
-across 44 iterations.**
+Streak: 0/100 (iter45 RESOLVED -- reset). **Cumulative loop wave: 19 RESOLVED, 27 REJECT
+across 45 iterations.**
