@@ -124,8 +124,12 @@ def matthews_corrcoef_from_counts(tp: int, fp: int, tn: int, fn: int) -> float:
 
 # ---------- KS statistic ----------
 
-# Below this n the fused-gather kernel (indexes through ``order`` inline, no gather temporaries) reliably wins 1.05-1.7x; above it the saving is noise-band. Retune per hardware.
+# The inline-ordered kernel (indexes through ``order``, no gather temporaries) wins in TWO regions, with a losing middle band:
+#   - n < _KS_FUSED_MAX_N: the double-indirect scan is cheap and skipping the two N-length gathers wins 1.3-1.7x (small per-class report arrays).
+#   - n >= _KS_INLINE_ORDERED_MIN_N: the two N-length fancy-index gathers (int64 + float64) become memory-bandwidth-bound and the inline scan wins ~1.05x@200k / ~1.2x@500k bit-identically (bench_ks_desc_order_inline_gather_iter72).
+# Between the two the pre-gathered contiguous-scan reference is fastest. Retune per hardware.
 _KS_FUSED_MAX_N = 2048
+_KS_INLINE_ORDERED_MIN_N = 150_000
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -252,7 +256,7 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: np.ndarray
         return np.nan
     if desc_order is not None and desc_order.shape[0] == n:
         order = desc_order[::-1]
-        if n < _KS_FUSED_MAX_N:
+        if n < _KS_FUSED_MAX_N or n >= _KS_INLINE_ORDERED_MIN_N:
             return float(_ks_statistic_kernel_ordered(np.ascontiguousarray(order), yt, ys))
         return float(_ks_statistic_kernel(yt[order], ys[order]))
     # bench-attempt-rejected (_benchmarks/bench_ks_shared_sort.py): sharing this
@@ -262,13 +266,13 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: np.ndarray
     # 8*N*K. Keep own sort.
     # standalone-replace rejected (_benchmarks/bench_ks_statistic_njit.py): np.argsort
     # dominates so no all-sizes win; the in-kernel-argsort variant is 0.3-0.5x.
-    # BUT _ks_statistic_kernel_ordered (fused gather, indexes through order inline,
-    # zero gather temporaries) is gated in for n < _KS_FUSED_MAX_N where it wins
-    # 1.3-1.7x bit-identically (the per-class report arrays are exactly this small);
-    # above the gate its double-indirect access is noise-band so the pre-gathered
-    # contiguous-scan reference stays default.
+    # BUT _ks_statistic_kernel_ordered (indexes through order inline, zero gather
+    # temporaries) is gated in for n < _KS_FUSED_MAX_N (1.3-1.7x; tiny per-class arrays)
+    # AND for n >= _KS_INLINE_ORDERED_MIN_N (~1.05x@200k / ~1.2x@500k; the two N-length
+    # gathers turn memory-bandwidth-bound) -- bit-identical, bench_ks_desc_order_inline_gather_iter72.
+    # The middle band keeps the pre-gathered contiguous-scan reference.
     order = np.argsort(ys, kind="quicksort")
-    if n < _KS_FUSED_MAX_N:
+    if n < _KS_FUSED_MAX_N or n >= _KS_INLINE_ORDERED_MIN_N:
         return float(_ks_statistic_kernel_ordered(order, yt, ys))
     return float(_ks_statistic_kernel(yt[order], ys[order]))
 

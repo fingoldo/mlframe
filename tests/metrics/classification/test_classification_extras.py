@@ -203,7 +203,64 @@ def test_ks_size_gate_routes_to_expected_kernel(monkeypatch):
     ys = rng.random(big)
     yt = (rng.random(big) < 0.3).astype(np.int64)
     ext.ks_statistic(yt, ys)
-    assert calls == {"fused": 1, "ref": 1}, "large-n must route to pre-gathered reference kernel"
+    assert calls == {"fused": 1, "ref": 1}, "mid-band-n must route to pre-gathered reference kernel"
+
+
+@pytest.mark.parametrize("desc", [False, True])
+def test_ks_very_large_n_routes_to_inline_ordered_kernel(monkeypatch, desc):
+    """At/above _KS_INLINE_ORDERED_MIN_N the inline-ordered kernel must be invoked (both the standalone
+    and the desc_order branches): there the two N-length gathers turn memory-bandwidth-bound and the inline
+    scan wins ~1.05x@200k bit-identically. Pre-fix code (no upper gate) routed all large-n to the pre-gathered
+    reference kernel, so this fails on the baseline. Spies pin the routing independent of timing."""
+    import mlframe.metrics.classification._classification_extras as ext
+    calls = {"fused": 0, "ref": 0}
+    orig_fused = ext._ks_statistic_kernel_ordered
+    orig_ref = ext._ks_statistic_kernel
+
+    def spy_fused(order, yt, ys):
+        calls["fused"] += 1
+        return orig_fused(order, yt, ys)
+
+    def spy_ref(yt, ys):
+        calls["ref"] += 1
+        return orig_ref(yt, ys)
+
+    monkeypatch.setattr(ext, "_ks_statistic_kernel_ordered", spy_fused)
+    monkeypatch.setattr(ext, "_ks_statistic_kernel", spy_ref)
+
+    n = ext._KS_INLINE_ORDERED_MIN_N
+    rng = np.random.default_rng(11)
+    ys = rng.random(n)
+    yt = (rng.random(n) < 0.3).astype(np.int64)
+    desc_order = np.argsort(ys)[::-1].copy() if desc else None
+    ext.ks_statistic(yt, ys, desc_order=desc_order)
+    assert calls == {"fused": 1, "ref": 0}, "very-large-n must route to the inline-ordered kernel"
+
+
+@pytest.mark.parametrize("kind", ["random", "lowcard_ties", "all_tied", "imbalanced"])
+def test_ks_upper_gate_is_bit_identical(kind):
+    """The inline-ordered kernel gated in at n >= _KS_INLINE_ORDERED_MIN_N must equal the pre-gathered
+    reference exactly on the SAME large-n data (both branches), including heavy ties -- gate changes speed only."""
+    import mlframe.metrics.classification._classification_extras as ext
+    from mlframe.metrics.classification._classification_extras import _ks_statistic_numpy
+
+    n = ext._KS_INLINE_ORDERED_MIN_N
+    rng = np.random.default_rng(99)
+    if kind == "random":
+        ys = rng.random(n); yt = (rng.random(n) < 0.3).astype(np.int64)
+    elif kind == "lowcard_ties":
+        ys = rng.integers(0, 5, size=n).astype(np.float64); yt = (rng.random(n) < 0.4).astype(np.int64)
+    elif kind == "all_tied":
+        ys = np.full(n, 0.5); yt = (rng.random(n) < 0.5).astype(np.int64)
+    else:
+        ys = rng.random(n); yt = (rng.random(n) < 0.05).astype(np.int64)
+    ref = _ks_statistic_numpy(yt, ys)
+    desc_order = np.argsort(ys)[::-1].copy()
+    for got in (ext.ks_statistic(yt, ys), ext.ks_statistic(yt, ys, desc_order=desc_order)):
+        if np.isnan(ref):
+            assert np.isnan(got), f"{kind}: got {got!r}, ref NaN"
+        else:
+            assert got == ref, f"{kind}: gated {got!r} != ref {ref!r}"
 
 
 def test_ks_fused_gate_perf_sentinel():
