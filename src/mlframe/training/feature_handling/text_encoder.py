@@ -153,6 +153,10 @@ class TextColumnEncoder:
         self._vectorizer: Optional[Any] = None
         self._fitted: bool = False
         self._n_features_out: Optional[int] = None
+        # Set when the TRAIN corpus has no tokens (all-empty / all-missing text
+        # column). sklearn TfidfVectorizer raises "empty vocabulary" in that
+        # case; we degrade to a faithful 0-width matrix instead of crashing.
+        self._empty_vocab: bool = False
 
     @property
     def is_fitted(self) -> bool:
@@ -197,6 +201,8 @@ class TextColumnEncoder:
                 f"TextColumnEncoder({self.column!r}) not fitted. "
                 f"Call .fit(train_df) first."
             )
+        if self._empty_vocab:
+            return self._empty_matrix(df)
         texts = _column_to_string_iter(df, self.column)
         # sklearn's TfidfVectorizer.transform / HashingVectorizer.transform
         # both return scipy.sparse.csr_matrix.
@@ -247,11 +253,30 @@ class TextColumnEncoder:
                 f"expected TfidfParams or HashingParams"
             )
 
-        if also_transform:
-            out = self._vectorizer.fit_transform(texts)
-        else:
-            self._vectorizer.fit(texts)
-            out = None
+        # TF-IDF on an all-empty / all-missing column yields no tokens; sklearn
+        # raises ValueError("empty vocabulary ..."). Degrade to a faithful
+        # 0-width matrix so the concat layer keeps a stable schema and tiny
+        # inner-CV folds don't abort the fit. Hashing has a fixed width and
+        # never hits this path. Materialise once (a generator is consumed by
+        # fit) so the fallback can recover the row count.
+        if isinstance(self.params, TfidfParams):
+            texts = list(texts)
+        try:
+            if also_transform:
+                out = self._vectorizer.fit_transform(texts)
+            else:
+                self._vectorizer.fit(texts)
+                out = None
+        except ValueError as exc:
+            if isinstance(self.params, TfidfParams) and "empty vocabulary" in str(exc):
+                logger.warning(
+                    "TextColumnEncoder(%r): empty vocabulary (all-empty/all-missing "
+                    "text column); emitting 0-width matrix.", self.column,
+                )
+                self._empty_vocab = True
+                self._n_features_out = 0
+                return self._empty_matrix_from_count(len(texts)) if also_transform else None
+            raise
 
         # Determine n_features_out: TF-IDF can be smaller than max_features
         # if the corpus has fewer unique tokens; hashing always exact.
@@ -261,6 +286,23 @@ class TextColumnEncoder:
             self._n_features_out = self.params.n_features
 
         return out
+
+    @staticmethod
+    def _row_count(df: Any) -> int:
+        try:
+            import polars as pl
+            if isinstance(df, pl.DataFrame):
+                return df.height
+        except ImportError:  # pragma: no cover
+            pass
+        return len(df)
+
+    def _empty_matrix_from_count(self, n_rows: int):
+        import scipy.sparse as _sp
+        return _sp.csr_matrix((n_rows, 0), dtype=np.float64)
+
+    def _empty_matrix(self, df: Any):
+        return self._empty_matrix_from_count(self._row_count(df))
 
     def __repr__(self) -> str:
         kind = type(self.params).__name__
