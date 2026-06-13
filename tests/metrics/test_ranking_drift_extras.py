@@ -142,6 +142,44 @@ def test_ks_distribution_distance_matches_scipy():
     assert ks_distribution_distance(a, b) == pytest.approx(expected, abs=1e-12)
 
 
+def _wasserstein_1d_numpy_reference(reference, target):
+    """Pre-fix numpy implementation: concat+sort merged support + two searchsorted scans."""
+    a = np.asarray(reference, dtype=np.float64)
+    b = np.asarray(target, dtype=np.float64)
+    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
+    all_values = np.concatenate((a, b)); all_values.sort(kind="quicksort")
+    deltas = np.diff(all_values)
+    cdf_a = np.searchsorted(np.sort(a), all_values[:-1], side="right") / a.size
+    cdf_b = np.searchsorted(np.sort(b), all_values[:-1], side="right") / b.size
+    return float(np.sum(np.abs(cdf_a - cdf_b) * deltas))
+
+
+def _ks_distance_numpy_reference(reference, target):
+    a = np.asarray(reference, dtype=np.float64); b = np.asarray(target, dtype=np.float64)
+    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
+    a_s = np.sort(a); b_s = np.sort(b)
+    all_values = np.concatenate((a_s, b_s)); all_values.sort()
+    cdf_a = np.searchsorted(a_s, all_values, side="right") / a_s.size
+    cdf_b = np.searchsorted(b_s, all_values, side="right") / b_s.size
+    return float(np.max(np.abs(cdf_a - cdf_b)))
+
+
+def test_fused_drift_kernels_bit_identical_to_numpy_reference():
+    """The fused single-pass njit merge (replacing concat+sort+2x searchsorted) must reproduce the
+    numpy reference bit-for-bit on ties/discrete data and to FP-order tolerance on continuous data."""
+    from mlframe.metrics._drift import _wasserstein_1d_fused, _ks_distance_fused
+
+    rng = np.random.default_rng(123)
+    # Tied / discrete: exact equality required (positional ties handled identically to searchsorted-right).
+    a = rng.integers(0, 5, 400).astype(np.float64); b = rng.integers(0, 7, 400).astype(np.float64)
+    assert wasserstein_1d(a, b) == _wasserstein_1d_numpy_reference(a, b)
+    assert ks_distribution_distance(a, b) == _ks_distance_numpy_reference(a, b)
+    # Continuous, larger n: FP reduction-order tolerance.
+    a = rng.random(20000); b = rng.random(20000) + 0.15
+    assert wasserstein_1d(a, b) == pytest.approx(_wasserstein_1d_numpy_reference(a, b), abs=1e-12)
+    assert ks_distribution_distance(a, b) == _ks_distance_numpy_reference(a, b)
+
+
 def test_drift_metrics_empty_input():
     """All five drift metrics return NaN on empty input."""
     empty = np.array([])

@@ -195,6 +195,42 @@ def js_divergence(
 # ----- Wasserstein-1 -----
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _wasserstein_1d_fused(a_s: np.ndarray, b_s: np.ndarray) -> float:
+    """Fused merge of two pre-sorted arrays -> W1 = sum |F_a - F_b| * delta in one O(na+nb) pass.
+
+    Replaces the numpy ``concatenate+sort`` of the merged support plus two ``searchsorted`` scans.
+    Equivalent by construction: at each consecutive merged support point the right-side empirical CDFs
+    are the running counts ``i/na`` and ``j/nb`` after consuming all entries <= the current support value
+    (ties handled by the two inner while-loops), exactly as ``searchsorted(side='right')`` would yield.
+    """
+    na = a_s.size
+    nb = b_s.size
+    i = 0
+    j = 0
+    total = 0.0
+    have_prev = False
+    prevx = 0.0
+    ca = 0.0
+    cb = 0.0
+    while i < na or j < nb:
+        if j >= nb or (i < na and a_s[i] <= b_s[j]):
+            x = a_s[i]
+        else:
+            x = b_s[j]
+        if have_prev:
+            total += abs(ca - cb) * (x - prevx)
+        while i < na and a_s[i] <= x:
+            i += 1
+        while j < nb and b_s[j] <= x:
+            j += 1
+        ca = i / na
+        cb = j / nb
+        prevx = x
+        have_prev = True
+    return total
+
+
 def wasserstein_1d(reference: np.ndarray, target: np.ndarray) -> float:
     """1-D Wasserstein-1 distance (earth mover's distance).
 
@@ -219,16 +255,37 @@ def wasserstein_1d(reference: np.ndarray, target: np.ndarray) -> float:
     a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
     if a.size == 0 or b.size == 0:
         return np.nan
-    all_values = np.concatenate((a, b))
-    all_values.sort(kind="quicksort")
-    deltas = np.diff(all_values)
-    # Empirical CDFs at all support points
-    cdf_a = np.searchsorted(np.sort(a), all_values[:-1], side="right") / a.size
-    cdf_b = np.searchsorted(np.sort(b), all_values[:-1], side="right") / b.size
-    return float(np.sum(np.abs(cdf_a - cdf_b) * deltas))
+    return float(_wasserstein_1d_fused(np.sort(a), np.sort(b)))
 
 
 # ----- KS distribution distance -----
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _ks_distance_fused(a_s: np.ndarray, b_s: np.ndarray) -> float:
+    """Fused merge of two pre-sorted arrays -> KS = max |F_a - F_b| in one O(na+nb) pass.
+
+    Same right-side running-CDF construction as ``_wasserstein_1d_fused``; takes the running max of the
+    CDF gap at every merged support point instead of the delta-weighted sum.
+    """
+    na = a_s.size
+    nb = b_s.size
+    i = 0
+    j = 0
+    m = 0.0
+    while i < na or j < nb:
+        if j >= nb or (i < na and a_s[i] <= b_s[j]):
+            x = a_s[i]
+        else:
+            x = b_s[j]
+        while i < na and a_s[i] <= x:
+            i += 1
+        while j < nb and b_s[j] <= x:
+            j += 1
+        d = abs(i / na - j / nb)
+        if d > m:
+            m = d
+    return m
 
 
 def ks_distribution_distance(
@@ -250,9 +307,4 @@ def ks_distribution_distance(
     a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
     if a.size == 0 or b.size == 0:
         return np.nan
-    a_sorted = np.sort(a); b_sorted = np.sort(b)
-    all_values = np.concatenate((a_sorted, b_sorted))
-    all_values.sort()
-    cdf_a = np.searchsorted(a_sorted, all_values, side="right") / a_sorted.size
-    cdf_b = np.searchsorted(b_sorted, all_values, side="right") / b_sorted.size
-    return float(np.max(np.abs(cdf_a - cdf_b)))
+    return float(_ks_distance_fused(np.sort(a), np.sort(b)))
