@@ -251,7 +251,11 @@ class DummyBaselinesConfig(BaseConfig):
     # estimate is accurate to <1% above this threshold; CI suppressed
     # to keep output uncluttered).
     bootstrap_ci_threshold: int = 2000
-    bootstrap_ci_n_resamples: int = 1000
+    # 2000 resamples: percentile-CI bound MC jitter scales ~1/sqrt(B); bench
+    # (bench_bootstrap_ci_n_resamples) shows B=2000 lowers seed-to-seed CI
+    # wobble from ~4.2% to ~3.0% of half-width across 15 cells (all wins),
+    # for ~+0.9ms once per small-n target. See CHANGELOG.
+    bootstrap_ci_n_resamples: int = 2000
 
     # Auto-WARN trigger: model lift below this multiplier vs strongest
     # dummy baseline → ``BEST_MODEL_BELOW_DUMMY`` warning emitted in
