@@ -193,19 +193,30 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
     else:
         edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         yb = np.digitize(y, edges_y)
+    # Joint-histogram MI: the prior O(|fa|*|yb|*n) double loop recomputed an O(n) boolean
+    # mask per contingency cell; a single bincount over the dense joint code yields the same
+    # plug-in counts. Bit-identical by construction -- pa/pb/pab are still count/n float64 and
+    # the (a ascending, b ascending) over-nonzero-pab summation order is preserved row-major.
+    fa_vals, fa_inv = np.unique(fb, return_inverse=True)
+    yb_vals, yb_inv = np.unique(yb, return_inverse=True)
+    n_b = yb_vals.size
+    joint_code = fa_inv.astype(np.int64) * n_b + yb_inv.astype(np.int64)
+    joint_counts = np.bincount(joint_code, minlength=fa_vals.size * n_b).reshape(fa_vals.size, n_b)
+    ca = joint_counts.sum(axis=1)
+    cb = joint_counts.sum(axis=0)
+    nf = float(n)
+    pa_row = ca / nf
+    pb_col = cb / nf
     mi = 0.0
-    fa_vals = np.unique(fb)
-    yb_vals = np.unique(yb)
-    for a in fa_vals:
-        pa = np.mean(fb == a)
+    for ai in range(fa_vals.size):
+        pa = pa_row[ai]
         if pa <= 0:
             continue
-        mask_a = fb == a
-        for b in yb_vals:
-            pab = np.mean(mask_a & (yb == b))
-            if pab > 0:
-                pb = np.mean(yb == b)
-                mi += pab * np.log(pab / (pa * pb))
+        for bi in range(n_b):
+            cab = joint_counts[ai, bi]
+            if cab > 0:
+                pab = cab / nf
+                mi += pab * np.log(pab / (pa * pb_col[bi]))
     return float(max(mi, 0.0))
 
 

@@ -371,3 +371,61 @@ def test_cprofile_wavelet_stage_hotspot(capsys):
         print(s.getvalue()[:1400])
     # Generous budget; the stage is a handful of binned-MI passes per column.
     assert elapsed < 5.0, f"wavelet stage took {elapsed:.2f}s (>5s budget)"
+
+
+def _binned_mi_legacy_reference(feat, y, nbins=10):
+    """Pre-optimization double-loop reference for ``_binned_mi`` (perf iter47).
+
+    The production kernel now builds the contingency table via a single bincount over the dense
+    joint code; this reference keeps the original O(|fa|*|yb|*n) boolean-mask formulation so the
+    bit-identity regression below cannot silently drift if the kernel changes."""
+    feat = np.asarray(feat, dtype=np.float64).ravel()
+    y = np.asarray(y).ravel()
+    n = feat.size
+    if n == 0 or n != y.size:
+        return 0.0
+    uniq_f = np.unique(feat)
+    if uniq_f.size <= nbins:
+        fb = np.searchsorted(uniq_f, feat)
+    else:
+        edges = np.quantile(feat, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+        fb = np.digitize(feat, edges)
+    if np.issubdtype(y.dtype, np.integer) and np.unique(y).size <= 20:
+        yb = y.astype(np.int64)
+    elif np.unique(y).size <= 20:
+        uy = np.unique(y)
+        yb = np.searchsorted(uy, y)
+    else:
+        edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+        yb = np.digitize(y, edges_y)
+    mi = 0.0
+    for a in np.unique(fb):
+        pa = np.mean(fb == a)
+        if pa <= 0:
+            continue
+        mask_a = fb == a
+        for b in np.unique(yb):
+            pab = np.mean(mask_a & (yb == b))
+            if pab > 0:
+                pb = np.mean(yb == b)
+                mi += pab * np.log(pab / (pa * pb))
+    return float(max(mi, 0.0))
+
+
+def test_binned_mi_histogram_bit_identical_to_legacy_double_loop():
+    """perf iter47: the bincount joint-histogram rewrite of ``_binned_mi`` must be bit-identical
+    to the prior double-loop across ternary-Haar-leg, discrete-class, and continuous-y inputs."""
+    from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi
+
+    rng = np.random.default_rng(1234)
+    for _ in range(300):
+        n = int(rng.integers(60, 2000))
+        if rng.random() < 0.5:
+            feat = rng.choice([-1.0, 0.0, 1.0], size=n, p=[0.3, 0.4, 0.3])
+        else:
+            feat = rng.normal(size=n)
+        if rng.random() < 0.6:
+            y = rng.integers(0, int(rng.integers(2, 8)), size=n)
+        else:
+            y = rng.normal(size=n)
+        assert _binned_mi(feat, y) == _binned_mi_legacy_reference(feat, y)
