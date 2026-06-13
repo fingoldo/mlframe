@@ -703,7 +703,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                 changed = True
                 continue
             except Exception as exc:
-                logger.info(f"[cb-val-pool-reuse] swap failed ({type(exc).__name__}: " f"{str(exc).splitlines()[0][:120]}); rebuilding val Pool.")
+                logger.info("[cb-val-pool-reuse] swap failed (%s: %s); rebuilding val Pool.", type(exc).__name__, str(exc).splitlines()[0][:120])
                 _CB_VAL_POOL_CACHE.pop(key, None)
 
         # Miss: build fresh val Pool with float32-cast label.

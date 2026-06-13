@@ -719,8 +719,10 @@ def _mi_per_feature_y_fixed(
     (matches ``_mi_pair_bin``'s contract when used inside the feature
     loop at ``composite_discovery._auto_base``).
 
-    Benchmark (n=500K, k=30, nbins=50): naive 2888.5 ms -> hoisted 1729.3 ms
-    => 1.67x faster, bit-exact (max abs diff 0.0).
+    Benchmark (n=500K, k=30, nbins=50): naive 2888.5 ms -> hoisted 1729.3 ms => 1.67x faster.
+    Matches the naive ``_mi_pair_bin`` loop within the ``_mi_from_binned_pair`` njit kernel's
+    ~1e-12 FP-reduction-order contract (integer contingency tables identical; only the final
+    MI-sum reduction order differs).
     """
     n_rows, n_cols = feature_matrix.shape
     out = np.zeros(n_cols, dtype=np.float64)

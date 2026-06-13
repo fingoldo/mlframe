@@ -374,10 +374,18 @@
     "kind": "value",
     "type": "module"
   },
+  "callbacks": {
+    "kind": "value",
+    "type": "module"
+  },
   "canonical_predict_proba_shape": {
     "kind": "callable",
     "module": "mlframe.training._classif_helpers",
     "signature": "(probs:any:0, classes_:any:1)"
+  },
+  "cb": {
+    "kind": "value",
+    "type": "module"
   },
   "clean_ram_and_gpu": {
     "kind": "callable",
@@ -425,6 +433,10 @@
     "kind": "callable",
     "module": "mlframe.training.preprocessing",
     "signature": "(df:any:0, train_idx:any:0, val_idx:any:0, test_idx:any:0)"
+  },
+  "diagnostics": {
+    "kind": "value",
+    "type": "module"
   },
   "drift_report": {
     "kind": "value",
@@ -628,7 +640,7 @@
   "plot_residual_diagnostics": {
     "kind": "callable",
     "module": "mlframe.training.targets.regression_residual_audit",
-    "signature": "(y_true:any:0, y_pred:any:0, audit:any:1, ax_hist:kw:1, ax_resid_vs_pred:kw:1, plot_sample_size:kw:1, seed:kw:1, plot_outputs:kw:1, base_path:kw:1, header_str:kw:1, metrics_str:kw:1, dpi:kw:1)"
+    "signature": "(y_true:any:0, y_pred:any:0, audit:any:1, ax_hist:kw:1, ax_resid_vs_pred:kw:1, plot_sample_size:kw:1, seed:kw:1, plot_outputs:kw:1, base_path:kw:1, header_str:kw:1, metrics_str:kw:1, dpi:kw:1, panels_template:kw:1)"
   },
   "plot_target_over_time": {
     "kind": "callable",
@@ -716,7 +728,7 @@
   "select_target": {
     "kind": "callable",
     "module": "mlframe.training.targets._train_eval_select_target",
-    "signature": "(model_name:any:0, target:any:0, target_type:any:0, df:any:0, train_df:any:1, test_df:any:1, val_df:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, hyperparams_config:any:1, behavior_config:any:1, common_params:any:1, sample_weight:any:1, mlframe_models:any:1, linear_model_config:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, multilabel_dispatch_config:any:1)"
+    "signature": "(model_name:any:0, target:any:0, target_type:any:0, df:any:0, cur_target_name:any:1, train_df:any:1, test_df:any:1, val_df:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, hyperparams_config:any:1, behavior_config:any:1, common_params:any:1, sample_weight:any:1, mlframe_models:any:1, linear_model_config:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, multilabel_dispatch_config:any:1)"
   },
   "short_model_tag": {
     "kind": "callable",

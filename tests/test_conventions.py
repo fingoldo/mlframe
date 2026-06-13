@@ -17,6 +17,13 @@ TESTS_DIR = Path(__file__).resolve().parent
 _JSON_IMPORT_RE = re.compile(r"^\s*(?:import\s+json\b|from\s+json\s+import\b)", re.MULTILINE)
 _ENSURE_INSTALLED_RE = re.compile(r"\bensure_installed\s*\(")
 
+# Files that must import stdlib json because they patch the exact module object that production code
+# hashes through; swapping them to orjson would make the mock target the wrong module and break the test.
+_STDLIB_JSON_WHITELIST = {
+    # patches mlframe.training.composite.cache's stdlib json.dumps (the cache-signature hash path).
+    "training/composite/test_composite_cache_future.py",
+}
+
 
 def _iter_test_files() -> list[Path]:
     return [p for p in TESTS_DIR.rglob("*.py") if p.name != "test_conventions.py"]
@@ -25,6 +32,8 @@ def _iter_test_files() -> list[Path]:
 def test_no_stdlib_json_in_tests() -> None:
     offenders: list[str] = []
     for path in _iter_test_files():
+        if path.relative_to(TESTS_DIR).as_posix() in _STDLIB_JSON_WHITELIST:
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         if _JSON_IMPORT_RE.search(text):
             offenders.append(str(path.relative_to(TESTS_DIR)))

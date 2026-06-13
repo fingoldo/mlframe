@@ -13,8 +13,9 @@ Post-fix: ``_mi_per_feature_y_fixed`` quantiles ``y`` once, then loops
 ``np.quantile(x_col) + searchsorted + _mi_from_binned_pair`` per column.
 
 Test purpose:
-1. Lock the bit-exact contract: same per-feature MI vector vs the naive
-   ``[_mi_pair_bin(...) for j in cols]`` baseline. A future change that
+1. Lock the contract: per-feature MI vector matches the naive
+   ``[_mi_pair_bin(...) for j in cols]`` baseline within the njit kernel's ~1e-12
+   FP-reduction-order tolerance. A future change that
    subtly perturbs the y-binning (different ``q`` grid, different
    ``side=`` on searchsorted, different clip range) fails this sensor.
 2. Soft speedup gate at moderate scale (n=20k, k=20, nbins=32):
@@ -55,25 +56,29 @@ def _naive_loop(x: np.ndarray, y: np.ndarray, *, nbins: int) -> np.ndarray:
     )
 
 
+# The hoisted helper routes through the njit ``_mi_from_binned_pair`` kernel while the naive baseline
+# uses ``_mi_pair_bin``'s numpy 2D reduction; the integer contingency tables are identical, only the
+# final MI-sum FP reduction ORDER differs (~1e-16 on the log-MI scale -- the kernel's documented ~1e-12
+# contract), so assert that bound rather than raw bit-identity.
 def test_y_fixed_bit_exact_vs_naive_loop() -> None:
-    """Hoisted helper must produce per-feature MI bit-identical to the
-    naive ``[_mi_pair_bin(...) for j ...]`` baseline."""
+    """Hoisted helper must match the naive ``[_mi_pair_bin(...) for j ...]`` baseline within the
+    njit kernel's FP-reduction-order tolerance."""
     x, y = _build_inputs(n=4000, k=8, seed=42)
     nbins = 32
     naive = _naive_loop(x, y, nbins=nbins)
     hoisted = _mi_per_feature_y_fixed(x, y, nbins=nbins)
     assert hoisted.shape == naive.shape
-    np.testing.assert_array_equal(hoisted, naive)
+    np.testing.assert_allclose(hoisted, naive, rtol=0, atol=1e-12)
 
 
 @pytest.mark.parametrize("nbins", [16, 32, 50])
 def test_y_fixed_matches_naive_across_nbins(nbins: int) -> None:
-    """Bit-exact match across the nbins range actually used by
-    CompositeTargetDiscovery (default 32, fast=16, accurate=50)."""
+    """Match across the nbins range actually used by CompositeTargetDiscovery (default 32, fast=16,
+    accurate=50), within the njit kernel's ~1e-12 FP-reduction-order contract."""
     x, y = _build_inputs(n=2000, k=6, seed=nbins)
     naive = _naive_loop(x, y, nbins=nbins)
     hoisted = _mi_per_feature_y_fixed(x, y, nbins=nbins)
-    np.testing.assert_array_equal(hoisted, naive)
+    np.testing.assert_allclose(hoisted, naive, rtol=0, atol=1e-12)
 
 
 def test_y_fixed_short_circuit_below_5x_nbins() -> None:

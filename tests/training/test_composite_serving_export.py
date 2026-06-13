@@ -2,13 +2,13 @@
 (``mlframe.training.composite.serving``).
 
 Covers: bit-identity of the rebuilt numpy-only predict vs estimator.predict for
-each covered transform, json.dumps/loads round-trip, NotImplementedError on an
+each covered transform, orjson.dumps/loads round-trip, NotImplementedError on an
 unsupported transform, and explicit clip + domain-fallback behaviour. The
 biz_value test asserts NO sklearn on the serve path AND atol-0 bit-identity.
 """
 from __future__ import annotations
 
-import json
+import orjson
 import sys
 
 import numpy as np
@@ -101,7 +101,7 @@ def test_serving_multi_base_bit_identical():
 def test_serving_spec_json_round_trip():
     est, X, _ = _fit("linear_residual")
     spec = export_serving_spec(est)
-    reloaded = json.loads(json.dumps(spec))
+    reloaded = orjson.loads(orjson.dumps(spec))
     assert reloaded["spec_version"] == SERVING_SPEC_VERSION
     assert reloaded["transform_name"] == "linear_residual"
     assert reloaded["base_columns"] == ["base"]
@@ -119,8 +119,8 @@ def test_serving_spec_json_handles_non_finite_clip():
     # Force a non-finite envelope to exercise the inf sentinel mapping.
     spec["fitted_params"]["t_clip_low"] = "__-inf__"
     spec["fitted_params"]["t_clip_high"] = "__inf__"
-    s = json.dumps(spec)  # must not raise (no bare Infinity token)
-    fn = load_serving_spec(json.loads(s))
+    s = orjson.dumps(spec)  # must not raise (no bare Infinity token)
+    fn = load_serving_spec(orjson.loads(s))
     out = fn(X["base"].to_numpy(), est.estimator_.predict(X))
     assert np.all(np.isfinite(out))
 
@@ -215,7 +215,7 @@ def test_biz_val_serving_bit_identical_no_sklearn_on_serve_path():
     raw = est.estimator_.predict(X)
     base = X["base"].to_numpy()
 
-    spec = json.loads(json.dumps(export_serving_spec(est)))
+    spec = orjson.loads(orjson.dumps(export_serving_spec(est)))
 
     # Drop sklearn from sys.modules; building + calling the serve predict must
     # not re-import it (proves the serve path is sklearn-free).

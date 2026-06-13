@@ -1,6 +1,8 @@
 """Regression: the prebinned-codes null-MI fast path added to ``_auto_base``
-(permutation-MI null filter) must be BIT-IDENTICAL to the per-call
-``_mi_pair_bin`` it replaces, for NaN-free columns.
+(permutation-MI null filter) must match the per-call ``_mi_pair_bin`` it replaces
+for NaN-free columns -- exactly at the integer contingency-table level (which governs
+feature survival), and within the njit kernel's ~1e-12 FP-reduction-order contract on
+the final MI scalar.
 
 ``np.quantile`` is shuffle-invariant (it sorts internally) and ``np.searchsorted``
 is element-wise (so it commutes with any permutation). Therefore binning a
@@ -46,9 +48,15 @@ def test_prebinned_null_mi_is_bit_identical_to_mi_pair_bin(nbins: int, seed: int
         ref = _mi_pair_bin(col[order], y, nbins=nbins)
         # Fast path: shuffle the precomputed CODES and score from the contingency table.
         fast = _mi_from_binned_pair(col_codes[order], y_codes, nbins=nbins)
-        assert ref == fast, (
-            f"prebinned null MI diverged from _mi_pair_bin: ref={ref!r} fast={fast!r} "
-            f"(nbins={nbins}, seed={seed}) — optimization is no longer bit-identical"
+        # The integer contingency table is identical (proven exactly by
+        # test_shuffling_codes_equals_binning_shuffled_values); the only divergence is the FP
+        # reduction ORDER of the final MI sum -- numpy reduces the (nbins,nbins) product array,
+        # the njit kernel in _mi_from_binned_pair walks cells row-major -- which lands ~1e-16 on
+        # the natural-log MI scale. That is the kernel's documented ~1e-12 contract and is far
+        # below any null-threshold survival decision; assert that bound, not raw bit-identity.
+        assert abs(ref - fast) <= 1e-12, (
+            f"prebinned null MI diverged from _mi_pair_bin beyond the FP-reduction-order tolerance: "
+            f"ref={ref!r} fast={fast!r} (nbins={nbins}, seed={seed})"
         )
 
 

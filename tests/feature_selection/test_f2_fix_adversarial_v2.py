@@ -37,7 +37,7 @@ cell is isolated.
 """
 from __future__ import annotations
 
-import json
+import orjson
 import os
 import re
 import subprocess
@@ -66,7 +66,7 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
     """
     src = textwrap.dedent(
         """
-        import json, numpy as np, pandas as pd
+        import orjson, numpy as np, pandas as pd
         from mlframe.feature_selection.filters.mrmr import MRMR
         {body}
         fs = MRMR(verbose=0)
@@ -88,7 +88,7 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
                     replay_break.append(ec)
         except Exception as _e:
             replay_break.append('TRANSFORM_ERROR:' + repr(_e)[:200])
-        print('RESULT_JSON=' + json.dumps({{'sel': sel, 'replay_break': replay_break}}))
+        print('RESULT_JSON=' + orjson.dumps({{'sel': sel, 'replay_break': replay_break}}).decode())
         """
     ).format(body=textwrap.dedent(body).strip())
     env = dict(os.environ)
@@ -101,7 +101,7 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
     res = None
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
-            res = json.loads(line[len("RESULT_JSON="):])
+            res = orjson.loads(line[len("RESULT_JSON="):])
     assert res is not None, (
         f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n"
         + "\n".join(proc.stderr.splitlines()[-20:])

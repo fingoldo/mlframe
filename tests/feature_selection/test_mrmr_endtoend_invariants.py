@@ -38,7 +38,7 @@ CPU is forced (``NUMBA_DISABLE_CUDA=1`` + ``CUDA_VISIBLE_DEVICES=''`` +
 """
 from __future__ import annotations
 
-import json
+import orjson
 import os
 import subprocess
 import sys
@@ -264,7 +264,7 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
     if extra:
         env["PYTHONPATH"] = os.pathsep.join(extra + ([pp] if pp else []))
 
-    payload = json.dumps({"case": case, "fe_kwargs": fe_kwargs, "test_dir": test_dir})
+    payload = orjson.dumps({"case": case, "fe_kwargs": fe_kwargs, "test_dir": test_dir}).decode()
 
     last_err = ""
     for attempt in range(2):
@@ -279,7 +279,7 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
             for line in reversed(blob):
                 line = line.strip()
                 if line.startswith("{"):
-                    return json.loads(line)
+                    return orjson.loads(line)
         last_err = (proc.stderr or "")[-3000:]
         transient = any(t in last_err.lower() for t in ("paging file", "memoryerror", "cannot allocate", "oom"))
         if transient and attempt == 0:

@@ -81,6 +81,8 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "TreeModelConfig.xgb_kwargs": "duplicate of ModelHyperparamsConfig.xgb_kwargs (which IS consumed via model_dump splat)",
     "CompositeTargetDiscoveryConfig.force_inject_diff_on_top_ablation_pct": "ablation-only knob for the diff-injection sensitivity study; not consumed by production discovery path (kept for the bench/audit script to vary)",
     "SliceStableESConfig.pareto_risk_quantile": "Pareto-aware best_iter selection knob; the slice-stable ES infrastructure shipped without the Pareto-front consumer (referenced only in roadmap docstring at _slice_pareto_plot.py). Kept for the upcoming Pareto-aware selector wave.",
+    "CompositeTargetDiscoveryConfig.transform_waic_validation_enabled": "WAIC transform-validation kernel is implemented in discovery/_eval_waic.py (compute_transform_waic / rank_transforms_by_waic) but the discovery driver does not yet consult this flag; kept for the WAIC-ranking wire-up wave.",
+    "CompositeTargetDiscoveryConfig.transform_waic_n_folds": "K-fold count for the staged WAIC transform-validation kernel (discovery/_eval_waic.py); orphan until the driver wires transform_waic_validation_enabled.",
 }
 
 

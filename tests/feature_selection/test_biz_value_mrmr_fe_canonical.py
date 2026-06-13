@@ -348,7 +348,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         f"{'y=y+%r*a' % _BUG1_PRIVATE_COEF if private else ''}\n"
         "df=pd.DataFrame({'a':a,'b':b,'c':c,'d':d,'e':e})\n"
         "fs=MRMR(verbose=0); fs.fit(df,pd.Series(y,name='y'))\n"
-        "import json; print('RESULT_JSON='+json.dumps(list(fs.get_feature_names_out())))\n"
+        "import orjson; print('RESULT_JSON='+orjson.dumps(list(fs.get_feature_names_out())).decode())\n"
     )
     env = dict(os.environ)
     # Force CPU + deterministic path so the verdict is not perturbed by GPU/HNSW.
@@ -361,8 +361,8 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     out_names = None
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
-            import json
-            out_names = json.loads(line[len("RESULT_JSON="):])
+            import orjson
+            out_names = orjson.loads(line[len("RESULT_JSON="):])
     assert out_names is not None, (
         f"[seed={seed} private={private}] subprocess fit did not return a selection "
         f"(rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:])

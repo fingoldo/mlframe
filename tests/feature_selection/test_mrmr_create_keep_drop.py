@@ -1042,13 +1042,5 @@ def _dump_ledger():
         with open(ledger_path, "wb") as fh:
             fh.write(payload)
     except Exception as exc:
-        try:
-            import json
-            import warnings
-
-            warnings.warn(f"ckd ledger orjson dump failed ({exc!r}); using json fallback")
-            with open(ledger_path, "w", encoding="utf-8") as fh:
-                json.dump(_LEDGER, fh, indent=2)
-        except Exception as exc2:
-            import warnings
-            warnings.warn(f"ckd ledger dump failed entirely: {exc2!r}")
+        import warnings
+        warnings.warn(f"ckd ledger dump failed: {exc!r}")

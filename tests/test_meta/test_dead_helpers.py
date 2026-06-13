@@ -148,6 +148,10 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     # demand to seed the oracle with measured njit-vs-njit_par crossovers; no
     # production caller by design (the oracle is consulted, not benched, in prod).
     "feature_selection/filters/hermite_fe.py::benchmark_polyeval_cpu_backends",
+    # Aitchison (centred-log-ratio) distance on the probability simplex -- a tested public metric
+    # (tests/training/test_composite_simplex.py) used to compare composite vs naive simplex predictions.
+    # No production discovery caller yet; kept as public simplex API pending the simplex-aware scorer wave.
+    "training/composite/simplex.py::aitchison_distance",
 }
 
 

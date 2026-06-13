@@ -42,7 +42,7 @@ from ..preprocessing import (
 from ..utils import (
     get_process_rss_mb, log_phase, log_ram_usage, maybe_clean_ram_and_gpu,
 )
-from ..strategies import get_strategy, get_polars_cat_columns
+from ..strategies import get_strategy, get_polars_cat_columns, is_catboost_model
 from ..splitting import make_train_test_split
 from ..pipeline import (
     apply_preprocessing_extensions, fit_and_transform_pipeline,
@@ -121,8 +121,11 @@ def _phase_fit_pipeline(
     # most common polars input path. Cat columns are detected directly from the train_df schema because
     # FeatureTypesConfig doesn't carry a cat_features list (the public surface is text_features +
     # embedding_features; cat_features are auto-detected downstream).
-    _suite_models_lower = {str(m).lower() for m in (mlframe_models or [])}
-    _has_cb = bool(_suite_models_lower & {"cb", "catboost"})
+    # ``mlframe_models`` may carry a CatBoost ESTIMATOR INSTANCE, not just the "cb"/"catboost"
+    # alias. A bare ``str(m).lower()`` membership misses the instance and silently skips the
+    # CB-native cat auto-flip + the ordinal-encoding footgun warning below. The polars-native
+    # check at line ~109 already strategy-routes; route this CB gate the same way.
+    _has_cb = any(is_catboost_model(m) for m in (mlframe_models or []))
     _ordinal = (
         getattr(pipeline_config, "categorical_encoding", None) == "ordinal"
         and not getattr(pipeline_config, "skip_categorical_encoding", False)
@@ -151,6 +154,9 @@ def _phase_fit_pipeline(
     # the ordinal encoder is required for that model to consume the cats and
     # the auto-flip would crash the non-CB legs downstream with raw strings.
     _NATIVE_CAT_MODELS = {"cb", "catboost", "lgb", "lightgbm", "xgb", "xgboost", "hgb", "histgradientboosting"}
+    # An estimator INSTANCE stringifies to e.g. "<catboost...>", which is never in _NATIVE_CAT_MODELS, so a suite
+    # carrying any non-string-alias model conservatively fails the subset check and the auto-flip stays off.
+    _suite_models_lower = {str(m).lower() for m in (mlframe_models or [])}
     _all_models_native_cat = bool(_suite_models_lower) and _suite_models_lower.issubset(_NATIVE_CAT_MODELS)
     if _has_cb and _ordinal and _declared_cats and _all_models_native_cat:
         # Previously a WARN-only check. Surfaced by the diverse-harness

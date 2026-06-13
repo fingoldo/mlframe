@@ -329,13 +329,5 @@ def _dump_weak_f2_results():
         with open(results_path, "wb") as fh:
             fh.write(orjson.dumps(_RESULTS, option=orjson.OPT_INDENT_2))
     except Exception as exc:
-        try:
-            import json
-            import warnings
-
-            warnings.warn(f"weak_f2 results orjson dump failed ({exc!r}); using json fallback")
-            with open(results_path, "w", encoding="utf-8") as fh:
-                json.dump(_RESULTS, fh, indent=2)
-        except Exception as exc2:
-            import warnings
-            warnings.warn(f"weak_f2 results dump failed entirely: {exc2!r}")
+        import warnings
+        warnings.warn(f"weak_f2 results dump failed: {exc!r}")
