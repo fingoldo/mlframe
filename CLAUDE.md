@@ -363,6 +363,20 @@ Before concluding ANYTHING about an optimization:
    marginal" is not a rejection; it is a skipped investigation. If you catch yourself reaching for a one-line dismissal
    of a measured speedup, STOP — that is the warning sign you are about to waste the win.
 
+## A/B perf-validation methodology — the procedure for validating every optimization (CRITICAL)
+
+The concrete how-to that operationalizes "a measured speedup is a LEAD". Every perf change (loop iteration or one-off) is validated this way BEFORE it ships. Validated across the 2026-06 perf loop (40+ RESOLVED optimizations, all bit/byte-identical).
+
+1. **Warm, then measure.** The first call pays one-time cost (numba JIT compile, cupy NVRTC, import, cache fill) unrelated to steady state. Warm the kernel + any cache, then time. A cold single shot is noise, never a measurement.
+2. **Best-of-N / median over many runs**, never one shot — loop enough iterations to dwarf the timer.
+3. **Measure BOTH isolated AND end-to-end.** Isolated (the function alone) proves the local win exists; e2e (the full fit / report / suite) proves it SURVIVES. A real isolated win that is flat-or-slower e2e is a **REJECT**, not a ship — the saving was dwarfed by an inner njit/external kernel, by njit-spawn/contention, or by memory bandwidth (the recurring trap, e.g. iter53). Find the size/condition where it nets out positive e2e, or reject.
+4. **Real baseline, not a from-memory rewrite.** The OLD side of the A/B must be the ACTUAL prior code — load it via `git show HEAD:<path>` (or run it in a separate process / a baseline worktree). Compare two real artifacts, never your recollection of the old behavior.
+5. **Paired / interleaved A/B on a contended box.** When wallclock swings (±10% on a shared/parallel-loaded machine), alternate OLD vs NEW back-to-back across N trials and compare PAIRED: "faster in K/N trials" + min-to-min + median-to-median, so shared-machine noise cancels and the SIGN is trustworthy. When wallclock is hopelessly noise-dominated, switch the A/B to `process_time` (CPU time).
+6. **Separate-process A/B when in-process state would contaminate.** numba `cache=True` on disk, module-level caches/globals, or a warmed JIT can mask a fix or pollute the comparison — run OLD and NEW each in a fresh `python -c` / subprocess. Clear `__pycache__`/`.nbi`/`.nbc` if a numba cache hid the change.
+7. **Identity gate ALONGSIDE speed — always.** Prove the output (selection / MI / metric / report) is unchanged: exact `==` where possible, or document the FP reduction-order delta (~1e-9 / single-ULP from a different summation order) AND confirm it cannot move a decision. A selection/score-altering divergence (~1e-3) is NOT acceptable — gate or reject. Pin the identity in a fail-on-regression test (verify it FAILS on pre-fix code).
+8. **cProfile attribution caveat.** Compiled-kernel time (numba `@njit`, cython) is mis-attributed to the Python CALLER frame — a 4ms "tottime" Python frame can be ~0.1ms of Python wrapping a 4ms njit body. Before optimizing a flagged frame, microbench the wrapper standalone to confirm it is genuinely plain-Python/numpy, not an njit/external dispatch (and discount cProfile's ~10x deep-stack inflation).
+9. **The only valid REJECT is measured + e2e + written down.** Keep the bench committed (REJECTED != DELETED) + a `# bench-attempt-rejected (date): X->Y, reason` note at the site, so the next agent re-runs the named bench instead of re-trying the dead path.
+
 ## Audit hot kernels for wasted per-call work — the caller may discard part of the output (CRITICAL)
 
 A kernel can be individually well-tuned and still waste time computing things its CALLER throws away. So a "this kernel
