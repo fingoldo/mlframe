@@ -2093,3 +2093,31 @@ test_importance_agg_dispatch.py` -- pins the vectorised output bit-identical to 
 finite edge rows. Full file 18/18 pass; biz_val agg 3/3 pass.
 
 Streak: 0/100 (iter61 RESOLVED -- streak reset). **Cumulative loop wave: 34 RESOLVED, 28 REJECT across 61 iterations.**
+
+## iter62 (2026-06-13) -- RESOLVED: fuse the two `np.bincount` passes in slice-finder `_aggregate_combo` into one njit row-order pass
+
+Workload + why: full-pipeline `profile_mixed_dtypes.py` (CatBoost classification, n=60k, iterations=40, show_perf_chart + show_fi on -- the heavy
+post-fit reporting path). Filtering own-code by tottime, the single largest plain-Python/numpy own-code hotspot is
+`reporting/charts/slice_finder.py:114 _aggregate_combo` -- **20,000 ncalls, 1.829s tottime** (caller `find_weak_slices` 0.74s tottime / 5.37s cumtime).
+Plain-numpy, moves e2e, called once per candidate slice combo (singletons + up-to-5000 pairs/triples per `find_weak_slices`, x4 invocations).
+
+Hotspot: per combo it built the mixed-radix flat cell id then ran TWO independent O(n) `np.bincount` walks over `flat` -- one for counts
+(+ an int->float64 `.astype` copy) and one for the weighted error sums. Audit (two-passes->one): both walks iterate the same `flat` in the same
+row order, so a single fused pass accumulating `sums[c] += err[i]` and `counts[c] += 1.0` together replaces both. njit, `fastmath=False` (exact
+float accumulation), numpy two-bincount fallback kept when numba is unavailable.
+
+Optimization: new module-level `_fused_sum_count(flat, err, ncells)` njit kernel; `_aggregate_combo` calls it instead of the two `np.bincount`.
+
+Before/after:
+  - ISOLATED (warm, best of 2000 reps): two_bincount vs fused_njit = 92.0/32.6us (2.82x) @arity1/ncells4, 75.9/35.7us (2.12x) @arity2, 72.5/31.8us (2.28x) @arity3.
+  - E2E (`find_weak_slices`, warm, 4 runs, n=48k): p=120 (5000 combos, matches profile's 20k calls) 4944ms->4544ms = **1.09x**; p=200 6412->6081 = 1.05x.
+    Dilution from the per-combo Python decode loop + `_top_split_features` is why e2e (1.09x) trails the 2-3x per-call kernel win.
+
+Identity: BIT-IDENTICAL. `np.bincount(weights=)` and the njit loop both accumulate in row order -> float64 sums identical by construction;
+verified 0.0 max-abs diff across 200 + 120 adversarial trials (errors scaled by 1 / 1e6 / 1e-6 / 1e12, negative, many cell collisions).
+`find_weak_slices` output tables byte-equal numpy-vs-njit (score max diff 0.0) at p=120 and p=200.
+
+Regression test: `test_aggregate_combo_fused_kernel_bit_identical_to_two_bincount` in `tests/reporting/test_charts_slice_finder.py` -- pins the
+fused kernel bit-identical to the two-bincount reference across 120 adversarial-magnitude trials. Full file 9/9 pass.
+
+Streak: 0/100 (iter62 RESOLVED -- streak reset). **Cumulative loop wave: 35 RESOLVED, 28 REJECT across 62 iterations.**

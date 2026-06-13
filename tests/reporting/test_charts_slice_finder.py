@@ -147,3 +147,27 @@ def test_biz_val_single_dominant_feature_region():
     # f0 must appear in the top-ranked slice's features.
     assert "f0" in res.worst_slice[0]
     assert res.worst_slice[2] / res.global_error >= 2.5
+
+
+def test_aggregate_combo_fused_kernel_bit_identical_to_two_bincount():
+    """The fused single-pass sum+count kernel must be bit-identical to the prior two ``np.bincount``
+    walks. Both accumulate in row order, so the float64 per-cell error sums must match exactly --
+    including adversarial magnitudes (huge / tiny / negative errors). Guards against a future
+    "just always bincount" revert masking a kernel regression, and against an accumulation-order
+    change that would silently shift which slice ranks worst."""
+    import mlframe.reporting.charts.slice_finder as sf
+
+    rng = np.random.default_rng(3)
+    max_diff = 0.0
+    for _ in range(120):
+        n = int(rng.integers(50, 4000))
+        ncells = int(rng.integers(2, 64))
+        flat = rng.integers(0, ncells, size=n).astype(np.int64)
+        err = (rng.random(n) - 0.5) * rng.choice([1.0, 1e6, 1e-6, 1e12])
+        ref_counts = np.bincount(flat, minlength=ncells).astype(np.float64)
+        ref_sums = np.bincount(flat, weights=err, minlength=ncells)
+        got_sums, got_counts = sf._fused_sum_count(flat, np.ascontiguousarray(err), ncells)
+        assert np.array_equal(ref_counts, got_counts)
+        if not np.array_equal(ref_sums, got_sums):
+            max_diff = max(max_diff, float(np.max(np.abs(ref_sums - got_sums))))
+    assert max_diff == 0.0, f"fused kernel sums diverged from bincount by {max_diff}"

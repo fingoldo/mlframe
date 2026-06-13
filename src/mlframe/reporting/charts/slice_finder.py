@@ -40,6 +40,28 @@ from mlframe.reporting.spec import BarPanelSpec, FigureSpec
 
 logger = logging.getLogger(__name__)
 
+try:
+    import numba
+
+    @numba.njit(cache=True, fastmath=False)
+    def _fused_sum_count(flat: np.ndarray, err: np.ndarray, ncells: int):
+        sums = np.zeros(ncells, dtype=np.float64)
+        counts = np.zeros(ncells, dtype=np.float64)
+        for i in range(flat.shape[0]):
+            c = flat[i]
+            sums[c] += err[i]
+            counts[c] += 1.0
+        return sums, counts
+
+    _HAS_NUMBA_SLICE = True
+except Exception:  # numba unavailable: fall back to the two-bincount numpy path.
+    _HAS_NUMBA_SLICE = False
+
+    def _fused_sum_count(flat, err, ncells):  # type: ignore[misc]
+        counts = np.bincount(flat, minlength=ncells).astype(np.float64)
+        sums = np.bincount(flat, weights=err, minlength=ncells)
+        return sums, counts
+
 # Quantile bins per feature: 4 keeps each 1-feature slice coarse (quartiles) so a slice stays a readable, actionable
 # region rather than a noisy single-value cell; the 2-3-way product of these stays small enough to bincount cheaply.
 DEFAULT_NBINS: int = 4
@@ -136,8 +158,10 @@ def _aggregate_combo(
         else:
             flat += col * strides[k]
     ncells = int(np.prod([nbins_per[k] for k in range(len(feat_idx))]))
-    counts = np.bincount(flat, minlength=ncells).astype(np.float64)
-    sums = np.bincount(flat, weights=err, minlength=ncells)
+    # Single fused row-order pass accumulates per-cell error sum + count together, replacing the two
+    # separate O(n) ``np.bincount`` walks (+ the int->float counts copy). Accumulation order is row
+    # order in both paths, so the float64 sums are bit-identical (verified across adversarial trials).
+    sums, counts = _fused_sum_count(flat, np.ascontiguousarray(err), ncells)
     return sums, counts, strides
 
 
