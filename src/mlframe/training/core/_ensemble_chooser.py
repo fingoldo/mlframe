@@ -34,12 +34,16 @@ logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 # exposes wins, so a single list serves both tasks without a task flag. ``integral_error`` / lowercase ``rmse`` are
 # retained for back-compat with callers / fixtures that stamp those exact keys (``_read_ensemble_metric`` matches keys
 # case-insensitively so production ``RMSE`` resolves the ``rmse`` candidate).
+# roc_auc is probed FIRST: bench_ensemble_chooser_rank_metric shows ranking flavours by OOF discrimination beats
+# calibration-first on honest held-out test ROC-AUC in 21/21 synthetic cells (mean +0.0024, up to +0.010 low-signal).
+# ICE-first picked median/harm (well-calibrated, weaker-discriminating); AUC-first picks arithm. Calibration keys
+# (ice/brier) retained AFTER as tie-breakers; per-flavour post-hoc calibration handles the calibration axis separately.
 _CLASSIFICATION_METRICS = (
+    ("roc_auc", "higher"),
+    ("pr_auc", "higher"),
     ("ice", "lower"),
     ("integral_error", "lower"),
     ("brier_loss", "lower"),
-    ("roc_auc", "higher"),
-    ("pr_auc", "higher"),
     ("log_loss", "lower"),
 )
 _REGRESSION_METRICS = (

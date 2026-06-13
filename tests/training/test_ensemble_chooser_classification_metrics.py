@@ -97,11 +97,22 @@ def test_chooser_ranks_regression_by_uppercase_rmse():
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
 
-def test_chooser_classification_brier_breaks_when_no_ice():
-    """When neither ``ice`` nor ``integral_error`` present, ``brier_loss`` (lower-is-better) decides."""
+def test_chooser_classification_roc_auc_beats_brier_when_they_disagree():
+    """AUC-first contract: the higher-``roc_auc`` flavour wins even when another flavour has a much
+    better (lower) ``brier_loss``. Calibration keys are now tie-breakers AFTER discrimination, per
+    bench_ensemble_chooser_rank_metric (AUC-first wins honest held-out test AUC 21/21 cells)."""
     ensembles = {
-        "arithm": _FakeEns({"oof": {1: {"brier_loss": 0.25, "roc_auc": 0.80}}}),
-        "harm":   _FakeEns({"oof": {1: {"brier_loss": 0.05, "roc_auc": 0.80}}}),  # best brier, equal AUC
+        "arithm": _FakeEns({"oof": {1: {"brier_loss": 0.25, "roc_auc": 0.92}}}),  # worse brier, best AUC
+        "harm":   _FakeEns({"oof": {1: {"brier_loss": 0.05, "roc_auc": 0.80}}}),  # best brier, worse AUC
+    }
+    assert _choose_ensemble_flavour(ensembles) == "arithm"
+
+
+def test_chooser_classification_brier_breaks_genuine_auc_tie():
+    """When ``roc_auc`` AND ``pr_auc`` are absent, ``brier_loss`` (lower-is-better) decides."""
+    ensembles = {
+        "arithm": _FakeEns({"oof": {1: {"brier_loss": 0.25}}}),
+        "harm":   _FakeEns({"oof": {1: {"brier_loss": 0.05}}}),  # best brier, no AUC present
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
