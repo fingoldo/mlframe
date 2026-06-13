@@ -248,7 +248,7 @@ def compose_model_comparison_figure(
     task_type: str,
     *,
     metric: Optional[str] = None,
-    higher_is_better: bool = True,
+    higher_is_better: Optional[bool] = None,
     baseline: Optional[float] = None,
     corr_subsample: int = CORR_SUBSAMPLE,
     seed: int = 0,
@@ -266,7 +266,9 @@ def compose_model_comparison_figure(
     task_type : "binary" selects a ROC overlay; anything else selects the sorted-prediction overlay.
     metric : headline leaderboard metric; defaults to a task-type metric (roc_auc / r2) or the first metric common
         to every model.
-    higher_is_better : leaderboard sort direction (default True).
+    higher_is_better : leaderboard sort direction. Default None -> derived from the resolved headline metric via the
+        canonical ``metric_name_higher_is_better`` table (unknown metric -> higher-is-better), so a lower-is-better
+        headline (rmse / log_loss / ece / pinball) sorts best-first instead of inverted. Pass an explicit bool to override.
     baseline : optional external reference drawn as the leaderboard hline (default: the best model's score).
     corr_subsample : row cap for the Spearman prediction-correlation (default 20k).
 
@@ -276,6 +278,10 @@ def compose_model_comparison_figure(
         return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_model_comparison_figure: no models"),),), figsize=(8.0, 3.0))
 
     headline = _headline_metric(per_model, metric, task_type)
+    if higher_is_better is None:
+        from mlframe.training.metrics_registry import metric_name_higher_is_better
+        _dir = metric_name_higher_is_better(headline)
+        higher_is_better = True if _dir is None else _dir
     if task_type == "binary":
         curve = _roc_overlay_panel(per_model)
     else:

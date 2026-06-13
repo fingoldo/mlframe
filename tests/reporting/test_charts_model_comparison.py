@@ -99,6 +99,24 @@ def test_non_binary_uses_sorted_prediction_overlay():
     assert len(line.y) == 2  # no chance diagonal for the regression overlay
 
 
+def test_leaderboard_lower_is_better_metric_sorts_best_first():
+    """Regression: when the headline metric is lower-is-better (rmse / log_loss / ece), the leaderboard must sort the
+    SMALLEST value first (best model on top) and place the hline at the best (=min) score. Pre-fix higher_is_better
+    defaulted to True so a loss metric sorted inverted -- worst model on top, hline labeled 'best' at the worst score.
+    Exercises the real compose_model_comparison_figure direction derivation (no explicit higher_is_better passed)."""
+    per_model = {
+        "A": {"y_true": [0, 1], "y_pred": [0.1, 0.9], "metrics": {"rmse": 0.50}},
+        "B": {"y_true": [0, 1], "y_pred": [0.4, 0.6], "metrics": {"rmse": 0.10}},  # best (lowest)
+        "C": {"y_true": [0, 1], "y_pred": [0.3, 0.7], "metrics": {"rmse": 0.30}},
+    }
+    fig = mc.compose_model_comparison_figure(per_model, "regression", metric="rmse")
+    bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
+    assert bar.categories == ("B", "C", "A"), bar.categories  # ascending (best=lowest first)
+    assert "lower=better" in bar.title, bar.title
+    ref, _, label = bar.hline
+    assert abs(ref - 0.10) < 1e-9 and label == "best"  # hline at the actual best (min) score
+
+
 def test_empty_per_model_is_annotation():
     fig = mc.compose_model_comparison_figure({}, "binary")
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
