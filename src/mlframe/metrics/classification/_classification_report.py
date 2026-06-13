@@ -336,7 +336,7 @@ def fast_calibration_report(
     # over the identical arrays. P/R/F1/MCC are pure closed forms on the same
     # (TP, FP, TN, FN), so deriving them is bit-identical by construction.
     from ._classification_extras import (
-        ks_statistic, brier_skill_score,
+        ks_statistic, brier_skill_score_from_brier,
         _confusion_counts_binary_dispatch,
         precision_recall_f1_from_counts, matthews_corrcoef_from_counts,
     )
@@ -346,7 +346,7 @@ def fast_calibration_report(
     try:
         ks_val = ks_statistic(_yt_int, y_pred, desc_order=_auc_desc_order)
         mcc_val = matthews_corrcoef_from_counts(_tp, _fp, _tn, _fn)
-        bss_val = brier_skill_score(_yt_int, y_pred)
+        bss_val = brier_skill_score_from_brier(brier_loss, _yt_int)
     except (ValueError, TypeError, FloatingPointError) as _ext_err:
         logger.debug("title-token extras (KS/MCC/BSS) skipped: %s", _ext_err)
 

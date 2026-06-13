@@ -1961,3 +1961,31 @@ report path; left untouched this pass (some need average-rank tie semantics per 
 byte-identical perf change).
 
 Streak: 0/100 (iter57 RESOLVED -- streak reset). **Cumulative loop wave: 30 RESOLVED, 28 REJECT across 57 iterations.**
+
+## iter58 (2026-06-13) -- RESOLVED (+1.22x e2e on `fast_calibration_report`; derive BSS from the already-computed model Brier)
+
+Workload: `profiling/profile_calibration_report.py` (`fast_calibration_report`, n=100k binary, 100-iter warm). Fresh untapped report
+path. cProfile top own-code at 50 iters / 0.39s: `fast_aucs_per_group_optimized` 0.203 cum, `_argsort_desc_for_metrics` 0.173 cum,
+`ks_statistic` 0.029 tot, `_confusion_counts_binary_dispatch` 0.024 tot, `calibration_binning` 0.021 tot, **`brier_skill_score` 0.021 tot
+(50 calls, ~5.6% of cProfile time)**. Plain-Python wrapper + a full-n njit kernel; on a profiled report hot path.
+
+Hotspot: `brier_skill_score(_yt_int, y_pred)` in `_classification_report.py:349`. The BSS kernel walks all n samples to recompute
+Brier(model) = `mean((y_true - y_score)**2)` -- the EXACT quantity the report already computed once as
+`brier_loss = fast_brier_score_loss(...)` at line 281. The marginal baseline Brier is the closed form `p_bar*(1-p_bar)`. So the second
+full-n model-Brier scan is wasted recomputed-invariant work (derive-from-already-computed, sibling to iters 55/56).
+
+Optimization: new `brier_skill_score_from_brier(brier_loss, y_true)` in `_classification_extras.py` -- needs only the prevalence
+(`yt.sum()/n`), no second full-n pass. Report now calls it with the already-held `brier_loss` + `_yt_int`. Full kernel kept for direct callers.
+
+Isolated (n=100k, warm, best-of-5): old `brier_skill_score` 0.304 ms/call -> new `from_brier` 0.016 ms/call (~19x; full-n njit scan +
+array-prep eliminated, only a `sum` remains). End-to-end (`fast_calibration_report`, show_plots=False, best-of-6, runtime-swapped old
+path): OLD 6.68 ms/call -> NEW 5.47 ms/call = **1.22x (~18%, ~1.2 ms/call saved)**. Clean isolated AND e2e win.
+
+Identity: numerically equivalent to FP reduction-order -- diff 0.0 @ n=1000, ~2e-13 @ n>=100k (the report's `fast_brier_score_loss` and the
+BSS kernel accumulate the same squared residuals in different orders); both return NaN on a constant target (baseline Brier 0). Well inside
+the ~1e-9 tolerance. Regression test `test_bss_from_brier_matches_full_kernel` pins equivalence across sizes + the NaN edge.
+
+Distinct lever from iters 54/55/56/57 (AUC-argsort share / confusion-counts share / C-index-from-Kendall / residual-audit double-sort):
+this kills a duplicate full-n model-Brier scan in the classification report.
+
+Streak: 0/100 (iter58 RESOLVED -- streak reset). **Cumulative loop wave: 31 RESOLVED, 28 REJECT across 58 iterations.**

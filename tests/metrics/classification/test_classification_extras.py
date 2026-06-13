@@ -369,6 +369,28 @@ def test_bss_marginal_baseline_is_zero():
     assert bss == pytest.approx(0.0)
 
 
+def test_bss_from_brier_matches_full_kernel():
+    """``brier_skill_score_from_brier`` derives BSS from an already-computed model Brier loss; it must equal the
+    full-scan ``brier_skill_score`` to FP reduction-order across sizes and return NaN on a constant target."""
+    from mlframe.metrics.classification._classification_extras import brier_skill_score_from_brier
+    from mlframe.metrics._core_auc_brier import fast_brier_score_loss
+
+    rng = np.random.default_rng(7)
+    for n in (1000, 100_000):
+        yt = rng.integers(0, 2, n).astype(np.int64)
+        yp = np.clip(yt + rng.standard_normal(n) * 0.3, 0.01, 0.99)
+        bl = fast_brier_score_loss(yt.astype(np.float64), yp)
+        ref = brier_skill_score(yt, yp)
+        got = brier_skill_score_from_brier(bl, yt)
+        assert got == pytest.approx(ref, abs=1e-9), f"n={n}: {got} vs {ref}"
+    # constant target -> baseline Brier is 0 -> NaN (matches full kernel)
+    yt_const = np.ones(64, dtype=np.int64)
+    yp_const = np.full(64, 0.7)
+    bl_const = fast_brier_score_loss(yt_const.astype(np.float64), yp_const)
+    assert np.isnan(brier_skill_score_from_brier(bl_const, yt_const))
+    assert np.isnan(brier_skill_score(yt_const, yp_const))
+
+
 # ----- Gini -----
 
 

@@ -386,6 +386,25 @@ def brier_skill_score(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return float(_brier_skill_score_kernel(yt, ys))
 
 
+def brier_skill_score_from_brier(brier_loss: float, y_true: np.ndarray) -> float:
+    """BSS derived from an already-computed model Brier loss + the empirical positive rate.
+
+    Brier(model) is identical to ``mean((y_true - y_score)**2)`` -- the exact quantity the
+    calibration report already computes once via ``fast_brier_score_loss``. The marginal baseline
+    Brier is the closed form ``p_bar * (1 - p_bar)``, so the whole BSS needs only the prevalence
+    (one ``sum`` over the int labels), not a second full-n model-Brier scan. Numerically equivalent
+    to ``brier_skill_score`` to FP reduction-order (~1e-15)."""
+    yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
+    n = yt.shape[0]
+    if n == 0:
+        return np.nan
+    p_bar = float(yt.sum()) / n
+    bs_base = p_bar * (1.0 - p_bar)
+    if bs_base == 0.0:
+        return np.nan
+    return 1.0 - float(brier_loss) / bs_base
+
+
 # ---------- Gini ----------
 
 
