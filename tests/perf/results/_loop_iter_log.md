@@ -2639,3 +2639,25 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 54 RESOLVED, 2
 **Verdict: RESOLVED+77x@200k (isolated AND e2e PIT panel, bit-identical).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 55 RESOLVED, 29 REJECT across 82 iterations.**
+
+---
+
+## iter83 (@200k) -- reporting.charts.prediction_stability._spearman njit-batched dispatch
+
+**Workload @200k + why:** ensemble uncertainty-calibration panel (`_uncertainty_calibration` / `_uncertainty_calibration_panel`), N=200000 per-row member-spread vs |error|. The panel's high-value validation is `Spearman(spread, |error|)` computed on the FULL N vector. Fresh component (ensemble prediction-stability reporting seam), not in the avoid-list (feature_selection/filters) nor TAPPED. iter69 touched norm->ndtri, iter78 drift, iter82 quantile-PIT; this is the reliability/calibration-reporting Spearman, untapped.
+
+**Hotspot (isolated, cupy blocked to dodge py3.14 cold-import segfault):** `_spearman` ran two `_rankdata` passes; each did a full `np.argsort` over 200k PLUS a pure-Python `while i < n` tie-collapse loop walking the sorted array element-by-element to average tied ranks -- 200k Python interpreter iterations per call, twice per Spearman. Plain-Python confirmed (the tie loop is interpreted Python, not njit). e2e-fraction: `_spearman` dominated `_uncertainty_calibration` (the bincount binning is O(n) vectorized; the two Python-loop ranks were the bulk).
+
+**Optimization + audit:** routed `_spearman` for `a.size >= _SPEARMAN_NJIT_MIN_N` (5000) through the EXISTING `metrics.rank_correlation.spearmanr_batched_numba` on a 1-row `(1,N)` batch -- its `_average_rank_inplace` njit kernel does the argsort + average-tie in machine code, same average-rank convention. Pure-numpy `_rankdata` path kept verbatim as the small-N + `ImportError` (no-numba) fallback. Audit class: per-ROW Python loop (tie-collapse) -> whole-vector njit; also reuse-before-write (no new kernel, dispatched to the existing batched Spearman).
+
+**Before/after:**
+- Isolated `_spearman` @200k (best-of-7, min): OLD 90.4 ms -> NEW 42.5 ms = **~2.1x** (med 96.7 -> 45.7).
+- E2e `_uncertainty_calibration` @200k (nbins=20): OLD 110.7 ms -> NEW 56.8 ms = **~1.95x** (a later contended run: 203 -> 85.6 ms = 2.37x). Panel output (mid_spread, mean_err, spearman) BIT-IDENTICAL.
+
+**Identity proof (BIT-IDENTICAL, exact `==` / `np.array_equal`):** Spearman scalar `diff=0.000e+00` OLD vs NEW on all-distinct (N=200k) AND heavy-tied (integer 0..49) inputs; `_uncertainty_calibration` mid/err arrays `array_equal=True`. The njit `_average_rank_inplace` reproduces scipy/numpy average-rank exactly (verified identical earlier vs `_spearmanr_batched_numpy` too).
+
+**Regression test (`tests/reporting/test_charts_prediction_stability.py::test_spearman_njit_path_bit_identical_to_numpy_reference`):** asserts njit `_spearman` `==` the numpy-rank reference (forced via `monkeypatch.setattr(ps,"_SPEARMAN_NJIT_MIN_N",10**12)`) on distinct + tied data. The symbol `_SPEARMAN_NJIT_MIN_N` and the njit dispatch are ABSENT on HEAD (verified `git show HEAD:...` = 0 occurrences) -> `monkeypatch.setattr` raises AttributeError -> FAILS pre-fix. 19 passed post-fix. Bench committed: `reporting/_benchmarks/bench_prediction_stability_spearman_iter83.py`.
+
+**Verdict: RESOLVED+1.95x@200k (isolated ~2.1x AND e2e uncertainty-calibration panel, bit-identical).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 56 RESOLVED, 29 REJECT across 83 iterations.**

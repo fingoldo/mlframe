@@ -248,3 +248,23 @@ def test_cprofile_compute_bounded_at_1e6():
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(12)
     # nanpercentile over (1e6, 10) is the dominant cost; budget is generous to absorb CI contention.
     assert elapsed < 5.0, f"compute at 1e6x10 took {elapsed:.2f}s\n{s.getvalue()}"
+
+
+def test_spearman_njit_path_bit_identical_to_numpy_reference(monkeypatch):
+    """iter83: large-N _spearman routes through the njit batched kernel (single argsort + tie-average in machine code)
+    instead of the pure-Python tie-collapse loop, ~2x at N=200k. Output must be bit-identical to the numpy-rank reference
+    on distinct AND tied data; the kernel uses the same average-rank convention."""
+    from mlframe.reporting.charts import prediction_stability as ps
+
+    rng = np.random.default_rng(7)
+    n = 20_000
+    for a, b in (
+        (rng.random(n), rng.random(n)),  # all-distinct
+        (rng.integers(0, 40, n).astype(float), rng.integers(0, 40, n).astype(float)),  # heavy ties
+    ):
+        njit_val = ps._spearman(a, b)
+        # Force the pure-numpy reference path (the pre-iter83 behaviour) by lifting the threshold above any input.
+        monkeypatch.setattr(ps, "_SPEARMAN_NJIT_MIN_N", 10**12)
+        ref_val = ps._spearman(a, b)
+        monkeypatch.undo()
+        assert njit_val == ref_val, f"njit Spearman {njit_val!r} != numpy reference {ref_val!r}"
