@@ -555,6 +555,61 @@ def test_per_group_rank_nan_does_not_poison_group() -> None:
     np.testing.assert_allclose(pct[[4, 6, 7]], [1.0, 1 / 3, 2 / 3])
 
 
+def test_per_group_rank_njit_matches_scipy_all_methods() -> None:
+    """The whole-batch njit fast path must be bit-identical to a per-group
+    ``scipy.stats.rankdata`` reference across every method/pct/ascending combo,
+    including ties, NaN and inf. Pre-fix this function had no njit path; the
+    reference loop below IS the pre-fix algorithm, so a regression in the
+    kernel (wrong tie rank, wrong ordinal break, wrong pct denominator) trips here.
+    """
+    from scipy.stats import rankdata
+
+    from mlframe.feature_engineering import per_group_rank
+    from mlframe.feature_engineering.grouped import iter_group_segments
+
+    def _reference(vals, gids, *, method, pct, ascending):
+        v = np.ascontiguousarray(vals, dtype=np.float64)
+        out = np.full(v.size, np.nan)
+        sort_idx, starts, ends = iter_group_segments(gids)
+        for s, e in zip(starts, ends):
+            seg_idx = sort_idx[s:e]
+            seg = v[seg_idx]
+            if not ascending:
+                seg = -seg
+            finite = np.isfinite(seg)
+            n_fin = int(finite.sum())
+            if n_fin == 0:
+                continue
+            ranks = rankdata(seg[finite], method=method).astype(np.float64)
+            if pct:
+                ranks = ranks / n_fin
+            seg_out = np.full(seg.size, np.nan)
+            seg_out[finite] = ranks
+            out[seg_idx] = seg_out
+        return out
+
+    rng = np.random.default_rng(7)
+    gids = rng.integers(0, 40, 600).astype(np.int64)
+    vals = np.round(rng.random(600) * 8, 0)  # heavy ties
+    vals[rng.random(600) < 0.1] = np.nan
+    vals[rng.random(600) < 0.03] = np.inf
+
+    for method in ("average", "min", "max", "dense", "ordinal"):
+        for pct in (False, True):
+            for ascending in (True, False):
+                got = per_group_rank(vals, gids, method=method, pct=pct, ascending=ascending)
+                ref = _reference(vals, gids, method=method, pct=pct, ascending=ascending)
+                np.testing.assert_array_equal(
+                    np.isnan(got), np.isnan(ref),
+                    err_msg=f"NaN mask diverged ({method}, pct={pct}, asc={ascending})",
+                )
+                m = ~np.isnan(ref)
+                np.testing.assert_array_equal(
+                    got[m], ref[m],
+                    err_msg=f"ranks diverged ({method}, pct={pct}, asc={ascending})",
+                )
+
+
 def test_quantile_normalize_per_group_survives_nan_heavy_column() -> None:
     """A column with scattered NaN across every group (e.g. raw GR with
     ~2% missing) must yield a VARYING normalized feature, not all-NaN."""

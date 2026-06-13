@@ -2772,3 +2772,26 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 60 RESOLVED, 2
 **Verdict: RESOLVED+1.27x e2e @1M (datetime cyclical FE reuses already-extracted integer fields; output byte-identical).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 61 RESOLVED, 29 REJECT across 88 iterations.**
+
+## iter89 (2026-06-14, @1M) -- grouped FE: per_group_rank whole-batch njit replaces 100k per-group scipy.rankdata calls
+
+**Workload @1M + why:** grouped/time-series FE family (untapped). `per_group_rank(values, group_ids)` on 1M rows with 100k groups (~10 rows/group), 5% NaN -- the canonical within-group rank FE step the module docstring itself flags as the ">10M rows = why is my FE step 40 min" hotspot. Chosen because the per-group rank/rolling family had not been profiled at 1M and the implementation looped in Python calling `scipy.stats.rankdata` once per group.
+
+**Top-20 mlframe-own (cProfile, @1M, 100k groups):** `scipy/stats/_stats_py.py:10038(_rankdata)` 99,996 calls / 1.613s tottime / 8.279s cumtime; `grouped.py:392(per_group_rank)` 1 call / 0.645s tottime / 12.886s cumtime; `numpy.array` 499,980 calls / 0.449s tottime (rankdata internal allocs); `_stats_py.py:9903(rankdata)` 99,996 calls / 0.329s tottime / 11.341s cumtime. The Python-side cost is the per-group dispatch: ~100k scipy calls, each doing its own argsort + array allocs.
+
+**Hotspot:** the per-group `scipy.stats.rankdata` Python loop -- 99,996 calls, cumtime 11.3s of 12.9s total. Confirmed plain-Python loop (not njit-misattributed): `per_group_rank` is a `for s,e in zip(starts,ends)` loop with a scipy call body. e2e fraction ~88% of the function wall @1M is inside rankdata.
+
+**Optimization + audit (per-group Python loop -> whole-batch single-pass njit):** added `_per_group_rank_sorted_njit` (cache=True) that ranks every group in ONE pass over a group-contiguous finite-value layout, handling all five rankdata methods (average/min/max/dense/ordinal) + pct + ascending. `per_group_rank` now builds the finite layout once (group-sorted via existing `iter_group_segments` + finite mask + `cumsum`-derived compact per-group starts/ends), calls the kernel once, and scatters back. Ordinal tie-break uses a stable per-segment argsort (mergesort) preserving within-group original order, matching the legacy path which fed `rankdata` the original-order segment. scipy per-group fallback retained for the no-numba install.
+
+**Before/after (best-of-5, warm, separate-process A/B vs `git show HEAD` baseline, @1M / 100k groups):**
+- average: OLD 5.664s -> NEW 0.184s = **30.8x**
+- dense: OLD 6.144s -> NEW 0.183s = **33.6x**
+- ordinal: OLD 2.822s -> NEW 0.181s = **15.6x**
+
+**Identity proof:** bit-identical (`np.array_equal(..., equal_nan=True)`) vs the legacy per-group scipy.rankdata path across 8 random shapes x 5 methods x pct{T,F} x ascending{T,F} (240 combos), with heavy ties, NaN and inf, plus all-NaN-group and empty-input edges. By construction the kernel removes Python/scipy dispatch without changing rank numerics.
+
+**Regression test (`tests/feature_engineering/test_new_modules_smoke.py`):** `test_per_group_rank_njit_matches_scipy_all_methods` compares the njit fast path against an independent in-test per-group `scipy.stats.rankdata` reference across all method/pct/ascending combos with ties/NaN/inf. Verified it FAILS on a deliberately broken kernel (average tie rank `(i+1+j)/2` -> `i+1` trips "ranks diverged (average, ...)") and PASSES post-fix. 30 smoke + 18 caller (stationarity/quantile) tests green.
+
+**Verdict: RESOLVED+15-34x e2e @1M (per_group_rank whole-batch njit; bit-identical to per-group scipy.rankdata).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 62 RESOLVED, 29 REJECT across 89 iterations.**

@@ -51,7 +51,89 @@ from typing import Any, Callable, Iterator, Tuple
 
 import numpy as np
 
+try:
+    from numba import njit
+
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
+
+    def njit(*args, **kwargs):  # no-op fallback so the module imports without numba
+        def wrap(fn):
+            return fn
+
+        if args and callable(args[0]):
+            return args[0]
+        return wrap
+
+
 logger = logging.getLogger(__name__)
+
+
+_RANK_METHOD_CODES = {"average": 0, "min": 1, "max": 2, "dense": 3, "ordinal": 4}
+
+
+@njit(cache=True)
+def _per_group_rank_sorted_njit(seg_vals, starts, ends, method_code, pct):
+    """Within-group rank of finite values, one pass over group-sorted segments.
+
+    ``seg_vals`` holds the finite values laid out group-contiguously (each
+    ``[starts[g]:ends[g]]`` slice is one group, in within-group original order).
+    Returns ranks in the SAME layout. Replaces the per-group ``scipy.stats.rankdata``
+    Python loop; tie semantics match ``rankdata`` for all five methods, with the
+    ordinal tie-break following within-group original order (stable argsort), matching
+    the legacy path which fed ``rankdata`` the original-order segment.
+    """
+    m = seg_vals.shape[0]
+    out = np.empty(m, dtype=np.float64)
+    n_groups = starts.shape[0]
+    for g in range(n_groups):
+        s = starts[g]
+        e = ends[g]
+        seg_n = e - s
+        if seg_n == 0:
+            continue
+        order = np.argsort(seg_vals[s:e], kind="mergesort")  # stable: ordinal ties by original order
+        if method_code == 4:  # ordinal
+            for k in range(seg_n):
+                r = k + 1.0
+                if pct:
+                    r = r / seg_n
+                out[s + order[k]] = r
+            continue
+        i = 0
+        while i < seg_n:
+            j = i + 1
+            v = seg_vals[s + order[i]]
+            while j < seg_n and seg_vals[s + order[j]] == v:
+                j += 1
+            # tie block covers ranks (i+1 .. j) in 1-based ordinal terms
+            if method_code == 0:  # average
+                rank = (i + 1 + j) / 2.0
+            elif method_code == 1:  # min
+                rank = i + 1.0
+            elif method_code == 2:  # max
+                rank = float(j)
+            else:  # dense -- assigned below
+                rank = 0.0
+            for k in range(i, j):
+                out[s + order[k]] = rank
+            i = j
+        if method_code == 3:  # dense: recompute as count of distinct values seen
+            dense = 0.0
+            prev_set = False
+            prev = 0.0
+            for k in range(seg_n):
+                v = seg_vals[s + order[k]]
+                if (not prev_set) or v != prev:
+                    dense += 1.0
+                    prev = v
+                    prev_set = True
+                out[s + order[k]] = dense
+        if pct:
+            for k in range(seg_n):
+                out[s + k] = out[s + k] / seg_n
+    return out
 
 
 def iter_group_segments(
@@ -415,30 +497,51 @@ def per_group_rank(
     values_arr = np.ascontiguousarray(values, dtype=np.float64)
     out = np.full(values_arr.size, np.nan, dtype=np.float64)
     sort_idx, starts, ends = iter_group_segments(group_ids)
+    if sort_idx.size == 0:
+        return out
+
+    # Rank only the FINITE entries; NaN/inf stay NaN. scipy.rankdata's default
+    # nan_policy='propagate' otherwise poisons the WHOLE group to NaN on a single
+    # missing value (silent: a rank-based feature over any NaN-bearing column collapses
+    # to all-NaN -> "constant" -> dropped). pct normalises over the finite count so
+    # observed values span (0, 1] regardless of how many are missing.
+    seg_vals = values_arr[sort_idx]
+    if not ascending:
+        seg_vals = -seg_vals
+    finite_mask = np.isfinite(seg_vals)
+
+    if _HAS_NUMBA:
+        # Whole-batch path: lay finite values out group-contiguously, rank every group in a
+        # single njit pass. Replaces the per-group scipy.rankdata Python loop (100k+ calls,
+        # each with its own argsort + dispatch) that dominated per_group_rank at large group counts.
+        seg_finite_idx = np.flatnonzero(finite_mask)
+        fin_vals = seg_vals[seg_finite_idx]
+        # Per-group finite counts -> compact starts/ends in the finite layout (groups stay contiguous
+        # because the source layout is already group-sorted and we drop within-group rows in order).
+        n_groups = starts.shape[0]
+        seg_len = (ends - starts).astype(np.intp)
+        finite_cum = np.concatenate(([0], np.cumsum(finite_mask.astype(np.intp))))
+        fstarts = finite_cum[starts]
+        fends = finite_cum[ends]
+        del seg_len
+        ranks_fin = _per_group_rank_sorted_njit(
+            fin_vals, fstarts.astype(np.intp), fends.astype(np.intp), _RANK_METHOD_CODES[method], bool(pct)
+        )
+        out[sort_idx[seg_finite_idx]] = ranks_fin
+        del n_groups
+        return out
+
+    from scipy.stats import rankdata
+
     for s, e in zip(starts, ends):
         seg_idx = sort_idx[s:e]
-        seg = values_arr[seg_idx]
-        if not ascending:
-            seg = -seg
-        # Rank only the FINITE entries; NaN/inf stay NaN. scipy.rankdata's
-        # default nan_policy='propagate' otherwise poisons the WHOLE group
-        # to NaN on a single missing value (silent: a rank-based feature
-        # over any NaN-bearing column collapsed to an all-NaN -> "constant"
-        # column, dropped downstream). pct normalises over the finite count
-        # so observed values span (0, 1] regardless of how many are missing.
-        finite = np.isfinite(seg)
+        seg = seg_vals[s:e]
+        finite = finite_mask[s:e]
         n_fin = int(finite.sum())
         if n_fin == 0:
             continue
         seg_fin = seg[finite]
-        try:
-            from scipy.stats import rankdata
-            ranks = rankdata(seg_fin, method=method).astype(np.float64)
-        except Exception:
-            # average-method fallback
-            order = np.argsort(seg_fin, kind="stable")
-            ranks = np.empty(seg_fin.size, dtype=np.float64)
-            ranks[order] = np.arange(1, seg_fin.size + 1, dtype=np.float64)
+        ranks = rankdata(seg_fin, method=method).astype(np.float64)
         if pct:
             ranks = ranks / n_fin
         seg_out = np.full(seg.size, np.nan, dtype=np.float64)
