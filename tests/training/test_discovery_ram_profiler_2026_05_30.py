@@ -24,7 +24,7 @@ def test_1_phase_ram_report_records_baseline_then_delta(caplog):
     from mlframe.training.composite.discovery._fit import _phase_ram_report
 
     state: dict = {}
-    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._fit"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
         _phase_ram_report(state, "entry")
         _phase_ram_report(state, "filter_features_done")
         _phase_ram_report(state, "transforms_evaluated")
@@ -47,13 +47,13 @@ def test_1_phase_ram_report_records_baseline_then_delta(caplog):
 def test_1_phase_ram_report_flags_page_thrashing(caplog):
     """When USS >> RSS by 2x+ on a 1 GB+ process, emit a PAGE_THRASHING marker.
     This is the signal the prior version masked entirely by reporting just RSS."""
-    from mlframe.training.composite.discovery import _fit as mod
+    from mlframe.training.composite.discovery import _fit_ram as mod
     state: dict = {}
-    # Post-EmptyWorkingSet artefact: USS=60 GB, RSS=4 MB, commit roughly = USS.
-    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_000.0, 60_500.0)):
-        mod._phase_ram_report(state, "entry")  # baseline
-    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_500.0, 61_000.0)):
-        with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._fit"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
+        # Post-EmptyWorkingSet artefact: USS=60 GB, RSS=4 MB, commit roughly = USS.
+        with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_000.0, 60_500.0)):
+            mod._phase_ram_report(state, "entry")  # baseline
+        with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_500.0, 61_000.0)):
             mod._phase_ram_report(state, "after_phase")
     thrash = [r for r in caplog.records if "PAGE_THRASHING" in r.getMessage()]
     assert thrash, "PAGE_THRASHING marker must fire when USS >> RSS"
@@ -63,29 +63,62 @@ def test_1_phase_ram_report_flags_commit_pressure(caplog):
     """When commit >> USS the process holds large committed-but-untouched memory.
     On Windows that consumes the system-wide commit limit and is the proximate
     OOM-kernel-kill cause even when USS / RSS look benign."""
-    from mlframe.training.composite.discovery import _fit as mod
+    from mlframe.training.composite.discovery import _fit_ram as mod
     state: dict = {}
-    # Mid-discovery: USS=20 GB, RSS=20 GB, commit=90 GB (private bytes reserved
-    # for committed-but-paged-out buffers from pyarrow / numba intermediate work).
-    with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 20_000.0)):
-        mod._phase_ram_report(state, "entry")
-    with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 90_000.0)):
-        with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._fit"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
+        # Mid-discovery: USS=20 GB, RSS=20 GB, commit=90 GB (private bytes reserved
+        # for committed-but-paged-out buffers from pyarrow / numba intermediate work).
+        with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 20_000.0)):
+            mod._phase_ram_report(state, "entry")
+        with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 90_000.0)):
             mod._phase_ram_report(state, "after_phase")
     pressure = [r for r in caplog.records if "COMMIT_PRESSURE" in r.getMessage()]
     assert pressure, "COMMIT_PRESSURE marker must fire when commit >> USS"
 
 
-def test_1_phase_ram_report_tolerates_psutil_failure():
+def test_1_phase_ram_report_tolerates_psutil_failure(caplog):
     """The profiler must not raise when memory read fails -- it's diagnostic-only
     and must never block a real fit() path."""
-    from mlframe.training.composite.discovery import _fit as mod
+    from mlframe.training.composite.discovery import _fit_ram as mod
     state: dict = {}
-    with patch.object(mod, "_process_mem_mb", side_effect=RuntimeError("psutil down")):
-        try:
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
+        with patch.object(mod, "_process_mem_mb", side_effect=RuntimeError("psutil down")):
+            try:
+                mod._phase_ram_report(state, "entry")
+            except RuntimeError:
+                pytest.fail("profiler must not propagate psutil errors")
+
+
+def test_1_phase_ram_report_skips_psutil_when_info_disabled():
+    """At the default (WARNING) log level the helper must short-circuit before touching ``_process_mem_mb``: the only
+    observable effect is one discarded INFO line, so the expensive Windows USS/commit walk would be pure waste. Pin the
+    short-circuit so a future change can't reintroduce the per-phase psutil cost into the default-config hot path."""
+    from mlframe.training.composite.discovery import _fit_ram as mod
+
+    called = {"n": 0}
+
+    def _spy():
+        called["n"] += 1
+        return (1.0, 1.0, 1.0)
+
+    state: dict = {}
+    # INFO disabled (default): no psutil call, no state mutation.
+    mod.logger.setLevel(logging.WARNING)
+    with patch.object(mod, "_process_mem_mb", side_effect=_spy):
+        mod._phase_ram_report(state, "entry")
+        mod._phase_ram_report(state, "after_phase")
+    assert called["n"] == 0, "psutil must NOT be touched when INFO logging is disabled"
+    assert state == {}, "no telemetry state should be recorded when the report is short-circuited"
+
+    # INFO enabled: psutil runs and state is populated (telemetry intact for operators who opt in).
+    mod.logger.setLevel(logging.INFO)
+    try:
+        with patch.object(mod, "_process_mem_mb", side_effect=_spy):
             mod._phase_ram_report(state, "entry")
-        except RuntimeError:
-            pytest.fail("profiler must not propagate psutil errors")
+        assert called["n"] >= 1, "psutil must run when INFO logging is enabled"
+        assert state.get("baseline_uss_mb") is not None
+    finally:
+        mod.logger.setLevel(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------

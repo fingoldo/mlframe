@@ -45,6 +45,11 @@ def _phase_ram_report(state: dict, phase_name: str) -> None:
 
     Reports RSS and USS (RSS << USS flags page-thrashing the prior version masked); ``state`` is a ``{'baseline_uss_mb', 'prev_uss_mb'}`` dict the caller threads through. No GC is forced here -- ``pyutilz.clean_ram()`` on Windows evicts the working set without freeing real memory (and emits a bogus "reclaimed 57 GB" line); the suite runs gc at its own boundaries.
     """
+    # The only observable effect of this function is one INFO log line; when INFO is disabled the line is discarded, so the
+    # expensive ``memory_full_info()`` USS/commit walk (tens of ms each on Windows when the working set is dirty) would be pure
+    # waste. Short-circuit before touching psutil so the default (WARNING-level) config pays nothing for telemetry it drops.
+    if not logger.isEnabledFor(logging.INFO):
+        return
     try:
         rss_mb, uss_mb, commit_mb = _process_mem_mb()
     except Exception:

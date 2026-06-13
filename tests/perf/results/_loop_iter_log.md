@@ -2020,3 +2020,40 @@ Distinct lever from iters 54/55/56/57/58 (AUC-argsort share / confusion share / 
 this removes a duplicate partial-sort of the residual array in the regression audit.
 
 Streak: 0/100 (iter59 RESOLVED -- streak reset). **Cumulative loop wave: 32 RESOLVED, 28 REJECT across 59 iterations.**
+
+## iter60 (2026-06-13) -- RESOLVED (~1.19x e2e on CompositeTargetDiscovery.fit; short-circuit the per-phase RAM telemetry when INFO logging is off)
+
+Workload: FRESH -- `benchmarks/composite_profile.py --feature discovery --n 20000` (`CompositeTargetDiscovery.fit`). Picked deliberately off the
+tapped MRMR-FE (iters43-53) and classification/regression-report (iters54-59) pools. cProfile inflation is only **1.1x** here (1626 ms cProfile
+vs 1439 ms wall) -- the discovery path is genuinely plain-Python/numpy bound, not deep-stack pandas, so cProfile attribution is trustworthy.
+
+Hotspot: `discovery/_fit_ram.py:_phase_ram_report` (called 10-15x per fit, one per discovery sub-phase) -> `_process_mem_mb` -> `psutil.Process().memory_full_info()`.
+cProfile flagged `_process_mem_mb` at cum 0.379 s (23% of the run) and `_phase_ram_report` at 0.244 s. This telemetry is **pure diagnostics** --
+it emits ONE INFO log line per phase and has zero effect on the discovered specs. In the default config the discovery logger sits at WARNING, so
+`logger.isEnabledFor(INFO)` is False and every one of those INFO lines is discarded -- yet the expensive Windows USS/commit `memory_full_info()`
+walk (which re-scans a dirty working set after each phase's allocations, ~15-25 ms effective per call e2e) ran anyway. 100% wasted work in the
+default config (a "caller discards the output" case: the discarded output is the log line).
+
+Optimization: a one-line guard at the top of `_phase_ram_report` -- `if not logger.isEnabledFor(logging.INFO): return` -- so the psutil walk and
+log-line formatting are skipped whenever the line would be dropped. Operators who enable INFO (or who already had the `MLFRAME_DISCOVERY_RAM_PROFILER`
+env opt-out) see byte-identical behaviour; only the default WARNING-level hot path stops paying for telemetry it throws away.
+
+Before/after (n=20k, warm best-of-8, e2e `CompositeTargetDiscovery.fit`):
+  - PRE-FIX (psutil every phase, INFO routed to a NullHandler so the walk genuinely runs): median 1577 ms (min 1457).
+  - FIXED default (WARNING, telemetry short-circuited): median 1329 ms (min 1223).
+  - => **1.19x median (-248 ms, -15.7%) / 1.19x min (-234 ms, -16.1%)**. Matches the `MLFRAME_DISCOVERY_RAM_PROFILER=0` floor (~1297 ms) exactly,
+    as expected -- the guard makes the default config hit the same path as the explicit opt-out.
+
+Identity: OUTPUT-IDENTICAL by construction (telemetry never touched the specs). Verified directly: discovered specs (name / transform / base /
+fitted_params) are byte-equal whether the telemetry runs (INFO on) or is skipped (WARNING) -- 5 specs, IDENTICAL=True.
+
+Regression test: `test_1_phase_ram_report_skips_psutil_when_info_disabled` (in `test_discovery_ram_profiler_2026_05_30.py`) pins BOTH sides --
+psutil is NOT called and no state is recorded when INFO is disabled, AND psutil runs + state populates when INFO is enabled. Verified it FAILS on
+pre-fix code (guard removed) and PASSES post-fix. Three pre-existing tests in that file were enabling the wrong (`_fit`) logger -- the telemetry
+emits on `_fit_ram` -- and patching the ineffective `_fit._process_mem_mb` re-export; re-pointed them to the actual emitting logger/module so they
+exercise the real path under the new guard (8/8 pass; 12/12 with the discovery-transform suite).
+
+Distinct lever from iters 54-59 (all regression/classification report partial-sort fusions): this is a telemetry short-circuit on the composite
+discovery path -- a different workload pool and a different waste class (discarded-output diagnostics, not duplicated partial-sorts).
+
+Streak: 0/100 (iter60 RESOLVED -- streak reset). **Cumulative loop wave: 33 RESOLVED, 28 REJECT across 60 iterations.**
