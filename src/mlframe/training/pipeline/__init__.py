@@ -630,6 +630,25 @@ def create_polarsds_pipeline(
             if dtype.is_numeric() and not dtype == pl.Boolean
         ]
         if _imputable_cols:
+            # polars-ds ``Blueprint.impute`` (and our mode path's ``fill_null``)
+            # only fill polars NULL -- they leave float ``NaN`` untouched. Real
+            # frames carry NaN from numpy/pandas origin and FE ratios (0/0, log
+            # of non-positive), so NaN would survive the imputer and reach the
+            # scaler / downstream model despite this step. Convert NaN -> NULL on
+            # the float imputable columns first so every missing marker is filled.
+            _float_imputable = [
+                c for c in _imputable_cols if train_df.schema[c].is_float()
+            ]
+            if _float_imputable:
+                bp = bp.with_columns(
+                    *[
+                        pl.when(pl.col(_c).is_nan())
+                        .then(None)
+                        .otherwise(pl.col(_c))
+                        .alias(_c)
+                        for _c in _float_imputable
+                    ]
+                )
             # ``config.imputer_strategy`` has been canonicalised by the
             # validator to one of {mean, median, mode}. mean / median map
             # directly to polars-ds's ``Blueprint.impute``; ``mode`` does NOT

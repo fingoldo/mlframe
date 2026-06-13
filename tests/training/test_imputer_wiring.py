@@ -293,3 +293,50 @@ class TestImputerComposesWithScaler:
         # Scaling actually applied (mean ≈ 0, std ≈ 1 for f2 which had no NaN).
         f2_vals = out["f2"].to_numpy()
         assert abs(float(np.mean(f2_vals))) < 0.5, "scaler did not run"
+
+
+# =====================================================================
+# 8. Float NaN (not just polars NULL) is imputed
+# =====================================================================
+
+class TestFloatNanImputed:
+    """polars-ds ``Blueprint.impute`` only fills polars NULL; float ``NaN``
+    (the numpy/pandas-origin missing marker, also produced by FE ratios like
+    0/0) survived the imputer silently and reached the scaler / model. The
+    pipeline now converts NaN -> NULL on float imputable columns first."""
+
+    def _nan_frame(self):
+        rng = np.random.default_rng(0)
+        n = 200
+        X = rng.lognormal(0.0, 1.0, size=(n, 3)).astype(np.float32)
+        mask = rng.random((n, 3)) < 0.2
+        X[mask] = np.nan  # FLOAT NaN, not polars NULL
+        df = pl.DataFrame({f"f{j}": X[:, j] for j in range(3)})
+        # Sanity: null_count does NOT see float NaN, so the holes are real NaN.
+        assert df.null_count().to_numpy().sum() == 0
+        return df, mask
+
+    def test_float_nan_is_imputed_not_survived(self):
+        df, _ = self._nan_frame()
+        cfg = PreprocessingBackendConfig(
+            imputer_strategy="mean", scaler_name=None, categorical_encoding=None
+        )
+        pipe = create_polarsds_pipeline(df, cfg, verbose=0)
+        out = pipe.transform(df).to_numpy()
+        assert not np.isnan(out).any(), "float NaN survived the imputer"
+
+    def test_mean_and_median_fill_differently_on_float_nan(self):
+        """Skewed column: mean fill != median fill. Pre-fix both left NaN
+        untouched (identical output), so this delta also pins the bug."""
+        df, mask = self._nan_frame()
+        fills = {}
+        for strat in ("mean", "median"):
+            cfg = PreprocessingBackendConfig(
+                imputer_strategy=strat, scaler_name=None, categorical_encoding=None
+            )
+            out = create_polarsds_pipeline(df, cfg, verbose=0).transform(df).to_numpy()
+            assert not np.isnan(out).any()
+            fills[strat] = float(out[mask[:, 0], 0][0])
+        assert abs(fills["mean"] - fills["median"]) > 0.1, (
+            "mean and median imputation produced identical fills on a skewed column"
+        )
