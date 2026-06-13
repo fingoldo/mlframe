@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
+import copy
+
 from typing import Callable
 
 import numpy as np
@@ -72,7 +74,11 @@ class EarlyStoppingWrapper(BaseEstimator):
 
             if score > self.best_score_ + self.tolerance:
                 self.best_score_ = score
-                self.best_model_ = self.base_model
+                # Snapshot the model AT the best iteration. Storing the live
+                # base_model reference is wrong: partial_fit keeps mutating it in
+                # later iterations, so best_model_ would hold the FINAL (often
+                # degraded) weights, not the best ones -- silently defeating ES.
+                self.best_model_ = copy.deepcopy(self.base_model)
                 self.no_improvement_count_ = 0
             else:
                 self.no_improvement_count_ += 1
