@@ -25,6 +25,26 @@ from numba import njit, prange
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
 # for the supported bin schemes. The legacy methods 'astropy' and 'discretizer'
 # still resolve via thin compat shims below.
+def _safe_code_dtype(n_bins: int, dtype: object) -> object:
+    """Widen ``dtype`` to one that can hold ordinal codes ``0..n_bins-1``.
+
+    Discretiser codes reach ``n_bins-1``; the default ``int8`` only holds 0..127, so an
+    ``astype(int8)`` on ``n_bins>128`` wraps the top bins negative (modulo arithmetic),
+    silently mis-binning the high-magnitude region. Auto-widen instead of silently
+    corrupting: int8->int16->int32->int64 as the bin count grows. No-op for n_bins<=128.
+    """
+    try:
+        info = np.iinfo(np.dtype(dtype))
+    except (ValueError, TypeError):
+        return dtype  # non-integer requested dtype: caller owns the contract
+    if n_bins - 1 <= info.max:
+        return dtype
+    for cand in (np.int16, np.int32, np.int64):
+        if n_bins - 1 <= np.iinfo(cand).max:
+            return cand
+    return np.int64
+
+
 def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     """Drop-in pure-numpy replacement for sklearn OrdinalEncoder().fit_transform on a (n, 1) array.
 
@@ -392,8 +412,11 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, ma
         # Constant column: every row -> bin 0; honest single-bin code.
         return np.zeros_like(arr, dtype=dtype)
     rev_bin_width = n_bins / _rng
-    result = ((arr - min_value) * rev_bin_width).astype(dtype)
-    return np.clip(result, 0, n_bins - 1)
+    # Clip in the float domain BEFORE the (possibly narrow) cast: casting first lets
+    # codes > dtype-max wrap negative (int8 modulo), and the subsequent clip then maps
+    # those wrapped negatives to bin 0 -- silently collapsing the high-value region.
+    result = np.clip((arr - min_value) * rev_bin_width, 0, n_bins - 1)
+    return result.astype(dtype)
 
 
 def discretize_array(
@@ -408,6 +431,7 @@ def discretize_array(
     """
     if method not in ("uniform", "quantile"):
         raise ValueError(f"Unsupported discretization method: '{method}'. Supported methods: 'uniform', 'quantile'")
+    dtype = _safe_code_dtype(n_bins, dtype)  # widen so n_bins>128 codes don't wrap negative
     if method == "uniform":
         return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
     # quantile path -- raw numpy.
@@ -461,6 +485,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     it bit-identical for the general case. ``searchsorted`` stays per-column (each column's sliced edge vector
     differs); that loop is cheap relative to the eliminated per-column ``percentile`` + ``linspace`` dispatch.
     """
+    dtype = _safe_code_dtype(n_bins, dtype)  # widen so n_bins>128 codes don't wrap negative
     n_rows, n_cols = arr2d.shape
     quantiles = np.linspace(0, 100, n_bins + 1)
     # bench-attempt-rejected (2026-06-07): FUSING searchsorted INTO the quantile sort
@@ -650,6 +675,7 @@ def discretize_2d_array(
     routes to the fastest backend by default; manual backend selection
     is only for tests + benches.
     """
+    dtype = _safe_code_dtype(n_bins, dtype)  # widen so n_bins>128 codes don't wrap negative
     # CUDA-eligibility: per-host backend_choice (cpu/cuda) from the kernel tuning
     # cache via get_or_tune (the hand-tuned 500k breakeven is the fallback), so the
     # dispatcher adapts to faster GPUs without code edits. _discretize_backend_choice
