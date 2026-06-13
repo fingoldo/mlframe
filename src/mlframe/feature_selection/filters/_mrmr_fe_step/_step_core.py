@@ -240,6 +240,29 @@ def _run_fe_step(
         verbose=verbose,
     )
 
+    # GATE-OPERAND RE-CLASSIFICATION (2026-06-13). A selected conditional_gate / row_argmax feature is
+    # built FROM one or more raw columns (its recipe ``src_names``); the high-MI gate column is selected
+    # by the greedy screen AHEAD of its raw source, so the raw source is dropped from ``selected_vars``
+    # (redundant given the gate) and re-enters the FE pool only via the synergy bootstrap above -- which
+    # tags it ``synergy_added`` and forces every pair over it onto the STRICTER ``fe_synergy_min_prevalence``
+    # bar. On CASE1 ``y=a**2/b+log(c)*sin(d)`` that demoted the clean elementary (c,d) pair (joint MI 0.176
+    # vs the 0.231 synergy bar) and SUPPRESSED ``mul(log(c),sin(d))`` (MI 0.314) -- the gate EVICTED rather
+    # than out-competed it. Reclassify a gate's raw operands as REGULARLY-selected (drop from synergy_added)
+    # so their elementary pair competes on the lenient bar and the clean form can WIN where it beats the gate
+    # composite. The gate column itself stays selected + pairable (CASE2's warped (c,d) gate capture intact).
+    # Byte-identical when no gate fired (``_gate_raw_operands_`` empty). Same lesson as the gate_med fix.
+    _gate_raw_names = getattr(self, "_gate_raw_operands_", None)
+    if _gate_raw_names and _synergy_added_idx:
+        _gate_raw_idx = {i for i in _synergy_added_idx if cols[i] in _gate_raw_names}
+        if _gate_raw_idx:
+            _synergy_added_idx = _synergy_added_idx - _gate_raw_idx
+            if verbose:
+                logger.info(
+                    "MRMR FE: reclassified %d gate-source raw operand(s) %s from synergy-bootstrap to "
+                    "regularly-selected so their elementary pairs use the lenient prevalence bar.",
+                    len(_gate_raw_idx), sorted(cols[i] for i in _gate_raw_idx),
+                )
+
     # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (2026-06-09, backlog #6) + its mandatory
     # order-3 maxT rail (#7). Fits one shallow LightGBM on the discretised matrix, walks
     # root-to-leaf paths, and tallies depth-discounted split-gain co-occurrence to propose

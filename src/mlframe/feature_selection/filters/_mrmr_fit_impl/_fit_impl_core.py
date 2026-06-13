@@ -3478,6 +3478,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.integer_lattice_features_ = []
     self.row_argmax_features_ = []
     self.conditional_gate_features_ = []
+    # RAW SOURCE OPERANDS of the selected gate_mask / row_argmax features (their recipe src_names).
+    # The FE pair step re-classifies these from synergy-bootstrap to REGULARLY-selected operands so
+    # the elementary pair over a gate's raw sources competes on the LENIENT prevalence bar instead of
+    # being demoted to the stricter synergy bar (a high-MI gate built FROM a raw col evicts that col
+    # from selected_vars, so its clean elementary pair would otherwise be suppressed). 2026-06-13.
+    self._gate_raw_operands_ = set()
     self.group_distance_features_ = []
     _cat_pair_pre_recipes: dict = {}
     _cat_triple_pre_recipes: dict = {}
@@ -4411,6 +4417,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     for _r in _am_recipes:
                         if _r.name in _am_appended:
                             _row_argmax_pre_recipes[_r.name] = _r
+                            # Record the raw source operands so the FE step keeps them as
+                            # regularly-selected pair operands (see _gate_raw_operands_ init).
+                            self._gate_raw_operands_.update(str(s) for s in _r.src_names)
                     if verbose:
                         logger.info(
                             "MRMR.fit row_argmax: appended %d engineered "
@@ -4481,6 +4490,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     for _r in _cg_recipes:
                         if _r.name in _cg_appended:
                             _conditional_gate_pre_recipes[_r.name] = _r
+                            # Record the raw source operands so the FE step keeps them as
+                            # regularly-selected pair operands (see _gate_raw_operands_ init).
+                            self._gate_raw_operands_.update(str(s) for s in _r.src_names)
                     if verbose:
                         logger.info(
                             "MRMR.fit conditional_gate: appended %d engineered "
