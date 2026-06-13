@@ -61,6 +61,24 @@ NET: triplet/quad were the genuine general-numeric default-on win; the FE-defaul
   (default) byte-identical. `evaluation.py`. Test `test_interactions_order2_resume.py` (order>=2 drops an
   exact-duplicate redundant feature + recovers signal); default core tests green.
 
+- **cat-interaction target encoding used POSITIONAL OOF folds** (`arange(n) % K`), tying fold id to row
+  order -> under cell-clustered input (post groupby/sort) a cell concentrates in one fold and its OOF
+  estimate collapses toward the in-fold mean (partial target leak into fit-time te_values). Shuffled fold
+  membership with a per-interaction deterministic seed, mirroring the two sibling encoders that already
+  shuffle. Bounded today (these te_vals feed diagnostics, not the MI screen, on the current path) but the
+  kernel is shared. `_cat_target_encoding_and_weighted.py`. Test `test_target_encoding_oof_shuffle.py`
+  (singleton falls back to global not self; seed-determinism fails RED on the positional version). Surfaced
+  by the supervised-FE target-leakage audit. (c87cebcd)
+
+## TARGET-LEAKAGE AUDIT of supervised FE generators (2026-06-13) -- verdict CLEAN bar the above
+
+Audited every FE generator that derives a feature from y, tracing fit-time MI-scored values vs replay:
+`kfold_te` (OOF + shuffled + frozen-lookup replay -- clean), `grouped_delta` / `grouped_agg` /
+`composite_group_agg` / `grouped_quantile` (aggregate the FEATURE not y -- cannot leak the target),
+`target_aware_group_bin` (fit-time scored column is OOF; all-data edges a bounded acknowledged edge-leak),
+`cat_num_residual` / `conditional_residual` / `row_argmax` / `conditional_gate` (pure functions of X, frozen
+tau on a FEATURE). Only the cat-interaction TE kernel's positional folds (fixed above) were a real seam.
+
 ## VERIFIED CLEAN (no triggerable bug)
 
 - `_fe_raw_redundancy_drop.py` -- keep/drop sign, nested anchoring, fail-closed replay, determinism.
