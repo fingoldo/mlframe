@@ -202,6 +202,7 @@ def _combine_probs(
     is_calibrated_per_model: Sequence[bool] | None = None,
     metadata: dict | None = None,
     target_label: str | None = None,
+    target_type: Any = None,
 ) -> np.ndarray:
     """Combine per-model prediction probabilities using the training-time-selected ``flavour``.
 
@@ -272,6 +273,23 @@ def _combine_probs(
                 "skipping fix_quantile_crossing to avoid mis-aligned column rewrites.",
                 len(quantile_alphas), combined.shape[1],
             )
+
+    # Multiclass simplex renorm: harm/geo/quad/qube blend valid per-member simplices into rows that
+    # no longer sum to 1 (geo ~0.86, harm ~0.74, quad/qube >1). ``combine_probs`` only clips to [0,1].
+    # For multiclass the (N,K>2) matrix is consumed as a probability simplex (argmax, log_loss, calibration,
+    # reporting), so rescale each row to sum 1. Gated to MULTICLASS only: binary keeps the [:,1] semantics and
+    # multilabel's per-label columns are independent (not a simplex), so neither may be renormalised.
+    _is_multiclass_tt = target_type == TargetTypes.MULTICLASS_CLASSIFICATION or str(
+        getattr(target_type, "value", target_type)
+    ) == TargetTypes.MULTICLASS_CLASSIFICATION.value
+    if (
+        _is_multiclass_tt
+        and quantile_alphas is None
+        and combined.ndim == 2
+        and combined.shape[1] > 2
+    ):
+        _row = combined.sum(axis=1, keepdims=True)
+        np.divide(combined, _row, out=combined, where=_row > 0)
     return combined
 
 

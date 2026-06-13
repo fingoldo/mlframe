@@ -570,6 +570,7 @@ def predict_from_models(
                     is_calibrated_per_model=per_target_calib_flags.get((_tt, _tname)),
                     metadata=metadata,
                     target_label=f"{_tt}/{_tname}",
+                    target_type=_tt,
                 )
             else:
                 _combined = _probs_list[0]
@@ -597,11 +598,16 @@ def predict_from_models(
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
         _suite_flavour = _resolve_chosen_flavour(metadata)
+        # Pass the target_type only when the suite is homogeneously multiclass so the simplex renorm in
+        # _combine_probs fires for the multiclass-only case without touching mixed / binary / multilabel suites.
+        _suite_tts = {tt for (tt, _tn) in per_target_probs.keys()}
+        _suite_tt = next(iter(_suite_tts)) if len(_suite_tts) == 1 else None
         avg_probs = _combine_probs(
             all_probs, _suite_flavour,
             is_calibrated_per_model=all_calib_flags or None,
             metadata=metadata,
             target_label="suite",
+            target_type=_suite_tt,
         )
         results["ensemble_probabilities"] = avg_probs
         if isinstance(results.get("probabilities"), dict):
