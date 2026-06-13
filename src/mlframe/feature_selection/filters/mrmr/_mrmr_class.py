@@ -3924,7 +3924,27 @@ class MRMR(BaseEstimator, TransformerMixin):
             base_names = [n for n, s in zip(fni, support) if s]
         else:
             base_names = [fni[i] for i in support]
-        return np.asarray(list(base_names) + engineered_names, dtype=object)
+        names = list(base_names) + engineered_names
+        # USABILITY UNION (2026-06-13): when the usability-aware pass ran, transform() ALSO materialises
+        # the linear + universal lists' features (deduped against the pure-MI output), so the advertised
+        # names must include them or the sklearn-Pipeline width check would reject the wider transform.
+        if getattr(self, "usability_aware_lists", False):
+            names += [cand.name for cand in self._usability_union_extra(names)]
+        return np.asarray(names, dtype=object)
+
+    def _usability_union_extra(self, base_names):
+        """Ordered ``UsableCandidate`` list from ``support_linear_`` + ``support_universal_`` whose name
+        is NOT already present in ``base_names`` (the pure-MI transform output), deduped across the two
+        usability lists. The SINGLE SOURCE OF TRUTH for the union appended by both ``get_feature_names_out``
+        and ``transform`` so their widths always agree."""
+        seen = set(map(str, base_names))
+        extra = []
+        for attr in ("support_linear_", "support_universal_"):
+            for cand in (getattr(self, attr, None) or []):
+                if cand.name not in seen:
+                    seen.add(cand.name)
+                    extra.append(cand)
+        return extra
 
     # 1 fix (loop iter 43): explicit
     # ``__sklearn_is_fitted__`` and ``get_support`` so sklearn's
@@ -3972,7 +3992,43 @@ class MRMR(BaseEstimator, TransformerMixin):
         contract requires a DataFrame).
         """
         from .._mrmr_validate_transform import transform as _t
-        return _t(self, X, y)
+        out = _t(self, X, y)
+        if getattr(self, "usability_aware_lists", False) and (
+            getattr(self, "support_linear_", None) or getattr(self, "support_universal_", None)
+        ):
+            out = self._append_usability_union(out, X)
+        return out
+
+    def _append_usability_union(self, base_out, X):
+        """Append the usability lists' features (``support_linear_`` + ``support_universal_``, deduped
+        against the pure-MI output and each other) to the standard transform output, and record
+        ``usability_feature_groups_`` -- a ``{'nonlinear'|'linear'|'universal': [names]}`` map so a
+        downstream can subset to a model family's list. The pure-MI columns keep precedence on a name
+        clash; the union is what lets a LINEAR model trained on the suite's shared matrix pick up the
+        engineered interaction (c*d) it needs without any per-model re-transform."""
+        import pandas as pd
+        from .._usability_lists import materialize_usability_features
+
+        if not isinstance(base_out, pd.DataFrame):
+            cols = list(self.get_feature_names_out())
+            arr = np.asarray(base_out)
+            # get_feature_names_out already includes the union names; the base ndarray is narrower
+            # (pure-MI only), so name only its own width here and let the concat below add the rest.
+            base_out = pd.DataFrame(arr, columns=cols[: arr.shape[1]], index=getattr(X, "index", None))
+
+        nonlinear_names = list(base_out.columns)
+        groups = {
+            "nonlinear": list(nonlinear_names),
+            "linear": [c.name for c in (getattr(self, "support_linear_", None) or [])],
+            "universal": [c.name for c in (getattr(self, "support_universal_", None) or [])],
+        }
+        extra = self._usability_union_extra(nonlinear_names)
+        self.usability_feature_groups_ = groups
+        if not extra:
+            return base_out
+        mat = materialize_usability_features(extra, X)
+        mat.index = base_out.index
+        return pd.concat([base_out, mat], axis=1)
 
     def transform_usability(self, X, which: str = "linear"):
         """Materialise a USABILITY-AWARE feature space on ``X`` -- the linear-downstream selection

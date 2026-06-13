@@ -101,6 +101,21 @@ class FeatureSelectionConfig(BaseConfig):
     pre_screen_null_fraction_threshold: float = 0.99  # drop columns where null_fraction > this
     mrmr_identity_cache_scope: str = "ctx"
 
+    # USABILITY-AWARE MULTI-LIST FEATURES (2026-06-13). When True, MRMR runs its usability-aware second
+    # pass (``usability_aware_lists``) after the pure-MI fit and ``transform`` materialises the UNION of
+    # all three selection lists -- pure-MI (``support_``, the tree list), strict-linear
+    # (``support_linear_``) and blend (``support_universal_``) -- deduped by name, with a
+    # ``usability_feature_groups_`` map recording which emitted column belongs to which list. MI is
+    # rank-based and blind to linear usability, so the pure-MI list can carry raw operands (c, d) without
+    # the engineered interaction (c*d) a LINEAR model needs; materialising the union puts that engineered
+    # feature in EVERY model's input, so a linear model simply assigns it a coefficient and reaches the
+    # f/5 floor (on F2: linear test MAE ~0.096 with the pure-MI list alone -> ~0.05 with the union), while
+    # a tree just ignores the columns it does not split on (and can optionally subset to ``support_`` via
+    # the groups map). DEFAULT OFF: the usability pass runs a CV-MAE forward selection that costs
+    # seconds-to-minutes, so it is opt-in; existing suites are byte-identical with it off. Requires the
+    # selector to run on the raw frame (MRMR's default) so the recipe replay has the raw operand columns.
+    mrmr_usability_aware_lists: bool = False
+
     @field_validator("mrmr_identity_cache_scope")
     @classmethod
     def _validate_mrmr_identity_cache_scope(cls, v: str) -> str:

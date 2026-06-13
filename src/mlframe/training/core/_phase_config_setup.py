@@ -292,6 +292,13 @@ def setup_configuration(
     od_val_set = outlier_detection_config.apply_to_val
     use_mrmr_fs = feature_selection_config.use_mrmr_fs
     mrmr_kwargs = feature_selection_config.mrmr_kwargs
+    # USABILITY-AWARE MULTI-LIST (2026-06-13): the suite-level flag turns on MRMR's usability second pass
+    # so transform() materialises the UNION of all three selection lists (pure-MI + linear + universal),
+    # putting the linearly-usable engineered interaction in every model's input. An explicit mrmr_kwargs
+    # entry wins; the default path (flag off) leaves mrmr_kwargs untouched / byte-identical.
+    if getattr(feature_selection_config, "mrmr_usability_aware_lists", False):
+        mrmr_kwargs = dict(mrmr_kwargs or {})
+        mrmr_kwargs.setdefault("usability_aware_lists", True)
     rfecv_models = feature_selection_config.rfecv_models
     custom_pre_pipelines = feature_selection_config.custom_pre_pipelines if feature_selection_config.custom_pre_pipelines else None
 
