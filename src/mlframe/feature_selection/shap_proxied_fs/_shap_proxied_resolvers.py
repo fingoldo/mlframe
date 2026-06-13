@@ -7,6 +7,7 @@ boundaries without code changes. No back-import to the selector parent.
 
 from __future__ import annotations
 
+import numpy as np
 
 _EXACT_OPTIMIZERS = {"bruteforce", "bruteforce_gpu"}
 _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistart", "genetic", "annealing", "gradient"}
@@ -85,6 +86,84 @@ _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS = (
     (-1.0, -8),  # stability < 0.6: narrow by 8 (catches negative correlations too)
 )
 _ADAPTIVE_PRESCREEN_FLOOR = 16  # never narrow below this regardless of stability
+# Knee-ladder gate: minimum peak gap above the diagonal of the cumulative-importance curve before the
+# knee narrows the cap. Below this the importance is spread evenly enough (dense signal) that the full
+# cap is kept. Calibrated so a uniform curve (gap ~0) keeps the cap and a clearly front-loaded curve
+# (top-k dominant, gap >> 0) narrows. Per-HW tunable via kernel_tuning_cache is unnecessary (pure
+# distribution shape, hardware-independent); exposed as a module constant for bench recalibration.
+_KNEE_SPARSITY_GATE = 0.10
+
+
+# Adaptive trust-guard anchor budget. The fixed 30 anchors are sparse on very wide search frames
+# (p>>): with a fixed budget the per-anchor coverage of a p=10000 column space is the same as a p=20
+# space, so the trust signal weakens exactly where the proxy is least trustworthy. The adaptive count
+# scales sub-linearly with the post-prefilter search width so wide frames get a denser guard while
+# narrow frames keep a cheap budget: n_anchors = clip(round(c*sqrt(p)), lo, hi). sqrt keeps the cost
+# bounded (p=10000 -> ~6*100 capped at 100, not 10000). c=6.0 reproduces ~30 at the p=25 small-frame
+# regime the fixed default was tuned on (6*5=30) and lifts to the 100 ceiling for p>=278. An explicit
+# integer ``n_anchors=`` always overrides. Per-HW tunable via kernel_tuning_cache key
+# ``mlframe.shap_proxied_fs.adaptive_n_anchors_params`` -> [c, lo, hi].
+_DEFAULT_ADAPTIVE_N_ANCHORS_C = 6.0
+_ADAPTIVE_N_ANCHORS_LO = 10
+_ADAPTIVE_N_ANCHORS_HI = 100
+
+
+def _resolve_adaptive_n_anchors(n_search_cols: int, *, c: float = _DEFAULT_ADAPTIVE_N_ANCHORS_C,
+                                lo: int = _ADAPTIVE_N_ANCHORS_LO,
+                                hi: int = _ADAPTIVE_N_ANCHORS_HI) -> int:
+    """Self-tuning anchor count for the trust guard: ``clip(round(c*sqrt(p)), lo, hi)``.
+
+    ``p`` is the post-prefilter proxy search width (``phi.shape[1]``). Reads override params from
+    kernel_tuning_cache key ``mlframe.shap_proxied_fs.adaptive_n_anchors_params`` as ``[c, lo, hi]``.
+    """
+    try:
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+
+        params = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.adaptive_n_anchors_params", default=None)
+        if params:
+            c, lo, hi = float(params[0]), int(params[1]), int(params[2])
+    except Exception:
+        pass
+    p = max(1, int(n_search_cols))
+    n = int(round(float(c) * float(np.sqrt(p))))
+    return int(min(int(hi), max(int(lo), n)))
+
+
+def _resolve_knee_prescreen_cap(importance, default_cap: int, *,
+                                floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> tuple[int, dict]:
+    """Data-driven prescreen cap from the sorted |phi| importance curve (knee detection).
+
+    Replaces the hardcoded stability ladder with a distribution read: a DENSE-signal frame (many
+    columns carry comparable importance) keeps the full ``default_cap``; a SPARSE-signal frame (a few
+    dominant columns, long noise tail) prunes harder. The knee is the kneedle-style point of maximum
+    drop below the diagonal of the normalised cumulative-importance curve over the top ``default_cap``
+    candidates. ``cap = clip(knee+1, floor, default_cap)`` -- this lever only ever NARROWS, mirroring
+    the stability ladder's contract, so a dense frame is never penalised. Returns (cap, info).
+    """
+    imp = np.sort(np.abs(np.asarray(importance, dtype=np.float64)))[::-1]
+    head = imp[: int(default_cap)]
+    info = dict(mode="knee", default_cap=int(default_cap))
+    if head.shape[0] < 3 or not np.isfinite(head).all() or head[0] <= 0:
+        info["effective_cap"] = int(default_cap)
+        info["knee"] = None
+        return int(default_cap), info
+    # Normalised cumulative-importance curve; concave for sparse signal (mass front-loaded).
+    cum = np.cumsum(head)
+    cum = cum / cum[-1]
+    x = np.arange(1, head.shape[0] + 1, dtype=np.float64) / head.shape[0]
+    # Distance above the y=x diagonal; the max-distance index is the kneedle knee.
+    diff = cum - x
+    knee_idx = int(np.argmax(diff))
+    # Sparsity score: peak gap above the diagonal. ~0 => uniform/dense importance (mass spread evenly
+    # across the cap) => KEEP the full default cap; large => front-loaded/sparse => narrow to the knee.
+    sparsity = float(diff[knee_idx])
+    if sparsity < _KNEE_SPARSITY_GATE:
+        info.update(effective_cap=int(default_cap), knee=int(knee_idx), sparsity=sparsity)
+        return int(default_cap), info
+    cap = int(min(int(default_cap), max(int(floor), knee_idx + 1)))
+    info.update(effective_cap=int(cap), knee=int(knee_idx), sparsity=sparsity)
+    return cap, info
 
 
 def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FEATURES) -> int:
