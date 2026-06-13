@@ -292,6 +292,7 @@ def build_orth_pair_cross_recipe(
 def build_orth_diff_basis_recipe(
     *, name: str, col_a: str, col_b: str,
     basis: str, degree: int, pre_transform: str = "raw",
+    preprocess_params: Optional[dict] = None,
 ) -> EngineeredRecipe:
     """Layer 59 (2026-05-31): frozen recipe for one diff-basis column
     ``basis_degree(preprocess(pre_transform(X[col_a] - X[col_b])))``.
@@ -308,6 +309,12 @@ def build_orth_diff_basis_recipe(
     extra = {"basis": str(basis), "degree": int(degree)}
     if pre_transform and pre_transform != "raw":
         extra["pre_transform"] = str(pre_transform)
+    # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params of the diff so
+    # replay reproduces the axis byte-exactly (no slice-vs-full refit drift). Omitted when None so
+    # legacy diff-basis pickles stay byte-equal.
+    _pp = _freeze_preprocess_params(preprocess_params)
+    if _pp is not None:
+        extra["preprocess_params"] = _pp
     return EngineeredRecipe(
         name=name,
         kind="orth_diff_basis",

@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _evaluate_basis_column
 from mlframe.feature_selection.filters._orthogonal_triplet_fe_recipes import build_orth_triplet_cross_recipe
 from mlframe.feature_selection.filters._orthogonal_quadruplet_fe_recipes import build_orth_quadruplet_cross_recipe
+from mlframe.feature_selection.filters.engineered_recipes import build_orth_diff_basis_recipe
 
 
 def _frame(n, seed):
@@ -64,6 +65,29 @@ def test_triplet_recipe_unfrozen_DRIFTS_on_slice_proving_the_bug():
     part = np.asarray(apply_recipe(rec, sl), dtype=np.float64)
     assert not np.allclose(full[1000:1700], part, atol=1e-6), (
         "expected the UNFROZEN recipe to drift on a slice (bug not reproduced -- test would be vacuous)"
+    )
+
+
+def test_diff_basis_recipe_frozen_params_replay_slice_consistent():
+    df = _frame(4000, 2)
+    diff = df["a"].to_numpy(float) - df["b"].to_numpy(float)
+    pp = _evaluate_basis_column(diff, "hermite", 2, return_params=True)[1]
+    rec = build_orth_diff_basis_recipe(name="diff", col_a="a", col_b="b", basis="hermite", degree=2,
+                                       preprocess_params=pp)
+    full = np.asarray(apply_recipe(rec, df), dtype=np.float64)
+    sl = df.iloc[1000:1700].reset_index(drop=True)
+    part = np.asarray(apply_recipe(rec, sl), dtype=np.float64)
+    assert np.allclose(full[1000:1700], part, atol=1e-9, rtol=0.0), "frozen diff-basis recipe drifted on a slice"
+
+
+def test_diff_basis_recipe_unfrozen_DRIFTS_on_slice_proving_the_bug():
+    df = _frame(4000, 2)
+    rec = build_orth_diff_basis_recipe(name="diff", col_a="a", col_b="b", basis="hermite", degree=2)  # no params
+    full = np.asarray(apply_recipe(rec, df), dtype=np.float64)
+    sl = df.iloc[1000:1700].reset_index(drop=True)
+    part = np.asarray(apply_recipe(rec, sl), dtype=np.float64)
+    assert not np.allclose(full[1000:1700], part, atol=1e-6), (
+        "expected the UNFROZEN diff-basis recipe to drift on a slice (bug not reproduced -- test vacuous)"
     )
 
 

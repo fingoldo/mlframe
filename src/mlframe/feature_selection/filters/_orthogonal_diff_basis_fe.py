@@ -579,12 +579,31 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
                 "%r missing from scores; skipping recipe.", name,
             )
             continue
+        _ca, _cb = str(row["col_a"]), str(row["col_b"])
+        _basis_d, _degree_d = str(row["basis"]), int(row["degree"])
+        # REPLAY-FIDELITY FIX (2026-06-13): freeze the diff's fit-time basis-preprocess params so
+        # transform() replays the axis byte-exactly (no slice-vs-full refit drift). Mirror the apply
+        # NaN-fill so the frozen params match. Guarded -> params stay None (legacy refit) on any failure.
+        _pp_d = None
+        try:
+            _va = np.asarray(X[_ca], dtype=np.float64)
+            _vb = np.asarray(X[_cb], dtype=np.float64)
+            _fa = np.isfinite(_va)
+            if not _fa.all():
+                _va = np.where(_fa, _va, float(np.nanmean(_va[_fa])) if _fa.any() else 0.0)
+            _fb = np.isfinite(_vb)
+            if not _fb.all():
+                _vb = np.where(_fb, _vb, float(np.nanmean(_vb[_fb])) if _fb.any() else 0.0)
+            _, _pp_d = _evaluate_basis_column(_va - _vb, _basis_d, _degree_d, return_params=True)
+        except Exception:
+            pass
         recipes.append(build_orth_diff_basis_recipe(
             name=name,
-            col_a=str(row["col_a"]),
-            col_b=str(row["col_b"]),
-            basis=str(row["basis"]),
-            degree=int(row["degree"]),
+            col_a=_ca,
+            col_b=_cb,
+            basis=_basis_d,
+            degree=_degree_d,
+            preprocess_params=_pp_d,
         ))
     return X_aug, scores, recipes
 
@@ -626,4 +645,8 @@ def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
         fill_b = float(np.nanmean(vals_b[finite_b])) if finite_b.any() else 0.0
         vals_b = np.where(finite_b, vals_b, fill_b)
     diff = vals_a - vals_b
-    return _eval_orth_basis_column(diff, basis, degree, pre_transform=pre_transform)
+    # REPLAY-FIDELITY FIX (2026-06-13): frozen fit-time basis-preprocess params (mirrors the pair/
+    # triplet/quad fix); without them _eval_orth_basis_column refits the z-score/min-max of the diff
+    # from apply-time rows -> slice-replay corruption. None (legacy pickles) -> refit path, byte-identical.
+    pp = recipe.extra.get("preprocess_params")
+    return _eval_orth_basis_column(diff, basis, degree, pre_transform=pre_transform, preprocess_params=pp)
