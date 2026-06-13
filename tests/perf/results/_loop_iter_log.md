@@ -2057,3 +2057,39 @@ Distinct lever from iters 54-59 (all regression/classification report partial-so
 discovery path -- a different workload pool and a different waste class (discarded-output diagnostics, not duplicated partial-sorts).
 
 Streak: 0/100 (iter60 RESOLVED -- streak reset). **Cumulative loop wave: 33 RESOLVED, 28 REJECT across 60 iterations.**
+
+---
+
+## iter61 -- RESOLVED: vectorise `aggregate_linear` per-row `.loc` loop (RFECV linear cross-fold importance)
+
+Workload: `profiling/rfecv_scene_profile.py --est logreg --cv 3 --max-refits 20` on the `scene` wide bed (2407x299). RFECV with a linear
+estimator routes cross-fold importance through `importance_agg="dispatched"` -> `aggregate_linear` (the sign-harmony aggregator). Fresh pool
+(rfecv wrapper was listed untouched; iters 54-59 were report partial-sorts, iter60 was composite-discovery telemetry).
+
+Top mlframe-own frames (cProfile, tottime): `_ice_metric.py:43 compute_probabilistic_multiclass_error` 0.337s/72 -- SKIPPED (microbench 0.42ms
+warm vs 4.7ms cProfile-attributed self => njit-kernel mis-attribution + ~10x cProfile inflation, not plain-Python). `_helpers.py:71
+split_into_train_test` 0.155s/60 -- SKIPPED (microbench: the `np.ix_` gather is genuine numpy copy ~1.2ms/call, already the faster of the two
+forms). `_helpers_importance_agg.py:170 aggregate_linear` 0.082s tottime / **0.580s cumtime** / 19 calls -- the real plain-Python hotspot.
+
+Hotspot: `aggregate_linear` built a fresh `table.loc[feat]` Series per feature in a Python `for feat in table.index` loop (p~300 features ->
+~300 per-row label lookups per call). Plain-Python pandas indexing; e2e-real (on the default dispatched linear path). The sibling
+`aggregate_stability` had already been vectorised away from exactly this pattern (zip over index + numpy values).
+
+Optimization (audit: per-row `.loc` -> single numpy column reduction, bit-identical): replaced the loop with `table.to_numpy()` + numpy
+column reductions -- finite-masked mean for `mean_signed`, `(M>eps)&finite` / `(M<-eps)&finite` counts for sign-agreement, `np.where` for the
+all-zero (agreement 1.0) and all-non-finite (score 0.0) special cases -- then `dict(zip(index, scores))`.
+
+Before/after:
+  - ISOLATED (p=300, 5 runs, warm best-of-500): old 10.075 ms -> new 0.559 ms = **18.0x** per call.
+  - E2E (`rfecv_scene_profile`, no-profile warm wall, 3 runs): old 12.67 / 14.46 / 14.09 s (min 12.67) -> new 12.54 / 12.76 / 13.49 s (min 12.54).
+    RFECV is model-fit-bound (logreg LBFGS dominates), so the ~0.18s aggregator saving (9.5ms x 19 calls) sits inside ~1.5s of fit noise; new is
+    consistently at-or-below baseline with no regression. The robust signal is the 18x isolated + identical selection.
+
+Identity: BIT-IDENTICAL. Selection fingerprint byte-equal (42 features selected, identical column set, both runs). Standalone parity vs the
+pre-fix per-row reference loop: IDENTICAL across 7 cases incl. NaN-finite / all-zero / all-non-finite / single-feature/single-run / empty.
+
+Regression test: `test_aggregate_linear_vectorized_matches_per_row_reference` in `tests/feature_selection/wrappers/rfecv/
+test_importance_agg_dispatch.py` -- pins the vectorised output bit-identical to an inline per-row reference across the NaN / all-zero / all-non-
+finite edge rows. Full file 18/18 pass; biz_val agg 3/3 pass.
+
+Streak: 0/100 (iter61 RESOLVED -- streak reset). **Cumulative loop wave: 34 RESOLVED, 28 REJECT across 61 iterations.**

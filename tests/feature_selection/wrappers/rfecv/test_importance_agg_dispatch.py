@@ -75,6 +75,46 @@ def test_aggregate_linear_consistent_sign_keeps_magnitude():
     assert scores["A"] == pytest.approx(2.0)  # all negative -> agreement 1.0, magnitude 2.0
 
 
+def test_aggregate_linear_vectorized_matches_per_row_reference():
+    # Pins the vectorised numpy aggregation bit-identical to the original per-row loop, including
+    # the NaN-finite, all-zero (agreement 1.0), and all-non-finite (score 0.0) edge rows.
+    import math
+    import numpy as np
+    import pandas as pd
+
+    def _reference(signed_importances, eps=1e-12):
+        table = pd.DataFrame(signed_importances)
+        if table.empty:
+            return {}
+        out = {}
+        for feat in table.index:
+            row = table.loc[feat].to_numpy(dtype=float)
+            row = row[np.isfinite(row)]
+            if row.size == 0:
+                out[feat] = 0.0
+                continue
+            mean_signed = float(np.mean(row))
+            nz = row[np.abs(row) > eps]
+            agreement = 1.0 if nz.size == 0 else max(float(np.mean(nz > 0)), 1.0 - float(np.mean(nz > 0)))
+            out[feat] = abs(mean_signed) * agreement
+        return out
+
+    rng = np.random.default_rng(0)
+    for F, R, nanfrac, zerofrac in [(40, 5, 0.0, 0.0), (25, 3, 0.3, 0.2), (8, 4, 0.5, 0.4), (1, 1, 0.0, 0.0), (12, 2, 1.0, 0.0)]:
+        sg = {}
+        for r in range(R):
+            vals = rng.standard_normal(F)
+            vals[rng.random(F) < nanfrac] = np.nan
+            vals[rng.random(F) < zerofrac] = 0.0
+            sg[f"r{r}"] = {f"f{i}": float(vals[i]) for i in range(F)}
+        ref = _reference(sg)
+        got = aggregate_linear(sg)
+        assert set(ref) == set(got)
+        for k in ref:
+            assert ref[k] == got[k] or (math.isnan(ref[k]) and math.isnan(got[k])), (k, ref[k], got[k])
+    assert aggregate_linear({}) == {}
+
+
 def test_dispatcher_tree_path_ranks_by_downweighted_mean():
     fi = {
         "r0": {"A": 1.0, "B": 2.0}, "r1": {"A": 1.0, "B": 0.0},

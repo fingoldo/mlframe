@@ -182,22 +182,27 @@ def aggregate_linear(signed_importances: dict, eps: float = 1e-12) -> dict:
     table = _table_from_runs(signed_importances)
     if table.empty:
         return {}
-    out: dict = {}
-    for feat in table.index:
-        row = table.loc[feat].to_numpy(dtype=float)
-        row = row[np.isfinite(row)]
-        if row.size == 0:
-            out[feat] = 0.0
-            continue
-        mean_signed = float(np.mean(row))
-        nz = row[np.abs(row) > eps]
-        if nz.size == 0:
-            agreement = 1.0  # all-zero coef: no disharmony, but magnitude ~0 anyway
-        else:
-            frac_pos = float(np.mean(nz > 0))
-            agreement = max(frac_pos, 1.0 - frac_pos)
-        out[feat] = abs(mean_signed) * agreement
-    return out
+    # Vectorised over features: the per-row ``table.loc[feat]`` lookup built a fresh Series per feature
+    # (the RFECV linear-aggregation hotspot at p~300). numpy column reductions are bit-identical here:
+    # mean over finite entries, sign-agreement over |coef|>eps entries, both order-independent.
+    M = table.to_numpy(dtype=float)
+    finite = np.isfinite(M)
+    cnt_finite = finite.sum(axis=1)
+    M_fin = np.where(finite, M, 0.0)
+    sum_fin = M_fin.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean_signed = sum_fin / cnt_finite
+    pos = (M > eps) & finite
+    neg = (M < -eps) & finite
+    n_pos = pos.sum(axis=1)
+    n_nz = n_pos + neg.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        frac_pos = n_pos / n_nz
+    agreement = np.maximum(frac_pos, 1.0 - frac_pos)
+    agreement = np.where(n_nz == 0, 1.0, agreement)  # all-zero coef row: no disharmony
+    scores = np.abs(mean_signed) * agreement
+    scores = np.where(cnt_finite == 0, 0.0, scores)  # all-non-finite row -> 0.0
+    return dict(zip(table.index.tolist(), scores.tolist()))
 
 
 def aggregate_stability(feature_importances: dict, cut_k: int, eps: float = 1e-12) -> dict:
