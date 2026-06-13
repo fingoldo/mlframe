@@ -367,8 +367,20 @@ def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.
     if m < 2:
         raise ValueError(f"pairwise-modular modulus must be >= 2; got {m!r}")
     arrs = [np.asarray(X[c]) for c in cols]
-    c_arr = _combine(arrs, op)
-    return np.mod(c_arr, m).astype(np.float64)
+    # The fit-time eligibility scan guarantees finite integer-valued operands, but a drifted/test frame may
+    # carry NaN/inf in a source column that was integer-valued on train. Casting those to int64 in _combine
+    # silently yields INT64_MIN and np.mod turns it into a wrong, non-NaN residue in [0, m) -- garbage that
+    # downstream cannot tell from a genuine residue. NaN-out those rows: the residue is undefined where an
+    # operand is not a finite integer. On clean data the mask is all-False (byte-identical to before).
+    bad = np.zeros(arrs[0].shape[0], dtype=bool)
+    for arr in arrs:
+        bad |= ~np.isfinite(np.asarray(arr, dtype=np.float64))
+    with np.errstate(invalid="ignore"):  # non-finite rows cast to INT64_MIN then get masked to NaN below
+        c_arr = _combine(arrs, op)
+        out = np.mod(c_arr, m).astype(np.float64)
+    if bad.any():
+        out[bad] = np.nan
+    return out
 
 
 def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], modulus: int):

@@ -84,23 +84,44 @@ _MIN_NULL_MARGIN = 0.05
 
 
 def _to_int(x: np.ndarray) -> np.ndarray:
-    """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller)."""
-    return np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64)
+    """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller).
+
+    A non-finite entry (only possible on a drifted REPLAY frame -- fit data is finite by eligibility) casts
+    to INT64_MIN; the caller masks those rows to NaN afterward, so the intermediate value is discarded. The
+    errstate silences the harmless 'invalid value in cast' warning that would otherwise fire on that row."""
+    with np.errstate(invalid="ignore"):
+        return np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64)
+
+
+def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Rows where either operand is NOT a finite number. The fit-time eligibility scan guarantees finite
+    integer-valued operands, so on training data this is all-False (the lattice computation is then
+    byte-identical to the un-masked form). At REPLAY a drifted/test frame may carry NaN/inf in a source
+    column that was integer-valued on train -- casting those to int64 silently yields INT64_MIN and feeds
+    garbage (a wrong, non-NaN value) into gcd/lcm/and. We instead NaN-out those rows: the lattice feature
+    is undefined where an operand is not a finite integer, and a NaN is the honest, downstream-droppable
+    signal for that, never INT64_MIN garbage."""
+    return ~(np.isfinite(np.asarray(a, dtype=np.float64)) & np.isfinite(np.asarray(b, dtype=np.float64)))
 
 
 def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
     """One integer-lattice column from a pair. Pure function of (a, b) -- leak-free at replay (no y)."""
+    bad = _nonfinite_mask(a, b)
     ai, bi = _to_int(a), _to_int(b)
     if op == "gcd":
-        return np.gcd(ai, bi).astype(np.float64)
-    if op == "lcm":
+        out = np.gcd(ai, bi).astype(np.float64)
+    elif op == "lcm":
         # lcm overflows int64 for large coprime pairs; compute |a|*|b|/gcd in float to keep it finite + monotone.
         g = np.gcd(ai, bi)
         safe_g = np.where(g == 0, 1, g)
-        return (np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g
-    if op == "bitwise_and":
-        return np.bitwise_and(ai, bi).astype(np.float64)
-    raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
+        out = (np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g
+    elif op == "bitwise_and":
+        out = np.bitwise_and(ai, bi).astype(np.float64)
+    else:
+        raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
+    if bad.any():
+        out[bad] = np.nan
+    return out
 
 
 def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) -> np.ndarray:
@@ -108,6 +129,7 @@ def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) 
 
     Bit-identical to per-op ``_lattice_column`` (same arithmetic) but the int-cast (per-pair, not per-op) and the gcd
     (reused by lcm) are computed once instead of once per op -- the hot-loop lever the per-column entry cannot exploit."""
+    bad = _nonfinite_mask(a, b)  # all-False on the finite-integer fit data -> byte-identical there
     ai, bi = _to_int(a), _to_int(b)
     g = np.gcd(ai, bi) if ("gcd" in ops or "lcm" in ops) else None
     mat = np.empty((a.shape[0], len(ops)), dtype=np.float64)
@@ -122,6 +144,8 @@ def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) 
             mat[:, j] = np.bitwise_and(ai, bi).astype(np.float64)
         else:
             raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
+    if bad.any():
+        mat[bad, :] = np.nan  # operand not a finite integer at replay -> column undefined, never INT64_MIN garbage
     return mat
 
 
