@@ -95,6 +95,12 @@ _PAIR_OPS = ("sum", "diff", "prod")
 # permutation null is skipped for it -- bit-identical to ``responded`` by short-circuit, not an approximation.
 _MIN_MARGIN = 0.02
 
+# Absolute floor the residue MI must clear ABOVE the permutation-null upper band (not just `> null_hi`). The plug-in MI of a high-cardinality
+# residue (large coarse modulus m -> ~m residue bins) is cardinality-inflated when y has few classes (a ~10-bin regression/quantized y); the
+# z=3 null band then sits just below the inflated residue MI, so a smooth/noise combiner can squeak over by ~0.007 nats of pure chance. A true
+# modular hit clears the null by >1 nat, so this absolute gap floor kills the over-fragmentation false positive while leaving real hits untouched.
+_MIN_NULL_MARGIN = 0.05
+
 
 def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     """Binned MI of one column vs y, via the shipped classif-MI batch kernel."""
@@ -182,11 +188,12 @@ class ModularHit:
 
 
 def _responded(residue_mi: float, baseline_mi: float, null_hi: float,
-               min_margin: float = _MIN_MARGIN) -> bool:
-    """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the
-    permutation-null upper band. ``min_margin`` is the measured separation floor between a true
-    modular hit and the best non-modular combiner (see ``_benchmarks/bench_modular_period_detection``)."""
-    return (residue_mi - baseline_mi) >= min_margin and residue_mi > null_hi
+               min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
+    """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the permutation-null upper band by an absolute
+    ``null_margin`` (not just ``> null_hi`` -- a high-cardinality residue's cardinality-inflated plug-in MI can sit ~0.007 nats above a z=3
+    null on noise; a true hit clears it by >1 nat). ``min_margin`` is the measured separation floor between a true modular hit and the best
+    non-modular combiner (see ``_benchmarks/bench_modular_period_detection``)."""
+    return (residue_mi - baseline_mi) >= min_margin and residue_mi > (null_hi + null_margin)
 
 
 def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int,

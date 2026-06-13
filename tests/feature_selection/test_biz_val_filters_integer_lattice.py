@@ -211,8 +211,9 @@ class TestBizValue:
 
 
 class TestIntegerLatticeTargetTypeRobustness:
-    """gcd/lcm/AND detector gates on class-MI; on continuous (regression/quantile/count) or 2D (multilabel/multi-target) y the int64
-    cast of y is garbage / dead -> the operator MUST clean-skip there (default ON), no crash/hang, no engineered column."""
+    """Target-type contract for the default-ON gcd/lcm/AND operator. A CONTINUOUS 1D y is now ELIGIBLE -- quantile-binned once into
+    ``quantization_nbins`` before class-MI scoring -- so a genuine gcd regression target DETECTS while a smooth/noise continuous target stays
+    SPECIFIC (0 emission). A 2D y stays SKIPPED (label-matrix binning out of scope). No hang/crash on any target type (permanent safety contract)."""
 
     def _xy(self, kind, n=600, seed=0):
         rng = np.random.default_rng(seed)
@@ -234,12 +235,10 @@ class TestIntegerLatticeTargetTypeRobustness:
             raise ValueError(kind)
         return df, y
 
-    @pytest.mark.parametrize("kind", ["regression", "quantile", "count", "multilabel", "multitarget"])
-    def test_integer_lattice_skipped_on_non_classification_target_no_crash_or_hang(self, kind):
+    def _fit(self, df, y):
         import time
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        df, y = self._xy(kind)
         m = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
                  cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
                  quantization_nbins=10, random_seed=0,
@@ -248,10 +247,36 @@ class TestIntegerLatticeTargetTypeRobustness:
         assert bool(m.fe_integer_lattice_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 30.0, f"integer-lattice fit on {kind} exceeded 30s wall (hang-class bug)"
+        assert time.time() - t0 < 30.0, "integer-lattice fit exceeded 30s wall (hang-class bug)"
+        return m
+
+    @pytest.mark.parametrize("kind", ["regression", "quantile", "count"])
+    def test_integer_lattice_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
+        df, y = self._xy(kind)
+        m = self._fit(df, y)
         assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
-            f"integer-lattice FE must clean-skip on {kind} (class-MI floor undefined on continuous / 2D y)"
+            f"integer-lattice FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
         )
+
+    @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
+    def test_integer_lattice_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        df, y = self._xy(kind)
+        m = self._fit(df, y)
+        assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
+            f"integer-lattice FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+        )
+
+    def test_integer_lattice_detects_on_gcd_regression_target(self):
+        """Continuous-1D y with TRUE gcd structure (y = gcd(a, b) + noise) DETECTS + emits the gcd feature on the binned y."""
+        n, seed = 600, 0
+        rng = np.random.default_rng(seed)
+        a = rng.integers(1, 40, n) * 2
+        b = rng.integers(1, 40, n) * 2
+        df = pd.DataFrame({"a": a, "b": b, "f": rng.normal(0, 1, n)})
+        y = pd.Series(np.gcd(a, b).astype(float) + rng.normal(0, 0.1, n), name="y")
+        m = self._fit(df, y)
+        feats = list(getattr(m, "integer_lattice_features_", []) or [])
+        assert any("gcd" in f for f in feats), f"expected a gcd feature on the regression gcd target; got {feats}"
 
 
 if __name__ == "__main__":

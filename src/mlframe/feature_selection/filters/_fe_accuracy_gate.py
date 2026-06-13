@@ -132,16 +132,39 @@ def infer_classification(y: np.ndarray) -> bool:
 def class_mi_fe_applicable(y: np.ndarray) -> bool:
     """True iff the MI-floor FE operators (pairwise-modular, integer-lattice, row-argmax, conditional-gate) can score a candidate against y.
 
-    These detectors gate every candidate on plug-in class-MI (``_mi_classif_batch``), which treats y as raw discrete class labels. On a
-    CONTINUOUS target the int64 cast collapses to ~n distinct classes -> the MI is inflated garbage (a pure-noise column scores >2 nats),
-    the per-call cost balloons, and at high spread the kernel can even segfault; the conditional-gate's tau-grid x conditional-divergence
-    sweep additionally HANGS (the late-caught regression bug). On a 2D y (multilabel / multi-target regression) the kernel cannot consume
-    the label matrix and silently returns 0, so the whole sweep runs on a dead signal. Both are class-MI misuse -> skip the operator cleanly
-    (emit nothing) rather than scan garbage. Applicable only when y is 1D AND classification-shaped (discrete, low-cardinality)."""
+    These detectors gate every candidate on plug-in class-MI (``_mi_classif_batch``). A 1D CLASSIFICATION y feeds the kernel directly as raw
+    discrete labels. A CONTINUOUS 1D y is now ALSO eligible: the caller quantile-bins it once via ``bin_y_for_class_mi`` into a proper discrete
+    variable before scoring, so the kernel sees a meaningful low-cardinality target (the prior int64-cast collapsed a continuous y to ~n bogus
+    classes -> inflated-garbage MI, ballooned cost, even a segfault / the conditional-gate tau-sweep HANG). Only a 2D y (multilabel / multi-target
+    regression) stays skipped: quantile-binning a label MATRIX is out of scope, and the kernel cannot consume it (silently returns 0 -> dead
+    signal). Applicable iff y is 1D (classification OR continuous); the operator handles the binning internally for the continuous case."""
     arr = np.asarray(y)
     if arr.ndim > 1 and arr.shape[-1] > 1:
         return False
-    return infer_classification(arr)
+    return arr.ndim <= 1
+
+
+def bin_y_for_class_mi(y: np.ndarray, nbins: int = 10) -> np.ndarray:
+    """Return int64 class labels for the MI-floor FE operators' ``_mi_classif_batch`` relevance path, given a 1D y.
+
+    CLASSIFICATION / already-discrete y (``infer_classification`` true) passes through as ``np.asarray(y).astype(np.int64)`` -- BIT-IDENTICAL to
+    the prior per-operator cast, so the discrete path does not move. A CONTINUOUS 1D y is quantile-binned into ``nbins`` bins (``pd.qcut``,
+    ``duplicates='drop'``) so the kernel sees a meaningful discrete target instead of ~n collapsed int64 classes; this is mlframe's standard
+    continuous-y relevance binning (mirrors the MRMR core ``pd.qcut(..., q=nbins, labels=False, duplicates='drop')`` in ``_fit_impl_core``).
+    Binned ONCE per fit by the caller and reused across the whole candidate scan (the operators take the returned labels unchanged). On a qcut
+    failure (heavy ties / NaN) it falls back to the int64 cast so the fit still runs (signal may degrade, never crashes). ``nbins`` should be the
+    MRMR instance's ``quantization_nbins`` so the operator binning matches the core's relevance binning."""
+    import pandas as pd
+
+    arr = np.asarray(y).ravel()
+    if infer_classification(arr):
+        return arr.astype(np.int64)
+    try:
+        binned = pd.qcut(arr, q=int(nbins), labels=False, duplicates="drop")
+        return np.asarray(binned).astype(np.int64)
+    except Exception as exc:  # pragma: no cover - degenerate continuous y (heavy ties / NaN)
+        logger.debug("bin_y_for_class_mi: qcut failed (%s); falling back to int64 cast", exc)
+        return arr.astype(np.int64)
 
 
 def keep_engineered_over_source(

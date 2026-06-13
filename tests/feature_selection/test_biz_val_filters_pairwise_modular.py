@@ -335,9 +335,11 @@ class TestScanOptimizationEquivalence:
 
 
 class TestPairwiseModularTargetTypeRobustness:
-    """The modular detector's relevance floor is class-MI; on a CONTINUOUS (regression/quantile) or 2D (multilabel/multi-target) y the
-    int64 cast yields inflated-garbage / dead MI. With the operator default ON it MUST skip those targets cleanly (fast, no engineered
-    column), while binary/multiclass still run. Regression for the default-ON class-MI-misuse hazard (mirrors the gate's regression skip)."""
+    """Target-type contract for the default-ON modular operator. A CONTINUOUS 1D y (regression/quantile/count) is now ELIGIBLE: the operator
+    quantile-bins y once into the MRMR ``quantization_nbins`` and scores class-MI on the binned labels, so a genuine modular regression target
+    DETECTS while a smooth/noise continuous target stays SPECIFIC (0 emission). A 2D y (multilabel/multi-target) stays SKIPPED -- binning a label
+    matrix is out of scope. The previous int64-cast-on-continuous hazard (inflated-garbage MI / segfault) is gone via the up-front quantile bin.
+    The no-hang / no-crash safety contract is PERMANENT on every target type; only the continuous-1D CTA changed from skip -> detect-or-be-specific."""
 
     def _xy(self, kind, n=600, seed=0):
         rng = np.random.default_rng(seed)
@@ -359,12 +361,10 @@ class TestPairwiseModularTargetTypeRobustness:
             raise ValueError(kind)
         return df, y
 
-    @pytest.mark.parametrize("kind", ["regression", "quantile", "count", "multilabel", "multitarget"])
-    def test_pairwise_modular_skipped_on_non_classification_target_no_crash_or_hang(self, kind):
+    def _fit(self, df, y):
         import time
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        df, y = self._xy(kind)
         m = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
                  cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
                  quantization_nbins=10, random_seed=0,
@@ -373,10 +373,38 @@ class TestPairwiseModularTargetTypeRobustness:
         assert bool(m.fe_pairwise_modular_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 30.0, f"modular fit on {kind} exceeded 30s wall (hang-class bug)"
+        assert time.time() - t0 < 30.0, "modular fit exceeded 30s wall (hang-class bug)"
+        return m
+
+    @pytest.mark.parametrize("kind", ["regression", "quantile", "count"])
+    def test_pairwise_modular_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
+        """Continuous-1D SMOOTH/noise target: now eligible (binned), MUST stay specific -- 0 spurious modular column + no hang/crash."""
+        df, y = self._xy(kind)
+        m = self._fit(df, y)
         assert list(getattr(m, "pairwise_modular_features_", []) or []) == [], (
-            f"pairwise-modular FE must clean-skip on {kind} (class-MI floor undefined / explodes on continuous / 2D y)"
+            f"pairwise-modular FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
         )
+
+    @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
+    def test_pairwise_modular_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        """2D y stays SKIPPED (binning a label matrix is out of scope); no hang/crash, no engineered column."""
+        df, y = self._xy(kind)
+        m = self._fit(df, y)
+        assert list(getattr(m, "pairwise_modular_features_", []) or []) == [], (
+            f"pairwise-modular FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+        )
+
+    def test_pairwise_modular_detects_on_modular_regression_target(self):
+        """Continuous-1D y with TRUE modular structure (y = scale*(a mod 7) + noise) DETECTS + emits the residue feature on the binned y."""
+        n, seed = 600, 0
+        rng = np.random.default_rng(seed)
+        a = rng.integers(0, 50, n)
+        b = rng.integers(0, 50, n)
+        df = pd.DataFrame({"a": a, "b": b, "f": rng.normal(0, 1, n)})
+        y = pd.Series(3.0 * (a % 7) + rng.normal(0, 0.1, n), name="y")
+        m = self._fit(df, y)
+        feats = list(getattr(m, "pairwise_modular_features_", []) or [])
+        assert any("m7" in f for f in feats), f"expected a modular residue (m7) on the regression modular target; got {feats}"
 
 
 if __name__ == "__main__":

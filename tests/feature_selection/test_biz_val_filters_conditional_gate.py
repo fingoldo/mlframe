@@ -250,20 +250,25 @@ class TestMRMRIntegration:
         assert appended == [] and recipes == []
 
     @pytest.mark.timeout(120)
-    def test_gate_skipped_on_regression_target_no_hang(self):
-        """The gate detector's floor is class-MI; a CONTINUOUS regression y cast to int64 becomes ~n classes and the tau-grid +
-        conditional-divergence MI explode (the fit never completes). With the gate default ON it MUST be skipped on regression
-        targets -- the fit completes fast and conditional_gate_features_ stays empty. Regression for the default-ON hang."""
+    def test_gate_specific_on_noise_regression_target_no_hang(self):
+        """A CONTINUOUS regression y is now ELIGIBLE (quantile-binned once before the tau-grid + conditional-divergence MI, which
+        previously exploded under the int64 cast). On a single-driver smooth regression target with no regime structure the gate MUST
+        stay SPECIFIC -- fit completes fast, conditional_gate_features_ stays empty. The no-hang safety contract is permanent.
+
+        NB: a multi-DRIVER ADDITIVE target (y = x0+x1+x2) is deliberately NOT used as the specificity control here -- a `select` gate
+        `x2 if x4>tau else x1` partially reconstructs an additive sum, so the gate fires on it on EVERY target type (verified identical
+        on a 3-/10-class quantized additive classification target); that is a pre-existing gate limitation on additive targets, not a
+        regression-binning artifact. The honest specificity control is a target driven by ONE feature, where no gate can manufacture lift."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rng = np.random.default_rng(42)
         n = 600
         X = pd.DataFrame(rng.normal(size=(n, 8)), columns=[f"x{i}" for i in range(8)])
-        y = X.iloc[:, :3].sum(axis=1).to_numpy() + 0.3 * rng.normal(size=n)  # continuous target
+        y = 2.0 * X["x0"].to_numpy() + 0.3 * rng.normal(size=n)  # single-driver smooth continuous target (no regime / no multi-driver sum)
         m = MRMR(verbose=0, random_seed=42)
         assert bool(m.fe_conditional_gate_enable) is True
         m.fit(X, pd.Series(y, name="y"))
         assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            "conditional-gate FE must be skipped on a regression target (class-MI floor is undefined / explodes there)."
+            "conditional-gate FE must emit nothing on a single-driver smooth regression target (specificity on binned y, no regime structure)."
         )
 
     def test_clone_preserves_params(self):
@@ -377,9 +382,9 @@ class TestBizValue:
 
 
 class TestArgmaxAndGateTargetTypeRobustness:
-    """Both row-argmax and the conditional-gate gate on class-MI. The gate's regression skip is pinned above; here we extend BOTH
-    operators to the other non-classification targets (continuous quantile/count + 2D multilabel/multi-target): each MUST clean-skip
-    (default ON), no crash / no >30s hang / no engineered column. Closes the same class-MI-misuse hazard for the argmax + gate family."""
+    """Target-type contract for the default-ON row-argmax + conditional-gate operators. A CONTINUOUS 1D y (quantile/count) is now ELIGIBLE --
+    quantile-binned once before class-MI scoring -- so a genuine argmax / regime regression target DETECTS while a smooth/noise continuous
+    target stays SPECIFIC (0 emission). A 2D y stays SKIPPED (label-matrix binning out of scope). No crash / no >30s hang on any target type."""
 
     def _xy(self, kind, n=600, seed=0):
         rng = np.random.default_rng(seed)
@@ -407,8 +412,8 @@ class TestArgmaxAndGateTargetTypeRobustness:
                     quantization_nbins=10, random_seed=0,
                     fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, **flags)
 
-    @pytest.mark.parametrize("kind", ["quantile", "count", "multilabel", "multitarget"])
-    def test_row_argmax_skipped_on_non_classification_target_no_crash_or_hang(self, kind):
+    @pytest.mark.parametrize("kind", ["quantile", "count"])
+    def test_row_argmax_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
         import time
 
         df, y = self._xy(kind)
@@ -418,11 +423,24 @@ class TestArgmaxAndGateTargetTypeRobustness:
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"row-argmax fit on {kind} exceeded 30s wall (hang-class bug)"
         assert list(getattr(m, "row_argmax_features_", []) or []) == [], (
-            f"row-argmax FE must clean-skip on {kind} (class-MI floor undefined on continuous / 2D y)"
+            f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
         )
 
-    @pytest.mark.parametrize("kind", ["quantile", "count", "multilabel", "multitarget"])
-    def test_conditional_gate_skipped_on_non_classification_target_no_crash_or_hang(self, kind):
+    @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
+    def test_row_argmax_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        import time
+
+        df, y = self._xy(kind)
+        m = self._mrmr(fe_row_argmax_enable=True, fe_conditional_gate_enable=False)
+        t0 = time.time()
+        m.fit(df, y)
+        assert time.time() - t0 < 30.0, f"row-argmax fit on {kind} exceeded 30s wall (hang-class bug)"
+        assert list(getattr(m, "row_argmax_features_", []) or []) == [], (
+            f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+        )
+
+    @pytest.mark.parametrize("kind", ["quantile", "count"])
+    def test_conditional_gate_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
         import time
 
         df, y = self._xy(kind)
@@ -432,8 +450,46 @@ class TestArgmaxAndGateTargetTypeRobustness:
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"conditional-gate fit on {kind} exceeded 30s wall (hang-class bug)"
         assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            f"conditional-gate FE must clean-skip on {kind} (class-MI floor explodes / dead on continuous / 2D y)"
+            f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
         )
+
+    @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
+    def test_conditional_gate_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        import time
+
+        df, y = self._xy(kind)
+        m = self._mrmr(fe_row_argmax_enable=False, fe_conditional_gate_enable=True)
+        t0 = time.time()
+        m.fit(df, y)
+        assert time.time() - t0 < 30.0, f"conditional-gate fit on {kind} exceeded 30s wall (hang-class bug)"
+        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
+            f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+        )
+
+    def test_row_argmax_detects_on_argmax_regression_target(self):
+        """Continuous-1D y driven by which of 3 cols is the row-max (y = 5*argmax + noise) DETECTS + emits the argmax feature on binned y."""
+        n, seed = 600, 0
+        rng = np.random.default_rng(seed)
+        ca, cb, cc = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+        idx = np.argmax(np.stack([ca, cb, cc], 1), 1)
+        df = pd.DataFrame({"ca": ca, "cb": cb, "cc": cc})
+        y = pd.Series(idx.astype(float) * 5 + rng.normal(0, 0.1, n), name="y")
+        m = self._mrmr(fe_row_argmax_enable=True, fe_conditional_gate_enable=False)
+        m.fit(df, y)
+        feats = list(getattr(m, "row_argmax_features_", []) or [])
+        assert any("argmax" in f for f in feats), f"expected an argmax feature on the regression argmax target; got {feats}"
+
+    def test_conditional_gate_detects_on_regime_regression_target(self):
+        """Continuous-1D regime-switch y (y = a if c>median else b) DETECTS + emits a gate feature on the binned y."""
+        n, seed = 600, 0
+        rng = np.random.default_rng(seed)
+        a, b, c = rng.normal(0, 1, n), rng.normal(5, 1, n), rng.normal(0, 1, n)
+        y = pd.Series(np.where(c > np.median(c), a, b) + rng.normal(0, 0.05, n), name="y")
+        df = pd.DataFrame({"a": a, "b": b, "c": c})
+        m = self._mrmr(fe_row_argmax_enable=False, fe_conditional_gate_enable=True)
+        m.fit(df, y)
+        feats = list(getattr(m, "conditional_gate_features_", []) or [])
+        assert any("gate" in f for f in feats), f"expected a gate feature on the regime regression target; got {feats}"
 
 
 if __name__ == "__main__":

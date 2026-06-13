@@ -89,6 +89,11 @@ _TAU_QUANTILES = tuple(np.round(np.linspace(0.1, 0.9, 17), 4))
 # selector can already recover the signal from a raw / cheap-op column, so the engineered column adds no genuine structure.
 _MIN_MARGIN = 0.02
 
+# Absolute floor the engineered MI must clear ABOVE the permutation-null band (not just `> null_hi`); mirrors _pairwise_modular_fe._MIN_NULL_MARGIN.
+# Guards the cardinality-inflation false positive on a few-class y (a ~10-bin regression/quantized target), where a select/mask column's
+# plug-in MI can sit ~0.01 nats above a z=3 null on noise; a true regime/argmax hit clears the null by a wide margin.
+_MIN_NULL_MARGIN = 0.05
+
 
 def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
     """Replay one row-argmax column: the integer index (0..k-1) of the row-maximum over the source columns.
@@ -150,10 +155,12 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     return float(np.max(mis))
 
 
-def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN) -> bool:
-    """Gate: the engineered column's MI must clear BOTH the operand baseline (by ``min_margin``) AND the permutation-null upper
-    band. Mirrors ``_pairwise_modular_fe._responded`` (``baseline`` plays the smooth-basis floor role)."""
-    return (feat_mi - baseline) >= min_margin and feat_mi > null_hi
+def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN,
+               null_margin: float = _MIN_NULL_MARGIN) -> bool:
+    """Gate: the engineered column's MI must clear BOTH the operand baseline (by ``min_margin``) AND the permutation-null upper band by an
+    absolute ``null_margin`` (not just ``> null_hi`` -- guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
+    Mirrors ``_pairwise_modular_fe._responded`` (``baseline`` plays the smooth-basis floor role)."""
+    return (feat_mi - baseline) >= min_margin and feat_mi > (null_hi + null_margin)
 
 
 def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:

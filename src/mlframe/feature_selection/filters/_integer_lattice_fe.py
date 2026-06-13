@@ -76,6 +76,12 @@ INTEGER_LATTICE_OPS: tuple[str, ...] = ("gcd", "lcm", "bitwise_and")
 # MI does not exceed the better operand by this much carries no structure the selector cannot already get from the raw column.
 _MIN_MARGIN = 0.02
 
+# Absolute floor the engineered MI must clear ABOVE the permutation-null band (not just `> null_hi`); mirrors _pairwise_modular_fe._MIN_NULL_MARGIN.
+# A high-cardinality op (lcm of two mid-range ints, bitwise on wide operands) has cardinality-inflated plug-in MI when y has few classes
+# (a ~10-bin regression/quantized y), so the z=3 null sits just below it and a noise pair can squeak over by ~0.01 nats; a true gcd/lcm/AND
+# hit clears the null by a wide margin, so this absolute gap floor kills the over-fragmentation false positive while leaving real hits untouched.
+_MIN_NULL_MARGIN = 0.05
+
 
 def _to_int(x: np.ndarray) -> np.ndarray:
     """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller)."""
@@ -144,10 +150,11 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int,
 
 
 def _responded(feat_mi: float, operand_floor: float, null_hi: float,
-               min_margin: float = _MIN_MARGIN) -> bool:
-    """Gate: the engineered column's MI must clear BOTH the better operand's raw MI (by ``min_margin``) AND the
-    permutation-null upper band. Mirrors ``_pairwise_modular_fe._responded`` (operand_floor plays the baseline role)."""
-    return (feat_mi - operand_floor) >= min_margin and feat_mi > null_hi
+               min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
+    """Gate: the engineered column's MI must clear BOTH the better operand's raw MI (by ``min_margin``) AND the permutation-null upper band by
+    an absolute ``null_margin`` (not just ``> null_hi`` -- guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
+    Mirrors ``_pairwise_modular_fe._responded`` (operand_floor plays the baseline role)."""
+    return (feat_mi - operand_floor) >= min_margin and feat_mi > (null_hi + null_margin)
 
 
 @dataclass(frozen=True)
