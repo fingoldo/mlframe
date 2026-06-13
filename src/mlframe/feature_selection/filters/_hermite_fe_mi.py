@@ -48,10 +48,16 @@ def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     n = x.shape[0]
-    n_classes = 0
-    for i in range(n):
-        if y[i] >= n_classes:
-            n_classes = y[i] + 1
+    # Class axis spans [y_min, y_max]; labels may be negative / non-dense (a binned continuous target shifted below 0).
+    # Sizing on max(y)+1 alone and indexing with the raw label underflows the histogram into out-of-bounds memory -> native AV.
+    y_min = y[0]
+    y_max = y[0]
+    for i in range(1, n):
+        if y[i] < y_min:
+            y_min = y[i]
+        if y[i] > y_max:
+            y_max = y[i]
+    n_classes = (y_max - y_min) + 1
 
     x_binned = _quantile_bin_njit(x, n_bins)
 
@@ -60,7 +66,7 @@ def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
     hist_y = np.zeros(n_classes, dtype=np.int64)
     for i in range(n):
         b = x_binned[i]
-        c = y[i]
+        c = y[i] - y_min
         hist_xy[b, c] += 1
         hist_x[b] += 1
         hist_y[c] += 1
@@ -134,17 +140,22 @@ def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     n = x_binned.shape[0]
-    n_classes = 0
-    for i in range(n):
-        if y[i] >= n_classes:
-            n_classes = y[i] + 1
+    # Class axis spans [y_min, y_max]; labels may be negative / non-dense. See _plugin_mi_classif_njit for the AV this guards against.
+    y_min = y[0]
+    y_max = y[0]
+    for i in range(1, n):
+        if y[i] < y_min:
+            y_min = y[i]
+        if y[i] > y_max:
+            y_max = y[i]
+    n_classes = (y_max - y_min) + 1
 
     hist_xy = np.zeros((n_bins, n_classes), dtype=np.int64)
     hist_x = np.zeros(n_bins, dtype=np.int64)
     hist_y = np.zeros(n_classes, dtype=np.int64)
     for i in range(n):
         b = x_binned[i]
-        c = y[i]
+        c = y[i] - y_min
         hist_xy[b, c] += 1
         hist_x[b] += 1
         hist_y[c] += 1
@@ -207,9 +218,12 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     X_gpu = cp.asarray(X_cols, dtype=cp.float64)
     y_gpu = cp.asarray(y, dtype=cp.int64)
     n, k = X_gpu.shape
-    n_classes = int(cp.max(y_gpu).item()) + 1 if n > 0 else 0
-    if n == 0 or k == 0 or n_classes == 0:
+    if n == 0 or k == 0:
         return np.zeros(k, dtype=np.float64)
+    # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount index never underflows. Mirrors the njit kernels.
+    y_min = int(cp.min(y_gpu).item())
+    y_gpu = y_gpu - y_min
+    n_classes = int(cp.max(y_gpu).item()) + 1
 
     # Per-column quantile binning: argsort -> rank -> bin lookup.
     # bin_for_rank[r] = floor(r / (n / n_bins)) with the remainder
