@@ -261,18 +261,13 @@ def _detect_hinge_breakpoints(
     Returns the validated breakpoint list (possibly empty). Pure noise -> the
     first candidate fails the held-out uplift gate -> empty list (no hinge).
 
-    Perf (cProfile p=20 n=4000, 2026-06-09): the full scan is the stage hotspot
-    (~2.2 ms / column, dominated by the per-candidate ``np.linalg.lstsq``). Now
-    that the operator is DEFAULT-ON a cheap 3-cut pre-check
-    (:func:`_hinge_slope_change_plausible`) runs FIRST and short-circuits the
-    24-cut scan for any column without a plausible slope change (the common case
-    on wide data) -- ~8x fewer solves on a no-kink column, so default-on does not
-    bloat wide / large-p fits. The full scan still runs (unchanged tau precision)
-    on a column that trips the probe. bench-attempt-rejected (2026-06-09): replacing the
-    per-candidate ``lstsq`` with a normal-equations 3x3 solve (``A.T@A`` /
-    ``np.linalg.solve``) was 2.2x SLOWER (300ms -> 654ms over 50x24 cuts) -- the
-    ``A.T@A`` over n=4000 rows costs more than ``lstsq``'s SVD, and rebuilding the
-    design per cut dominates either way. ``lstsq`` is already the fast path.
+    Perf (cProfile p=20 n=4000): the full scan is the stage hotspot, originally dominated by a per-candidate ``np.linalg.lstsq``. Two stacked optimisations:
+    (1) a cheap 3-cut pre-check (:func:`_hinge_slope_change_plausible`) runs FIRST and short-circuits the 24-cut scan for any column without a plausible slope change
+    (the common case on wide data) -- ~8x fewer solves on a no-kink column. (2) On a column that trips the probe, the per-cut SSE is scored by the Frisch-Waugh-Lovell
+    rank-1 update: the fixed design block ``B = [1, x, *extra_legs]`` is QR-factored ONCE per round, and each candidate cut's SSE is ``SSE_B - (r_relu.r_y)^2/(r_relu.r_relu)``
+    where the residuals project out B (O(n*k) per cut, no per-cut SVD). Bit-identical to the full-lstsq SSE / tau precision (~1e-12 FP reduction order) and ~2.4x faster
+    on the n=4000 / 24-cut scan (bench: profiling/bench_hinge_fwl_rank1.py). bench-attempt-rejected (2026-06-09): a normal-equations 3x3 solve (``A.T@A`` / ``np.linalg.solve``)
+    was 2.2x SLOWER than the original lstsq because it rebuilt + re-formed ``A.T@A`` per cut; the FWL update wins precisely by NOT rebuilding the fixed block per cut.
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
@@ -307,9 +302,19 @@ def _detect_hinge_breakpoints(
     # the design so the next round measures the INCREMENTAL SSE drop of a new,
     # distinct kink (not a re-detection of the first one).
     extra_legs: list[np.ndarray] = []
+    ones = np.ones_like(x)  # intercept column is invariant across every candidate cut and round; build once, not per-cut.
     for _ in range(max(1, int(max_breakpoints))):
         best_tau = None
         best_sse = float("inf")
+        # The fixed design block ``B = [1, x, *extra_legs]`` is identical across every candidate cut in this round; only the ``relu`` column varies. So we
+        # QR-factor B ONCE and score each cut by the partitioned-regression (Frisch-Waugh-Lovell) identity: the SSE of regressing y on ``[B | relu]`` equals
+        # ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` where ``r_relu`` / ``r_y`` are the residuals of relu / y after projecting out B (one O(n*k) projection
+        # per cut, no per-cut SVD). This is mathematically identical to the full ``lstsq`` SSE (FP reduction order ~1e-12, far below any tau-selection scale) and
+        # ~2.4x faster on the n=4000 / 24-cut scan (the lstsq SVD per cut was the stage hotspot). bench: profiling/bench_hinge_fwl_rank1.py.
+        B = np.column_stack([ones, x] + extra_legs)
+        Q, _ = np.linalg.qr(B)
+        r_y = y - Q @ (Q.T @ y)
+        sse_B = float(r_y @ r_y)
         for c in cand:
             # Require enough rows on each side for trustworthy segment slopes.
             n_right = int(np.count_nonzero(x > c))
@@ -320,14 +325,14 @@ def _detect_hinge_breakpoints(
             if any(abs(c - t) < 1e-9 for t in found):
                 continue
             relu = np.maximum(x - c, 0.0)
-            cols = [np.ones_like(x), x, relu] + extra_legs
-            A = np.column_stack(cols)
-            try:
-                coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-            except Exception:
-                continue
-            resid = y - A @ coef
-            sse = float(resid @ resid)
+            r_relu = relu - Q @ (Q.T @ relu)
+            denom = float(r_relu @ r_relu)
+            if denom < 1e-24:
+                # relu lies in span(B) at this cut -> adding it cannot reduce SSE; the full-lstsq design is rank-deficient here, matching the legacy ``inf``/skip.
+                sse = sse_B
+            else:
+                num = float(r_relu @ r_y)
+                sse = sse_B - num * num / denom
             if sse < best_sse:
                 best_sse = sse
                 best_tau = float(c)

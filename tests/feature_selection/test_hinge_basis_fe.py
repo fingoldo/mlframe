@@ -132,6 +132,77 @@ def test_recipe_replay_independent_of_y():
     assert np.array_equal(out, np.maximum(x - 0.42, 0.0))
 
 
+def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
+    """The per-cut SSE in ``_detect_hinge_breakpoints`` is scored via the Frisch-Waugh-Lovell rank-1 update (QR the fixed ``[1, x, *extra]`` block once per round, then
+    ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` per cut) instead of a full ``lstsq`` per cut. That is mathematically identical to the full-design SSE, so the argmin
+    ``best_tau`` (and thus the returned breakpoint list) must be BIT-IDENTICAL to the legacy lstsq-per-cut reference. This pins the optimisation so a future rewrite that
+    perturbs the SSE comparison (and could flip a near-tied tau) is caught. Covers kink / linear / quadratic / noise / 2-kink columns across sizes."""
+    from mlframe.feature_selection.filters import _hinge_basis_fe as H
+    from mlframe.feature_selection.filters._hinge_basis_fe import _detect_hinge_breakpoints
+
+    def legacy(x, y, *, max_breakpoints=2, min_heldout_r2_uplift=0.02):
+        x = np.asarray(x, float).ravel(); y = np.asarray(y, float).ravel(); n = x.size
+        if n < H._HINGE_MIN_ROWS:
+            return []
+        f = np.isfinite(x) & np.isfinite(y)
+        if not f.all():
+            x = x[f]; y = y[f]; n = x.size
+        if n < H._HINGE_MIN_ROWS:
+            return []
+        if np.std(x) < 1e-12 or np.std(y) < 1e-12:
+            return []
+        if not H._hinge_slope_change_plausible(x, y, min_sse_drop=H._HINGE_PRECHECK_MIN_SSE_DROP):
+            return []
+        qs = np.linspace(H._HINGE_CAND_Q_LO, H._HINGE_CAND_Q_HI, H._HINGE_N_CANDIDATES)
+        cand = np.unique(np.quantile(x, qs))
+        found = []; extra = []
+        for _ in range(max(1, int(max_breakpoints))):
+            bt = None; bs = float("inf")
+            for c in cand:
+                nr = int(np.count_nonzero(x > c))
+                if nr < H._HINGE_MIN_SEG_ROWS or (n - nr) < H._HINGE_MIN_SEG_ROWS:
+                    continue
+                if any(abs(c - t) < 1e-9 for t in found):
+                    continue
+                relu = np.maximum(x - c, 0.0)
+                A = np.column_stack([np.ones_like(x), x, relu] + extra)
+                try:
+                    coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+                except Exception:
+                    continue
+                resid = y - A @ coef
+                sse = float(resid @ resid)
+                if sse < bs:
+                    bs = sse; bt = float(c)
+            if bt is None:
+                break
+            if H._heldout_hinge_r2_uplift(x, y, bt) < min_heldout_r2_uplift:
+                break
+            found.append(bt); extra.append(np.maximum(x - bt, 0.0))
+        return found
+
+    for seed in range(40):
+        rng = np.random.default_rng(seed)
+        n = int(rng.choice([200, 500, 1200, 4000]))
+        x = np.sort(rng.uniform(-3, 3, n))
+        kind = seed % 5
+        if kind == 0:
+            y = np.where(x < 0, 0.5 * x, 2.0 * x) + 0.2 * rng.standard_normal(n)
+        elif kind == 1:
+            y = 0.7 * x + 0.3 * rng.standard_normal(n)
+        elif kind == 2:
+            y = x * x + 0.3 * rng.standard_normal(n)
+        elif kind == 3:
+            y = rng.standard_normal(n)
+        else:
+            y = np.where(x < -1, 1.0 * x, np.where(x < 1, 0.2 * x, 1.5 * x)) + 0.2 * rng.standard_normal(n)
+        ref = legacy(x, y)
+        got = _detect_hinge_breakpoints(x, y)
+        assert len(ref) == len(got), f"seed={seed} kind={kind}: tau count {got} != legacy {ref}"
+        for a, b in zip(ref, got):
+            assert abs(a - b) <= 1e-9, f"seed={seed} kind={kind}: tau {b} != legacy {a}"
+
+
 def test_bad_side_raises():
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         build_hinge_basis_recipe,

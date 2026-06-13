@@ -346,6 +346,10 @@ def _detect_fourier_freqs_for_col(
     # n~533), and the ``axis=1`` reduction shifts power by ~1e-12. benches:
     # profiling/bench_coarse_basis_batched.py, profiling/bench_refine_peak_batched.py.
     # The shipped win is the per-call no-alloc rewrite of ``_corr_sq_centered`` instead.
+    # bench-attempt-rejected (2026-06-13): storing RAW sin/cos + centered SS (``raw@raw - sum(raw)^2/n``) to skip the two ``s - s.mean()`` / ``c - c.mean()``
+    # temporaries per freq (the same no-alloc identity shipped in ``_corr_sq_centered``) is bit-identical to ~1e-15 BUT NEUTRAL at the detector level: same-process
+    # A/B of the full detector at n=1667 chirp48 was 3.645 -> 3.644ms (1.000x). The build is only ~37% of the detector and the alloc-savings are swamped by the
+    # dominant sin/cos+dot cost. Isolated build-loop bench is pure noise (0.47x-2.35x scatter). bench: profiling/bench_coarse_basis_nocenter.py.
     _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
     for f in grid:
         ang = 2.0 * np.pi * f * z_tr
