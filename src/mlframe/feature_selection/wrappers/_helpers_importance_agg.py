@@ -1,0 +1,244 @@
+"""Estimator-type-aware cross-fold importance aggregation for the RFECV wrapper.
+
+The legacy cross-fold aggregator (``get_actual_features_ranking`` in
+``_helpers_importance.py``) builds a feature x run table and votes (Borda / mean /
+...). That naive mean+vote has two known failure modes:
+
+  * TREE / GBM gain importance is noisy fold-to-fold; a feature with a high raw
+    mean but huge cross-fold variance is less trustworthy than a steadily-modest
+    feature, yet the mean ranks it higher.
+  * LINEAR ``coef_`` is already abs'd before voting, so a feature whose sign
+    FLIPS across folds (positive in 3, negative in 2 -> genuinely unstable) is
+    indistinguishable from a consistently-signed one of equal magnitude.
+
+This module adds a family-aware dispatcher (``importance_agg="dispatched"``):
+
+  * tree   : per-feature mean across folds DOWN-WEIGHTED by the cross-fold
+             coefficient of variation -> ``mean / (1 + cv)`` (cv = std/|mean|).
+             High fold-to-fold variance -> ranked lower than its raw mean.
+  * linear : SIGN-HARMONY. Average the SIGNED coef across folds then take the
+             magnitude, multiplied by the sign-agreement fraction
+             (max(frac_pos, frac_neg)). A sign-flipping feature is demoted.
+  * kernel : no native importance -> defer to the legacy vote (permutation path
+             already produced non-negative importances; nothing family-specific
+             to add).
+
+The legacy path stays the default until benched-and-won (REJECTED != DELETED):
+``importance_agg="legacy"`` keeps the historical vote.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Union
+
+import numpy as np
+import pandas as pd
+
+from ._enums import VotesAggregation
+
+logger = logging.getLogger(__name__)
+
+# Estimator class-name fragments mapped to family. Checked against type(est).__name__
+# (after unwrapping Pipelines / TransformedTargetRegressor). Order: linear first so a
+# "LogisticRegression" doesn't match a stray "Regress" tree token, etc.
+_LINEAR_TOKENS = (
+    "LinearRegression", "LogisticRegression", "Ridge", "Lasso", "ElasticNet",
+    "SGDClassifier", "SGDRegressor", "LinearSVC", "LinearSVR", "Perceptron",
+    "PassiveAggressive", "ARDRegression", "BayesianRidge", "Lars", "OrthogonalMatchingPursuit",
+)
+_TREE_TOKENS = (
+    "RandomForest", "ExtraTrees", "GradientBoosting", "DecisionTree", "HistGradientBoosting",
+    "XGB", "LGBM", "LightGBM", "CatBoost", "Bagging", "AdaBoost",
+)
+
+
+def detect_estimator_family(estimator) -> str:
+    """Return 'tree' / 'linear' / 'kernel' for an estimator.
+
+    Unwraps Pipeline / TransformedTargetRegressor / wrappers, then matches the
+    inner class name against known tokens. Falls back to attribute sniffing
+    (coef_ -> linear, feature_importances_ -> tree) and finally 'kernel' for
+    SVMs / kNN / anything without a native importance attribute.
+    """
+    m = estimator
+    for _ in range(8):
+        inner = None
+        for attr in ("_final_estimator", "regressor_", "best_estimator_", "base_estimator"):
+            cand = getattr(m, attr, None)
+            if cand is not None and cand is not m:
+                inner = cand
+                break
+        if inner is None:
+            break
+        m = inner
+    name = type(m).__name__
+    if any(tok in name for tok in _LINEAR_TOKENS):
+        return "linear"
+    if any(tok in name for tok in _TREE_TOKENS):
+        return "tree"
+    # Attribute sniff: a fitted estimator exposes coef_ / feature_importances_.
+    if hasattr(m, "feature_importances_"):
+        return "tree"
+    if hasattr(m, "coef_"):
+        return "linear"
+    # SVC / SVR with a non-linear kernel, KNeighbors*, GaussianProcess*, ...
+    return "kernel"
+
+
+def get_signed_linear_coef(
+    model,
+    current_features: list,
+    train_data=None,
+    multiclass_coef_aggregation: str = "max",
+    coef_scale_source: str = "train",
+) -> Union[dict, None]:
+    """Extract SIGNED, scale-corrected linear coef for sign-harmony aggregation.
+
+    Mirrors the coef_ branch of ``get_feature_importances`` (multiclass collapse +
+    train-std scaling) but PRESERVES the sign, so the cross-fold aggregator can
+    detect sign flips. Returns dict[feature -> signed_coef] or None if the model
+    has no usable ``coef_`` (e.g. a tree slipped through family detection).
+
+    Multiclass collapse keeps the sign of the dominant-magnitude class
+    ('max' -> coef of the argmax-|coef| class; 'sum' -> signed sum across classes).
+    """
+    from operator import attrgetter
+
+    m = model
+    for _ in range(8):
+        if hasattr(m, "_final_estimator") and m._final_estimator is not m:
+            m = m._final_estimator
+            continue
+        if hasattr(m, "regressor_") and getattr(m, "regressor_") is not m:
+            m = m.regressor_
+            continue
+        break
+    coef = getattr(m, "coef_", None)
+    if coef is None:
+        return None
+    coef = np.asarray(coef, dtype=float)
+    if coef.ndim > 1:
+        if multiclass_coef_aggregation == "max":
+            # Per feature, take the coef of the class with the largest |coef| (sign kept).
+            idx = np.argmax(np.abs(coef), axis=0)
+            coef = coef[idx, np.arange(coef.shape[1])]
+        else:
+            coef = coef.sum(axis=0)
+    coef = np.ravel(coef)
+    # Scale correction with train stds (sign-preserving multiply by a positive std).
+    if coef_scale_source != "none":
+        src = train_data
+        if src is not None:
+            try:
+                arr = src.values if hasattr(src, "values") else np.asarray(src)
+                stds = np.nanstd(arr, axis=0)
+                stds = np.where(stds > 1e-12, stds, 1.0)
+                if len(stds) == len(coef):
+                    coef = coef * stds
+            except (TypeError, ValueError):
+                pass
+    if len(coef) != len(current_features):
+        return None
+    return {feat: float(c) for feat, c in zip(current_features, coef)}
+
+
+def _table_from_runs(feature_importances: dict) -> pd.DataFrame:
+    """Build a feature(rows) x run(cols) DataFrame from the per-run dicts."""
+    return pd.DataFrame(feature_importances)
+
+
+def aggregate_tree(feature_importances: dict, k_cv: float = 1.0, eps: float = 1e-12) -> dict:
+    """Variance-down-weighted mean of tree/GBM gain importances across folds.
+
+    score = mean / (1 + k_cv * cv), cv = std / (|mean| + eps).
+
+    A feature whose gain is steady across folds keeps (almost) its full mean; one
+    whose gain swings wildly fold-to-fold (cv high) is discounted toward 0. Single
+    -fold features (1 run) get cv=0 -> raw mean (no information to penalise).
+    """
+    table = _table_from_runs(feature_importances)
+    if table.empty:
+        return {}
+    means = table.mean(axis=1, skipna=True)
+    # ddof=0 so a 1-run feature yields std 0 rather than NaN.
+    stds = table.std(axis=1, skipna=True, ddof=0).fillna(0.0)
+    cv = stds / (means.abs() + eps)
+    scores = means / (1.0 + k_cv * cv)
+    return {feat: float(scores[feat]) for feat in table.index}
+
+
+def aggregate_linear(signed_importances: dict, eps: float = 1e-12) -> dict:
+    """Sign-harmony aggregation of SIGNED linear coef across folds.
+
+    score = |mean(signed_coef)| * sign_agreement,
+    sign_agreement = max(frac_positive, frac_negative) over the runs where the
+    coef is non-zero (zeros are sign-neutral and excluded from the agreement
+    fraction but still pull the signed mean toward 0).
+
+    A feature positive in 3 folds and negative in 2 has agreement 0.6 and a
+    signed mean near 0 -> demoted hard vs a consistently-positive feature
+    (agreement 1.0, full magnitude).
+    """
+    table = _table_from_runs(signed_importances)
+    if table.empty:
+        return {}
+    out: dict = {}
+    for feat in table.index:
+        row = table.loc[feat].to_numpy(dtype=float)
+        row = row[np.isfinite(row)]
+        if row.size == 0:
+            out[feat] = 0.0
+            continue
+        mean_signed = float(np.mean(row))
+        nz = row[np.abs(row) > eps]
+        if nz.size == 0:
+            agreement = 1.0  # all-zero coef: no disharmony, but magnitude ~0 anyway
+        else:
+            frac_pos = float(np.mean(nz > 0))
+            agreement = max(frac_pos, 1.0 - frac_pos)
+        out[feat] = abs(mean_signed) * agreement
+    return out
+
+
+def aggregate_importances_dispatched(
+    feature_importances: dict,
+    family: str,
+    votes_aggregation_method: VotesAggregation,
+    *,
+    signed_importances: Union[dict, None] = None,
+    k_cv: float = 1.0,
+    fi_missing_policy: str = "worst",
+    run_weights: Union[dict, None] = None,
+) -> list:
+    """Estimator-type-aware cross-fold importance ranking.
+
+    Returns a list of feature keys ordered best (most important) first, matching
+    the contract of ``get_actual_features_ranking``.
+
+    family:
+        'tree'   -> variance-down-weighted mean (aggregate_tree).
+        'linear' -> sign-harmony on signed_importances (aggregate_linear); if
+                    signed_importances is missing/empty, falls back to the legacy
+                    vote (we cannot recover sign from abs'd values).
+        'kernel' / other -> legacy vote.
+    """
+    from ._helpers_importance import get_actual_features_ranking
+
+    if family == "tree" and feature_importances:
+        scores = aggregate_tree(feature_importances, k_cv=k_cv)
+    elif family == "linear" and signed_importances:
+        scores = aggregate_linear(signed_importances)
+    else:
+        return get_actual_features_ranking(
+            feature_importances=feature_importances,
+            votes_aggregation_method=votes_aggregation_method,
+            fi_missing_policy=fi_missing_policy,
+            run_weights=run_weights,
+        )
+    if not scores:
+        return []
+    # Deterministic order: descending score, then lexicographic on key name.
+    return sorted(
+        scores.keys(),
+        key=lambda k: (-(scores[k] if np.isfinite(scores[k]) else -np.inf), str(k)),
+    )

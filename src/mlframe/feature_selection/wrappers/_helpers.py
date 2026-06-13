@@ -222,6 +222,10 @@ def get_next_features_subset(
     rng: object = None,
     fi_decay_rate: float = 0.0,
     fi_run_order: Union[list, None] = None,
+    importance_agg: str = "legacy",
+    fi_family: Union[str, None] = None,
+    signed_importances: Union[dict, None] = None,
+    importance_agg_k_cv: float = 1.0,
 ) -> list:
     """Generate the next 'next_nfeatures_to_check' candidate to evaluate.
     Combines FIs from prior runs into ranks via voting, returns the top-N."""
@@ -303,12 +307,27 @@ def get_next_features_subset(
                 k: (1.0 - _decay) ** (_n_runs - 1 - i)
                 for i, k in enumerate(_ordered_keys)
             }
-    ranks = get_actual_features_ranking(
-        feature_importances=fi_to_consider,
-        votes_aggregation_method=votes_aggregation_method,
-        fi_missing_policy=fi_missing_policy,
-        run_weights=_run_weights,
-    )
+    if importance_agg == "dispatched" and fi_family in ("tree", "linear"):
+        from ._helpers_importance_agg import aggregate_importances_dispatched
+        _signed_subset = None
+        if signed_importances and fi_family == "linear":
+            _signed_subset = {k: v for k, v in signed_importances.items() if k in fi_to_consider}
+        ranks = aggregate_importances_dispatched(
+            feature_importances=fi_to_consider,
+            family=fi_family,
+            votes_aggregation_method=votes_aggregation_method,
+            signed_importances=_signed_subset,
+            k_cv=float(importance_agg_k_cv),
+            fi_missing_policy=fi_missing_policy,
+            run_weights=_run_weights,
+        )
+    else:
+        ranks = get_actual_features_ranking(
+            feature_importances=fi_to_consider,
+            votes_aggregation_method=votes_aggregation_method,
+            fi_missing_policy=fi_missing_policy,
+            run_weights=_run_weights,
+        )
     return ranks[:next_nfeatures_to_check]
 
 

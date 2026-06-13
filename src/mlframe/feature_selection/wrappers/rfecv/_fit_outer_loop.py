@@ -149,6 +149,10 @@ def run_outer_loop_iteration(
             rng=getattr(self, "_rng", None),
             fi_decay_rate=float(getattr(self, "fi_decay_rate", 0.0)),
             fi_run_order=list(state.feature_importances.keys()),
+            importance_agg=getattr(self, "importance_agg", "legacy"),
+            fi_family=getattr(self, "_fi_family", None),
+            signed_importances=getattr(self, "_signed_importances", None),
+            importance_agg_k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
         )
 
     if current_features is None or len(current_features) == 0:

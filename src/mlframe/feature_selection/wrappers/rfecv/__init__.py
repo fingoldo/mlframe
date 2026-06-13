@@ -385,6 +385,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         prescreen_top_k: Union[int, None] = None,
         # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
         prescreen_fdr_level: float = 0.05,
+        # importance_agg: how per-fold importances are aggregated across CV folds into the elimination ranking.
+        #   'legacy'     : historical mean+vote (Leaderboard / votes_aggregation_method) on abs'd per-fold FI.
+        #   'dispatched' (default): estimator-type-aware. TREE/GBM -> mean down-weighted by cross-fold CV
+        #       (mean/(1+cv)); LINEAR -> sign-harmony on SIGNED coef (|mean signed| * sign-agreement) so a
+        #       feature whose sign flips across folds is demoted; KERNEL / no native FI -> defers to the legacy
+        #       vote. Flipped to default after a multi-scenario x multi-seed honest-holdout win (see
+        #       _benchmarks/bench_rfecv_importance_agg.py). Falls back to legacy automatically when family info
+        #       or signed coef are unavailable.
+        importance_agg: str = "dispatched",
+        # k_cv: tree-family variance penalty strength in importance_agg='dispatched'; score=mean/(1+k_cv*cv).
+        importance_agg_k_cv: float = 1.0,
     ):
 
         # checks
@@ -450,6 +461,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             raise ValueError(
                 f"fi_missing_policy must be 'worst', 'median', or 'skip'; "
                 f"got {fi_missing_policy!r}."
+            )
+
+        if importance_agg not in ("legacy", "dispatched"):
+            raise ValueError(
+                f"importance_agg must be 'legacy' or 'dispatched'; got {importance_agg!r}."
             )
 
         if optimizer_target not in ("mean", "final_score"):

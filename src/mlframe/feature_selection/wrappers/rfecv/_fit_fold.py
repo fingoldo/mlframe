@@ -288,6 +288,29 @@ def _eval_fold_body(
         _drop_nan_fi = getattr(self, "drop_nan_score_fi", True)
         if not (_drop_nan_fi and isinstance(_score, float) and np.isnan(_score)):
             _est_fi_runs.append((_key, _fi))
+            # Sign-harmony aggregation (importance_agg='dispatched'): also stash the SIGNED, scale-corrected
+            # coef for the linear family so the cross-fold aggregator can detect sign flips. Tree / kernel
+            # families and the legacy path skip this (None / no native coef -> no-op).
+            if getattr(self, "importance_agg", "legacy") == "dispatched" \
+                    and getattr(self, "_fi_family", None) == "linear":
+                try:
+                    from .._helpers_importance_agg import get_signed_linear_coef
+                    _signed_full = get_signed_linear_coef(
+                        model=_fitted, current_features=fit_features, train_data=X_train,
+                        multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
+                        coef_scale_source=getattr(self, "coef_scale_source", "train"),
+                    )
+                except Exception:
+                    _signed_full = None
+                if _signed_full is not None:
+                    if must_include_resolved:
+                        _mset = set(must_include_resolved)
+                        _signed = {k: v for k, v in _signed_full.items() if k not in _mset}
+                    else:
+                        _signed = _signed_full
+                    _store = getattr(self, "_signed_importances", None)
+                    if _store is not None:
+                        _store[_key] = _signed
         if keep_estimators:
             fitted_estimators[_key] = _fitted
 
