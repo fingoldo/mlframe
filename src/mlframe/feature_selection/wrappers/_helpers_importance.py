@@ -423,6 +423,10 @@ def get_feature_importances(
                     random_state=random_state,
                     n_jobs=1,
                 )
+            # Cross-repeat aggregator stays the arithmetic mean: median / 20%-trimmed-mean were benched
+            # (bench_perm_fi_repeat_aggregator.py) and REJECTED -- neither beats the mean on spearman-vs-true-
+            # relevance at the realistic small n_repeats (3, 5); with so few repeats a robust aggregator just
+            # discards the averaging that suppresses per-permutation noise. Revisit only at n_repeats >= 15.
             res = pi.importances_mean
         elif importance_getter == "conditional_permutation":
             if target is None:
