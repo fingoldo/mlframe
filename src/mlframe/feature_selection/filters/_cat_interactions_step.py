@@ -26,6 +26,27 @@ from .info_theory import (
 logger = logging.getLogger(__name__)
 
 
+def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
+    """Quantile-bin a 1-D numeric array into ``[0, n_bins)`` ordinal codes; return ``(codes, inner_edges)``.
+
+    ``inner_edges`` are the ``n_bins - 1`` interior quantile cut points (unique-deduped); the bin code is
+    ``np.searchsorted(inner_edges, value, side="right")`` -- the EXACT convention ``categorize_dataset``'s
+    adaptive path uses (``_discretization_dataset.py``), so codes computed here at fit time are reproduced
+    byte-for-byte by the recipe replay at transform time from the stored edges (no train/serve skew).
+
+    Returns ``edges.size == 0`` for a constant / degenerate column (caller skips it: a 1-bin column carries
+    no interaction signal). NaN-bearing columns must be filtered out by the caller -- this v1 edge scheme has
+    no dedicated NaN bin, so a NaN would ``searchsorted`` to the top real bin and silently corrupt the cross.
+    """
+    arr = np.asarray(raw, dtype=np.float64)
+    qs = np.linspace(0.0, 1.0, n_bins + 1)[1:-1]
+    edges = np.unique(np.quantile(arr, qs))
+    if edges.size == 0:
+        return np.zeros(arr.shape[0], dtype=np.int64), edges
+    codes = np.searchsorted(edges, arr, side="right").astype(np.int64)
+    return codes, edges
+
+
 # ============================================================================
 # Streaming / incremental fit cache
 #
@@ -50,6 +71,7 @@ def run_cat_interaction_step(
     selected_so_far: list = None,
     weights: np.ndarray = None,    # Per-row sample weights; None = uniform.
     streaming_cache: dict = None,  # Prior-fit cache for incremental re-fit.
+    numeric_raw_values: dict = None,  # {orig_col_idx -> raw float values} for include_numeric quantile-binning.
     dtype: type = np.int32,
     verbose: int = 0,
 ) -> tuple:
@@ -78,6 +100,9 @@ def run_cat_interaction_step(
     from .cat_interactions import _anti_redundancy_rerank, _bootstrap_ii_cis, _column_signature, _compute_target_encoding, _compute_westfall_young_corrected_p, _confirm_pairs_bandit_ucb1, _confirm_pairs_via_permutation, _greedy_expand_one_seed, _kfold_stability_filter, _marginal_screen_njit, _materialize_kway, _materialize_pairs, _maybe_rerank_with_mm, _pair_search_kernel_njit, _pair_search_kernel_weighted_njit, _refine_kway_coordinate_ascent, _restore_cached_marginal_mis, _select_candidate_indices, _select_top_k_pairs, resolve_max_combined_nbins, resolve_min_interaction_information
     state = CatFEState()
     n_samples = data.shape[0]
+    # Every early return below yields these ORIGINAL arrays; ``include_numeric`` (further down) shadows
+    # data/cols/nbins with a transient working pool, so the originals are pinned here once.
+    orig_data, orig_cols, orig_nbins = data, cols, nbins
 
     # ---- Pathological-input gates ----
     if target_indices.size == 0:
@@ -88,7 +113,7 @@ def run_cat_interaction_step(
                 "cat-FE skipped: n_samples=%d < cfg.min_n_samples=%d",
                 n_samples, cfg.min_n_samples,
             )
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     # ---- Memmap detection ----
     if isinstance(data.base, np.memmap):
@@ -104,10 +129,52 @@ def run_cat_interaction_step(
                 f"inputs or ensure available RAM > 2 * data.nbytes."
             )
 
+    # ---- include_numeric: quantile-bin eligible numeric columns into a transient working pool ----
+    # Numeric columns are appended (quantile-coded, edges captured) to working copies of data / cols / nbins
+    # and their positions joined to the candidate pool, so the existing pair / k-way machinery treats them
+    # exactly like categoricals. The ORIGINAL data / cols / nbins are restored before the final concat, so the
+    # numeric columns' own (MDLP) codes that flow to downstream screening are UNCHANGED -- only the engineered
+    # cross columns are appended. The per-column quantile edges are stamped into each recipe (below) so
+    # ``transform`` reproduces identical bin codes from raw test values (leak-free, no train/serve skew).
+    numeric_candidate_idxs: list = []
+    numeric_edges_by_name: dict = {}
+    if cfg.include_numeric and numeric_raw_values:
+        # Cap the per-column bin count so a numeric x numeric pair fits the data-aware cardinality budget
+        # (``nbins**2 <= max_combined_nbins``); otherwise EVERY numeric pair is rejected by the per-pair
+        # ``nb_prod > max_combined`` gate and include_numeric silently produces nothing. ``floor(sqrt(budget))``
+        # keeps ~the densest grid the Paninski ceiling allows (>= 2 so a median-split threshold cross survives).
+        _budget_for_numeric = resolve_max_combined_nbins(cfg, n_samples)
+        _num_nbins = int(getattr(cfg, "numeric_nbins", 10))
+        _num_nbins = max(2, min(_num_nbins, int(math.isqrt(int(_budget_for_numeric)))))
+        _work_cols = list(cols)
+        _extra_blocks: list = []
+        _extra_nbins: list = []
+        for _orig_idx, _raw in numeric_raw_values.items():
+            _raw_arr = np.asarray(_raw, dtype=np.float64)
+            if not np.isfinite(_raw_arr).all():
+                # v1 skips NaN/inf-bearing numerics (the quantile-edge replay has no dedicated NaN bin).
+                state.high_cardinality_warnings.append((int(_orig_idx), -1))
+                continue
+            _codes, _edges = _quantile_bin_with_edges(_raw_arr, _num_nbins)
+            if _edges.size == 0:
+                continue  # constant column -> no interaction signal
+            _name = cols[int(_orig_idx)]
+            numeric_candidate_idxs.append(len(_work_cols))
+            _work_cols.append(_name)
+            _extra_blocks.append(_codes.astype(data.dtype, copy=False).reshape(-1, 1))
+            _extra_nbins.append(int(_codes.max()) + 1)
+            numeric_edges_by_name[_name] = _edges
+        if _extra_blocks:
+            data = np.concatenate([data, np.concatenate(_extra_blocks, axis=1)], axis=1)
+            nbins = np.concatenate([nbins, np.asarray(_extra_nbins, dtype=nbins.dtype)])
+            cols = _work_cols
+            if verbose:
+                logger.info("cat-FE include_numeric: quantile-binned %d numeric column(s) into the candidate pool", len(_extra_blocks))
+
     # ---- Column-level validation ----
     candidate_idxs = _select_candidate_indices(
         nbins=nbins,
-        categorical_vars=categorical_vars,
+        categorical_vars=list(categorical_vars) + numeric_candidate_idxs,
         cfg=cfg, state=state,
         n_samples=n_samples,
     )
@@ -117,7 +184,7 @@ def run_cat_interaction_step(
                 "cat-FE skipped: only %d eligible candidate columns after validation",
                 len(candidate_idxs),
             )
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     # ---- Marginal MI screen ----
     candidate_idxs_arr = np.asarray(candidate_idxs, dtype=np.int64)
@@ -130,12 +197,17 @@ def run_cat_interaction_step(
         and streaming_cache is not None
         and streaming_cache  # non-empty
     )
+    # Content signature of the (discretized) target -- gates cache reuse so a changed Y invalidates the
+    # cached MI(X;Y) even when X's distribution is unchanged.
+    from .cat_interactions import _target_signature
+    target_sig = _target_signature(data[:, target_indices])
     new_signatures: dict = {}
     if cache_active:
         reusable_mask, mi_reused, new_signatures = _restore_cached_marginal_mis(
             factors_data=data, candidate_idxs=candidate_idxs_arr,
             nbins=nbins, cache=streaming_cache,
             kl_threshold=cfg.streaming_cache_kl_threshold,
+            target_sig=target_sig,
         )
         n_reused = int(reusable_mask.sum())
         if verbose and n_reused:
@@ -176,6 +248,7 @@ def run_cat_interaction_step(
     # Persist updated cache for next fit() call
     if getattr(cfg, "enable_streaming_cache", False):
         state.streaming_cache_out = {
+            "target_sig": target_sig,
             "col_signatures": new_signatures,
             "marginal_mis": {
                 int(candidate_idxs_arr[k]): float(candidate_mi[k])
@@ -190,7 +263,7 @@ def run_cat_interaction_step(
     if len(candidate_idxs_arr) < 2:
         if verbose:
             logger.info("cat-FE skipped: %d cols cleared marginal_floor", len(candidate_idxs_arr))
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     # Build a marginal-MI lookup keyed by COLUMN INDEX (into data), so the pair kernel can look up by index without re-running the screen.
     marginal_mi_full = np.full(data.shape[1], np.nan, dtype=np.float64)
@@ -217,7 +290,7 @@ def run_cat_interaction_step(
     if not pairs_a_list:
         if verbose:
             logger.info("cat-FE skipped: 0 pairs cleared cardinality budget %d", max_combined)
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     pairs_a = np.asarray(pairs_a_list, dtype=np.int64)
     pairs_b = np.asarray(pairs_b_list, dtype=np.int64)
@@ -324,7 +397,7 @@ def run_cat_interaction_step(
     if len(selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs cleared min_interaction_information; no engineered cols")
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
     if verbose:
         logger.info("cat-FE: %d pair(s) selected for materialisation", len(selected_idx))
 
@@ -352,7 +425,7 @@ def run_cat_interaction_step(
     if len(selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs survived MM re-rank floor; no engineered cols")
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     # ---- Anti-redundancy re-rank (opt-in via anti_redundancy_beta>0) ----
     # Adjusts each survivor's score by ``beta * mean_z I(merged; Z)`` where Z ranges over already-selected features in ``selected_so_far``. No-op when beta=0 or selected_so_far is empty.
@@ -375,7 +448,7 @@ def run_cat_interaction_step(
         if len(selected_idx) == 0:
             if verbose:
                 logger.info("cat-FE: 0 pairs survived anti-redundancy floor")
-            return data, cols, nbins, state
+            return orig_data, orig_cols, orig_nbins, state
 
     # ---- K-fold II stability filter (opt-in via n_folds_stability>0) ----
     # Drops pairs whose II is unstable across K folds (signal driven by outlier rows). Runs BEFORE permutation so we don't pay perm budget on pairs that fail stability.
@@ -392,7 +465,7 @@ def run_cat_interaction_step(
     if len(selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs survived K-fold stability filter")
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     # ---- Permutation confirmation + FWER correction ----
     # Runs only when ``cfg.full_npermutations > 0`` (default 100). Tests joint-independence null; failed pairs are dropped from ``selected_idx``. The resulting
@@ -456,7 +529,7 @@ def run_cat_interaction_step(
     if len(selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs cleared permutation confirmation")
-        return data, cols, nbins, state
+        return orig_data, orig_cols, orig_nbins, state
 
     # ---- Bootstrap CIs on II (opt-in via bootstrap_ci_n_replicates>0) ----
     bootstrap_ci_dict = _bootstrap_ii_cis(
@@ -483,7 +556,7 @@ def run_cat_interaction_step(
         if len(selected_idx) == 0:
             if verbose:
                 logger.info("cat-FE: 0 pairs survived bootstrap CI floor")
-            return data, cols, nbins, state
+            return orig_data, orig_cols, orig_nbins, state
 
     # ---- K-way greedy expansion (opt-in via max_kway_order > 2) ----
     # HYBRID seeding -- first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results
@@ -688,7 +761,23 @@ def run_cat_interaction_step(
                     len(te_recipes),
                 )
 
+    # ---- Stamp quantile bin edges onto recipes built from numeric sources (leak-safe transform replay) ----
+    # Without this, ``_apply_factorize`` / ``_apply_target_encoding`` would ``astype(int64)`` a raw numeric test
+    # value (3.7 -> 3) instead of binning it through the fit-time quantile edges -> a silent train/serve skew.
+    if numeric_edges_by_name:
+        for _ri, _r in enumerate(state.recipes):
+            _edges_for_recipe = {
+                _src: numeric_edges_by_name[_src]
+                for _src in (getattr(_r, "src_names", ()) or ())
+                if _src in numeric_edges_by_name
+            }
+            if _edges_for_recipe:
+                state.recipes[_ri] = _r.with_extra(src_bin_edges=_edges_for_recipe)
+
     # ---- Single concat onto data / cols / nbins ----
+    # Restore the ORIGINAL arrays: the engineered cross block is appended to them, NOT to the include_numeric
+    # working pool (whose transient quantile-coded numeric columns must never reach downstream screening).
+    data, cols, nbins = orig_data, orig_cols, orig_nbins
     data_out = np.concatenate([data, new_data_block], axis=1)
     cols_out = list(cols) + new_names
     nbins_out = np.concatenate([nbins, np.asarray(new_nbins, dtype=nbins.dtype)])
