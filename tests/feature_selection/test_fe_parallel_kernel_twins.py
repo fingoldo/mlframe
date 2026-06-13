@@ -56,6 +56,38 @@ def test_materialise_parallel_eq_serial(n_rows, K, n_operands, with_nan, with_in
     )
 
 
+@pytest.mark.parametrize("n_rows,K,n_operands", [(400, 18, 6), (1500, 36, 8)])
+def test_materialise_output_always_finite_under_nan_inf_overflow(n_rows, K, n_operands):
+    """The materialise kernel MUST emit a finite buffer even when inputs carry NaN/inf or the op
+    overflows -- this is the invariant the discretiser's ``assume_finite=True`` fast path now depends on
+    (the FE-chunk caller passes assume_finite=True trusting this kernel scrubbed inline, skipping its own
+    ``np.isnan().any()`` guard). If a future op is added without the trailing ``nan_to_num`` scrub, an
+    inf/NaN would silently reach ``_quantile_edges_2d_njit`` and corrupt the bin edges. Feed NaN, inf, and
+    float32-overflowing magnitudes (mul/div -> inf) across all 9 ops and assert every output bit is finite
+    on BOTH the serial and parallel kernels."""
+    from mlframe.feature_selection.filters._feature_engineering_pairs import (
+        _materialise_chunk_njit,
+        _materialise_chunk_njit_parallel,
+    )
+    tv, a_cols, b_cols, ops = _rand_inputs(n_rows, K, n_operands, seed=7 + n_rows,
+                                           with_nan=True, with_inf=True)
+    # force overflow + zero-denominator paths: huge magnitudes (mul -> +-inf in f32) and exact zeros.
+    rng = np.random.default_rng(99 + K)
+    tv[rng.integers(0, n_rows, n_rows // 10), rng.integers(0, n_operands, n_rows // 10)] = np.float32(3e19)
+    tv[rng.integers(0, n_rows, n_rows // 10), rng.integers(0, n_operands, n_rows // 10)] = np.float32(-3e19)
+    tv[rng.integers(0, n_rows, n_rows // 10), rng.integers(0, n_operands, n_rows // 10)] = np.float32(0.0)
+    out_serial = np.empty((n_rows, K), dtype=np.float32)
+    out_parallel = np.empty((n_rows, K), dtype=np.float32)
+    _materialise_chunk_njit(tv, a_cols, b_cols, ops, out_serial)
+    _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out_parallel)
+    assert np.isfinite(out_serial).all(), (
+        "serial materialise leaked a non-finite value -- assume_finite=True would feed it to the discretiser"
+    )
+    assert np.isfinite(out_parallel).all(), (
+        "parallel materialise leaked a non-finite value -- assume_finite=True would feed it to the discretiser"
+    )
+
+
 @pytest.mark.parametrize("dtype_in", [np.float32, np.float64])
 @pytest.mark.parametrize("n_rows,K", [(7, 4), (256, 64), (2407, 300)])
 def test_searchsorted_parallel_eq_serial(n_rows, K, dtype_in):
