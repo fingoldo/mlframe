@@ -1472,6 +1472,137 @@ def _run_fe_step(
                 _filtered_additions[_rp] = (_new_tpf, _new_tvals, _new_ncols, _new_nnb, _msgs)
             prospective_additions = _filtered_additions
 
+        # GATE-OPERAND COMPOSITE OVER-MATERIALIZATION PRUNE (2026-06-13). The conditional_gate / row_argmax
+        # pre-pass appends ENGINEERED gate columns (``gate_mask__b__d__t..``) that screening selects; the FE
+        # pair search then pairs each gate column with a raw operand, emitting gate-operand COMPOSITES
+        # (``mul(cbrt(c),log(gate_mask__b__d))``, ``div(neg(a),sqrt(gate_mask__b__d))`` ..). On CASE1
+        # ``y=a**2/b+log(c)*sin(d)`` the gate is built across the two TRUE groups (b__d), so ~6 such composites
+        # pile up ALONGSIDE the clean ``div(sqr(a),neg(b))`` / ``mul(log(c),sin(d))`` survivors that already cover
+        # {a,b} and {c,d} -- 9 engineered cols, over the test cap (<=4). They are RE-MIXES (a slightly different
+        # threshold nonlinearity) the CMI gate does not drop. Discriminator: drop a gate-operand COMPOSITE iff
+        # EVERY raw variable it touches -- its bare-token operands PLUS the gate operand's own raw sources
+        # (resolved via ``_gate_col_src_vars_``) -- is ALREADY covered by the UNION of the CLEAN (non-gate)
+        # engineered features that SURVIVED the CMI gate above. Built on the POST-CMI survivors (not the raw
+        # candidate pool) so a transient clean (c,d) candidate that the CMI gate itself dropped cannot make a
+        # genuine gate composite look redundant. On CASE2 ``y=0.2 a**2/b+log(c*2)sin(d/3)`` the gate is built over
+        # the TRUE c__d pair and the only surviving (c,d) carrier is the gate composite -- no clean survivor
+        # covers {c,d}, so it is KEPT and the warped interaction stays captured. The BARE gate column is never
+        # pruned here. Byte-identical when no gate fired (empty ``_gate_col_src_vars_``).
+        _gate_src_vars_map = dict(getattr(self, "_gate_col_src_vars_", None) or {})
+        if _gate_src_vars_map and prospective_additions:
+            import re as _re_gate
+
+            def _bare_tokens(_nm: str) -> set:
+                # Single-token raw variable references (a-z / x_NN style), NOT substrings of function names.
+                return set(_re_gate.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
+
+            def _gate_cols_in(_nm: str) -> list:
+                return [_gc for _gc in _gate_src_vars_map if _gc in _nm]
+
+            _all_names = []
+            for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                if _ncols:
+                    _all_names.extend(_ncols)
+            # Clean coverage = bare-token vars of the SURVIVING non-gate engineered features only.
+            _clean_cov: set = set()
+            for _nm in _all_names:
+                if not _gate_cols_in(_nm):
+                    _clean_cov |= _bare_tokens(_nm)
+
+            # Per clean (non-gate) survivor: (bare-var coverage, marginal MI). The marginals reuse the values
+            # the CMI gate already binned for this exact pool, so no extra MI kernel is run.
+            _name_marg: dict = {}
+            try:
+                _cmi_cands_local = _cmi_cands  # defined only in the conditional_mi branch above
+            except NameError:
+                _cmi_cands_local = None
+            if isinstance(_cmi_cands_local, dict):
+                for _nm0, _vm0 in _cmi_cands_local.items():
+                    try:
+                        _name_marg[_nm0] = float(_vm0[1])
+                    except Exception:
+                        pass
+            _clean_forms = [
+                (_bare_tokens(_nm), _name_marg.get(_nm, 0.0))
+                for _nm in _all_names if not _gate_cols_in(_nm)
+            ]
+
+            # A gate-operand COMPOSITE is over-materialization (DROP) when its whole raw coverage is already
+            # provided by the clean survivors AND it is NOT the genuine carrier of an otherwise-uncaptured
+            # interaction. Three independent re-mix tells, any of which condemns it:
+            #   (1) it embeds >=2 distinct gate columns -- a full-target re-mix, never a single clean pair
+            #       (CASE1 ``add(log(gate_mask__b__d),sub(sin(a),sin(gate_mask__d__c)))``);
+            #   (2) its gate is built over a CROSS-group pair -- no single clean survivor contains the whole
+            #       gate pair, so it fuses two INDEPENDENT already-captured signals (CASE1 ``gate_mask__b__d``);
+            #   (3) its gate is WITHIN one clean survivor's pair AND that clean survivor is at least as STRONG
+            #       (marginal MI) -- the clean elementary form is the better carrier, the gate is redundant
+            #       (CASE1 ``gate_mask__d__c`` vs the strong ``mul(log(c),sin(d))``). When the clean same-pair
+            #       form is WEAKER than the gate composite (CASE2 ``sub(exp(c),cbrt(d))`` does not even reach
+            #       final support), the gate composite is the genuine (c,d) carrier and is KEPT.
+            _gate_composite_drop: set = set()
+            for _nm in _all_names:
+                _gcs = _gate_cols_in(_nm)
+                if not _gcs:
+                    continue
+                if _nm in _gate_src_vars_map:
+                    continue  # never prune the BARE gate column itself (CASE2 fallback carrier)
+                _gate_src = set()
+                for _gc in _gcs:
+                    _gate_src |= set(_gate_src_vars_map.get(_gc, ()))
+                _cov = _bare_tokens(_nm) | _gate_src
+                _cov -= set(_gate_src_vars_map)  # drop any gate-col token mistakenly captured
+                if not (_cov and _cov <= _clean_cov and _gate_src and _gate_src <= _clean_cov):
+                    continue
+                _g_marg = _name_marg.get(_nm, 0.0)
+                _multi_gate = len(set(_gcs)) >= 2
+                _within_one = any(_gate_src <= _cf_cov for _cf_cov, _ in _clean_forms)
+                _stronger_clean_same_pair = any(
+                    (_gate_src <= _cf_cov) and (_cf_marg >= _g_marg)
+                    for _cf_cov, _cf_marg in _clean_forms
+                )
+                if _multi_gate or (not _within_one) or _stronger_clean_same_pair:
+                    _gate_composite_drop.add(_nm)
+
+            if _gate_composite_drop:
+                from ..mrmr import get_new_feature_name as _gnf_gate
+                _filtered: dict = {}
+                for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                    if not _tpf or _tvals is None or not _ncols:
+                        _filtered[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
+                        continue
+                    _keep_idx = [i for i, nm in enumerate(_ncols) if nm not in _gate_composite_drop]
+                    if not _keep_idx:
+                        continue
+                    if len(_keep_idx) == len(_ncols):
+                        _filtered[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
+                        continue
+                    _n2c = {_gnf_gate(_cfg, cols): _cfg for _cfg, _ in _tpf}
+                    _new_tpf = set()
+                    for _np, _oi in enumerate(_keep_idx):
+                        _cfg = _n2c.get(_ncols[_oi])
+                        if _cfg is not None:
+                            _new_tpf.add((_cfg, _np))
+                    _new_nnb = (
+                        [_nnb[i] for i in _keep_idx]
+                        if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols)
+                        else _nnb
+                    )
+                    _filtered[_rp] = (_new_tpf, _tvals[:, _keep_idx], [_ncols[i] for i in _keep_idx], _new_nnb, _msgs)
+                prospective_additions = _filtered
+                for _dn in _gate_composite_drop:
+                    _record_fe_rejection(
+                        self, gate="gate_composite_overmaterialization",
+                        candidate=str(_dn), operands=None, operator="engineered",
+                        observed=float("nan"), threshold=float("nan"),
+                        reason="raw_coverage_subset_of_clean_survivors", step=int(num_fs_steps),
+                    )
+                if verbose:
+                    logger.info(
+                        "MRMR FE: pruned %d gate-operand composite(s) whose raw coverage is already provided by "
+                        "clean non-gate engineered survivors (over-materialization): %s",
+                        len(_gate_composite_drop), sorted(_gate_composite_drop),
+                    )
+
         # ROOT CAUSE 5 fix (2026-06-01): collect the cols-space indices of the
         # engineered columns appended below so they can be added DIRECTLY to
         # ``selected_vars`` for the default single-step (``fe_max_steps==1``)

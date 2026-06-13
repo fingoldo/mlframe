@@ -3503,6 +3503,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # being demoted to the stricter synergy bar (a high-MI gate built FROM a raw col evicts that col
     # from selected_vars, so its clean elementary pair would otherwise be suppressed). 2026-06-13.
     self._gate_raw_operands_ = set()
+    # Per-gate-column -> set of its RAW source variables (recipe ``src_names``). The FE step uses this to
+    # resolve the raw-variable coverage of a gate-operand COMPOSITE (whose gate operand buries its raw
+    # vars inside the column name) so it can drop a composite whose entire raw coverage is already provided
+    # by clean non-gate engineered survivors (CASE1) while keeping one that adds genuinely new (c,d)
+    # coverage no clean form expresses (CASE2). Empty when no gate fired. 2026-06-13.
+    self._gate_col_src_vars_ = {}
     self.group_distance_features_ = []
     _cat_pair_pre_recipes: dict = {}
     _cat_triple_pre_recipes: dict = {}
@@ -4439,6 +4445,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             # Record the raw source operands so the FE step keeps them as
                             # regularly-selected pair operands (see _gate_raw_operands_ init).
                             self._gate_raw_operands_.update(str(s) for s in _r.src_names)
+                            self._gate_col_src_vars_[str(_r.name)] = {str(s) for s in _r.src_names}
                     if verbose:
                         logger.info(
                             "MRMR.fit row_argmax: appended %d engineered "
@@ -4512,6 +4519,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             # Record the raw source operands so the FE step keeps them as
                             # regularly-selected pair operands (see _gate_raw_operands_ init).
                             self._gate_raw_operands_.update(str(s) for s in _r.src_names)
+                            self._gate_col_src_vars_[str(_r.name)] = {str(s) for s in _r.src_names}
                     if verbose:
                         logger.info(
                             "MRMR.fit conditional_gate: appended %d engineered "
