@@ -178,3 +178,63 @@ def test_discovery_fit_still_produces_specs_end_to_end() -> None:
     disc.fit(df, "y", [c for c in df.columns if c != "y"], train_idx=np.arange(n))
     assert isinstance(disc.specs_, list)
     assert isinstance(disc.report_, list) and len(disc.report_) >= 1
+
+
+def test_mi_per_feature_matrix_level_sentinel_gate_routes_correctly() -> None:
+    """iter76: ``_mi_per_feature_prebinned`` detects the -1 non-finite sentinel ONCE for the whole matrix
+    (``(fb < 0).any()``) and skips the per-column ``col_valid``/``.sum()`` scan when absent, instead of scanning
+    every column. The gate must be bit-identical to the explicit per-column path AND route correctly:
+    a sentinel-FREE matrix sends every column FULL-length to the MI kernel (fast path); a sentinel matrix sends
+    the masked (shorter) subset for the affected columns (slow path preserved). The kernel-arg-length spy fails if
+    a future change either masks unnecessarily on clean data or drops the sentinel masking on dirty data."""
+    import mlframe.training.composite.discovery.screening as S
+
+    n, f, nbins = 6_000, 20, 12
+    pb_clean, y, _ = _make_prebinned(n=n, f=f, nbins=nbins, seed=7)
+    pb_sent, _, _ = _make_prebinned(n=n, f=f, nbins=nbins, seed=7, nan_cols=(2, 9, 15))
+
+    def _ref(fb, target):
+        out = []
+        finite = np.isfinite(target)
+        t_f = target[finite] if finite.sum() != finite.shape[0] else target
+        fb_f = fb[finite] if finite.sum() != finite.shape[0] else fb
+        qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+        t_idx = np.searchsorted(np.nanquantile(t_f, qs), t_f, side="right").astype(np.int64)
+        np.clip(t_idx, 0, nbins - 1, out=t_idx)
+        for j in range(fb_f.shape[1]):
+            cb = fb_f[:, j]
+            cv = cb >= 0
+            ncv = int(cv.sum())
+            if ncv < 5 * nbins:
+                out.append(0.0)
+            elif ncv == cb.shape[0]:
+                out.append(S._mi_from_binned_pair(cb, t_idx, nbins=nbins))
+            else:
+                out.append(S._mi_from_binned_pair(cb[cv], t_idx[cv], nbins=nbins))
+        return np.asarray(out, dtype=np.float64)
+
+    for pb in (pb_clean, pb_sent):
+        got = _mi_per_feature_prebinned(pb, y, nbins=nbins)
+        assert np.array_equal(got, _ref(pb, y)), "matrix-level gate diverged from per-column path"
+
+    real_kernel = S._mi_from_binned_pair
+    seen_lengths: list[int] = []
+
+    def _spy(x_idx, y_idx, *, nbins):
+        seen_lengths.append(int(x_idx.shape[0]))
+        return real_kernel(x_idx, y_idx, nbins=nbins)
+
+    S._mi_from_binned_pair = _spy
+    try:
+        seen_lengths.clear()
+        _mi_per_feature_prebinned(pb_clean, y, nbins=nbins)
+        assert seen_lengths and all(l == n for l in seen_lengths), (
+            "sentinel-free matrix must send full-length columns to the MI kernel (fast path)"
+        )
+        seen_lengths.clear()
+        _mi_per_feature_prebinned(pb_sent, y, nbins=nbins)
+        assert any(l < n for l in seen_lengths), (
+            "sentinel matrix must send the masked (shorter) subset for non-finite columns (slow path)"
+        )
+    finally:
+        S._mi_from_binned_pair = real_kernel
