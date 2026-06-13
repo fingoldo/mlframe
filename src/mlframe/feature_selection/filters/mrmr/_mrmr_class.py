@@ -3995,7 +3995,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         else:
             fni = np.asarray(self.feature_names_in_, dtype=object)
         support = self.support_
-        engineered_names = [r.name for r in getattr(self, "_engineered_recipes_", [])]
+        # Mirror _append_engineered's legacy-recipe filter (transform drops pre-D3 pickled k-way recipes
+        # lacking the chained-lookup payload). Without the SAME filter here, get_feature_names_out would
+        # advertise MORE columns than transform() emits on a legacy pickle -> a width mismatch that breaks
+        # sklearn Pipeline / ColumnTransformer / set_output. For freshly-fit estimators every recipe has
+        # the payload, so this is a strict no-op (the list comprehension keeps all recipes).
+        engineered_names = [
+            r.name for r in getattr(self, "_engineered_recipes_", [])
+            if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")
+        ]
         if len(support) == 0 and not engineered_names:
             return np.array([], dtype=object)
         if len(support) > 0 and isinstance(support[0], (bool, np.bool_)):
