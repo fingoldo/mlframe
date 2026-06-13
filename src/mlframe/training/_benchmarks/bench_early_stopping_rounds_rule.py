@@ -110,9 +110,12 @@ SCENARIOS = {
 }
 
 
-def _run_one(train_df, holdout_df, regression, es_rounds, seed, workdir):
+def _run_one(train_df, holdout_df, regression, es_rounds, seed, workdir, sc_name="sc"):
     fte = _make_fte(regression)
-    mname = f"es_{es_rounds}_s{seed}"
+    # mname MUST be unique per (scenario, regression, seed, es): the workdir is shared across all
+    # cells, and scenarios have different feature counts (p=16/18/20/40), so a name that omits the
+    # scenario/mode collides model dirs -> predict loads a model trained on a different feature space.
+    mname = f"{sc_name}_{'reg' if regression else 'clf'}_es{es_rounds}_s{seed}"
     data_dir = os.path.join(workdir, mname)
     train_mlframe_models_suite(
         df=train_df,
@@ -174,7 +177,7 @@ def run_bench(es_variants=(AUTO_ES, 100, 50), seeds=(0, 1, 2), regression_modes=
                 for seed in seeds:
                     train_df, holdout_df = sc_fn(seed, regression)
                     for es in es_variants:
-                        results[(sc_name, regression, seed, es)] = _run_one(train_df, holdout_df, regression, es, seed, workdir)
+                        results[(sc_name, regression, seed, es)] = _run_one(train_df, holdout_df, regression, es, seed, workdir, sc_name)
                         _flush(results)  # checkpoint after every cell so a native at-exit crash never loses progress
     return results
 
