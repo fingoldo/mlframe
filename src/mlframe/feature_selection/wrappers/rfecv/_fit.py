@@ -328,6 +328,16 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     evaluated_scores_std = {}
     evaluated_scores_mean = {}
 
+    # importance_agg='dispatched': resolve the estimator family ONCE (cheap, type-name based) and prepare the
+    # signed-coef store the fold loop fills for the linear sign-harmony path. Multi-estimator runs fall back to
+    # the legacy vote (mixed families have no single coherent dispatched aggregation).
+    if getattr(self, "importance_agg", "legacy") == "dispatched" and len(estimators_list) == 1:
+        from .._helpers_importance_agg import detect_estimator_family
+        self._fi_family = detect_estimator_family(estimators_list[0])
+    else:
+        self._fi_family = None
+    self._signed_importances = {}
+
     original_features = X.columns.tolist() if isinstance(X, pd.DataFrame) else np.arange(X.shape[1])
 
     # must_include partition: the optimiser only sees the complement; pinned features are glued back into support_ at the end.

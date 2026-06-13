@@ -421,6 +421,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Mirrors MRMR's Layer-37 ``fe_missingness_indicator`` emitter, which is itself opt-in, so this defaults to () (OFF) for
         # cross-selector parity. Indicators are pandas-only (they need column names); ignored for raw ndarray X.
         nan_indicator_cols: Union[Sequence, None] = (),
+        # importance_agg: how per-fold importances are aggregated across CV folds into the elimination ranking.
+        #   'legacy'     : historical mean+vote (Leaderboard / votes_aggregation_method) on abs'd per-fold FI.
+        #   'dispatched' (default): estimator-type-aware. TREE/GBM -> mean down-weighted by cross-fold CV
+        #       (mean/(1+cv)); LINEAR -> sign-harmony on SIGNED coef (|mean signed| * sign-agreement) so a
+        #       feature whose sign flips across folds is demoted; KERNEL / no native FI -> defers to the legacy
+        #       vote. Flipped to default after a multi-scenario x multi-seed honest-holdout win (see
+        #       _benchmarks/bench_rfecv_importance_agg.py). Falls back to legacy automatically when family info
+        #       or signed coef are unavailable.
+        importance_agg: str = "dispatched",
+        # k_cv: tree-family variance penalty strength in importance_agg='dispatched'; score=mean/(1+k_cv*cv).
+        importance_agg_k_cv: float = 1.0,
     ):
 
         # checks
@@ -496,6 +507,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         if multioutput_strategy not in (None, "union", "intersect"):
             raise ValueError(
                 f"multioutput_strategy must be None, 'union', or 'intersect'; got {multioutput_strategy!r}."
+            )
+        if importance_agg not in ("legacy", "dispatched"):
+            raise ValueError(
+                f"importance_agg must be 'legacy' or 'dispatched'; got {importance_agg!r}."
             )
 
         if optimizer_target not in ("mean", "final_score"):

@@ -420,11 +420,28 @@ def select_optimal_nfeatures_(
                 use_fi_ranking=use_fi_ranking,
             )
 
-            self.ranking_ = get_actual_features_ranking(
-                feature_importances=fi_to_consider,
-                votes_aggregation_method=votes_aggregation_method,
-                fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
-            )
+            _imp_agg = getattr(self, "importance_agg", "legacy")
+            _fi_family = getattr(self, "_fi_family", None)
+            if _imp_agg == "dispatched" and _fi_family in ("tree", "linear"):
+                from .._helpers_importance_agg import aggregate_importances_dispatched
+                _signed = getattr(self, "_signed_importances", None)
+                _signed_subset = None
+                if _signed and _fi_family == "linear":
+                    _signed_subset = {k: v for k, v in _signed.items() if k in fi_to_consider}
+                self.ranking_ = aggregate_importances_dispatched(
+                    feature_importances=fi_to_consider,
+                    family=_fi_family,
+                    votes_aggregation_method=votes_aggregation_method,
+                    signed_importances=_signed_subset,
+                    k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
+                    fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
+                )
+            else:
+                self.ranking_ = get_actual_features_ranking(
+                    feature_importances=fi_to_consider,
+                    votes_aggregation_method=votes_aggregation_method,
+                    fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
+                )
 
             self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
