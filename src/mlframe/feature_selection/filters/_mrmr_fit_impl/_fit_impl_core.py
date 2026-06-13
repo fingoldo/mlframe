@@ -3419,6 +3419,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.modular_features_ = []
     self.pairwise_modular_features_ = []
     self.integer_lattice_features_ = []
+    self.row_argmax_features_ = []
+    self.conditional_gate_features_ = []
     self.group_distance_features_ = []
     _cat_pair_pre_recipes: dict = {}
     _cat_triple_pre_recipes: dict = {}
@@ -3427,6 +3429,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _modular_pre_recipes: dict = {}
     _pairwise_modular_pre_recipes: dict = {}
     _integer_lattice_pre_recipes: dict = {}
+    _row_argmax_pre_recipes: dict = {}
+    _conditional_gate_pre_recipes: dict = {}
     _group_distance_pre_recipes: dict = {}
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
@@ -4283,6 +4287,125 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_il_exc).__name__, _il_exc,
                 )
 
+    # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum -- an
+    # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
+    # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
+    if bool(getattr(self, "fe_row_argmax_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: row-argmax FE enabled but X is not a pandas DataFrame; "
+                "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._conditional_gate_fe import (
+                    apply_row_argmax,
+                    hybrid_row_argmax_fe_with_recipes,
+                )
+
+                _y_for_am = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                # Raw-column operands only (excludes pmod_/il_/orth engineered columns added upstream); combining on already-
+                # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
+                _am_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                _am_appended, _am_recipes = hybrid_row_argmax_fe_with_recipes(
+                    X, _y_for_am,
+                    cols=_am_raw_cols,
+                    top_k=int(getattr(self, "fe_row_argmax_top_k", 4)),
+                    seed=int(getattr(self, "random_seed", 0) or 0),
+                    max_cols=int(getattr(self, "fe_row_argmax_max_cols", 30)),
+                )
+                _am_appended = [c for c in _am_appended if c not in X.columns]
+                if _am_appended:
+                    _am_new = {
+                        _r.name: apply_row_argmax(X, _r.src_names)
+                        for _r in _am_recipes if _r.name in _am_appended
+                    }
+                    X = pd.concat(
+                        [X, pd.DataFrame(_am_new, index=X.index)], axis=1,
+                    )
+                    self.row_argmax_features_ = list(_am_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_am_appended)
+                    )
+                    for _r in _am_recipes:
+                        if _r.name in _am_appended:
+                            _row_argmax_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit row_argmax: appended %d engineered "
+                            "column(s): %s",
+                            len(_am_appended), _am_appended[:8],
+                        )
+            except Exception as _am_exc:
+                logger.warning(
+                    "MRMR.fit row-argmax FE raised %s: %s; continuing without "
+                    "row-argmax columns.",
+                    type(_am_exc).__name__, _am_exc,
+                )
+
+    # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
+    # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
+    # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
+    if bool(getattr(self, "fe_conditional_gate_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: conditional-gate FE enabled but X is not a pandas DataFrame; "
+                "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._conditional_gate_fe import (
+                    apply_conditional_gate,
+                    hybrid_conditional_gate_fe_with_recipes,
+                )
+
+                _y_for_cg = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
+                _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(
+                    X, _y_for_cg,
+                    cols=_cg_raw_cols,
+                    top_k=int(getattr(self, "fe_conditional_gate_top_k", 4)),
+                    seed=int(getattr(self, "random_seed", 0) or 0),
+                    max_cols=int(getattr(self, "fe_conditional_gate_max_cols", 20)),
+                )
+                _cg_appended = [c for c in _cg_appended if c not in X.columns]
+                if _cg_appended:
+                    _cg_new = {
+                        _r.name: apply_conditional_gate(
+                            X, _r.extra["mode"], _r.src_names, _r.extra["tau"],
+                        )
+                        for _r in _cg_recipes if _r.name in _cg_appended
+                    }
+                    X = pd.concat(
+                        [X, pd.DataFrame(_cg_new, index=X.index)], axis=1,
+                    )
+                    self.conditional_gate_features_ = list(_cg_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_cg_appended)
+                    )
+                    for _r in _cg_recipes:
+                        if _r.name in _cg_appended:
+                            _conditional_gate_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit conditional_gate: appended %d engineered "
+                            "column(s): %s",
+                            len(_cg_appended), _cg_appended[:8],
+                        )
+            except Exception as _cg_exc:
+                logger.warning(
+                    "MRMR.fit conditional-gate FE raised %s: %s; continuing without "
+                    "conditional-gate columns.",
+                    type(_cg_exc).__name__, _cg_exc,
+                )
+
     # Layer 95 PART B (2026-06-01): per-group distribution-distance. For each
     # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
     # global distribution, broadcast to rows; each survivor MI-gated against the
@@ -5114,6 +5237,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cat_pair_pre_recipes, _cat_triple_pre_recipes,
                 _numeric_decompose_pre_recipes, _modular_pre_recipes,
                 _pairwise_modular_pre_recipes, _integer_lattice_pre_recipes,
+                _row_argmax_pre_recipes, _conditional_gate_pre_recipes,
                 _group_distance_pre_recipes, _rare_category_pre_recipes,
                 _conditional_residual_pre_recipes,
                 _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
@@ -5290,6 +5414,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_integer_lattice_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _integer_lattice_pre_recipes.pop(_c, None)
+            for _c in list(_row_argmax_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _row_argmax_pre_recipes.pop(_c, None)
+            for _c in list(_conditional_gate_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _conditional_gate_pre_recipes.pop(_c, None)
             for _c in list(_group_distance_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _group_distance_pre_recipes.pop(_c, None)
@@ -5416,6 +5546,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _numeric_decompose_pre_recipes,
                         _modular_pre_recipes, _pairwise_modular_pre_recipes,
                         _integer_lattice_pre_recipes,
+                        _row_argmax_pre_recipes, _conditional_gate_pre_recipes,
                         _group_distance_pre_recipes,
                         _rare_category_pre_recipes,
                         _conditional_residual_pre_recipes,
@@ -5821,6 +5952,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_pairwise_modular_pre_recipes)
     if _integer_lattice_pre_recipes:
         engineered_recipes.update(_integer_lattice_pre_recipes)
+    if _row_argmax_pre_recipes:
+        engineered_recipes.update(_row_argmax_pre_recipes)
+    if _conditional_gate_pre_recipes:
+        engineered_recipes.update(_conditional_gate_pre_recipes)
     # Layer 95 PART B: same routing for per-group distribution-distance recipes.
     if _group_distance_pre_recipes:
         engineered_recipes.update(_group_distance_pre_recipes)

@@ -2308,6 +2308,32 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_integer_lattice_enable: bool = True,
         fe_integer_lattice_top_k: int = 4,
         fe_integer_lattice_max_int_cols: int = 30,
+        # ROW-ARGMAX FE (frontier pass 2). Emits, for a column TRIPLE (a, b, c), the integer index 0/1/2 of the row-maximum --
+        # an ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs (a single shipped column
+        # never equals the 3-way argmax code; measured +0.55 single-column MI lift over the best shipped op). ZERO free params,
+        # detector-clean (negative lift on smooth/noise/ordinary-interaction controls; 0 FP at p=30 over 3 seeds in
+        # bench_conditional_gate_wideframe), leak-free deterministic replay (np.argmax over the stacked source columns). Default ON;
+        # opt out with fe_row_argmax_enable=False for byte-identical legacy/replay. BUDGET GUARD: max_cols=30 skips the whole
+        # C(p,3) sweep above 30 eligible columns (logged, never silent).
+        fe_row_argmax_enable: bool = True,
+        fe_row_argmax_top_k: int = 4,
+        fe_row_argmax_max_cols: int = 30,
+        # CONDITIONAL-GATE FE (frontier pass 2). Emits a regime switch c>tau ? a : b (select) and a masked interaction 1[c>tau]*a
+        # (mask): two raw features routed/masked by a THIRD column's data-dependent threshold tau (found by a ~17-point quantile
+        # scan, FROZEN in the recipe for exact replay). No shipped op expresses a hard value-selecting switch (conditional_residual
+        # is a residual, the hinge basis is univariate, a*c is a smooth surface); measured +0.55 select / +0.31 mask MI lift over
+        # the best shipped op. HARDENED detector: the engineered MI must beat the BEST-EXISTING-OP MI on the same operands (max over
+        # raw/product/ratio/diff/min/max), NOT just the raw single-operand floor -- this removes the prototype's false positives on
+        # smooth/ordinary_mul (bench_conditional_gate_wideframe: 0 FP at p=30 over 3 seeds with the hardened floor).
+        # DEFAULT OFF (opt-in via fe_conditional_gate_enable=True): the detector is specific (0 FP) and replays exact, BUT the
+        # select sweep is O(p^3) x a 17-point tau scan x the best-existing-op O(p^2) MI floor, a wide-frame COST blow-up the
+        # column-count budget guard cannot bound (the cost is n-driven, not p-driven: bench_conditional_gate_wideframe measured the
+        # scan at +50%..+220% of a full fit at n=20000, even at max_cols / max_gate_cols floors). Kept fully wired + validated so a
+        # caller who knows their frame has gate structure can opt in; not blanket-ON because of the cost. BUDGET GUARD: max_cols=20
+        # skips the whole sweep above 20 eligible columns (logged). Leak-free replay (np.where(c>tau,a,b) / (c>tau)*a, frozen tau).
+        fe_conditional_gate_enable: bool = False,
+        fe_conditional_gate_top_k: int = 4,
+        fe_conditional_gate_max_cols: int = 20,
         # PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
         # (extends Layer 88). For each (group, num) emit how far the row's GROUP
         # distribution sits from the GLOBAL one: group-level z

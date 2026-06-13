@@ -215,6 +215,14 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
         from .._integer_lattice_fe import apply_integer_lattice
         return apply_integer_lattice(X, str(recipe.extra["op"]), recipe.src_names)
+    if recipe.kind == "row_argmax":
+        # Row-argmax: the integer index of the row-maximum over the source columns. Pure function of X, no y -> leak-free.
+        from .._conditional_gate_fe import apply_row_argmax
+        return apply_row_argmax(X, recipe.src_names)
+    if recipe.kind == "conditional_gate":
+        # Conditional-gate: c>tau ? a : b (select) / 1[c>tau]*a (mask), with the FROZEN tau. Pure function of X, no y -> leak-free.
+        from .._conditional_gate_fe import apply_conditional_gate
+        return apply_conditional_gate(X, str(recipe.extra["mode"]), recipe.src_names, float(recipe.extra["tau"]))
     if recipe.kind == "group_distance":
         # Layer 95 PART B (2026-06-01): per-group distribution-distance FE
         # (group-level z / KL / Wasserstein-1 from the global distribution).

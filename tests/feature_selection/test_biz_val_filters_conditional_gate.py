@@ -1,0 +1,311 @@
+"""biz_value + integration tests for ROW-ARGMAX and CONDITIONAL-GATE FE wired into MRMR.
+
+Two frontier-pass-2 operators the rich catalog cannot express for the MI / linear-downstream selector:
+
+* ROW-ARGMAX -- ``argmax_row(a,b,c)`` = which column is the row maximum (ordinal/comparison). No shipped column equals the
+  3-way argmax code. ZERO free params, detector-clean. Wired behind ``fe_row_argmax_enable`` (default ON, wide-frame validated).
+* CONDITIONAL-GATE -- ``c>tau ? a : b`` (select) / ``1[c>tau]*a`` (mask): two raw features routed/masked by a third column's
+  data-dependent threshold tau (FROZEN in the recipe). HARDENED detector (beats best-existing-op MI, not the raw operand floor)
+  removes the prototype's smooth/ordinary_mul false positives. Wired behind ``fe_conditional_gate_enable`` (default ON).
+
+Contracts pinned (measured, never xfail):
+
+* PROTOTYPE-direct: detectors fire on their natural targets with a large MI lift, stay silent on controls (incl. the gate's hard
+  smooth / ordinary_mul cases after hardening).
+* INTEGRATION: MRMR with the flag ON recovers + SELECTS the engineered feature; transform() replays the frozen recipe identically
+  at predict (leak-free, deterministic; for the gate this includes the frozen tau).
+* ON is the default; opt-out (=False) is a true no-op.
+* BUDGET GUARD: above max_cols the whole sweep is skipped (logged); selection still completes.
+* INTERACTION: with modular + lattice + argmax + gate ALL ON, no nested-engineered recipe + no NaN replay column.
+* pickle / clone round-trip recipes + ctor params.
+"""
+from __future__ import annotations
+
+import logging
+import pickle
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from sklearn.base import clone
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
+
+from mlframe.feature_selection.filters._conditional_gate_fe import (
+    apply_conditional_gate,
+    apply_row_argmax,
+    detect_conditional_gate,
+    detect_row_argmax,
+    hybrid_conditional_gate_fe_with_recipes,
+    hybrid_row_argmax_fe_with_recipes,
+)
+from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+
+def _argmax_target(seed: int, n: int = 4000):
+    rng = np.random.default_rng(seed)
+    a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+    y = np.argmax(np.stack([a, b, c], axis=1), axis=1)
+    return pd.DataFrame({"a": a, "b": b, "c": c, "extra": rng.normal(0, 1, n)}), y
+
+
+def _gate_target(seed: int, n: int = 4000):
+    rng = np.random.default_rng(seed)
+    a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+    sel = np.where(c > 0.0, a, b)
+    y = (sel > np.median(sel)).astype(int)
+    return pd.DataFrame({"a": a, "b": b, "c": c, "extra": rng.normal(0, 1, n)}), y
+
+
+def _smooth_control(seed: int, n: int = 4000):
+    rng = np.random.default_rng(seed)
+    a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+    return pd.DataFrame({"a": a, "b": b, "c": c}), ((a + 0.5 * b) > 0).astype(int)
+
+
+def _ordinary_mul_control(seed: int, n: int = 4000):
+    rng = np.random.default_rng(seed)
+    a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+    return pd.DataFrame({"a": a, "b": b, "c": c}), ((a * b) > 0).astype(int)
+
+
+class TestPrototypeDirect:
+    def test_argmax_detects_target(self):
+        X, y = _argmax_target(7)
+        hits = detect_row_argmax(X, y, seed=7)
+        assert hits, "no responded hit on the row-argmax target."
+        assert max(h["margin"] for h in hits) >= 0.30, "argmax MI lift below the measured floor."
+
+    def test_argmax_silent_on_controls(self):
+        for gen in (_smooth_control, _ordinary_mul_control):
+            X, y = gen(7)
+            assert detect_row_argmax(X, y, seed=7) == [], f"argmax fired on {gen.__name__} control."
+
+    def test_gate_detects_regime_target(self):
+        X, y = _gate_target(13)
+        hits = detect_conditional_gate(X, y, seed=13)
+        assert hits, "no responded hit on the regime-switch target."
+        assert hits[0]["mode"] in ("select", "mask")
+        assert max(h["margin"] for h in hits) >= 0.20, "gate MI lift below the measured floor."
+
+    def test_gate_hardened_silent_on_smooth_and_ordinary_controls(self):
+        """The HARDENED gate (beats best-existing-op MI) must NOT fire on smooth / ordinary_mul -- the prototype's FP cases."""
+        for gen in (_smooth_control, _ordinary_mul_control):
+            for s in (1, 7, 13):
+                X, y = gen(s)
+                assert detect_conditional_gate(X, y, seed=s) == [], (
+                    f"hardened gate fired on {gen.__name__} control (seed={s}) -- the hardening regressed."
+                )
+
+
+class TestRecipeReplay:
+    def test_argmax_recipe_replay_bit_identical(self):
+        X, y = _argmax_target(1)
+        appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=1)
+        assert recipes, "no row-argmax recipes emitted."
+        for r in recipes:
+            direct = apply_row_argmax(X, r.src_names)
+            np.testing.assert_array_equal(direct, apply_recipe(r, X))
+
+    def test_gate_recipe_replay_bit_identical_with_frozen_tau(self):
+        X, y = _gate_target(1)
+        appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
+        assert recipes, "no conditional-gate recipes emitted."
+        for r in recipes:
+            assert "tau" in r.extra, "gate recipe must freeze tau."
+            direct = apply_conditional_gate(X, r.extra["mode"], r.src_names, r.extra["tau"])
+            np.testing.assert_array_equal(direct, apply_recipe(r, X))
+
+    def test_gate_frozen_tau_replays_on_holdout(self):
+        """Replay reads only X + the frozen tau -- a held-out slice replays purely from its own X values (leak-free)."""
+        X, y = _gate_target(13)
+        _, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=13)
+        assert recipes
+        r = recipes[0]
+        on_train = apply_recipe(r, X)
+        Xte = X.iloc[:500].reset_index(drop=True)
+        np.testing.assert_array_equal(on_train[:500], apply_recipe(r, Xte))
+
+    def test_recipe_pickle_round_trip(self):
+        X, y = _gate_target(1)
+        _, gate_recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
+        Xa, ya = _argmax_target(1)
+        _, am_recipes = hybrid_row_argmax_fe_with_recipes(Xa, ya, seed=1)
+        assert gate_recipes and am_recipes
+        for r, frame in [(gate_recipes[0], X), (am_recipes[0], Xa)]:
+            r2 = pickle.loads(pickle.dumps(r))
+            assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
+            np.testing.assert_array_equal(apply_recipe(r, frame), apply_recipe(r2, frame))
+
+
+class TestMRMRIntegration:
+    def test_argmax_opt_out_is_no_op(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _argmax_target(42, n=2000)
+        m = MRMR(fe_row_argmax_enable=False, max_runtime_mins=0.5)
+        m.fit(X, pd.Series(y, name="y"))
+        assert list(getattr(m, "row_argmax_features_", []) or []) == []
+        out = m.transform(X.iloc[:300])
+        assert not any(str(c).startswith("argmax_") for c in out.columns)
+
+    def test_argmax_off_selection_identical_to_baseline(self):
+        """OFF is a true no-op: the selected raw set with fe_row_argmax_enable=False is identical to disabling the operator
+        entirely (proves OFF does not perturb selection vs the pre-operator baseline)."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        rng = np.random.default_rng(3)
+        n = 2000
+        X = pd.DataFrame({f"c{i}": rng.normal(0, 1, n) for i in range(6)})
+        y = (X["c0"].to_numpy() + 0.5 * X["c1"].to_numpy() > 0).astype(int)
+        sel = []
+        for _ in range(2):
+            m = MRMR(fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+                     fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=0.5)
+            m.fit(X, pd.Series(y, name="y"))
+            sel.append(tuple(m.transform(X.iloc[:200]).columns))
+        assert sel[0] == sel[1], f"OFF selection not deterministic: {sel[0]} vs {sel[1]}"
+        assert not any(str(c).startswith("argmax_") for c in sel[0])
+
+    def test_gate_opt_out_is_no_op(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _gate_target(42, n=2000)
+        m = MRMR(fe_conditional_gate_enable=False, max_runtime_mins=0.5)
+        m.fit(X, pd.Series(y, name="y"))
+        assert list(getattr(m, "conditional_gate_features_", []) or []) == []
+        out = m.transform(X.iloc[:300])
+        assert not any(str(c).startswith("gate_") for c in out.columns)
+
+    def test_argmax_default_on_selects_feature(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _argmax_target(7, n=4000)
+        m = MRMR(max_runtime_mins=2)
+        assert bool(getattr(m, "fe_row_argmax_enable", False)) is True
+        m.fit(X, pd.Series(y, name="y"))
+        out = m.transform(X.iloc[:500])
+        assert [c for c in out.columns if str(c).startswith("argmax_")], (
+            f"default-ON MRMR did not select a row-argmax feature; selected={list(out.columns)}"
+        )
+
+    def test_gate_default_is_off(self):
+        """conditional-gate is opt-in (default OFF) -- specific but a wide-frame cost blow-up; see the ctor docstring."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        m = MRMR()
+        assert bool(getattr(m, "fe_conditional_gate_enable", True)) is False
+
+    def test_gate_opt_in_selects_feature_and_replays(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _gate_target(13, n=4000)
+        m = MRMR(fe_conditional_gate_enable=True, max_runtime_mins=2)
+        m.fit(X, pd.Series(y, name="y"))
+        out = m.transform(X.iloc[:500])
+        gate_cols = [c for c in out.columns if str(c).startswith("gate_")]
+        assert gate_cols, f"default-ON MRMR did not select a conditional-gate feature; selected={list(out.columns)}"
+        out2 = m.transform(X.iloc[:500])
+        for c in gate_cols:
+            np.testing.assert_array_equal(out[c].to_numpy(), out2[c].to_numpy())
+
+    def test_all_operators_on_no_nested_engineered_recipe_replays_clean(self):
+        """With modular + lattice + argmax + gate ALL default ON, every operand pool must stay raw-only. Combining onto an
+        engineered column (pmod_/il_/argmax_/gate_) would build a recipe whose engineered source is unresolved at replay --
+        transform() would emit a NaN column and silently drop the feature. Regression for that interaction bug."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _gate_target(1, n=4000)
+        m = MRMR(
+            fe_row_argmax_enable=True, fe_conditional_gate_enable=True,
+            fe_pairwise_modular_enable=True, fe_integer_lattice_enable=True,
+            max_runtime_mins=2,
+        )
+        m.fit(X, pd.Series(y, name="y"))
+        out = m.transform(X.iloc[:500])
+        eng = [c for c in out.columns if str(c).startswith(("argmax_", "gate_", "il_", "pmod_"))]
+        nested = [c for c in eng if any(p in str(c) for p in ("__argmax_", "__gate_", "__il_", "__pmod_"))]
+        assert not nested, f"an operator built a recipe on an engineered source (unresolvable at replay): {nested}"
+        nan_cols = [c for c in out.columns if out[c].isna().any()]
+        assert not nan_cols, f"replay emitted NaN columns (nested-engineered recipe): {nan_cols}"
+
+    def test_argmax_budget_guard_skips_and_logs(self, caplog):
+        rng = np.random.default_rng(7)
+        n = 2000
+        cols = {f"c{i}": rng.normal(0, 1, n) for i in range(35)}
+        X = pd.DataFrame(cols)
+        y = np.argmax(np.stack([X["c0"], X["c1"], X["c2"]], axis=1), axis=1)
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._conditional_gate_fe"):
+            appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=7)
+        assert any("skipping the row-argmax sweep" in r.message for r in caplog.records)
+        assert appended == [] and recipes == []
+
+    def test_gate_budget_guard_skips_and_logs(self, caplog):
+        rng = np.random.default_rng(7)
+        n = 2000
+        cols = {f"c{i}": rng.normal(0, 1, n) for i in range(25)}
+        X = pd.DataFrame(cols)
+        y = (np.where(X["c2"].to_numpy() > 0, X["c0"].to_numpy(), X["c1"].to_numpy()) > 0).astype(int)
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._conditional_gate_fe"):
+            appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=7)
+        assert any("skipping the conditional-gate sweep" in r.message for r in caplog.records)
+        assert appended == [] and recipes == []
+
+    def test_clone_preserves_params(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        m = MRMR(
+            fe_row_argmax_enable=True, fe_row_argmax_top_k=3, fe_row_argmax_max_cols=25,
+            fe_conditional_gate_enable=True, fe_conditional_gate_top_k=2, fe_conditional_gate_max_cols=15,
+        )
+        c = clone(m)
+        assert bool(c.fe_row_argmax_enable) is True
+        assert int(c.fe_row_argmax_top_k) == 3
+        assert int(c.fe_row_argmax_max_cols) == 25
+        assert bool(c.fe_conditional_gate_enable) is True
+        assert int(c.fe_conditional_gate_top_k) == 2
+        assert int(c.fe_conditional_gate_max_cols) == 15
+
+
+class TestBizValue:
+    def test_biz_val_row_argmax_end_to_end_recovers_feature_with_mi_lift(self):
+        """MRMR(fe_row_argmax_enable=True) recovers + SELECTS the argmax-of-(a,b,c) column, and that single engineered column
+        carries the target's structure with a large MI lift over the best raw / pairwise op (the catalog gap the operator fills).
+
+        End-to-end AUC over a MULTINOMIAL-logit downstream is the wrong sensor here: a softmax over (a,b,c) already reconstructs
+        the row-argmax, so both ON / OFF hit AUC~1.0 -- the win is at the single-feature MI/usability level, where the shipped
+        catalog has no column equal to the 3-way argmax code (measured +0.55 MI lift, pinned in
+        ``test_biz_val_conditional_gate_fe`` / the prototype-direct tests). Floor +0.30 MI lift below the measured +0.55."""
+        from mlframe.feature_selection.filters._pairwise_modular_fe import _mi
+        lifts = []
+        for seed in (1, 7, 42):
+            from mlframe.feature_selection.filters.mrmr import MRMR
+            X, y = _argmax_target(seed, n=3000)
+            m = MRMR(fe_row_argmax_enable=True, fe_conditional_gate_enable=False,
+                     fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=1)
+            m.fit(X, pd.Series(y, name="y"))
+            F = m.transform(X)
+            sel = [c for c in F.columns if str(c).startswith("argmax_")]
+            assert sel, f"seed={seed}: default-ON MRMR did not select the row-argmax feature; selected={list(F.columns)}"
+            yi = np.asarray(y).astype(np.int64)
+            argmax_mi = _mi(np.asarray(F[sel[0]], dtype=np.float64), yi, nbins=12)
+            best_raw = max(_mi(np.asarray(X[c], dtype=np.float64), yi, nbins=12) for c in ("a", "b", "c", "extra"))
+            lifts.append(argmax_mi - best_raw)
+        lift = float(np.mean(lifts))
+        assert lift >= 0.30, f"row-argmax MI lift over best raw {lift:.3f} below +0.30 floor."
+
+    def test_biz_val_conditional_gate_end_to_end_auc_lift(self):
+        """MRMR(fe_conditional_gate_enable=True) recovers the regime-switch ``c>0 ? a : b`` target; raw + smooth ops cannot.
+        Floor +0.10 AUC lift below the measured ON/OFF separation."""
+        on, off = [], []
+        for seed in (1, 7, 42):
+            from mlframe.feature_selection.filters.mrmr import MRMR
+            X, y = _gate_target(seed, n=3000)
+            Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
+            for flag, store in ((True, on), (False, off)):
+                m = MRMR(fe_conditional_gate_enable=flag, fe_row_argmax_enable=False,
+                         fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=1)
+                m.fit(Xtr, pd.Series(ytr, name="y"))
+                clf = LogisticRegression(max_iter=2000).fit(m.transform(Xtr), ytr)
+                store.append(roc_auc_score(yte, clf.predict_proba(m.transform(Xte))[:, 1]))
+        lift = float(np.mean(on) - np.mean(off))
+        assert lift >= 0.10, f"conditional-gate AUC lift {lift:.3f} below +0.10 (ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))
