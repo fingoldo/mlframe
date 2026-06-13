@@ -58,12 +58,26 @@ most hardcoded MRMR constants are well-placed (or do not bind on typical data) -
 add estimation variance with no bias to remove, so on principle they migrate to guarded hybrids that
 provably degenerate to the constant, never as naive replacements.
 
-## Module-constant items (need monkeypatch, not ctor-param sweep) -- pending
+## Module-constant items -- the full-fit monkeypatch is INVALID (cache-masked); needs a gate-level harness
 
 `_FE_MARGINAL_UPLIFT_MIN_RATIO` (1.30), `_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO` (0.82),
 `_FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO` (0.84) in `_pairs_gates.py`; `RAW_SELF_RETAIN_FRAC` (0.05)
 in `_fe_raw_redundancy_drop.py`; `_HINGE_MIN_HELDOUT_R2_UPLIFT` (0.02), `_HINGE_CAND_Q_LO/HI`
 (0.10/0.90), `_HINGE_PRECHECK_MIN_SSE_DROP` (0.005) in `_hinge_basis_fe.py`.
+
+**Measurement method finding (2026-06-13).** These are MODULE-LEVEL constants, NOT constructor
+params, so they are absent from MRMR's fit-key. The ctor-param sweep is valid because the fit cache
+invalidates on ANY parameter change; a module constant changed via monkeypatch does NOT invalidate
+it, so the second and later fits on identical (data, params) return the FIRST value's cached
+selection (observed: first fit 52s, every subsequent fit 0s -> a full FE fit cannot take 0s).
+`skip_retraining_on_same_content=False` AND clearing `_MRMR_IDENTITY_FP_CACHE` between fits did NOT
+force re-fits -- there is a further content-keyed fit-result cache layer. CONCLUSION: a
+whole-pipeline monkeypatch sweep cannot measure module constants; the correct harness calls each GATE
+FUNCTION directly (e.g. the `_pairs_gates` marginal-uplift predicate, `_fe_raw_redundancy_drop`'s
+keep test) with varied constants on fixed candidate inputs, bypassing the fit cache. The hinge
+constants additionally only bind when the opt-in hinge FE generator is enabled. Priority for the
+gate-level bench: `_FE_MARGINAL_UPLIFT_MIN_RATIO` (the one HIGH module const, audited to gate ~50% of
+FE candidates); the rest are LOW. This is the remaining piece of the threshold-conversion work.
 
 ## Design principle for conversions (the bias-variance guard)
 
