@@ -99,6 +99,22 @@ Audited every FE generator that derives a feature from y, tracing fit-time MI-sc
 `cat_num_residual` / `conditional_residual` / `row_argmax` / `conditional_gate` (pure functions of X, frozen
 tau on a FEATURE). Only the cat-interaction TE kernel's positional folds (fixed above) were a real seam.
 
+## VERIFIED CLEAN -- parallel-session default-path perf commits (2026-06-13)
+
+- **`assume_finite` NaN-scan skip in `discretize_2d_quantile_batch`** (commit d7240656): correct. The njit
+  materialise kernel scrubs NaN/inf/overflow inline (`_pairs_materialise.py` trailing nan_to_num, both
+  serial + parallel bodies), the numpy-fallback scrubs explicitly, `assume_finite=True` is wired ONLY at the
+  two scrubbed call sites, default stays NaN-aware. HARDENED with `test_fe_parallel_kernel_twins.py::
+  test_materialise_output_always_finite_under_nan_inf_overflow` (RED if the kernel scrub is removed). (e509927e)
+- **CMI y/z-invariant hoist in `_conditional_perm_null`** (commit f0c16818): correct loop-invariant
+  factoring -- `H(YZ)/H(Z)/k_yz/k_z/n` depend only on y,z (fixed across permutations), per-perm recomputes
+  only the x-dependent `xz/xyz` terms. The one divergence risk -- `_cmi_from_binned`'s empty-z branch uses
+  the UNCONDITIONAL bias `(k_x+k_y-k_xy-1)/2n` while `cmi_from_binned_fixed_yz` always uses the conditional
+  `(k_xyz+k_z-k_xz-k_yz)/2n` -- is structurally prevented: `_fe_cmi_redundancy_gate.py:215` dispatches empty
+  z to the marginal path BEFORE the hoist (line 245 runs only after the non-empty-z guard). Their 200-config
+  bit-identity test + this dispatch guarantee fully cover it; the formula is branchless w.r.t. cardinality,
+  so no further test needed (would be padding).
+
 ## VERIFIED CLEAN (no triggerable bug)
 
 - `_fe_raw_redundancy_drop.py` -- keep/drop sign, nested anchoring, fail-closed replay, determinism.

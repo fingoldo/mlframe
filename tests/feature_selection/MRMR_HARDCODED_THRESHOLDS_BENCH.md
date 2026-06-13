@@ -65,6 +65,21 @@ provably degenerate to the constant, never as naive replacements.
 in `_fe_raw_redundancy_drop.py`; `_HINGE_MIN_HELDOUT_R2_UPLIFT` (0.02), `_HINGE_CAND_Q_LO/HI`
 (0.10/0.90), `_HINGE_PRECHECK_MIN_SSE_DROP` (0.005) in `_hinge_basis_fe.py`.
 
+**`_FE_MARGINAL_UPLIFT_MIN_RATIO` (1.30) -- MEASURED via the gate-level harness -> KEEP fixed (no-win).**
+Bench `_benchmarks/bench_marginal_uplift_ratio.py` (the documented gate-level method, bypasses the fit
+cache): over 8 seeds of the canonical `a**2/b + log(c)*sin(d)` fixture, the genuine engineered pairs sit at
+raw uplift mean 1.613 (min 1.200) and the easy cross-signal artefact at ~1.001, so the 1.30 bar passes 0%
+of artefacts with a wide +0.196 margin. Tested the conversion hypothesis -- MM-debias BOTH 1-D MIs before
+the ratio (mirroring the shipped `fe_min_pair_mi_prevalence` "auto") -- and it WIDENS the separation only
++0.044 (raw +0.196 -> debiased +0.240), below the 0.05 conversion threshold. Reason debiasing barely moves
+it: unlike the prevalence ratio (1-D / 2-D, where the joint denominator's bias is ~nbins x larger so
+debiasing fixes a structural depression), the uplift ratio is 1-D / 1-D with COMPARABLE occupied
+cardinality, so the `(k-1)(k_y-1)/2n` corrections nearly offset. DECISIVE point: the DOCUMENTED HARD
+artefact (`sub(exp(a),invcbrt(c))`, uplift 1.441 > 1.30) is NOT gated by the uplift bar at all -- it clears
+1.30 and is rejected by the TWO-TIER JOINT-RECOVERY floor (joint 0.814 < strict 0.84). So an adaptive
+uplift bar cannot improve the case that actually binds, while adding estimation variance (the bias-variance
+guard). KEEP the fixed 1.30; the conversion well for this constant is dry. Bench kept (REJECTED != DELETED).
+
 **Measurement method finding (2026-06-13).** These are MODULE-LEVEL constants, NOT constructor
 params, so they are absent from MRMR's fit-key. The ctor-param sweep is valid because the fit cache
 invalidates on ANY parameter change; a module constant changed via monkeypatch does NOT invalidate
