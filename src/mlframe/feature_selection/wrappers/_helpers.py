@@ -226,6 +226,7 @@ def get_next_features_subset(
     fi_family: Union[str, None] = None,
     signed_importances: Union[dict, None] = None,
     importance_agg_k_cv: float = 1.0,
+    dichotomic_step: str = "midpoint",
 ) -> list:
     """Generate the next 'next_nfeatures_to_check' candidate to evaluate.
     Combines FIs from prior runs into ranks via voting, returns the top-N."""
@@ -253,6 +254,7 @@ def get_next_features_subset(
             n_total=len(original_features),
             epsilon=float(dichotomic_epsilon),
             rng=rng,
+            step=dichotomic_step,
         )
     elif top_predictors_search_method == OptimumSearch.ScipyLocal:
         next_nfeatures_to_check = _suggest_scipy_local(
@@ -331,22 +333,47 @@ def get_next_features_subset(
     return ranks[:next_nfeatures_to_check]
 
 
+def _curve_is_flat_near_best(evaluated_scores_mean: dict, best_n: int) -> bool:
+    """True when the score curve around ``best_n`` is flat (relative slope tiny).
+
+    Compares the best score against the nearest evaluated neighbours on each side;
+    a flat verdict means a big stride is safe because nearby N's score ~the same,
+    so the optimum is not in the immediate neighbourhood we already mapped.
+    """
+    if len(evaluated_scores_mean) < 2:
+        return True
+    best_s = evaluated_scores_mean[best_n]
+    lower = [n for n in evaluated_scores_mean if n < best_n]
+    higher = [n for n in evaluated_scores_mean if n > best_n]
+    neigh = []
+    if lower:
+        neigh.append(max(lower))
+    if higher:
+        neigh.append(min(higher))
+    if not neigh:
+        return True
+    span = max(abs(v) for v in evaluated_scores_mean.values()) or 1.0
+    # Max relative score change to the immediate evaluated neighbours.
+    rel = max(abs(best_s - evaluated_scores_mean[n]) for n in neigh) / span
+    return rel < 0.01
+
+
 def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
                          n_total: int, epsilon: float = 0.0,
-                         rng: object = None) -> int:
-    """Binary-search-style suggester for ExhaustiveDichotomic.
+                         rng: object = None, step: str = "auto") -> int:
+    """Coarse-to-fine suggester for ExhaustiveDichotomic.
 
-    With one or zero evaluations: probe the midpoint of the full
-    feature range. With >=2 evaluations: identify the highest-scoring
-    evaluated N and probe the midpoint between it and the nearest
-    unevaluated neighbour. Falls back to picking the unevaluated N
-    closest to the global midpoint if nothing useful from history.
+    ``step='midpoint'`` (default) is the legacy fixed bisection. ``step='auto'`` is the adaptive elimination-pace schedule:
+    while the unevaluated pool is large AND the CV curve near the best is flat, it strides by ``max(1, floor(frac * n_remaining))``
+    away from the best to map the curve cheaply; as the pool shrinks / the curve starts moving near the knee it collapses back to
+    the midpoint bisection (effectively step->1), so the FINAL probed neighbourhood is identical to the fine search. 'auto' is an
+    opt-in: it is selection-equivalent to midpoint but showed no replicated wall win (bench_dichotomic_adaptive_step.py).
 
-    S6 (Wave 2, 2026-05-28): when ``epsilon > 0`` and rng samples a
-    Bernoulli(epsilon) success, pick a random unevaluated N OUTSIDE the
-    neighbourhood of the current best (gap > p/4). Prevents the
-    classic two-plateau hill-climb trap. ``rng=None`` uses module's
-    ``random`` for determinism-via-seed only when explicitly passed.
+    With one or zero evaluations: probe the midpoint of the full range. With >=2: identify the highest-scoring evaluated N
+    and (adaptive) stride or (legacy) bisect toward the nearest unevaluated neighbour.
+
+    When ``epsilon > 0`` and rng samples a Bernoulli(epsilon) success, pick a random unevaluated N OUTSIDE the best's
+    neighbourhood (gap > p/4) -- prevents the two-plateau hill-climb trap. ``rng=None`` uses module ``random``.
     """
     remaining = sorted(remaining)
     if not remaining:
@@ -363,7 +390,25 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
         target = max(1, n_total // 2)
         return min(remaining, key=lambda n: abs(n - target))
     best_evaluated = max(evaluated_scores_mean.items(), key=lambda kv: kv[1])[0]
-    # Pick whichever side has the wider gap (more information).
+
+    # Adaptive coarse step: only fire while the pool is still large AND the curve near best is flat. ``frac`` shrinks as
+    # the pool drains (0.5 -> 0 over n_total), so strides start big and naturally taper to 1 near the knee, after which we
+    # fall through to the legacy midpoint refinement. Bounded by n_total//4 so a stride can never overshoot the whole range.
+    if step == "auto" and len(remaining) > 4 and _curve_is_flat_near_best(evaluated_scores_mean, best_evaluated):
+        frac = 0.5 * (len(remaining) / max(n_total, 1))
+        stride = int(np.floor(frac * len(remaining)))
+        stride = max(1, min(stride, max(1, n_total // 4)))
+        if stride > 1:
+            # Stride toward whichever side has more unevaluated room (more information left to gain).
+            lower = [n for n in remaining if n < best_evaluated]
+            higher = [n for n in remaining if n > best_evaluated]
+            side_hi = len(higher) >= len(lower)
+            target = best_evaluated + stride if side_hi and higher else best_evaluated - stride
+            if (side_hi and not higher) or (not side_hi and not lower):
+                target = best_evaluated - stride if side_hi else best_evaluated + stride
+            return min(remaining, key=lambda n: abs(n - target))
+
+    # Legacy fine refinement: bisect toward the nearest unevaluated neighbour on the wider-gap side.
     lower = [n for n in remaining if n < best_evaluated]
     higher = [n for n in remaining if n > best_evaluated]
     candidates = []

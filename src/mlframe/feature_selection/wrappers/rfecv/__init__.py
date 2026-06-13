@@ -322,6 +322,15 @@ class RFECV(BaseEstimator, TransformerMixin):
         # curves. Default 0.1 (NEW) sets ~10% iters to pick a random unevaluated N outside the best-known neighbourhood. Set 0.0 to
         # restore pure dichotomic behaviour.
         dichotomic_epsilon: float = 0.1,
+        # dichotomic_step: elimination-pace schedule for ExhaustiveDichotomic. 'midpoint' (default) is the legacy fixed
+        # bisection. 'auto' is the adaptive coarse-to-fine schedule: stride by max(1, floor(frac*n_remaining)) away from the
+        # best while the unevaluated N-pool is large AND the CV curve is flat, then collapse to step=1 midpoint refinement near
+        # the knee. bench-attempt-rejected-as-default (see _benchmarks/bench_dichotomic_adaptive_step.py): selection is exactly
+        # equivalent (Jaccard 1.00, held-out delta 0.0000 across 5 scenarios x 3 seeds, p in 30..600) but NO replicated wall win
+        # (median 1.00x, 3/15 wins) -- the outer-loop early-stop terminates the dichotomic search before the pool is ever large+
+        # flat enough for a coarse stride to SAVE an iteration (iters identical auto/midpoint every row). Kept as an opt-in for
+        # future re-test on harder curves / different stopping budgets.
+        dichotomic_step: str = "midpoint",
         # ----- Wave 3 FI-semantics knobs (2026-05-28) -----
         # F8: exponential decay of FI history weights. With rate=r>0, a K-iter-old FI run weighs (1-r)^K vs the freshest run = 1.0.
         # Without decay, voting treats iter-1 FI (on the full feature set) and iter-30 FI (on the narrowed-down survivor set) equally,
@@ -521,6 +530,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         if not (0.0 <= dichotomic_epsilon <= 1.0):
             raise ValueError(
                 f"dichotomic_epsilon must be in [0, 1]; got {dichotomic_epsilon}."
+            )
+
+        if dichotomic_step not in ("auto", "midpoint"):
+            raise ValueError(
+                f"dichotomic_step must be 'auto' or 'midpoint'; got {dichotomic_step!r}."
             )
 
         if not (0.0 <= fi_decay_rate < 1.0):

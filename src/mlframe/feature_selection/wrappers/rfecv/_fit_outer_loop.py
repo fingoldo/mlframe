@@ -146,6 +146,7 @@ def run_outer_loop_iteration(
             Optimizer=state.Optimizer,
             fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
             dichotomic_epsilon=float(getattr(self, "dichotomic_epsilon", 0.0)),
+            dichotomic_step=str(getattr(self, "dichotomic_step", "midpoint")),
             rng=getattr(self, "_rng", None),
             fi_decay_rate=float(getattr(self, "fi_decay_rate", 0.0)),
             fi_run_order=list(state.feature_importances.keys()),

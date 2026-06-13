@@ -59,6 +59,7 @@ if _PYDANTIC_AVAILABLE:
         mbh_adaptive_threshold: int = 30
         init_design_size: Union[int, str, None] = "auto"
         dichotomic_epsilon: float = Field(default=0.1, ge=0.0, le=1.0)
+        dichotomic_step: str = "midpoint"
         submit_dummy_to_optimizer: bool = True
         optimizer_target: str = "mean"
 
@@ -71,6 +72,13 @@ if _PYDANTIC_AVAILABLE:
         def _ck_target(cls, v: str) -> str:
             if v not in ("mean", "final_score"):
                 raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {v!r}")
+            return v
+
+        @field_validator("dichotomic_step")
+        @classmethod
+        def _ck_dstep(cls, v: str) -> str:
+            if v not in ("auto", "midpoint"):
+                raise ValueError(f"dichotomic_step must be 'auto' or 'midpoint'; got {v!r}")
             return v
 
 
