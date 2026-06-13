@@ -2333,15 +2333,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the best shipped op. HARDENED detector: the engineered MI must beat the BEST-EXISTING-OP MI on the same operands (max over
         # raw/product/ratio/diff/min/max), NOT just the raw single-operand floor -- this removes the prototype's false positives on
         # smooth/ordinary_mul (bench_conditional_gate_wideframe: 0 FP at p=30 over 3 seeds with the hardened floor).
-        # DEFAULT OFF (opt-in via fe_conditional_gate_enable=True): the detector is specific (0 FP) and replays exact, BUT the
-        # select sweep is O(p^3) x a 17-point tau scan x the best-existing-op O(p^2) MI floor, a wide-frame COST blow-up the
-        # column-count budget guard cannot bound (the cost is n-driven, not p-driven: bench_conditional_gate_wideframe measured the
-        # scan at +50%..+220% of a full fit at n=20000, even at max_cols / max_gate_cols floors). Kept fully wired + validated so a
-        # caller who knows their frame has gate structure can opt in; not blanket-ON because of the cost. BUDGET GUARD: max_cols=20
-        # skips the whole sweep above 20 eligible columns (logged). Leak-free replay (np.where(c>tau,a,b) / (c>tau)*a, frozen tau).
-        fe_conditional_gate_enable: bool = False,
+        # DEFAULT ON (opt out via fe_conditional_gate_enable=False for byte-identical legacy/replay). The prior O(p^3) wide-frame cost
+        # blow-up that forced this OFF is gone: the candidate set is RELEVANCE-PRUNED before the sweep. Operands a,b come from the
+        # top-fe_conditional_gate_k_operand columns by raw MI vs y (the value the switch routes carries marginal relevance); the gate
+        # column c comes from the top-fe_conditional_gate_k_gate by a CONDITIONAL-DIVERGENCE rank (how much a c>median split changes the
+        # operand->y MI), because a pure regime switch's gate column can be marginally independent of y (raw-MI ranks it last). The
+        # sweep is then O(k_operand^2 * k_gate * tau-scan), FLAT in p -- measured ~flat (~+10-15% of a full fit at n=20000, comparable
+        # to modular/lattice/argmax) instead of +50%..+291%. k_operand=10 / k_gate=8 keep all 3 gate-synthetic seeds caught amid 25
+        # noise; 0 FP at p=30 over 3 seeds (smooth/ordinary_mul/random) holds. BUDGET GUARD: max_cols=200 defense-in-depth outer cap.
+        fe_conditional_gate_enable: bool = True,
         fe_conditional_gate_top_k: int = 4,
-        fe_conditional_gate_max_cols: int = 20,
+        fe_conditional_gate_max_cols: int = 200,
+        fe_conditional_gate_k_gate: int = 8,
+        fe_conditional_gate_k_operand: int = 10,
         # PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
         # (extends Layer 88). For each (group, num) emit how far the row's GROUP
         # distribution sits from the GLOBAL one: group-level z

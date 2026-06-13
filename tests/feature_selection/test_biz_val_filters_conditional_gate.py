@@ -187,16 +187,19 @@ class TestMRMRIntegration:
             f"default-ON MRMR did not select a row-argmax feature; selected={list(out.columns)}"
         )
 
-    def test_gate_default_is_off(self):
-        """conditional-gate is opt-in (default OFF) -- specific but a wide-frame cost blow-up; see the ctor docstring."""
+    def test_gate_default_is_on(self):
+        """conditional-gate now defaults ON: the relevance-pruned candidate set makes the sweep O(k^2) flat-in-p (the prior
+        O(p^3) cost that forced it OFF is gone). Opt out with fe_conditional_gate_enable=False; see the ctor docstring."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR()
-        assert bool(getattr(m, "fe_conditional_gate_enable", True)) is False
+        assert bool(getattr(m, "fe_conditional_gate_enable", False)) is True
+        assert int(getattr(m, "fe_conditional_gate_k_gate", 0)) == 8
+        assert int(getattr(m, "fe_conditional_gate_k_operand", 0)) == 10
 
-    def test_gate_opt_in_selects_feature_and_replays(self):
+    def test_gate_default_on_selects_feature_and_replays(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _gate_target(13, n=4000)
-        m = MRMR(fe_conditional_gate_enable=True, max_runtime_mins=2)
+        m = MRMR(max_runtime_mins=2)
         m.fit(X, pd.Series(y, name="y"))
         out = m.transform(X.iloc[:500])
         gate_cols = [c for c in out.columns if str(c).startswith("gate_")]
@@ -242,15 +245,33 @@ class TestMRMRIntegration:
         X = pd.DataFrame(cols)
         y = (np.where(X["c2"].to_numpy() > 0, X["c0"].to_numpy(), X["c1"].to_numpy()) > 0).astype(int)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._conditional_gate_fe"):
-            appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=7)
+            appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=7, max_cols=20)
         assert any("skipping the conditional-gate sweep" in r.message for r in caplog.records)
         assert appended == [] and recipes == []
+
+    @pytest.mark.timeout(120)
+    def test_gate_skipped_on_regression_target_no_hang(self):
+        """The gate detector's floor is class-MI; a CONTINUOUS regression y cast to int64 becomes ~n classes and the tau-grid +
+        conditional-divergence MI explode (the fit never completes). With the gate default ON it MUST be skipped on regression
+        targets -- the fit completes fast and conditional_gate_features_ stays empty. Regression for the default-ON hang."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        rng = np.random.default_rng(42)
+        n = 600
+        X = pd.DataFrame(rng.normal(size=(n, 8)), columns=[f"x{i}" for i in range(8)])
+        y = X.iloc[:, :3].sum(axis=1).to_numpy() + 0.3 * rng.normal(size=n)  # continuous target
+        m = MRMR(verbose=0, random_seed=42)
+        assert bool(m.fe_conditional_gate_enable) is True
+        m.fit(X, pd.Series(y, name="y"))
+        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
+            "conditional-gate FE must be skipped on a regression target (class-MI floor is undefined / explodes there)."
+        )
 
     def test_clone_preserves_params(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR(
             fe_row_argmax_enable=True, fe_row_argmax_top_k=3, fe_row_argmax_max_cols=25,
             fe_conditional_gate_enable=True, fe_conditional_gate_top_k=2, fe_conditional_gate_max_cols=15,
+            fe_conditional_gate_k_gate=6, fe_conditional_gate_k_operand=7,
         )
         c = clone(m)
         assert bool(c.fe_row_argmax_enable) is True
@@ -259,6 +280,55 @@ class TestMRMRIntegration:
         assert bool(c.fe_conditional_gate_enable) is True
         assert int(c.fe_conditional_gate_top_k) == 2
         assert int(c.fe_conditional_gate_max_cols) == 15
+        assert int(c.fe_conditional_gate_k_gate) == 6
+        assert int(c.fe_conditional_gate_k_operand) == 7
+
+
+class TestRelevancePruning:
+    """The relevance-pruned candidate set makes the gate sweep O(k_operand^2 * k_gate), flat in p (the prior O(p^3) cost
+    that forced the gate OFF). Detection must SURVIVE the prune: the true operands a,b (marginal relevance) and the gate
+    column c (marginally y-independent -> ranked by conditional divergence, NOT raw MI) must stay in their top-k pools."""
+
+    def _gate_with_noise(self, seed: int, n_noise: int = 25, n: int = 4000):
+        rng = np.random.default_rng(seed)
+        a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+        sel = np.where(c > 0.0, a, b)
+        y = (sel > np.median(sel)).astype(int)
+        cols = {"a": a, "b": b, "c": c}
+        for i in range(n_noise):
+            cols[f"noise{i}"] = rng.normal(0, 1, n)
+        return pd.DataFrame(cols), y
+
+    def test_gate_signal_survives_pruning_amid_25_noise_three_seeds(self):
+        """With the default k_gate=8 / k_operand=10, the regime-switch signal is still detected amid 25 noise columns on every
+        seed -- the gate column c (raw MI ~ 0) survives via the conditional-divergence rank, the operands via raw MI."""
+        for seed in (1, 7, 42):
+            X, y = self._gate_with_noise(seed)
+            hits = detect_conditional_gate(X, y, list(X.columns), seed=seed)
+            assert hits, f"seed={seed}: gate signal lost after relevance-pruning amid 25 noise columns."
+
+    def test_pruned_gate_column_ranked_by_conditional_divergence_not_raw_mi(self):
+        """The true gate column c is marginally y-independent (raw MI ~ 0, would rank LAST), yet must enter the gate pool via the
+        conditional-divergence rank. Pins the dual-signal prune: raw-MI ranking alone would drop c and miss the regime switch."""
+        from mlframe.feature_selection.filters._conditional_gate_fe import _rank_and_prune
+        X, y = self._gate_with_noise(7)
+        gate_pool, operand_pool = _rank_and_prune(X, list(X.columns), np.asarray(y).astype(np.int64), 12, 8, 10)
+        assert "c" in gate_pool, f"gate column c dropped from the k_gate pool: {gate_pool}"
+        assert "a" in operand_pool and "b" in operand_pool, f"operands missing from the k_operand pool: {operand_pool}"
+
+    def test_gate_scan_cost_flat_in_p(self):
+        """The pruned scan's candidate count is bounded by O(k_operand^2 * k_gate), independent of p: tripling the noise-column
+        count must NOT grow the candidate set proportionally (the unpruned C(p,2)*p sweep would explode). Cap = k_gate * mask +
+        k_gate * select = k_gate*(k_operand-1) + k_gate*(k_operand-1)*(k_operand-1), well below the unpruned count at p=63."""
+        from mlframe.feature_selection.filters._conditional_gate_fe import cheap_conditional_gate_scan
+        k_gate, k_operand = 8, 10
+        cap = k_gate * (k_operand + k_operand * (k_operand - 1))  # per gate col: mask (<=k_operand) + select (<=k_operand*(k_operand-1))
+        counts = []
+        for n_noise in (10, 60):
+            X, y = self._gate_with_noise(7, n_noise=n_noise, n=2000)
+            counts.append(len(cheap_conditional_gate_scan(X, y, list(X.columns), k_gate=k_gate, k_operand=k_operand)))
+        assert all(cnt <= cap for cnt in counts), f"candidate count {counts} exceeded the O(k^2*k_gate) cap {cap}."
+        assert counts[1] <= counts[0] * 1.3, f"candidate count grew with p ({counts}) -- the prune is not flat-in-p."
 
 
 class TestBizValue:

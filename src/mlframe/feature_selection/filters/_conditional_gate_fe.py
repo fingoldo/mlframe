@@ -31,7 +31,11 @@ Cost: ~99% of each scan is the shipped binned-MI kernel (``_mi`` -> ``_mi_classi
 ONE ``_mi_classif_batch`` call per (mode, a, b, gate) over the tau grid (bit-identical to per-tau -- the kernel bins each column
 independently, only the per-call dispatch overhead is amortised). The 12-perm null is EARLY-REJECTED: computed only for a candidate
 that already clears the baseline margin (``_responded`` needs BOTH, so a margin-failing candidate can never respond -> its null is
-skipped, stored +inf -- bit-identical by short-circuit). Budget-guarded on wide frames (``max_cols`` skips the whole sweep).
+skipped, stored +inf -- bit-identical by short-circuit). RELEVANCE-PRUNED candidate set (``_rank_and_prune``): the gate select sweep
+was O(p^3) (C(p,2) operand pairs x p gate cols x ~17 tau), which forced the gate OFF; it is now O(k_operand^2 * k_gate) FLAT in p --
+operands ranked by raw MI vs y, the gate column by a conditional-divergence rank (a regime switch's gate column can be marginally
+y-independent, so raw MI ranks it last). With k_operand=10 / k_gate=8 the added cost is comparable to modular/lattice/argmax and the
+gate now defaults ON. ``max_cols`` (default 200) stays a defense-in-depth outer cap that skips the whole sweep on an absurdly wide frame.
 
 cProfile (n=2000, p=15, enabled path, measured): the batched plug-in MI dispatch is the top hotspot (argmax ~99%, gate ~97% of the
 scan wall); the argmax stack + ``np.argmax`` and the gate ``np.where`` / quantile arithmetic are <3% combined -- the per-candidate
@@ -267,6 +271,52 @@ def cheap_row_argmax_scan(
     return hits
 
 
+def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: int, k_operand: int) -> tuple[list[str], list[str]]:
+    """Cheap-first candidate prune that makes the gate sweep O(k_operand^2 * k_gate), FLAT in p, returning (gate pool, operand pool).
+
+    TWO DIFFERENT relevance signals, because operands and the gate column play different roles in ``c > tau ? a : b``:
+
+    * OPERANDS a, b -- the VALUE the switch routes, so a useful operand carries marginal relevance to y. Ranked by raw binned-MI vs y
+      (one batched ``_mi_classif_batch`` call) -> top-``k_operand``. Gating two pure-noise columns yields noise, so the noise tail drops.
+
+    * GATE column c -- only decides WHICH operand, so on a pure regime switch c can be marginally INDEPENDENT of y (raw MI ~ 0): raw-MI
+      ranking puts the true gate column LAST and a tight raw-MI top-k would miss it (measured: seed 7 of the gate synthetic, c ranks 28/28).
+      So c is ranked by a CONDITIONAL-DIVERGENCE signal instead -- how much splitting on ``c > median(c)`` changes the operand->y MI:
+      ``|MI(a*, y | c>med) - MI(a*, y | c<=med)|`` summed over the top operands a*. A column that genuinely switches the regime shows a
+      large conditional divergence even at zero marginal MI; pure noise does not. One batched MI call per side ranks the whole gate pool.
+
+    Both signals are O(p) one-shot batched MI calls; the resulting O(k_operand^2 * k_gate) sweep is independent of p."""
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    cols = list(cols)
+    if not cols:
+        return [], []
+    arrs = [np.asarray(X[c], dtype=np.float64) for c in cols]
+    mat = np.ascontiguousarray(np.column_stack(arrs))
+    mis = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
+    operand_order = list(np.argsort(mis)[::-1])  # marginal relevance, descending
+    operand_cols = [cols[i] for i in operand_order][: max(2, int(k_operand))]
+
+    # Gate rank: conditional-divergence of the top operands' y-MI across a c>median split. Computed against a small operand probe
+    # set (the most-relevant few) so it stays cheap; summed |divergence| ranks every candidate gate column without needing c~y MI.
+    n_probe = min(len(operand_cols), 3)
+    probe_idx = [operand_order[i] for i in range(n_probe)]
+    probe = mat[:, probe_idx]  # (n, n_probe)
+    div = np.zeros(len(cols), dtype=np.float64)
+    for gi in range(len(cols)):
+        cv = arrs[gi]
+        hi = cv > np.median(cv)
+        lo = ~hi
+        if hi.sum() < nbins or lo.sum() < nbins:
+            continue  # degenerate split (near-constant gate column) -> no usable regime
+        mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins), dtype=np.float64)
+        mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins), dtype=np.float64)
+        div[gi] = float(np.abs(mi_hi - mi_lo).sum())
+    gate_order = list(np.argsort(div)[::-1])
+    gate_cols = [cols[i] for i in gate_order][: max(1, int(k_gate))]
+    return gate_cols, operand_cols
+
+
 def cheap_conditional_gate_scan(
     X,
     y: np.ndarray,
@@ -274,25 +324,36 @@ def cheap_conditional_gate_scan(
     *,
     nbins: int = 12,
     seed: int = 0,
-    max_gate_cols: int = 5,
+    k_gate: int = 8,
+    k_operand: int = 10,
 ) -> list[GateHit]:
     """Cheap first-pass scan for conditional-gate structure (regime-switch + masked-interaction) over X.
 
-    The gating column ``c`` ranges over the eligible columns; for ``mask`` the active column ``a`` ranges over the rest; for
-    ``select`` the ordered pair ``(a, b)`` ranges over the remaining distinct pairs. For each candidate the best tau is found by a
-    ~17-point quantile scan over c (the per-tau residue MIs batch into one kernel call), then the best-tau column is gated vs the
-    HARDENED best-existing-op baseline (max MI over raw / product / ratio / diff / min / max on the candidate's operands) by
-    ``_MIN_MARGIN`` AND a 12-perm null band. ``max_gate_cols`` bounds the gating-column fan-out (the (a, b) select sweep is
-    O(p^3); the cap keeps it budgeted -- the budget guard in the orchestrator skips the whole sweep on wide frames). The null is
-    early-rejected (computed only for a candidate already clearing the hardened baseline)."""
+    RELEVANCE-PRUNED candidate set (the cost lever): a regime switch ``c > tau ? a : b`` is only useful when the gate column c
+    carries SOME relevance to y (an irrelevant split is meaningless) and the operands a, b are among the more relevant columns
+    (gating two pure-noise columns yields noise). So we rank every eligible column ONCE by raw binned-MI vs y (one batched
+    ``_mi_classif_batch`` call -- the cheap primitive) and restrict the GATE columns c to the top-``k_gate`` and the OPERAND
+    columns a, b to the top-``k_operand`` by that relevance. The sweep becomes C(k_operand, 2) x k_gate x tau-scan =
+    O(k_operand^2 * k_gate), INDEPENDENT of p -- with k=8/10 it is a small constant whether p=30 or p=300, replacing the prior
+    positional ``cols[:5]`` slice (cheap but blind: the true operands routinely fell outside the first 5 columns of a wide frame).
+
+    For each candidate the best tau is found by a ~17-point quantile scan over c (per-tau residue MIs batch into one kernel call),
+    then the best-tau column is gated vs the HARDENED best-existing-op baseline (max MI over raw / product / ratio / diff / min /
+    max on the candidate's operands) by ``_MIN_MARGIN`` AND a 12-perm null band. The null is early-rejected (computed only for a
+    candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged -- only the candidate SET shrinks."""
     import pandas as pd  # noqa: F401
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
     else:
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
-    cols = list(cols)[: int(max_gate_cols)]
+    cols = list(cols)
     yi = np.asarray(y).astype(np.int64)
+
+    # Rank eligible columns by raw relevance (one batched MI call) and prune to the top-k gate / operand pools. The gate column c
+    # and the operands a, b are drawn from these pools; their union is what we materialise into ``arrs``.
+    gate_cols, operand_cols = _rank_and_prune(X, cols, yi, nbins, int(k_gate), int(k_operand))
+    cols = list(dict.fromkeys(list(operand_cols) + list(gate_cols)))  # union, operands first, dedup, order-stable
     arrs = {c: np.asarray(X[c], dtype=np.float64) for c in cols}
     # Cache the hardened best-existing-op baseline per operand set (it does not depend on tau / mode).
     _baseline_cache: dict[tuple[str, ...], float] = {}
@@ -304,10 +365,10 @@ def cheap_conditional_gate_scan(
         return _baseline_cache[key]
 
     hits: list[GateHit] = []
-    for cgate in cols:
+    for cgate in gate_cols:
         cv = arrs[cgate]
         taus = np.quantile(cv, _TAU_QUANTILES)
-        others = [cn for cn in cols if cn != cgate]
+        others = [cn for cn in operand_cols if cn != cgate]
         # mask: one active column a (cols = (a, c)); baseline over {a, c}.
         for a in others:
             av = arrs[a]
@@ -475,14 +536,17 @@ def hybrid_conditional_gate_fe_with_recipes(
     X, y: np.ndarray, *,
     cols: Optional[Sequence[str]] = None,
     top_k: int = 4, nbins: int = 12, seed: int = 0,
-    max_cols: int = 20,
+    k_gate: int = 8, k_operand: int = 10,
+    max_cols: int = 200,
 ):
     """Detect responded conditional-gate structure and emit it as frozen, replayable ``EngineeredRecipe`` objects (tau frozen).
 
-    Column-count BUDGET GUARD (the select (a, b) sweep is O(p^3) x a 17-point tau scan; see
-    ``_benchmarks/bench_conditional_gate_wideframe``): when the number of eligible columns exceeds ``max_cols`` the whole sweep is
-    SKIPPED (logged, never silent). The detector gates vs the HARDENED best-existing-op baseline so smooth / ordinary_mul controls
-    stay silent (0 FP at p=30 over 3 seeds).
+    RELEVANCE-PRUNED candidate set: the sweep cost is O(k_operand^2 * k_gate * tau-scan), FLAT in p -- the gate column c is drawn
+    from the top-``k_gate`` columns by raw MI vs y and the operands a, b from the top-``k_operand`` (see ``cheap_conditional_gate_scan``).
+    With k=8/10 the added cost is a small constant whether p=30 or p=300, so the prior O(p^3) blow-up that forced this OFF is gone.
+    The column-count BUDGET GUARD (``max_cols``, default 200) is kept as a defense-in-depth outer cap: an absurdly wide frame still
+    skips the whole sweep (logged, never silent). The detector gates vs the HARDENED best-existing-op baseline so smooth / ordinary_mul
+    controls stay silent (0 FP at p=30 over 3 seeds).
 
     Returns ``(appended_names, recipes)`` -- the materialised columns are NOT concatenated here (the MRMR caller appends them under
     its own RAM-safe path); each recipe replays the exact gate column from X + the frozen tau alone, leak-free."""
@@ -499,7 +563,7 @@ def hybrid_conditional_gate_fe_with_recipes(
         )
         return [], []
 
-    hits = cheap_conditional_gate_scan(X, y, elig, nbins=nbins, seed=seed)
+    hits = cheap_conditional_gate_scan(X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand)
     appended: list[str] = []
     recipes = []
     seen: set[str] = set()

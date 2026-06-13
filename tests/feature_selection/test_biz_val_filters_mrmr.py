@@ -1288,7 +1288,9 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
     recency_w = np.where(is_recent, 1.0, 0.0001)
 
     def _top1_with_weights(sw):
-        sel = MRMR(verbose=0, random_seed=11, max_runtime_mins=1.0)
+        # Gate FE off: this test measures the sample_weight -> top-1 flip on the RAW features (A vs B); the default-ON
+        # conditional-gate operator injects an engineered column that perturbs the uniform-weight top-1, masking the flip.
+        sel = MRMR(verbose=0, random_seed=11, max_runtime_mins=1.0, fe_conditional_gate_enable=False)
         sel.fit(df, ys, sample_weight=sw)
         if len(sel.support_) == 0:
             return None

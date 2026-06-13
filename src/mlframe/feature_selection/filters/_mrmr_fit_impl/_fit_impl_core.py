@@ -4363,18 +4363,27 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_conditional_gate_fe_with_recipes,
                 )
 
+                from .._fe_accuracy_gate import infer_classification
+
                 _y_for_cg = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
-                # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
-                _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
-                _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(
-                    X, _y_for_cg,
-                    cols=_cg_raw_cols,
-                    top_k=int(getattr(self, "fe_conditional_gate_top_k", 4)),
-                    seed=int(getattr(self, "random_seed", 0) or 0),
-                    max_cols=int(getattr(self, "fe_conditional_gate_max_cols", 20)),
-                )
+                # The gate detector's MI floor is class-MI (_mi_classif_batch); on a CONTINUOUS regression target the cast-to-int64
+                # y becomes ~n distinct classes -> the tau-grid + conditional-divergence MI explode (measured: a 600-row regression
+                # fit never completes). The regime-switch operator is a classification construct, so skip it on regression targets.
+                _cg_appended, _cg_recipes = ([], [])
+                if infer_classification(_y_for_cg):
+                    # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
+                    _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(
+                        X, _y_for_cg,
+                        cols=_cg_raw_cols,
+                        top_k=int(getattr(self, "fe_conditional_gate_top_k", 4)),
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                        max_cols=int(getattr(self, "fe_conditional_gate_max_cols", 200)),
+                        k_gate=int(getattr(self, "fe_conditional_gate_k_gate", 8)),
+                        k_operand=int(getattr(self, "fe_conditional_gate_k_operand", 10)),
+                    )
                 _cg_appended = [c for c in _cg_appended if c not in X.columns]
                 if _cg_appended:
                     _cg_new = {

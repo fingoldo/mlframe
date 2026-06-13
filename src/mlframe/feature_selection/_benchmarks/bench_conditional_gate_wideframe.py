@@ -3,7 +3,8 @@
 Mirrors ``bench_integer_lattice_wideframe`` for the two frontier-pass-2 operators. Per operator it proves so the default can go ON safely:
 
 1. COST -- the ADDED wall-time of the enabled scan as a fraction of a FULL MRMR fit, swept over eligible column count p in
-   {15, 30, 31, 50} and n in {2000, 20000}. p>31 must hit the budget skip (argmax max_cols=30; gate max_cols=20) -> ~0 added cost.
+   {15, 30, 50, 100} and n in {2000, 20000}. The gate sweep is RELEVANCE-PRUNED to O(k_operand^2 * k_gate) (k=10/8 defaults), so its
+   added cost is FLAT in p -- unlike the prior O(p^3) blow-up that forced it OFF. argmax still budget-skips at p>30 (max_cols=30).
 
 2. FALSE-POSITIVE at SCALE -- on a WIDE frame of pure-noise + ordinary-smooth columns (NO argmax / gate structure; INCLUDES the
    gate's hard controls: a smooth-linear-threshold y AND an ordinary-multiplicative-sign y) at p=30, the enabled scan must inject
@@ -26,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 RESULTS_DIR = Path(__file__).parent / "_results"
-P_GRID = (15, 30, 31, 50)
+P_GRID = (15, 30, 50, 100)
 N_GRID = (2000, 20000)
 
 # Only the operator under test is enabled; all other FE families OFF so the measured added-cost is purely this operator.
