@@ -83,3 +83,46 @@ def test_batch_kernel_bit_identical_to_per_group_reference(fname, _kernel, seed)
         got = getattr(rk, fname)(yt, ys, gids, k=k)
         ref = _ref_per_group(fname, yt, ys, gids, k)
         assert got == ref, f"{fname} k={k} seed={seed}: batch={got} ref={ref}"
+
+
+@pytest.mark.parametrize("fname,_kernel", _METRICS)
+def test_split_by_group_skips_groupid_argsort_when_presorted(fname, _kernel, monkeypatch):
+    """Pre-sorted group_ids (the LTR-suite convention) must NOT trigger an argsort of the
+    group_ids inside ``_split_by_group`` -- a stable argsort of already-sorted data is a no-op
+    ``arange`` plus two full gathers, all wasted. The fast path detects monotonicity and skips it.
+
+    Pre-fix code argsorted group_ids unconditionally, so the spy fires and this test fails."""
+    rng = np.random.default_rng(0)
+    ng = 300
+    gids = np.repeat(np.arange(ng), 7).astype(np.int64)  # strictly sorted
+    yt = rng.integers(0, 5, size=len(gids)).astype(np.float64)
+    ys = rng.standard_normal(len(gids))
+
+    real_argsort = np.argsort
+    seen = {"groupid_sort": 0}
+
+    def spy(a, *args, **kwargs):
+        arr = np.asarray(a)
+        # ``_split_by_group`` is the only site that argsorts a 1-D int group-id array of full length.
+        if arr.ndim == 1 and arr.shape[0] == len(gids) and np.array_equal(arr, gids):
+            seen["groupid_sort"] += 1
+        return real_argsort(a, *args, **kwargs)
+
+    monkeypatch.setattr(np, "argsort", spy)
+    getattr(rk, fname)(yt, ys, gids, k=10)
+    assert seen["groupid_sort"] == 0, f"{fname}: presorted group_ids must not be re-argsorted"
+
+
+@pytest.mark.parametrize("fname,_kernel", _METRICS)
+def test_split_by_group_presorted_matches_unsorted_path(fname, _kernel):
+    """The presorted fast path must be bit-identical to the general (argsort) path on the same data."""
+    rng = np.random.default_rng(3)
+    ng = 200
+    gids_sorted = np.repeat(np.arange(ng), 9).astype(np.int64)
+    yt = rng.integers(0, 5, size=len(gids_sorted)).astype(np.float64)
+    ys = rng.permutation(len(gids_sorted)).astype(np.float64)  # distinct scores: no ties -> order fully determined by score
+    # Shuffle rows + group_ids together: the general path argsort-restores grouping, must give same scalar.
+    perm = rng.permutation(len(gids_sorted))
+    got_sorted = getattr(rk, fname)(yt, ys, gids_sorted, k=10)
+    got_shuf = getattr(rk, fname)(yt[perm], ys[perm], gids_sorted[perm], k=10)
+    assert got_sorted == got_shuf, f"{fname}: presorted {got_sorted} != general-path {got_shuf}"

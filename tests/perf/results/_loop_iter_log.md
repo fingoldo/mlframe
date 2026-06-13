@@ -2661,3 +2661,25 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 55 RESOLVED, 2
 **Verdict: RESOLVED+1.95x@200k (isolated ~2.1x AND e2e uncertainty-calibration panel, bit-identical).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 56 RESOLVED, 29 REJECT across 83 iterations.**
+
+---
+
+## iter84 (@1M) -- LTR per-group metrics `_split_by_group` presorted fast path
+
+**Workload@1M:** `dcg_at_k` / `expected_reciprocal_rank` / `hit_at_k` / `precision_at_k` from `metrics/_ranking_extras.py` at n=1,000,000, 5000 groups (~200 docs/group), k=10. Fresh hotspot outside feature_selection/filters. These are the public per-query LTR scalar metrics in `metrics_registry.py` ("dcg_at_k", "err", "hit_at_k", "precision_at_k").
+
+**Top mlframe-own by tottime (cProfile @1M, 3x each metric):** `precision_at_k` 0.160 / `hit_at_k` 0.154 / `dcg_at_k` 0.147 / `expected_reciprocal_rank` 0.144 (njit batch-kernel time mis-attributed to the Python wrapper frame) ; `_split_by_group` 0.088 tottime + `argsort` 0.033 + `nonzero` 0.037 + `diff` 0.024 -> ~15ms fixed per call. Wall: 56-63 ms/metric.
+
+**Hotspot:** `_split_by_group` unconditionally does `np.argsort(group_ids, kind="stable")` + two full gathers `y_true[order]`/`y_score[order]` on EVERY call. But the LTR-suite convention (stated in its own docstring) is that rows arrive PRE-SORTED by group_ids -- a stable argsort of already-sorted data is exactly `arange(n)`, so both gathers are no-op copies and the boundaries come straight from `diff(gids)`. All of that O(n log n) + 2x O(n) is wasted on the common path. Plain-numpy (not njit): confirmed e2e via wall bench.
+
+**Optimization:** one O(n) monotonicity scan `(np.diff(gids) >= 0).all()` (short-circuits at first decrease); if monotone, skip the argsort + gathers and return `(boundaries, y_true, y_score)` directly. Bit-identical-by-construction on sorted input (stable-argsort no-op); the general argsort path is untouched for genuinely unsorted input.
+
+**Before/after (median, n=1M, sorted LTR layout; contended box):** dcg 55.4->53.5 (1.03x), err 91.3->75.6 (1.21x), hit 81.8->50.2 (1.63x), precision 80.9->57.5 (1.41x). Best-of-9 run: 1.12-1.37x. Unsorted path: unchanged code + one short-circuiting scan (worst-case ~1ms@1M, dwarfed by the following argsort); apparent unsorted deltas are pure machine-contention noise.
+
+**Identity proof:** A/B vs real HEAD baseline (`git show HEAD:...` loaded as sibling module) -- all 4 metrics exact `==` on BOTH sorted AND unsorted 1M inputs.
+
+**Regression test (`tests/metrics/test_ranking_batch_kernel_dispatch.py`):** `test_split_by_group_skips_groupid_argsort_when_presorted` spies `np.argsort` and asserts the full-length group-id array is NEVER argsorted on presorted input (pre-fix count=1 -> FAILS; verified via in-process rebind of the HEAD `_split_by_group`); `test_split_by_group_presorted_matches_unsorted_path` pins presorted == general-path on distinct scores. 24 passed post-fix.
+
+**Verdict: RESOLVED+1.4x@1M (sorted LTR path, the common case; bit-identical, unsorted path preserved).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 57 RESOLVED, 29 REJECT across 84 iterations.**

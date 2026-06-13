@@ -43,6 +43,18 @@ def _split_by_group(
     if n == 0:
         return np.empty(0, dtype=np.float64)
     gids = np.ascontiguousarray(group_ids)
+    diffs = np.diff(gids)
+    # LTR-suite convention: rows arrive pre-sorted by group_ids. A stable argsort of an already-sorted
+    # array is exactly ``arange(n)``, so ``y_true[order]`` / ``y_score[order]`` are no-op copies and the
+    # boundaries come straight from ``diff(gids)``. Detect that case with one O(n) monotonicity scan and
+    # skip the O(n log n) argsort + two full gathers entirely -- bit-identical to the sorted slow path.
+    if n == 1 or (diffs >= 0).all():
+        boundaries = np.concatenate((
+            np.array([0]),
+            np.nonzero(diffs)[0] + 1,
+            np.array([n]),
+        ))
+        return boundaries, y_true, y_score
     # group boundaries via diff on the sorted gids.
     order = np.argsort(gids, kind="stable")
     sorted_gids = gids[order]
