@@ -216,12 +216,16 @@ def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: i
         _bin_dtype = np.int16
     else:
         _bin_dtype = np.int32
+    # np.empty leaves cells uninitialized; npoints not divisible by cont_nbins (step_size*cont_nbins < npoints) or cont_nbins > npoints (step_size==0)
+    # would leave a tail of garbage that leaks into the returned labels -- non-deterministic for **ORDER** and, once shuffled, for **RANDOM** too.
+    # The final bin absorbs every remaining row so all npoints cells are deterministically defined and all unique bins stay covered.
     bins = np.empty(shape=npoints, dtype=_bin_dtype)
     start = 0
     unique_bins = range(cont_nbins)
     for i in unique_bins:
-        bins[start : start + step_size] = i
-        start += step_size
+        stop = npoints if i == cont_nbins - 1 else start + step_size
+        bins[start:stop] = i
+        start = stop
     if group_name == "**RANDOM**":
         # local seeded generator: the global np.random.shuffle is unseeded -> the random
         # fairness baseline differed run-to-run; same inputs+seed must give the same bins.
