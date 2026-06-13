@@ -5724,6 +5724,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if fe_max_steps > 0:
         unary_transformations = create_unary_transformations(preset=fe_unary_preset)
         binary_transformations = create_binary_transformations(preset=fe_binary_preset)
+        # REPLAY-SAFETY (audit, 2026-06-13): exclude ops that are NOT row-wise pure functions from FE
+        # pair candidates. Their value at a row depends on OTHER rows (``np.gradient``: grad1/grad2) or
+        # on a whole-column statistic recomputed at apply time (``logn`` uses ``x - np.min(x)``), so a
+        # recipe built on them silently produces DIFFERENT values on a row-slice / test frame
+        # (slice-replay corruption -- the same class as the smart_log BUG2 fix). They appear only in the
+        # non-default "maximal" preset; dropping them here means they are never selected as engineered
+        # features, while the create_*_transformations registry stays intact (other callers + the
+        # registry-coverage test are unaffected). On the default "minimal" preset this is a no-op.
+        _FE_NON_ROWWISE_PURE = ("grad1", "grad2", "logn")
+        unary_transformations = {k: v for k, v in unary_transformations.items() if k not in _FE_NON_ROWWISE_PURE}
+        binary_transformations = {k: v for k, v in binary_transformations.items() if k not in _FE_NON_ROWWISE_PURE}
         if fe_max_polynoms:
             # Generated polynomial coefficients are appended directly to unary_transformations under "poly_<coef>" keys;
             # no separate registry is needed. Use a seeded local Generator so the polynomial recipes are reproducible
