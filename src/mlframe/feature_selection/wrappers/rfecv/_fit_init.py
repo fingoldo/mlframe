@@ -270,6 +270,13 @@ def _init_fit_state(
 
     X = _sanitize_X_inputs(self, X, y)
 
+    # NaN-in-X policy (mirrors MRMR's native-NaN contract): graceful median-impute by default so a linear
+    # core no longer crashes on ordinary missing data; 'raise' preserves the strict legacy crash. Runs AFTER
+    # sanitise (zero-variance / dup drops already applied) and BEFORE the signature so re-fits are stable and
+    # any emitted ``is_missing__{col}`` indicators flow through original_features / voting / support_ normally.
+    from ._nan_policy import apply_nan_in_X_policy
+    X = apply_nan_in_X_policy(self, X)
+
     # Inputs/outputs signature. Shape alone isn't enough - two datasets with identical (n, p) but different column identities must
     # trigger a retrain, otherwise self.support_ silently applies stale column selections. y-content is folded in via a blake2b
     # 16-byte digest because two semantically-different targets of the same length and shape (e.g. column-A binary vs column-B

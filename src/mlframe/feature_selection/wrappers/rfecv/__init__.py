@@ -407,6 +407,20 @@ class RFECV(BaseEstimator, TransformerMixin):
         # redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True). Set False to disable.
         drop_near_dup_corr: bool = True,
         near_dup_corr_threshold: float = 0.999,
+        # nan_in_X_policy: how to handle NaN cells in X at fit entry, mirroring MRMR's native-NaN contract for cross-selector
+        # consistency. The default sklearn linear cores (LogisticRegression / Ridge) raise ``ValueError: Input X contains NaN``,
+        # so ordinary real-world missing data used to hard-crash RFECV. Options:
+        #   'impute' (NEW default): graceful median-impute NaN per column on the local working frame so the linear core fits.
+        #       When the core estimator NATIVELY tolerates NaN (HistGradientBoosting / CatBoost / LightGBM / XGBoost - detected via
+        #       the sklearn ``allow_nan`` input tag + a known-name allowlist) imputation is SKIPPED and NaN passes through untouched.
+        #       The impute path is a strict no-op on a NaN-free frame, so non-NaN selection is byte-identical to before.
+        #   'raise': preserve the strict legacy crash on any NaN (benchmarks / replay).
+        nan_in_X_policy: str = "impute",
+        # nan_indicator_cols: optional column names for which an ``is_missing__{col}`` 0/1 indicator is appended at fit entry
+        # (built from the PRE-impute mask) so a missingness-carried signal (MNAR) stays capturable even after the value is imputed.
+        # Mirrors MRMR's Layer-37 ``fe_missingness_indicator`` emitter, which is itself opt-in, so this defaults to () (OFF) for
+        # cross-selector parity. Indicators are pandas-only (they need column names); ignored for raw ndarray X.
+        nan_indicator_cols: Union[Sequence, None] = (),
     ):
 
         # checks
@@ -455,6 +469,11 @@ class RFECV(BaseEstimator, TransformerMixin):
                             "RFECV: feature_groups[%r] is empty; this group "
                             "will have no effect on selection.", _gname,
                         )
+
+        if nan_in_X_policy not in ("impute", "raise"):
+            raise ValueError(
+                f"nan_in_X_policy must be 'impute' or 'raise'; got {nan_in_X_policy!r}."
+            )
 
         if leakage_action not in ("warn", "exclude", "raise"):
             raise ValueError(

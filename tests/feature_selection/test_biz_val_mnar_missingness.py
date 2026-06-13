@@ -24,9 +24,12 @@ explicitly here rather than hidden behind try/except:
   column that turns the missingness pattern into a first-class engineered
   feature. So MRMR is tested on RAW NaN data end to end.
 * The sklearn-estimator wrappers (RFECV / GroupAware(RFECV) via a
-  LogisticRegression core) RAISE ``ValueError: Input X contains NaN`` -- this
-  is a real FS GAP, pinned with ``xfail`` so a future NaN-imputing wrapper
-  flips it green. The RF-core wrappers (ShapProxiedFS / BorutaShap /
+  LogisticRegression core) now ingest raw NaN gracefully via
+  ``nan_in_X_policy="impute"`` (the friendly default): median-impute per column
+  at fit entry so the linear core no longer crashes, with optional
+  ``nan_indicator_cols=`` emitting ``is_missing__{col}`` so MNAR signal stays
+  capturable (mirroring MRMR's Layer-37 emitter). ``nan_in_X_policy="raise"``
+  preserves the strict legacy crash for benchmarks / replay. The RF-core wrappers (ShapProxiedFS / BorutaShap /
   HybridSelector) tolerate NaN-imputed input; they have NO native
   ``is_missing__`` emitter, so they only capture the MNAR signal when the
   indicator column is supplied to them pre-engineered (the production
@@ -35,8 +38,8 @@ explicitly here rather than hidden behind try/except:
 
 Selector x missingness-type matrix (see module docstring of the run report):
   MRMR              : MCAR keep / MNAR capture (indicator) / noise drop -- all native
-  RFECV             : CRASH on raw NaN (xfail)            -- needs upstream imputation
-  GroupAware(RFECV) : CRASH on raw NaN (xfail)            -- needs upstream imputation
+  RFECV             : graceful median-impute default / raise opt-in (nan_in_X_policy)
+  GroupAware(RFECV) : graceful median-impute default / raise opt-in (inherits RFECV)
   ShapProxiedFS     : MCAR keep / MNAR via supplied indicator / (imputed)
   BorutaShap        : MCAR keep / MNAR via supplied indicator / (imputed)
   HybridSelector    : MCAR keep / MNAR via supplied indicator / (imputed)
@@ -237,16 +240,85 @@ def test_biz_val_mrmr_drops_mostly_nan_noise():
 @pytest.mark.slow
 @pytest.mark.parametrize("mk", [_make_rfecv, _make_group_aware_rfecv],
                          ids=["RFECV", "GroupAware(RFECV)"])
-@pytest.mark.xfail(reason="FS GAP: RFECV/GroupAware(RFECV) LogReg core raises "
-                          "'Input X contains NaN' -- no upstream imputation step",
-                   strict=True)
-def test_biz_val_rfecv_family_raw_nan_is_fs_gap(mk):
-    """RFECV and GroupAware(RFECV) crash on raw NaN: their LogisticRegression
-    core calls ``validate_data`` which rejects NaN. Pinned as a GAP (strict
-    xfail) so adding an imputation step to the wrapper flips this green."""
+def test_biz_val_rfecv_family_raw_nan_gap_closed(mk):
+    """The former FS GAP is CLOSED: with the friendly ``nan_in_X_policy='impute'``
+    default, RFECV and GroupAware(RFECV) ingest raw NaN WITHOUT crashing and
+    recover the MCAR-informative signal (it survives selection). The strict
+    legacy crash is still reproducible via ``nan_in_X_policy='raise'`` -- pinned
+    in ``test_biz_val_rfecv_raise_policy_still_crashes`` below."""
     df, ys = _build_mcar(seed=0, n=600)
     s = mk("binary")
-    s.fit(df, ys.to_numpy())  # expected to raise ValueError(Input X contains NaN)
+    s.fit(df, ys.to_numpy())  # must NOT raise anymore (graceful impute default)
+    assert "mcar" in selected_names(s), (
+        f"RFECV-family dropped MCAR-informative feature after graceful impute; "
+        f"selected={selected_names(s)}"
+    )
+
+
+@pytest.mark.slow
+def test_biz_val_rfecv_raise_policy_still_crashes():
+    """Opt-out pin: ``nan_in_X_policy='raise'`` reproduces the strict legacy
+    crash on raw NaN (benchmarks / replay), while the default does NOT crash."""
+    from mlframe.feature_selection.wrappers import RFECV
+    df, ys = _build_mcar(seed=0, n=600)
+
+    s_raise = RFECV(estimator=LogisticRegression(max_iter=200, random_state=0),
+                    cv=3, max_refits=3, random_state=0,
+                    leakage_corr_threshold=None, n_features_selection_rule="argmax",
+                    nan_in_X_policy="raise")
+    with pytest.raises(ValueError, match="contains NaN"):
+        s_raise.fit(df, ys.to_numpy())
+
+    # The default policy on the SAME data does not raise.
+    s_default = _make_rfecv("binary")
+    s_default.fit(df, ys.to_numpy())
+    assert "mcar" in selected_names(s_default)
+
+
+@pytest.mark.slow
+def test_biz_val_rfecv_captures_mnar_via_indicator():
+    """RFECV with ``nan_indicator_cols=('mnar',)`` emits ``is_missing__mnar``
+    from the PRE-impute mask, so the MNAR signal (value is noise, missingness
+    carries y) survives selection on a majority of seeds. Biz floor: the
+    indicator-alone downstream AUC is >= 0.80 (measured ~0.90, ~11% margin)."""
+    from mlframe.feature_selection.wrappers import RFECV
+    captured = []
+    aucs = []
+    for seed in fast_subset(SEEDS, n=2):
+        df, ys = _build_mnar(seed, n=700)
+        s = RFECV(estimator=LogisticRegression(max_iter=200, random_state=0),
+                  cv=3, max_refits=4, random_state=0,
+                  leakage_corr_threshold=None, n_features_selection_rule="argmax",
+                  nan_indicator_cols=("mnar",))
+        s.fit(df, ys.to_numpy())  # must not crash on raw NaN
+        captured.append("is_missing__mnar" in list(s.get_feature_names_out()))
+        ind = df["mnar"].isna().astype(int).to_numpy().reshape(-1, 1)
+        proba = LogisticRegression().fit(ind, ys).predict_proba(ind)[:, 1]
+        aucs.append(roc_auc_score(ys, proba))
+    assert _majority(captured), f"RFECV missed MNAR indicator; captured={captured}"
+    assert min(aucs) >= 0.80, f"MNAR indicator weak; min AUC {min(aucs):.3f} < 0.80"
+
+
+def test_biz_val_rfecv_nan_free_selection_unchanged():
+    """Regression: the impute path is a strict no-op on a NaN-free frame -- the
+    default ('impute') and 'raise' policies select the IDENTICAL feature set on
+    NaN-free data, so the crash-to-graceful flip cannot silently alter non-NaN
+    selection."""
+    from mlframe.feature_selection.wrappers import RFECV
+    df, ys = _build_mcar(seed=0, n=600)
+    df = df.fillna(0.0)  # remove all NaN -> impute must be a no-op
+
+    def _mk(policy):
+        return RFECV(estimator=LogisticRegression(max_iter=200, random_state=0),
+                     cv=3, max_refits=3, random_state=0,
+                     leakage_corr_threshold=None, n_features_selection_rule="argmax",
+                     nan_in_X_policy=policy)
+
+    a = _mk("impute"); a.fit(df, ys.to_numpy())
+    b = _mk("raise"); b.fit(df, ys.to_numpy())
+    assert list(a.get_feature_names_out()) == list(b.get_feature_names_out()), (
+        "impute path altered selection on NaN-free data"
+    )
 
 
 @pytest.mark.slow
