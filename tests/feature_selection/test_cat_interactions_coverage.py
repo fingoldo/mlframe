@@ -163,9 +163,12 @@ class TestRestoreCachedMarginalMIs:
         # Build a fake cache: signature exactly matches current data
         cached_sig_0 = _column_signature(data[:, 0], 3)
         cached_sig_1 = _column_signature(data[:, 1], 3)
+        # Reuse is gated on the cached target signature matching (MI(X;Y) invalidates on a changed Y);
+        # pass a matching target_sig so this stable-distribution case exercises the reuse path.
         cache = {
             "col_signatures": {0: cached_sig_0, 1: cached_sig_1},
             "marginal_mis": {0: 0.123, 1: 0.456},
+            "target_sig": "tgt",
         }
         reuse_mask, mi_reused, new_sigs = _restore_cached_marginal_mis(
             factors_data=data,
@@ -173,6 +176,7 @@ class TestRestoreCachedMarginalMIs:
             nbins=nbins,
             cache=cache,
             kl_threshold=0.5,
+            target_sig="tgt",
         )
         assert reuse_mask.all()
         assert mi_reused[0] == pytest.approx(0.123)

@@ -138,9 +138,12 @@ class TestStreamingCacheReal:
         sig0 = _column_signature(data[:, 0], 2)
         # Column 1 in the cache uses a deliberately drifted signature (0.99/0.01 vs the actual
         # near-uniform data) to force a KL-divergence cache miss for that column.
+        # Reuse is gated on the cached target signature matching (MI(X;Y) must invalidate on a changed Y);
+        # pass a matching target_sig so this test exercises the column-signature KL path.
         cache = {
             "col_signatures": {0: sig0.copy(), 1: np.array([0.99, 0.01])},
             "marginal_mis": {0: 0.05, 1: 0.03},
+            "target_sig": "tgt",
         }
         mask, mi_reused, new_sigs = _restore_cached_marginal_mis(
             factors_data=data,
@@ -148,6 +151,7 @@ class TestStreamingCacheReal:
             nbins=nbins,
             cache=cache,
             kl_threshold=0.01,
+            target_sig="tgt",
         )
         # Col 0: signature matches cache exactly (KL=0); reusable
         assert mask[0]
