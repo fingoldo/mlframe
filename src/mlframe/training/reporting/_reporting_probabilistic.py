@@ -14,8 +14,7 @@ that module's own top-level imports.
 from __future__ import annotations
 
 import logging
-from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -31,13 +30,14 @@ try:
 except ImportError:
     classification_report = None  # type: ignore[assignment]
 
+from pyutilz.pythonlib import get_human_readable_set_size
 from sklearn.base import ClassifierMixin
 from sklearn.preprocessing import LabelEncoder
 
 from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_roc_auc
-from pyutilz.pythonlib import get_human_readable_set_size
 
 from ..phases import phase
+
 # Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
 # from its bottom (after the helpers + constants are bound at module top),
@@ -45,16 +45,14 @@ from ..phases import phase
 # loaded and the symbols are already there. No circular-load failure,
 # AND a single source of truth (no constant duplication across siblings).
 from ._reporting import (  # noqa: E402
+    DEFAULT_CALIB_REPORT_NDIGITS,
+    DEFAULT_FIGSIZE,
+    DEFAULT_NBINS,
+    DEFAULT_REPORT_NDIGITS,
     _canonical_multilabel_y,
     _labels_are_arange,
     _maybe_display,
     _style_with_caption,
-    DEFAULT_PLOT_SAMPLE_SIZE,
-    DEFAULT_REPORT_NDIGITS,
-    DEFAULT_CALIB_REPORT_NDIGITS,
-    DEFAULT_NBINS,
-    DEFAULT_FIGSIZE,
-    DEFAULT_RANDOM_SEED,
 )
 
 if TYPE_CHECKING:
@@ -257,8 +255,8 @@ def report_probabilistic_model_perf(
         )
         if _targets_2d:
             # MultiOutputClassifier returns list[(N,2)] for predict_proba -- canonicalize to (N, K).
-            from ..helpers import _canonical_predict_proba_shape, _predict_from_probs
             from ..configs import TargetTypes
+            from ..helpers import _canonical_predict_proba_shape, _predict_from_probs
             probs = _canonical_predict_proba_shape(probs)
             # Honour MultilabelDispatchConfig.per_label_thresholds when
             # supplied: per-column decision threshold tuned for label
@@ -606,7 +604,7 @@ def report_probabilistic_model_perf(
                 # for "model is miscalibrated" complementing Spiegelhalter Z;
                 # AR is the credit-risk convention name for 2*AUC-1.
                 try:
-                    from mlframe.metrics.core import hosmer_lemeshow_test, accuracy_ratio
+                    from mlframe.metrics.core import accuracy_ratio, hosmer_lemeshow_test
                     hl_chi2, hl_p, hl_dof = hosmer_lemeshow_test(_y_true_arr, _y_score_arr, n_groups=10)
                     class_metrics["HL_chi2"] = hl_chi2
                     class_metrics["HL_p"] = hl_p
@@ -865,171 +863,11 @@ def report_probabilistic_model_perf(
     return preds, probs
 
 
-def _render_fairness_calibration(
-    *,
-    subgroups: dict[str, Any],
-    subset_index: np.ndarray | None,
-    y_true: np.ndarray | pd.Series,
-    pos_score: np.ndarray,
-    plot_file: str,
-    plot_outputs: str | None,
-    metrics: dict[str, Any] | None,
-) -> None:
-    """Render a per-subgroup calibration-fairness figure per group feature (binary positive-class score).
 
-    For each fairness group feature, slice the per-row group labels for THIS split (``bins.loc[subset_index]``) and
-    compose the per-group reliability overlay + per-group ECE bar + max-min disparity gap. Failures are logged and
-    skipped per feature so one bad group feature never aborts the report.
-    """
-    from mlframe.reporting.charts.fairness_calibration import (
-        compose_fairness_calibration_figure, compute_subgroup_ece_disparity,
-    )
-
-    yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
-    _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
-    disparities: dict[str, Any] = {}
-
-    for group_name, group_params in subgroups.items():
-        if group_name in ("**ORDER**", "**RANDOM**"):
-            continue  # robustness pseudo-groups, not sensitive features
-        try:
-            bins = group_params.get("bins") if isinstance(group_params, dict) else None
-            if bins is None:
-                continue
-            if subset_index is not None and hasattr(bins, "loc"):
-                bins = bins.loc[subset_index]
-            labels = bins.to_numpy() if hasattr(bins, "to_numpy") else np.asarray(bins)
-            if labels.shape[0] != yt.shape[0]:
-                continue
-            disparity = compute_subgroup_ece_disparity(yt, pos_score, labels)
-            disparities[group_name] = disparity
-            spec = compose_fairness_calibration_figure(
-                yt, pos_score, labels, title=f"Calibration fairness by {group_name}",
-            )
-            _slug = _slugify_class(str(group_name))
-            base_path = f"{plot_file}_faircal_{_slug}"
-            from mlframe.reporting.output import parse_plot_output_dsl
-            from mlframe.reporting.renderers import render_and_save
-            render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
-        except Exception as e:
-            logger.debug("fairness_calibration chart for %r skipped: %s", group_name, e)
-
-    if metrics is not None and disparities:
-        metrics.update(dict(fairness_calibration_disparity=disparities))
-
-
-def _top_importance_features(model: Any, columns: Sequence[str], top_k: int) -> list[str]:
-    """Top-k feature names by the model's ``feature_importances_``, aligned to ``columns``. Empty when unavailable."""
-    imp = getattr(model, "feature_importances_", None)
-    if imp is None:
-        return []
-    imp = np.asarray(imp, dtype=np.float64).ravel()
-    cols = list(columns)
-    if imp.shape[0] != len(cols) or not np.isfinite(imp).any():
-        return []
-    order = np.argsort(imp)[::-1][:top_k]
-    return [cols[i] for i in order]
-
-
-def _render_calibration_by_feature(
-    *,
-    df: pd.DataFrame,
-    columns: Sequence[str],
-    model: Any,
-    y_true: np.ndarray | pd.Series,
-    pos_score: np.ndarray,
-    plot_file: str,
-    plot_outputs: str | None,
-    metrics: dict[str, Any] | None,
-) -> None:
-    """Render per-feature calibration (reliability + ECE by feature quantile bin) for the top-importance features.
-
-    The top-1..2 features by ``model.feature_importances_`` are pulled from ``df`` as continuous columns; each yields
-    a small-multiples reliability figure + an ECE-vs-feature-bin line + the max-min "calibration heterogeneity"
-    metric. Non-numeric / missing columns and degenerate features are skipped per feature so one bad column never
-    aborts the report.
-    """
-    from mlframe.reporting.charts.calibration_by_feature import (
-        compose_calibration_by_feature_figure, compute_calibration_by_feature_heterogeneity,
-    )
-
-    feats = _top_importance_features(model, columns, top_k=2)
-    if not feats or not hasattr(df, "__getitem__"):
-        return
-    yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
-    _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
-    heterogeneity: dict[str, Any] = {}
-
-    for fname in feats:
-        try:
-            col = df[fname]
-            fv = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
-            fv = np.asarray(fv, dtype=np.float64).ravel()  # NaN for non-numeric; dropped downstream
-            if fv.shape[0] != yt.shape[0]:
-                continue
-            het = compute_calibration_by_feature_heterogeneity(yt, pos_score, fv)
-            heterogeneity[str(fname)] = het
-            spec = compose_calibration_by_feature_figure(yt, pos_score, fv, feature_name=str(fname))
-            _slug = _slugify_class(str(fname))
-            base_path = f"{plot_file}_calibfeat_{_slug}"
-            from mlframe.reporting.output import parse_plot_output_dsl
-            from mlframe.reporting.renderers import render_and_save
-            render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
-        except Exception as e:
-            logger.debug("calibration_by_feature chart for %r skipped: %s", fname, e)
-
-    if metrics is not None and heterogeneity:
-        metrics.update(dict(calibration_by_feature_heterogeneity=heterogeneity))
-
-
-def _render_calibration_heatmap_2d(
-    *,
-    df: pd.DataFrame,
-    columns: Sequence[str],
-    model: Any,
-    y_true: np.ndarray | pd.Series,
-    pos_score: np.ndarray,
-    plot_file: str,
-    plot_outputs: str | None,
-    metrics: dict[str, Any] | None,
-) -> None:
-    """Render a 2D calibration-ECE heatmap over the quantile grid of the top-2-importance feature pair (binary target).
-
-    Both features are quantile-binned; per cell ``|mean(score) - mean(true)|`` is shown on an RdYlGn_r grid, with the
-    worst cell + its location as the headline -- a localized over/under-confidence pocket the pooled / 1D views hide.
-    Needs >=2 distinct top-importance features; degenerate columns are skipped without aborting the report.
-    """
-    from mlframe.reporting.charts.calibration_heatmap_2d import (
-        compose_calibration_heatmap_2d_figure, compute_calibration_heatmap_2d,
-    )
-
-    feats = _top_importance_features(model, columns, top_k=2)
-    if len(feats) < 2 or not hasattr(df, "__getitem__"):
-        return
-    fx_name, fy_name = feats[0], feats[1]
-    yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
-    try:
-        cx, cy = df[fx_name], df[fy_name]
-        fx = np.asarray(cx.to_numpy() if hasattr(cx, "to_numpy") else cx, dtype=np.float64).ravel()
-        fy = np.asarray(cy.to_numpy() if hasattr(cy, "to_numpy") else cy, dtype=np.float64).ravel()
-        if fx.shape[0] != yt.shape[0] or fy.shape[0] != yt.shape[0]:
-            return
-        res = compute_calibration_heatmap_2d(yt, pos_score, fx, fy)
-        if metrics is not None and res.get("worst_cell") is not None:
-            metrics.update(dict(calibration_heatmap_2d={
-                "worst_ece": res["worst_ece"], "worst_cell": res["worst_cell"],
-                "median_cell_ece": res["median_cell_ece"], "traffic_light": res["traffic_light"],
-                "feat_x": str(fx_name), "feat_y": str(fy_name),
-            }))
-        spec = compose_calibration_heatmap_2d_figure(
-            yt, pos_score, fx, fy, feat_x_name=str(fx_name), feat_y_name=str(fy_name),
-        )
-        _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
-        base_path = f"{plot_file}_calib2d_{_slugify_class(str(fx_name))}_{_slugify_class(str(fy_name))}"
-        from mlframe.reporting.output import parse_plot_output_dsl
-        from mlframe.reporting.renderers import render_and_save
-        render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
-    except Exception as e:
-        logger.debug("calibration_heatmap_2d chart skipped: %s", e)
-
-
+# calibration/fairness render helpers carved to _reporting_probabilistic_calib.py (1k-LOC ceiling).
+from ._reporting_probabilistic_calib import (  # noqa: E402, F401
+    _render_calibration_by_feature,
+    _render_calibration_heatmap_2d,
+    _render_fairness_calibration,
+    _top_importance_features,
+)
