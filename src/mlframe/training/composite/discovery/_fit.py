@@ -22,6 +22,7 @@ from .screening import (
     _aggregate_mi_per_feature_excluding,
     _extract_column_array,
     _is_polars_df,
+    _mi_per_feature_knn,
     _mi_per_feature_prebinned,
     _mi_to_target,
     _mi_to_target_prebinned,
@@ -379,14 +380,27 @@ def fit(
     # compute the full-feature vector ONCE and derive each base's mi_y by
     # excluding that base's column (mean/sum over the survivors) -- instead of
     # re-binning + re-MI'ing the shared columns per base candidate. Bit-identical
-    # for the prebinned (mi_estimator='bin') path; the knn path keeps the
-    # per-base call.
+    # on BOTH the prebinned (mi_estimator='bin') path (_per_feat_y_full below) and
+    # the knn path (_per_feat_y_knn_full below).
     _mi_aggregation = getattr(self.config, "mi_aggregation", "mean")
     _per_feat_y_full = (
         _mi_per_feature_prebinned(
             _full_x_prebinned, y_screen, nbins=int(self.config.mi_nbins),
         )
         if _full_x_prebinned is not None else None
+    )
+    # knn analogue: per-column MI(y, x_j) is likewise base-invariant, but the Kraskov estimator dominates
+    # wall time (~0.45s/column at the 100k screen sample), so re-running the full per-column sweep per base
+    # candidate is the dominant redundant cost on the knn path. Compute the vector ONCE over the full float
+    # matrix and derive each base's mi_y by aggregating over its surviving (base-dropped, dedup-kept) original
+    # column indices -- bit-identical because each column's MI is independent of which others are present.
+    _per_feat_y_knn_full = (
+        _mi_per_feature_knn(
+            _full_x_matrix, y_screen,
+            n_neighbors=self.config.mi_n_neighbors,
+            random_state=self.config.random_state,
+        )
+        if (not _bin_estimator and _full_x_matrix is not None) else None
     )
 
     # Dedup ``x_remaining`` before the MI baseline. A near-duplicate
@@ -422,6 +436,12 @@ def fit(
                 x_remaining_matrix = np.empty((0, _rem_cols), dtype=np.float32)
             else:
                 x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)
+            # Original-column indices that survive base-drop (used to derive the knn mi_y baseline from the
+            # precomputed base-invariant per-feature vector); dedup prunes this in lockstep with x_remaining_matrix.
+            _surviving_orig_idx = (
+                np.delete(np.arange(_full_x_matrix.shape[1]), _drop_idx)
+                if _full_x_matrix is not None else None
+            )
             if _dedup_x_remaining and not _use_lazy_prebin and x_remaining_matrix.shape[1] > 1:
                 _keep = near_collinear_keep_mask(
                     x_remaining_matrix, corr_threshold=_dedup_corr_thr,
@@ -430,6 +450,8 @@ def fit(
                     x_remaining_matrix = x_remaining_matrix[:, _keep]
                     if _x_prebinned is not None:
                         _x_prebinned = _x_prebinned[:, _keep]
+                    if _surviving_orig_idx is not None:
+                        _surviving_orig_idx = _surviving_orig_idx[_keep]
         else:
             # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
             logger.error(
@@ -462,6 +484,14 @@ def fit(
                 mi_y_for_base = _mi_to_target_prebinned(
                     _x_prebinned, y_screen, **_mi_kwargs,
                 )
+        elif _per_feat_y_knn_full is not None and _surviving_orig_idx is not None:
+            # knn baseline from the precomputed base-invariant per-feature vector: aggregate over the surviving
+            # original-column indices. Bit-identical to _mi_to_target(x_remaining_matrix, y_screen, knn) -- the same
+            # set of single-column MI(y, x_j) values (each on its own per-pair-finite rows), aggregated in the same
+            # mean/sum reduction -- without re-running ~50 Kraskov estimators per base.
+            mi_y_for_base = _aggregate_mi_per_feature(
+                _per_feat_y_knn_full[_surviving_orig_idx], _mi_aggregation,
+            )
         else:
             mi_y_for_base = _mi_to_target(
                 x_remaining_matrix, y_screen,

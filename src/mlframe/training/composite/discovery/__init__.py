@@ -63,6 +63,7 @@ from .screening import (
     _extract_column_array,
     _is_numeric_column,
     _mi_pair_bin,
+    _mi_per_feature_knn,
     _mi_per_feature_y_fixed,
     _mi_to_target,
     _mi_to_target_prebinned,

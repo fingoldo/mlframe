@@ -567,6 +567,42 @@ def _mi_per_feature_prebinned(
     return per_feat
 
 
+def _mi_per_feature_knn(
+    feature_matrix: np.ndarray,
+    target: np.ndarray,
+    *,
+    n_neighbors: int,
+    random_state: int,
+) -> np.ndarray:
+    """Per-column Kraskov kNN ``MI(target, x_j)`` vector (the knn analogue of ``_mi_per_feature_prebinned``).
+
+    Returns ``per_feat[j] = MI(x_j, target)`` computed exactly as the knn branch of ``_mi_to_target`` does per
+    column: per-pair finite masking (``isfinite(target) & isfinite(col)``), the ``<50`` rows -> 0.0 gate, and the
+    single-column ``mutual_info_regression`` call with the identical ``n_neighbors`` / ``random_state``. Because each
+    column's MI is independent of which OTHER columns are present, aggregating this vector over any column subset is
+    bit-identical to calling ``_mi_to_target`` on that subset -- which lets the per-base ``mi_y`` baseline be derived by
+    excluding the base column from a vector computed ONCE, instead of re-running the full per-column sweep per base.
+    """
+    if feature_matrix.ndim != 2 or feature_matrix.shape[1] == 0:
+        return np.zeros(0, dtype=np.float64)
+    n_cols = feature_matrix.shape[1]
+    per_feat = np.zeros(n_cols, dtype=np.float64)
+    target_finite = np.isfinite(target)
+    if int(target_finite.sum()) < 50:
+        return per_feat
+    from sklearn.feature_selection import mutual_info_regression
+    for j in range(n_cols):
+        col = feature_matrix[:, j]
+        pair_finite = target_finite & np.isfinite(col)
+        if int(pair_finite.sum()) < 50:
+            continue
+        per_feat[j] = float(mutual_info_regression(
+            col[pair_finite].reshape(-1, 1), target[pair_finite],
+            n_neighbors=n_neighbors, random_state=random_state,
+        )[0])
+    return per_feat
+
+
 def _aggregate_mi_per_feature(per_feat: np.ndarray | None, aggregation: str) -> float:
     if per_feat is None or per_feat.size == 0:
         return 0.0
