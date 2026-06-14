@@ -54,7 +54,7 @@ def _read(rel: str) -> str:
 
 
 def test_boruta_shap_rejects_dup_columns() -> None:
-    src = _read("feature_selection/boruta_shap.py")
+    src = _read("feature_selection/boruta_shap/__init__.py")
     assert "duplicate column name" in src
     assert "deduplicate before fit() to avoid silently dropping shadow indices" in src
 

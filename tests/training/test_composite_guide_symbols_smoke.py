@@ -87,7 +87,8 @@ def test_documented_bound_methods_exist(module_path, cls_name, methods):
         assert hasattr(cls, m), f"{cls_name}.{m}() is documented but missing"
 
 
-def test_qrf_estimator_not_documented_as_present():
-    # The guide explicitly states CompositeQRFEstimator is NOT in the tree.
+def test_qrf_estimator_present_and_documented():
+    # CompositeQRFEstimator landed as a real public estimator (own qrf.py module + __all__ + tests),
+    # so the guide documents it and the symbol must resolve.
     mod = importlib.import_module("mlframe.training.composite")
-    assert not hasattr(mod, "CompositeQRFEstimator")
+    assert hasattr(mod, "CompositeQRFEstimator")

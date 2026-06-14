@@ -276,6 +276,18 @@ mid = qest.predict(X)                # the 0.5 head, y-scale
 Blend several fitted multi-quantile members per-quantile-column with
 `predict_quantile_ensemble(members, X, quantiles)`.
 
+### `CompositeQRFEstimator` — single-fit quantile-regression forest
+
+A NON-PARAMETRIC alternative to `CompositeQuantileEstimator`: instead of one pinball-trained inner per level (K fits for K quantiles), a SINGLE quantile-regression forest is fit on `T = f(y, base)`, serving the conditional distribution of `T` for ANY query quantile from that one model (Meinshausen 2006 leaf-membership weighting), then inverted to the y-scale.
+
+```python
+from mlframe.training.composite import CompositeQRFEstimator
+
+qrf = CompositeQRFEstimator(transform_name="linear_residual", base_column="lag", n_estimators=200)
+qrf.fit(X, y)
+q = qrf.predict_quantile(X, alpha=[0.1, 0.5, 0.9])   # (n, 3) y-scale quantiles, all from one fit
+```
+
 ---
 
 ## 5. Classification — `CompositeClassificationEstimator`

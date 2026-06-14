@@ -48,7 +48,7 @@ def _read(rel: str) -> str:
 
 
 def test_composite_cache_invalidate_uses_try_remove() -> None:
-    src = _read("training/composite/cache.py")
+    src = _read("training/composite/cache_store.py")
     # The fix replaces exists+remove with try/remove.
     assert "if os.path.exists(path):\n            os.remove(path)" not in src
     assert "try:\n            os.remove(path)\n        except FileNotFoundError:\n            return False" in src

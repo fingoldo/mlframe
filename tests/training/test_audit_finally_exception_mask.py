@@ -84,7 +84,7 @@ def test_locking_release_wrapped_in_try_except() -> None:
 
 
 def test_composite_cache_evict_forwards_exc_info() -> None:
-    src = _read("training/composite/cache.py")
+    src = _read("training/composite/cache_store.py")
     # The pre-fix `__exit__(None, None, None)` is replaced with `__exit__(*_exc)`.
     assert "_lock_ctx.__exit__(None, None, None)" not in src
     assert "_lock_ctx.__exit__(*_exc)" in src

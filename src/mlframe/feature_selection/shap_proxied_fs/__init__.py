@@ -276,7 +276,8 @@ class ShapProxiedFS(ShapProxiedFitMixin, BaseEstimator, TransformerMixin):
         #     dense, so not the majority win required to flip the default. Kept recoverable for callers
         #     who know their signal is sparse.
         #   - ``"off"``: no narrowing.
-        self.prescreen_ladder_mode = str(prescreen_ladder_mode).lower()
+        # Store verbatim (sklearn clone contract: __init__ must not transform params); normalised at the use-site in _shap_proxied_fit.
+        self.prescreen_ladder_mode = prescreen_ladder_mode
         # ``fidelity_floor`` (iter18, effective default 0.5): below this composite the trust-guard
         # fires LOW. ``None`` is the "unset" sentinel resolved to 0.5 at fit time; storing it raw
         # (no coercion here) keeps the both-floors-set conflict guard able to distinguish an explicit

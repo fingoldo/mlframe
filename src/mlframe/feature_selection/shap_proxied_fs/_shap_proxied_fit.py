@@ -523,7 +523,7 @@ class ShapProxiedFitMixin:
         # block below so the resolved cap drives that block's keep count.
         effective_brute_force_cap = self.brute_force_max_features
         adaptive_info: Optional[dict] = None
-        ladder_mode = getattr(self, "prescreen_ladder_mode", "knee")
+        ladder_mode = str(getattr(self, "prescreen_ladder_mode", "knee") or "knee").lower()
         if ladder_mode == "knee":
             # Data-driven ladder: narrow the cap toward the knee of the sorted |phi| importance curve.
             # Dense-signal frames keep the full cap; sparse frames prune harder. Always runs.
