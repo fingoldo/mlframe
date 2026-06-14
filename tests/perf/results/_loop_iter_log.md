@@ -3253,3 +3253,29 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 80 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — single-sweep average-tie-rank for RankGauss replay, ~1.25x on the avg-rank step @10M, bit-identical on continuous AND tied inputs (exact `==`, no gating divergence; the tie probe selects the exact path automatically).**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 81 RESOLVED, 31 REJECT across 110 iterations.**
+
+---
+
+## iter111 @10M — conditional-residual generate: np.add.at -> np.bincount + hoist per-x_i invariants
+
+**Workload:** `generate_conditional_residual_features` @ n=10,000,000, 4 numeric cols (one discrete -> ties, one NaN-mixed -> global-mean fallback bin), n_bins=10. FRESH untapped family (extra-FE replay generators; CR generate never tapped — only the apply/replay siblings + count/freq/rankgauss were).
+
+**Top mlframe-own by tottime (cProfile @10M):** `generate_conditional_residual_features` self 3.154s (the inner (x_i,x_j) numpy ops); `ndarray.partition` 1.118s (quantile); `searchsorted` 0.957s (digitize); `ufunc.at` 0.768s (the 24 `np.add.at` scatter calls); `astype` 0.376s.
+
+**Hotspot:** the inner loop ran C*(C-1)=12 pairs, each doing 2x `np.add.at` (unbuffered scatter, slowest numpy bin-accumulate) plus recomputing `np.isfinite(xi)` + `xi[fin].mean()` + masked gather per pair, although those depend only on x_i. Plain-numpy (no njit/cuda), so cProfile attribution is honest. The full `generate` call (incl. final DataFrame build) is the e2e unit; the kernel dominates it.
+
+**Optimization (bit-identical by construction):** (1) `np.add.at(bin_sum, codes, w)` / `np.add.at(bin_cnt, codes, 1.0)` -> `np.bincount(codes, weights=w, minlength=k)` / `np.bincount(codes, minlength=k)` — bincount accumulates per bin in element order exactly as add.at does, so byte-identical sums; codes already clipped to [0,k-1] by `_digitize_with_edges` so minlength never overflows. (2) Hoisted `finite_of[x_i]` + `global_mean_of[x_i]` into a one-pass precompute before the x_j loop (was recomputed C-1x per column).
+
+**Before/after @10M:**
+- In-process paired A/B (5 trials, mixed discrete+NaN data): OLD med=10.215s min=8.943s; NEW med=8.295s min=7.420s; NEW faster 5/5; **median 1.232x**.
+- Separate-process A/B (fresh interpreters, no cache contamination): OLD min=9.177s; NEW min=6.130s; **1.497x**.
+
+**Identity proof:** maxabsdiff = 0.0, `np.array_equal` True on every output column (continuous + discrete-tie + NaN-fallback columns all bit-exact).
+
+**Regression test:** `tests/feature_selection/test_conditional_residual_bincount_perf_regression.py` — (a) spies `np.add.at` and asserts 0 calls (FAILS pre-iter111 which called it 24x); (b) asserts byte-identity vs an independent add.at reference on discrete/NaN data. 2 passed in 3.63s.
+
+**Bench:** `src/mlframe/feature_selection/_benchmarks/bench_conditional_residual_generate_iter111.py`.
+
+**Verdict: RESOLVED — np.bincount + per-x_i hoist for conditional-residual generate, 1.23-1.50x @10M, bit-identical (exact `==`).**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 82 RESOLVED, 31 REJECT across 111 iterations.**

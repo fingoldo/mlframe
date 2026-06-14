@@ -454,6 +454,14 @@ def generate_conditional_residual_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
+    # Per-x_i invariants (finiteness mask, global mean, masked values) depend only on x_i, so hoist them out of the inner x_j loop -- recomputing them per (x_i, x_j) pair walked the full 10M array C-1 extra times each.
+    finite_of: dict[str, np.ndarray] = {}
+    global_mean_of: dict[str, float] = {}
+    for x_i in num_cols:
+        xi = col_vals[x_i]
+        fin = np.isfinite(xi)
+        finite_of[x_i] = fin
+        global_mean_of[x_i] = float(xi[fin].mean()) if fin.any() else 0.0
     for x_j in num_cols:
         xj = col_vals[x_j]
         edges = _quantile_edges(xj, n_bins)
@@ -463,12 +471,12 @@ def generate_conditional_residual_features(
             if x_i == x_j:
                 continue
             xi = col_vals[x_i]
-            finite_i = np.isfinite(xi)
-            global_mean = float(xi[finite_i].mean()) if finite_i.any() else 0.0
-            bin_sum = np.zeros(n_bins_eff, dtype=np.float64)
-            bin_cnt = np.zeros(n_bins_eff, dtype=np.float64)
-            np.add.at(bin_sum, codes_j[finite_i], xi[finite_i])
-            np.add.at(bin_cnt, codes_j[finite_i], 1.0)
+            finite_i = finite_of[x_i]
+            global_mean = global_mean_of[x_i]
+            codes_jf = codes_j[finite_i]
+            # np.bincount accumulates per bin in element order exactly as np.add.at does -- bit-identical sum/count, but a single C pass instead of the unbuffered scatter.
+            bin_sum = np.bincount(codes_jf, weights=xi[finite_i], minlength=n_bins_eff).astype(np.float64)
+            bin_cnt = np.bincount(codes_jf, minlength=n_bins_eff).astype(np.float64)
             bin_mean = np.where(
                 bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
             )
