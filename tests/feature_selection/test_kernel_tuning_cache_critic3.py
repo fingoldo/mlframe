@@ -22,6 +22,18 @@ import pytest
 cp = pytest.importorskip("cupy")
 
 
+@pytest.fixture(autouse=True)
+def _reset_cc_major_memo():
+    """``dispatch._cached_cc_major`` memoises the probed cc_major for the process lifetime (it's immutable
+    on a real run). Reset it around each test so a test that mocks a specific cc_major isn't shadowed by a
+    real cc cached by an earlier test (which now happens once the GPU actually works)."""
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
+    saved = dispatch._CC_MAJOR_CACHE
+    dispatch._CC_MAJOR_CACHE = None
+    yield
+    dispatch._CC_MAJOR_CACHE = saved
+
+
 def _need_cuda():
     try:
         from pyutilz.core.pythonlib import is_cuda_available
@@ -177,18 +189,16 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     regions = at.ensure_joint_hist_tuning(force=True)
     assert regions, "sweep returned no regions"
 
-    # Read the persisted JSON.
-    from pyutilz.performance.kernel_tuning.cache import cache_path
-    path = cache_path()
-    assert os.path.isfile(path), f"sweep did not persist {path}"
-    with open(path, "rb") as f:
-        data = orjson.loads(f.read())
-    assert data["schema_version"] == 2  # v2: code-versioned, categorical axes (was 1)
-    assert "joint_hist_batched" in data["kernels"]
-    entry = data["kernels"]["joint_hist_batched"]
-    assert entry["axes"] == ["n_samples", "joint_size"]
-    for r in entry["regions"]:
-        # Each region has the standard keys.
+    # Verify PERSISTENCE via the current sharded cache API. pyutilz migrated from a monolithic
+    # ``<fp>.json`` to a per-kernel sharded layout (``<fp>/<kernel_slug>/<version>.json``), so the old
+    # ``cache_path()`` single-file check no longer applies -- read the regions back through a fresh
+    # KernelTuningCache instance (which reassembles the sharded files for this test's cache dir).
+    from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+    from mlframe.feature_selection.filters._kernel_tuning import _reset_for_tests as _reset2
+    _reset2()
+    persisted = KernelTuningCache.load_or_create().get_regions("joint_hist_batched")
+    assert persisted, "sweep did not persist joint_hist_batched regions to the cache"
+    for r in persisted:
         for k in ("n_samples_max", "joint_size_max", "kernel_variant", "block_size"):
             assert k in r, f"region missing {k}: {r}"
 

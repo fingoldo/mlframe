@@ -122,6 +122,10 @@ neural = [
     "captum>=0.7",
     # Frozen text-embedding path for neural models (HuggingFaceProvider: AutoTokenizer + AutoModel -> pooled vectors).
     "transformers>=4.30",
+    # transformers >=5 builds the fast (Rust) tokenizer and converts slow tokenizers via sentencepiece;
+    # required for sentencepiece-based embedders (T5/mT5/XLM-R/ALBERT/...) or every from_pretrained raises
+    # "Couldn't instantiate the backend tokenizer ... need sentencepiece or tiktoken".
+    "sentencepiece>=0.1.99",
 ]
 
 # AutoML + hyperparameter optimization.

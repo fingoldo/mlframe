@@ -35,8 +35,10 @@ from mlframe.training.feature_handling import EmbeddingProvider, shutdown_all
 from mlframe.training.feature_handling.hf_provider import HuggingFaceProvider
 
 
-# Cheapest-possible HF encoder for CI speed.
-TINY_MODEL = "prajjwal1/bert-tiny"
+# Cheapest-possible HF encoder for CI speed. ``hf-internal-testing/tiny-random-BertModel`` ships a
+# fast tokenizer.json (so it loads under transformers>=5, which can no longer build prajjwal1/bert-tiny's
+# slow-only tokenizer) and tiny random weights -- enough for the provider lifecycle/shape/embedding tests.
+TINY_MODEL = "hf-internal-testing/tiny-random-BertModel"
 
 
 @pytest.fixture(autouse=True)

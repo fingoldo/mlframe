@@ -26,6 +26,17 @@ from unittest import mock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_cc_major_memo():
+    """Reset the process-lifetime cc_major memo so each parametrized cc mock is consulted rather than a
+    real cc cached by an earlier test (which now happens once the GPU actually works)."""
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
+    saved = dispatch._CC_MAJOR_CACHE
+    dispatch._CC_MAJOR_CACHE = None
+    yield
+    dispatch._CC_MAJOR_CACHE = saved
+
+
 @pytest.mark.parametrize("cc_major,expected_variant", [
     (5, "shared"),   # Maxwell
     (6, "shared"),   # Pascal (host's actual HW)
