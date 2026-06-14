@@ -68,3 +68,36 @@ def test_no_op_when_no_pip_nvvm(monkeypatch, tmp_path):
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()  # tmp_path has no nvidia/ tree
     assert "CUDA_HOME" not in os.environ
+
+
+def _make_fake_complete_toolkit(root):
+    """A complete CUDA toolkit dir: nvvm (codegen) AND cudart (runtime, needed by get_supported_ccs)."""
+    tk = root / "CUDA" / "v12.9"
+    (tk / "bin").mkdir(parents=True)
+    (tk / "nvvm" / "bin").mkdir(parents=True)
+    (tk / "bin" / "cudart64_12.dll").write_bytes(b"\x00")
+    (tk / "nvvm" / "bin" / "nvvm64_40_0.dll").write_bytes(b"\x00")
+    return str(tk.resolve())
+
+
+def test_repairs_incomplete_cuda_path_to_complete_toolkit(monkeypatch, tmp_path):
+    """A stale CUDA_PATH pointing at the nvvm-only cuda_nvcc wheel (no cudart) is redirected to a
+    complete CUDA_PATH_V* system toolkit so numba.cuda kernels can actually compile."""
+    _clear_cuda_env(monkeypatch)
+    cuda_nvcc = _make_fake_pip_nvvm(tmp_path)  # nvvm-only, no cudart
+    complete = _make_fake_complete_toolkit(tmp_path)
+    monkeypatch.setenv("CUDA_PATH", cuda_nvcc)
+    monkeypatch.setenv("CUDA_PATH_V12_9", complete)
+    mlframe._autoconfigure_cuda_home()
+    assert os.environ.get("CUDA_PATH") == complete
+    assert os.environ.get("CUDA_HOME") == complete
+
+
+def test_no_repair_when_cuda_path_already_complete(monkeypatch, tmp_path):
+    """A CUDA_PATH that already has cudart is a real install -- left untouched."""
+    _clear_cuda_env(monkeypatch)
+    complete = _make_fake_complete_toolkit(tmp_path)
+    monkeypatch.setenv("CUDA_PATH", complete)
+    mlframe._autoconfigure_cuda_home()
+    assert os.environ.get("CUDA_PATH") == complete  # untouched
+    assert "CUDA_HOME" not in os.environ

@@ -50,6 +50,46 @@ def _autoconfigure_cuda_home() -> None:
     import os
     if os.environ.get("MLFRAME_NO_CUDA_AUTOCONFIG", "").strip() not in ("", "0", "false", "False"):
         return
+
+    import pathlib
+
+    def _dir_has_cudart(p: str) -> bool:
+        d = pathlib.Path(p)
+        return bool(list(d.glob("bin/cudart64_*.dll")) or list(d.glob("lib64/libcudart*")) or list(d.glob("lib/libcudart*")))
+
+    def _dir_has_nvvm(p: str) -> bool:
+        d = pathlib.Path(p)
+        return bool(list(d.glob("nvvm/bin/nvvm*.dll")) or list(d.glob("nvvm/lib64/libnvvm*")))
+
+    def _find_complete_toolkit() -> "str | None":
+        # A toolkit that can actually COMPILE+RUN numba kernels needs BOTH nvvm (for codegen) and cudart
+        # (numba's get_supported_ccs queries the runtime). The versioned CUDA_PATH_V* vars the NVIDIA
+        # system installer sets point at full toolkits; pick the highest that has both libraries.
+        cands = [v for k, v in os.environ.items() if k.startswith("CUDA_PATH_V") and v]
+        for p in sorted(cands, reverse=True):
+            if _dir_has_cudart(p) and _dir_has_nvvm(p):
+                return p
+        return None
+
+    # Repair an INCOMPLETE CUDA_PATH/CUDA_HOME: a prior auto-config (or a pip-only setup) may have pointed
+    # it at the nvidia-cuda-nvcc wheel, which bundles nvvm+libdevice but NOT cudart. numba's CUDA_HOME-
+    # anchored loader then fails to find cudart -> get_supported_ccs() returns () -> every kernel raises
+    # NvvmSupportError "No supported GPU compute capabilities found". If a complete system toolkit is
+    # present, redirect to it so kernels actually compile (not just is_available()==True).
+    _cur = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+    if _cur and not _dir_has_cudart(_cur):
+        _complete = _find_complete_toolkit()
+        if _complete:
+            os.environ["CUDA_HOME"] = _complete
+            os.environ["CUDA_PATH"] = _complete
+            import logging
+            logging.getLogger(__name__).info(
+                "mlframe: redirected CUDA_HOME/CUDA_PATH from an nvvm-only dir (%s, no cudart) to the "
+                "complete CUDA toolkit %s so numba.cuda kernels compile; set MLFRAME_NO_CUDA_AUTOCONFIG=1 to skip.",
+                _cur, _complete,
+            )
+        return
+
     if os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH"):
         return
     if any(k.startswith("CUDA_PATH_V") for k in os.environ):
