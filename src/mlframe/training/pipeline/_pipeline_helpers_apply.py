@@ -53,6 +53,13 @@ from ._pipeline_cache import (  # noqa: F401, E402
 )
 
 
+# Parent helpers used by the moved bodies (defined before the parent's bottom re-export, so this top-level import is cycle-safe).
+from ._pipeline_helpers import (  # noqa: E402
+    _extract_feature_selector, _is_fitted, _is_stale_fit_state_value_error,
+    _multilabel_target_to_1d_for_supervised_encoders, _passthrough_cols_fit_transform,
+    _raise_pre_pipeline_rowcount_change,
+)
+
 def _apply_pre_pipeline_transforms(
     model,
     pre_pipeline,
