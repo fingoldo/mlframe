@@ -3624,3 +3624,25 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 95 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +5.71x isolated @10M, bit-identical (maxdiff 0.0, incl. tie cases), no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 96 RESOLVED, 32 REJECT across 126 iterations.**
+
+---
+
+## iter127 — QRF predict_quantile weighted-ECDF per-row Python loop -> njit-prange batch kernel (@10M-class, component: training/composite QRF distributional)
+
+**Workload @10M:** `CompositeQRFEstimator.predict_quantile` is a full-n predict-path component: it inverts the Meinshausen conditional weighted ECDF for EVERY query row. Untapped family (QRF prediction aggregation, explicitly flagged untapped). Microbench @10M-equivalent first (iter120 trap avoided): the per-row Python loop costs ~877s extrapolated to 10M query rows.
+
+**Top mlframe-own hotspot:** `_LeafResidualForest.predict_quantile` inner loop (`qrf.py:264-271`) — per query row it masks the dense `(batch, n_train)` membership row to nonzero, then calls `_weighted_quantiles` (a fresh `np.argsort(kind='mergesort')` + `np.cumsum` + `np.interp` per row). Plain-Python loop body (confirmed: it is a Python `for r in range(...)` calling numpy per row, NOT an njit dispatch). REAL O(n_query) cost confirmed by microbench (877s @10M). e2e fraction: 7.11x of the predict_quantile wall at n_train=1500/K=5/80k rows.
+
+**Optimization + audit:** new `_batch_weighted_quantiles_kernel` (njit parallel, fastmath, cache) processes the whole dense membership batch in one prange-over-rows pass: per row, compact-gather the nonzero `(value, weight)` pairs, stable insertion-sort by value (matches numpy mergesort tie order), centered cumulative-weight plotting positions `(cum-0.5*w)/total`, binary-search interp of the levels. Replaces the per-row mask+argsort+interp. Gated behind `_HAS_NUMBA`; the original Python loop stays as the numba-unavailable fallback. Audit: the dense-matrix sorted-walk-over-all-columns variant was tried and REJECTED (slower — per-batch perm-gather of a `(512,n_train)` dense matrix + walking all n_train columns dominates; compact-gather of only the ~nonzero members wins).
+
+**Before/after:**
+- isolated seam (n_train=20000, ~400 nz/row, K=19, 199,680 rows): 18.84s -> 5.33s (~3.5x; 17.1s -> 1.5s = 11.4x in an earlier uncontended shot).
+- separate-process paired-interleaved e2e (`CompositeQRFEstimator.predict_quantile`, n_train=1500, K=5, 80k query rows): OLD 79.22s -> NEW 11.14s = **7.11x**.
+
+**Identity proof:** kernel vs Python-fallback through the real estimator: max abs diff 4.35e-14 (FP reduction-order, ~1e-13 << selection-altering 1e-3), NaN-row mask identical. Bench isolated max abs diff 7.08e-14.
+
+**Regression test:** `tests/training/composite/test_qrf_batch_weighted_quantiles_kernel.py` — (1) kernel symbol exists (FAILS pre-fix: AttributeError, 0 occurrences in HEAD — empirically verified when worktree was on HEAD); (2) kernel output bit-identical (<1e-9) to the Python per-row path through the estimator; (3) all-zero-weight row -> NaN. 3 passed post-fix.
+
+**Verdict: RESOLVED +7.11x e2e @predict-path, bit-identical (maxdiff 4.4e-14), no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 97 RESOLVED, 32 REJECT across 127 iterations.**

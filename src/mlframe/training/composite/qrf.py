@@ -99,6 +99,86 @@ def _leaf_weights_kernel(
 if _HAS_NUMBA:  # pragma: no branch
     _leaf_weights_kernel = numba.njit(parallel=True, cache=True)(_leaf_weights_kernel)
 
+
+def _batch_weighted_quantiles_kernel(
+    w: np.ndarray, y_train: np.ndarray, levels: np.ndarray, out: np.ndarray, start: int,
+) -> None:
+    """Per-row weighted-ECDF quantile inversion for a whole query batch in one prange pass.
+
+    ``w`` is the dense ``(batch, n_train)`` membership matrix; per query row we gather the nonzero ``(y_train, weight)``
+    pairs into a compact buffer, insertion-sort by value (stable, matching numpy's ``argsort(kind='mergesort')`` tie
+    order), form the centered cumulative-weight plotting positions ``(cum - 0.5*w)/total`` and binary-search-interp the
+    requested ``levels`` onto that monotone curve. This replaces the Python per-row loop that masked-then-argsort-then-
+    ``np.interp``'d one row at a time; the kernel walks the row once, sorts only the nonzero members, and parallelises
+    over rows. Flat zero-weight rows write NaN (the transform fallback routes them), exactly as the Python path did.
+    """
+    nq = w.shape[0]
+    nt = w.shape[1]
+    nl = levels.shape[0]
+    for r in numba.prange(nq):
+        m = 0
+        for j in range(nt):
+            if w[r, j] > 0.0:
+                m += 1
+        if m == 0:
+            for li in range(nl):
+                out[start + r, li] = np.nan
+            continue
+        vbuf = np.empty(m, dtype=np.float64)
+        wbuf = np.empty(m, dtype=np.float64)
+        p = 0
+        total = 0.0
+        for j in range(nt):
+            wj = w[r, j]
+            if wj > 0.0:
+                vbuf[p] = y_train[j]
+                wbuf[p] = wj
+                total += wj
+                p += 1
+        for a in range(1, m):
+            kv = vbuf[a]
+            kw = wbuf[a]
+            b = a - 1
+            while b >= 0 and vbuf[b] > kv:
+                vbuf[b + 1] = vbuf[b]
+                wbuf[b + 1] = wbuf[b]
+                b -= 1
+            vbuf[b + 1] = kv
+            wbuf[b + 1] = kw
+        posbuf = np.empty(m, dtype=np.float64)
+        cum = 0.0
+        for j in range(m):
+            cum += wbuf[j]
+            posbuf[j] = (cum - 0.5 * wbuf[j]) / total
+        for li in range(nl):
+            x = levels[li]
+            if x <= posbuf[0]:
+                out[start + r, li] = vbuf[0]
+                continue
+            if x >= posbuf[m - 1]:
+                out[start + r, li] = vbuf[m - 1]
+                continue
+            lo = 0
+            hi = m - 1
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                if posbuf[mid] <= x:
+                    lo = mid
+                else:
+                    hi = mid
+            p0 = posbuf[lo]
+            p1 = posbuf[hi]
+            if p1 == p0:
+                out[start + r, li] = vbuf[lo]
+            else:
+                out[start + r, li] = vbuf[lo] + (vbuf[hi] - vbuf[lo]) * (x - p0) / (p1 - p0)
+
+
+if _HAS_NUMBA:  # pragma: no branch
+    _batch_weighted_quantiles_kernel = numba.njit(parallel=True, cache=True, fastmath=True)(
+        _batch_weighted_quantiles_kernel
+    )
+
 logger = logging.getLogger(__name__)
 
 # Internal dense grid used by predict_cdf / crps: 0.05 .. 0.95 step 0.05 (19 levels).
@@ -264,10 +344,13 @@ class _LeafResidualForest:
         for start in range(0, n_query, _PREDICT_BATCH):
             stop = min(start + _PREDICT_BATCH, n_query)
             w = self._leaf_weights(Xa[start:stop])  # (b, n_train)
-            for r in range(stop - start):
-                wi = w[r]
-                nz = wi > 0.0
-                out[start + r, :] = _weighted_quantiles(self.y_train_[nz], wi[nz], levels)
+            if _HAS_NUMBA:
+                _batch_weighted_quantiles_kernel(w, self.y_train_, levels, out, start)
+            else:
+                for r in range(stop - start):
+                    wi = w[r]
+                    nz = wi > 0.0
+                    out[start + r, :] = _weighted_quantiles(self.y_train_[nz], wi[nz], levels)
         return out.reshape(-1) if scalar else out
 
 
