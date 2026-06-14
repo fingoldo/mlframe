@@ -3095,3 +3095,23 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 73 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — fused single-pass njit outlier-mask, 2.7-3.6x isolated masking / 1.22x @10M end-to-end (15/15 paired), bit-identical incl. NaN, float-1d gated.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 74 RESOLVED, 31 REJECT across 103 iterations.**
+
+## iter104 — feature_engineering/windowed_shape: njit prange kernel for `rolling_shannon_entropy_binned` @10M
+
+**Workload @10M:** the `mlframe.feature_engineering.windowed_shape` rolling-window shape-feature family on a 10M-row float64 column split into 10 groups of 1M, K=20 windows — a fresh untapped FE family (time-series / windowed features). Per-row rolling Shannon entropy of each trailing K-window's binned histogram.
+
+**Top mlframe-own hotspot (profile @10M, `tests/perf/_prof104_windowed.py`):** `rolling_shannon_entropy_binned` was alone in carrying a per-window Python loop (`for r in range(n_wins)` dispatching `np.quantile` + `np.unique` + `np.histogram` + `np.log` per window). Measured **142.9s at just 1M rows** (single shot; ~1900s extrapolated @10M) vs the fully-vectorized siblings at 10M — total_variation 1.35s, quantile_spread 4.67s, zero_crossings 2.71s, n_peaks 1.57s. By tottime AND ncalls (~10M window dispatches) it dominated the family by 3 orders of magnitude. Plain-Python confirmed (the loop is Python; the inner calls are numpy-C dispatch, but the per-window dispatch count is the cost).
+
+**Optimization:** new `_shannon_entropy_binned_kernel` (`@njit(cache=True, parallel=True)`) computes the entropy for every window row in one prange pass — per-window finite-filter + sort, quantile edges via numpy's linear interpolation, np.unique edge dedup, half-open `[e[i],e[i+1])` binning with closed last bin (binary search), and the `-sum(p*log(p))` walk over nonzero probs. Covers both `quantile` and `uniform` strategies. The function now hands each group's `sliding_window_view` straight to the kernel.
+
+**Before/after:** separate-process e2e @1M — OLD 192.27s -> NEW 0.285s (**674x**). NEW @10M best-of-3 = **2.285s** (vs ~1920s extrapolated OLD; ~840x), bringing it in line with its vectorized siblings.
+
+**Identity proof:** histogram bin COUNTS bit-identical across {quantile,uniform} x {4,8,16 bins} x {continuous, tied-lowcard, discrete-int, NaN-bearing}; entropy VALUES differ only by ULP-level summation order — **global max|delta| = 8.882e-16** (continuous seed-0 e2e @1M: exactly 0.0). Well under the documented ~1e-9 reduction-order tolerance; these are output feature values, not selection scores, so no decision can move. NaN/short-window positions identical.
+
+**Regression test:** `tests/feature_engineering/test_windowed_entropy_njit.py` — 25 cases: asserts `_shannon_entropy_binned_kernel` present + the function routes through it (spy), FAILS on pre-fix code (symbol absent — verified via git-show old module: `hasattr == False`), plus pins ULP-equivalence (atol=1e-12) vs an independent numpy per-window reference across all strategies/nbins/distributions incl. NaN. Sibling tests (monotone-run + new-modules smoke, 35) stay green.
+
+**Bench/profile harness:** `tests/perf/_prof104_windowed.py` (committed).
+
+**Verdict: RESOLVED — njit prange kernel for rolling_shannon_entropy_binned, ~670x e2e @1M / 2.285s @10M, bin-counts bit-identical, entropy ULP-equivalent (8.9e-16).**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 75 RESOLVED, 31 REJECT across 104 iterations.**

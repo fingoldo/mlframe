@@ -85,6 +85,113 @@ def _longest_monotone_run_kernel(d: np.ndarray, direction_code: int) -> np.ndarr
     return max_run
 
 
+@njit(cache=True, fastmath=False, parallel=True)
+def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strategy: bool) -> np.ndarray:
+    """Per-window binned Shannon entropy over the rows of a sliding-window matrix.
+
+    Replaces the per-row Python loop (one ``np.quantile`` + ``np.unique`` + ``np.histogram`` +
+    ``np.log`` dispatch per window) with a single prange pass. Bit-identical by construction:
+    quantile edges use numpy's linear interpolation, the histogram uses the same half-open
+    ``[e[i], e[i+1])`` binning with a closed last bin, and the entropy sum walks the same nonzero
+    probabilities. Rows are independent so the outer scan parallelises.
+    """
+    n_wins, K = wins.shape
+    ent = np.full(n_wins, np.nan, dtype=np.float64)
+    n_edges = n_bins + 1
+    for r in prange(n_wins):
+        buf = np.empty(K, dtype=np.float64)
+        m = 0
+        for c in range(K):
+            x = wins[r, c]
+            if np.isfinite(x):
+                buf[m] = x
+                m += 1
+        if m < 2:
+            continue
+        fin = buf[:m]
+        fin.sort()
+        if quantile_strategy:
+            # numpy linear-interpolation quantiles at probs linspace(0,1,n_bins+1) over sorted fin.
+            edges = np.empty(n_edges, dtype=np.float64)
+            for i in range(n_edges):
+                if n_bins == 0:
+                    q = 0.0
+                else:
+                    q = i / n_bins
+                pos = q * (m - 1)
+                lo_i = int(np.floor(pos))
+                if lo_i >= m - 1:
+                    edges[i] = fin[m - 1]
+                else:
+                    frac = pos - lo_i
+                    edges[i] = fin[lo_i] + (fin[lo_i + 1] - fin[lo_i]) * frac
+            # np.unique: collapse duplicate edges (sorted already).
+            uniq = np.empty(n_edges, dtype=np.float64)
+            nu = 0
+            for i in range(n_edges):
+                if nu == 0 or edges[i] != uniq[nu - 1]:
+                    uniq[nu] = edges[i]
+                    nu += 1
+            if nu < 2:
+                ent[r] = 0.0
+                continue
+            counts = np.zeros(nu - 1, dtype=np.int64)
+            for j in range(m):
+                x = fin[j]
+                # half-open [e[k], e[k+1]); last bin closed at the right edge.
+                # binary search for the rightmost edge <= x.
+                lo = 0
+                hi = nu - 1
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    if uniq[mid] <= x:
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                b = lo
+                if b >= nu - 1:
+                    b = nu - 2  # closed last bin (x == right edge)
+                counts[b] += 1
+            total = 0
+            for b in range(nu - 1):
+                total += counts[b]
+            e = 0.0
+            for b in range(nu - 1):
+                cb = counts[b]
+                if cb > 0:
+                    p = cb / total
+                    e -= p * np.log(p)
+            ent[r] = e
+        else:
+            lo_v = fin[0]
+            hi_v = fin[m - 1]
+            if hi_v - lo_v < 1e-12:
+                ent[r] = 0.0
+                continue
+            right = hi_v + 1e-12
+            width = (right - lo_v) / n_bins
+            counts = np.zeros(n_bins, dtype=np.int64)
+            for j in range(m):
+                x = fin[j]
+                b = int((x - lo_v) / width)
+                if b < 0:
+                    b = 0
+                elif b >= n_bins:
+                    b = n_bins - 1
+                counts[b] += 1
+            total = 0
+            for b in range(n_bins):
+                total += counts[b]
+            e = 0.0
+            for b in range(n_bins):
+                cb = counts[b]
+                if cb > 0:
+                    p = cb / total
+                    e -= p * np.log(p)
+            ent[r] = e
+    return ent
+
+
 def rolling_mean_abs_d2(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -354,36 +461,12 @@ def rolling_shannon_entropy_binned(
     if n_bins < 2:
         raise ValueError(f"n_bins must be >= 2, got {n_bins}")
     out = np.full(values.size, fill_value, dtype=np.float64)
+    quantile_strategy = bin_strategy == "quantile"
     for _sort_idx_seg, wins, write_idx in per_group_sliding_window(
         values, group_ids, window_K=window_K,
     ):
-        n_wins, K = wins.shape
-        ent = np.full(n_wins, np.nan, dtype=np.float64)
-        # Per-window histogram + Shannon entropy.
-        for r in range(n_wins):
-            w = wins[r]
-            w_finite = w[np.isfinite(w)]
-            if w_finite.size < 2:
-                continue
-            if bin_strategy == "quantile":
-                edges = np.quantile(w_finite, np.linspace(0, 1, n_bins + 1))
-                edges = np.unique(edges)  # collapse duplicates from ties
-                if edges.size < 2:
-                    ent[r] = 0.0
-                    continue
-                counts, _ = np.histogram(w_finite, bins=edges)
-            else:
-                lo, hi = float(w_finite.min()), float(w_finite.max())
-                if hi - lo < 1e-12:
-                    ent[r] = 0.0
-                    continue
-                counts, _ = np.histogram(
-                    w_finite, bins=n_bins, range=(lo, hi + 1e-12),
-                )
-            probs = counts / counts.sum()
-            probs = probs[probs > 0]
-            ent[r] = float(-np.sum(probs * np.log(probs)))
-        out[write_idx] = ent
+        wins_c = np.ascontiguousarray(wins)
+        out[write_idx] = _shannon_entropy_binned_kernel(wins_c, n_bins, quantile_strategy)
     return out
 
 
