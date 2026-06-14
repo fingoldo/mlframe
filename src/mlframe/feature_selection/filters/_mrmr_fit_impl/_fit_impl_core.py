@@ -3045,6 +3045,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                 random_state=int(getattr(self, "random_seed", 0) or 0),
                 max_pairs=int(getattr(self, "fe_binned_numeric_agg_max_pairs", 64)),
+                redundancy_gate=bool(getattr(self, "fe_binned_numeric_agg_redundancy_gate", True)),
+                min_cmi_gain=float(getattr(self, "fe_binned_numeric_agg_min_cmi_gain", 0.005)),
             )
             _ba_appended = [c for c in _ba_appended if c not in _X_before_ba]
             if _ba_appended:

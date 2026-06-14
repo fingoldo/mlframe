@@ -260,7 +260,8 @@ def binned_numeric_agg_with_recipes(
     stats: Sequence[str] = SUPPORTED_STATS, nbins_base: int = 10,
     n_folds: int = 5, random_state: int = 0, max_pairs: int = 64,
     max_group_cols: int = 16, max_agg_cols: int = 16,
-    mi_gate: bool = True, reject_sink=None,
+    mi_gate: bool = True, redundancy_gate: bool = True,
+    min_cmi_gain: float = 0.005, reject_sink=None,
 ) -> tuple:
     """End-to-end: relevance-select numeric group/aggregate columns, OOF-fit per-cell stats, append ``binagg_*``
     columns and build replay recipes. Returns ``(X_aug, appended, recipes)`` mirroring ``kfold_target_encode_with_recipes``.
@@ -314,6 +315,50 @@ def binned_numeric_agg_with_recipes(
         from ._unified_fe_gate import local_mi_gate
         survivors = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
         feat_df = feat_df[[c for c in feat_df.columns if c in survivors]]
+        if feat_df.shape[1] == 0:
+            return X.copy(), [], []
+
+    # REDUNDANCY GATE: a ``binagg_*`` column ``stat(a | qbin(g))`` is a deterministic function of its source
+    # columns ``(g, a)``. The Tier-1 MI floor above keeps it whenever MI(col; y) clears the raw noise floor,
+    # but that fires even when the column carries NO information about y beyond ``g``/``a`` themselves -- e.g. on a
+    # linearly-separable target where the raw source already explains y, the binned aggregate is a redundant
+    # re-encoding of raw signal. Keep a column only when ``CMI(col; y | g, a) >= min_cmi_gain``, conditioning on
+    # its OWN sources (cheap: at most two raw columns). Collapses spurious appends to zero on data with no
+    # residual per-cell structure while preserving genuine cell-conditional features (where the per-cell shape
+    # adds information the raw marginals cannot).
+    if redundancy_gate and feat_df.shape[1] > 0:
+        from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
+        from ._unified_fe_gate import _coerce_y_classes
+
+        y_cls = _coerce_y_classes(y)
+        _src_bin_cache: dict[str, np.ndarray] = {}
+
+        def _src_bins(col: str) -> np.ndarray:
+            b = _src_bin_cache.get(col)
+            if b is None:
+                b = _quantile_bin(X[col].to_numpy(dtype=np.float64), nbins=nbins_base)
+                _src_bin_cache[col] = b
+            return b
+
+        kept_cols = []
+        for nm in feat_df.columns:
+            srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
+            z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
+            cand_bin = _quantile_bin(feat_df[nm].to_numpy(dtype=np.float64), nbins=nbins_base)
+            cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
+            if np.isfinite(cmi) and cmi >= float(min_cmi_gain):
+                kept_cols.append(nm)
+            elif reject_sink is not None:
+                try:
+                    reject_sink(
+                        gate="binagg_source_redundancy", candidate=str(nm),
+                        operands=tuple(srcs), operator="binned_numeric_agg_redundancy_gate",
+                        observed=float(cmi) if np.isfinite(cmi) else 0.0, threshold=float(min_cmi_gain),
+                        reason="binagg adds no CMI about y beyond its own source columns (g, a)",
+                    )
+                except Exception:
+                    pass
+        feat_df = feat_df[kept_cols]
         if feat_df.shape[1] == 0:
             return X.copy(), [], []
 

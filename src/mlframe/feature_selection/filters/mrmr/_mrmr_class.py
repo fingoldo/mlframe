@@ -2186,6 +2186,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_binned_numeric_agg_stats: tuple = ("mean", "std", "skew", "kurt"),
         fe_binned_numeric_agg_nbins: int = 10,
         fe_binned_numeric_agg_max_pairs: int = 64,
+        # Redundancy gate (default ON): keep a ``binagg_*`` column only when it adds conditional information about y
+        # BEYOND its own source columns (``CMI(col; y | group_col, agg_col) >= min_cmi_gain``). Without it the Tier-1
+        # MI floor admits binned aggregates that merely re-encode raw signal (e.g. on a linearly-separable target the
+        # raw source already explains y), bloating the candidate pool with redundant columns. Set False for the
+        # pre-gate behaviour.
+        fe_binned_numeric_agg_redundancy_gate: bool = True,
+        fe_binned_numeric_agg_min_cmi_gain: float = 0.005,
         # COUNT + FREQUENCY ENCODING for high-
         # cardinality categoricals, plus CATEGORICAL x NUMERIC INTERACTION
         # via OOF target-mean residual. Default OFF -- legacy behaviour
