@@ -74,6 +74,44 @@ _RANK_METHOD_CODES = {"average": 0, "min": 1, "max": 2, "dense": 3, "ordinal": 4
 
 
 @njit(cache=True)
+def _stable_counting_segments_int(g, gmin, span):
+    """Stable counting sort of integer group ids in O(n + span).
+
+    Returns ``(sort_idx, starts, ends)`` identical to
+    ``np.argsort(g, kind="stable")`` + boundary detection: rows are ordered by
+    ``(group_id, original_index)``, so within-group original order is preserved.
+    Only valid for integer keys with a bounded ``span`` (the caller gates on RAM).
+    """
+    n = g.shape[0]
+    counts = np.zeros(span + 1, dtype=np.int64)
+    for i in range(n):
+        counts[g[i] - gmin] += 1
+    offsets = np.empty(span + 1, dtype=np.int64)
+    acc = 0
+    nonempty = 0
+    for b in range(span + 1):
+        offsets[b] = acc
+        if counts[b] > 0:
+            nonempty += 1
+        acc += counts[b]
+    sort_idx = np.empty(n, dtype=np.intp)
+    cursor = offsets.copy()
+    for i in range(n):
+        b = g[i] - gmin
+        sort_idx[cursor[b]] = i
+        cursor[b] += 1
+    starts = np.empty(nonempty, dtype=np.intp)
+    ends = np.empty(nonempty, dtype=np.intp)
+    k = 0
+    for b in range(span + 1):
+        if counts[b] > 0:
+            starts[k] = offsets[b]
+            ends[k] = offsets[b] + counts[b]
+            k += 1
+    return sort_idx, starts, ends
+
+
+@njit(cache=True)
 def _per_group_rank_sorted_njit(seg_vals, starts, ends, method_code, pct):
     """Within-group rank of finite values, one pass over group-sorted segments.
 
@@ -157,6 +195,17 @@ def iter_group_segments(
             np.empty(0, dtype=np.intp),
             np.empty(0, dtype=np.intp),
         )
+    # Integer keys with a bounded value span use an O(n) stable counting sort instead of the
+    # O(n log n) ``argsort(kind="stable")``; this is the shared bottleneck of every per-group helper
+    # here (47-100x on the segmentation step @10M, see _benchmarks/bench_group_sort.py). The output is
+    # bit-identical (rows ordered by (group_id, original_index)). Gated on ``span <= 4n + 1M`` so the
+    # ``span+1`` counts array stays RAM-safe; sparse / huge-span / non-integer keys keep the argsort path.
+    if _HAS_NUMBA and np.issubdtype(g.dtype, np.integer) and n > 1:
+        gmin = int(g.min())
+        span = int(g.max()) - gmin
+        if 0 <= span <= 4 * n + 1_000_000:
+            return _stable_counting_segments_int(g, gmin, span)
+
     sort_idx = np.argsort(g, kind="stable")
     g_sorted = g[sort_idx]
     bnd = np.where(g_sorted[1:] != g_sorted[:-1])[0] + 1

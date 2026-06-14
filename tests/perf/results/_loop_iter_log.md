@@ -3050,3 +3050,26 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 71 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — 13.5x isolated merge step / 1.36x @10M end-to-end full cleaning pass, bit-identical (VC_HASH + NNA equal, separate-process confirmed).**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 72 RESOLVED, 31 REJECT across 101 iterations.**
+
+
+## iter102 @10M — feature_engineering/grouped `iter_group_segments`: O(n log n) stable argsort -> O(n) integer counting sort
+
+**Component:** `iter_group_segments` (`src/mlframe/feature_engineering/grouped.py:139`), the shared segmentation primitive behind EVERY per-group helper (`per_group_apply` / `per_group_shift` / `per_group_cum_reduce` / `per_group_rolling_reduce` / `per_group_rank` / `per_group_nth`). Fresh seam — grouped per-group iterator family not previously mined (TAPPED `per_group_rank` only touched the rank kernel, not the shared sort).
+
+**Hotspot:** profiling `per_group_shift` / `per_group_cum_reduce` @10M (200k groups) showed `np.argsort(group_ids, kind="stable")` = **8.7-9.3s of ~10s wall (~88%)**. numpy's stable argsort is timsort (O(n log n) comparison sort) even for integer keys; the per-group Python loop is secondary (0.86-1.09s).
+
+**Optimization:** for integer group ids with a bounded value span, a numba stable counting sort (`_stable_counting_segments_int`) produces `(sort_idx, starts, ends)` in O(n + span) — bit-identical layout (rows ordered by `(group_id, original_index)`, within-group original order preserved). Gated on `np.issubdtype(integer) AND 0 <= span <= 4n + 1M` so the `span+1` counts array stays RAM-safe; sparse / huge-span / non-integer keys keep the exact argsort path.
+
+**Isolated A/B @10M** (best-of-3, `_benchmarks/bench_group_sort.py`): 200k groups argsort 8.92s vs counting 0.19s = **47.6x**; 10k groups 8.70s vs 0.087s = **99.6x**. `sort_idx`/`starts`/`ends` array-equal in every case.
+
+**Separate-process paired e2e A/B @10M** (`_benchmarks/ab_grouped_10m.py`, NEW worktree vs OLD HEAD module loaded standalone, alternated): `per_group_shift` 200k groups NEW 0.645s vs OLD 8.712s = **13.5x** (faster 4/4 trials); 10k groups NEW 0.382s vs OLD 8.106s = **21.3x** (4/4). Identity across the whole family: shift exact, cum_reduce / rolling_mean / rank `max|diff| = 0.0`.
+
+**Identity proof:** counting-sort output array-equal to argsort segmentation on ties / negatives / single-group / all-distinct / one-big-group integer keys; all four downstream per-group helpers byte-identical @10M separate-process.
+
+**Regression test:** `tests/feature_engineering/test_grouped_counting_sort.py` — `test_integer_path_skips_argsort` spies `np.argsort` (0 calls expected; FAILS on HEAD where it trips 1x, verified), `test_huge_span_falls_back_to_argsort` pins the RAM gate, parametrized bit-identity vs argsort on edge integer-key shapes.
+
+**Benches:** `src/mlframe/feature_engineering/_benchmarks/bench_group_sort.py`, `prof_per_group_shift_10m.py`, `ab_grouped_10m.py`.
+
+**Verdict: RESOLVED — 47-100x isolated segmentation / 13.5-21.3x @10M end-to-end per_group_shift (shared by all grouped helpers), bit-identical, gated integer fast path, separate-process + paired confirmed.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 73 RESOLVED, 31 REJECT across 102 iterations.**
