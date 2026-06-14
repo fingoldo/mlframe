@@ -96,6 +96,79 @@ _VAR_FLOOR: float = 1e-24
 
 if _HAS_NUMBA:
 
+    @_numba.njit(cache=True, fastmath=False, parallel=True)
+    def _column_stats_allfinite(fm):  # type: ignore[no-untyped-def]
+        """Per-column mean + centred sum-of-squares for an all-finite matrix.
+
+        One parallel pass over the (n, B) matrix; ``var[j]`` is the centred
+        sum-of-squares (NOT divided by n) so a later cross-term divides by the
+        same un-normalised scale, matching the reference's ``dot(dev, dev)``.
+        """
+        n = fm.shape[0]
+        n_cols = fm.shape[1]
+        mean = np.empty(n_cols, dtype=np.float64)
+        var = np.empty(n_cols, dtype=np.float64)
+        for j in _numba.prange(n_cols):
+            s = 0.0
+            for i in range(n):
+                s += fm[i, j]
+            m = s / n
+            v = 0.0
+            for i in range(n):
+                d = fm[i, j] - m
+                v += d * d
+            mean[j] = m
+            var[j] = v
+        return mean, var
+
+    @_numba.njit(cache=True, fastmath=False)
+    def _keep_mask_kernel_allfinite(fm, mean, var, thr, band):  # type: ignore[no-untyped-def]
+        """All-finite fast path: single cross-term pass per kept pair.
+
+        Equivalent to :func:`_keep_mask_kernel` when every row is finite, but
+        with the per-pair mean/variance pulled from the precomputed ``mean`` /
+        ``var`` arrays so each pair costs ONE pass over n (the cross term) rather
+        than two. ``var[k]`` is the centred sum-of-squares (un-normalised),
+        matching the reference. Borderline pairs are still flagged for exact
+        numpy re-decision so the mask stays bit-identical.
+        """
+        n = fm.shape[0]
+        n_cols = fm.shape[1]
+        keep = np.ones(n_cols, dtype=np.int8)
+        borderline = np.zeros(n_cols, dtype=np.int8)
+        kept_idx = np.empty(n_cols, dtype=np.int64)
+        n_kept = 0
+        for j in range(n_cols):
+            drop = False
+            j_borderline = False
+            mj = mean[j]
+            vj = var[j]
+            for ki in range(n_kept):
+                k = kept_idx[ki]
+                vk = var[k]
+                if vj < _VAR_FLOOR or vk < _VAR_FLOOR:
+                    continue
+                mk = mean[k]
+                vab = 0.0
+                for i in range(n):
+                    vab += (fm[i, j] - mj) * (fm[i, k] - mk)
+                corr = abs(vab / np.sqrt(vj * vk))
+                if abs(corr - thr) <= band:
+                    j_borderline = True
+                    drop = True
+                    break
+                if corr > thr:
+                    drop = True
+                    break
+            if drop:
+                keep[j] = 0
+                if j_borderline:
+                    borderline[j] = 1
+            else:
+                kept_idx[n_kept] = j
+                n_kept += 1
+        return keep, borderline
+
     @_numba.njit(cache=True, fastmath=False)
     def _keep_mask_kernel(fm, finite, thr, band):  # type: ignore[no-untyped-def]
         """Walk columns left to right, return (keep, borderline) int8 arrays.
@@ -249,7 +322,15 @@ def near_collinear_keep_mask_fast(
             _KEEP_MASK_CACHE.move_to_end(_ck)
             return _hit.copy()
     finite = np.isfinite(fm)
-    keep_i8, borderline_i8 = _keep_mask_kernel(fm, finite, thr, _BORDERLINE_BAND)
+    # All-finite fast path (the common case after the leakage filter): precompute
+    # per-column mean+ssq once, then each kept pair costs ONE cross-term pass over
+    # n instead of the two-pass per-pair mean/variance recompute. Borderline pairs
+    # are still re-decided exactly below, so the mask is bit-identical either way.
+    if finite.all():
+        mean, var = _column_stats_allfinite(fm)
+        keep_i8, borderline_i8 = _keep_mask_kernel_allfinite(fm, mean, var, thr, _BORDERLINE_BAND)
+    else:
+        keep_i8, borderline_i8 = _keep_mask_kernel(fm, finite, thr, _BORDERLINE_BAND)
     keep = keep_i8.astype(bool)
     if borderline_i8.any():
         # Replay the left-to-right walk, re-deciding only the borderline columns with
@@ -279,6 +360,8 @@ def _warm_collinear_kernel() -> None:
         warm[:, 1] = np.arange(4.0)
         fin = np.isfinite(warm)
         _keep_mask_kernel(warm, fin, 0.99, _BORDERLINE_BAND)
+        _mean, _var = _column_stats_allfinite(warm)
+        _keep_mask_kernel_allfinite(warm, _mean, _var, 0.99, _BORDERLINE_BAND)
     except Exception:  # pragma: no cover - warming is best-effort.
         pass
 

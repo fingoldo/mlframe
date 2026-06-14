@@ -184,3 +184,78 @@ def test_threshold_disabled_and_degenerate_shapes() -> None:
     assert _fast(fm, 1.0).all()  # threshold disables -> all kept
     assert _fast(a.reshape(-1, 1), 0.5).all()
     assert _fast(fm[:2], 0.5).all()
+
+
+@pytest.mark.skipif(not _HAS_NUMBA, reason="numba required for the JIT path")
+class TestAllFiniteFastPath:
+    """The all-finite fast path precomputes per-column mean+ssq once, then costs ONE cross-term pass per kept pair (vs the two-pass per-pair mean/variance recompute of the general kernel). It must be selected on a finite matrix and produce a mask bit-identical to both the serial NaN-aware kernel and the numpy reference."""
+
+    def test_allfinite_kernel_symbols_exist(self) -> None:
+        assert hasattr(_cn, "_keep_mask_kernel_allfinite")
+        assert hasattr(_cn, "_column_stats_allfinite")
+
+    @pytest.mark.parametrize("seed", range(12))
+    def test_allfinite_fast_path_bit_identical_to_serial_and_reference(self, seed: int) -> None:
+        rng = np.random.default_rng(seed)
+        n = int(rng.integers(_MIN_ROWS, 4000))
+        n_cols = int(rng.integers(_MIN_COLS, 40))
+        latent = rng.normal(size=(n, 5))
+        cols = []
+        for _ in range(n_cols):
+            r = rng.random()
+            if r < 0.45:
+                cols.append(latent[:, rng.integers(0, 5)] + rng.choice([1e-5, 1e-2, 0.3]) * rng.normal(size=n))
+            elif r < 0.55:
+                cols.append(rng.integers(0, 5, size=n).astype(np.float64))  # discrete / tied
+            else:
+                cols.append(rng.normal(size=n))
+        fm = np.ascontiguousarray(np.column_stack(cols), dtype=np.float64)
+        assert np.isfinite(fm).all()
+        thr = float(rng.choice([0.9, 0.95, 0.99]))
+        mean, var = _cn._column_stats_allfinite(fm)
+        keep_af, _ = _cn._keep_mask_kernel_allfinite(fm, mean, var, thr, _cn._BORDERLINE_BAND)
+        keep_serial, _ = _cn._keep_mask_kernel(fm, np.isfinite(fm), thr, _cn._BORDERLINE_BAND)
+        assert np.array_equal(keep_af, keep_serial)
+        ref = _near_collinear_keep_mask_numpy(fm, corr_threshold=thr)
+        assert np.array_equal(keep_af.astype(bool), ref)
+
+    def test_dispatcher_uses_allfinite_path_on_finite_input(self, monkeypatch) -> None:
+        """On an all-finite matrix above the size gate, the dispatcher MUST route through the all-finite kernel (and NOT the general NaN-aware one)."""
+        rng = np.random.default_rng(3)
+        n, B = _MIN_ROWS + 500, _MIN_COLS + 4
+        fm = np.ascontiguousarray(rng.normal(size=(n, B)))
+        fm[:, 2] = fm[:, 1] + 1e-4 * rng.normal(size=n)
+        _cn._KEEP_MASK_CACHE.clear()
+        calls = {"af": 0, "general": 0}
+        orig_af = _cn._keep_mask_kernel_allfinite
+        orig_gen = _cn._keep_mask_kernel
+
+        def spy_af(*a, **k):
+            calls["af"] += 1
+            return orig_af(*a, **k)
+
+        def spy_gen(*a, **k):
+            calls["general"] += 1
+            return orig_gen(*a, **k)
+
+        monkeypatch.setattr(_cn, "_keep_mask_kernel_allfinite", spy_af)
+        monkeypatch.setattr(_cn, "_keep_mask_kernel", spy_gen)
+        _fast(fm, 0.99)
+        assert calls["af"] == 1 and calls["general"] == 0
+        _cn._KEEP_MASK_CACHE.clear()
+
+    def test_nan_input_still_uses_general_kernel(self, monkeypatch) -> None:
+        """A matrix with any NaN must fall back to the general NaN-aware kernel (the all-finite cross-term formula is wrong on holed pairs)."""
+        rng = np.random.default_rng(4)
+        n, B = _MIN_ROWS + 500, _MIN_COLS + 4
+        fm = np.ascontiguousarray(rng.normal(size=(n, B)))
+        fm[3, 0] = np.nan
+        _cn._KEEP_MASK_CACHE.clear()
+        calls = {"af": 0, "general": 0}
+        orig_af = _cn._keep_mask_kernel_allfinite
+        orig_gen = _cn._keep_mask_kernel
+        monkeypatch.setattr(_cn, "_keep_mask_kernel_allfinite", lambda *a, **k: (calls.__setitem__("af", calls["af"] + 1) or orig_af(*a, **k)))
+        monkeypatch.setattr(_cn, "_keep_mask_kernel", lambda *a, **k: (calls.__setitem__("general", calls["general"] + 1) or orig_gen(*a, **k)))
+        _fast(fm, 0.99)
+        assert calls["general"] == 1 and calls["af"] == 0
+        _cn._KEEP_MASK_CACHE.clear()

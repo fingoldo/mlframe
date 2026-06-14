@@ -2817,3 +2817,25 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 62 RESOLVED, 2
 **Verdict: RESOLVED+31x isolated / 1.49x e2e @1M (ncrossings mark-parallel njit; bit-identical to serial float32 reference).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 63 RESOLVED, 29 REJECT across 90 iterations.**
+
+---
+
+### iter91 (@1M) -- near-collinear keep-mask all-finite fused single-pass kernel (composite-target REGRESSION discovery)
+
+**Workload@1M + why:** `CompositeTargetDiscovery.fit` on a synthetic REGRESSION target (continuous y, ~30 features: an AR-style `lag1` base + 2 correlated siblings + 25 numeric + 2 low-card integer categoricals) driven from a 1M-row frame with the suite-default regression discovery combo (`enabled=True` -> mi_estimator='bin', screening='hybrid', multi_base + stacked-residual surfaces ON). The discovery subsamples its MI screen to `mi_sample_n=100k`; the per-base near-collinear `x_remaining` dedup (`dedup_x_remaining_for_mi_baseline=True`) therefore runs on a 100k x ~28 matrix once per screened base. Bench: `discovery/_benchmarks/bench_iter91_regression_discovery_1m.py`.
+
+**Top mlframe-own by tottime (1M fit, isolated):** `_collinear_numba.py:near_collinear_keep_mask_fast` 1.289s tottime / 1.392s cumtime / 3 calls -- the single largest mlframe-own frame (the top two cProfile lines `time.sleep` 32.8s + `lightgbm basic.update` 2.8s are LightGBM's internal training-thread idle/boost and external, SKIP). Confirmed genuine numba compute (not cProfile njit-mis-attribution) via standalone microbench: the `_keep_mask_kernel` body is 0.36s/call @100kx28 -> 3 calls ~= 1.08s, matching the profiled tottime. e2e-fraction: ~1.4s of the discovery's mlframe-own time (the rest of the fit wall is the external tiny-LGBM rerank + MI bin kernels, already perf-mature).
+
+**Hotspot:** `_keep_mask_kernel` -- the per-base O(B^2) left-to-right collinearity walk. For each kept pair it walks all n rows TWICE (pass 1: joint-finite count + two running means; pass 2: the two centred variances + the cross term), recomputing each column's mean/variance afresh for every pair it participates in.
+
+**Optimization + audit (duplicated second-pass O(n) recompute a prior pass folds in + within-series unexploited parallelism):** the common production case (all-finite `x_remaining` after the leakage filter) lets the per-column mean + centred sum-of-squares be computed ONCE for the whole matrix, after which each kept pair needs only the cross-term `sum((a-ma)(b-mb))` -- ONE pass over n instead of two, with no per-pair mean/variance recompute. New `_column_stats_allfinite` (parallel `prange` over columns) precomputes the stats; new `_keep_mask_kernel_allfinite` does the single cross-term pass. The dispatcher gates on `np.isfinite(fm).all()`: finite -> fast path, any NaN -> the unchanged general two-pass kernel. Bit-identity preserved by construction (same arithmetic, fewer passes) PLUS the existing borderline-band exact-numpy re-decision absorbs any ~1 ULP reduction-order difference, so the mask is byte-identical to the serial kernel and the numpy reference on continuous / discrete / tied / duplicate / constant inputs.
+
+**Before/after:** isolated kernel @100kx28 (paired, warm, best-of-9): OLD `_keep_mask_kernel` median 0.3585s -> NEW `_column_stats_allfinite`+`_keep_mask_kernel_allfinite` median 0.1332s (**2.69x**, mask-identical). e2e on the 1M discovery fit: `near_collinear_keep_mask_fast` cumtime 1.392s -> 0.577s (**2.4x** on this sub-phase), tottime 1.289s -> 0.476s; discovery selects the SAME 9 specs before and after.
+
+**Identity proof:** OLD (via `git show HEAD:_collinear_numba.py`, loaded under a package-context name) vs NEW dispatcher byte-identical keep-masks across 6 seeds @100kx28 all-finite with injected collinear siblings; plus in-module `_keep_mask_kernel_allfinite` == `_keep_mask_kernel` == numpy reference across 12 mixed (continuous/discrete/tied/dup) all-finite shapes; NaN/discrete/dup/const inputs still routed to the exact general path and bit-identical.
+
+**Regression test (`tests/training/composite/test_collinear_numba_bit_identity.py::TestAllFiniteFastPath`):** symbol-existence + serial-vs-allfinite-vs-reference identity (12 seeds) + a spy asserting the all-finite kernel is the one dispatched on finite input (general kernel NOT called) + a spy asserting any-NaN input falls back to the general kernel. FAILS on pre-fix code: `_keep_mask_kernel_allfinite` / `_column_stats_allfinite` do not exist at HEAD (verified via `git show` -> AttributeError on the spy/identity tests). 63/63 test_collinear_numba_bit_identity.py + 27/27 discovery biz_val/fdr/ktc tests green post-fix.
+
+**Verdict: RESOLVED+2.69x isolated / 2.4x e2e on the near-collinear dedup sub-phase @1M (all-finite fused single-pass keep-mask kernel; byte-identical to the serial reference, gated to fall back on NaN).**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 64 RESOLVED, 29 REJECT across 91 iterations.**
