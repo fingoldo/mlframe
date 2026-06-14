@@ -47,6 +47,8 @@ try:
 except Exception:
     _nb_cuda = None
 
+from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
+
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
@@ -55,6 +57,11 @@ except Exception:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
     except Exception:
         _CUDA_AVAIL = False
+
+# Device-presence alone is not enough: a GPU with a cudatoolkit/numba NVVM mismatch passes the
+# probe above but raises NvvmSupportError on the first kernel launch. Require actual compilability
+# so the dispatcher falls back to cupy/CPU instead of crashing.
+_CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
 
 try:
     import cupy as _cp

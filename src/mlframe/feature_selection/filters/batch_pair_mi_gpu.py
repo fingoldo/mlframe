@@ -56,6 +56,11 @@ except Exception:
     except Exception:
         _CUDA_AVAIL = False
 
+# Require numba.cuda to actually compile+launch a kernel (not just device presence) so a
+# cudatoolkit/NVVM mismatch routes to cupy/CPU instead of raising NvvmSupportError mid-dispatch.
+from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
+_CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
+
 try:
     import cupy as _cp
     _CUPY_AVAIL = True

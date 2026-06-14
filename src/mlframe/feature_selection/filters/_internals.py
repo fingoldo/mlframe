@@ -34,6 +34,45 @@ def suppress_numba_warnings():
         yield
 
 
+_NUMBA_CUDA_CAN_COMPILE: bool | None = None
+
+
+def numba_cuda_can_compile() -> bool:
+    """True only if numba.cuda can actually COMPILE + LAUNCH a kernel on this host.
+
+    ``numba.cuda.is_available()`` / ``pyutilz.is_cuda_available()`` report device PRESENCE,
+    not whether NVVM supports the device's compute capability. On a host with a GPU but a
+    cudatoolkit/numba mismatch the device probe returns True yet the first real kernel launch
+    raises ``NvvmSupportError`` ("No supported GPU compute capabilities found"). Gating the
+    numba.cuda backend on device-presence alone therefore crashes the dispatcher instead of
+    falling back to cupy/CPU. This probe compiles + launches a trivial kernel ONCE (result
+    cached) so callers can route around a numba.cuda stack that cannot actually run kernels.
+    cupy is gated separately (it can work even when numba.cuda's NVVM cannot)."""
+    global _NUMBA_CUDA_CAN_COMPILE
+    if _NUMBA_CUDA_CAN_COMPILE is not None:
+        return _NUMBA_CUDA_CAN_COMPILE
+    try:
+        from numba import cuda as _cuda
+
+        if not _cuda.is_available():
+            _NUMBA_CUDA_CAN_COMPILE = False
+            return False
+
+        @_cuda.jit
+        def _probe(out):  # pragma: no cover - trivial device kernel
+            out[0] = 1
+
+        out = _cuda.to_device(np.zeros(1, dtype=np.int32))
+        _probe[1, 1](out)
+        _cuda.synchronize()
+        _NUMBA_CUDA_CAN_COMPILE = int(out.copy_to_host()[0]) == 1
+    except Exception:
+        # NvvmSupportError, missing toolkit, driver mismatch, OOM at probe -- any failure means
+        # the numba.cuda path is unusable on this host; route to cupy/CPU.
+        _NUMBA_CUDA_CAN_COMPILE = False
+    return _NUMBA_CUDA_CAN_COMPILE
+
+
 # =============================================================================
 # Constants
 # =============================================================================
