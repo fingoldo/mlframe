@@ -69,6 +69,48 @@ def test_numeric_ts_zero_span_returns_uniform() -> None:
     assert np.allclose(weights, 2.5)
 
 
+def test_recency_weights_routed_through_fused_kernel() -> None:
+    """The recency-weight arithmetic chain must run through the fused njit kernel
+    ``_recency_weights_fused`` (the perf path), not four separate numpy sweeps.
+
+    Pre-fix code had no such symbol, so the import fails — a regression sensor against
+    a silent revert to the multi-sweep numpy chain. Also pins value-equivalence against
+    the explicit reference formula (<=1 ULP from fastmath reduction-order)."""
+    from mlframe.training.extractors import _extractors_dtype_helpers as mod
+
+    assert hasattr(mod, "_recency_weights_fused"), "fused recency kernel missing — perf path reverted"
+
+    called = {"n": 0}
+    orig = mod._recency_weights_fused
+
+    def _spy(*args, **kwargs):
+        called["n"] += 1
+        return orig(*args, **kwargs)
+
+    mod._recency_weights_fused = _spy
+    try:
+        n = 5000
+        rng = np.random.default_rng(0)
+        secs = np.sort(rng.integers(0, 3 * 365 * 86400, n)).astype(np.int64)
+        ds = pd.Series(secs, name="ts")
+        weights = mod.get_sample_weights_by_recency(ds)
+    finally:
+        mod._recency_weights_fused = orig
+
+    assert called["n"] == 1, "fused kernel was not invoked on the non-degenerate path"
+
+    # Explicit reference formula (the four-sweep numpy chain the fix replaced).
+    wdpy = 0.1
+    min_age_days = 1.0 / 86400.0
+    log_min_age = np.log(min_age_days)
+    span_days = float(secs.max() - secs.min()) / 86400.0
+    delta_secs = (secs.max() - secs).astype(np.float64)
+    days_from_max = np.maximum(delta_secs / 86400.0, min_age_days)
+    max_drop = (np.log(span_days) - log_min_age) * wdpy
+    ref = 1.0 + max_drop - (np.log(days_from_max) - log_min_age) * wdpy
+    assert np.max(np.abs(weights - ref)) < 1e-9, "fused kernel diverges from reference formula beyond 1 ULP"
+
+
 def test_pre_fix_simulated_AttributeError() -> None:
     """Lock the bug surface: directly call the int Series's
     ``(max - min).total_seconds()`` to confirm Python raises

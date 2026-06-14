@@ -3447,3 +3447,30 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 88 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — vectorized Mondrian per-group radius gather, ~2.3x e2e @10M, bit-identical; sigma grouped-pass 2.15x isolated (e2e-neutral, kept as clean win).**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 89 RESOLVED, 31 REJECT across 118 iterations.**
+
+---
+
+## iter119 @10M — recency sample-weights (fused njit chain) — RESOLVED
+
+**Component:** `get_sample_weights_by_recency` (`training/extractors/_extractors_dtype_helpers.py`) — FTE sample-weight extraction; full-n float64 weight array over a date/ts column.
+
+**Workload@10M + why:** untapped preprocessing family (sample-weight/recency weighting); 10M float64 col = 80MB, RAM-safe. Fresh component, not in TAPPED list.
+
+**Hotspot:** the final weight build did four full-array numpy sweeps (`_delta_secs / 86400` -> `np.maximum(..., floor)` -> `np.log(...)` -> affine combine). Isolated microbench @10M: the arithmetic chain alone = ~250ms (plain numpy, not njit-misattributed); the other ~250ms of the datetime path is pandas `.dt.total_seconds()` (not ours). e2e-fraction: chain ≈ 29% of datetime-path wall, ≈ 49% of numeric-path wall.
+
+**Optimization + audit:** fused the four sweeps into one `numba.njit(parallel=True, fastmath=True)` prange kernel `_recency_weights_fused`, folding every loop-invariant term into a single `base` so the per-element body is just `base - log(d) * wdpy`. Multi-sweep -> one fused prange (richest-seam pattern).
+
+**Before/after (separate-module A/B vs `git show HEAD:`, best-of-7 median, @10M):**
+- datetime path: 857ms -> 484ms (**1.77x**, -44%)
+- numeric  path: 507ms -> 181ms (**2.80x**, -64%)
+- isolated chain: 256ms -> 37ms (~7x)
+
+**Identity proof:** max abs diff 4.44e-16 (<1 ULP, fastmath reduction-order; training weights, non-selection-altering); finite; zero-span bit-identical.
+
+**Regression test:** `tests/training/test_recency_numeric_ts_l41.py::test_recency_weights_routed_through_fused_kernel` — spies `_recency_weights_fused` (FAILS pre-fix: symbol absent at HEAD, verified) + pins value-equivalence vs explicit reference formula (<1e-9).
+
+**Bench:** `src/mlframe/training/extractors/_benchmarks/bench_recency_weights_fused.py`.
+
+**Verdict: RESOLVED — fused 4-sweep recency-weight chain into one njit prange, 1.77x datetime / 2.80x numeric e2e @10M, <=1 ULP identical.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 90 RESOLVED, 31 REJECT across 119 iterations.**
