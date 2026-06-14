@@ -48,8 +48,27 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit, prange
 
 logger = logging.getLogger(__name__)
+
+
+@njit(cache=True, parallel=True)
+def _bitpack_rows_njit(arr: np.ndarray) -> np.ndarray:
+    """Fused per-row bit-pack of an (n, k) bool/uint8 isna block into one int64 per row.
+
+    Bit-identical to ``(arr.astype(int64) * (1 << arange(k))).sum(axis=1)`` but never materialises the two (n, k) int64 temporaries that broadcast-multiply
+    + row-reduce allocate -- at 10M rows those temporaries (~80MB each per column) are the memory-bandwidth bottleneck, not the packing arithmetic.
+    """
+    n, k = arr.shape
+    out = np.empty(n, dtype=np.int64)
+    for i in prange(n):
+        acc = 0
+        for j in range(k):
+            if arr[i, j]:
+                acc |= 1 << j
+        out[i] = acc
+    return out
 
 __all__ = [
     "engineered_name_missing_indicator",
@@ -271,11 +290,8 @@ def _row_pattern_signature(isna_block: np.ndarray) -> np.ndarray:
     if k == 0:
         return np.zeros(n, dtype=np.int64)
     if k <= 63:
-        # Bit-pack: each column j contributes bit j, MSB-first for stable
-        # ordering across fit and transform.
-        weights = (1 << np.arange(k, dtype=np.int64))
-        out = (arr.astype(np.int64) * weights[None, :]).sum(axis=1)
-        return out
+        # Bit-pack: each column j contributes bit j. Fused njit prange avoids the two (n, k) int64 broadcast temporaries the numpy form allocates.
+        return _bitpack_rows_njit(np.ascontiguousarray(arr))
     # Fallback: per-row tuple hash. Determinism guaranteed by sorting cols
     # caller-side before passing the block in.
     out = np.empty(n, dtype=np.int64)
@@ -380,10 +396,18 @@ def apply_missingness_pattern(
     # pattern_to_label keys may have been coerced to str during pickle
     # round-trip; coerce both sides to int for a robust lookup.
     pattern_to_label_int = {int(k): int(v) for k, v in pattern_to_label.items()}
-    for i in range(n):
-        s = int(sigs[i])
-        if s in pattern_to_label_int:
-            labels[i] = pattern_to_label_int[s]
+    if not pattern_to_label_int:
+        return labels
+    # Vectorised mapping via sorted-key searchsorted; avoids a per-row Python loop that at 10M rows dominates apply wall.
+    keys = np.fromiter(pattern_to_label_int.keys(), dtype=np.int64, count=len(pattern_to_label_int))
+    vals = np.fromiter(pattern_to_label_int.values(), dtype=np.int32, count=len(pattern_to_label_int))
+    order = np.argsort(keys, kind="stable")
+    keys_sorted = keys[order]
+    vals_sorted = vals[order]
+    pos = np.searchsorted(keys_sorted, sigs)
+    pos = np.clip(pos, 0, len(keys_sorted) - 1)
+    hit = keys_sorted[pos] == sigs
+    labels[hit] = vals_sorted[pos[hit]]
     return labels
 
 

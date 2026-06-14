@@ -3519,3 +3519,25 @@ Streak: 1/100 consecutive rejects (iter119 was RESOLVED -> this is the first rej
 **Verdict: RESOLVED +3.8x e2e @10M, bit-identical, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 91 RESOLVED, 32 REJECT across 121 iterations.**
+
+---
+
+## iter122 @10M — missingness-pattern signature (fused njit bit-pack) + vectorised label lookup
+
+**Workload:** `missingness_pattern_fit` + `apply_missingness_pattern` at n=10,000,000, k=8 (MNAR pattern-signature sibling iter121 flagged but left). Real O(n*k) cost.
+
+**Top mlframe-own hotspot:** `_row_pattern_signature` — `(arr.astype(int64) * (1<<arange(k))[None,:]).sum(axis=1)` allocates two (n,k) int64 broadcast temporaries (~80MB/col each at 10M) + a row reduction; memory-bandwidth bound. Plain-numpy, no njit dispatch. Microbench @10M k=8: 0.72–1.31s/call. Second hotspot: `apply_missingness_pattern` per-row Python `for i in range(n)` dict lookup over 10M rows.
+
+**Optimization:** added `_bitpack_rows_njit` (njit parallel=True prange) fusing the per-row bit-pack into one int64/row with zero (n,k) temporaries; routed the k<=63 signature path through it. Replaced the apply per-row Python loop with sorted-key `np.searchsorted` vectorised mapping. Both bit-identical by construction (same bit weights / same key→label map).
+
+**Isolated bench @10M k=8 (best-of-5):** signature 1.311s → 0.041s njit-par (~32x), serial njit 0.081s (~16x). Both `np.array_equal` to numpy reference.
+
+**Separate-process e2e A/B @10M (fit+apply, OLD via git show HEAD, best-of-4):** old median 6.165s / min 5.740s → new median 1.931s / min 1.771s = **3.19x median / 3.24x min**. Label checksum identical (44644796) across old/new.
+
+**Identity proof:** signature `np.array_equal` to numpy reference True; fit labels == apply labels True; old/new e2e label checksum identical.
+
+**Regression test:** `tests/feature_selection/test_missingness_pattern_bitpack.py` — (1) signature bit-identity to numpy reference, (2) spy asserting routing through `_bitpack_rows_njit` (FAILS pre-fix: symbol absent at HEAD), (3) fit==apply label identity, (4) unseen-pattern→other-sink contract. 4 passed.
+
+**Verdict: RESOLVED +3.19x e2e @10M, bit-identical, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 92 RESOLVED, 32 REJECT across 122 iterations.**
