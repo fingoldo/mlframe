@@ -3561,3 +3561,23 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 92 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +3.21–3.38x e2e @10M, byte-identical, no uglification (net code reduction — duplicate retired).**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 93 RESOLVED, 32 REJECT across 123 iterations.**
+
+---
+
+## iter124 (@10M) — ensemble disagreement features: fused njit row-histogram replaces `np.add.at` scatter
+
+**Workload @10M + why:** `feature_engineering/ensemble_features.predictor_consensus_entropy` / `predictor_top2_mode_gap` — per-row disagreement features over an `(n_rows, n_preds)` stacked-predictor matrix. Fresh untapped family (ensemble FE). Both bin each row's k predictor values into n_bins and build a per-row histogram via a per-predictor `np.add.at(counts, (np.arange(n), binned[:,j]), 1.0)` loop — the slowest possible unbuffered scatter, a real O(n·k) cost confirmed by microbench @10M.
+
+**Hotspot:** the `np.add.at` scatter loop. Microbench @10M×8 preds, n_bins=5: isolated scatter loop min 2.308s; vectorized `(binned==b).sum(axis=1)` per-bin min 1.836s (1.26x); fused njit prange row-histogram min 0.085s — **27.1x** vs scatter, bit-identical (integer counts in float64). Plain-Python/numpy confirmed (`np.add.at` is a numpy ufunc method, not njit). e2e-fraction: scatter was ~40% of each function (the rest is shared coerce + binning + log/sort).
+
+**Optimization + audit:** added `_row_bin_histogram_njit(binned, n_bins)` (`@numba.njit(parallel=True, cache=True)`, single fused prange over rows) and routed both functions to it. Audited both call sites — they consume the FULL histogram (entropy needs all bin probs; top2-gap needs the sorted counts), so no pruning; the win is purely retiring the scatter. No new kernel versions needed (single njit; no GPU crossover at n_bins≤a few).
+
+**Before/after:** isolated (above) 2.308s→0.085s (27.1x). Separate-process paired A/B e2e @10M×8 (OLD via `git show HEAD:`): best-to-best OLD 5.417/5.166s → NEW 4.350/4.099s (≈1.25x e2e on the full functions; second OLD pass 8.201/7.207s under contention → NEW steady 4.35/4.10s).
+
+**Identity proof:** `np.array_equal` maxdiff **0.0** for both functions at 10M×8 (separate-process, OLD baseline loaded from `git show HEAD:`). Integer counts → no FP reorder concern.
+
+**Regression test:** `tests/feature_engineering/test_ensemble_features_histogram_njit.py` — (1) kernel == add.at scatter on a 2000×9 case; (2)+(3) both functions bit-identical to an in-test pre-fix reference; (4) behavioral sensor sabotages `np.add.at` to raise and confirms both functions still run (FAILS pre-fix: scatter trips the sabotage — verified via `git show HEAD:` baseline; pre-fix module also lacks the kernel attr). 4 passed.
+
+**Verdict: RESOLVED +27.1x isolated scatter / ≈1.25x e2e @10M, byte-identical, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 94 RESOLVED, 32 REJECT across 124 iterations.**
