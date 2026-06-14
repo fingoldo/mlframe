@@ -618,6 +618,7 @@ def adversarial_auc(
     AUC >> 0.5 => the sets are distinguishable (CV will not transfer / covariate shift present).
     """
     import lightgbm as lgb
+    import pandas as pd
     from sklearn.metrics import roc_auc_score, roc_curve
     from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
@@ -631,8 +632,37 @@ def adversarial_auc(
     nb = cols_b[0].shape[0] if cols_b else 0
     ia = _subsample_rows(na, max_rows_per_side, seed)
     ib = _subsample_rows(nb, max_rows_per_side, seed + 1)
-    Xa = np.column_stack([np.asarray(c, dtype=np.float64)[ia] for c in cols_a]) if cols_a else np.empty((len(ia), 0))
-    Xb = np.column_stack([np.asarray(c, dtype=np.float64)[ib] for c in cols_b]) if cols_b else np.empty((len(ib), 0))
+
+    def _encode_pair(ca, cb):
+        """Return (a, b) as 1-D float64 arrays, or ``None`` to skip a non-scalar column. Numeric columns pass through;
+        string / categorical / object columns are label-encoded against the A+B union so the same category maps to the
+        same code on both sides (categorical drift -- a level present only in one side -- is a real adversarial signal,
+        not a reason to crash). NaN / None map to the -1 sentinel, which LightGBM treats as missing. Non-scalar columns
+        (embedding ``List(...)`` columns materialised as object arrays of Python lists / ndarrays) are skipped: they
+        have no single scalar value to feed the separating classifier."""
+        a = np.asarray(ca)
+        b = np.asarray(cb)
+        if a.ndim > 1 or b.ndim > 1:
+            return None  # 2-D (fixed-width embedding) -> not a scalar drift feature
+        if a.dtype == object and len(a) and isinstance(a.flat[0], (list, tuple, np.ndarray, dict)):
+            return None  # object column of per-row sequences (ragged embedding / nested)
+        try:
+            return a.astype(np.float64), b.astype(np.float64)
+        except (ValueError, TypeError):
+            sa = pd.Series(a).astype("string")
+            sb = pd.Series(b).astype("string")
+            codes, _ = pd.factorize(pd.concat([sa, sb], ignore_index=True), use_na_sentinel=True)
+            return codes[: len(a)].astype(np.float64), codes[len(a):].astype(np.float64)
+
+    _enc, _kept_names = [], []
+    for j, nm in enumerate(names):
+        e = _encode_pair(cols_a[j], cols_b[j])
+        if e is not None:
+            _enc.append(e)
+            _kept_names.append(nm)
+    names = tuple(_kept_names)
+    Xa = np.column_stack([e[0][ia] for e in _enc]) if _enc else np.empty((len(ia), 0))
+    Xb = np.column_stack([e[1][ib] for e in _enc]) if _enc else np.empty((len(ib), 0))
     X = np.vstack([Xa, Xb])
     y = np.concatenate([np.zeros(len(ia), dtype=np.int64), np.ones(len(ib), dtype=np.int64)])
 

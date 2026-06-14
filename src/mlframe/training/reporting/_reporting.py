@@ -381,8 +381,13 @@ def _ranked_feature_names(metrics, model, columns) -> tuple[list[str] | None, li
     if isinstance(fi_dict, dict):
         return names, [float(fi_dict.get(c, 0.0)) for c in names]
     native = getattr(model, "feature_importances_", None)
-    if native is not None and len(native) == len(names):
-        return names, [float(v) for v in native]
+    if native is not None:
+        # ``feature_importances_`` can be an unsized object (0-d array / scalar) or a 2-D per-class matrix on some
+        # estimators (e.g. CatBoost with embedding features); ``len(...)`` raises on the 0-d case. Normalise to 1-D
+        # and only use it when its length matches the column set.
+        native_arr = np.atleast_1d(np.asarray(native))
+        if native_arr.ndim == 1 and native_arr.shape[0] == len(names):
+            return names, [float(v) for v in native_arr]
     return names, None
 
 
