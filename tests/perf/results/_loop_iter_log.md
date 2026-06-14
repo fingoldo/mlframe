@@ -3331,3 +3331,23 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 83 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — hash-factorize float-token mapping, 4.35-8.61x isolated / 1.63x e2e @10M fit+transform, bit-identical.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 84 RESOLVED, 31 REJECT across 113 iterations.**
+
+---
+
+## iter114 (2026-06-15) — @10M — label-distribution drift multiclass count: K full equality scans -> single np.unique pass
+
+**Workload:** `training.drift_report._multiclass_split_summary` at n=10M (full target split; label-distribution drift between train/val/test). Untapped family (drift fused merge was iter78; this is the per-split label-count summary, a separate seam). FREE 10M combo.
+
+**Hotspot:** `_multiclass_split_summary` built per-class counts as `{c: int((arr == c).sum()) for c in classes}` — one full O(n) boolean-scan-and-reduce over the length-n array PER class. At K classes that is K passes over 10M rows. Plain numpy (no njit), called on the full split target array (uncapped, up to 10M). Caller `compute_label_distribution_drift` already computes `np.unique(all_arr)` once for label discovery, so the single-pass `np.unique(return_counts)` data is essentially free.
+
+**Optimization:** replaced K per-class equality scans with a single `np.unique(arr, return_counts=True)` sort-based pass + dict lookup, rebuilding the per-class dict in the caller's `classes` order/dtype. Bit-identical by construction (exact integer counts; missing classes -> 0 via `.get`).
+
+**Before/after (paired A/B, old fn verbatim vs new, n=10M, min-of-5):** K=5 0.178->0.120s (1.48x); K=20 0.524->0.163s (3.21x); K=100 2.027->0.145s (13.98x). Isolated rng-bench agreed (1.18/4.92/10.61x). Identity: exact `==` on the full result dict across int / float / string class dtypes.
+
+**Identity proof:** `old_fn == new_fn` True for K in {5,20,100} int classes + float classes + string classes (2M/10M rows).
+
+**Regression test:** `tests/training/test_drift_report.py` — (a) `test_multiclass_split_summary_single_pass_via_unique` spies `np.unique` and asserts >=1 call (FAILS on pre-fix code: verified 0 calls on the per-class-scan baseline) + pins output identity vs manual per-class counting; (b) `test_multiclass_split_summary_handles_missing_class` pins the lookup-miss (class absent from arr -> count 0) path. 17 passed (15 existing + 2 new).
+
+**Verdict: RESOLVED — multiclass label-count via single np.unique pass, 1.48-13.98x isolated/paired @10M (scales with K), bit-identical.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 85 RESOLVED, 31 REJECT across 114 iterations.**

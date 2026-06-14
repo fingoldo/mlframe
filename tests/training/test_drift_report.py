@@ -237,3 +237,41 @@ def test_format_drift_report_emits_no_warn_marker_when_clean():
     out = format_drift_report(rep, target_name="x")
     if not rep["warnings"]:
         assert "(no drift warnings" in out
+
+
+def test_multiclass_split_summary_single_pass_via_unique(monkeypatch):
+    """``_multiclass_split_summary`` must count via one ``np.unique`` pass, not one ``(arr == c).sum()`` scan per class.
+
+    Pre-fix code did K full equality scans and never called ``np.unique``; the spy below would record 0 calls and
+    fail. Output identity is pinned alongside so the single-pass rewrite stays bit-identical to per-class counting.
+    """
+    import mlframe.training.drift_report as dr
+
+    rng = np.random.default_rng(7)
+    arr = rng.integers(0, 12, size=50_000)
+    classes = list(np.unique(arr).tolist())
+
+    calls = {"n": 0}
+    real_unique = np.unique
+
+    def _spy_unique(a, *args, **kwargs):
+        calls["n"] += 1
+        return real_unique(a, *args, **kwargs)
+
+    monkeypatch.setattr(dr.np, "unique", _spy_unique)
+    out = dr._multiclass_split_summary(arr, classes)
+
+    assert calls["n"] >= 1, "single-pass path must use np.unique(return_counts) (pre-fix per-class scan did not)"
+
+    expected_counts = {int(c): int((arr == c).sum()) for c in classes}
+    assert out["counts"] == expected_counts
+    assert out["n"] == arr.shape[0]
+    assert sum(out["counts"].values()) == arr.shape[0]
+
+
+def test_multiclass_split_summary_handles_missing_class():
+    """A class present in ``classes`` but absent from ``arr`` reports count 0 (lookup miss path)."""
+    arr = np.array([0, 0, 1, 1, 1], dtype=np.int64)
+    out = _ms = __import__("mlframe.training.drift_report", fromlist=["_multiclass_split_summary"])._multiclass_split_summary(arr, [0, 1, 2])
+    assert out["counts"] == {0: 2, 1: 3, 2: 0}
+    assert out["rates"][2] == 0.0
