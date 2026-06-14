@@ -204,6 +204,17 @@ _SAFE_MODULE_PREFIXES: tuple = (
     "types",
     "dill",
     "scipy",
+    # Fitted model state routinely carries ``functools.partial`` objects: the
+    # neural ``weights_init_fcn=partial(kaiming_normal_, ...)`` config and the
+    # ``_PartialFitEarlyStoppingWrapper.metric`` parametrized-metric slot both
+    # persist one. Without this prefix such a bundle saves fine but
+    # ``load_mlframe_model(safe=True)`` raises "Unsafe class blocked ...
+    # functools.partial" and returns None SILENTLY -- the caller gets no model
+    # and no exception. Allowing functools is safe: a partial only STORES its
+    # func + args; the wrapped func (e.g. os.system) is independently
+    # re-resolved through find_class on unpickle and stays blocked.
+    "functools",
+    "_functools",
     # Fix date 2026-04-15 (bug A): persisted CatBoost models reference assorted
     # mlframe.* helpers (metrics.ICE, training.helpers.*, etc.) inside their pickled
     # state; without this the cb model is silently dropped at load time.

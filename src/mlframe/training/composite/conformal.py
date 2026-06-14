@@ -3,18 +3,22 @@
 The wrapper already produces honest y-scale point predictions; conformal adds a
 distribution-free, finite-sample-valid prediction INTERVAL on top. Given a
 held-out calibration set (rows the inner never trained on -- the suite's val
-split, or an OOF fold), we compute the empirical quantile of the absolute
-calibration residuals and widen every point prediction by it:
+split, or an OOF fold), we compute the empirical quantile of a nonconformity
+score and widen every point prediction by it. The DEFAULT score is normalised
+(locally-adaptive):
 
-    interval(x) = [ y_hat(x) - q, y_hat(x) + q ]
+    interval(x) = [ y_hat(x) - q*sigma_hat(x), y_hat(x) + q*sigma_hat(x) ]
 
-with ``q`` the ``ceil((n+1)(1-alpha))/n`` empirical quantile of
-``|y_cal - y_hat(x_cal)|`` (the standard split-conformal level with the
-finite-sample +1 correction). Under exchangeability of the calibration and test
-rows this guarantees marginal coverage >= 1 - alpha for ANY underlying model --
-no Gaussian / homoscedastic assumption. The interval is symmetric in y-scale
-(absolute-residual nonconformity); for strongly heteroscedastic targets a
-normalised score is a future refinement, noted in ``calibrate_conformal``.
+with ``q`` the ``ceil((n+1)(1-alpha))/n`` empirical quantile of the calibration
+scores ``(y_cal - y_hat(x_cal)) / sigma_hat(x_cal)`` (the standard split-conformal
+level with the finite-sample +1 correction) and ``sigma_hat(x)`` a binned
+conditional residual-scale model. Under exchangeability of the calibration and
+test rows this guarantees marginal coverage >= 1 - alpha for ANY underlying model
+-- no Gaussian / homoscedastic assumption. The normalised score widens the band
+where the model is noisier, restoring CONDITIONAL coverage on heteroscedastic
+targets (bench: 25/25 het cells beat the constant-width absolute score, worst-bin
+coverage gap 0.042 vs 0.227, sharper width). ``score="absolute"`` selects the
+legacy constant-width band (symmetric absolute-residual nonconformity).
 
 Design choices mirroring the rest of the package:
 - The calibration quantile(s) are stored per-alpha in ``self._conformal_q_`` --
@@ -63,7 +67,51 @@ def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
     return float(r_sorted[rank - 1])
 
 
-def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
+_CONFORMAL_SIGMA_NBINS = 20
+
+
+def _fit_sigma_model(y_pred_cal: np.ndarray, abs_res_cal: np.ndarray, n_bins: int = _CONFORMAL_SIGMA_NBINS):
+    """Non-parametric conditional residual-scale model: mean |residual| per yhat-bin.
+
+    A learner-free, pickle-clean estimate of sigma_hat(x) (stored as bin edges + per-bin
+    means), the locally-adaptive denominator of the normalized nonconformity score. The
+    floor (5% of the mean abs-residual) prevents div-by-zero / exploding intervals in a
+    bin with vanishing residuals. Returns ``(edges, sigma_per_bin)`` plus the per-row
+    sigma for the calibration rows.
+    """
+    finite = np.isfinite(y_pred_cal) & np.isfinite(abs_res_cal)
+    yp = y_pred_cal[finite]
+    ar = abs_res_cal[finite]
+    if yp.size == 0:
+        edges = np.array([-np.inf, np.inf])
+        return edges, np.array([1.0]), np.ones_like(y_pred_cal)
+    edges = np.quantile(yp, np.linspace(0.0, 1.0, n_bins + 1))
+    edges = np.unique(edges)
+    if edges.size < 2:
+        edges = np.array([yp.min() - 1.0, yp.max() + 1.0])
+    edges[0], edges[-1] = -np.inf, np.inf
+    nb = edges.size - 1
+    floor = max(1e-9, 0.05 * float(ar.mean()))
+    sigma = np.full(nb, ar.mean() if ar.size else 1.0)
+    idx = np.clip(np.searchsorted(edges, yp, side="right") - 1, 0, nb - 1)
+    for b in range(nb):
+        m = idx == b
+        if m.any():
+            sigma[b] = ar[m].mean()
+    sigma = np.maximum(sigma, floor)
+    sig_rows = _sigma_for(edges, sigma, y_pred_cal)
+    return edges, sigma, sig_rows
+
+
+def _sigma_for(edges: np.ndarray, sigma: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+    """Map point predictions to their conditional residual-scale via the binned model."""
+    nb = sigma.size
+    yp = np.where(np.isfinite(y_pred), y_pred, 0.0)
+    idx = np.clip(np.searchsorted(edges, yp, side="right") - 1, 0, nb - 1)
+    return sigma[idx]
+
+
+def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized"):
     """Fit the split-conformal radius from a held-out calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on
@@ -75,15 +123,31 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
     ``alpha`` may be a scalar or an iterable of levels; each is calibrated and
     cached so ``predict_interval`` can serve any pre-calibrated level cheaply.
 
-    Heteroscedastic targets: this uses the plain absolute-residual score, which
-    yields a CONSTANT-width band. A normalised (e.g. /sigma_hat(x)) score gives
-    variable-width bands -- a future option, not wired here.
+    ``score`` selects the nonconformity score (default ``"normalized"``):
+
+    - ``"normalized"`` -- locally-adaptive: divide each residual by a binned
+      conditional residual-scale ``sigma_hat(x)`` before taking the quantile, so
+      the band widens where the model is noisier and tightens where it is sharp.
+      On heteroscedastic targets this restores CONDITIONAL coverage (covers the
+      high-variance region too, not just on average) and yields a sharper mean
+      width. Bench ``_benchmarks/bench_conformal_normalized_vs_absolute.py``:
+      normalized won 25/25 heteroscedastic cells (5 scenarios x 5 seeds), avg
+      worst-bin coverage gap 0.042 vs 0.227 for absolute, with smaller width;
+      on homoscedastic data it ties absolute. Default flipped to normalized.
+    - ``"absolute"`` -- plain absolute-residual score, a CONSTANT-width band.
+      Kept for callers who need the legacy fixed-width interval or have no usable
+      conditional-scale signal.
+
+    Marginal coverage ``>= 1 - alpha`` holds for BOTH scores (the finite-sample
+    split-conformal guarantee is on the exchangeable score, not on its scale).
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
         raise NotFittedError(
             "CompositeTargetEstimator.calibrate_conformal called before fit."
         )
+    if score not in ("normalized", "absolute"):
+        raise ValueError(f"calibrate_conformal: score must be 'normalized' or 'absolute', got {score!r}")
     y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
     y_pred = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
     if y_pred.shape[0] != y_true.shape[0]:
@@ -95,8 +159,20 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_conformal_q_") or self._conformal_q_ is None:
         self._conformal_q_ = {}
-    for a in alphas:
-        self._conformal_q_[round(float(a), 6)] = conformal_quantile(residuals, float(a))
+    if not hasattr(self, "_conformal_sigma_") or self._conformal_sigma_ is None:
+        self._conformal_sigma_ = {}
+    if score == "normalized":
+        edges, sigma, sig_rows = _fit_sigma_model(y_pred, np.abs(residuals))
+        scores = residuals / sig_rows
+        for a in alphas:
+            key = round(float(a), 6)
+            self._conformal_q_[key] = conformal_quantile(scores, float(a))
+            self._conformal_sigma_[key] = (edges, sigma)
+    else:
+        for a in alphas:
+            key = round(float(a), 6)
+            self._conformal_q_[key] = conformal_quantile(residuals, float(a))
+            self._conformal_sigma_.pop(key, None)
     self._conformal_n_cal_ = int(np.isfinite(residuals).sum())
     return self
 
@@ -122,8 +198,17 @@ def predict_interval(self, X, alpha=0.1):
         )
     radius = q[key]
     point = np.asarray(self.predict(X), dtype=np.float64).reshape(-1)
-    lower = point - radius
-    upper = point + radius
+    sigma_map = getattr(self, "_conformal_sigma_", {}) or {}
+    if key in sigma_map:
+        # Normalized score: the calibrated quantile is on residual/sigma_hat(x),
+        # so the y-scale radius is q * sigma_hat(x) -- a locally-adaptive width.
+        edges, sigma = sigma_map[key]
+        local = radius * _sigma_for(edges, sigma, point)
+        lower = point - local
+        upper = point + local
+    else:
+        lower = point - radius
+        upper = point + radius
     # Keep the band inside the same train envelope the point estimate uses.
     params = getattr(self, "fitted_params_", {}) or {}
     lo_b = params.get("y_clip_low", float("-inf"))

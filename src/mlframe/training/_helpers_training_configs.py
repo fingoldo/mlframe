@@ -171,9 +171,15 @@ def get_training_configs(
     # tiny CB-GPU fit costs ~150ms per process and is wasted on
     # linear/ridge/lgb/xgb-only suites. ``models_in_scope`` is a hint;
     # when None we keep the conservative behaviour and probe.
+    # ``enabled_models`` carries raw ``mlframe_models`` entries -- a CatBoost model may be
+    # an alias ("cb"/"catboost") OR an estimator instance (CatBoostClassifier()). A bare
+    # ``str(m).lower()`` check mis-routes the instance (stringifies to "<...object at 0x..>")
+    # and silently skips the GPU probe -> CB runs on CPU even with a working GPU. Route via
+    # the strategy registry so both surfaces classify identically.
+    from .strategies import is_catboost_model
     _cb_in_scope = (
         enabled_models is None
-        or any(str(m).lower() in ("cb", "catboost") for m in enabled_models)
+        or any(is_catboost_model(m) for m in enabled_models)
     )
     if has_gpu and _cb_in_scope:
         from .cb import _cb_gpu_usable as _cb_gpu_probe
@@ -577,9 +583,14 @@ def get_training_configs(
     # pytorch + lightning import overhead on the first call to
     # get_training_configs in a process). Any caller that asks for
     # MLP_GENERAL_PARAMS later will get None.
+    # Same instance-vs-alias hazard as the CB probe above: a neural model may be an alias
+    # ("mlp"/"recurrent"/"lstm"/...) OR a torch estimator instance. A name-tuple membership
+    # test misses the instance and skips the entire MLP config block -> a neural model
+    # gets no config. Route via the strategy registry.
+    from .strategies import is_neural_model
     _mlp_in_scope = (
         enabled_models is None
-        or any(m in ("mlp", "recurrent") for m in enabled_models)
+        or any(is_neural_model(m) for m in enabled_models)
     )
 
     if not _mlp_in_scope:
