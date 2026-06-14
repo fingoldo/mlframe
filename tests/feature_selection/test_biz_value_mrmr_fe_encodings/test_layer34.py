@@ -226,6 +226,46 @@ class TestCatNumInteractionKernel:
             mask = cat == c
             assert abs(residual[mask].mean()) < 3.0
 
+    def test_apply_cat_num_residual_vectorized_matches_scalar_loop(self):
+        """Pin the factorize-vectorized replay against a reference per-row scalar loop across NaN, unseen-cat,
+        and empty edges. Fails on the pre-iter109 code only if the loop is reintroduced with different numerics;
+        its real job is to guarantee the vectorized gather stays bit-identical to the dict.get-per-row semantics."""
+        from mlframe.feature_selection.filters._count_freq_interaction_fe import (
+            apply_cat_num_residual,
+        )
+
+        rng = np.random.default_rng(7)
+        n = 4000
+        cats = rng.choice(["A", "B", "C", "UNSEEN_AT_FIT"], size=n).astype(object)
+        num = rng.normal(0.0, 10.0, size=n).astype(np.float64)
+        num[rng.random(n) < 0.05] = np.nan  # exercise the finite mask
+        X = pd.DataFrame({"cat": cats, "price": num})
+        recipe = {
+            "lookup": {"A": 1.0, "B": -2.5, "C": 7.0},  # UNSEEN_AT_FIT -> global_mean fallback
+            "global_mean": 3.0,
+            "smoothing": 1.0,
+            "num_col": "price",
+        }
+
+        def _reference(X_test):
+            cstr = X_test["cat"].astype(str).to_numpy()
+            nv = X_test["price"].to_numpy().astype(np.float64)
+            fin = np.isfinite(nv)
+            out = np.zeros(len(cstr), dtype=np.float64)
+            for i in range(len(cstr)):
+                out[i] = 0.0 if not fin[i] else nv[i] - float(recipe["lookup"].get(cstr[i], 3.0))
+            return out
+
+        got = apply_cat_num_residual(X, "cat", "price", recipe)
+        assert np.array_equal(got, _reference(X), equal_nan=True)
+
+        # Empty input must return an empty float64 array, not raise.
+        empty = apply_cat_num_residual(
+            pd.DataFrame({"cat": pd.Series([], dtype=object), "price": pd.Series([], dtype=np.float64)}),
+            "cat", "price", recipe,
+        )
+        assert empty.shape == (0,) and empty.dtype == np.float64
+
     def test_missing_columns_rejected(self):
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,

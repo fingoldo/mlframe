@@ -3205,3 +3205,27 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 78 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — prange twin for `_cyclical_sincos_njit`, 12.18x isolated @10M (15/15 paired), byte-identical e2e output; gated at 1M rows to serial below the prange floor.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 79 RESOLVED, 31 REJECT across 108 iterations.**
+
+## iter109 — categorical x numeric residual encoder replay (`apply_cat_num_residual`) @ n=10,000,000
+
+**Family:** ROTATED OFF windowed_shape (104-107) / date-FE (88/108) / discretization (108) per directive. Picked text/categorical-encoding: feature_selection/filters/_count_freq_interaction_fe.py — the cat-num OOF target-mean residual replay that processes the full N-row test column.
+
+**Workload@why:** 10M-row test frame, one (cat_col=5000-card, num_col float64) pair, ~2% NaN num, a few unseen categories. `apply_cat_num_residual` is the transform-time replay subtracting the per-category smoothed mean from each row's num value — runs once over all 10M rows.
+
+**Top mlframe-own seam (by inspection + isolated timing):** the sibling replay paths `apply_count_encoding`/`apply_frequency_encoding` were already vectorized with `pd.factorize` (~6-8x, documented in-code), but `apply_cat_num_residual` was left behind as an explicit `for i in range(len(cats))` per-row Python loop with a `dict.get` + float arithmetic per row. Plain-Python (no njit) — 10M Python iterations. Dominates the replay wall.
+
+**Optimization:** replace the scalar loop with the same factorize-gather the count/freq siblings use — `pd.factorize(cats)` (O(n) hashtable, no sort), resolve `float(lookup.get(u, global_mean))` once per DISTINCT category, gather by code, then `np.where(finite, num - cell[codes], 0.0)`. Added an empty-input guard (returns empty float64) mirroring the siblings. Bit-identical by construction (same per-key lookup+fallback, same finite-mask zeroing).
+
+**Before/after (isolated, warm best-of-3 @10M, separate `python -m` bench process):** OLD per-row loop 4773.9ms -> NEW factorize-gather 509.8ms = **9.36x**. Identity: `np.array_equal(old, new, equal_nan=True)` True on both a 10k slice and the full 10M array.
+
+**Identity proof:** the bench's OLD side is the exact prior scalar-loop body; full-10M `array_equal(equal_nan=True)` holds. Regression test pins NEW vs an independent reference scalar loop across NaN / unseen-cat / empty edges.
+
+**e2e fraction note:** this is the transform-replay path (called once per fitted (cat,num) pair at inference); the residual loop IS the whole cost of the replay for that feature, so the isolated 9.36x is the trustworthy e2e signal for the replay step (no pandas decode wrapping it — input is already a numpy column). 37/37 layer34 encoder tests green.
+
+**Regression test:** `tests/feature_selection/test_biz_value_mrmr_fe_encodings/test_layer34.py::TestCatNumResidual::test_apply_cat_num_residual_vectorized_matches_scalar_loop` (NaN + unseen-cat + empty-input edges vs reference scalar loop).
+
+**Bench:** `src/mlframe/feature_selection/_benchmarks/bench_apply_cat_num_residual_iter109.py`.
+
+**Verdict: RESOLVED — factorize-gather vectorization of `apply_cat_num_residual`, 9.36x isolated @10M, bit-identical (equal_nan); brings the residual replay in line with the already-vectorized count/freq siblings.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 80 RESOLVED, 31 REJECT across 109 iterations.**
