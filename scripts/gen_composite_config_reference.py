@@ -82,11 +82,34 @@ def _default_repr(field) -> str:
 def _harvest_field_comments(config_class: type) -> dict[str, str]:
     """Map field name -> its leading ``#`` comment block from the class source.
 
-    Walks the class body via ``ast`` to find each ``AnnAssign`` (``name: T = ...``)
-    field, then scans the physical source lines immediately above that statement,
-    collecting the contiguous run of ``#`` comment lines as the field's doc. A
-    blank line breaks the run. Comments belonging to the field above (separated by
-    its own assignment) are naturally excluded by the ``AnnAssign`` line bounds.
+    Walks every class in the MRO that declares fields (the config plus any carved
+    base classes, whose source lives in a separate module), so a base-class field's
+    source comment is still harvested after a monolith split. A subclass comment
+    wins over a base comment for the same field name. See ``_harvest_one`` for the
+    per-class AST walk.
+    """
+    merged: dict[str, str] = {}
+    # Walk base -> derived so a derived-class override wins on name collision.
+    for klass in reversed(config_class.__mro__):
+        if klass is object:
+            continue
+        try:
+            merged.update(_harvest_one(klass))
+        except (OSError, TypeError, SyntaxError, IndexError, AssertionError):
+            # No retrievable / parseable source for this base (builtins, C-exts,
+            # pydantic internals): skip; its fields simply carry no comment.
+            continue
+    return merged
+
+
+def _harvest_one(config_class: type) -> dict[str, str]:
+    """Harvest field source-comments from a single class body.
+
+    Finds each ``AnnAssign`` (``name: T = ...``) field via ``ast``, then scans the
+    physical source lines immediately above that statement, collecting the
+    contiguous run of ``#`` comment lines as the field's doc. A blank line breaks
+    the run. Comments belonging to the field above (separated by its own
+    assignment) are naturally excluded by the ``AnnAssign`` line bounds.
     """
     source = inspect.getsource(config_class)
     lines = source.splitlines()
