@@ -3541,3 +3541,23 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 91 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +3.19x e2e @10M, bit-identical, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 92 RESOLVED, 32 REJECT across 122 iterations.**
+
+## iter123 @10M — `_extra_fe_families._column_to_str` per-unique factorize-gather (retire duplicate per-row token map)
+
+**Workload:** `apply_rare_category` (rare-category recipe replay, Family A) at n=10,000,000, ~500 uniques. The replay canonicalises the source column to string keys via `_column_to_str` before the freq lookup. Real O(n) cost confirmed by microbench (see below). Untapped: a SECOND copy of `_column_to_str` lives in `_extra_fe_families.py` (Families A/B/C — rare-category / conditional-residual / rankgauss replay) and still ran the per-ROW `pandas.Series.map(canonical_group_token)`; the widely-used copy in `_target_encoding_fe` was already per-unique (iter75).
+
+**Top mlframe-own hotspot:** `_extra_fe_families._column_to_str` — `s.astype(object).map(canonical_group_token)` invokes the Python-level token callback once PER ROW (10M calls). Plain-Python callback, real O(n). Microbench @10M (best-of-3, separate process): int500 5.71s, float+nan 20.73s per call.
+
+**Optimization:** delegate to the canonical per-UNIQUE implementation in `_target_encoding_fe._column_to_str` (one `canonical_group_token` call per DISTINCT value, gathered back via the `pd.factorize` codes) which already carries the bool/0/1-collision gate that falls back to the exact per-row loop. Identical `"__nan__"` sentinel + token contract -> byte-identical; retires the duplicate per-row map.
+
+**Isolated bench @10M (best-of-3, separate process):** int500 5.71s → 0.235s = **24.3x**; float+nan 20.73s → 0.317s = **65.3x**. Output `np.array_equal` to the per-row reference across int / float+NaN / str / bool / mixed-bool-int / mixed-int-float.
+
+**Separate-process e2e A/B @10M (`apply_rare_category` is_rare, OLD per-row map monkeypatched into the live module, best-of-2):** run 1 OLD 64.97s → NEW 19.20s = **3.38x**; run 2 OLD 56.27s → NEW 17.54s = **3.21x**. (Residual ~18s is the downstream `np.unique` over 10M object strings, a separate seam.)
+
+**Identity proof:** byte-identical across 6 dtype cases incl. the bool-collision fallback (`test_..._bit_identical_to_per_row_reference`). Pre-fix per-row body calls `canonical_group_token` 20000x on a 20k/100-unique column vs <=100 post-fix (verified).
+
+**Regression test:** `tests/feature_selection/test_extra_fe_families_column_to_str_per_unique.py` — (1) spy asserts `canonical_group_token` called <= n_unique, never per row (FAILS pre-fix: 20000 calls), (2) bit-identity to per-row reference across 6 dtype cases. 2 passed; pre-fix-fail verified.
+
+**Verdict: RESOLVED +3.21–3.38x e2e @10M, byte-identical, no uglification (net code reduction — duplicate retired).**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 93 RESOLVED, 32 REJECT across 123 iterations.**

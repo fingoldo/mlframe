@@ -104,16 +104,13 @@ def _column_to_str(col) -> np.ndarray:
     values collapse to the same token (``1`` and ``1.0`` -> ``'1'``) so a
     fit-int / predict-float dtype drift still resolves the per-category entry
     instead of the global fallback."""
-    from ._internals import canonical_group_token
+    # Delegate to the canonical per-unique factorize-gather implementation in ``_target_encoding_fe`` (identical ``"__nan__"`` sentinel +
+    # ``canonical_group_token`` contract). That copy canonicalises each DISTINCT value once and gathers per-row via the factorize codes
+    # (Python-level ``canonical_group_token`` runs per-unique instead of per-row -- 8-65x at 10M rows / few-hundred uniques) and carries the
+    # bool/0/1 collision gate that falls back to the exact per-row loop on bool-in-object columns. Sharing it retires the duplicate per-row map.
+    from ._target_encoding_fe import _column_to_str as _canonical_column_to_str
 
-    s = pd.Series(col)
-    if s.isna().any():
-        out = s.astype(object).map(
-            lambda v: "__nan__" if (v is None or (isinstance(v, float) and v != v))
-            else canonical_group_token(v)
-        )
-        return out.to_numpy()
-    return s.astype(object).map(canonical_group_token).to_numpy()
+    return _canonical_column_to_str(pd.Series(col))
 
 
 # ===========================================================================
