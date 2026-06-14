@@ -34,13 +34,10 @@ import numpy as np
 from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS
 
 # ---------- helpers ----------
-
-
 from ._classification_extras import _confusion_counts_binary_par, _multiclass_confusion_kernel  # noqa: E402 (cycle-safe)
 
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
-
-
 def _binary_confusion_block_kernel_seq(
     y_true: np.ndarray, y_pred: np.ndarray,
 ) -> Tuple[int, int, int, int]:
@@ -365,8 +362,3 @@ def fast_multiclass_confusion_metrics_block(
     }
 
 
-from ._classification_calibration import (  # noqa: F401,E402
-    _hosmer_lemeshow_kernel,
-    accuracy_ratio,
-    hosmer_lemeshow_test,
-)
