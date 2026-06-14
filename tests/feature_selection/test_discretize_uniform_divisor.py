@@ -111,3 +111,44 @@ def test_e2e_via_discretize_array():
     out = discretize_array(arr=arr, n_bins=10, method="uniform", dtype=np.int16)
     codes = sorted(set(int(c) for c in out))
     assert codes == list(range(10))
+
+
+def test_discretize_array_uniform_large_n_routes_to_parallel_twin_bit_identical(monkeypatch):
+    """Size-gated parallel twin: ``discretize_array(method='uniform')`` on a large array MUST dispatch to the prange
+    twin ``discretize_uniform_parallel`` (17.9x @10M) and produce a result byte-identical to the serial kernel.
+
+    Pre-fix the uniform branch called ``discretize_uniform`` (serial) unconditionally and the parallel twin did not
+    exist; this test fails pre-fix (ImportError on the twin) and the spy proves the large-n dispatch routes correctly.
+    """
+    from mlframe.feature_selection.filters import discretization as D
+
+    n = 200_000
+    rng = np.random.default_rng(7)
+    arr = rng.standard_normal(n).astype(np.float64)
+
+    calls = {"par": 0}
+    real_par = D.discretize_uniform_parallel
+
+    def _spy(*a, **k):
+        calls["par"] += 1
+        return real_par(*a, **k)
+
+    monkeypatch.setattr(D, "discretize_uniform_parallel", _spy)
+    out = D.discretize_array(arr=arr, n_bins=10, method="uniform", dtype=np.int8)
+    assert calls["par"] == 1, "large-n uniform path must route to the parallel twin"
+
+    mn, mx = float(arr.min()), float(arr.max())
+    serial = D.discretize_uniform(arr, 10, mn, mx, dtype=np.int8)
+    assert np.array_equal(out, serial), "parallel twin must be byte-identical to the serial kernel"
+
+
+def test_discretize_array_uniform_small_n_stays_serial(monkeypatch):
+    """Below the crossover the serial kernel wins; the parallel twin must NOT be invoked for small arrays."""
+    from mlframe.feature_selection.filters import discretization as D
+
+    arr = np.linspace(0.0, 100.0, 1000)
+    calls = {"par": 0}
+    real_par = D.discretize_uniform_parallel
+    monkeypatch.setattr(D, "discretize_uniform_parallel", lambda *a, **k: (calls.__setitem__("par", calls["par"] + 1), real_par(*a, **k))[1])
+    D.discretize_array(arr=arr, n_bins=10, method="uniform")
+    assert calls["par"] == 0, "small-n uniform path must stay on the serial kernel"

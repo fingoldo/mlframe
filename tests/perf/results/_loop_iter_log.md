@@ -3668,3 +3668,28 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 97 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +2.63x isolated @10M (2.5x-7.8x separate-process), gated >=2M, ~1e-14 FP-order identity, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 98 RESOLVED, 32 REJECT across 128 iterations.**
+
+---
+
+## iter129 (2026-06-15) @10M — discretize_array(method="uniform") single-column path: size-gated prange twin
+
+**Workload@10M + why:** `discretize_array(method="uniform")` on a 10M-row float64 column. Untapped single-thread njit full-n kernel (`discretize_uniform`, `@njit(cache=True)`) with NO prange twin — the iter99/108/128 pattern. It does a full-n affine map + clip + int8 cast (real O(n) elementwise), called via the public single-column discretiser. cProfile-confirmed plain-njit (not external); microbench-confirmed real O(n) (43.9ms serial @10M).
+
+**Top mlframe-own hotspot:** `discretize_uniform` — serial elementwise `(arr-min)*w` -> clip -> astype over the whole column, single-threaded. The clip+cast is per-element independent (no reduction) -> trivially prange-parallel, byte-identical.
+
+**Optimization:** added `discretize_uniform_parallel` (`@njit(cache=True, parallel=True)`, column-prange, clip-before-cast in float domain identical to serial). Size-gated in `discretize_array`'s uniform branch via `_UNIFORM_PAR_THRESHOLD` (default 50000, env `MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD`); serial kept for small n + njit-internal callers (`_discretize_array_impl`, `get_binning_edges`).
+
+**Crossover sweep (serial vs par, min ms):** n=1k 0.08x / 10k 0.24x / 50k 0.94x / 100k 2.21x / 500k 30.9x / 1M 47.9x / 10M 17.9x isolated. Gate at 50k.
+
+**Before/after:**
+- Isolated kernel @10M: 42.92ms -> 2.39ms = 17.94x, bit-identical.
+- e2e `discretize_array` uniform @10M (separate process): OLD 48.31ms -> NEW 8.58ms = 5.6x, checksum 46527229 identical.
+- Paired interleaved A/B (OLD serial vs NEW dispatch, 10M): NEW faster in 11/11 trials, bit-identical.
+
+**Identity:** byte-identical (`np.array_equal`) to the serial kernel — the parallel path applies the exact same affine+clip+cast per element, no reduction, no FP-order divergence. Verified large-n + small-n.
+
+**Regression test:** `tests/feature_selection/test_discretize_uniform_divisor.py` — added (1) large-n routes to `discretize_uniform_parallel` (spy) + byte-identical to serial; (2) small-n stays serial (spy=0). FAILS pre-fix: `monkeypatch.setattr(D, "discretize_uniform_parallel", ...)` raises AttributeError (symbol absent in HEAD, verified). 9 passed post-fix; broader discretization suite 26 passed.
+
+**Verdict: RESOLVED +5.6x e2e @10M (17.9x isolated kernel), gated >=50k, byte-identical, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 99 RESOLVED, 32 REJECT across 129 iterations.**
