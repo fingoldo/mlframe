@@ -236,6 +236,35 @@ def test_count_num_outofranges_is_parallel_and_matches_numpy():
     assert np.array_equal(got, ref)
 
 
+def test_nanminmax_cols_is_parallel_and_matches_numpy():
+    """_nanminmax_cols must stay njit(parallel=True) and be bit-identical to np.nanmin/np.nanmax (incl. all-NaN columns).
+
+    The fused single-pass min/max replaces two full np.nanmin + np.nanmax sweeps (~19x e2e on compute_naive_outlier_score at n=10M, 2026-06-15);
+    the per-column min/max reduction is order-invariant so parallelisation cannot change the result. A serial revert or a switch back to the two
+    np.nan* sweeps drops the win, and an all-NaN column must collapse to NaN exactly like numpy's empty-slice result.
+    """
+    from mlframe.preprocessing.outliers import _nanminmax_cols
+
+    assert getattr(_nanminmax_cols, "targetoptions", {}).get("parallel") is True, (
+        "_nanminmax_cols must be njit(parallel=True) for the n=10M fused-pass win"
+    )
+
+    rng = np.random.default_rng(11)
+    X = rng.normal(size=(40_000, 7))
+    X[rng.integers(0, X.shape[0], 50), 0] = np.nan
+    X[:, 3] = np.nan  # all-NaN column -> numpy returns NaN for both bounds
+    got_min, got_max = _nanminmax_cols(X)
+    with np.errstate(invalid="ignore"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ref_min = np.nanmin(X, axis=0)
+            ref_max = np.nanmax(X, axis=0)
+    assert np.array_equal(got_min, ref_min, equal_nan=True)
+    assert np.array_equal(got_max, ref_max, equal_nan=True)
+
+
 def test_compute_outlier_detector_score():
     from sklearn.ensemble import IsolationForest
 

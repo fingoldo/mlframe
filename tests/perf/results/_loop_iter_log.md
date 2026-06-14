@@ -3397,3 +3397,27 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 86 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — RFF F-order output buffer, 2.41x e2e @10M, byte-identical.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 87 RESOLVED, 31 REJECT across 116 iterations.**
+
+---
+
+## iter 117 — @10M — preprocessing/outliers.compute_naive_outlier_score: fused single-pass per-column min/max
+
+**Workload@10M + why:** scaling/imputation family (untapped). `compute_naive_outlier_score(X_train, X_test)` computes train per-column bounds via `mins=np.nanmin(X_train,axis=0); maxs=np.nanmax(X_train,axis=0)` — TWO full serial C-reduction sweeps over the (N,d) train array — then `count_num_outofranges` (already njit-parallel, iter99). At 10M the two min/max sweeps dominate.
+
+**Hotspot:** the two `np.nanmin`/`np.nanmax` calls (plain numpy, full memory traffic ×2, serial, NaN-aware path). On the 10M×12 train block this was ~1.2s of a ~1.3s e2e call (count_num_outofranges already optimized). Classic multi-pass → one-fused-pass lever, pure full-n numeric.
+
+**Optimization + audit:** new `_nanminmax_cols(X)` `@njit(parallel=True)` — one pass, prange over row chunks, per-thread local min/max buffers reduced at the end; all-NaN column collapses to NaN to mirror numpy's empty-slice result. Halves memory traffic + multicore. `cache=True` dropped (dynamic-global `np.full(..,inf)` made caching ineffective — NumbaWarning). Wired as the default in `compute_naive_outlier_score` (numpy fallback kept for `_HAS_NUMBA=False`).
+
+**Before/after:**
+- Isolated min/max kernel @10M: d=4 591→9.2ms (64x), d=8 572→18.8ms (30x), d=30 857→58.5ms (15x).
+- Separate-process paired e2e (X_train 10M×12, X_test 2M×12, OLD via `git show HEAD:`): OLD min 1264.2ms / med 1355.3ms → NEW min 64.5ms / med 82.7ms = **~19.6x**, NEW faster **7/7**, output **bit-identical** (`np.array_equal`).
+
+**Identity proof:** `np.array_equal(_nanminmax_cols(X), np.nanmin/nanmax(X,axis=0))` holds incl. NaN-injected and all-NaN columns; full `compute_naive_outlier_score` output `np.array_equal` OLD==NEW at 10M.
+
+**Regression test:** `tests/test_evaluation_salvage.py::test_nanminmax_cols_is_parallel_and_matches_numpy` — asserts `njit(parallel=True)` + bit-identity to np.nanmin/nanmax incl. an all-NaN column. ImportErrors on pre-fix code (symbol absent on HEAD → valid sensor); passes post-fix.
+
+**Bench:** `src/mlframe/preprocessing/_benchmarks/bench_naive_outlier_minmax.py`.
+
+**Verdict: RESOLVED — fused single-pass per-column min/max, ~19.6x e2e @10M, bit-identical.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 88 RESOLVED, 31 REJECT across 117 iterations.**
