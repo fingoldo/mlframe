@@ -103,3 +103,39 @@ def test_large_mean_target_stable_r2():
     ref = _ref_block(y_true, y_pred)
     # R^2 ~ 0.99 on this signal; abs diff < 1e-9 confirms 2-pass stability.
     assert abs(out["R2"] - ref["R2"]) < 1e-9
+
+
+def test_welford_single_pass_kernels_numerically_equivalent():
+    """The single-pass Welford kernels are kept as a rejected-not-deleted
+    alternative (slower e2e on the dev HW, may win on bandwidth-bound HW --
+    see bench_fused_regression_welford.py). Pin their numerical equivalence
+    to the active two-pass kernels so a future re-test starts from a correct
+    baseline, including the large-mean cancellation regime."""
+    import numba
+
+    from mlframe.metrics.regression._regression_metrics import (
+        _fused_regression_pass1_par,
+        _fused_regression_pass2_par,
+        _fused_regression_welford_par,
+        _fused_regression_welford_seq,
+    )
+
+    rng = np.random.default_rng(7)
+    for mean in (0.0, 1_000_000.0):  # include the large-mean cancellation regime
+        for n in (5_000, 200_000):
+            yt = rng.normal(mean, 10.0, n).astype(np.float64)
+            yp = (yt + rng.normal(0.0, 1.0, n)).astype(np.float64)
+
+            sa_w, ss_w, mx_w, sstot_w = _fused_regression_welford_seq(yt, yp)
+            nthr = numba.get_num_threads()
+            sa_p, ss_p, mx_p, sy = _fused_regression_pass1_par(yt, yp, nthr)
+            sstot_ref = _fused_regression_pass2_par(yt, sy / n)
+
+            assert mx_w == mx_p
+            assert abs(sa_w - sa_p) / (abs(sa_p) + 1e-30) < 1e-12
+            assert abs(ss_w - ss_p) / (abs(ss_p) + 1e-30) < 1e-12
+            # Welford SS_tot matches the two-pass centred SS to FP reduction-order.
+            assert abs(sstot_w - sstot_ref) / (abs(sstot_ref) + 1e-30) < 1e-10
+
+            sa_wp, ss_wp, mx_wp, sstot_wp = _fused_regression_welford_par(yt, yp, nthr)
+            assert abs(sstot_wp - sstot_ref) / (abs(sstot_ref) + 1e-30) < 1e-10

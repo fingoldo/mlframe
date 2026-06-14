@@ -680,10 +680,17 @@ def fast_concordance_index(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 # Numerical equivalence vs separate calls: max |diff| < 1e-12 in all sizes.
 # Speedup dominated by RAM-walk reuse: 1 pass to load (y, p) into L2 +
 # accumulate 9 scalars beats 12 kernels that each re-touch the same arrays.
-# Trade-off accepted: pass 2 needs (y_mean, p_mean) from pass 1 first,
-# so pass 1 and pass 2 cannot be merged into one walk without losing
-# numerical stability (the un-centred sum-of-squares identity cancels on
-# float64 when y has a large mean - see _regression_metrics.py comment).
+# Trade-off accepted: pass 2 needs (y_mean, p_mean) from pass 1 first.
+# A single-pass merge IS numerically possible via Welford / online co-moment
+# updates (no un-centred cancellation) -- bench-attempt-rejected (2026-06-14):
+# the fully-fused single-pass kernel was 1.06x@mean=0 / 0.99x@mean=11500 e2e
+# at N=10M (identity ~1e-13), because pass 1 here is ALU-bound on the MAPE /
+# SMAPE divisions, so dropping pass 2's memory read buys nothing while the
+# per-element Welford divisions add cost. See
+# ``_benchmarks/bench_fused_regression_ext_welford.py``. The cheap-win variant
+# is the plain 4-metric block (``_fused_regression_welford_*`` in
+# _regression_metrics.py), which IS ALU-light and gets ~1.6-1.8x from the same
+# fold.
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

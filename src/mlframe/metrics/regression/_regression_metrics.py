@@ -491,6 +491,11 @@ def fast_r2_score(
 # of these on the same arrays at the same call site, so fusing them into
 # a single 2-pass kernel (1 pass for sum_abs/sum_sqr/max_abs/sum_y, 1 pass
 # for centred SS_tot) gives the same numeric result with 2.3-3.4x speedup.
+# A single-pass Welford fold (``_fused_regression_welford_*``) is also
+# implemented but ran SLOWER e2e at N=10M (the serial-dependency per-element
+# division beats the saved sequential memory read on this HW) -- see the
+# bench-attempt-rejected note at the dispatch site; the two-pass path stays
+# default. The Welford kernels are kept for re-test on bandwidth-bound HW.
 #
 # Numerical notes:
 # - SS_tot is the CENTRED sum-of-squares, NOT the algebraic identity
@@ -586,6 +591,108 @@ def _fused_regression_pass1_par(y_true: np.ndarray, y_pred: np.ndarray, n_thread
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def _fused_regression_welford_seq(y_true: np.ndarray, y_pred: np.ndarray):
+    """Single-pass fused regression kernel (sequential).
+
+    Returns ``(sum_abs_err, sum_sqr_err, max_abs_err, ss_tot)`` where
+    ``ss_tot`` is the centred sum-of-squares of ``y_true`` computed via
+    Welford's online algorithm in the SAME walk -- no separate second
+    pass over ``y_true``. Welford is numerically stable (no large-mean
+    cancellation), so this matches the prior two-pass centred SS to FP
+    reduction-order (~1e-13), not the catastrophically-cancelling
+    ``sum_y_sq - n*mean^2`` identity the module docstring warns against.
+    """
+    n = y_true.shape[0]
+    sum_abs = 0.0
+    sum_sqr = 0.0
+    max_abs = 0.0
+    mean = 0.0
+    m2 = 0.0
+    for i in range(n):
+        err = y_true[i] - y_pred[i]
+        abs_err = err if err >= 0.0 else -err
+        sum_abs += abs_err
+        sum_sqr += err * err
+        if abs_err > max_abs:
+            max_abs = abs_err
+        v = y_true[i]
+        delta = v - mean
+        mean += delta / (i + 1)
+        m2 += delta * (v - mean)
+    return sum_abs, sum_sqr, max_abs, m2
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fused_regression_welford_par(y_true: np.ndarray, y_pred: np.ndarray, n_threads: int):
+    """Single-pass fused regression kernel (parallel, per-thread Welford).
+
+    Per-thread (count, mean, M2) accumulators are combined serially via
+    Chan's parallel variance-combine formula, sidestepping both the
+    second pass over ``y_true`` and the racy in-prange reduction. See
+    ``_fused_regression_welford_seq`` for the numerical-stability note.
+    """
+    n = y_true.shape[0]
+    chunk_size = (n + n_threads - 1) // n_threads
+    local_sum_abs = np.zeros(n_threads, dtype=np.float64)
+    local_sum_sqr = np.zeros(n_threads, dtype=np.float64)
+    local_max_abs = np.zeros(n_threads, dtype=np.float64)
+    local_count = np.zeros(n_threads, dtype=np.float64)
+    local_mean = np.zeros(n_threads, dtype=np.float64)
+    local_m2 = np.zeros(n_threads, dtype=np.float64)
+    for tid in numba.prange(n_threads):
+        start = tid * chunk_size
+        end = min(start + chunk_size, n)
+        s_abs = 0.0
+        s_sqr = 0.0
+        m = 0.0
+        cnt = 0.0
+        mean = 0.0
+        m2 = 0.0
+        for i in range(start, end):
+            err = y_true[i] - y_pred[i]
+            abs_err = err if err >= 0.0 else -err
+            s_abs += abs_err
+            s_sqr += err * err
+            if abs_err > m:
+                m = abs_err
+            v = y_true[i]
+            cnt += 1.0
+            delta = v - mean
+            mean += delta / cnt
+            m2 += delta * (v - mean)
+        local_sum_abs[tid] = s_abs
+        local_sum_sqr[tid] = s_sqr
+        local_max_abs[tid] = m
+        local_count[tid] = cnt
+        local_mean[tid] = mean
+        local_m2[tid] = m2
+    sum_abs = 0.0
+    sum_sqr = 0.0
+    max_abs = 0.0
+    tot_cnt = 0.0
+    tot_mean = 0.0
+    tot_m2 = 0.0
+    for tid in range(n_threads):
+        sum_abs += local_sum_abs[tid]
+        sum_sqr += local_sum_sqr[tid]
+        if local_max_abs[tid] > max_abs:
+            max_abs = local_max_abs[tid]
+        cb = local_count[tid]
+        if cb > 0.0:
+            if tot_cnt == 0.0:
+                tot_cnt = cb
+                tot_mean = local_mean[tid]
+                tot_m2 = local_m2[tid]
+            else:
+                delta = local_mean[tid] - tot_mean
+                combined = tot_cnt + cb
+                tot_mean = tot_mean + delta * cb / combined
+                tot_m2 = tot_m2 + local_m2[tid] + delta * delta * tot_cnt * cb / combined
+                tot_cnt = combined
+    return sum_abs, sum_sqr, max_abs, tot_m2
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def _fused_regression_pass2_seq(y_true: np.ndarray, y_mean: float) -> float:
     """Pass 2: centred sum-of-squares around the pre-computed mean."""
     n = y_true.shape[0]
@@ -635,6 +742,11 @@ def fast_regression_metrics_block(
     if n == 0:
         return {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
     use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
+    # bench-attempt-rejected (2026-06-14): folding pass2 into pass1 via Welford (_fused_regression_welford_*)
+    # was slower e2e at N=10M -- separate-process A/B 25.8ms->29.2ms (min), 40.8ms->56.4ms (median). The 10M
+    # serial-dependency `delta/cnt` divisions cost more than the second sequential 80MB read this two-pass
+    # kernel does (memory bandwidth is cheap here). See _benchmarks/bench_fused_regression_welford.py. The
+    # initial standalone bench reading 1.6-1.8x was a warm-order artifact; trust the separate-process number.
     if use_par:
         sum_abs, sum_sqr, max_abs, sum_y = _fused_regression_pass1_par(yt, yp, numba.get_num_threads())
         y_mean = sum_y / n

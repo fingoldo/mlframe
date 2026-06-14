@@ -2958,3 +2958,23 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 68 RESOLVED, 3
 **Verdict: RESOLVED+1.80x end-to-end on `fast_calibration_report` @10M (and 2.5-6x isolated on the descending argsort), via a tie-invariant parallel bucket-split argsort gated to the large-N CPU default. Byte-identical (max_abs_delta=0.0); stable-sort + GPU paths untouched.**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 69 RESOLVED, 30 REJECT across 97 iterations.**
+
+---
+
+## iter98 (@10M, regression metrics — fused single-pass fold) — REJECT
+
+**Workload @10M:** regression reporting metric blocks (`fast_regression_metrics_block` 4-metric + `fast_regression_metrics_block_extended` 12-metric), the full-n kernels behind `report_regression_model_perf`. 10M float64 y_true/y_pred (80MB each). Picked because both blocks are two-pass fused kernels where pass 2 is a separate full re-read of the arrays to compute centred SS — a textbook "fold the second pass into the first" seam.
+
+**Hotspot/seam:** both blocks do pass1 (sum_abs/sum_sqr/max/sum_y...) then pass2 (centred SS_tot / SS_pred / co-moment / SS_resid), the latter requiring the pass1 means first. The module docstrings asserted single-pass merge is impossible without un-centred cancellation — but Welford / online co-moment updates merge stably (no cancellation). Prototyped a fully-fused single-pass kernel for each.
+
+**Optimization attempted:** `_fused_regression_welford_seq/_par` (4-metric) + a fully-fused extended variant — accumulate centred SS via Welford (and SS_pred/SS_resid/co-moment via online co-moment) in the SAME pass1 walk, dropping pass2's array re-read entirely. Per-thread (count, mean, M2, C) combined with Chan's parallel formula.
+
+**Before/after (identity OK ~1e-13..1e-15 throughout, never decision-altering):**
+- 4-metric block: initial standalone best-of-20 bench read 1.59-1.79x — but that was a warm-order artifact. Clean **separate-process** A/B @10M: OLD min=25.8ms/med=40.8ms vs NEW min=29.2ms/med=56.4ms — NEW **slower**. Paired interleaved in-process: NEW faster only 8/25, 0.94x median. The 10M serial-dependency `delta/cnt` divisions cost more than the second sequential 80MB read (memory bandwidth is cheap on this 16-thread Ryzen).
+- 12-metric extended block: 1.06x@mean=0 / 0.99x@mean=11500 e2e — pass1 is ALU-bound on the MAPE/SMAPE divisions, so eliminating the pass2 read nets ~nothing.
+
+**Disposition:** Welford kernels kept (REJECTED != DELETED) in `_regression_metrics.py` with a `# bench-attempt-rejected` note at the dispatch site; extended-fusion note added in `_regression_extras.py`. Benches committed: `_benchmarks/bench_fused_regression_welford.py`, `bench_fused_regression_ext_welford.py`. Active prod path reverted to the two-pass kernels (byte-identical to HEAD). Regression test `test_welford_single_pass_kernels_numerically_equivalent` pins the kept kernels' numerical equivalence (incl. large-mean regime) so a future re-test on bandwidth-bound HW starts correct. 14/14 block tests + 52/52 regression-metrics tests green.
+
+**Verdict: REJECT — measured (separate-process + paired-interleaved, both regimes, e2e) the single-pass Welford fold is flat-to-slower at 10M on this HW; the serial division dependency beats the cheap sequential second read. A genuine LEAD properly investigated and correctly killed; kept for re-test on memory-bandwidth-bound hardware.**
+
+Streak: 1/100 (REJECT). **Cumulative loop wave: 69 RESOLVED, 31 REJECT across 98 iterations.**
