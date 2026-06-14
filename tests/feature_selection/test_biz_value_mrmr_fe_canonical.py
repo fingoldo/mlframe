@@ -200,7 +200,12 @@ def test_canonical_across_presets(preset):
     fs.fit(df, y)
 
     eng = _engineered_names(fs)
-    assert len(eng) >= 2, f"[{preset}] expected >=2 engineered, got {eng}"
+    # >= 1, not >= 2: the gate-operand over-materialization prune (2026-06-13) removes the redundant
+    # gate/binagg re-mix composites that previously padded the maximal count, so the maximal preset now
+    # converges to the SINGLE fused full-target composite that covers BOTH groups (n_eng=1) -- the ideal
+    # the docstring already blesses ("one fused composite ... the fused full-target composite is better"),
+    # not a miss. The coverage assertions below enforce the real invariant: BOTH signal groups recovered.
+    assert len(eng) >= 1, f"[{preset}] expected >=1 engineered feature, got {eng}"
     # Each signal group covered by an engineered feature (one fused composite or two
     # separate features -- both acceptable; the fused full-target composite is better).
     assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), (
