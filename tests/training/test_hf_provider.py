@@ -1,8 +1,8 @@
 """
 End-to-end integration tests for :class:`HuggingFaceProvider` (phase B).
 
-Uses ``prajjwal1/bert-tiny`` (~17 MB) -- the smallest sane HF
-encoder model -- so CI can pull it within a reasonable timeout.
+Uses ``hf-internal-testing/tiny-random-BertModel`` (tiny random weights, ships a
+fast tokenizer.json) -- so CI can pull it fast AND it loads under transformers>=5.
 Skipped automatically if ``transformers`` / ``torch`` are missing.
 
 Coverage:
@@ -39,6 +39,8 @@ from mlframe.training.feature_handling.hf_provider import HuggingFaceProvider
 # fast tokenizer.json (so it loads under transformers>=5, which can no longer build prajjwal1/bert-tiny's
 # slow-only tokenizer) and tiny random weights -- enough for the provider lifecycle/shape/embedding tests.
 TINY_MODEL = "hf-internal-testing/tiny-random-BertModel"
+# hidden_size of TINY_MODEL (was 128 for prajjwal1/bert-tiny); the provider's embedding_dim == this.
+EMBED_DIM = 32
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +74,7 @@ class TestLifecycle:
         assert loaded_provider._is_loaded is True
         assert loaded_provider._model is not None
         assert loaded_provider._tokenizer is not None
-        assert loaded_provider.embedding_dim == 128  # bert-tiny hidden_size
+        assert loaded_provider.embedding_dim == EMBED_DIM
 
     def test_release_drops_model(self):
         cfg = EmbeddingProvider(
@@ -100,12 +102,12 @@ class TestLifecycle:
 class TestTransform:
     def test_transform_returns_correct_shape(self, loaded_provider):
         out = loaded_provider.transform(["hello", "world", "third"])
-        assert out.shape == (3, 128)
+        assert out.shape == (3, EMBED_DIM)
         assert out.dtype == np.float32
 
     def test_transform_empty_list(self, loaded_provider):
         out = loaded_provider.transform([])
-        assert out.shape == (0, 128)
+        assert out.shape == (0, EMBED_DIM)
 
 
 # =====================================================================
@@ -116,7 +118,7 @@ class TestTransform:
 class TestEdgeInputs:
     def test_empty_strings_dont_crash(self, loaded_provider):
         out = loaded_provider.transform(["", "", "ok"])
-        assert out.shape == (3, 128)
+        assert out.shape == (3, EMBED_DIM)
         # All-empty rows should still produce valid embeddings (the
         # tokenizer encodes them as just CLS+SEP).
         assert not np.any(np.isnan(out))
@@ -124,7 +126,7 @@ class TestEdgeInputs:
     def test_none_in_input_coerced_to_empty(self, loaded_provider):
         # None coerced to "" by HuggingFaceProvider.transform.
         out = loaded_provider.transform([None, "real text", None])  # type: ignore[arg-type]
-        assert out.shape == (3, 128)
+        assert out.shape == (3, EMBED_DIM)
         assert not np.any(np.isnan(out))
 
     def test_unicode_roundtrip(self, loaded_provider):
@@ -132,7 +134,7 @@ class TestEdgeInputs:
         out = loaded_provider.transform(
             ["привет мир", "🔥🚀 launch", "مرحبا", "regular english"]
         )
-        assert out.shape == (4, 128)
+        assert out.shape == (4, EMBED_DIM)
         assert not np.any(np.isnan(out))
 
 
@@ -152,7 +154,7 @@ class TestPoolVariants:
         p.acquire()
         try:
             out = p.transform(["test", "another text"])
-            assert out.shape == (2, 128)
+            assert out.shape == (2, EMBED_DIM)
             assert np.isfinite(out).all()
         finally:
             p.release()

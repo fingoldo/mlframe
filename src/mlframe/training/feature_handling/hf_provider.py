@@ -235,6 +235,12 @@ class HuggingFaceProvider:
             )
         self._model = self._model.to(device).eval()
         self._device = device
+        # Stash load params so a CUDA-context-loss mid-inference can rebuild the model on CPU (the GPU
+        # context is dead after such a failure; the frozen model produces identical embeddings on CPU).
+        self._load_model_name = model_name
+        self._load_revision = revision
+        self._load_torch_dtype = torch_dtype
+        self._load_trust_remote = trust_remote
 
         # Embedding dim is hidden_size on the config
         self._embedding_dim = int(self._model.config.hidden_size)
@@ -391,8 +397,26 @@ class HuggingFaceProvider:
                     consecutive_ok = 0
                     continue
                 if cls == CudaErrorClass.CONTEXT_LOST:
+                    # A lost CUDA context can't be reused, but the frozen model gives identical embeddings
+                    # on CPU. This commonly fires when other CUDA libraries (cupy / numba.cuda for GPU MI)
+                    # share the device in-process and a cublas handle collides. Rebuild the model fresh on
+                    # CPU (the GPU tensors are unusable post-loss) and retry the batch there.
+                    if str(self._device) != "cpu" and getattr(self, "_load_model_name", None):
+                        warnings.warn(
+                            "HuggingFaceProvider: CUDA context lost during inference (likely a multi-library "
+                            "GPU cublas collision); falling back to CPU for the rest of this transform.",
+                            UserWarning, stacklevel=2,
+                        )
+                        from transformers import AutoModel
+                        self._model = AutoModel.from_pretrained(
+                            self._load_model_name, revision=self._load_revision,
+                            torch_dtype="float32", trust_remote_code=self._load_trust_remote,
+                        ).to("cpu").eval()
+                        self._device = "cpu"
+                        consecutive_ok = 0
+                        continue
                     raise RuntimeError(
-                        "CUDA context lost (driver crash / kernel panic). "
+                        "CUDA context lost (driver crash / kernel panic) and no CPU fallback available. "
                         "Restart Python -- the provider cannot recover in-process."
                     ) from exc
                 raise
