@@ -204,7 +204,10 @@ def log_y_fit(y: np.ndarray) -> Dict[str, Any]:
 
 def log_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     offset = float(params["offset"])
-    return np.log(np.asarray(y, dtype=np.float64) + offset)
+    # offset normally lifts y into the positive domain; a stray non-positive row yields NaN (handled by the
+    # downstream domain/clip guards) -- silence the expected invalid-log RuntimeWarning rather than spam it.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.log(np.asarray(y, dtype=np.float64) + offset)
 
 
 def log_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:

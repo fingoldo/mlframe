@@ -251,6 +251,24 @@ def require_polars_ds():
     )
 
 
+def pytest_sessionfinish(session, exitstatus):
+    """Release persistent GPU buffers (the friend-graph / MI ``_GPU_POOL`` + cupy memory pools) while the
+    CUDA context is still alive, in a controlled order. Freeing them during interpreter atexit -- alongside
+    torch's and numba.cuda's own CUDA teardown -- has heap-corrupted the worker (0xc0000374) on this
+    multi-CUDA-library host (cupy-cu12 + numba-cuda-12.9 + torch-cu128). Best-effort; never raises."""
+    try:
+        from mlframe.feature_selection.filters import gpu as _gpu
+        _gpu._GPU_POOL.free()
+    except Exception:
+        pass
+    try:
+        import cupy as _cp
+        _cp.get_default_memory_pool().free_all_blocks()
+        _cp.get_default_pinned_memory_pool().free_all_blocks()
+    except Exception:
+        pass
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--fast",

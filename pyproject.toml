@@ -116,6 +116,11 @@ calibration = [
 # extras: when absent ``get_model_feature_importances`` falls back
 # to permutation (which is always available via sklearn).
 neural = [
+    # Keep torch on a CUDA-12.x build (``+cu12x``) to match cupy-cu12x + the system CUDA 12.9 / numba.
+    # A ``+cu130`` build loads cudart/cublas 13 native libs that COLLIDE with the cu12 ecosystem in one
+    # process -> hard native crashes (heap corruption / cublas INVALID_VALUE) even on CPU inference. On
+    # Python 3.14 only nightly wheels exist; install from the cu128 index, NOT the default cu130 nightly:
+    #   pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
     "torch>=2.0",
     "lightning>=2.0",
     "pytorch-lightning>=2.0",
@@ -367,6 +372,16 @@ filterwarnings = [
     "ignore:Benchmarks are automatically disabled because xdist plugin is active:pytest_benchmark.logger.PytestBenchmarkWarning",
     # joblib/loky resource_tracker noise on Windows: the loky worker memmap-folder cleanup races the OS file deletion at shutdown (FileNotFoundError / "leaked folder objects"). Third-party, unfixable here; the in-process variant is filtered, the resource-tracker-subprocess variant is harmless shutdown stderr.
     "ignore:resource_tracker:UserWarning",
+    # numba GPU under-utilisation hints on the tiny synthetic GPU-test shapes (grid size N): performance advice, not a defect; the production shapes that justify the kernels are far larger.
+    "ignore:Grid size.*will likely result in GPU under-utilization:numba.core.errors.NumbaPerformanceWarning",
+    # cupy can't auto-detect a CUDA_PATH on this layout (it works regardless via the bundled libs); the mlframe auto-config sets CUDA_PATH for numba, cupy just emits this once.
+    "ignore:CUDA path could not be detected:UserWarning:cupy",
+    # shap.summary_plot seeds the legacy global numpy RNG internally (np.random.seed) -> numpy 2.x FutureWarning; third-party, not an mlframe call.
+    "ignore:The NumPy global RNG was seeded by calling `np.random.seed`:FutureWarning",
+    # scipy spearman/pearson on a constant input column (degenerate synthetic fixtures): correlation undefined -> the caller already orients to the stable default; third-party advisory.
+    "ignore:An input array is constant.*correlation coefficient is not defined:",
+    # polars LazyFrame.columns schema-resolve perf hint surfaced via a defensive duck-typed ``hasattr(X, 'columns')`` probe in degenerate-column detection; advisory only.
+    "ignore:Determining the column names of a LazyFrame requires resolving its schema:",
 ]
 log_cli = false
 

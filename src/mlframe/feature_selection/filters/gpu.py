@@ -76,6 +76,15 @@ class _GpuBufferPool:
         if self.totals is None:
             self.totals = cp.zeros(1, dtype=cp.float64)
 
+    def free(self) -> None:
+        """Drop all device buffers + reset caps. Call while the CUDA context is still alive (e.g. a test
+        session finalizer) so these persistent cupy allocations are released in a controlled order rather
+        than during chaotic interpreter atexit teardown, where freeing them alongside torch/numba CUDA
+        contexts has triggered heap corruption (0xc0000374) on multi-CUDA-library hosts."""
+        self.classes_x = self.classes_y = self.freqs_x = self.freqs_y = None
+        self.joint_counts = self.totals = None
+        self.cap_n = self.cap_nbins_x = self.cap_nbins_y = 0
+
 
 _GPU_POOL = _GpuBufferPool()
 

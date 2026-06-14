@@ -157,8 +157,9 @@ def audit_degenerate_columns(X) -> dict:
             M[:, k] = col
         # Standardise; zero-variance columns (shouldn't reach here -- caught as constant)
         # are guarded by a non-zero std floor so they cannot spuriously read |corr|=1.
-        M -= M.mean(axis=0, keepdims=True)
-        stds = np.sqrt((M * M).sum(axis=0))
+        with np.errstate(invalid="ignore"):  # a non-finite-derived col_mean can make the centre subtract NaN; the std floor below handles it
+            M -= M.mean(axis=0, keepdims=True)
+            stds = np.sqrt((M * M).sum(axis=0))
         good = stds > 0
         with np.errstate(invalid="ignore", divide="ignore"):
             M = np.where(good, M / np.where(stds == 0, 1.0, stds), 0.0)
