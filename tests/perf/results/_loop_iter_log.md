@@ -3279,3 +3279,31 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 81 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — np.bincount + per-x_i hoist for conditional-residual generate, 1.23-1.50x @10M, bit-identical (exact `==`).**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 82 RESOLVED, 31 REJECT across 111 iterations.**
+
+## iter112 @10M — LeakageSafeEncoder.transform: per-row dict-lookup loop -> pd.factorize + per-unique-category gather
+
+**Workload:** `LeakageSafeEncoder.transform` (the held-out / production SCORING path) @ n=10,000,000 rows, 200 categories (+2 unseen). FRESH untapped family: target-encoder TRANSFORM path (iter75 tapped the per-category fit-side stats / kfold; the scoring-side per-row encode loop was never tapped).
+
+**Top mlframe-own by tottime (cProfile/timed @10M):** `_encode_with_full_train_stat` dominated — a pure-Python `for i, c in enumerate(cats)` dict-lookup loop over all 10M rows. Plain Python (no njit/cuda), so attribution honest. Timed e2e `transform()`: `target_mean` 20.2s, `woe` 40.2s, `target_james_stein` 19.5s — the per-row loop is the bulk; the rest is the `_categorical_to_string_array` per-element string pass (not touched).
+
+**Hotspot:** the encoded value is a deterministic function of the category STRING alone (dict lookups + per-category arithmetic + fixed unseen fallback), yet was recomputed independently for each of 10M rows.
+
+**Optimization (bit-identical by construction):** `_encode_with_full_train_stat` now dispatches to `_encode_vectorised` when pandas is available: `codes, uniq = pd.factorize(cats, sort=False)` -> compute the encoding once over `uniq` (the small unique set) via the retained `_encode_per_row` -> `per_uniq[codes]` gather. Same per-category arithmetic, same unseen prior/log-odds fallback, same Laplace clip; `_encode_per_row` kept as the pandas-unavailable fallback.
+
+**Before/after @10M (e2e `transform()`, best-of-3):**
+- `woe`: 40.2s -> 17.0s = **2.36x**
+- `target_mean`: 20.2s -> 15.5s = **1.31x**
+- `target_james_stein`: 19.5s -> 17.8s = 1.10x
+- (residual e2e time is the unchanged `_categorical_to_string_array` 10M-element pass; the loop-replacement itself is the larger isolated win.)
+
+**Isolated kernel-only A/B (`_encode_with_full_train_stat` alone, pre-converted string cats, separate processes, best-of-3 @10M):** `target_mean` 4885.5ms -> 722.2ms = **6.77x**; `woe` 46598.9ms -> 425.8ms = **109x** (the woe loop did 2 dict lookups + 2 `np.log` per row; vectorised does ~202 logs total over the unique set). `out[:2]` identical OLD vs NEW.
+
+**Identity proof:** `max|OLD-NEW| = 0.0` (`np.array_equal` exact, via separate-process load of `HEAD:` baseline) across `target_mean` / `woe` / `target_james_stein` / `target_m_estimate` x cardinalities {1, 5, 200} x unseen categories + ties.
+
+**Regression test:** `tests/training/test_target_encoder_vectorised_transform.py` — (a) 12 bit-identity cases vectorised-vs-`_encode_per_row`; (b) a spy sensor asserting `_encode_per_row` is never invoked over the full 10M-length array (FAILS on pre-fix code, which ran the per-row loop over the whole array). 13 passed.
+
+**Bench:** `src/mlframe/training/feature_handling/_benchmarks/bench_encode_full_train_stat_transform.py`.
+
+**Verdict: RESOLVED — factorize+gather for the target-encoder scoring path, 1.10-2.36x @10M e2e transform, bit-identical (exact `==`).**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 83 RESOLVED, 31 REJECT across 112 iterations.**
