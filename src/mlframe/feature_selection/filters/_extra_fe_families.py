@@ -702,6 +702,26 @@ def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     return ndtri(u).astype(np.float64)
 
 
+def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
+    """Average (mid) rank of each ``vals`` element among ``fit_sorted`` == ``(lo + hi - 1)/2``.
+
+    ``lo``/``hi`` are the left/right ``searchsorted`` insertion points; they differ only where ``vals`` exactly equals
+    a fit value (a tie). For continuous data (the common rank-Gauss case) there are no exact ties, so ``hi == lo`` and
+    the result collapses to ``lo - 0.5`` -- skipping the entire second ``searchsorted`` sweep (~half the cost at 10M).
+    A cheap ``fit_sorted[lo] == vals`` probe detects whether any tie exists; the exact two-pass path runs only then,
+    keeping the output bit-identical on tied / discrete inputs.
+    """
+    lo = np.searchsorted(fit_sorted, vals, side="left")
+    n = fit_sorted.size
+    in_range = lo < n
+    if in_range.any():
+        idx = np.nonzero(in_range)[0]
+        if (fit_sorted[lo[idx]] == vals[idx]).any():
+            hi = np.searchsorted(fit_sorted, vals, side="right")
+            return (lo + hi - 1) / 2.0
+    return lo - 0.5
+
+
 def generate_rankgauss_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],
@@ -739,9 +759,7 @@ def generate_rankgauss_features(
         # map to Gaussian. NaN rows -> 0.0 (the Gaussian centre).
         out = np.zeros_like(x)
         if n_fit > 0 and finite.any():
-            lo = np.searchsorted(fit_sorted, x[finite], side="left")
-            hi = np.searchsorted(fit_sorted, x[finite], side="right")
-            avg_rank = (lo + hi - 1) / 2.0
+            avg_rank = _avg_tie_rank(fit_sorted, x[finite])
             out[finite] = _rank_to_gauss(avg_rank, n_fit)
         name = engineered_name_rankgauss(col)
         encoded[name] = out
@@ -775,9 +793,7 @@ def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     out = np.zeros_like(x)
     finite = np.isfinite(x)
     if n_fit > 0 and finite.any():
-        lo = np.searchsorted(fit_sorted, x[finite], side="left")
-        hi = np.searchsorted(fit_sorted, x[finite], side="right")
-        avg_rank = (lo + hi - 1) / 2.0
+        avg_rank = _avg_tie_rank(fit_sorted, x[finite])
         # Clip the averaged rank into [0, n_fit-1] so a test value below the
         # smallest / above the largest fit value lands at the extreme rank.
         avg_rank = np.clip(avg_rank, 0.0, float(max(n_fit - 1, 0)))

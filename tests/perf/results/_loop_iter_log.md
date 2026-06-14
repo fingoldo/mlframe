@@ -3229,3 +3229,27 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 79 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — factorize-gather vectorization of `apply_cat_num_residual`, 9.36x isolated @10M, bit-identical (equal_nan); brings the residual replay in line with the already-vectorized count/freq siblings.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 80 RESOLVED, 31 REJECT across 109 iterations.**
+
+## iter110 — RankGauss replay average-tie-rank single searchsorted sweep (`_avg_tie_rank`) @ n=10,000,000
+
+**Family:** ROTATED to scaling/quantile-transform replay (RankGauss), a fresh full-N mlframe-own component (the cat-encoding replay family was vectorized 75/109). `apply_rankgauss` / `generate_rankgauss_features` in `feature_selection/filters/_extra_fe_families.py`.
+
+**Workload@why:** 10M-row test frame, one numeric column mapped to its rank-Gaussian quantile against a 2M-row sorted fit vector. The replay's cost is dominated by the `np.searchsorted` sweeps over all 10M test values to form the average tie rank.
+
+**Top-20 mlframe-own hotspot:** isolated microbench @10M — `apply_rankgauss` 14.70s best; the average-tie-rank step ran TWO full `np.searchsorted` sweeps: side="left" 9.54s + side="right" 8.11s. Plain numpy (no njit/external mis-attribution); the two sweeps ARE the replay cost.
+
+**Seam (multiple full-array passes -> one fused pass):** the average tie rank `(lo + hi - 1)/2` needs `hi` (side="right") only where a test value exactly equals a fit value (a tie). On continuous data — the canonical RankGauss input — there are ZERO ties (verified: `(lo != hi).sum() == 0` @10M), so `hi == lo` and the result is exactly `lo - 0.5`; the entire second sweep is wasted.
+
+**Optimization:** new `_avg_tie_rank(fit_sorted, vals)` helper — one `searchsorted(side="left")` sweep, then a cheap `fit_sorted[lo] == vals` probe over the in-range positions; if NO tie exists return `lo - 0.5`, else fall back to the exact two-sweep `(lo + hi - 1)/2`. Wired into both `generate_rankgauss_features` (fit-time) and `apply_rankgauss` (replay). Bit-identical BY CONSTRUCTION on tied inputs (exact path runs) and on continuous inputs (`lo - 0.5 == (lo + lo - 1)/2`).
+
+**Before/after (isolated, warm best-of-5 @10M, separate process with `cupy` blocked first):** OLD two-sweep avg_rank 27.70s best (34.11 med) -> NEW one-sweep 22.24s best (23.66 med) = **~1.25x** on the avg-rank step (eliminates the full second searchsorted sweep). Continuous identity True, tied identity True.
+
+**Identity proof:** `np.array_equal(old_two_sweep, _avg_tie_rank)` True on BOTH a continuous 10M column (no ties -> fast path) AND a discrete/tied column (heavy ties -> exact two-sweep path). The continuous case takes the pruned path; the tied case takes the identical two-sweep path — no FP-order divergence, exact `==`.
+
+**Regression test:** `tests/feature_selection/test_rankgauss_avg_tie_rank_single_sweep.py` — pins (a) ONE `np.searchsorted` call on continuous data (pre-fix code called it twice -> FAILS pre-fix with count 2), (b) TWO calls when a tie is present, (c) bit-identity vs the two-sweep reference on both continuous and tied. 4 rankgauss biz_value/leak/pickle tests in test_layer104.py stay green.
+
+**Bench:** `src/mlframe/feature_selection/_benchmarks/bench_rankgauss_replay_iter110.py` (block `cupy` before import; py3.14 contention segfault otherwise).
+
+**Verdict: RESOLVED — single-sweep average-tie-rank for RankGauss replay, ~1.25x on the avg-rank step @10M, bit-identical on continuous AND tied inputs (exact `==`, no gating divergence; the tie probe selects the exact path automatically).**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 81 RESOLVED, 31 REJECT across 110 iterations.**
