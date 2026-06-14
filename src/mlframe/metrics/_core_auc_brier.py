@@ -37,6 +37,87 @@ import os as _os
 _GPU_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", "50000"))
 _GPU_ARGSORT_AVAILABLE: "bool | None" = None
 
+# iter97 (2026-06-14): parallel bucket-split argsort for the large-N CPU path. The metric kernels' descending argsort is
+# tie-order-INVARIANT (AUC uses fractional ranks; KS folds tied scores into a single CDF jump), so we may pick any sort
+# whose output orders y_score identically -- the within-bucket tie-break order is immaterial. A linear-range bucketise
+# (parallel per-thread histogram + serial scatter) groups indices into B value-ordered buckets, each bucket is argsorted
+# in parallel (numpy on cache-resident slices), then the concatenation is reversed for descending. Measured crossover
+# (8-thread, this host): 1.46x@100k / 1.62x@500k / 2.33x@1M / 4.01x@5M, y_score-order identical to np.argsort. Gated to
+# the unstable CPU default at N >= _PAR_BUCKET_ARGSORT_MIN_N; the stable-sort opt-in and the GPU path are untouched.
+# Tune the gate per host via MLFRAME_METRICS_ARGSORT_PAR_MIN_N (huge value = force scalar numpy).
+_PAR_BUCKET_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_PAR_MIN_N", "200000"))
+
+
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _bucket_hist(y_score: np.ndarray, lo: float, inv_w: float, nbuckets: int, nthr: int) -> np.ndarray:
+    """Per-thread linear-range bucket histogram, reduced to a single (nbuckets,) count vector."""
+    n = y_score.shape[0]
+    local = np.zeros((nthr, nbuckets), dtype=np.int64)
+    for t in numba.prange(nthr):
+        s = t * n // nthr
+        e = (t + 1) * n // nthr
+        for i in range(s, e):
+            b = int((y_score[i] - lo) * inv_w)
+            if b < 0:
+                b = 0
+            elif b >= nbuckets:
+                b = nbuckets - 1
+            local[t, b] += 1
+    return local.sum(axis=0)
+
+
+@numba.njit(cache=True, nogil=True)
+def _bucket_scatter(y_score: np.ndarray, lo: float, inv_w: float, nbuckets: int, offsets: np.ndarray, n: int) -> np.ndarray:
+    """Scatter sample indices into their value-ordered bucket (serial: each bucket cursor is independent)."""
+    out = np.empty(n, dtype=np.int64)
+    pos = offsets.copy()
+    for i in range(n):
+        b = int((y_score[i] - lo) * inv_w)
+        if b < 0:
+            b = 0
+        elif b >= nbuckets:
+            b = nbuckets - 1
+        out[pos[b]] = i
+        pos[b] += 1
+    return out
+
+
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _bucket_sort_within(idx: np.ndarray, y_score: np.ndarray, bnd: np.ndarray, nbuckets: int, res: np.ndarray) -> None:
+    """Argsort each bucket's index slice by its y_score (ascending) in parallel; write into res in-place."""
+    for b in numba.prange(nbuckets):
+        s = bnd[b]
+        e = bnd[b + 1]
+        if e > s:
+            sub = idx[s:e]
+            order = np.argsort(y_score[sub])
+            for k in range(e - s):
+                res[s + k] = sub[order[k]]
+
+
+def _argsort_desc_par_bucket(y_score: np.ndarray) -> np.ndarray:
+    """Descending argsort via parallel bucket-split. Orders y_score identically to ``np.argsort(y_score)[::-1]``;
+    within-bucket tie-break order may differ (immaterial to the tie-invariant AUC / KS consumers)."""
+    n = y_score.shape[0]
+    y64 = np.ascontiguousarray(y_score, dtype=np.float64)
+    lo = float(y64.min())
+    hi = float(y64.max())
+    if not (hi > lo):  # constant column (or non-finite collapse) -> nothing to order; mirror numpy's index sequence
+        return np.argsort(y64)[::-1].copy()
+    nbuckets = max(64, min(8192, n // 256))
+    inv_w = nbuckets / (hi - lo)
+    counts = _bucket_hist(y64, lo, inv_w, nbuckets, numba.get_num_threads())
+    bnd = np.empty(nbuckets + 1, dtype=np.int64)
+    bnd[0] = 0
+    acc = 0
+    for b in range(nbuckets):
+        acc += int(counts[b])
+        bnd[b + 1] = acc
+    idx = _bucket_scatter(y64, lo, inv_w, nbuckets, bnd[:nbuckets].copy(), n)
+    res = np.empty(n, dtype=np.int64)
+    _bucket_sort_within(idx, y64, bnd, nbuckets, res)
+    return res[::-1].copy()
+
 
 def _gpu_argsort_available() -> bool:
     """cupy + a visible CUDA device (cached once). Probes cupy directly (this path IS cupy, not numba) so it does not
@@ -63,6 +144,8 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
             return cp.asnumpy(cp.argsort(cp.asarray(y_score))[::-1])
         except Exception:
             pass  # GPU OOM / transient device error -> exact CPU fallback
+    if n >= _PAR_BUCKET_ARGSORT_MIN_N:
+        return _argsort_desc_par_bucket(y_score)
     return np.argsort(y_score)[::-1]
 
 

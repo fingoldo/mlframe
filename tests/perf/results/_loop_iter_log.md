@@ -2931,3 +2931,30 @@ Streak: 1/100 (REJECT). **Cumulative loop wave: 67 RESOLVED, 30 REJECT across 95
 **Verdict: RESOLVED+5.64x isolated on the per-base knn `mi_y` baseline sub-phase in composite-target REGRESSION discovery @1M (varied config: `mi_estimator='knn'` + `screening='mi'`), by computing the base-invariant per-column kNN MI vector ONCE and aggregating per base via index-exclusion -- the same duplicated-recompute fix the bin path already had, now extended to the kNN path. Bit-identical (max|OLD-NEW|=0.0), same 9 specs + identical mi_gain selected; default bin path untouched (gated).**
 
 Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 68 RESOLVED, 30 REJECT across 96 iterations.**
+
+## Iter 97 -- 2026-06-14 (@10M, component: probabilistic/calibration metrics -- `fast_calibration_report`)
+
+**Workload@10M + why:** `fast_calibration_report(y_true, y_pred)` on a 10M-row binary-classifier proba column (logistic scores + noise). Picked because the full 10M rows flow end-to-end through binning + AUC/PR + KS + ECE/Brier + log-loss + confusion -- a real full-n probabilistic consumer (not composite-discovery, which subsamples and is heavily mined iters 91-96).
+
+**Top mlframe-own by tottime (3 calls @10M, 12.55s total):**
+- `{numpy argsort}` 4.170s -- the descending score argsort (overall AUC/KS desc order), called via `_argsort_desc_for_metrics`.
+- `fast_aucs_per_group_optimized` 2.077s tottime / 6.308s cumtime (owns the argsort).
+- `_confusion_counts_binary_dispatch` 0.121s/3.369s cum (bool->int64 cast + parallel count).
+- `calibration_binning` 0.117s; `fast_log_loss_binary` 0.040s/1.647s cum.
+- (llvmlite/numba ffi frames = JIT recompile noise, discounted per A/B caveat #8.)
+
+**Hotspot:** the O(n log n) descending argsort over the 10M float64 score array. tottime 4.17s/3 calls = 1.39s each; ~33% of report wall; genuinely plain-numpy (`np.argsort(y_score)[::-1]`), confirmed by microbench (1.56s standalone @10M). Moves e2e: it is the report's single largest frame.
+
+**Optimization + audit:** the metrics descending argsort is tie-order-INVARIANT (AUC uses fractional ranks; KS folds tied scores into one CDF jump), so any sort that orders `y_score` identically is admissible. Added `_argsort_desc_par_bucket`: parallel per-thread linear-range bucket histogram (`_bucket_hist`, prange) + serial scatter into value-ordered buckets (`_bucket_scatter`) + parallel within-bucket numpy argsort on cache-resident slices (`_bucket_sort_within`, prange), reversed for descending. Gated into the unstable CPU default at N >= `_PAR_BUCKET_ARGSORT_MIN_N` (200k, env `MLFRAME_METRICS_ARGSORT_PAR_MIN_N`); stable-sort opt-in and GPU radix path untouched. numpy's introsort is at the single-thread floor (serial radix 0.42x, numba argsort 0.68x both LOST) -- the win is parallelism + cache-locality, not a better serial algorithm.
+
+**Before/after (8-thread, this host):**
+- Isolated argsort crossover: 1.46x@100k / 1.62x@500k / 2.33x@1M / 4.01x@5M; @10M min 460ms vs numpy 1160-3102ms (2.52x min, 6.03x median, contended box).
+- End-to-end `fast_calibration_report` @10M (separate-process A/B, OLD = force-scalar via huge gate): OLD 3616ms -> NEW 2003ms min (**1.80x**); median 3632 -> 2140ms (1.70x). ~45% faster report.
+
+**Identity proof:** full 15-metric report tuple BYTE-IDENTICAL OLD vs NEW (separate processes, `max_abs_delta = 0.0` -- roc_auc/pr_auc/KS/ICE/MCC/all). y_score-order identical to `np.argsort[::-1]` on continuous, tied (rounded-to-2dp), and constant-column inputs. Tie-invariant by construction.
+
+**Regression test (`tests/metrics/test_argsort_desc_par_bucket_iter97.py`, 5 tests):** (1-3) bucket sort orders y_score identically on continuous/tied/constant; (4) dispatcher routes large-N CPU path through the bucket sort (GPU branch forced off); (5) full report byte-identical with/without the bucket path. FAILS on pre-fix code: `_argsort_desc_par_bucket` + `_PAR_BUCKET_ARGSORT_MIN_N` absent at HEAD (`git show HEAD:_core_auc_brier.py` -> 0 matches). 5/5 green post-fix; 35 related AUC/argsort/KS metrics tests green.
+
+**Verdict: RESOLVED+1.80x end-to-end on `fast_calibration_report` @10M (and 2.5-6x isolated on the descending argsort), via a tie-invariant parallel bucket-split argsort gated to the large-N CPU default. Byte-identical (max_abs_delta=0.0); stable-sort + GPU paths untouched.**
+
+Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 69 RESOLVED, 30 REJECT across 97 iterations.**
