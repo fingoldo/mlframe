@@ -1,5 +1,3 @@
-"""``RFECV._sffs_swap_pass`` carved out of rfecv/__init__.py (1k-LOC ceiling); bound onto the class at the parent bottom (mirrors the _fit/_diagnostics/_stability_select sibling-bind pattern)."""
-
 """Feature selection within ML pipelines. Wrappers methods. Currently includes recursive feature elimination."""
 
 from __future__ import annotations
