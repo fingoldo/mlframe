@@ -3026,3 +3026,27 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 70 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — 3.2x isolated probe loop / 1.54-1.99x @10M end-to-end, bit-identical (monotone-rounding sort-order invariance), separate-process confirmed.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 71 RESOLVED, 31 REJECT across 100 iterations.**
+
+---
+
+## iter101 @10M — preprocessing/cleaning rare-value merge: per-value `.replace()` -> vectorized `isin`+`mask`
+
+**Component:** `analyse_and_clean_features` rare-value merging (`src/mlframe/preprocessing/cleaning.py:754-760`). Fresh seam — FE/preprocessing family not previously mined at 10M (TAPPED list covered cleaning `_get_nunique`/`truly_continuous` only).
+
+**Hotspot:** when merging k rare levels into one NA sentinel, prod built `repl_instructions = {rare_i: default_na_val}` then `df[col].replace(repl_instructions)`. pandas `.replace(dict)` does a per-cell dict lookup -> O(n*k). Every rare key maps to the SAME `default_na_val`, so the whole step is a single set-membership test + constant fill.
+
+**Optimization:** `rare_mask = df[col].isin(list(repl_instructions.keys())); df[col] = df[col].mask(rare_mask, default_na_val).astype(the_type)` — one vectorized O(n) pass. `repl_instructions` is still built (feeds `features_transforms` recipe + collision WARN).
+
+**Isolated A/B @10M** (discrete int col, 50 common levels + 80 rare levels over 300k rows, best-of-3): OLD `.replace` 4.929s vs NEW 0.366s = **13.5x**, identical (300000 cells replaced both). Object + categorical paths confirmed bit-identical (NaN-key handling: pandas `.replace({nan:v})` replaces NaN and full-key `.isin` matches it).
+
+**Separate-process e2e A/B @10M** (full `analyse_and_clean_features`, OLD via HEAD module overlay): OLD 3.295s vs NEW 2.420s = **1.36x** full-pass; `VC_HASH 6995443392503722975 / NNA 0` IDENTICAL on both. (e2e ratio < isolated because the pass also runs value_counts/nunique/classification, unaffected.)
+
+**Identity proof:** VC_HASH + NaN-count byte-identical separate-process; numeric/object/categorical isolated identity all True.
+
+**Regression test:** `tests/preprocessing/test_cleaning.py::test_rareval_merge_uses_vectorized_isin_not_per_value_replace` — spies `pd.Series.replace`; asserts 0 calls during merge + rare tail collapsed to NA sentinel. Verified FAILS on HEAD (OLD trips spy 2x) and PASSES on fix.
+
+**Bench:** `src/mlframe/preprocessing/_benchmarks/bench_rareval_merge_iter101.py`.
+
+**Verdict: RESOLVED — 13.5x isolated merge step / 1.36x @10M end-to-end full cleaning pass, bit-identical (VC_HASH + NNA equal, separate-process confirmed).**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 72 RESOLVED, 31 REJECT across 101 iterations.**

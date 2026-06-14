@@ -130,3 +130,43 @@ def test_fract_digits_probe_single_sort_matches_per_digit_round(monkeypatch):
     assert calls["kernel"] >= 1, "optimized single-sort rounded-count kernel must be invoked"
     # The optimized loop breaks at the same precision as the reference per-digit path (bit-identical verdict).
     assert calls["kernel"] == ref_d, f"kernel should be called once per probed precision (={ref_d}), got {calls['kernel']}"
+
+
+@pytest.mark.fast
+def test_rareval_merge_uses_vectorized_isin_not_per_value_replace():
+    """Rare-value merge collapses the rare tail in one vectorized isin+mask pass, not pandas' O(n*k) per-cell .replace().
+
+    Sensor: spy on Series.replace; pre-fix code called it for the row-level merge so the spy tripped. The vectorized path
+    must NOT touch Series.replace for this merge AND must produce the exact same merged column (all rare values -> NA sentinel).
+    """
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("psutil")
+    pytest.importorskip("pyutilz")
+    from mlframe.preprocessing.cleaning import analyse_and_clean_features
+
+    rng = np.random.default_rng(7)
+    n = 60_000
+    a = rng.integers(0, 20, size=n)
+    rare_pos = rng.choice(n, size=600, replace=False)
+    a[rare_pos] = rng.integers(900, 940, size=600)  # ~40 rare levels, each well under the imbalance floor
+    df = pd.DataFrame({"x": a.astype("int64")})
+
+    replace_calls = {"n": 0}
+    orig_replace = pd.Series.replace
+
+    def _spy(self, *args, **kwargs):
+        replace_calls["n"] += 1
+        return orig_replace(self, *args, **kwargs)
+
+    nunique_before = df["x"].nunique()
+    pd.Series.replace = _spy
+    try:
+        analyse_and_clean_features(df, update_data=True, verbose=False)
+    finally:
+        pd.Series.replace = orig_replace
+
+    assert replace_calls["n"] == 0, "rare-value merge must use vectorized isin+mask, not per-value Series.replace"
+    # Identity of the merge result: rare levels collapsed (fewer uniques) and every former rare value is now the NA sentinel.
+    assert df["x"].nunique(dropna=False) < nunique_before
+    assert df["x"].isna().sum() == 600
