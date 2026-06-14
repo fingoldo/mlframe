@@ -3581,3 +3581,25 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 93 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +27.1x isolated scatter / ≈1.25x e2e @10M, byte-identical, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 94 RESOLVED, 32 REJECT across 124 iterations.**
+
+---
+
+## iter125 — target_quantile centroids: K-pass boolean-mask gather -> fused searchsorted-bucket prange accumulate (@10M)
+
+**Workload @10M:** `compute_target_quantile_attention` Mode B (full-train centroids on N=10M×8 float32, similarity on 200k query). Untapped pure-numpy FE component with a real O(n) seam: `_compute_centroids` ran a Python loop over K=10 buckets, each doing a full-length `(y>=lo)&(y<hi)` boolean mask + `X_pool[mask].mean(axis=0)` fancy-index gather — K full-n boolean temporaries + K large fancy-index copies. Microbench confirmed 2.0s of real O(n) work (not cProfile attribution noise).
+
+**Top mlframe-own hotspot:** `_compute_centroids` boolean-mask/gather loop — ~2.0s of the 2.36s Mode-B wall (~85%); plain numpy (no njit), genuinely O(n·d·K).
+
+**Optimization:** new `_bucket_sums_counts` njit(parallel) kernel — one prange pass over N, `searchsorted(edges,y,'right')-1` branchless bucketing (reproduces the old half-open `[lo,hi)` membership, last bucket inclusive, below-min clamped to 0), per-thread float64 sum+count accumulators reduced at end. Empty-bucket fallback (prev-centroid / pool-mean) preserved. Audit: the centroid is the ONLY consumer of the per-bucket reduction; no discarded work.
+
+**Before/after:**
+- Isolated centroid kernel @10M×8: **2.00s -> 0.335s = 5.98x** (best-of-4, warm).
+- Separate-process e2e Mode B @10M (OLD via in-package `git show HEAD:` baseline, interleaved paired, NEW faster all trials): **2.40s -> 0.58s = 4.13x**.
+
+**Identity proof:** counts cover all N exactly (no rows lost/double-counted); fused centroids are **bit-exact (max diff 0.0)** to a float64 reference, while the OLD float32 `.mean` had 5e-8 error — NEW is strictly MORE accurate. End-to-end cosine-similarity feature max abs diff 2.3e-5 (centroids near zero for std-normal X amplify the OLD float32 error under L2-normalisation); NEW is the correct side, feature-value only, non-selection-altering (trees bin features).
+
+**Regression test:** `tests/feature_engineering/transformer/test_target_quantile_bucket_kernel.py` — (1) kernel symbol importable (FAILS pre-fix: 0 occurrences in HEAD -> ImportError); (2) `counts.sum()==n` AND per-bucket counts == reference AND centroids bit-exact to float64 reference; (3) Mode-B output finite + shaped. 3 passed.
+
+**Verdict: RESOLVED +5.98x isolated / 4.13x e2e @10M, more-accurate (NEW bit-exact to float64 ref), no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 95 RESOLVED, 32 REJECT across 125 iterations.**

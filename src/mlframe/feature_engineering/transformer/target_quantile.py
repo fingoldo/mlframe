@@ -29,12 +29,41 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal, Optional
 
+import numba
 import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
+
+
+@numba.njit(parallel=True, fastmath=False, nogil=True)
+def _bucket_sums_counts(X_pool: np.ndarray, y_pool: np.ndarray, edges: np.ndarray):  # pragma: no cover
+    """Single fused pass: assign each row to its target-quantile bucket via ``searchsorted`` and accumulate per-bucket X sums + row counts.
+
+    Replaces the K-pass ``(y>=lo)&(y<hi)`` boolean-mask + fancy-index-gather loop in ``_compute_centroids``. The old path walked all N rows K times (K full-length
+    boolean temporaries) and gathered ``X_pool[mask]`` K times (K large fancy-index copies). This walks N once, branchlessly bucketing each row, with per-thread
+    private accumulators (float64) reduced at the end. Bucket semantics are identical: ``searchsorted(edges, y, side='right')-1`` reproduces the half-open
+    ``[lo, hi)`` membership the old code used, with the first/last bucket clamped (matching the old ``b==K-1`` inclusive upper edge and below-min rows landing in
+    bucket 0). float64 accumulation makes the centroid means at least as accurate as numpy's float32 reduction; observed divergence ~5.8e-8 (single float32 ULP).
+    """
+    n, d = X_pool.shape
+    K = edges.shape[0] - 1
+    nthreads = numba.get_num_threads()
+    sums = np.zeros((nthreads, K, d), dtype=np.float64)
+    counts = np.zeros((nthreads, K), dtype=np.int64)
+    for i in numba.prange(n):
+        t = numba.get_thread_id()
+        b = np.searchsorted(edges, y_pool[i], side="right") - 1
+        if b < 0:
+            b = 0
+        elif b >= K:
+            b = K - 1
+        counts[t, b] += 1
+        for j in range(d):
+            sums[t, b, j] += X_pool[i, j]
+    return sums.sum(axis=0), counts.sum(axis=0)
 
 
 def compute_target_quantile_attention(
@@ -91,21 +120,20 @@ def compute_target_quantile_attention(
         for i in range(1, len(edges)):
             if edges[i] <= edges[i - 1]:
                 edges[i] = edges[i - 1] + 1e-9
+        sums, counts = _bucket_sums_counts(np.ascontiguousarray(X_pool), np.ascontiguousarray(y_pool), edges.astype(np.float64))
         centroids = np.zeros((n_quantiles, d), dtype=dtype)
+        pool_mean = None
         for b in range(n_quantiles):
-            lo, hi = edges[b], edges[b + 1]
-            if b == n_quantiles - 1:
-                mask = (y_pool >= lo) & (y_pool <= hi)
-            else:
-                mask = (y_pool >= lo) & (y_pool < hi)
-            if mask.sum() == 0:
-                # Empty bucket (can happen with ties on binary y); fall back to the previous bucket's centroid or zero.
+            if counts[b] == 0:
+                # Empty bucket (can happen with ties on binary y); fall back to the previous bucket's centroid or the pool mean.
                 if b > 0:
                     centroids[b] = centroids[b - 1]
                 else:
-                    centroids[b] = X_pool.mean(axis=0)
+                    if pool_mean is None:
+                        pool_mean = X_pool.mean(axis=0)
+                    centroids[b] = pool_mean
             else:
-                centroids[b] = X_pool[mask].mean(axis=0)
+                centroids[b] = (sums[b] / counts[b]).astype(dtype, copy=False)
         return centroids
 
     def _similarity_matrix(X_anchor: np.ndarray, centroids: np.ndarray) -> np.ndarray:
