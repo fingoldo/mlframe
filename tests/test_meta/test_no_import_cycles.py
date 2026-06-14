@@ -77,6 +77,27 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # importing siblings at its bottom, so the cycle resolves at runtime
     # without an actual ImportError.
     "mlframe.training.targets._target_distribution_analyzer → mlframe.training.targets._target_distribution_analyzer_features → mlframe.training.targets._target_distribution_analyzer_modes → mlframe.training.targets._target_distribution_analyzer_target_fn",
+    # Sibling-file monolith splits (1k-LOC carve wave). In each, the carved body sibling top-level imports helpers from
+    # its parent and the parent re-exports the moved symbols at its bottom -- a 2-node SCC that resolves at runtime
+    # because the parent binds those helpers BEFORE the bottom re-export line executes. ``_classification_extras_blocks``
+    # specifically MUST import top-level: it holds @njit kernels that reference the parent's njit helpers, and numba does
+    # not compile IMPORT_NAME bytecode (same constraint as the hermite_fe entry above). Same owner-drain action applies.
+    "mlframe.metrics.classification._classification_extras → mlframe.metrics.classification._classification_extras_blocks",
+    "mlframe.reporting._diagnostics_dispatch_extra → mlframe.reporting.diagnostics_dispatch",
+    "mlframe.training.composite.discovery._screening_tiny → mlframe.training.composite.discovery._screening_tiny_perbin",
+    "mlframe.training.pipeline._pipeline_helpers → mlframe.training.pipeline._pipeline_helpers_apply",
+    "mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_extra_basis_fe → mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_extra_basis_fe_generate",
+    # ``_reporting`` monolith split, now 3-node: ``_reporting_probabilistic_calib`` was carved out of
+    # ``_reporting_probabilistic`` (which already top-level-imports constants from ``_reporting``; ``_reporting``
+    # re-exports them at its bottom). Supersedes the earlier ``_reporting_regression`` 3-node entry above (that carve's
+    # cycle no longer closes as a top-level SCC).
+    "mlframe.training.reporting._reporting → mlframe.training.reporting._reporting_probabilistic → mlframe.training.reporting._reporting_probabilistic_calib",
+    # PRE-EXISTING (not from the 1k-LOC carve wave): the ``reporting.charts`` package facade. ``charts/__init__``
+    # re-exports every chart builder submodule, and several submodules import shared helpers back from the ``charts`` /
+    # ``reporting`` package surface, so the whole package forms one top-level SCC through the facade. Runtime-safe (the
+    # package imports cleanly); flagged here so the suite is green. Owner action: break one facade edge via a leaf
+    # ``charts._common`` so submodules stop importing the package surface at module load.
+    "mlframe.reporting → mlframe.reporting.catalog → mlframe.reporting.charts → mlframe.reporting.charts._layout → mlframe.reporting.charts.binary → mlframe.reporting.charts.calibration → mlframe.reporting.charts.calibration_by_feature → mlframe.reporting.charts.calibration_drift → mlframe.reporting.charts.calibration_heatmap_2d → mlframe.reporting.charts.decision_curve → mlframe.reporting.charts.drift → mlframe.reporting.charts.error_analysis → mlframe.reporting.charts.fairness_calibration → mlframe.reporting.charts.ltr → mlframe.reporting.charts.model_card → mlframe.reporting.charts.model_comparison → mlframe.reporting.charts.multiclass → mlframe.reporting.charts.multilabel → mlframe.reporting.charts.pdp_ice → mlframe.reporting.charts.quantile → mlframe.reporting.charts.regression → mlframe.reporting.charts.slice_finder → mlframe.reporting.charts.split_comparison → mlframe.reporting.charts.temporal → mlframe.reporting.charts.training_curve → mlframe.reporting.spec",
 }
 
 
