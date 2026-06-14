@@ -3115,3 +3115,25 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 74 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — njit prange kernel for rolling_shannon_entropy_binned, ~670x e2e @1M / 2.285s @10M, bin-counts bit-identical, entropy ULP-equivalent (8.9e-16).**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 75 RESOLVED, 31 REJECT across 104 iterations.**
+
+---
+
+## iter105 — @10M — `rolling_quantile_spread` njit prange kernel (windowed_shape rolling sibling)
+
+**Workload @10M, why:** picked the still-untapped windowed_shape rolling sibling `rolling_quantile_spread` (flagged 4.67s @10M in the iter104 note). 10M float64 col (80MB), 5 groups of 2M -> ~10M sliding windows of K=20. Component driven directly.
+
+**Top mlframe-own hotspot (cProfile @10M, OLD):** total 6.81s. `numpy.ndarray.partition` 4.743s (5 calls, one per segment) + `_quantile` 0.654s + `ndarray.copy` 0.627s + `_lerp` 0.387s + `_quantile_ureduce_func`/`_ureduce` overhead. `np.quantile(wins,[ql,qh],axis=1)` partitions the WHOLE (n_windows,K) matrix, allocates a full copy, and interpolates in separate vectorised passes — all numpy-side, single-thread, no njit. e2e-fraction: ~99% of the function wall.
+
+**Optimization + audit:** added `_quantile_spread_kernel` (`@njit(parallel=True)`): per window copy K elems into a thread-local buffer, `.sort()`, read the two linear-interpolated quantiles. Bit-identical to numpy `method='linear'` by construction — virtual index `q*(K-1)`, floor/ceil neighbours, and numpy's exact two-branch `_lerp` (`a+(b-a)*t` for `t<0.5` else `b-(b-a)*(1-t)`), plus the `>= K-1` -> max edge. NaN windows have different sort-to-end semantics, so the wrapper gates on `np.isfinite(seg).all()` per segment and falls back to numpy for NaN-bearing segments. prange parallelises across the independent windows; replaces the global partition + copy + multi-pass interp with one fused per-row pass.
+
+**Before/after (separate-process paired A/B @10M, best-of-5):** OLD min 4.938s / med 6.441s -> NEW min 1.859s / med 2.291s = **2.66x (min) / 2.81x (med)**. Isolated profile OLD 6.81s confirms the partition-dominated baseline.
+
+**Identity proof:** `np.nansum` checksum byte-identical (OLD 23156435.904254 == NEW 23156435.904254). Bit-EXACT (`array_equal`, not just allclose) vs numpy across K in {5,7,20,50} x quantile pairs {(.1,.9),(.25,.75),(0,1),(.05,.95),(.5,.95)} x {continuous, tied-lowcard, discrete-int}; NaN-segment fallback equal incl. NaN positions.
+
+**Regression test:** `tests/feature_engineering/test_windowed_quantile_spread_njit.py` — 62 cases: asserts `_quantile_spread_kernel` present + routed (spy), FAILS pre-fix (symbol absent — verified `hasattr==False` on git-show old module), pins bit-exact equality vs numpy reference across all K/quantile/distribution combos + NaN fallback. All 62 green.
+
+**Profile harness:** `tests/perf/_prof105_quantile_spread.py` (committed).
+
+**Verdict: RESOLVED — njit prange per-window sort kernel for rolling_quantile_spread, 2.66-2.81x e2e @10M (6.44s -> 2.29s), output BIT-IDENTICAL to numpy method='linear'.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 76 RESOLVED, 31 REJECT across 105 iterations.**

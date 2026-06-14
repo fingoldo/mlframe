@@ -86,6 +86,52 @@ def _longest_monotone_run_kernel(d: np.ndarray, direction_code: int) -> np.ndarr
 
 
 @njit(cache=True, fastmath=False, parallel=True)
+def _quantile_spread_kernel(wins: np.ndarray, q_low: float, q_high: float) -> np.ndarray:
+    """Per-window ``quantile(q_high) - quantile(q_low)`` over the rows of a sliding-window matrix.
+
+    Replaces ``np.quantile(wins, [q_low, q_high], axis=1)`` (which partitions the whole
+    ``(n_windows, K)`` matrix + allocates a copy + interpolates in separate passes) with a single
+    prange pass: each window's K values are copied into a thread-local buffer, sorted, and the two
+    linear-interpolated quantiles are read off. Bit-identical by construction to numpy ``method='linear'``:
+    virtual index ``q*(K-1)``, neighbours floor/ceil, and the exact two-branch ``_lerp``
+    (``a+(b-a)*t`` for ``t<0.5`` else ``b-(b-a)*(1-t)``). Assumes finite input (the Python wrapper
+    falls back to numpy for any NaN-containing segment, matching numpy's sort-NaN-to-end semantics).
+    """
+    n_wins, K = wins.shape
+    out = np.empty(n_wins, dtype=np.float64)
+    inv = K - 1
+    for r in prange(n_wins):
+        buf = np.empty(K, dtype=np.float64)
+        for c in range(K):
+            buf[c] = wins[r, c]
+        buf.sort()
+        vlo = q_low * inv
+        vhi = q_high * inv
+        # low quantile
+        if vlo >= inv:
+            qlo = buf[K - 1]
+        else:
+            p = int(np.floor(vlo))
+            t = vlo - p
+            a = buf[p]
+            b = buf[p + 1]
+            d = b - a
+            qlo = a + d * t if t < 0.5 else b - d * (1.0 - t)
+        # high quantile
+        if vhi >= inv:
+            qhi = buf[K - 1]
+        else:
+            p = int(np.floor(vhi))
+            t = vhi - p
+            a = buf[p]
+            b = buf[p + 1]
+            d = b - a
+            qhi = a + d * t if t < 0.5 else b - d * (1.0 - t)
+        out[r] = qhi - qlo
+    return out
+
+
+@njit(cache=True, fastmath=False, parallel=True)
 def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strategy: bool) -> np.ndarray:
     """Per-window binned Shannon entropy over the rows of a sliding-window matrix.
 
@@ -423,11 +469,18 @@ def rolling_quantile_spread(
     if not (0.0 <= q_low < q_high <= 1.0):
         raise ValueError(f"need 0 <= q_low < q_high <= 1, got {q_low}, {q_high}")
     out = np.full(values.size, fill_value, dtype=np.float64)
-    for _sort_idx_seg, wins, write_idx in per_group_sliding_window(
+    for sort_idx_seg, wins, write_idx in per_group_sliding_window(
         values, group_ids, window_K=window_K,
     ):
-        q = np.quantile(wins, [q_low, q_high], axis=1)
-        out[write_idx] = q[1] - q[0]
+        # njit prange kernel matches numpy method='linear' bit-for-bit on finite windows; a window
+        # containing NaN has different sort-to-end semantics, so fall back to numpy for those segments.
+        seg = values[sort_idx_seg]
+        if np.isfinite(seg).all():
+            wins_c = np.ascontiguousarray(wins)
+            out[write_idx] = _quantile_spread_kernel(wins_c, q_low, q_high)
+        else:
+            q = np.quantile(wins, [q_low, q_high], axis=1)
+            out[write_idx] = q[1] - q[0]
     return out
 
 
