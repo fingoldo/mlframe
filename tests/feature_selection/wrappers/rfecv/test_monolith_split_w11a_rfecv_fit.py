@@ -31,8 +31,9 @@ def test_init_fit_state_imported(parent_module, init_sibling):
 
 def test_rfecv_fit_bound_to_class(parent_module):
     from mlframe.feature_selection.wrappers.rfecv import RFECV
-    # fit is bound at parent bottom in _rfecv.py; identity is parent.fit IS RFECV.fit
-    assert RFECV.fit is parent_module.fit
+    # RFECV.fit is the RNG-hygiene wrapper (functools.wraps of the split-out _fit.fit); the wrapper's
+    # __wrapped__ is the parent module's fit, proving the monolith-split function is the bound body.
+    assert RFECV.fit.__wrapped__ is parent_module.fit
 
 
 def test_facade_loc_budget(parent_module):
