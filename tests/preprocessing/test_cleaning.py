@@ -170,3 +170,46 @@ def test_rareval_merge_uses_vectorized_isin_not_per_value_replace():
     # Identity of the merge result: rare levels collapsed (fewer uniques) and every former rare value is now the NA sentinel.
     assert df["x"].nunique(dropna=False) < nunique_before
     assert df["x"].isna().sum() == 600
+
+
+@pytest.mark.fast
+def test_suggest_non_outlying_uses_fused_njit_kernel_and_matches_numpy():
+    """``suggest_non_outlying_data_indices`` routes float 1d input through the fused njit outlier-mask kernel and stays bit-identical to the prior
+    four-pass numpy expression (``v<l``/``v>r``/two sums/``(~il)&(~ir)``), including NaN rows (NaN compares False on both fences -> kept). The kernel-use
+    assertion fails on pre-fix code, where ``_get_outlier_mask_njit`` does not exist."""
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("numba")
+    import mlframe.preprocessing.cleaning as cln
+
+    assert hasattr(cln, "_get_outlier_mask_njit"), "fused outlier-mask kernel must exist"
+
+    rng = np.random.default_rng(7)
+    values = rng.standard_t(3, 50_000).astype(np.float64)
+    values[::500] = np.nan
+
+    calls = {"n": 0}
+    real = cln._get_outlier_mask_njit
+
+    def spy():
+        calls["n"] += 1
+        return real()
+
+    cln._get_outlier_mask_njit = spy
+    try:
+        idx = cln.suggest_non_outlying_data_indices(values, use_quantile=0.01)
+    finally:
+        cln._get_outlier_mask_njit = real
+
+    assert calls["n"] == 1, "float 1d input must dispatch to the fused njit kernel"
+
+    q = np.nanquantile(values, (0.01, 0.99))
+    from mlframe.preprocessing.cleaning import get_tukey_fences_multiplier_for_quantile
+
+    mult = get_tukey_fences_multiplier_for_quantile(quantile=0.01)
+    iqr = q[1] - q[0]
+    l = q[0] - mult * iqr
+    r = q[1] + mult * iqr
+    il = values < l
+    ir = values > r
+    ref = (~il) & (~ir)
+    assert np.array_equal(idx, ref), "fused mask must be bit-identical to the numpy four-pass expression"

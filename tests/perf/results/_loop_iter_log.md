@@ -3073,3 +3073,25 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 72 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — 47-100x isolated segmentation / 13.5-21.3x @10M end-to-end per_group_shift (shared by all grouped helpers), bit-identical, gated integer fast path, separate-process + paired confirmed.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 73 RESOLVED, 31 REJECT across 102 iterations.**
+
+---
+
+## iter103 — preprocessing/outlier-cleaning: fused njit outlier-mask in `suggest_non_outlying_data_indices` @10M
+
+**Workload @10M:** `mlframe.preprocessing.cleaning.suggest_non_outlying_data_indices` on a 10M-row float64 column (heavy-tailed `standard_t(3)` + NaN), the per-column outlier-bounds helper used by data-cleaning / outlier-prep — an untapped preprocessing family.
+
+**Top mlframe-own hotspot (cProfile, 5 calls @10M):** `suggest_non_outlying_data_indices` tottime 0.168s self (plus `partition` 0.440s + `flatten` 0.116s under `np.nanquantile`). Wall breakdown per call: nanquantile ~129ms, `v<l`/`v>r` ~22ms, two `.sum()` ~22ms, `(~il)&(~ir)` ~11ms. The masking segment (~55ms = 4 separate full-array passes over 10M, each allocating a fresh bool/temp) is plain-numpy and the fusable part; nanquantile is numpy-C (left as-is).
+
+**Optimization:** lazy-compiled `_get_outlier_mask_njit` (`@njit(cache=True, parallel=True)`) computes the keep-mask AND both outside-fence counts in ONE prange pass, gated on float 1d input (numpy fallback for object/2d). Per-element comparison is exact; counts are integer increments (order-invariant under prange); NaN compares False on both fences in numpy and numba alike, so NaN rows stay kept identically.
+
+**Before/after:** isolated masking segment 45-65ms -> 17-18ms (**2.7-3.6x**). Full-function @10M: paired interleaved in-process A/B — **NEW faster in 15/15 trials**, OLD med 435.5ms / min 362.6 -> NEW med 355.9ms / min 297.4 (**1.22x e2e**, min-to-min 1.22x). Separate-process A/B confirmed identical `kept`=9867326 across all runs.
+
+**Identity proof:** `np.array_equal(old_idx, new_idx)` True on heavy-tailed+NaN @10M; counts exact (6477/6268 vs 6477/6268). Bit-identical by construction (removes redundant passes, same numerics).
+
+**Regression test:** `tests/preprocessing/test_cleaning.py::test_suggest_non_outlying_uses_fused_njit_kernel_and_matches_numpy` — spies the kernel factory (`calls==1` expected) + `hasattr(cln,"_get_outlier_mask_njit")`; BOTH fail on pre-fix code (symbol absent — verified via git-show old module), plus pins bit-identity vs the numpy four-pass reference incl. NaN rows.
+
+**Bench/A/B harnesses:** in-process paired `ab_paired.py` + separate-process `ab2.py` (transient; methodology recorded here).
+
+**Verdict: RESOLVED — fused single-pass njit outlier-mask, 2.7-3.6x isolated masking / 1.22x @10M end-to-end (15/15 paired), bit-identical incl. NaN, float-1d gated.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 74 RESOLVED, 31 REJECT across 103 iterations.**
