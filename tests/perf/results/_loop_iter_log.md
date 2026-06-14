@@ -3646,3 +3646,25 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 96 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +7.11x e2e @predict-path, bit-identical (maxdiff 4.4e-14), no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 97 RESOLVED, 32 REJECT across 127 iterations.**
+
+---
+
+## iter128 (2026-06-15) — @10M — metrics calibration binning (report path)
+
+**Workload @10M:** `fast_calibration_binning` (uniform reliability-diagram binning), the single-thread njit kernel run once per per-class metrics report over the full y_pred/y_true (10M+ rows on large fits). Untapped family (calibration replay / report aggregation). Microbench-confirmed REAL O(n): 42-48 ms/call @10M, two full-n passes (span min/max scan + bin histogram accumulation).
+
+**Hotspot:** `_fast_calibration_binning_serial` (was `fast_calibration_binning`). Plain single-thread njit (`fastmath=False, cache=True, nogil=True`); 100% compiled-kernel time, ~0 Python frames. Real O(n) (linear in samples), e2e fraction = one per-class report call at full-n.
+
+**Optimization:** size-aware dispatcher. `fast_calibration_binning` is now a plain-Python router: serial njit below `_CALIB_BINNING_PRANGE_THRESHOLD` (default 2_000_000, env `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD`), new `_fast_calibration_binning_prange` (parallel=True) twin above it. Twin: per-thread (min,max) reduction + per-thread private histograms (pred/true/sum), merged via axis-0 sum. Serial kernel body is verbatim the old kernel (diff = name + comment only). Warmup pass compiles the prange twin once per process (cache=False — numba can't cache parallel kernels).
+
+**Before/after (isolated, warm best-of-7):** @10M serial 0.0476 s -> prange 0.0181 s = **2.63x**; crossover confirmed (serial wins 100k=0.0004 vs 0.0083, 1M=0.0047 vs 0.0104 -> gated out below 2M). 22 threads.
+
+**Before/after (separate-process paired A/B @10M, 3 interleaved runs, serial-forced vs prange-forced):** serial 0.0492/0.0371/0.0453 vs prange 0.0193/0.0079/0.0058 — prange faster in 3/3, min-to-min 2.5x-7.8x.
+
+**Identity:** hits (int populations) bit-identical; freqs_true (int/int) bit-identical; freqs_predicted max abs diff 1.8e-14 (FP per-thread partial-sum reduction order only) — far below any reliability/calibration-MAE decision boundary, non-selection-altering reporting metric.
+
+**Regression test:** `tests/metrics/test_calibration_binning_prange_iter128.py` — (1) prange==serial on hits+freqs_true, freqs_predicted <1e-9 across n={50k,250k,1.5M} x nbins={10,100}; (2) dispatcher routes by n (spy); (3) span==0 single-bin path matches. FAILS pre-fix: module-level import of `_fast_calibration_binning_serial`/`_fast_calibration_binning_prange` raises ImportError (0 occurrences in HEAD, verified). 8 passed post-fix.
+
+**Verdict: RESOLVED +2.63x isolated @10M (2.5x-7.8x separate-process), gated >=2M, ~1e-14 FP-order identity, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 98 RESOLVED, 32 REJECT across 128 iterations.**

@@ -169,7 +169,13 @@ def render_title_metric_token(
     return ""
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
+# Threshold (in samples) above which the parallel prange binning kernel is dispatched.
+# Below it, numba thread-spawn overhead makes the serial scan faster (measured crossover
+# ~1M on this host: serial 0.0004/0.0047/0.0476 s vs prange 0.0083/0.0104/0.0181 s at
+# 100k/1M/10M, 22 threads; prange wins 2.63x at 10M). Tunable via env for other hardware.
+_CALIB_BINNING_PRANGE_THRESHOLD = int(os.environ.get("MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD", "2000000"))
+
+
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy.
 
@@ -177,8 +183,20 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     not the bin centre. The bin centre is wrong-width and biases the reliability x-positions
     (and the downstream calibration_mae) toward the grid rather than where the predictions
     actually sit. The centre is used only as an empty-bin fallback (no present bin can hit it).
-    """
 
+    Size-aware dispatcher: the serial njit kernel for n below
+    ``_CALIB_BINNING_PRANGE_THRESHOLD``, the parallel prange kernel above it (full-n metrics
+    reports at 1M+ rows). Outputs are identical except ``freqs_predicted`` may differ by a
+    FP reduction-order ULP (~1e-14) from the per-thread partial-histogram summation — far
+    below any reliability-diagram / calibration-MAE decision boundary.
+    """
+    if len(y_pred) >= _CALIB_BINNING_PRANGE_THRESHOLD:
+        return _fast_calibration_binning_prange(y_true, y_pred, nbins)
+    return _fast_calibration_binning_serial(y_true, y_pred, nbins)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     pockets_predicted = np.zeros(nbins, dtype=np.int64)
     pockets_true = np.zeros(nbins, dtype=np.int64)
     pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
@@ -221,6 +239,78 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     else:
         freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)
 
+    return freqs_predicted, freqs_true, hits
+
+
+# cache=False: numba cannot cache a parallel=True kernel (dynamic globals from the parallel
+# reduction); the warmup pass compiles it once per process so the first big report pays no JIT.
+@numba.njit(parallel=True, cache=False, nogil=True)
+def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
+    """Parallel twin of ``_fast_calibration_binning_serial`` for large n.
+
+    Each thread reduces a contiguous slice into a private (min, max) and a private histogram,
+    then the partials are merged. Bit-identical to the serial kernel on the integer outputs
+    (hits, pockets_true); ``freqs_predicted`` differs only by FP summation order (~1e-14).
+    """
+    n = len(y_pred)
+    nth = numba.get_num_threads()
+    chunk = (n + nth - 1) // nth
+
+    pmin = np.empty(nth, dtype=np.float64)
+    pmax = np.empty(nth, dtype=np.float64)
+    for t in numba.prange(nth):
+        lo = t * chunk
+        hi = min(lo + chunk, n)
+        mn, mx = 1.0, 0.0
+        for i in range(lo, hi):
+            v = y_pred[i]
+            if v > mx:
+                mx = v
+            if v < mn:
+                mn = v
+        pmin[t] = mn
+        pmax[t] = mx
+    min_val, max_val = 1.0, 0.0
+    for t in range(nth):
+        if pmin[t] < min_val:
+            min_val = pmin[t]
+        if pmax[t] > max_val:
+            max_val = pmax[t]
+    span = max_val - min_val
+
+    part_pred = np.zeros((nth, nbins), dtype=np.int64)
+    part_true = np.zeros((nth, nbins), dtype=np.int64)
+    part_sum = np.zeros((nth, nbins), dtype=np.float64)
+    if span > 0:
+        multiplier = (nbins - 1) / span
+        for t in numba.prange(nth):
+            lo = t * chunk
+            hi = min(lo + chunk, n)
+            for i in range(lo, hi):
+                ind = int(floor((y_pred[i] - min_val) * multiplier))
+                part_pred[t, ind] += 1
+                part_true[t, ind] += y_true[i]
+                part_sum[t, ind] += y_pred[i]
+    else:
+        for t in numba.prange(nth):
+            lo = t * chunk
+            hi = min(lo + chunk, n)
+            for i in range(lo, hi):
+                part_pred[t, 0] += 1
+                part_true[t, 0] += y_true[i]
+                part_sum[t, 0] += y_pred[i]
+
+    pockets_predicted = part_pred.sum(axis=0)
+    pockets_true = part_true.sum(axis=0)
+    pockets_pred_sum = part_sum.sum(axis=0)
+
+    idx = np.nonzero(pockets_predicted > 0)[0]
+    hits = pockets_predicted[idx]
+    if len(hits) > 0:
+        freqs_predicted = pockets_pred_sum[idx] / hits
+        freqs_true = pockets_true[idx] / pockets_predicted[idx]
+    else:
+        freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)
     return freqs_predicted, freqs_true, hits
 
 
