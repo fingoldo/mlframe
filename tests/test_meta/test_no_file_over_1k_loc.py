@@ -81,6 +81,27 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_step_core.py`` / ``_pairs_core.py``). Carve candidate if it must shrink: lift the
     # inline DCD discover/swap block out of the select loop into a ``_screen_dcd_swap.py`` helper.
     "src/mlframe/feature_selection/filters/_screen_predictors.py",
+    # FIXME(carve-wave-next): feature_selection/shap_proxied_fs/_shap_proxied_fit.py -- the
+    # ``ShapProxiedFitMixin.fit`` orchestration body (~990 lines) after the shap_proxied_fs
+    # subpackage split. The resolver / coercion / preflight helpers already live in sibling
+    # mixins (``_shap_proxied_methods`` / ``_shap_proxied_resolvers``) and the SHAP-explain /
+    # search kernels in their own submodules; only the one sequential fit pipeline (disjoint-
+    # holdout split -> prefilter -> OOF-SHAP -> proxy search -> honest revalidation/ablation/
+    # refine) remains over budget, threaded through ~40 interdependent locals + nested ``_stage``/
+    # ``_budget`` closures. Carve candidate if it must shrink: lift the post-prefilter holdout-
+    # materialisation + clustering block into a ``_shap_proxied_fit_prefilter.py`` helper that
+    # returns (working_cols, X_hold, y_hold) -- but only with a bit-identity selection gate, as
+    # the block shares mutable scratch with the search core.
+    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit.py",
+    # FIXME(carve-wave-next): training/core/_phase_composite_post_xt_ensemble/__init__.py -- the
+    # irreducible single-function body of ``_build_cross_target_ensemble_for_target`` (the
+    # CT_ENSEMBLE builder lifted out of the per-target training loop). Its three nested closures
+    # (``_get_train_pred`` / ``_compute_train_rmse_proxy`` / ``_drop_unscored_from_pool``) capture
+    # the build-local prediction cache + the candidate pool + ~20 frame/index locals, so they are
+    # not cleanly liftable to module scope. Carve candidate if it must shrink: extract the honest-
+    # OOF split + per-candidate scoring block into a ``_post_xt_score.py`` helper taking the pool +
+    # frames explicitly, leaving the assembly/mutate-in-place tail in the parent.
+    "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py",
 }
 
 
