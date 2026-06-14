@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import copy
 import functools
 import hashlib
@@ -17,15 +16,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import polars as pl
-
-from pyutilz.system import tqdmu
 from pyutilz.numbalib import set_numba_random_seed  # noqa: F401
 from pyutilz.pythonlib import (
     get_parent_func_args,
     store_params_in_object,
     suppress_stdout_stderr,
 )
-
+from pyutilz.system import tqdmu
 from sklearn.base import (
     BaseEstimator,
     TransformerMixin,
@@ -47,32 +44,32 @@ from sklearn.model_selection import (
 from sklearn.pipeline import Pipeline
 
 from mlframe.config import CATBOOST_MODEL_TYPES
+from mlframe.core.helpers import has_early_stopping_support
+from mlframe.estimators.baselines import get_best_dummy_score
+from mlframe.metrics.core import compute_probabilistic_multiclass_error
 from mlframe.models.optimization import (
     CandidateSamplingMethod,
     MBHOptimizer,
     OptimizationDirection,
     OptimizationProgressPlotting,
 )
-from mlframe.utils.misc import set_random_seed
-from mlframe.estimators.baselines import get_best_dummy_score
-from mlframe.core.helpers import has_early_stopping_support
-from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from mlframe.training.helpers import compute_cb_text_processing
+from mlframe.utils.misc import set_random_seed
 
 from .._enums import OptimumSearch, VotesAggregation
-from ._configs import SearchConfig, FIConfig, RobustnessConfig
 from .._helpers import (
     _detect_multithreaded,
     _pin_threads_to_one,
+    get_actual_features_ranking,
     get_feature_importances,
     get_next_features_subset,
-    get_actual_features_ranking,
     select_appropriate_feature_importances,
     split_into_train_test,
     store_averaged_cv_scores,
     suppress_irritating_3rdparty_warnings,
 )
+from ._configs import FIConfig, RobustnessConfig, SearchConfig
 
 logger = logging.getLogger(__name__)
 
@@ -569,7 +566,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         # first estimator's family for CV stratification / scoring and the other
         # estimator crashes mid-fold with cryptic errors.
         if estimators:
-            from sklearn.base import is_classifier as _is_clf, is_regressor as _is_reg
+            from sklearn.base import is_classifier as _is_clf
+            from sklearn.base import is_regressor as _is_reg
             _est_list = list(estimators)
             if len(_est_list) >= 2:
                 _is_clf_flags = [_is_clf(e) for e in _est_list]
@@ -641,108 +639,6 @@ class RFECV(BaseEstimator, TransformerMixin):
         store_params_in_object(obj=self, params=params)
         self.signature = None
 
-    def _sffs_swap_pass(
-        self, X, y, estimator, cv, scoring,
-        best_nfeatures: int, best_score_ref: float,
-        selected_features_per_nfeatures: dict, feature_importances: dict,
-        original_features, evaluated_scores_mean: dict,
-        evaluated_scores_std: dict, verbose: int, ndigits: int,
-        X_estimator=None, col_pos=None,
-    ) -> None:
-        """Replace each of the K worst-FI kept features with each of the K best-FI dropped features and accept any swap that improves the
-        CV score. Mutates selected_features_per_nfeatures / evaluated_scores_* in place. Cost: O(K) extra CV evaluations executed via
-        sklearn.model_selection.cross_val_score.
-        """
-        from sklearn.model_selection import cross_val_score
-
-        K = int(self.swap_top_k)
-        best_set = list(selected_features_per_nfeatures.get(best_nfeatures, []))
-        if len(best_set) < 1:
-            return
-
-        # Aggregate FI across all runs (mean of non-NaN values per feature).
-        from collections import defaultdict
-        fi_acc = defaultdict(list)
-        for _key, _fi in feature_importances.items():
-            for feat, val in _fi.items():
-                try:
-                    if val is not None and not (isinstance(val, float) and np.isnan(val)):
-                        fi_acc[feat].append(float(val))
-                except (TypeError, ValueError):
-                    continue
-        fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
-
-        # Worst K kept (features with no FI history get 0).
-        # Wave 57 (2026-05-20): add feature name as deterministic tiebreaker --
-        # many features tie at fi_mean=0 (no FI history); without the tiebreak,
-        # which feature wins the swap depends on Python set/list iteration
-        # order, silently flipping selection across runs.
-        kept_sorted = sorted(best_set, key=lambda f: (fi_mean.get(f, 0.0), str(f)))
-        swap_out = kept_sorted[:K]
-        # Best K dropped.
-        not_in_set = [f for f in original_features if f not in set(best_set)]
-        # For the reverse-desc side, negate score then ascend alphabetically
-        # so the deterministic tiebreaker is uniform-direction.
-        not_sorted = sorted(not_in_set, key=lambda f: (-fi_mean.get(f, 0.0), str(f)))
-        swap_in = not_sorted[:K]
-
-        cur_set = list(best_set)
-        cur_score = float(best_score_ref)
-        n_swaps_accepted = 0
-        for out_f, in_f in zip(swap_out, swap_in):
-            trial_set = [in_f if f == out_f else f for f in cur_set]
-            try:
-                if X_estimator is not None and col_pos is not None:
-                    # All-numeric fast path: feed the estimator numpy column-subsets by integer position so
-                    # cross_val_score's inner fits/predicts skip the per-call pandas reconversion. float64
-                    # mirror -> bit-identical to ``X[trial_set]`` for the all-numeric case.
-                    pos = [col_pos[f] for f in trial_set]
-                    trial_X = X_estimator[:, pos]
-                elif isinstance(X, pd.DataFrame):
-                    trial_X = X[trial_set]
-                else:
-                    idx = [list(original_features).index(f) for f in trial_set]
-                    trial_X = X[:, idx]
-                trial_scores = cross_val_score(
-                    clone(estimator), trial_X, y, cv=cv,
-                    scoring=scoring, n_jobs=1,
-                )
-            except Exception as _exc:
-                if verbose:
-                    logger.warning(
-                        "SFFS swap %s -> %s evaluation failed (%s); skipping pair.",
-                        out_f, in_f, _exc,
-                    )
-                continue
-            if trial_scores is None or len(trial_scores) == 0:
-                continue
-            trial_mean = float(np.nanmean(trial_scores))
-            trial_std = float(np.nanstd(trial_scores))
-            if trial_mean > cur_score:
-                if verbose:
-                    logger.info(
-                        "SFFS swap accepted: %s -> %s improved %.*f -> %.*f",
-                        out_f, in_f, ndigits, cur_score, ndigits, trial_mean,
-                    )
-                cur_set = trial_set
-                cur_score = trial_mean
-                n_swaps_accepted += 1
-                # |trial_set| == |best_set|, so this overwrites the entry for that nfeatures count.
-                _n = len(trial_set)
-                selected_features_per_nfeatures[_n] = trial_set
-                evaluated_scores_mean[_n] = trial_mean
-                evaluated_scores_std[_n] = trial_std
-
-        if verbose:
-            logger.info(
-                "SFFS swap pass: %d/%d paired swaps accepted (best score %.*f).",
-                n_swaps_accepted, len(swap_out), ndigits, cur_score,
-            )
-
-    # sklearn 1.6 deprecated _get_tags / _more_tags in favour of __sklearn_tags__, which returns a sklearn.utils.Tags dataclass carrying
-    # classifier/regressor type info, input contract, and request metadata. Without overriding it, downstream sklearn helpers
-    # (estimator_html_repr, check_is_fitted, set_config(transform_output=...)) see RFECV as a generic transformer with no estimator-type
-    # tag and may mis-route routing requests. Delegate to the wrapped estimator's tags.
     def __sklearn_tags__(self):
         tags = super().__sklearn_tags__()
         # Multi-estimator path uses self.estimators[0] as the type-determining estimator; single-estimator path uses self.estimator.
@@ -984,21 +880,39 @@ RFECV.fit = _fit_with_rng_hygiene
 
 from ._stability_select import (  # noqa: E402
     _fit_stability_selection as _fit_stability_selection_func,
+)
+from ._stability_select import (
     select_optimal_nfeatures_ as _select_optimal_nfeatures_func,
 )
+
 RFECV._fit_stability_selection = _fit_stability_selection_func
 RFECV.select_optimal_nfeatures_ = _select_optimal_nfeatures_func
 
 from ._diagnostics import (  # noqa: E402,F401
     cv_results_df_ as _cv_results_df_func,
-    selection_stability_ as _selection_stability_func,
-    n_features_one_se_ as _n_features_one_se_func,
-    stability_vs_n_curve_ as _stability_vs_n_curve_func,
-    n_stability_elbow_ as _n_stability_elbow_func,
-    pareto_front_ as _pareto_front_func,
-    pareto_knee_ as _pareto_knee_func,
+)
+from ._diagnostics import (
     n_features_bootstrap_ci_ as _n_features_bootstrap_ci_func,
 )
+from ._diagnostics import (
+    n_features_one_se_ as _n_features_one_se_func,
+)
+from ._diagnostics import (
+    n_stability_elbow_ as _n_stability_elbow_func,
+)
+from ._diagnostics import (
+    pareto_front_ as _pareto_front_func,
+)
+from ._diagnostics import (
+    pareto_knee_ as _pareto_knee_func,
+)
+from ._diagnostics import (
+    selection_stability_ as _selection_stability_func,
+)
+from ._diagnostics import (
+    stability_vs_n_curve_ as _stability_vs_n_curve_func,
+)
+
 # cv_results_df_ is exposed as a property for sklearn parity; the rest are plain methods.
 RFECV.cv_results_df_ = property(_cv_results_df_func)
 RFECV.selection_stability_ = _selection_stability_func
@@ -1008,3 +922,7 @@ RFECV.n_stability_elbow_ = _n_stability_elbow_func
 RFECV.pareto_front_ = _pareto_front_func
 RFECV.pareto_knee_ = _pareto_knee_func
 RFECV.n_features_bootstrap_ci_ = _n_features_bootstrap_ci_func
+
+from ._sffs import _sffs_swap_pass as _sffs_swap_pass_func  # noqa: E402
+
+RFECV._sffs_swap_pass = _sffs_swap_pass_func
