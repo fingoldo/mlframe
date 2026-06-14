@@ -97,6 +97,46 @@ def _get_count_distinct_njit():
     return _COUNT_DISTINCT_NJIT
 
 
+_COUNT_DISTINCT_ROUNDED_NJIT = None
+
+
+def _get_count_distinct_rounded_njit():
+    """Lazily compile the njit kernel that counts distinct of ``round(sorted_vals, d)`` for a single precision ``d`` in one O(n) pass.
+
+    ``np.round`` is monotone non-decreasing, so ``round(sort(x), d)`` equals ``sort(round(x, d))`` elementwise; counting distinct over the already-sorted
+    array (rounding each element inline) is therefore bit-identical to sorting a freshly-rounded copy. This lets ``is_variable_truly_continuous`` sort the
+    fractional part ONCE and probe every rounding precision over that single sort, instead of re-sorting (and re-allocating a rounded copy) per precision.
+    """
+    global _COUNT_DISTINCT_ROUNDED_NJIT
+    if _COUNT_DISTINCT_ROUNDED_NJIT is None:
+        import numba
+
+        @numba.njit(cache=True)
+        def _count_distinct_rounded_sorted(sorted_vals, ndigits, skip0, skip1):
+            scale = 10.0**ndigits
+            n = sorted_vals.shape[0]
+            count = 0
+            have_prev = False
+            prev = 0.0
+            for i in range(n):
+                v = sorted_vals[i]
+                if v != v:  # NaN
+                    continue
+                # numpy round-half-to-even (banker's rounding), matching np.round semantics.
+                scaled = v * scale
+                r = np.rint(scaled) / scale
+                if r == skip0 or (skip1 == skip1 and r == skip1):
+                    continue
+                if (not have_prev) or r != prev:
+                    count += 1
+                    prev = r
+                    have_prev = True
+            return count
+
+        _COUNT_DISTINCT_ROUNDED_NJIT = _count_distinct_rounded_sorted
+    return _COUNT_DISTINCT_ROUNDED_NJIT
+
+
 def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = None) -> int:
     # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
     # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
@@ -278,9 +318,19 @@ def is_variable_truly_continuous(
         if n_unique_fracts == 0:
             cur_fract_digits = 1
         else:
+            # Sort the fractional part ONCE; the per-precision distinct-count below rounds inline over this single sorted array
+            # (round is monotone, so sort-then-round == round-then-sort), avoiding an O(n log n) re-sort + a rounded-copy alloc per precision.
+            if fract_part.dtype.kind == "f":
+                _sorted_fract = np.sort(fract_part)
+                _count_rounded = _get_count_distinct_rounded_njit()
+            else:
+                _sorted_fract = None
             for cur_fract_digits in range(1, max_fract_digits):
 
-                n_unique_fracts = _get_nunique(vals=np.round(fract_part, cur_fract_digits), skip_vals=(0.0, 1.0))
+                if _sorted_fract is not None:
+                    n_unique_fracts = _count_rounded(_sorted_fract, cur_fract_digits, 0.0, 1.0)
+                else:
+                    n_unique_fracts = _get_nunique(vals=np.round(fract_part, cur_fract_digits), skip_vals=(0.0, 1.0))
                 # print(cur_fract_digits, n_unique_fracts, NDIGITS ** (cur_fract_digits))
                 if last_n_unique_fracts > 0:
                     if (n_unique_fracts - last_n_unique_fracts) / last_n_unique_fracts < min_fract_level_increase_perecent or n_unique_fracts < 0.3 * (

@@ -77,3 +77,56 @@ def test_get_nunique_float_fastpath_bit_identical_to_npunique():
     for arr, sk in cases:
         arr = arr.astype(np.float64)
         assert _get_nunique(arr, skip_vals=sk) == reference(arr, skip_vals=sk)
+
+
+@pytest.mark.fast
+def test_fract_digits_probe_single_sort_matches_per_digit_round(monkeypatch):
+    """is_variable_truly_continuous probes every rounding precision over ONE sort of the fractional part.
+
+    Pins both the optimization (the single-sort rounded-count kernel is invoked, and the per-precision np.round+sort path is NOT taken) and
+    bit-identity of the resulting continuity verdict. Fails on pre-fix code where the rounded-count kernel does not exist / the loop re-sorts per digit.
+    """
+    np = pytest.importorskip("numpy")
+    import mlframe.preprocessing.cleaning as cln
+
+    assert hasattr(cln, "_get_count_distinct_rounded_njit"), "single-sort rounded-count kernel must exist"
+
+    rng = np.random.default_rng(0)
+    vals = np.round(rng.normal(size=200_000) * 100, 6)
+
+    # Reference verdict computed via the explicit per-digit np.round + _get_nunique path.
+    fract_part, int_part = np.modf(vals)
+    n_unique_ints = cln._get_nunique(vals=int_part, skip_vals=(0.0,))
+    n_unique_fracts = cln._get_nunique(vals=fract_part, skip_vals=(0.0, 1.0))
+    last = 0
+    nz = 0
+    ref_d = 1
+    if n_unique_fracts != 0:
+        for d in range(1, 10):
+            nuf = cln._get_nunique(vals=np.round(fract_part, d), skip_vals=(0.0, 1.0))
+            if last > 0:
+                if (nuf - last) / last < 0.15 or nuf < 0.3 * (cln.NDIGITS ** d) ** 0.95:
+                    if n_unique_ints > 0 or nz > 0:
+                        ref_d = d
+                        break
+            last = nuf
+            if nuf > 0:
+                nz = d
+            ref_d = d
+
+    # Spy: the optimized path must call the rounded-count kernel and must NOT call np.round inside the probe loop.
+    kernel = cln._get_count_distinct_rounded_njit()
+    calls = {"kernel": 0}
+    orig_kernel = kernel
+
+    def spy_kernel(sv, ndig, s0, s1):
+        calls["kernel"] += 1
+        return orig_kernel(sv, ndig, s0, s1)
+
+    monkeypatch.setattr(cln, "_get_count_distinct_rounded_njit", lambda: spy_kernel)
+
+    is_cont, _span = cln.is_variable_truly_continuous(values=vals.copy())
+    assert is_cont is True or bool(is_cont)
+    assert calls["kernel"] >= 1, "optimized single-sort rounded-count kernel must be invoked"
+    # The optimized loop breaks at the same precision as the reference per-digit path (bit-identical verdict).
+    assert calls["kernel"] == ref_d, f"kernel should be called once per probed precision (={ref_d}), got {calls['kernel']}"

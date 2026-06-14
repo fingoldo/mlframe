@@ -3002,3 +3002,27 @@ Streak: 1/100 (REJECT). **Cumulative loop wave: 69 RESOLVED, 31 REJECT across 98
 **Verdict: RESOLVED — 3.0-4.0x @10M, bit-identical (integer-count, order-invariant), separate-process + interleaved confirmed.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 70 RESOLVED, 31 REJECT across 99 iterations.**
+
+---
+
+## iter100 @10M — preprocessing/cleaning `is_variable_truly_continuous` fract-digits probe: single-sort rounded-count kernel
+
+**Workload@10M + why:** preprocessing/cleaning column-quality path, untapped at 10M. `is_variable_truly_continuous(values)` decides numeric-continuity per column inside `analyse_and_clean_features`; on a continuous float column it runs a fractional-resolution probe that loops `cur_fract_digits=1..max_fract_digits-1`, each iteration computing the distinct-count of `np.round(fract_part, d)`. 10M float64 = 80MB, RAM-safe; one column per call.
+
+**Top mlframe-own hotspot:** `is_variable_truly_continuous` (preprocessing/cleaning.py:206). cProfile @10M (2 calls): `ndarray.sort` 5.28s/22 calls (top tottime), `ndarray.round` 1.39s/14, `_get_nunique` 0.97s/18. The probe loop re-sorts a freshly-rounded copy of the 10M fractional part PER precision (7 sorts + 7 rounds for the randn*100/6-digit fixture, which breaks at d=7). Plain-numpy confirmed (`np.sort`/`np.round` are the cost, not an njit body). e2e fraction: the probe loop is ~1.2s of the ~3.5s single-call wall (~35%).
+
+**Optimization + audit:** `np.round` is monotone non-decreasing, so `sort(round(x, d)) == round(sort(x), d)` elementwise -> distinct-count over the already-sorted fractional part (rounding each element inline with `np.rint(v*10**d)/10**d`, banker's rounding matching numpy) is bit-identical to sorting a freshly-rounded copy. New lazy `_get_count_distinct_rounded_njit()` kernel does one O(n) pass per precision over a SINGLE `np.sort(fract_part)`; the loop now sorts once instead of once-per-precision and allocates no rounded copies. Float path only; non-float falls back to the exact `np.round`+`_get_nunique` route.
+
+**Before/after:**
+- Isolated loop section (7 precisions, warm, best-of-4): OLD 1.796s -> NEW 0.565s = **3.2x** (-1.23s).
+- Separate-process end-to-end (9 trials each, fresh py, baseline via dedicated `HEAD` worktree): OLD min 3.629s / median 5.759s -> NEW min 2.362s / median 2.894s = **1.54x min, 1.99x median**.
+
+**Identity proof:** verdict `(is_continuous, span)` bit-identical OLD vs NEW across 6 fixtures (cont6 / cont2 / intish / withnan / lowcard / single-digit), separate processes. By construction: monotone rounding preserves sort order, so distinct counts match exactly.
+
+**Regression test:** `tests/preprocessing/test_cleaning.py::test_fract_digits_probe_single_sort_matches_per_digit_round` — asserts the kernel exists, is invoked once per probed precision, and breaks at the same precision `d` as the explicit per-digit `np.round`+`_get_nunique` reference. FAILS on pre-fix code (`AssertionError: single-sort rounded-count kernel must exist`, verified in a HEAD worktree); PASSES post-fix. Existing cleaning smoke tests still green.
+
+**Bench:** `src/mlframe/_benchmarks/bench_truly_continuous100.py`.
+
+**Verdict: RESOLVED — 3.2x isolated probe loop / 1.54-1.99x @10M end-to-end, bit-identical (monotone-rounding sort-order invariance), separate-process confirmed.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 71 RESOLVED, 31 REJECT across 100 iterations.**
