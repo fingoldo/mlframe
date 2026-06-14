@@ -94,10 +94,14 @@ def prepare_df_for_catboost(
         for var in cols:
             if var not in cat_features and var not in text_features:
                 dtype = df[var].dtype
-                if df[var].is_null().any():
-                    if dtype in _INT_BOOL_TO_F32:
+                # Gate on the (free) dtype-membership lookup BEFORE the full-column is_null().any() scan: a Float32/Float64 column (the
+                # common 10M ML-feature case) is never cast here regardless of null status, so scanning its nulls first only to discard
+                # the result is pure waste. Only the castable nullable-int/bool columns need the scan.
+                if dtype in _INT_BOOL_TO_F32:
+                    if df[var].is_null().any():
                         numeric_exprs.append(pl.col(var).cast(pl.Float32))
-                    elif dtype in _INT_TO_F64:
+                elif dtype in _INT_TO_F64:
+                    if df[var].is_null().any():
                         numeric_exprs.append(pl.col(var).cast(pl.Float64))
         if numeric_exprs:
             df = df.with_columns(numeric_exprs)

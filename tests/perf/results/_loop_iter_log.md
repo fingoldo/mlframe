@@ -3474,3 +3474,28 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 89 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — fused 4-sweep recency-weight chain into one njit prange, 1.77x datetime / 2.80x numeric e2e @10M, <=1 ULP identical.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 90 RESOLVED, 31 REJECT across 119 iterations.**
+
+---
+
+## iter120 (@10M, preprocessing/transforms — prepare_df_for_catboost polars numeric loop)
+
+**Workload@10M + why:** untapped preprocessing component `prepare_df_for_catboost` (polars path); common 10M ML frame = many Float64 feature columns + a few int columns, RAM-safe. Not in TAPPED list.
+
+**Top mlframe-own seam:** the polars numeric loop ran `df[var].is_null().any()` (intended as a full-column scan) FIRST, then checked dtype membership. For Float32/Float64 columns (the overwhelmingly common case) the column is never cast here, so the null check was computed and discarded — the "caller discards the kernel output" lever. Audit found the cat-loop and xgboost/pandas paths already gate correctly (pandas `isna().any()` only runs on cat-feature / extension columns); only the polars numeric loop had the wasted ordering.
+
+**Optimization + audit:** reordered to gate the (free) dtype-membership dict lookup BEFORE the `is_null().any()` call — bit-identical by construction (OLD never appended for non-castable dtypes regardless of null status).
+
+**Before/after:**
+- Isolated numeric-loop microbench, best-of-9 median @10M (8 Float64 + 2 int cols): OLD 0.41ms -> NEW 0.13ms (**3.16x**, removes the wasted scans).
+- Separate-process e2e @10M through `prepare_df_for_catboost` (12 Float64 + 1 int): NEW min=1.4ms med=1.6ms.
+- **Root cause of the small e2e:** polars `Series.is_null().any()` uses the column null-count metadata, NOT a real O(n) scan — measured ~0.022ms/call at 10M. So the wasted work is cheap in polars; the 3.16x isolated win is on a ~0.4ms pure-Python loop-overhead baseline, sub-ms at e2e and noise-dominated. (Contrast: pandas `isna().any()` IS a real ~15ms scan @10M — but the pandas path already gates correctly, no wasted scan to remove.)
+
+**Identity proof:** expr-list identity asserted in the bench (`old == new`), and bit-identical by construction. Existing polars tests `tests/test_preprocessing.py -k "polars or catboost or null"` 17 passed.
+
+**Regression test:** `tests/test_preprocessing.py::test_polars_numeric_loop_skips_null_scan_for_noncastable_dtype` — spies `pl.Series.is_null` and asserts the non-castable Float64 column is NOT scanned while the castable Int8 column IS. FAILS on pre-fix code (verified: OLD scan-first ordering scans `f64` too).
+
+**Bench:** `src/mlframe/preprocessing/_benchmarks/bench_cb_prep_null_scan_iter120.py`.
+
+**Verdict: REJECT — measured, isolated 3.16x but sub-ms / noise-dominated e2e @10M because polars `is_null().any()` is metadata-bound (not an O(n) scan). The reorder is kept (bit-identical, strictly-better, no uglification, removes wasted work — REJECTED != DELETED) but does NOT clear the e2e-win bar. The transforms component is metadata/pandas-gated and mature at 10M.**
+
+Streak: 1/100 consecutive rejects (iter119 was RESOLVED -> this is the first reject of a new streak). **Cumulative loop wave: 90 RESOLVED, 32 REJECT across 120 iterations.**

@@ -119,6 +119,31 @@ def test_polars_no_nulls_skips_cast_entirely():
     assert out.dtypes == [pl.Int32, pl.Int64, pl.UInt16]
 
 
+def test_polars_numeric_loop_skips_null_scan_for_noncastable_dtype(monkeypatch):
+    """The polars numeric loop must gate the dtype-membership lookup BEFORE the full-column is_null().any() scan.
+
+    Float32/Float64 columns are never cast in this loop, so scanning their nulls is wasted work. This pins that a
+    non-castable Float64 column is NOT null-scanned while a castable nullable-int column IS. Fails on pre-fix code
+    (which scanned every column before checking the dtype).
+    """
+    scanned: list = []
+    orig_is_null = pl.Series.is_null
+
+    def spy_is_null(self):
+        if self.name:
+            scanned.append(self.name)
+        return orig_is_null(self)
+
+    monkeypatch.setattr(pl.Series, "is_null", spy_is_null)
+    df = pl.DataFrame({
+        "f64": pl.Series("f64", [1.0, 2.0, 3.0], dtype=pl.Float64),
+        "i8": pl.Series("i8", [1, 2, 3], dtype=pl.Int8),
+    })
+    prepare_df_for_catboost(df, cat_features=[])
+    assert "f64" not in scanned, "non-castable Float64 column must not be null-scanned in the numeric loop"
+    assert "i8" in scanned, "castable nullable-int column must be null-scanned to decide the cast"
+
+
 # ---------------------------------------------------------------------------
 # Text-feature invariant (2026-04-19: prevents the production-hang scenario)
 # ---------------------------------------------------------------------------
