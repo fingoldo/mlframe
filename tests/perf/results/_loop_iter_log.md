@@ -3499,3 +3499,23 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 90 RESOLVED, 31 REJECT 
 **Verdict: REJECT — measured, isolated 3.16x but sub-ms / noise-dominated e2e @10M because polars `is_null().any()` is metadata-bound (not an O(n) scan). The reorder is kept (bit-identical, strictly-better, no uglification, removes wasted work — REJECTED != DELETED) but does NOT clear the e2e-win bar. The transforms component is metadata/pandas-gated and mature at 10M.**
 
 Streak: 1/100 consecutive rejects (iter119 was RESOLVED -> this is the first reject of a new streak). **Cumulative loop wave: 90 RESOLVED, 32 REJECT across 120 iterations.**
+
+---
+
+## iter121 — missingness_count per-row NaN count: pandas row-sum -> per-column int-accumulate (@10M, MNAR FE family) — RESOLVED +3.8x
+
+**Workload @10M:** the MNAR missingness-FE family (`feature_selection/filters/_missingness_fe.py`), an untapped component. `missingness_count_fit` / `apply_missingness_count` emit the per-row "how many of these k columns are missing" signal — a real O(n*k) cost at 10M (k float64 cols = ~80MB each, RAM-safe).
+
+**Hotspot (microbench @10M, k=6+1obj col):** `X.loc[:, cols].isna().sum(axis=1)` = 2049ms (fit) / dominated by the pandas row-wise `.sum(axis=1)` reduction. Breakdown: `isna()` alone 70ms, `isna().to_numpy()` 63ms, but `isna().sum(axis=1)` 1770ms — the 2-D bool block + pandas row reduction IS the cost (plain Python/numpy, REAL O(n*k), confirmed by standalone microbench). e2e fraction = 100% of the count-FE emit.
+
+**Optimization:** new `_count_row_nans(X, cols)` accumulates each column's boolean `isna().to_numpy()` mask into one `int32` buffer (`out += X[c].isna().to_numpy()`), avoiding the row-wise reduction entirely. Works on any dtype (each column's own `isna()` respects pandas' per-dtype missing contract). Wired into both `missingness_count_fit` and `apply_missingness_count`. Audit: pattern-signature path (`_row_pattern_signature`) microbenched — no win (465ms vs 465ms, block-build cheap), left unchanged.
+
+**Before/after @10M (separate-process A/B vs `git show HEAD:`, best-of-4, includes a mixed object col):** OLD 2619.9 ms -> NEW 681.3 ms = **3.8x**. Isolated count-only microbench: 2049 -> 173 ms (10x for the pure-float homogeneous case).
+
+**Identity:** BIT-IDENTICAL on both `missingness_count_fit` and `apply_missingness_count` (`np.array_equal` True, int32 dtype preserved), verified including a mixed object/None column.
+
+**Regression test:** `tests/feature_selection/test_missingness_count_row_nan_helper.py` — (1) bit-identity to pandas `isna().sum(axis=1)` reference, (2) spy asserting the path does NOT call `pd.DataFrame.sum` (FAILS on pre-fix: verified 2 `DataFrame.sum` calls), (3) subset + schema-drift contract.
+
+**Verdict: RESOLVED +3.8x e2e @10M, bit-identical, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 91 RESOLVED, 32 REJECT across 121 iterations.**

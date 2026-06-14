@@ -130,6 +130,18 @@ def auto_detect_missing_cols(
     return candidates
 
 
+def _count_row_nans(X: pd.DataFrame, cols: Sequence[str]) -> np.ndarray:
+    """Per-row count of NaNs across ``cols`` as int32.
+
+    Bit-identical to ``X.loc[:, cols].isna().sum(axis=1)`` but avoids the pandas row-wise ``.sum(axis=1)`` reduction, which at 10M rows is ~10x slower than
+    accumulating each column's boolean ``isna()`` mask directly into an int32 buffer (the 2-D bool block + row reduction is the bottleneck, not ``isna()``).
+    """
+    out = np.zeros(len(X), dtype=np.int32)
+    for c in cols:
+        out += X[c].isna().to_numpy()
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Per-column indicator: ``is_missing__{col}`` -- stateless (just isna)
 # ---------------------------------------------------------------------------
@@ -213,9 +225,7 @@ def missingness_count_fit(
         # Degenerate but allowed; returns all-zero column.
         counts = np.zeros(len(X), dtype=np.int32)
         return counts, {"cols": ()}
-    # Vectorised over the subset of cols.
-    sub = X.loc[:, list(cols)]
-    counts = sub.isna().sum(axis=1).to_numpy().astype(np.int32, copy=False)
+    counts = _count_row_nans(X, cols)
     return counts, {"cols": tuple(str(c) for c in cols)}
 
 
@@ -240,8 +250,7 @@ def apply_missingness_count(
     cols_present = [c for c in cols if c in X_test.columns]
     if not cols_present:
         return np.zeros(len(X_test), dtype=np.int32)
-    sub = X_test.loc[:, cols_present]
-    return sub.isna().sum(axis=1).to_numpy().astype(np.int32, copy=False)
+    return _count_row_nans(X_test, cols_present)
 
 
 # ---------------------------------------------------------------------------
