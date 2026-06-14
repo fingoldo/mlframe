@@ -28,12 +28,42 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Tuple
 
+import numba
 import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
+
+
+@numba.njit(parallel=True, cache=True)
+def _weighted_quantiles_njit(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.ndarray) -> np.ndarray:  # pragma: no cover
+    """Per-row fused weighted-quantile kernel: one argsort + cumsum + per-q scan per row, no (n_rows, k) temporaries or n_qs full sweeps.
+
+    fastmath=False so the float32 cumsum order and the first-cdf>=q tie semantics are bit-identical to the numpy reference (the argmax-based path).
+    """
+    n_rows, k = y_neighbors.shape
+    n_qs = qs.shape[0]
+    out = np.empty((n_rows, n_qs), dtype=np.float32)
+    for i in numba.prange(n_rows):
+        idx = np.argsort(y_neighbors[i])
+        ys = np.empty(k, dtype=np.float32)
+        cdf = np.empty(k, dtype=np.float32)
+        cum = np.float32(0.0)
+        for j in range(k):
+            ys[j] = y_neighbors[i, idx[j]]
+            cum += weights[i, idx[j]]
+            cdf[j] = cum
+        for qi in range(n_qs):
+            q = qs[qi]
+            sel = k - 1
+            for j in range(k):
+                if cdf[j] >= q:
+                    sel = j
+                    break
+            out[i, qi] = ys[sel]
+    return out
 
 
 def _weighted_quantiles(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.ndarray) -> np.ndarray:
@@ -45,21 +75,11 @@ def _weighted_quantiles(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.nda
 
     Returns (n_rows, n_qs) array of estimated quantiles.
     """
-    n_rows, k = y_neighbors.shape
-    # Sort each row by y_neighbors and reorder weights correspondingly.
-    sort_idx = np.argsort(y_neighbors, axis=1)
-    rows_arange = np.arange(n_rows)[:, None]
-    y_sorted = y_neighbors[rows_arange, sort_idx]  # (n_rows, k)
-    w_sorted = weights[rows_arange, sort_idx]
-    cdf = np.cumsum(w_sorted, axis=1)  # (n_rows, k)
-
-    # For each q in qs, find the smallest index where cdf >= q. Use searchsorted per row.
-    n_qs = qs.shape[0]
-    out = np.zeros((n_rows, n_qs), dtype=np.float32)
-    for j, q in enumerate(qs):
-        idx = (cdf >= q).argmax(axis=1)  # first True index per row; ARGMAX returns 0 if no True, but cdf[-1]=1 always.
-        out[:, j] = y_sorted[rows_arange.ravel(), idx]
-    return out
+    return _weighted_quantiles_njit(
+        np.ascontiguousarray(y_neighbors, dtype=np.float32),
+        np.ascontiguousarray(weights, dtype=np.float32),
+        np.ascontiguousarray(qs, dtype=np.float32),
+    )
 
 
 def compute_quantile_neighbours(

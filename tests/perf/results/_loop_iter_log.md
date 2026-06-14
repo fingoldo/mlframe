@@ -3603,3 +3603,24 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 94 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +5.98x isolated / 4.13x e2e @10M, more-accurate (NEW bit-exact to float64 ref), no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 95 RESOLVED, 32 REJECT across 125 iterations.**
+
+---
+
+## iter126 — quantile_neighbours weighted-quantile: per-q argmax sweeps over (n,k) temporaries -> single fused prange per-row pass (@10M)
+
+**Workload @10M:** `compute_quantile_neighbours` (`feature_engineering/transformer/quantile_neighbours.py`), an untapped sibling of the just-tapped target_quantile family. Its per-row weighted-quantile estimator `_weighted_quantiles` runs on N=10M query rows × k=32 neighbours: a full (n,k) `np.argsort` + (n,k) `np.cumsum`, then for each of n_qs=5 quantiles a `(cdf >= q).argmax(axis=1)` that allocates a fresh (n,k) boolean temporary and sweeps the whole array. Microbench confirmed 15-22s of real O(n·k) work at 10M (pure numpy, not cProfile attribution noise).
+
+**Top mlframe-own hotspot:** `_weighted_quantiles` — 15-22s isolated at 10M×32; plain numpy (no njit/external), genuinely O(n·k·n_qs); 5 full-array boolean sweeps + 5 (n,k) temporaries on top of the argsort/cumsum.
+
+**Optimization:** new `_weighted_quantiles_njit` (`njit(parallel=True, cache=True)`, fastmath=False) — one prange pass over rows: per-row argsort (k=32), float32 cumsum, and a first-`cdf>=q` scan per quantile. No (n,k) temporaries, no n_qs full sweeps. fastmath=False keeps the float32 cumsum order and the first-cdf>=q tie semantics bit-identical to the argmax reference. `_weighted_quantiles` now just `ascontiguousarray`-coerces and dispatches to the kernel.
+
+**Before/after (separate-process, OLD numpy ref via `git show HEAD:`, interleaved paired, NEW faster all 4 trials):**
+- Isolated @10M×32: **OLD median 17.22s / min 17.00s -> NEW median 3.02s / min 2.37s = 5.71x median** (warm, best-of-4).
+
+**Identity proof:** `np.array_equal` **True** at 10M×32 (separate-process) AND on tied-y (integer labels) AND equal-weight (tied-cdf at boundaries) cases — maxdiff **0.0** everywhere. The argsort tie-ordering and the first-cdf>=q scan reproduce numpy's quicksort + argmax exactly.
+
+**Regression test:** `tests/feature_engineering/transformer/test_quantile_neighbours_njit_kernel.py` — (1) kernel symbol importable (FAILS pre-fix: 0 occurrences in HEAD -> ImportError); (2) bit-identical to an in-test numpy reference on continuous input; (3) bit-identical on tied-y AND tied-cdf (equal-weight). 3 passed.
+
+**Verdict: RESOLVED +5.71x isolated @10M, bit-identical (maxdiff 0.0, incl. tie cases), no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 96 RESOLVED, 32 REJECT across 126 iterations.**
