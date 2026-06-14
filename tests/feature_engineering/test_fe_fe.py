@@ -92,13 +92,15 @@ def test_categorical_to_string_array_polars_fastpath():
 
 
 def test_categorical_to_string_array_numpy_float_with_nan():
-    """Numpy float array with NaN gets sentinel."""
+    """Numpy float array with NaN gets sentinel; integral floats canonicalise to int form (1.0 -> "1")
+    so int<->float dtype drift on the same integer-coded categorical hits the same per-category key."""
     from mlframe.training.feature_handling.target_encoders import _categorical_to_string_array
 
     a = np.array([1.0, np.nan, 2.5, 3.0])
     out = _categorical_to_string_array(a)
     assert out[1] == "__NULL__"
-    assert out[0] == "1.0"
+    assert out[0] == "1"
+    assert out[2] == "2.5"  # non-integral float keeps its repr
 
 
 # -------------------------------------------------------------------------

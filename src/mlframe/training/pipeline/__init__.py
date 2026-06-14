@@ -657,9 +657,20 @@ def create_polarsds_pipeline(
             # versions where ``Series.mode()`` returns a flat (non-List) result.
             # Compute the per-column mode natively and fill_null with the scalar
             # so the broken polars-ds code path is bypassed (version-safe).
+            # A column with NO finite value (all-NULL / all-NaN degenerate column, e.g. the fuzz axis'
+            # ``num_null``) has no statistic to impute from -- polars-ds computes ``median``/``mean`` as
+            # None and ``fill_null(None)`` raises "must specify either a fill value or strategy". Exclude
+            # such columns from the impute step; they stay null and are handled downstream (CB tolerates
+            # NaN; the constant-column dropper removes them).
+            def _has_finite_value(_name: str) -> bool:
+                _s = train_df.get_column(_name)
+                if train_df.schema[_name].is_float():
+                    return _s.drop_nulls().drop_nans().len() > 0
+                return _s.drop_nulls().len() > 0
+            _impute_targets = [c for c in _imputable_cols if _has_finite_value(c)]
             if config.imputer_strategy == "mode":
                 _mode_exprs = []
-                for _c in _imputable_cols:
+                for _c in _impute_targets:
                     _base = pl.col(_c).drop_nulls()
                     if train_df.schema[_c].is_float():
                         _base = _base.drop_nans()
@@ -668,8 +679,8 @@ def create_polarsds_pipeline(
                         _mode_exprs.append(pl.col(_c).fill_null(_mv).alias(_c))
                 if _mode_exprs:
                     bp = bp.with_columns(*_mode_exprs)
-            else:
-                bp = bp.impute(_imputable_cols, method=config.imputer_strategy)
+            elif _impute_targets:
+                bp = bp.impute(_impute_targets, method=config.imputer_strategy)
             if verbose:
                 logger.info(
                     "  Imputer wired: strategy=%s on %d numeric columns",

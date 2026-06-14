@@ -168,16 +168,19 @@ class TestMetricsBounds:
         # just assert it returned something
         assert len(res) == 10
 
-    def test_fast_roc_auc_rejects_sample_weight(self):
+    def test_fast_roc_auc_supports_sample_weight(self):
+        # Weighted ROC AUC support landed (fast_numba_auc_weighted); uniform weights must match the
+        # unweighted result, and non-uniform weights must match sklearn's weighted roc_auc_score.
+        from sklearn.metrics import roc_auc_score
+
         from mlframe.metrics.core import fast_roc_auc
 
-        y = np.array([0, 1, 0, 1], dtype=np.int64)
-        p = np.array([0.1, 0.9, 0.2, 0.8], dtype=np.float64)
-        # No sample_weight → fine.
-        _ = fast_roc_auc(y, p)
-        # With sample_weight → NotImplementedError.
-        with pytest.raises(NotImplementedError):
-            fast_roc_auc(y, p, sample_weight=np.ones(4))
+        y = np.array([0, 1, 0, 1, 1, 0], dtype=np.int64)
+        p = np.array([0.1, 0.9, 0.2, 0.8, 0.6, 0.4], dtype=np.float64)
+        unweighted = fast_roc_auc(y, p)
+        assert fast_roc_auc(y, p, sample_weight=np.ones(len(y))) == pytest.approx(unweighted)
+        w = np.array([1.0, 2.0, 0.5, 3.0, 1.5, 0.5], dtype=np.float64)
+        assert fast_roc_auc(y, p, sample_weight=w) == pytest.approx(roc_auc_score(y, p, sample_weight=w), abs=1e-9)
 
     def test_pr_auc_matches_sklearn(self):
         from sklearn.metrics import average_precision_score
