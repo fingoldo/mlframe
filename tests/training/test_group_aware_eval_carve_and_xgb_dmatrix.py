@@ -67,9 +67,10 @@ class TestCarveInnerEvalSplitGroupAware:
         assert y_eval[-1] == n - 1
         assert len(y_eval) == int(0.1 * n)
 
-    def test_group_ids_too_few_groups_falls_back(self) -> None:
-        """When unique groups < 4, group-aware carve isn't reliable;
-        fall back to legacy split."""
+    def test_group_ids_too_few_groups_skips_es(self) -> None:
+        """When unique groups < 4 a group-aware carve is impossible and a group-blind tail split would
+        scatter one group across fit/eval (within-group leakage -> under-stopping), so the carve
+        deliberately skips ES (returns None) rather than fall through to the leaky tail split."""
         from mlframe.training.composite.ensemble import _carve_inner_eval_split
 
         n = 2000
@@ -79,8 +80,7 @@ class TestCarveInnerEvalSplitGroupAware:
         X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(
             X, y, frac=0.1, random_state=0, group_ids=group_ids,
         )
-        assert y_eval is not None
-        assert len(y_eval) == int(0.1 * n)
+        assert y_eval is None
 
 
 class TestAR1FailsafeToleranceDefault:

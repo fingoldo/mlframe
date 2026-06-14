@@ -433,7 +433,13 @@ def _apply_pre_pipeline_with_passthrough(
         # the raw subset is NOT what the model saw at fit -- serving it produces
         # silently-wrong predictions. In that case re-raise so the per-model
         # try/except drops the model instead of shipping nonsense as if correct.
-        if not _pre_pipeline_is_pure_selector(model_obj.pre_pipeline):
+        from sklearn.exceptions import NotFittedError as _NotFittedError
+        # NotFittedError is special: the pre_pipeline never fitted (cloned-not-refit / deserialized model
+        # that lost its fitted state), so it would not have transformed anything -- subsetting to the inner
+        # model's feature_names_in_ is the correct best-effort recovery even for a value-transforming
+        # pipeline. Any OTHER exception on a non-pure-selector means a FITTED value-transform genuinely
+        # failed, where serving the raw subset would feed un-transformed columns -> re-raise to drop the model.
+        if not isinstance(_pp_exc, _NotFittedError) and not _pre_pipeline_is_pure_selector(model_obj.pre_pipeline):
             logger.warning(
                 "predict_from_models: %s pre_pipeline.transform raised %s: %s. "
                 "The pre_pipeline value-transforms features (not a pure column "
