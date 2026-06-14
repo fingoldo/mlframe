@@ -118,6 +118,76 @@ _SUPPORT_FRAG_DIVISOR = 5
 # {div, sqr, a, abs, b}); the raw operands are the tokens that are raw columns.
 _TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_]+")
 
+# GATE / BINAGG / ARGMAX pseudo-child name prefixes (2026-06-13). The default-ON
+# conditional-gate (``gate_mask__a__b__t...`` / ``gate_select__...``), binned-
+# numeric-agg (``binagg_skew(c|qbin(a))``) and row-argmax (``argmax__a__b``)
+# families build engineered children that are THRESHOLD / BINNING re-mixes of a raw
+# operand. A re-mix of ``a`` (e.g. ``1[a>median]`` or a ``qbin(a)``-strata aggregate)
+# PARTIALLY tracks a genuine private LINEAR term ``10*a``, so when a raw's
+# conditional excess is computed GIVEN such a pseudo-child its residual collapses
+# below the self-retention bar and the raw is WRONGLY judged redundant (the
+# raw-self-signal-masking trap -- the same lesson the DPI-trap consumer filter
+# encodes for self-transforms). These pseudo-children are therefore EXCLUDED from
+# the set of consuming children a raw is conditioned against for the keep/drop
+# verdict; only GENUINE elementary composites (ratio / product / poly), which can
+# actually SUBSUME the raw, are kept in the conditioning set. Prefix-detected so the
+# exclusion is byte-identical to the prior behaviour when no such child exists.
+_PSEUDO_CHILD_PREFIXES = ("gate_", "binagg_", "argmax__")
+
+# Pseudo-child source-token splitter. Unlike ``_TOKEN_SPLIT`` (which keeps ``_`` as a
+# word char so ``gate_mask__a__b__t0`` stays a SINGLE token), the gate / binagg / argmax
+# canonical names join their source columns with ``__`` / ``(`` / ``|`` and embed a mode
+# prefix + tau suffix, so the raw operands are recovered only by splitting on EVERY
+# non-alphanumeric run (``gate_mask__a__b__t0.1`` -> {gate, mask, a, b, t0, 0, 1};
+# ``binagg_skew(c|qbin(a))`` -> {binagg, skew, c, qbin, a}). The raw operands are the
+# tokens that match a raw column name; the FE-keyword tokens (gate/mask/binagg/qbin/...)
+# never collide with a raw name.
+_PSEUDO_SRC_SPLIT = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _is_pseudo_remix_child(name: str) -> bool:
+    """True iff the engineered name is a conditional-gate / binned-numeric-agg /
+    row-argmax pseudo-child -- a threshold/binning re-mix that can MASK (not
+    subsume) a raw operand's genuine private signal and so must NOT condition the
+    raw's redundancy verdict. Detected by the canonical name prefix family."""
+    nm = name or ""
+    return any(nm.startswith(p) for p in _PSEUDO_CHILD_PREFIXES)
+
+
+def raw_retains_signal_given_genuine_children(
+    *,
+    raw_bin: np.ndarray,
+    y_bin: np.ndarray,
+    genuine_child_bins: Sequence[np.ndarray],
+    self_retain_frac: float = RAW_SELF_RETAIN_FRAC,
+    seed: int = 0,
+) -> bool:
+    """KEEP-rule probe reused by the PSEUDO-CHILD MASKED-RAW RESCUE (2026-06-13).
+
+    Returns True iff the raw carries a SIGNIFICANT INDEPENDENT RESIDUAL given ONLY
+    its GENUINE (non-pseudo) consuming engineered children: its conditional CMI
+    clears the within-stratum permutation floor AND its debiased conditional excess
+    retains >= ``self_retain_frac`` of its OWN marginal debiased excess. This is the
+    exact keep-rule ``drop_redundant_raw_operands`` applies, factored out so the
+    masked-raw rescue can decide whether the greedy screen's drop of the raw was a
+    genuine subsumption or merely a gate/binagg/argmax pseudo-child MASKING the raw's
+    private signal (a re-mix is selected first and DPI-collapses the raw's relevance).
+    A genuine private LINEAR term keeps ~50% given its true ratio child; a fully-
+    subsumed ``a**2/b`` operand keeps ~0.6% -- the 0.05 bar separates them with >8x
+    margin (measured user fixture, n=40000). With NO genuine child (the conditioning
+    set is empty) it returns True (cannot prove subsumption -> retention stands)."""
+    from ._mi_greedy_cmi_fe import _renumber_joint
+
+    _gc = [g for g in genuine_child_bins if g is not None]
+    rb = np.asarray(raw_bin).astype(np.int64).ravel()
+    yb = np.asarray(y_bin).astype(np.int64).ravel()
+    _, _, marg_excess = _excess_and_floor(rb, yb, None, seed=seed)
+    if not _gc:
+        return True  # no genuine subsumer survives -> the raw cannot be proven redundant
+    z_support, _ = _renumber_joint(*_gc)
+    cmi, floor, excess = _excess_and_floor(rb, yb, z_support, seed=seed)
+    return (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess))
+
 
 def _recipe_subexprs(recipe) -> dict:
     """Walk an ``EngineeredRecipe``'s nested-parent operand tree and return a map
@@ -523,9 +593,20 @@ def drop_redundant_raw_operands(
         # (paired with a noise column in ``add(exp(x0),sign(x3))``) the 2026-06-08
         # blanket sweep wrongly dropped, while the true ``a**2/b`` ratio operands -- whose
         # subsumer ``div(neg(a),sqrt(b))`` is a genuine two-source combination -- still drop.
+        # GATE / BINAGG / ARGMAX pseudo-remix EXCLUSION (2026-06-13). A conditional-gate /
+        # binned-numeric-agg / row-argmax child is a lossy THRESHOLD/BINNING re-mix of the raw, not a
+        # combination that can SUBSUME it: conditioning the raw on such a re-mix of ITSELF is the
+        # data-processing-inequality trap (CMI collapses for every raw, genuine or redundant), so it
+        # MASKS a genuine private term and must NOT participate in the drop/keep verdict. Drop pseudo
+        # consumers from the conditioning/anchor set; only GENUINE elementary composites (ratio /
+        # product / poly), which can truly subsume the raw, remain. Byte-identical when no pseudo child
+        # consumes the raw (the exclusion set is empty). A raw FULLY subsumed by a genuine ``a**2/b``
+        # child still drops (that child stays); a raw whose ONLY consumers are pseudo re-mixes is no
+        # longer spuriously dropped (no genuine subsumer remains -> the DPI-empty guard below keeps it).
         consumers = [
             ei for ei in all_consumers
-            if len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1
+            if (len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1)
+            and not _is_pseudo_remix_child(cols[ei])
         ]
         if not consumers:
             if verbose:
@@ -615,4 +696,9 @@ def drop_redundant_raw_operands(
     return kept, drop_names
 
 
-__all__ = ["drop_redundant_raw_operands", "DEFAULT_RAW_RETAIN_FRAC"]
+__all__ = [
+    "drop_redundant_raw_operands",
+    "DEFAULT_RAW_RETAIN_FRAC",
+    "raw_retains_signal_given_genuine_children",
+    "_is_pseudo_remix_child",
+]

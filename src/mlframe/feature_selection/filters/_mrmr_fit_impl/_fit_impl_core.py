@@ -7263,6 +7263,102 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # as a separate read-only ledger. fe_provenance_ reads this to emit one row per produced engineered column (survivors get their real greedy gain/rank, screened-out ones get NaN gain / rank -1).
     self._produced_recipes_ = list(engineered_recipes.values())
 
+    # PSEUDO-CHILD MASKED-RAW RESCUE (2026-06-13). The default-ON conditional-gate / binned-
+    # numeric-agg / row-argmax FE families append THRESHOLD/BINNING re-mixes of a raw operand
+    # (``gate_mask__a__b`` / ``binagg_skew(c|qbin(a))`` / ``argmax__a__b``) into the screening pool
+    # BEFORE the greedy screen. A re-mix of ``a`` can marginally OUT-SCORE raw ``a`` and is selected
+    # first; raw ``a``'s conditional relevance given that re-mix then collapses (the re-mix is a lossy
+    # function of ``a`` -- the data-processing-inequality trap), so the greedy screen drops ``a``
+    # EVEN WHEN ``a`` carries a dominant private LINEAR term (``y += 10*a``) the re-mix only partially
+    # tracks. Re-add such a masked raw -- one consumed by a selected pseudo-remix child but itself
+    # dropped -- IFF it retains >= RAW_SELF_RETAIN_FRAC of its marginal debiased excess under the
+    # keep-rule conditioned ONLY on its GENUINE (non-pseudo) selected children (an ``a**2/b`` ratio /
+    # composite -- the real potential subsumers, with the masking pseudo re-mixes EXCLUDED from the
+    # conditioning). A private LINEAR term keeps ~50% -> RESCUE; a fully-subsumed operand keeps ~0.6%
+    # -> NOT rescued (so a raw genuinely subsumed by an elementary child is never resurrected). The
+    # downstream raw-redundancy DROP sweep still runs after with the SAME pseudo-exclusion, so the two
+    # passes agree. Byte-identical when no pseudo-remix child is selected (the candidate set is empty).
+    # Off when the drop sweep is disabled (shares the ``fe_drop_redundant_raw_operands`` toggle).
+    if getattr(self, "fe_drop_redundant_raw_operands", True) and len(selected_vars) >= 1:
+        try:
+            from .._fe_raw_redundancy_drop import (
+                _is_pseudo_remix_child as _pcr_is_pseudo,
+                _PSEUDO_SRC_SPLIT as _pcr_split,
+                raw_retains_signal_given_genuine_children as _pcr_keep,
+            )
+            from .._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
+            _pcr_raw_set = set(self.feature_names_in_)
+            _pcr_sel_set = set(selected_vars)
+            _pcr_sel_names = {cols[i] for i in selected_vars}
+            # Selected pseudo-remix children and the raw operands each re-mixes.
+            _pcr_pseudo_sel = [i for i in selected_vars if _pcr_is_pseudo(cols[i])]
+            if _pcr_pseudo_sel:
+                # raw_name -> selected pseudo children consuming it.
+                _pcr_consumed: dict = {}
+                for _pi in _pcr_pseudo_sel:
+                    _toks = {t for t in _pcr_split.split(cols[_pi]) if t}
+                    for _t in _toks:
+                        if _t in _pcr_raw_set:
+                            _pcr_consumed.setdefault(_t, []).append(_pi)
+                # A raw is also consumed by a GENUINE (non-pseudo) selected engineered child when its
+                # name token appears there; such a raw is left to the DROP sweep (might be subsumed).
+                _pcr_genuine_eng = [i for i in selected_vars
+                                    if (cols[i] not in _pcr_raw_set) and not _pcr_is_pseudo(cols[i])]
+                _pcr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
+                try:
+                    _pcr_yv = y.values if hasattr(y, "values") else np.asarray(y)
+                    _pcr_yv = np.asarray(_pcr_yv).reshape(-1)
+                    if (_pcr_yv.shape[0] == int(data.shape[0]) and np.issubdtype(_pcr_yv.dtype, np.number)
+                            and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
+                        _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
+                        _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(np.float64), nbins=_pcr_nb)).astype(np.int64)
+                except Exception:
+                    pass
+                _pcr_eng_cont = _eng_continuous_snapshot
+                from .._fe_raw_redundancy_drop import _TOKEN_SPLIT as _pcr_gtok
+                _pcr_readd = []
+                for _rn, _pchildren in _pcr_consumed.items():
+                    if _rn in _pcr_sel_names:
+                        continue  # already selected -> nothing to rescue
+                    try:
+                        _ridx = cols.index(_rn)
+                    except ValueError:
+                        continue
+                    if _ridx in _pcr_sel_set:
+                        continue
+                    # KEEP-RULE conditioned ONLY on the raw's GENUINE (non-pseudo) selected children --
+                    # the real potential subsumers (an ``a**2/b`` ratio/composite). The masking pseudo
+                    # re-mixes are EXCLUDED from the conditioning so they cannot DPI-collapse the residual.
+                    # A raw carrying a private term the genuine children do not span keeps a large residual
+                    # (~50%) -> RESCUE; a raw fully subsumed by a genuine ratio child keeps ~0.6% -> NOT
+                    # rescued (and would be dropped by the sweep anyway). When NO genuine child consumes the
+                    # raw the conditioning set is empty and the keep-rule returns True (the drop was a pure
+                    # pseudo-mask) -> RESCUE.
+                    _child_bins = []
+                    for _gi in _pcr_genuine_eng:
+                        if _rn in {t for t in _pcr_gtok.split(cols[_gi]) if t}:
+                            _cont = _pcr_eng_cont.get(cols[_gi])
+                            if _cont is not None and np.asarray(_cont).shape[0] == int(data.shape[0]):
+                                _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=np.float64), nbins=10))
+                            else:
+                                _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
+                    _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
+                    if _pcr_keep(raw_bin=_rb, y_bin=_pcr_y, genuine_child_bins=_child_bins,
+                                 seed=int(getattr(self, "random_seed", 0) or 0)):
+                        _pcr_readd.append(_ridx)
+                if _pcr_readd:
+                    selected_vars = list(selected_vars) + [i for i in _pcr_readd if i not in _pcr_sel_set]
+                    if verbose:
+                        logger.info(
+                            "MRMR pseudo-child masked-raw rescue: re-added %d raw operand(s) the greedy "
+                            "screen dropped because a gate/binagg/argmax re-mix of them was selected first "
+                            "and masked their conditional relevance (DPI trap), yet they retain a private "
+                            "residual given that re-mix: %s",
+                            len(_pcr_readd), [cols[i] for i in _pcr_readd],
+                        )
+        except Exception as _exc_pcr:
+            logger.warning("MRMR pseudo-child masked-raw rescue failed: %s; keeping support as-is.", _exc_pcr)
+
     # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP (2026-06-08): the greedy MRMR order
     # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
     # from it is in support, so the redundancy penalty never fires against it, and the
