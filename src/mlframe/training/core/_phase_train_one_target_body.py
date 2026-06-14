@@ -472,10 +472,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 f"_scale{int(getattr(strategy, 'requires_scaling', False))}"
                 f"_enc{int(_effective_enc)}"
             )
+            # feature_tier = (supports_text, supports_embedding) segments the trimmed frame per
+            # text/embedding-support level. When the data carries NO text/embedding columns there is
+            # nothing to trim, so every tier yields the IDENTICAL frame -- collapse the tier to a neutral
+            # value so two strategies with matching imp+scale+enc (e.g. linear (F,F) + MLP (T,T)) share
+            # the slot instead of each re-running the pre_pipeline. With text/embedding present the real
+            # tier segments them (a text/embedding-bearing frame must not be served to a tier that trims it).
+            _effective_tier = strategy.feature_tier() if (text_features or embedding_features) else (False, False)
             cache_key = _compute_pipeline_cache_key(
                 _content_key,
                 pre_pipeline_name,
-                strategy.feature_tier(),
+                _effective_tier,
                 strategy.supports_polars,
                 cat_features,
                 text_features,

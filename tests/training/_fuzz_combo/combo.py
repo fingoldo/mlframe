@@ -842,7 +842,13 @@ class FuzzCombo:
             # exercises the full inject_degenerate_cols × CB × multilabel
             # cross-product again.
             self.inject_degenerate_cols,
-            self.inject_inf_nan,
+            # F-23: when MLP is the SOLE model, its _validate_no_nan_inf (neural/base/_base_losses.py)
+            # raises by design at fit entry on any non-finite input, so inject_inf_nan=True reaches the
+            # same expected validator-rejection -- not a novel prod-bug surface vs the clean inject=False
+            # path (the validator has its own dedicated regression test). Collapse True->False for the
+            # ('mlp',) subset to spare pairwise-coverage budget; multi-model subsets keep it live so the
+            # nan/inf behaviour of the other models is still cross-covered.
+            (False if (self.inject_inf_nan and set(self.models) == {"mlp"}) else self.inject_inf_nan),
             self.with_datetime_col,
             self.inject_zero_col,
             fairness,
