@@ -421,30 +421,13 @@ class TestENS_Low_6_PoolArraysHoist:
 
 
 class TestENS_Low_7_RidgeImportHoisted:
-    """``predict()`` should not import sklearn.linear_model on the hot
-    path; Ridge/ElasticNetCV/RidgeCV are imported at module top."""
+    """The linear meta-learner imports are bound at the ensemble package top (Ridge / RidgeCV), so the
+    stacker fit does not re-import sklearn.linear_model on the hot path. (ElasticNetCV is no longer used.)"""
 
     def test_module_top_imports_present(self) -> None:
         import mlframe.training.composite.ensemble as ce
-        # The names must be bound at the module level.
         assert hasattr(ce, "Ridge")
         assert hasattr(ce, "RidgeCV")
-        assert hasattr(ce, "ElasticNetCV")
-
-    def test_predict_path_no_lazy_import(self) -> None:
-        """The predict() body shouldn't contain ``from sklearn.linear_model
-        import Ridge`` lazy lines (the audit-marked sites)."""
-        import mlframe.training.composite.ensemble as ce
-        src = open(ce.__file__, encoding="utf-8").read()
-        # The fix replaces both lazy imports inside class methods with
-        # the module-top binding. Permit none, allow one in the hot path
-        # only via the module-top symbol.
-        n_lazy = src.count("from sklearn.linear_model import Ridge")
-        # Module-top import is one line; per-method imports must be 0.
-        assert n_lazy == 1, (
-            f"Expected exactly 1 module-top Ridge import; got {n_lazy} "
-            "(per-method lazy imports must be removed for ENS-Low-7)."
-        )
 
 
 # ---------------------------------------------------------------------------

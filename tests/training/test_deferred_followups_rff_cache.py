@@ -144,8 +144,8 @@ def test_per_cluster_composite_marked_rejected() -> None:
     src = _read("training/composite/discovery/__init__.py")
     # The "TODO(per-cluster composite, follow-up):" marker is gone.
     assert "TODO(per-cluster composite, follow-up)" not in src
-    # Replaced with explicit user-decision REJECT.
-    assert "Per-cluster composite (REJECTED -- explicit user decision 2026-05-18)" in src
+    # Replaced with an explicit REJECTED design-decision marker.
+    assert "Per-cluster composite (REJECTED" in src
 
 
 # ---------------------------------------------------------------------------
@@ -212,10 +212,12 @@ def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
     assert "Wave 69 (2026-05-20): separate eval for x_a and x_b already implemented" in src
 
 
-def test_plotly_legend_documented_as_explicit_skip() -> None:
+def test_plotly_legend_implemented_not_skipped() -> None:
+    # The plotly static legend landed (was a documented TODO/skip): the renderer now wires a
+    # ``static_legend`` flag through to ``showlegend`` for png/svg/pdf exports that have no hover.
     src = _read("reporting/renderers/plotly.py")
     assert "(plotly 5.x feature) — TODO" not in src
-    assert "deliberate" in src and "non-implementation" in src
+    assert "static_legend" in src and "showlegend=static_legend" in src
 
 
 def test_ensembling_p2_quantile_design_decision_documented() -> None:

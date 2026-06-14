@@ -163,9 +163,10 @@ class TestReportingIntegration:
         # into ``_reporting_regression.py``; the envelope-clip wiring moved
         # with it. Concat both files so the source-grep guard still matches.
         src = Path(rep.__file__).read_text(encoding="utf-8")
-        sib = Path(rep.__file__).parent / "_reporting_regression.py"
-        if sib.exists():
-            src += "\n" + sib.read_text(encoding="utf-8")
+        _pkg = Path(rep.__file__).parent / "_reporting_regression"
+        if _pkg.is_dir():
+            for _f in sorted(_pkg.glob("*.py")):
+                src += "\n" + _f.read_text(encoding="utf-8")
         assert "_prediction_envelope_clip" in src
         assert "clip_predictions_to_train_envelope" in src
 
@@ -177,9 +178,10 @@ class TestReportingIntegration:
         # Same carve as ``test_source_has_envelope_clip_wiring``: the
         # gate moved to ``_reporting_regression.py``.
         src = Path(rep.__file__).read_text(encoding="utf-8")
-        sib = Path(rep.__file__).parent / "_reporting_regression.py"
-        if sib.exists():
-            src += "\n" + sib.read_text(encoding="utf-8")
+        _pkg = Path(rep.__file__).parent / "_reporting_regression"
+        if _pkg.is_dir():
+            for _f in sorted(_pkg.glob("*.py")):
+                src += "\n" + _f.read_text(encoding="utf-8")
         # The clip block must be gated on the three kwargs being non-None.
         assert "if (y_train_min is not None and y_train_max is not None" in src
 
