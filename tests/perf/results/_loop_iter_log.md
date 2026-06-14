@@ -3157,3 +3157,23 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 76 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — njit prange per-window walk kernel for rolling_zero_crossings (center='zero', default), 3.2-3.3x e2e @10M (2.03s -> 0.62s), output BIT-IDENTICAL to numpy; median/mean centers FP-order-gated to numpy.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 77 RESOLVED, 31 REJECT across 106 iterations.**
+
+---
+
+## iter107 @10M — rolling_total_variation (windowed_shape) fused njit prange single-pass
+
+**Workload:** n=10,000,000 float64 random-walk, single group, window_K=20. Component: `feature_engineering/windowed_shape.rolling_total_variation`. Picked a fresh full-n windowed-FE sibling flagged un-tapped after iters 104/105/106.
+
+**Hotspot:** `np.abs(np.diff(wins, axis=1)).sum(axis=1)` over the sliding-window view per segment — a (n_windows, K-1) diff alloc + abs alloc + a separate sum pass; `normalize=True` adds two more full-matrix reductions (max, min). Isolated @10M: 0.96s (no-norm) / 1.45s (normalize), all plain-numpy multi-pass (no inner njit).
+
+**Optimization:** `_total_variation_kernel` `@njit(parallel=True)` — one prange row-walk accumulating `|w[c]-w[c-1]|` left-to-right with fused running max/min for the normalize divisor; no temporaries. Routed for window_K>=2 on finite segments; NaN-bearing segments + (K<2) fall back to numpy bit-for-bit.
+
+**A/B @10M (interleaved paired, warm):** no-norm OLD 0.966s -> NEW 0.555s = **1.74x**; normalize OLD 1.445s -> NEW 0.590s = **2.45x**. Separate-process (normalize): OLD ~1.42s -> NEW ~0.61s = **2.3x**.
+
+**Identity:** ~1e-15 reduction-order ULP delta at K=20 (numpy `.sum(axis=1)` is pairwise along the contiguous axis; kernel sums left-to-right), exact 0.0 at K<=2 and on the NaN-fallback path. Far below any path-length-feature decision threshold; documented in the kernel docstring.
+
+**Regression test:** `tests/feature_engineering/test_windowed_total_variation_njit.py` — kernel-symbol+spy routing (FAILS pre-fix: `_total_variation_kernel` absent at HEAD), numpy-reference equivalence (rtol/atol 1e-12) across even/odd K x continuous/tied/discrete x normalize, NaN-fallback exact, K=1 all-zero. 33 passed.
+
+**Verdict: RESOLVED — fused njit prange single-pass kernel for rolling_total_variation, 1.74x (no-norm) / 2.45x (normalize) e2e @10M, ~1e-15 reduction-order delta (documented, decision-safe); NaN/K<2 gated to numpy.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 78 RESOLVED, 31 REJECT across 107 iterations.**

@@ -286,6 +286,46 @@ def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strat
     return ent
 
 
+@njit(cache=True, fastmath=False, parallel=True)
+def _total_variation_kernel(wins: np.ndarray, normalize: bool) -> np.ndarray:
+    """Per-window sum of ``|diff|`` over the rows of a sliding-window matrix.
+
+    Replaces ``np.abs(np.diff(wins, axis=1)).sum(axis=1)`` (a length-``(n_windows, K-1)`` diff alloc + an abs
+    alloc + a separate sum pass, plus two more full-matrix reductions when ``normalize``) with a single prange
+    pass that walks each window's K values once accumulating ``|w[c]-w[c-1]|`` left-to-right. Bit-identical by
+    construction: the per-row sum order is exactly numpy's adjacent-difference left-to-right order, and the
+    ``normalize`` divisor uses the same ``(max-min)+1e-12`` over the window (max/min are order-invariant for
+    finite values). Rows are independent so the outer scan parallelises. Assumes finite input (the Python
+    wrapper falls back to numpy for any NaN-containing segment, matching numpy's NaN-propagation).
+
+    The per-row sum walks the K-1 adjacent ``|diff|`` left-to-right; numpy's ``.sum(axis=1)`` uses pairwise
+    summation along the contiguous axis, so the two differ by ~1e-15 reduction-order ULPs at K=20 (zero at
+    K<=2). This is far below any decision threshold for a path-length / wiggle feature and cannot move a
+    selection, so the naive accumulation is kept for the single-pass win.
+    """
+    n_wins, K = wins.shape
+    out = np.empty(n_wins, dtype=np.float64)
+    for r in prange(n_wins):
+        tv = 0.0
+        prev = wins[r, 0]
+        wmin = prev
+        wmax = prev
+        for c in range(1, K):
+            v = wins[r, c]
+            d = v - prev
+            tv += d if d >= 0.0 else -d
+            if v < wmin:
+                wmin = v
+            elif v > wmax:
+                wmax = v
+            prev = v
+        if normalize:
+            out[r] = tv / ((wmax - wmin) + 1e-12)
+        else:
+            out[r] = tv
+    return out
+
+
 def rolling_mean_abs_d2(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -404,9 +444,12 @@ def rolling_total_variation(
     IMU/gyro roughness.
     """
     out = np.full(values.size, fill_value, dtype=np.float64)
-    for _sort_idx_seg, wins, write_idx in per_group_sliding_window(
+    for sort_idx_seg, wins, write_idx in per_group_sliding_window(
         values, group_ids, window_K=window_K,
     ):
+        if window_K >= 2 and np.isfinite(values[sort_idx_seg]).all():
+            out[write_idx] = _total_variation_kernel(np.ascontiguousarray(wins), normalize)
+            continue
         tv = np.abs(np.diff(wins, axis=1)).sum(axis=1)
         if normalize:
             wmax = wins.max(axis=1)
