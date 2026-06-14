@@ -3307,3 +3307,27 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 82 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — factorize+gather for the target-encoder scoring path, 1.10-2.36x @10M e2e transform, bit-identical (exact `==`).**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 83 RESOLVED, 31 REJECT across 112 iterations.**
+
+---
+
+## iter113 — `_categorical_to_string_array` float branch: hash-factorize replaces sort-based np.unique @10M (component: scaling/imputation→string-conversion residual)
+
+**Workload @10M:** `LeakageSafeEncoder.fit + transform` (method=woe, cv=3) on an integer-coded categorical stored as float64 (the common int->float promotion case). 10M float64 column = 80MB, RAM-safe. Chosen as the string-conversion residual iter112 explicitly left.
+
+**Top mlframe-own by tottime (cProfile, fit+transform woe @10M):** `argsort` 2.466s (2 calls) + `_unique1d` 1.073s = the `np.unique(arr, return_inverse=True)` inside `_categorical_to_string_array` float branch (3.816s cumtime, the single largest mlframe-own frame); next `_compute_woe_per_category` 0.092s, `_encode_vectorised` 0.039s, `_compute_per_category` 0.031s — all already-vectorised factorize+bincount, well below the unique cost.
+
+**Hotspot:** the float branch argsorted the FULL 10M array (O(n log n)) purely to derive inverse codes for the per-unique token gather — plain numpy (not njit, confirmed standalone microbench 2.03s @ K=500), ~75% of the kernel and dominant in the fit+transform e2e. Tokens are computed per UNIQUE value then gathered, so the unique ORDER is irrelevant → swap to hash-based `pd.factorize(sort=False)` (O(n), NaN->code -1 which the caller's null mask overwrites). New `_float_canonical_tokens` helper applied to all three float branches (pandas / polars / numpy), with np.unique fallback when pandas absent + empty-uniques (all-NaN) guard.
+
+**Before/after:**
+- Isolated (best-of-3): K=500 2.032s -> 0.236s = **8.61x**; K=50000 3.259s -> 0.749s = **4.35x**. Both `identical=True`.
+- Separate-process e2e (fit+transform woe cv=3 @10M, warm, best-of-3): **5.602s -> 3.427s = 1.63x**, checksum byte-identical (0.711767).
+
+**Identity proof:** np/pandas/polars float branches all bit-identical to the legacy np.unique path across int-coded / NaN-mixed / non-integral / all-NaN / single-element inputs (exact `==`). e2e checksum byte-identical.
+
+**Regression test:** `tests/training/test_target_encoder_vectorised_transform.py` — (a) `test_float_canonical_tokens_uses_hash_factorize_not_sort` spies `np.unique` and asserts 0 calls in the float branch (FAILS on pre-fix code: verified 1 np.unique call on baseline); (b) `test_float_canonical_tokens_bit_identical_to_unique_path` pins bit-identity vs the legacy sort path across 5 input shapes. 15 passed (13 existing + 2 new).
+
+**Bench:** `src/mlframe/training/feature_handling/_benchmarks/bench_float_canonical_tokens_iter113.py`.
+
+**Verdict: RESOLVED — hash-factorize float-token mapping, 4.35-8.61x isolated / 1.63x e2e @10M fit+transform, bit-identical.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 84 RESOLVED, 31 REJECT across 113 iterations.**

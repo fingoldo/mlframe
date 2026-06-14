@@ -52,3 +52,50 @@ def test_transform_routes_through_vectorised_not_full_per_row(monkeypatch):
     # Per-row is invoked only over the (small) unique set, never the full 4000-row array.
     assert seen["lens"], "_encode_per_row was not called at all"
     assert max(seen["lens"]) < len(Xte), f"per-row loop ran over full array len {max(seen['lens'])}; vectorisation regressed"
+
+
+def test_float_canonical_tokens_uses_hash_factorize_not_sort(monkeypatch):
+    """Float categorical token mapping must use hash-based pd.factorize, never sort-based np.unique.
+
+    np.unique(return_inverse=True) argsorts the full array (O(n log n)) purely to derive the inverse codes,
+    which dominated _categorical_to_string_array at 10M (~3.7s of 4.9s). factorize(sort=False) is hash-based O(n)
+    and bit-identical because tokens are computed per unique value then gathered (unique ORDER is irrelevant).
+    A spy on np.unique catches a revert to the sort path.
+    """
+    import mlframe.training.feature_handling.target_encoders as te
+
+    called = {"unique": 0}
+    orig_unique = te.np.unique
+
+    def spy_unique(*a, **k):
+        called["unique"] += 1
+        return orig_unique(*a, **k)
+
+    monkeypatch.setattr(te.np, "unique", spy_unique)
+    arr = np.array([1.0, 2.0, 3.0, 1.0, 2.0, np.nan, 1.5], dtype=np.float64)
+    out = te._categorical_to_string_array(arr)
+    assert out.tolist() == ["1", "2", "3", "1", "2", "__NULL__", "1.5"]
+    assert called["unique"] == 0, "float branch fell back to sort-based np.unique; hash-factorize path regressed"
+
+
+def test_float_canonical_tokens_bit_identical_to_unique_path():
+    """Hash-factorize float tokens equal the legacy sort-based np.unique result across int-coded / NaN / non-integral."""
+    import mlframe.training.feature_handling.target_encoders as te
+
+    def legacy(arr):
+        mask = np.isnan(arr)
+        uniq, inv = np.unique(arr, return_inverse=True)
+        toks = np.array([te._canonical_cat_token(u) for u in uniq], dtype=object)
+        out = toks[np.asarray(inv).reshape(-1)].copy()
+        if mask.any():
+            out[mask] = te._NULL_SENTINEL
+        return out
+
+    for arr in (
+        np.array([1.0, 2.0, 3.0, 1.0], dtype=np.float64),
+        np.array([1.0, np.nan, 2.5, 1.0, np.nan], dtype=np.float64),
+        np.array([1.5, 2.7, 1.5, 3.14], dtype=np.float64),
+        np.array([np.nan, np.nan], dtype=np.float64),
+        np.array([5.0], dtype=np.float64),
+    ):
+        assert np.array_equal(te._categorical_to_string_array(arr.copy()), legacy(arr)), arr
