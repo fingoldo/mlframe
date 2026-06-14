@@ -1868,6 +1868,8 @@ def check_prospective_fe_pairs(
                                 unary_transformations, binary_transformations,
                                 prewarp_spec_by_var=_prewarp_spec_by_var,
                                 gate_med_median_by_var=_gate_med_median_by_var,
+                                cols=cols,
+                                engineered_operand_values=engineered_operand_values,
                             )
                         elif final_transformed_vals is not None:
                             _col_full = final_transformed_vals[:, i]

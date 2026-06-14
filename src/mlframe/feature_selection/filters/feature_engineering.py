@@ -165,6 +165,8 @@ def _rebuild_full_survivor_col(
     binary_transformations: dict,
     prewarp_spec_by_var: dict | None = None,
     gate_med_median_by_var: dict | None = None,
+    cols: list | None = None,
+    engineered_operand_values: dict | None = None,
 ) -> np.ndarray:
     """Rebuild a survivor column at full n from raw X by re-applying its unary + binary transforms.
 
@@ -173,16 +175,42 @@ def _rebuild_full_survivor_col(
     of how the MI sweep was scratched. Cost: 2 unary + 1 binary ufunc per
     survivor; with len(this_pair_features) <= fe_max_pair_features this is
     bounded to ~K calls per pair, trivial vs the MI sweep work.
+
+    ENGINEERED-OPERAND SUPPORT (subsample path): at FE step k>1 an operand index can
+    point at a column appended by a prior step -- NOT a raw position in
+    ``original_cols``. Such operands are resolved by name from the full-n continuous
+    store ``engineered_operand_values[cols[var_idx]]`` (preferred, lossless) or, as a
+    fallback, by name from ``X_full``. Mirrors ``_extval_raw_col`` so the subsample
+    survivor-rebuild matches the MI-sweep operand semantics; pre-fix this raised
+    ``KeyError`` on engineered operands when ``fe_check_pairs_subsample_n`` was active.
     """
     transformations_pair, bin_func_name, _i = config
     (var_a_idx, unary_a_name) = transformations_pair[0]
     (var_b_idx, unary_b_name) = transformations_pair[1]
-    if isinstance(X_full, pd.DataFrame):
-        vals_a = X_full.iloc[:, original_cols[var_a_idx]].values
-        vals_b = X_full.iloc[:, original_cols[var_b_idx]].values
-    else:
-        vals_a = X_full[:, original_cols[var_a_idx]].to_numpy()
-        vals_b = X_full[:, original_cols[var_b_idx]].to_numpy()
+    _eng_vals = engineered_operand_values or {}
+
+    def _operand_full_vals(var_idx):
+        if var_idx in original_cols:
+            if isinstance(X_full, pd.DataFrame):
+                return X_full.iloc[:, original_cols[var_idx]].values
+            return X_full[:, original_cols[var_idx]].to_numpy()
+        # Engineered operand (not a raw position): resolve by name, preferring the
+        # full-n continuous store over the (discretised, lossy) augmented-frame column.
+        _name = cols[var_idx] if (cols is not None and 0 <= var_idx < len(cols)) else None
+        if _name is not None:
+            _cv = _eng_vals.get(_name)
+            if _cv is not None:
+                return np.asarray(_cv)
+            if isinstance(X_full, pd.DataFrame) and _name in X_full.columns:
+                return X_full[_name].to_numpy()
+            if hasattr(X_full, "columns") and _name in getattr(X_full, "columns", []):
+                return X_full[_name].to_numpy()
+        # No raw position and no resolvable engineered column: surface the original
+        # KeyError so the failure is explicit rather than silently fabricating data.
+        return X_full.iloc[:, original_cols[var_idx]].values if isinstance(X_full, pd.DataFrame) else X_full[:, original_cols[var_idx]].to_numpy()
+
+    vals_a = _operand_full_vals(var_a_idx)
+    vals_b = _operand_full_vals(var_b_idx)
     # ``poly_*`` unary keys hold hermval coefficient arrays, not callables;
     # check_prospective_fe_pairs handles them via the same hermval(c=tr_func) path.
     # ``prewarp`` is the per-operand learned pseudo-unary (2026-06-02): its fitted

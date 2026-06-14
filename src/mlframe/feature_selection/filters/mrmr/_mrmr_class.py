@@ -217,6 +217,78 @@ class MRMR(BaseEstimator, TransformerMixin):
         cls._FIT_CACHE.clear()
         return n
 
+    # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
+    # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
+    # equals its package default (so an explicit user value always wins). ``fe_check_pairs_subsample_n``
+    # is resolved separately via kernel_tuning_cache (HW/size aware) -- see ``_apply_fast_search_profile``.
+    _FAST_SEARCH_OVERRIDES = (
+        ("fe_max_steps", 1),
+        ("fe_pair_prewarp_enable", False),
+        ("fe_stability_vote_enable", False),
+        ("fe_escalation_underdelivery_enable", False),
+    )
+
+    @classmethod
+    def _fast_search_default_subsample_n(cls) -> int:
+        """Screen subsample size for the fast FE pair search, resolved via the kernel_tuning_cache when a
+        tuned entry exists for this host, else a safe HW-agnostic fallback. The MI/CMI pair screen is
+        rank-stable under subsampling and the FINAL survivor columns are replayed at full n, so this only
+        bounds the screen cost. Never hardcode per-HW thresholds (mlframe is shared infra); the cache lets
+        a quiet/large-RAM box record a better value. Fallback 90_000: the smallest screen-n that kept the
+        warped (c,d) interaction's selection bit-stable on the n=100k synthetics (75k/85k flipped the
+        (a,b) composite at the MI tie; 90k did not)."""
+        _fallback = 90_000
+        try:
+            from .._kernel_tuning import get_kernel_tuning_cache
+
+            _cache = get_kernel_tuning_cache()
+            if _cache is not None:
+                tuned = _cache.lookup("mrmr_fast_search_screen_n")
+                if tuned:
+                    _v = int(tuned.get("subsample_n", 0) or 0)
+                    if _v > 0:
+                        return _v
+        except Exception:
+            pass
+        return _fallback
+
+    def _apply_fast_search_profile(self) -> dict:
+        """Override the fast-search sub-knobs for this fit, returning {attr: pre_fit_value} to restore in
+        ``finally``. Only knobs still at their package default are touched (explicit user value wins). See
+        the ``fe_fast_search`` __init__ docstring for the rationale and measured wins."""
+        import inspect
+
+        saved: dict = {}
+        try:
+            _defaults = {
+                p.name: p.default
+                for p in inspect.signature(type(self).__init__).parameters.values()
+                if p.default is not inspect._empty
+            }
+        except Exception:
+            _defaults = {}
+
+        def _override(attr, fast_value):
+            cur = getattr(self, attr, None)
+            # Only override when the user left it at the package default (or the attr is absent).
+            if attr in _defaults and cur != _defaults[attr]:
+                return
+            saved[attr] = cur
+            setattr(self, attr, fast_value)
+
+        for _attr, _val in self._FAST_SEARCH_OVERRIDES:
+            _override(_attr, _val)
+        # Subsample is HW/size-dependent -> resolve via kernel_tuning_cache. Only shrink it (never raise a
+        # user who already set a smaller screen-n); apply when still at the package default.
+        _ss_default = _defaults.get("fe_check_pairs_subsample_n", None)
+        _ss_cur = getattr(self, "fe_check_pairs_subsample_n", None)
+        if _ss_default is None or _ss_cur == _ss_default:
+            _fast_ss = self._fast_search_default_subsample_n()
+            if _ss_cur is None or _fast_ss < int(_ss_cur):
+                saved["fe_check_pairs_subsample_n"] = _ss_cur
+                self.fe_check_pairs_subsample_n = _fast_ss
+        return saved
+
     def __init__(
         self,
         # quantization
@@ -385,6 +457,27 @@ class MRMR(BaseEstimator, TransformerMixin):
         interactions_order_reversed: bool = False,
         max_veteranes_interactions_order: int = 1,
         only_unknown_interactions: bool = False,
+        # FAST-SEARCH MASTER TOGGLE (2026-06-14, default ON). Trades the EXHAUSTIVE FE search tail
+        # for a substantially faster fit that still recovers the signal. When True AND the user has
+        # NOT explicitly overridden a sub-knob (the value still equals its package default), fit()
+        # temporarily applies a fast profile and restores every knob in ``finally`` (so clone /
+        # pickle / repeated-fit constructor-arg semantics stay stable, exactly like ``fe_auto``):
+        #   * fe_max_steps 2 -> 1: skip the second augmented-pool pass whose ONLY product is FUSING
+        #     two already-found half-composites into one column (cosmetic for a linear/tree model --
+        #     the two separate halves give the identical fit). The dominant single lever.
+        #   * fe_pair_prewarp_enable True -> False: drop the per-operand learned 1-D pre-warp sweep.
+        #   * fe_stability_vote_enable / fe_escalation_underdelivery_enable True -> False: skip the
+        #     post-discovery cross-fold confirmation + under-delivery escalation passes.
+        #   * fe_check_pairs_subsample_n -> kernel_tuning_cache-resolved screen-n (HW/size aware; the
+        #     MI/CMI screen is rank-stable under subsampling, so survivor identities are preserved and
+        #     the FINAL survivor columns are still replayed at FULL n). Falls back to a safe default
+        #     when no cached tuning exists.
+        # On the two canonical n=100k interaction synthetics (y=a**2/b + log(c)*sin(d) and its warped
+        # variant) this lands each fit < 60s (from ~130s / ~100s warm) with the interactions still
+        # recovered and the Ridge-holdout MAE within tolerance (typically BETTER, since the dropped
+        # passes mostly add noise columns here). SELECTION-ALTERING (the selection is approximately,
+        # not bit-, equal) -- set ``fe_fast_search=False`` for the exhaustive legacy search.
+        fe_fast_search: bool = True,
         # feature engineering settings
         # MULTI-STEP FE DEFAULT 1 -> 2 (2026-06-10, user request). At step k>1 the operand
         # pool also carries the engineered columns selected by the prior step (capped by
@@ -3613,6 +3706,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         )
         if _dcd_suppress_postoc:
             self.cluster_aggregate_enable = False
+        # FAST-SEARCH PROFILE (2026-06-14). Apply the fast FE-search overrides for the duration of
+        # this fit, recording each pre-fit value so the ``finally`` restores constructor-arg
+        # semantics (clone / pickle / repeated-fit stability). Only knobs the user left at their
+        # package default are overridden -- an explicit user value always wins. See the
+        # ``fe_fast_search`` docstring in __init__ for the rationale + measured wins.
+        _fast_search_saved: dict = {}
+        if bool(getattr(self, "fe_fast_search", False)):
+            try:
+                _fast_search_saved = self._apply_fast_search_profile()
+            except Exception:
+                _fast_search_saved = {}
         try:
             result = self._fit_impl(X, y, groups, **fit_params)
             try:
@@ -3716,6 +3820,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                 self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
             except Exception:
                 pass
+            # restore the fast-search profile overrides (constructor-arg stability).
+            if _fast_search_saved:
+                for _k, _v in _fast_search_saved.items():
+                    try:
+                        setattr(self, _k, _v)
+                    except Exception:
+                        pass
             # restore any fe_*_enable flags fe_auto flipped ON, so the
             # constructor-arg semantics are stable across fits / clone / pickle.
             try:

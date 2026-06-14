@@ -4497,6 +4497,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         max_cols=int(getattr(self, "fe_conditional_gate_max_cols", 200)),
                         k_gate=int(getattr(self, "fe_conditional_gate_k_gate", 8)),
                         k_operand=int(getattr(self, "fe_conditional_gate_k_operand", 10)),
+                        # FAST-SEARCH: subsample the gate-DETECTION scan (tau + MI ranking are
+                        # rank-stable; the recipe replays the gate at full n). Reuse the fast-search
+                        # screen-n (fe_check_pairs_subsample_n), already resolved via kernel_tuning_cache
+                        # when fe_fast_search is on; 0 keeps the legacy full-n scan.
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0) if bool(getattr(self, "fe_fast_search", False)) else 0,
                     )
                 _cg_appended = [c for c in _cg_appended if c not in X.columns]
                 if _cg_appended:

@@ -357,6 +357,7 @@ def cheap_conditional_gate_scan(
     seed: int = 0,
     k_gate: int = 8,
     k_operand: int = 10,
+    subsample_n: int = 0,
 ) -> list[GateHit]:
     """Cheap first-pass scan for conditional-gate structure (regime-switch + masked-interaction) over X.
 
@@ -381,11 +382,27 @@ def cheap_conditional_gate_scan(
     cols = list(cols)
     yi = np.asarray(y).astype(np.int64)
 
+    # FAST-SEARCH SUBSAMPLE (2026-06-14). The gate DETECTION -- raw-relevance ranking, the ~17-point
+    # quantile tau-scan, and the per-tau residue-MI band -- is rank-stable under row subsampling (the
+    # tau is a quantile of the gate column; the MI ranking is monotone-preserving on a representative
+    # subset). The returned GateHit carries only the frozen tau, and the recipe replays the gate from
+    # the FULL X at materialisation time, so the emitted column is full-n regardless. When subsample_n
+    # is in (0, n) we draw a seeded subset ONCE for the whole scan -> the O(n) MI kernels run on the
+    # smaller set. subsample_n <= 0 / >= n keeps the legacy full-n path.
+    _n_rows = len(yi)
+    if isinstance(subsample_n, int) and 0 < subsample_n < _n_rows:
+        _sub_rng = np.random.default_rng(int(seed))
+        _sub_idx = np.sort(_sub_rng.choice(_n_rows, size=int(subsample_n), replace=False))
+        yi = yi[_sub_idx]
+        _X_for_scan = X.iloc[_sub_idx] if hasattr(X, "iloc") else X[_sub_idx]
+    else:
+        _X_for_scan = X
+
     # Rank eligible columns by raw relevance (one batched MI call) and prune to the top-k gate / operand pools. The gate column c
     # and the operands a, b are drawn from these pools; their union is what we materialise into ``arrs``.
-    gate_cols, operand_cols = _rank_and_prune(X, cols, yi, nbins, int(k_gate), int(k_operand))
+    gate_cols, operand_cols = _rank_and_prune(_X_for_scan, cols, yi, nbins, int(k_gate), int(k_operand))
     cols = list(dict.fromkeys(list(operand_cols) + list(gate_cols)))  # union, operands first, dedup, order-stable
-    arrs = {c: np.asarray(X[c], dtype=np.float64) for c in cols}
+    arrs = {c: np.asarray(_X_for_scan[c], dtype=np.float64) for c in cols}
     # Cache the hardened best-existing-op baseline per operand set (it does not depend on tau / mode).
     _baseline_cache: dict[tuple[str, ...], float] = {}
 
@@ -574,6 +591,7 @@ def hybrid_conditional_gate_fe_with_recipes(
     top_k: int = 4, nbins: int = 12, seed: int = 0,
     k_gate: int = 8, k_operand: int = 10,
     max_cols: int = 200,
+    subsample_n: int = 0,
 ):
     """Detect responded conditional-gate structure and emit it as frozen, replayable ``EngineeredRecipe`` objects (tau frozen).
 
@@ -599,7 +617,7 @@ def hybrid_conditional_gate_fe_with_recipes(
         )
         return [], []
 
-    hits = cheap_conditional_gate_scan(X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand)
+    hits = cheap_conditional_gate_scan(X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand, subsample_n=subsample_n)
     appended: list[str] = []
     recipes = []
     seen: set[str] = set()

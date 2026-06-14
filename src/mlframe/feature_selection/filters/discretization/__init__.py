@@ -458,6 +458,11 @@ def discretize_array(
     # constant via the all-NaN bin_edges trap. Same finding as the ``edges``
     # helper above.
     quantiles = np.linspace(0, 100, n_bins + 1)
+    # bench-attempt-rejected (2026-06-14): routing the NaN-free 1-D case to np.percentile (skipping
+    # nanpercentile's nan-mask) to mirror the 2-D batch win. Microbench at n=100k float32 x 2000 calls:
+    # 9.74s vs 9.68s nanpercentile -- a WASH (the O(n) np.isfinite(arr).all() guard offsets the saved
+    # nan-mask on the 1-D path; the 2-D win came from amortising dispatch over many columns, absent here).
+    # Kept nanpercentile: equal speed, simpler, and NaN-correct without a guard.
     bins_edges = np.nanpercentile(arr, quantiles)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 

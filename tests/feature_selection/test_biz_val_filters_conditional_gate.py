@@ -396,7 +396,11 @@ class TestBizValue:
             X, y = _gate_target(seed, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
             for flag, store in ((True, on), (False, off)):
-                m = MRMR(fe_conditional_gate_enable=flag, fe_row_argmax_enable=False,
+                # fe_fast_search=False: the lift here is the gate's MARGINAL benefit (ON vs OFF). The
+                # default fast path (2026-06-14) strengthens the non-gate baseline (OFF AUC 0.80->0.96),
+                # compressing the measured lift below the +0.10 floor even though the gate ON result is
+                # unchanged (0.998). Pin the exhaustive path so the marginal-lift contract is faithful.
+                m = MRMR(fe_conditional_gate_enable=flag, fe_row_argmax_enable=False, fe_fast_search=False,
                          fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=1)
                 m.fit(Xtr, pd.Series(ytr, name="y"))
                 clf = LogisticRegression(max_iter=2000).fit(m.transform(Xtr), ytr)

@@ -189,7 +189,10 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
     # OOMs on RAM-tight boxes for the medium-preset 100k-row buffer (a known Windows-
     # paging fragility, see mrmr.py threading notes) -- unrelated to composite discovery,
     # which is path-independent. Serial keeps this correctness test deterministic.
-    fs = MRMR(verbose=0, fe_max_steps=2, n_workers=1)
+    # fe_fast_search=False: the FUSED step-2 composite is an EXHAUSTIVE-search guarantee. The default
+    # fast path (2026-06-14) deliberately trades the step-2 fusion for speed (it recovers the two
+    # halves SEPARATELY, equal downstream quality) -- this test pins the exhaustive fusion capability.
+    fs = MRMR(verbose=0, fe_max_steps=2, n_workers=1, fe_fast_search=False)
     fs.fit(df, y)
 
     sel = list(fs.get_feature_names_out())
@@ -284,7 +287,9 @@ def test_strict_pin_clean_additive_composite_covers_both_pairs_two_operand(seed)
     additive composite over BOTH genuine pairs, with the ``(c,d)`` side a real
     two-operand interaction (NOT a c-only surrogate). Asserted on 3 seeds at n=30000."""
     df, y = _canonical_fixture(seed=seed, n=30_000)
-    fs = MRMR(verbose=0, fe_max_steps=2, n_workers=1)
+    # fe_fast_search=False: the fused step-2 composite is an exhaustive-search guarantee (the default
+    # fast path recovers the two halves separately for speed) -- pin the exhaustive fusion here.
+    fs = MRMR(verbose=0, fe_max_steps=2, n_workers=1, fe_fast_search=False)
     fs.fit(df, y)
     sel = list(fs.get_feature_names_out())
 

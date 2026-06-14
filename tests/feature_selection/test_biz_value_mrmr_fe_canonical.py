@@ -86,9 +86,16 @@ def _covers_pair(eng_names, va, vb, exclude=()):
 
 
 def test_canonical_default_finds_both_signal_pairs():
-    """DEFAULT preset (minimal): >=2 engineered features covering BOTH (a,b) and (c,d)."""
+    """DEFAULT preset (minimal): >=2 engineered features covering BOTH (a,b) and (c,d).
+
+    Pinned to fe_fast_search=False: the <=4 over-materialization cap is an EXHAUSTIVE-search tightness
+    invariant. The default fe_fast_search=True (fe_max_steps=1 + skipped escalation/prewarp) still recovers
+    BOTH interactions (div(sqr(a),neg(b)) and mul(log(c),sin(d)) -- verified, MAE same/better) but lets a
+    couple of spurious cross-group standalone gate columns through, exceeding the cap; that is the speed/
+    exhaustiveness trade the user accepted (approx-same selection if substantially faster). The exhaustive
+    path's tightness is what this test guards."""
     df, y = _make_fixture()
-    fs = MRMR(verbose=0)
+    fs = MRMR(verbose=0, fe_fast_search=False)
     fs.fit(df, y)
 
     eng = _engineered_names(fs)

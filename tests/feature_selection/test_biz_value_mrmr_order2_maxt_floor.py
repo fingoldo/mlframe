@@ -241,6 +241,9 @@ class TestOrder2MaxTFloorDisabled:
         X, y = _wide_synergy_frame(n_noise=40)
         base = dict(verbose=0, random_seed=42, fe_max_steps=1,
                     fe_synergy_screen_max_features=60,
+                    # fe_fast_search=False: this test pins the EXHAUSTIVE-search floor mechanism, so it
+                    # runs the exhaustive path rather than the default fast profile (2026-06-14).
+                    fe_fast_search=False,
                     # Isolate the order-2 maxT floor: the default CMI-redundancy gate
                     # would otherwise remove the spurious pairs the floor backstops.
                     fe_acceptance="prevalence_ratio")
