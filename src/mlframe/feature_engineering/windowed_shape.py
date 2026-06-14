@@ -132,6 +132,54 @@ def _quantile_spread_kernel(wins: np.ndarray, q_low: float, q_high: float) -> np
 
 
 @njit(cache=True, fastmath=False, parallel=True)
+def _zero_crossings_kernel(wins: np.ndarray, center_code: int) -> np.ndarray:
+    """Per-window count of sign changes of ``(window - center)`` over the rows of a sliding-window matrix.
+
+    ``center_code``: 0=zero, 1=median, 2=mean. Replaces the numpy multi-pass per segment
+    (``np.sign`` alloc + the ``s[:,1:]*s[:,:-1] < 0`` product+boolean allocs + ``sum(axis=1)`` + ``astype``)
+    with a single prange pass: each window computes its center, then walks the K values once tracking the
+    immediately-previous sign, incrementing when the ADJACENT pair has opposite nonzero signs. Bit-identical
+    by construction to the numpy path: the crossing predicate ``sign(s[t])*sign(s[t-1]) < 0`` fires iff the
+    two ADJACENT neighbours are both nonzero with opposite sign (a zero at either position yields product 0,
+    so no crossing -- the comparison is strictly adjacent, NOT prev-nonzero). Median uses an in-place sort matching ``np.median`` (mean of the two
+    middle order-statistics for even K). Rows are independent so the outer scan parallelises. Assumes
+    finite input (the Python wrapper falls back to numpy for any NaN-containing segment).
+    """
+    n_wins, K = wins.shape
+    out = np.empty(n_wins, dtype=np.float64)
+    for r in prange(n_wins):
+        if center_code == 0:
+            c = 0.0
+        elif center_code == 2:
+            acc = 0.0
+            for j in range(K):
+                acc += wins[r, j]
+            c = acc / K
+        else:
+            buf = np.empty(K, dtype=np.float64)
+            for j in range(K):
+                buf[j] = wins[r, j]
+            buf.sort()
+            if K % 2 == 1:
+                c = buf[K // 2]
+            else:
+                c = 0.5 * (buf[K // 2 - 1] + buf[K // 2])
+        # Walk the window once; prev_sign holds the IMMEDIATELY-previous position's sign (-1/0/+1),
+        # so the count matches numpy's strictly-adjacent ``sign(s[t])*sign(s[t-1]) < 0``.
+        crossings = 0
+        d0 = wins[r, 0] - c
+        prev_sign = 1 if d0 > 0.0 else (-1 if d0 < 0.0 else 0)
+        for j in range(1, K):
+            d = wins[r, j] - c
+            cur = 1 if d > 0.0 else (-1 if d < 0.0 else 0)
+            if cur != 0 and prev_sign != 0 and cur != prev_sign:
+                crossings += 1
+            prev_sign = cur
+        out[r] = crossings
+    return out
+
+
+@njit(cache=True, fastmath=False, parallel=True)
 def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strategy: bool) -> np.ndarray:
     """Per-window binned Shannon entropy over the rows of a sliding-window matrix.
 
@@ -392,9 +440,19 @@ def rolling_zero_crossings(
     if center not in {"zero", "median", "mean"}:
         raise ValueError(f"center={center!r} not in {{'zero','median','mean'}}")
     out = np.full(values.size, fill_value, dtype=np.float64)
-    for _sort_idx_seg, wins, write_idx in per_group_sliding_window(
+    # The njit prange kernel is bit-identical to the numpy path only for center='zero' (c is exactly 0.0,
+    # so the per-row subtraction carries no reduction-order drift). For median/mean the center is itself a
+    # reduction whose FP order would differ between numpy and the kernel and could flip a near-zero sign, so
+    # those keep the exact numpy path. The kernel also assumes finite input; a NaN-bearing segment with
+    # center='zero' falls back to numpy too (np.sign(NaN)=NaN, product NaN, NaN<0 is False -- matched below).
+    use_kernel = center == "zero"
+    for sort_idx_seg, wins, write_idx in per_group_sliding_window(
         values, group_ids, window_K=window_K,
     ):
+        if use_kernel and np.isfinite(values[sort_idx_seg]).all():
+            wins_c = np.ascontiguousarray(wins)
+            out[write_idx] = _zero_crossings_kernel(wins_c, 0)
+            continue
         if center == "median":
             c = np.median(wins, axis=1, keepdims=True)
         elif center == "mean":
@@ -402,10 +460,8 @@ def rolling_zero_crossings(
         else:
             c = 0.0
         s = wins - c
-        # Sign-flip count: sum of (sign[t] * sign[t-1] < 0) along axis=1.
         s_sign = np.sign(s)
-        # Treat zeros as continuing prior sign (no crossing on flat run).
-        # That's the conventional definition.
+        # Zeros continue the prior sign (no crossing on a flat run) -- the conventional definition.
         cross = (s_sign[:, 1:] * s_sign[:, :-1]) < 0
         out[write_idx] = cross.sum(axis=1).astype(np.float64)
     return out

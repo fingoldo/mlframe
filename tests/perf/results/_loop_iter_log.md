@@ -3137,3 +3137,23 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 75 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — njit prange per-window sort kernel for rolling_quantile_spread, 2.66-2.81x e2e @10M (6.44s -> 2.29s), output BIT-IDENTICAL to numpy method='linear'.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 76 RESOLVED, 31 REJECT across 105 iterations.**
+
+## iter106 — @10M — `rolling_zero_crossings` (center='zero') njit prange kernel (windowed_shape rolling sibling)
+
+**Workload @10M, why:** picked the heaviest still-untapped windowed_shape rolling sibling, `rolling_zero_crossings` (flagged ~2.71s @10M in the prompt). 10M float64 col (80MB), single group -> ~10M sliding windows of K=20. Component driven directly.
+
+**Top mlframe-own hotspot (separate-process A/B @10M, OLD):** the default `center='zero'` path is pure numpy multi-pass per segment: `np.sign(wins)` (full alloc), the `s_sign[:,1:]*s_sign[:,:-1]` product (alloc) + `< 0` boolean (alloc), `.sum(axis=1)` reduction, `.astype(float64)`. Five full (n_windows, K) intermediate arrays + four passes. OLD min 2.025-2.091s; e2e-fraction ~100% of the function wall (single group, the loop body IS the work).
+
+**Optimization + audit:** added `_zero_crossings_kernel` (`@njit(parallel=True)`): one prange pass over the independent windows, each walking the K values once tracking the immediately-previous sign and incrementing on an adjacent opposite-nonzero-sign pair. Folds the five allocs + four passes into a single fused per-row pass. Bit-identical to numpy by construction for `center='zero'` (c is exactly 0.0, no per-row reduction): the crossing predicate `sign(s[t])*sign(s[t-1]) < 0` fires iff the two ADJACENT positions are both nonzero with opposite sign — exactly what the prev-sign walk counts; a zero at either position yields product 0 (no crossing). Audit caught the trap: `center='median'`/`'mean'` compute the center via a reduction whose FP order would differ between numpy (`mean`/`median` over axis) and a sequential kernel sum, which could flip a near-zero sign (selection-altering ~1e-16 -> integer count change). Those two centers are GATED OUT — they keep the exact numpy path (measured 1.00x, as expected). The kernel also assumes finite input; a NaN-bearing `center='zero'` segment falls back to numpy (matched semantics: np.sign(NaN)=NaN, product NaN, NaN<0 False).
+
+**Before/after (separate-process A/B @10M, best-of-4 + in-process best-of-5):** OLD min 2.091s -> NEW min 0.651s = **3.21x** (separate-process); in-process best-of-5 OLD 2.025s -> NEW 0.620s = **3.27x**. `center='median'` 1.00x and `center='mean'` 1.00x (gated to numpy, unchanged).
+
+**Identity proof:** bit-EXACT (`array_equal`, not allclose) vs the numpy reference across K in {5,6,7,20,21} x center {zero,median,mean} x {continuous, tied-lowcard, discrete-int, with_zeros} — the `with_zeros` kind specifically exercises exact-zero positions that distinguish adjacent-pair vs prev-nonzero counting; bench identity OK on all three centers at 200k; NaN-segment fallback equal incl. NaN positions.
+
+**Regression test:** `tests/feature_engineering/test_windowed_zero_crossings_njit.py` — 64 cases: asserts `_zero_crossings_kernel` present + routed on `center='zero'` (spy) — FAILS pre-fix (symbol absent: verified 0 occurrences in `git show HEAD:` old module), pins that `center='median'`/`'mean'` do NOT route through the kernel (spy count == 0, locks the FP-order gate against a future "always use kernel"), and bit-exact equality vs numpy across all K/center/distribution combos + NaN fallback. All 64 green.
+
+**Bench harness:** `src/mlframe/feature_engineering/_benchmarks/bench_rolling_zero_crossings_iter106.py` (committed).
+
+**Verdict: RESOLVED — njit prange per-window walk kernel for rolling_zero_crossings (center='zero', default), 3.2-3.3x e2e @10M (2.03s -> 0.62s), output BIT-IDENTICAL to numpy; median/mean centers FP-order-gated to numpy.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 77 RESOLVED, 31 REJECT across 106 iterations.**
