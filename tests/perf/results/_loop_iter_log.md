@@ -3372,3 +3372,28 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 85 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — positional-encoding fused sin/cos prange kernel, 5.6-6.4x isolated / 1.89-2.03x paired-e2e @10M, single-float32-ULP identical.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 86 RESOLVED, 31 REJECT across 115 iterations.**
+
+---
+
+## iter116 @10M — RFF feature assembly: F-order output buffer kills per-column ascontiguousarray copy
+
+**Workload:** `compute_rff_features` (Random Fourier Features), the untapped sibling of the iter115 positional-encoding path. N=10,000,000, d=8, n_features=64, `use_gpu=False` (CPU njit path; combo FREE). RFF is a full-10M-own preprocessing component never profiled before.
+
+**Top mlframe-own hotspot (cProfile @10M, tottime):** `numpy.ascontiguousarray` 8.692s / 64 calls (62% of a 14.0s e2e) — the polars DataFrame builder `{name: out[:, idx] for idx ...}` slices a C-contiguous `(N, n_features)` `out`; each strided column slice is copied to contiguous by polars. Secondary: sklearn `RobustScaler.fit` median/IQR partition+nanmedian ~2.9s (external, untouched); `_rff_project` matmul 1.34s (njit, already fused).
+
+**Plain-Python confirmation:** `ascontiguousarray` is plain numpy (not njit-misattributed); isolated A/B of the DataFrame assembly alone: C-order slice build 8.41s median vs F-order native build 0.0006s.
+
+**Optimization:** allocate `out` in `_rff_project` (and the Mode-A OOF buffer) with `order="F"` so each `out[:, idx]` column is natively contiguous -> polars' `ascontiguousarray` becomes a no-op (returns the same buffer, no copy). The CPU njit / cupy streaming kernels write the same values regardless of layout; the prange-over-rows CPU kernel is marginally faster writing column-major (1.32s C -> 1.22s F, bit-identical).
+
+**Before/after:**
+- Isolated assembly: 8.41s -> 0.0006s (C-slice copy eliminated).
+- Kernel write (isolated): C-order 1.321s vs F-order 1.217s, output `np.array_equal` True.
+- **Separate-process e2e @10M (3-run min):** OLD 13.887s -> NEW 5.762s = **2.41x**. Checksum BYTE-IDENTICAL 8450188.0 on both (OLD loaded via `git show HEAD:` exec'd in a fresh process).
+
+**Identity proof:** F-order vs C-order is a pure memory-layout change; same kernel, same values. `np.array_equal(out_C, out_F)` True at 10M; e2e DataFrame checksum identical to the last bit (8450188.0).
+
+**Regression test:** `tests/feature_engineering/transformer/test_random_features.py::test_rff_output_buffer_is_fortran_order_no_per_column_copy` — spies `np.ascontiguousarray`, counts ACTUAL copies (returned array not sharing memory with its 1-D >=100k input) of column slices, requires 0. Verified pre-fix C-order buffer yields 64 copies (FAIL) and post-fix F-order yields 0 (PASS).
+
+**Verdict: RESOLVED — RFF F-order output buffer, 2.41x e2e @10M, byte-identical.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 87 RESOLVED, 31 REJECT across 116 iterations.**

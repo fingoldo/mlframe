@@ -84,7 +84,10 @@ def _rff_project(state: RFFState, X_arr, *, use_gpu, gpu_threshold, batch_rows, 
     else:
         X_std = X_arr.astype(state.dtype, copy=False)
     n, d = X_std.shape
-    out = np.empty((n, state.n_features), dtype=state.dtype)
+    # F-contiguous so each ``out[:, idx]`` column slice handed to the polars DataFrame builder below is already contiguous -- avoids a per-column
+    # ``np.ascontiguousarray`` copy of a strided C-order column (8.4s of a 14s N=10M, d=8, n_features=64 e2e; assembly drops to ~0.6ms). The njit / cupy
+    # kernels write the same values regardless of layout (bit-identical), and the CPU prange-over-rows kernel is marginally faster writing column-major.
+    out = np.empty((n, state.n_features), dtype=state.dtype, order="F")
     use_gpu_resolved = _resolve_use_gpu(use_gpu, work=n * d * state.n_features, threshold=gpu_threshold)
     if use_gpu_resolved:
         try:
@@ -176,7 +179,8 @@ def compute_rff_features(
         if return_state:
             raise ValueError("return_state is not supported in Mode A (each fold fits its own state).")
         n = X_arr.shape[0]
-        out = np.zeros((n, n_features), dtype=dtype)
+        # F-contiguous for zero-copy column slices in the DataFrame builder (see _rff_project).
+        out = np.zeros((n, n_features), dtype=dtype, order="F")
         for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_arr)):
             _state = _rff_fit_state(X_arr[train_idx], seed=seed, n_features=n_features, sigma=sigma, standardize=standardize, column_prefix=column_prefix, dtype=dtype)
             out[val_idx] = _rff_project(_state, X_arr[val_idx], use_gpu=use_gpu, gpu_threshold=gpu_threshold, batch_rows=batch_rows, release_memory_after=release_memory_after)

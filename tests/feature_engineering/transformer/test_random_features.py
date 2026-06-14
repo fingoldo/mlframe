@@ -46,6 +46,32 @@ def test_rff_deterministic_same_seed():
     np.testing.assert_array_equal(df1.to_numpy(), df2.to_numpy())
 
 
+def test_rff_output_buffer_is_fortran_order_no_per_column_copy(monkeypatch):
+    """The CPU/cupy kernels write into an F-contiguous ``out`` so each per-column slice handed to the polars DataFrame builder is already contiguous.
+
+    Pre-fix the buffer was C-order, so polars called ``np.ascontiguousarray`` on every strided column slice -- a full per-column copy (8.4s of a 14s N=10M,
+    d=8, n_features=64 e2e). This sensor counts ACTUAL copies (a returned array that does not share memory with its input) of large 1-D column slices and
+    requires zero. On the pre-fix C-order buffer this count equals ``n_features``; here it must be 0.
+    """
+    orig = np.ascontiguousarray
+    copies = {"n": 0}
+
+    def _spy(a, *args, **kwargs):
+        r = orig(a, *args, **kwargs)
+        if isinstance(a, np.ndarray) and a.ndim == 1 and a.size >= 100_000:
+            if r is not a and not np.shares_memory(r, a):
+                copies["n"] += 1
+        return r
+
+    monkeypatch.setattr(np, "ascontiguousarray", _spy)
+
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((200_000, 8)).astype(np.float32)
+    df = compute_rff_features(X, seed=1, n_features=64, use_gpu=False)
+    assert df.shape == (200_000, 64)
+    assert copies["n"] == 0, f"expected zero per-column copies on F-order buffer; got {copies['n']} (C-order regression)"
+
+
 def test_rff_different_seed_changes_output():
     rng = np.random.default_rng(0)
     X = rng.standard_normal((50, 8)).astype(np.float32)
