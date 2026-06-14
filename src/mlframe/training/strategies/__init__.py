@@ -280,6 +280,29 @@ def _resolve_model_spec(
     return key, entry, strat
 
 
+def is_catboost_model(entry: Any) -> bool:
+    """True if ``entry`` (alias str, estimator instance, or ``(name, est)`` tuple) is a CatBoost model.
+
+    Routes via the strategy registry so an estimator INSTANCE (``CatBoostClassifier()``)
+    is classified the same as the ``"cb"`` / ``"catboost"`` aliases. A bare ``str(m).lower()``
+    membership test mis-routes the instance (it stringifies to ``"<catboost...object at 0x..>"``).
+    """
+    if isinstance(entry, str):
+        return entry.lower() in ("cb", "catboost")
+    return isinstance(get_strategy(entry), CatBoostStrategy)
+
+
+def is_neural_model(entry: Any) -> bool:
+    """True if ``entry`` is a neural / recurrent model (mlp / lstm / gru / rnn / transformer / ngb).
+
+    Strategy-routed so a torch MLP / recurrent estimator INSTANCE classifies the same as the
+    string aliases; a bare name-tuple membership test silently misses the instance.
+    """
+    if isinstance(entry, str):
+        return entry.lower() in ("mlp", "recurrent", "ngb", "lstm", "gru", "rnn", "transformer")
+    return isinstance(get_strategy(entry), (NeuralNetStrategy, RecurrentModelStrategy))
+
+
 from .pipeline_cache import (  # noqa: E402, F401
     PipelineCache,
     _resolve_pipeline_cache_budget,
@@ -303,6 +326,8 @@ __all__ = [
     "RecurrentModelStrategy",
     "MODEL_STRATEGIES",
     "get_strategy",
+    "is_catboost_model",
+    "is_neural_model",
     "_resolve_model_spec",
     "PipelineCache",
 ]

@@ -213,6 +213,11 @@ expanded and pruned back to real columns. `prefilter_method` trades speed for
 interaction-awareness (`"model"`, `"univariate"`, `"fast_model"`, `"gpu_model"`,
 `"two_stage"`, default `"auto"`). Optional opt-in levers include
 `interaction_aware`, `config_jitter` + `uncertainty_penalty`, and `active_learning`.
+`proxy_mode="interaction"` (opt-in; default `"additive"`) re-scores subsets with the
+off-diagonal TreeSHAP interaction values `base + sum phi_j + 2*sum_{i<j} Phi_ij`,
+gated to the top-`interaction_proxy_top_k` features by `|phi|` (O(k^2), not O(P^2)), so
+a non-additive pair (XOR / multiplicative) earns the joint credit the additive proxy
+misses; it stays opt-in because the win does not generalise to additive-only beds.
 `ShapProxiedFS.preflight(X, y)` returns a run / caution / fallback recommendation
 before a full fit.
 

@@ -37,10 +37,10 @@ def _woe_test_auc(alpha, seed):
 
 
 def test_biz_val_woe_smoothing_default_is_half():
-    """Default flip landed: woe path uses 0.5, mean path stays 10.0."""
+    """WoE cushion defaults to the Jeffreys 0.5, independent of the mean-encoder ``smoothing`` (now 3.0 per bench_target_encoder_smoothing)."""
     e = LeakageSafeEncoder(method="woe")
     assert e.woe_smoothing == 0.5
-    assert e.smoothing == 10.0
+    assert e.smoothing == 3.0
 
 
 def test_biz_val_woe_smoothing_small_alpha_beats_large_on_rare_highcard():

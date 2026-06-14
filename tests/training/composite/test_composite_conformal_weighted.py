@@ -112,7 +112,9 @@ class TestWeightedBound:
         rng = np.random.default_rng(5)
         Xc = pd.DataFrame({"b": rng.normal(size=400), "feat": rng.normal(size=400)})
         yc = Xc["b"].to_numpy() + 0.5 * Xc["feat"].to_numpy() + rng.normal(size=400)
-        est.calibrate_conformal(Xc, yc, 0.1)
+        # Weighted conformal uses the absolute-residual score, so compare against the
+        # absolute (constant-width) unweighted band -- the default is now normalized.
+        est.calibrate_conformal(Xc, yc, 0.1, score="absolute")
         est.calibrate_conformal_weighted(Xc, yc, 0.1, weights=None)
         assert est._weighted_conformal_q_[round(0.1, 6)] == pytest.approx(
             est._conformal_q_[round(0.1, 6)]

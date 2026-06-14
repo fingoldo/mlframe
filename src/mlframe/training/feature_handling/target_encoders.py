@@ -403,9 +403,10 @@ class LeakageSafeEncoder:
         identical to ``target_mean`` so we treat them interchangeably
         with a different default ``smoothing``.
     smoothing : float
-        Regularisation toward the prior for the MEAN encoders
-        (target_mean / m_estimate / james_stein / loo). Higher -> rare
-        categories encoded closer to the prior.
+        Regularisation toward the prior for the MEAN encoders (target_mean / m_estimate / james_stein / loo). Higher -> rare categories encoded
+        closer to the prior. Default 3.0: a held-out sweep (bench_target_encoder_smoothing, 5 scenarios x 5 seeds) shows 3.0 beats the old 10.0 on
+        the majority of cells (log-loss, posterior-MSE); 10.0 over-shrinks informative categories. Does NOT affect the woe method, which has its own
+        woe_smoothing cushion below.
     woe_smoothing : Optional[float]
         Laplace alpha for the ``woe`` method only (added to pos/neg cell
         mass). ``None`` -> 0.5 (Jeffreys-style cushion). Separate from
@@ -435,7 +436,7 @@ class LeakageSafeEncoder:
             "target_mean", "target_m_estimate",
             "target_james_stein", "target_loo", "woe",
         ] = "target_mean",
-        smoothing: float = 10.0,
+        smoothing: float = 3.0,
         woe_smoothing: Optional[float] = None,
         cv: int = 5,
         prior: Literal["mean", "median"] = "mean",

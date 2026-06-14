@@ -112,7 +112,9 @@ class TargetEncodeParams(BaseModel):
     kind: Literal[
         "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe"
     ]
-    smoothing: float = 10.0
+    # 3.0 (not 10.0) for the MEAN encoders: held-out sweep (bench_target_encoder_smoothing) shows 3.0 wins the majority of cells; 10.0 over-shrinks.
+    # WoE is unaffected -- it uses the separate woe_smoothing cushion below (Jeffreys 0.5), passed independently into LeakageSafeEncoder.
+    smoothing: float = 3.0
     woe_smoothing: Optional[float] = None
     cv: int = 5
     prior: Literal["mean", "median"] = "mean"
