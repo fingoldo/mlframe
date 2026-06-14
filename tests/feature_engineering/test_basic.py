@@ -265,3 +265,42 @@ def test_cyclical_reuse_bit_identical_to_fresh_extraction():
             with_reuse[c].to_numpy(), fresh[c].to_numpy(),
             err_msg=f"cyclical reuse diverged from fresh extraction on {c}",
         )
+
+
+def test_cyclical_sincos_parallel_bit_identical_to_serial():
+    """The prange twin must be byte-identical to the serial loop (each element is independent, no reduction) across hostile inputs: negatives, ties, zero,
+    large magnitudes. Guards against a future 'just always parallelize' or a fastmath/reduction-order change that would diverge."""
+    from mlframe.feature_engineering.basic import _cyclical_sincos_serial, _cyclical_sincos_parallel
+
+    rng = np.random.default_rng(7)
+    base = np.concatenate([rng.standard_normal(20000) * 1000.0, -np.arange(20000.0), np.full(20000, 7.0), np.zeros(10)])
+    for scale in (2 * np.pi / 365.0, 0.137, 17.3):
+        s_ser, c_ser = _cyclical_sincos_serial(base, scale)
+        s_par, c_par = _cyclical_sincos_parallel(base, scale)
+        np.testing.assert_array_equal(s_ser, s_par, err_msg=f"sin diverged at scale={scale}")
+        np.testing.assert_array_equal(c_ser, c_par, err_msg=f"cos diverged at scale={scale}")
+
+
+def test_cyclical_sincos_njit_dispatches_to_parallel_above_threshold(monkeypatch):
+    """The public dispatcher routes large arrays to the prange twin and small arrays to the serial kernel. Catches a regression that drops the parallel path
+    (silently losing the ~12x large-n win) or that lowers the threshold so tiny arrays pay the prange thread-launch floor."""
+    import mlframe.feature_engineering.basic as basic
+
+    monkeypatch.setattr(basic, "_CYCLICAL_PAR_THRESHOLD", 1000)
+    calls = {"serial": 0, "parallel": 0}
+    orig_ser, orig_par = basic._cyclical_sincos_serial, basic._cyclical_sincos_parallel
+
+    def _spy_ser(b, s):
+        calls["serial"] += 1
+        return orig_ser(b, s)
+
+    def _spy_par(b, s):
+        calls["parallel"] += 1
+        return orig_par(b, s)
+
+    monkeypatch.setattr(basic, "_cyclical_sincos_serial", _spy_ser)
+    monkeypatch.setattr(basic, "_cyclical_sincos_parallel", _spy_par)
+
+    basic._cyclical_sincos_njit(np.arange(100.0), 0.1)
+    basic._cyclical_sincos_njit(np.arange(5000.0), 0.1)
+    assert calls == {"serial": 1, "parallel": 1}

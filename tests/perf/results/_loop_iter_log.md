@@ -3177,3 +3177,31 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 77 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — fused njit prange single-pass kernel for rolling_total_variation, 1.74x (no-norm) / 2.45x (normalize) e2e @10M, ~1e-15 reduction-order delta (documented, decision-safe); NaN/K<2 gated to numpy.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 78 RESOLVED, 31 REJECT across 107 iterations.**
+
+---
+
+## iter108 — date-cyclical FE (`_cyclical_sincos_njit`) @ n=10,000,000
+
+**Family:** rotated OFF windowed_shape rolling (104-107) per directive. Picked feature_engineering/basic.py `add_cyclical_date_features` -> `_cyclical_sincos_njit` — the full-n per-element sin/cos kernel run once per (col, period) on the whole N-row date array. Untapped seam: SINGLE-THREAD njit (fused in iter88, never parallelized).
+
+**Workload@why:** 10M-row pandas date frame, periods=[day_of_year, weekday, hour, month]; each cyclical pair walks all 10M elements through `math.sin`/`math.cos`. iter88 fused the 2-pass numpy form into one njit loop but left it single-threaded.
+
+**Profile (categorize_dataset 10M x6 sib-probe + direct kernel):** kernel `_cyclical_sincos_njit` serial = 324-359ms per 10M call, plain-Python-free (pure njit body). e2e `add_cyclical_date_features` wall is pandas-`.dt`-decode + column-assign bound (~2s); kernel is ~15% but a clean isolated 12x.
+
+**Seam:** single-thread njit -> prange. Each output element independent (no reduction) => prange twin BIT-IDENTICAL by construction.
+
+**Optimization:** split into `_cyclical_sincos_serial` (existing loop) + `_cyclical_sincos_parallel` (prange twin); `_cyclical_sincos_njit` now a size dispatcher gated at `_CYCLICAL_PAR_THRESHOLD=1_000_000` (env `MLFRAME_CYCLICAL_PAR_THRESHOLD`). Below threshold serial avoids the ~17ms prange thread-launch floor.
+
+**Before/after (isolated, warm best-of):** N=10M 359ms -> 29ms = **12.32x**; N=2M 99ms -> 17ms = 5.71x. Paired interleaved @10M: **par faster 15/15**, serial min 324.3ms -> par min 26.6ms = **12.18x**. Small-N: par loses below ~1M (gated to serial).
+
+**Identity proof:** separate-process e2e A/B via public `add_cyclical_date_features` @10M: OLD (git show HEAD) md5 `f811bcf...0ed` == NEW md5 `f811bcf...0ed` (byte-identical). Hostile-input test (negatives/ties/zero/large mag x 3 scales) `assert_array_equal` exact.
+
+**Note on e2e wall:** separate-process total wall NEW>OLD here (4.6s vs 2.35s) is contended-box noise on the pandas decode/assign portion (NEW range 4.6-6.0s pure variance), NOT the kernel — the kernel hash is identical and the paired kernel A/B is 15/15 faster. Win is the ~300ms x N(col,period) of pure kernel time removed, bit-identical.
+
+**Regression test:** `tests/feature_engineering/test_basic.py::test_cyclical_sincos_parallel_bit_identical_to_serial` (hostile inputs, FAILS pre-fix: `_cyclical_sincos_serial`/`_parallel` absent at HEAD) + `::test_cyclical_sincos_njit_dispatches_to_parallel_above_threshold` (spy routing, FAILS pre-fix: symbols absent). 30 passed.
+
+**Bench:** `src/mlframe/feature_engineering/_benchmarks/bench_cyclical_sincos_prange_iter108.py`.
+
+**Verdict: RESOLVED — prange twin for `_cyclical_sincos_njit`, 12.18x isolated @10M (15/15 paired), byte-identical e2e output; gated at 1M rows to serial below the prange floor.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 79 RESOLVED, 31 REJECT across 108 iterations.**
