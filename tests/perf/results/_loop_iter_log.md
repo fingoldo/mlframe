@@ -3421,3 +3421,29 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 87 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — fused single-pass per-column min/max, ~19.6x e2e @10M, bit-identical.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 88 RESOLVED, 31 REJECT across 117 iterations.**
+
+---
+
+## iter 118 — @10M — composite/conformal: vectorized Mondrian per-group radius gather + grouped-pass sigma model
+
+**Workload@10M + why:** conformal-prediction data-prep (FRESH untapped family). `training/composite/conformal.py` carries two clear full-n hot kernels exercised at predict/calibration time: `predict_interval_mondrian` (per-ROW Python loop assigning each row its group's radius) and `_fit_sigma_model` (per-BIN masked-mean loop, the normalized-conformal default). Both are mlframe-own plain-Python/numpy, no external library bound.
+
+**Hotspot 1 (HEADLINE e2e win) — `predict_interval_mondrian` per-row radius lookup.** `for i in range(n): radii[i] = per_group.get(g[i], global_r)` — pure-Python loop over n rows with a dict lookup each row. At 10M this is **~1.25–1.6s**, dominating the function (the surrounding `self.predict`/`np.clip`/`_normalize_groups` are <50ms total, confirmed by component breakdown).
+
+**Optimization + audit:** replaced the loop with `pd.factorize(g, sort=False, use_na_sentinel=False)` → maps rows to unique-label codes (hash-based, C-level), the dict lookup runs once per UNIQUE label (not per row), then a single `radius_per_uniq[codes]` gather. `np.unique(return_inverse)` was tried first and is **4x SLOWER** here (labels are an `object` array → object-sort); factorize's hashing wins. `use_na_sentinel=False` is load-bearing: default factorize drops a NaN label to code −1, which would gather the LAST unique radius instead of falling through to the global radius like the loop does.
+
+**Before/after (hotspot 1):**
+- Isolated radius gather @10M (40 known / 10 unseen groups): OLD 1604ms → NEW 595ms = **2.7x**, radii + missing-set BIT-IDENTICAL.
+- Separate-process e2e `predict_interval_mondrian` @10M (stub predict, 45 groups + global, best-of-7 each in its OWN process): OLD 1249.2ms → NEW 542.0ms = **2.31x**, `(lower, upper)` output **bit-identical** (`np.array_equal` both bands). (An interleaved-in-one-process paired run read ~1.08x — contaminated by holding two module copies + the old loop's per-call Python/GC spike; the clean single-module-per-process measurement is the trustworthy one.)
+
+**Hotspot 2 (isolated win, e2e-neutral on its function) — `_fit_sigma_model` per-bin grouped pass.** `for b in range(nb): m = idx==b; if m.any(): sigma[b]=ar[m].mean()` — nb(=20) full-array masked sweeps. Replaced with two `np.bincount` passes (count + weighted sum) over the bin index = one O(n) grouped pass; empty bins keep the global-mean default bit-identically. **Isolated 2.15x @10M** (1076ms→500ms), identity ~3.6e-14 (reduction-order on a sigma width-scale, never a selection score). e2e on `_fit_sigma_model` itself is NEUTRAL (`np.quantile`'s 10M sort dominates the function), so this ships as a clean isolated win + simpler code, not the headline.
+
+**Identity proof:** Mondrian — radii + missing identical across known/unseen/NaN/int-object labels and single-row/all-missing/only-NaN corners; full `predict_interval_mondrian` `np.array_equal` OLD==NEW at 10M. Sigma — bincount vs masked-mean max_abs 3.6e-14 @10M (width-scale, sub-ULP-class).
+
+**Regression test:** `tests/training/composite/test_composite_conformal_mondrian.py::TestMondrianRadiusGatherVectorization` (2 tests) — pins the factorize gather bit-identical to a row-by-row loop incl. unseen + NaN labels, and explicitly that a NaN label uses the GLOBAL radius not the last-unique (FAILS on the `use_na_sentinel=True` regression, verified). Full mondrian file 15/15 pass; conformal composite suite 91/91 pass.
+
+**Bench:** `src/mlframe/training/composite/_benchmarks/bench_conformal_sigma_bincount.py` (covers both kernels, all sizes + identity).
+
+**Verdict: RESOLVED — vectorized Mondrian per-group radius gather, ~2.3x e2e @10M, bit-identical; sigma grouped-pass 2.15x isolated (e2e-neutral, kept as clean win).**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 89 RESOLVED, 31 REJECT across 118 iterations.**

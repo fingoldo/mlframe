@@ -94,10 +94,14 @@ def _fit_sigma_model(y_pred_cal: np.ndarray, abs_res_cal: np.ndarray, n_bins: in
     floor = max(1e-9, 0.05 * float(ar.mean()))
     sigma = np.full(nb, ar.mean() if ar.size else 1.0)
     idx = np.clip(np.searchsorted(edges, yp, side="right") - 1, 0, nb - 1)
-    for b in range(nb):
-        m = idx == b
-        if m.any():
-            sigma[b] = ar[m].mean()
+    # Single grouped pass instead of nb full-array masked sweeps: two O(n) bincounts
+    # over the bin index replace the per-bin ``ar[idx==b].mean()`` loop. Empty bins keep
+    # the global-mean default; non-empty bins get sum/count (~1e-15 reduction-order vs the
+    # masked mean, a sigma width-scale, never a selection score).
+    counts = np.bincount(idx, minlength=nb)
+    sums = np.bincount(idx, weights=ar, minlength=nb)
+    nonempty = counts > 0
+    sigma[nonempty] = sums[nonempty] / counts[nonempty]
     sigma = np.maximum(sigma, floor)
     sig_rows = _sigma_for(edges, sigma, y_pred_cal)
     return edges, sigma, sig_rows
@@ -407,15 +411,25 @@ def predict_interval_mondrian(self, X, groups, alpha=0.1):
     global_r = per_group.get(None, float("inf"))
     point = np.asarray(self.predict(X), dtype=np.float64).reshape(-1)
     g = _normalize_groups(groups, point.shape[0])
-    radii = np.empty(point.shape[0], dtype=np.float64)
+    # Vectorized per-group radius gather: hash-based factorize (O(n), C-level, no object
+    # sort) maps rows to unique-label codes, the dict lookup runs once per UNIQUE label
+    # (not once per row), and a single code-gather assigns the radius to every row --
+    # replaces the O(n) Python loop, identical result. factorize beats np.unique here
+    # because the labels are an object array (np.unique would object-sort, ~4x slower).
+    import pandas as pd
+    # use_na_sentinel=False keeps a NaN label as its own category (code, not -1) so the
+    # ``lab in per_group`` test runs on it -- matching the loop, where a NaN group falls
+    # through to the global radius rather than silently gathering the last unique radius.
+    codes, uniq = pd.factorize(g, sort=False, use_na_sentinel=False)
+    radius_per_uniq = np.empty(uniq.shape[0], dtype=np.float64)
     missing = set()
-    for i in range(point.shape[0]):
-        lab = g[i]
+    for j, lab in enumerate(uniq):
         if lab in per_group:
-            radii[i] = per_group[lab]
+            radius_per_uniq[j] = per_group[lab]
         else:
-            radii[i] = global_r
+            radius_per_uniq[j] = global_r
             missing.add(lab)
+    radii = radius_per_uniq[codes]
     if missing:
         warnings.warn(
             "predict_interval_mondrian: groups not seen at calibration fell "

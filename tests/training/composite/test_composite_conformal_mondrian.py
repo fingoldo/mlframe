@@ -213,3 +213,71 @@ class TestMondrianBizValue:
             est.calibrate_conformal_mondrian(
                 X, np.array([1.0, 2.0]), np.array(["a", "b"]), 0.1,
             )
+
+
+class TestMondrianRadiusGatherVectorization:
+    """Pin the vectorized (pd.factorize) radius gather in predict_interval_mondrian.
+
+    The factorize fast-path replaces a per-row Python loop (2.3x @10M). It must
+    stay bit-identical to a row-by-row dict lookup, INCLUDING the two corners
+    the loop handled implicitly: an unseen group falls back to the global radius
+    (and is reported as missing), and a NaN group label is NOT a known group so
+    it ALSO falls back to global. The latter only holds with
+    ``pd.factorize(..., use_na_sentinel=False)``; default factorize drops NaN to
+    code -1 and would gather the LAST unique radius instead -- this test fails on
+    that regression.
+    """
+
+    @staticmethod
+    def _loop_reference(g, per_group, global_r):
+        radii = np.empty(g.shape[0], dtype=np.float64)
+        missing = set()
+        for i in range(g.shape[0]):
+            lab = g[i]
+            if lab in per_group:
+                radii[i] = per_group[lab]
+            else:
+                radii[i] = global_r
+                missing.add(lab)
+        return radii
+
+    def _build_est(self):
+        est = _fit(0)
+        per_group = {"a": 1.5, "b": 2.5, "c": 0.7, None: 9.0}
+        est._mondrian_q_ = {round(0.1, 6): per_group}
+        return est, per_group
+
+    def test_radius_gather_matches_row_loop_with_unseen_and_nan_labels(self) -> None:
+        est, per_group = self._build_est()
+        global_r = per_group[None]
+        # mix known, unseen ("z"), and a NaN label -- all must match the loop.
+        g = np.array(["a", "z", "b", float("nan"), "a", "c", "z"], dtype=object)
+        X = pd.DataFrame({"b": np.zeros(g.shape[0]), "feat": np.zeros(g.shape[0])})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            lo, hi = est.predict_interval_mondrian(X, g, 0.1)
+        point = np.asarray(est.predict(X), dtype=np.float64).reshape(-1)
+        expected_radii = self._loop_reference(g, per_group, global_r)
+        # Recover the radius the function applied (band is symmetric pre-clip; the
+        # train envelope here is unbounded for this synthetic, so no clipping).
+        applied = (hi - lo) / 2.0
+        assert np.array_equal(applied, expected_radii), (
+            "vectorized radius gather diverged from the row-by-row loop; "
+            "NaN/unseen labels must fall back to the global radius"
+        )
+
+    def test_nan_label_falls_back_to_global_not_last_unique(self) -> None:
+        # Direct guard against use_na_sentinel=True: with default factorize a NaN
+        # label would gather radius_per_uniq[-1] (the last seen group's radius),
+        # NOT the global fallback. Construct a case where those differ.
+        est, per_group = self._build_est()
+        g = np.array(["a", float("nan")], dtype=object)
+        X = pd.DataFrame({"b": [0.0, 0.0], "feat": [0.0, 0.0]})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            lo, hi = est.predict_interval_mondrian(X, g, 0.1)
+        applied = (hi - lo) / 2.0
+        assert applied[0] == pytest.approx(per_group["a"])
+        assert applied[1] == pytest.approx(per_group[None]), (
+            "NaN label must use the global radius, not the last unique group's"
+        )
