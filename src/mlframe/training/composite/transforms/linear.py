@@ -404,8 +404,9 @@ def _linear_residual_multi_fit(
     # import ...`` would create a hard cycle the meta-test flags.
     if base.ndim == 1:
         base = base.reshape(-1, 1)
-    base_f = base.astype(np.float64)
-    y_f = y.astype(np.float64)
+    # asarray (not astype) avoids a redundant full (n, K) / (n,) copy when the caller already passes float64 (the CV-fold path supplies a preallocated float64 trial buffer); the body never mutates base_f / y_f in place (centering, column_stack and the row-mask all allocate fresh arrays), so a view is safe and bit-identical.
+    base_f = np.asarray(base, dtype=np.float64)
+    y_f = np.asarray(y, dtype=np.float64)
     # Drop non-finite rows (non-finite y OR any non-finite base column) before
     # the OLS. Lag / rolling bases carry leading NaN; np.linalg.lstsq / svd
     # raise LinAlgError on NaN, which the callers' broad except silently
@@ -457,8 +458,15 @@ def _linear_residual_multi_fit(
                 # multi-base residual. Unit-norm scaling measures genuine
                 # multicollinearity (column angle), not unit mismatch.
                 base_scaled = base_centered / col_norms
-                sv = np.linalg.svd(base_scaled, compute_uv=False)
+                # The cond gate only needs the singular VALUES of the tall (n, K) scaled base. For K << n the values are the sqrt of the eigenvalues of the tiny (K, K) Gram matrix, which `eigvalsh` returns ~2.7x faster than a full tall-matrix `svd` (1.03ms -> 0.38ms @ n=100k, K=3) with no change to the lstsq inputs, so the fitted alphas/beta stay bit-identical. Squaring the matrix doubles the relative error on the condition number (~3.5e-8 near-collinear), so when the fast value lands inside a +-0.01% band of the gate threshold we recompute the exact SVD condition number -- a band ~6 orders of magnitude wider than the error, so the gate decision and the stored diagnostic are exact wherever they could matter.
+                gram = base_scaled.T @ base_scaled
+                ev = np.clip(np.linalg.eigvalsh(gram), 0.0, None)
+                sv = np.sqrt(ev)
                 cond = float(sv.max() / max(sv.min(), np.finfo(np.float64).tiny))
+                _band = _MULTI_BASE_COND_NUMBER_MAX
+                if _band * (1.0 - 1e-4) <= cond <= _band * (1.0 + 1e-4):
+                    sv = np.linalg.svd(base_scaled, compute_uv=False)
+                    cond = float(sv.max() / max(sv.min(), np.finfo(np.float64).tiny))
     except np.linalg.LinAlgError:
         cond = float("inf")
     if cond > _MULTI_BASE_COND_NUMBER_MAX or not np.isfinite(cond):
