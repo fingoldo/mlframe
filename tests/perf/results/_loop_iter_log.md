@@ -2978,3 +2978,27 @@ Streak: 0/100 (RESOLVED -- streak reset). **Cumulative loop wave: 69 RESOLVED, 3
 **Verdict: REJECT — measured (separate-process + paired-interleaved, both regimes, e2e) the single-pass Welford fold is flat-to-slower at 10M on this HW; the serial division dependency beats the cheap sequential second read. A genuine LEAD properly investigated and correctly killed; kept for re-test on memory-bandwidth-bound hardware.**
 
 Streak: 1/100 (REJECT). **Cumulative loop wave: 69 RESOLVED, 31 REJECT across 98 iterations.**
+
+---
+
+## iter99 — preprocessing/outliers `count_num_outofranges` row-parallel prange @10M — RESOLVED
+
+**Workload@10M + why:** preprocessing/outliers family, untapped at 10M. `compute_naive_outlier_score(X_train, X_test)` drives `count_num_outofranges(X_test, mins, maxs)` — a per-row "how many features fall outside train [min,max]" count, the hot kernel of the naive outlier-score pre-processing path. 10M×8 float64 X_test = 640MB, RAM-safe.
+
+**Top mlframe-own hotspot:** `count_num_outofranges` (preprocessing/outliers.py:102) — single-thread `@njit(cache=True)` double loop over rows×features. Isolated @10M D=8 best 0.109s; the only mlframe-own compute in the naive-score path (the surrounding `np.nanmin/nanmax` are tiny on the 100k train slice). Plain-njit confirmed (no external dispatch). e2e fraction: ~55% of `compute_naive_outlier_score` wall (0.109 of 0.196s).
+
+**Optimization + audit:** the per-row count is fully independent and an order-invariant *integer* reduction — embarrassingly parallel with zero numeric-divergence risk (unlike FP folds, integer counts are exact regardless of thread order). Changed `range`->`prange`, `@njit(cache=True)`->`@njit(cache=True, parallel=True)`. No fastmath/NaN-gate concern: `v < mins[j]` with NaN is False in both serial and parallel identically.
+
+**Before/after:**
+- Isolated interleaved best-of-7 (8 threads): N=10M D=8 0.0758->0.0249 (3.04x); D=4 0.0600->0.0158 (3.79x); D=30 0.2652->0.0840 (3.16x); N=1M D=8 0.0092->0.0026 (3.56x). All checksums identical.
+- Separate-process (fresh py each side, baseline via `git show HEAD:`): old 0.1260 -> new 0.0311 = **4.05x**, checksum 182063 on both.
+
+**Identity proof:** integer-count reduction, order-invariant by construction; `np.array_equal(serial, parallel)` True on all four sizes + checksum match across separate processes. Bit-identical.
+
+**Regression test:** `tests/test_evaluation_salvage.py::test_count_num_outofranges_is_parallel_and_matches_numpy` — pins `targetoptions['parallel'] is True` (FAILS on pre-fix serial kernel: pre-fix `parallel` is `None`, verified via the saved baseline module) + bit-identity vs the numpy `((X<mins)|(X>maxs)).sum(axis=1)` reference. Existing `test_count_num_outofranges_and_naive_score` still green.
+
+**Bench:** `src/mlframe/preprocessing/_benchmarks/bench_count_outofranges99.py`.
+
+**Verdict: RESOLVED — 3.0-4.0x @10M, bit-identical (integer-count, order-invariant), separate-process + interleaved confirmed.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 70 RESOLVED, 31 REJECT across 99 iterations.**

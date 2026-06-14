@@ -217,6 +217,25 @@ def test_count_num_outofranges_and_naive_score():
     assert score[1] == 1.0
 
 
+def test_count_num_outofranges_is_parallel_and_matches_numpy():
+    """count_num_outofranges must stay parallel (prange) and bit-identical to the vectorised numpy reference.
+
+    The per-row count is an order-invariant integer reduction, so parallelisation cannot change the result; this pins both the parallel signature
+    (a serial revert drops the n=10M win) and the bit-identity against numpy.
+    """
+    assert getattr(count_num_outofranges, "targetoptions", {}).get("parallel") is True, (
+        "count_num_outofranges must be njit(parallel=True) for the n=10M row-parallel win"
+    )
+
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(40_000, 6))
+    mins = X[:1000].min(axis=0)
+    maxs = X[:1000].max(axis=0)
+    got = count_num_outofranges(X, mins, maxs)
+    ref = ((X < mins) | (X > maxs)).sum(axis=1).astype(np.int64)
+    assert np.array_equal(got, ref)
+
+
 def test_compute_outlier_detector_score():
     from sklearn.ensemble import IsolationForest
 
