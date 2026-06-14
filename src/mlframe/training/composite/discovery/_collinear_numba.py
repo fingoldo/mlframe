@@ -350,6 +350,42 @@ def near_collinear_keep_mask_fast(
     return keep
 
 
+if _HAS_NUMBA:
+    @_numba.njit(cache=True)
+    def _block_gather_kernel(arr, perm, block_len):  # type: ignore[no-untyped-def]
+        # Materialise a block-permuted copy of ``arr`` in one pass: emit each permuted block's
+        # real (in-bounds) elements in order, dropping the trailing short block's padding. This
+        # fuses the index build + gather of the prior numpy path (broadcast (n_blocks, block_len)
+        # template -> ravel -> boolean ``idx < m`` mask -> ``arr[idx]``), eliminating the O(n_blocks*block_len)
+        # int64 temp + mask. Element order is identical to the numpy path for the same ``perm`` draw,
+        # so the block shuffle is bit-identical for both the int64 bin-code and the float value path.
+        m = arr.shape[0]
+        out = np.empty(m, dtype=arr.dtype)
+        w = 0
+        for bi in range(perm.shape[0]):
+            start = perm[bi] * block_len
+            for j in range(block_len):
+                pos = start + j
+                if pos < m:
+                    out[w] = arr[pos]
+                    w += 1
+        return out
+
+
+def block_shuffle_gather(arr: np.ndarray, perm: np.ndarray, block_len: int) -> np.ndarray:
+    """Block-permuted copy of ``arr`` for a precomputed block permutation ``perm``.
+
+    ``perm`` MUST come from ``rng.permutation(n_blocks)`` so the null distribution's RNG draw is
+    unchanged vs the legacy inline path. Falls back to the numpy broadcast+mask gather when numba
+    is unavailable; both produce identical element order, so the block shuffle is bit-identical."""
+    if _HAS_NUMBA:
+        return _block_gather_kernel(arr, np.ascontiguousarray(perm, dtype=np.int64), int(block_len))
+    m = arr.size
+    idx = (perm[:, None] * block_len + np.arange(block_len)[None, :]).ravel()
+    idx = idx[idx < m]
+    return arr[idx]
+
+
 def _warm_collinear_kernel() -> None:
     """Compile the kernel at import on a tiny matrix so the first real call is hot."""
     if not _HAS_NUMBA:
@@ -362,6 +398,8 @@ def _warm_collinear_kernel() -> None:
         _keep_mask_kernel(warm, fin, 0.99, _BORDERLINE_BAND)
         _mean, _var = _column_stats_allfinite(warm)
         _keep_mask_kernel_allfinite(warm, _mean, _var, 0.99, _BORDERLINE_BAND)
+        _block_gather_kernel(np.arange(4, dtype=np.int64), np.arange(2, dtype=np.int64), 2)
+        _block_gather_kernel(np.arange(4, dtype=np.float32), np.arange(2, dtype=np.int64), 2)
     except Exception:  # pragma: no cover - warming is best-effort.
         pass
 

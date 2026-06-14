@@ -259,3 +259,67 @@ class TestAllFiniteFastPath:
         _fast(fm, 0.99)
         assert calls["general"] == 1 and calls["af"] == 0
         _cn._KEEP_MASK_CACHE.clear()
+
+
+class TestBlockShuffleGatherBitIdentity:
+    """``block_shuffle_gather`` fuses the per-permutation block-shuffle index build + gather used
+    by the auto-base permutation-MI null loop. It MUST be bit-identical (same element order for a
+    given ``perm`` draw) to the legacy numpy broadcast+mask+fancy-index path on every dtype / size,
+    including the trailing-short-block edge -- otherwise the null distribution silently shifts."""
+
+    @staticmethod
+    def _legacy(arr, perm, block_len):
+        m = arr.size
+        idx = (perm[:, None] * block_len + np.arange(block_len)[None, :]).ravel()
+        idx = idx[idx < m]
+        return arr[idx]
+
+    @pytest.mark.parametrize("m", [97, 256, 20000, 100003])
+    @pytest.mark.parametrize("dtype", [np.int64, np.float32, np.float64])
+    def test_block_shuffle_gather_bit_identical_to_numpy(self, m, dtype) -> None:
+        from mlframe.training.composite.discovery._collinear_numba import block_shuffle_gather
+
+        block_len = max(2, int(np.sqrt(m)))  # exercise the trailing-short-block path
+        n_blocks = (m + block_len - 1) // block_len
+        arr = np.random.default_rng(0).integers(0, 50, m).astype(dtype)
+        for seed in range(6):
+            perm = np.random.default_rng(seed).permutation(n_blocks)
+            got = block_shuffle_gather(arr, perm, block_len)
+            ref = self._legacy(arr, perm, block_len)
+            assert got.shape == ref.shape == (m,)
+            assert np.array_equal(got, ref), f"divergence m={m} dtype={dtype} seed={seed}"
+
+    def test_auto_base_block_shuffle_routes_through_fused_gather(self, monkeypatch) -> None:
+        """The auto-base permutation-MI null loop must call ``block_shuffle_gather``; a regression
+        that reverts to the inline numpy path is caught by the spy never firing."""
+        import mlframe.training.composite.discovery._auto_base as _ab
+
+        assert hasattr(_ab, "block_shuffle_gather"), "fused gather not wired into _auto_base"
+        calls = {"n": 0}
+        orig = _ab.block_shuffle_gather
+
+        def spy(arr, perm, block_len):
+            calls["n"] += 1
+            return orig(arr, perm, block_len)
+
+        monkeypatch.setattr(_ab, "block_shuffle_gather", spy)
+
+        import numpy as _np
+        import pandas as pd
+        from mlframe.training._composite_target_discovery_config import (
+            CompositeTargetDiscoveryConfig,
+        )
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
+
+        rng = _np.random.default_rng(0)
+        n = 6000
+        base = rng.normal(0, 1, n).cumsum() / _np.sqrt(n)
+        cols = {"lag1": base, "smooth": base + rng.normal(0, 0.1, n)}
+        for j in range(6):
+            cols[f"f{j}"] = rng.normal(0, 1, n)
+        y = base + 0.4 * cols["f0"] + rng.normal(0, 0.3, n)
+        Xy = pd.DataFrame(cols).assign(y=y)
+        cfg = CompositeTargetDiscoveryConfig(enabled=True, auto_base_null_perms=5)
+        disco = CompositeTargetDiscovery(cfg)
+        disco.fit(Xy, "y", list(cols.keys()), _np.arange(n))
+        assert calls["n"] > 0, "block_shuffle_gather was never invoked by the null loop"
