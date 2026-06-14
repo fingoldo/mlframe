@@ -77,7 +77,9 @@ def test_transform_dataframe_extra_columns_realigned():
     # Must succeed (extra cols dropped by name realignment).
     out = sel.transform(X_extra)
     assert out.shape[0] == 200
-    assert out.shape[1] == len(sel.support_)
+    # Output width is the full selected set INCLUDING engineered features (MRMR does FE by default),
+    # so it equals len(get_feature_names_out()) -- not len(support_), which counts only raw survivors.
+    assert out.shape[1] == len(sel.get_feature_names_out())
 
 
 def test_transform_dataframe_missing_column_raises():
