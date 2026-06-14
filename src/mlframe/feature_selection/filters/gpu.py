@@ -527,10 +527,14 @@ def mi_direct_gpu_batched(
     batch_failures = []  # list of CuPy 0-d arrays
     nchecked = 0
     remaining = npermutations
+    # Use the modern cupy Generator (XORWOW) rather than the legacy global cp.random.uniform: the legacy
+    # host-API cuRAND generator fails to initialise (CURAND_STATUS_INITIALIZATION_FAILED) on some
+    # driver/lib combos where the Generator API works fine -- and the streamed twin already uses default_rng.
+    _rng = cp.random.default_rng()
     while remaining > 0:
         b = min(batch_size, remaining)
-        # ``cp.argsort(uniform((b, n)))`` is statistically equivalent to Fisher-Yates for permutation tests (argsort of distinct floats is a bijection).
-        rand = cp.random.uniform(size=(b, n), dtype=cp.float64)
+        # ``cp.argsort(random((b, n)))`` is statistically equivalent to Fisher-Yates for permutation tests (argsort of distinct floats is a bijection).
+        rand = _rng.random((b, n), dtype=cp.float64)
         perm_idx = cp.argsort(rand, axis=1)  # (b, n) int64
         # Gather classes_y at these indices -> shuffled copies.
         perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
@@ -908,8 +912,14 @@ def mi_direct_gpu(
         freqs_x = freqs_x_gpu
         nfailed = 0
         _i = 0
+        # Modern Generator (XORWOW) rather than legacy cp.random.shuffle: the legacy global cuRAND host
+        # generator fails to init (CURAND_STATUS_INITIALIZATION_FAILED) on some driver/lib combos. cupy's
+        # Generator has no .shuffle, so shuffle in-place via argsort(random) (a permutation of distinct
+        # floats is a bijection) -- preserving the pooled buffer identity downstream consumers rely on.
+        _shuf_rng = cp.random.default_rng()
+        _shuf_n = classes_y_safe.shape[0]
         for _i in range(npermutations):
-            cp.random.shuffle(classes_y_safe)
+            classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
             joint_counts.fill(0)
             compute_joint_hist_cuda(
                 (grid_size,),

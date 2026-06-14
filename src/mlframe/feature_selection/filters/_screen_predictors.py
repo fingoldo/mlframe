@@ -385,9 +385,12 @@ def screen_predictors(
             try:
                 import cupy as cp
                 cp.random.seed(random_seed)
-            except (ImportError, ModuleNotFoundError):
-                pass  # CuPy not available - fine; the screen branch
-                      # below will catch the same and fall back to CPU.
+            except Exception:
+                # CuPy absent -> CPU fallback below. Also tolerate the legacy global cuRAND host generator
+                # failing to init (CURAND_STATUS_INITIALIZATION_FAILED on some driver/lib combos): seeding
+                # it is best-effort reproducibility and the GPU kernels use the modern Generator API anyway,
+                # so a seed failure must not crash the whole screen.
+                pass
 
     try:
         max_failed = int(full_npermutations * (1 - min_nonzero_confidence))

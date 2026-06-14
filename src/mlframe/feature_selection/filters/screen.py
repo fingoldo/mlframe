@@ -110,7 +110,10 @@ def _preserve_global_numpy_rng_state(seed: int | None):
             import cupy as _cp  # local import to avoid hard dep
             _cp.random.seed(seed)
             _cp_module = _cp
-        except ImportError:
+        except Exception:
+            # CuPy absent, or the legacy global cuRAND host generator fails to init
+            # (CURAND_STATUS_INITIALIZATION_FAILED on some driver/lib combos). Best-effort seeding only --
+            # GPU kernels use the modern Generator API; a seed failure must not break the screen.
             pass
         yield
     finally:

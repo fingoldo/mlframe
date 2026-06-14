@@ -210,9 +210,18 @@ class HuggingFaceProvider:
         # PIDAwareFileLock + StaleLockReclaimed keep the safety net.
         lock_path = _hf_cache_lock_path(model_name, revision)
         with PIDAwareFileLock(lock_path, timeout=600.0):
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                model_name, revision=revision, trust_remote_code=trust_remote,
-            )
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    model_name, revision=revision, trust_remote_code=trust_remote,
+                )
+            except (ValueError, ImportError):
+                # transformers defaults to the FAST (Rust) tokenizer; for a model that ships only a slow
+                # tokenizer (vocab.txt, no tokenizer.json -- e.g. prajjwal1/bert-tiny) it tries to CONVERT
+                # slow->fast, which needs sentencepiece/tiktoken installed and raises otherwise. The slow
+                # tokenizer yields identical token ids for embedding, so fall back to it rather than hard-fail.
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    model_name, revision=revision, trust_remote_code=trust_remote, use_fast=False,
+                )
             # Some tokenizers don't have a pad token (e.g. GPT-2 family);
             # falling back to eos_token is the standard fix for embedding.
             if self._tokenizer.pad_token is None and self._tokenizer.eos_token is not None:
