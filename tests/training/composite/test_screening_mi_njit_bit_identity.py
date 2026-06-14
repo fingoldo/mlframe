@@ -88,6 +88,53 @@ def test_njit_handles_empty_and_single_row() -> None:
 
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
+@pytest.mark.parametrize("nbins", [16, 50, 181, 200])
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64])
+def test_strided_column_bit_identical(nbins: int, dtype) -> None:
+    """A strided ``feature_binned[:, j]`` column slice (the screening hot-loop input) must yield
+    bit-identical MI to the contiguous copy. The wrapper no longer ``ascontiguousarray``-copies
+    the strided column; the njit kernel indexes it element-by-element. Pins the iter94 fix."""
+    rng = np.random.default_rng(5)
+    n = 8000
+    mat = np.empty((n, 3), dtype=dtype)
+    mat[:, 1] = rng.integers(0, nbins, n)
+    col_strided = mat[:, 1]
+    assert not col_strided.flags["C_CONTIGUOUS"]
+    y = rng.integers(0, nbins, n).astype(np.int64)
+    contig = _mi_from_binned_pair(np.ascontiguousarray(col_strided), y, nbins=nbins)
+    strided = _mi_from_binned_pair(col_strided, y, nbins=nbins)
+    assert contig == strided, f"nbins={nbins} dtype={dtype}: {contig} vs {strided}"
+
+
+@pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
+def test_wrapper_does_not_copy_strided_input() -> None:
+    """The wrapper must NOT route a strided column through ``np.ascontiguousarray`` (the pre-iter94
+    code copied both inputs O(n) per call). Spy on ``ascontiguousarray`` during a wrapper call with
+    a strided int16 column; it must not be invoked. FAILS on pre-fix code (two copies per call)."""
+    import mlframe.training.composite.discovery.screening as scr
+
+    n, nbins = 4000, 32
+    rng = np.random.default_rng(9)
+    mat = np.empty((n, 3), dtype=np.int16)
+    mat[:, 1] = rng.integers(0, nbins, n)
+    col = mat[:, 1]
+    y = rng.integers(0, nbins, n).astype(np.int64)
+    calls = {"n": 0}
+    orig = np.ascontiguousarray
+
+    def _spy(a, *args, **kw):
+        calls["n"] += 1
+        return orig(a, *args, **kw)
+
+    scr.np.ascontiguousarray = _spy
+    try:
+        scr._mi_from_binned_pair(col, y, nbins=nbins)
+    finally:
+        scr.np.ascontiguousarray = orig
+    assert calls["n"] == 0, f"wrapper made {calls['n']} ascontiguousarray copies on the hot path"
+
+
+@pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
 def test_njit_perf_sentinel_not_slower_than_numpy() -> None:
     """Warm multi-iter wall: njit must be at least as fast as numpy at the production size.
 
