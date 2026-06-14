@@ -16,7 +16,7 @@ from typing import Any, Literal, Optional, Union
 import numpy as np
 import polars as pl
 
-from ._kernels_njit import rff_matmul_njit
+from ._kernels_njit import positional_encoding_njit, rff_matmul_njit
 from ._utils import (
     free_gpu_memory_pool,
     is_gpu_available,
@@ -248,11 +248,9 @@ def compute_positional_encoding(
     # div_term[i] = 1 / base^(2i / d_model) for i = 0..half-1
     i_idx = np.arange(half, dtype=np.float64)
     div_term = (1.0 / np.power(base, 2.0 * i_idx / d_model)).astype(dtype, copy=False)
-    # angles: (N, half) = pos_f[:, None] * div_term[None, :]
-    angles = pos_f[:, None] * div_term[None, :]
+    # Fused sin/cos in one parallel sweep — no (N, half) angles / sin / cos temporaries (5.6-6.4x at N=10M; see positional_encoding_njit).
     pe = np.empty((pos_f.size, d_model), dtype=dtype)
-    pe[:, 0::2] = np.sin(angles)
-    pe[:, 1::2] = np.cos(angles)
+    positional_encoding_njit(np.ascontiguousarray(pos_f), div_term, pe)
 
     col_names = [f"{column_prefix}_{i}" for i in range(d_model)]
     return pl.DataFrame({name: pe[:, idx] for idx, name in enumerate(col_names)})

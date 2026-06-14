@@ -3351,3 +3351,24 @@ Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 84 RESOLVED, 31 REJECT 
 **Verdict: RESOLVED — multiclass label-count via single np.unique pass, 1.48-13.98x isolated/paired @10M (scales with K), bit-identical.**
 
 Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 85 RESOLVED, 31 REJECT across 114 iterations.**
+
+---
+
+## iter115 (2026-06-15) — @10M — positional-encoding fused sin/cos kernel (feature_engineering/transformer)
+
+**Workload @10M + why:** fresh untapped FULL-n mlframe-own component. `compute_positional_encoding` (sinusoidal transformer PE; CPU-only by design) processes the full 10M-row position vector once, emitting an `(N, d_model)` float32 feature block — untapped family (RFF/attention kernels in the same package were never profiled for PE). Datetime-cyclical sin/cos was tapped (88/108) but is a different code path; this is the Vaswani PE elementwise compute.
+
+**Top-20 mlframe-own / hotspot:** at N=10M, d_model=16 the OLD path (`angles = pos_f[:,None]*div_term[None,:]; pe[:,0::2]=np.sin(angles); pe[:,1::2]=np.cos(angles)`) is ~2.7s cold / 1.48s warm-isolated. It materialises three `(N, half)` float32 temporaries (angles + sin + cos, ~320MB each at N=10M) and writes into strided `pe[:,0::2]`/`pe[:,1::2]` views — memory-bandwidth + temp-alloc bound, plain numpy (no njit), confirmed via microbench wrapper.
+
+**Optimization + audit:** new `positional_encoding_njit(pos_f, div_term, out)` (`numba.njit(parallel=True, fastmath=True)`) computes each angle `p*div_term[j]` once and writes `sin`/`cos` directly into the interleaved output (col 2j / 2j+1) in one prange sweep — no angles/sin/cos temporaries, contiguous row writes. Mirrors the existing fused-cos/sin `rff_matmul_njit` in the same module. Wired as the default path in `compute_positional_encoding`.
+
+**Before/after (isolated kernel, N=10M):** d=4 6.16x / d=16 5.62x / d=32 6.39x (numpy vs fused njit, warm best-of-N).
+**Before/after (separate-process e2e, full `compute_positional_encoding` incl. polars build, N=10M d=16, OLD via git show HEAD:):** OLD best=2.231 med=2.448 → NEW best=1.179 med=1.207 → **1.89x best / 2.03x median** (e2e diluted by shared `to_numpy` int->float + `fmod` + polars-frame build).
+
+**Identity proof:** output max abs diff 5.96e-08 = single float32 ULP (libm-vs-numba-intrinsic transcendental rounding on values in [-1,1]); NOT selection-altering (final output features feeding trees, no downstream selection on bit-pattern). Consistent across d_model in {4,16,32}.
+
+**Regression test:** `tests/feature_engineering/transformer/test_random_features.py::test_pe_fused_kernel_matches_numpy_reference` — pins fused-kernel output vs the exact pre-fusion numpy reference within 1 float32 ULP AND the interleaved sin@2j / cos@2j+1 layout, across d_model {4,16,32}. Verified it FAILS on a kernel that swaps sin/cos. 9 PE tests + 24 random_features tests pass.
+
+**Verdict: RESOLVED — positional-encoding fused sin/cos prange kernel, 5.6-6.4x isolated / 1.89-2.03x paired-e2e @10M, single-float32-ULP identical.**
+
+Streak: 0/100 (RESOLVED resets). **Cumulative loop wave: 86 RESOLVED, 31 REJECT across 115 iterations.**

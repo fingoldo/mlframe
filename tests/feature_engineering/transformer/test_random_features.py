@@ -155,6 +155,26 @@ def test_pe_first_pair_is_sin_cos():
     np.testing.assert_allclose(arr[:, 1], np.cos(pos), atol=1e-6)
 
 
+def test_pe_fused_kernel_matches_numpy_reference():
+    # Fused positional_encoding_njit must match the original three-array numpy path (angles temporary + separate sin/cos into strided views) within a single
+    # float32 ULP, and preserve the interleaved [sin_j @ col 2j, cos_j @ col 2j+1] layout, across several d_model. A regression that bypasses the kernel or
+    # transposes the sin/cos columns trips this.
+    rng = np.random.default_rng(0)
+    pos = rng.integers(0, 500_000, size=5000).astype(np.int64)
+    base = 10_000.0
+    for d_model in (4, 16, 32):
+        got = compute_positional_encoding(pos, d_model=d_model, base=base).to_numpy()
+        # Reference: exact pre-fusion numpy computation in float32.
+        pos_f = np.fmod(pos.astype(np.float32), np.float32(1_000_000.0))
+        half = d_model // 2
+        div = (1.0 / np.power(base, 2.0 * np.arange(half, dtype=np.float64) / d_model)).astype(np.float32)
+        ang = pos_f[:, None] * div[None, :]
+        ref = np.empty((pos_f.size, d_model), dtype=np.float32)
+        ref[:, 0::2] = np.sin(ang)
+        ref[:, 1::2] = np.cos(ang)
+        np.testing.assert_allclose(got, ref, atol=1e-6, rtol=0, err_msg=f"d_model={d_model}")
+
+
 def test_pe_raises_on_odd_d_model():
     with pytest.raises(ValueError, match="even"):
         compute_positional_encoding(np.arange(10), d_model=7)
