@@ -259,9 +259,48 @@ _SAFE_SPECIFIC: frozenset = frozenset({
 # ``__builtin__`` is the Python-2 / dill spelling of the same module.
 _UNSAFE_BUILTINS: frozenset = frozenset({
     "eval", "exec", "execfile", "compile", "__import__", "import_module",
-    "getattr", "setattr", "delattr", "globals", "locals", "vars",
+    "delattr", "globals", "locals", "vars",
     "open", "input", "breakpoint", "memoryview", "help",
 })
+
+# ``getattr`` is NOT in the blanket denylist: legitimate model bundles need it -- CatBoost's own
+# ``__reduce__`` reconstructs via ``getattr(<catboost module>, "_setattr")``, so a blanket block makes
+# the framework unable to load its OWN CatBoost dumps. Its operand is always an object that already
+# passed ``find_class`` (the module/class allowlist), so the classic ``getattr(os, "system")`` gadget is
+# unreachable -- ``os`` never lands on the stack. The residual risk is introspection escalation through
+# dunder/code attributes (``__globals__`` -> module dict -> arbitrary callable); those attribute NAMES
+# are denied below while ordinary attribute access (incl. underscore-prefixed helpers like ``_setattr``)
+# is permitted via the restricted reconstructor.
+_DANGEROUS_GETATTR_ATTRS: frozenset = frozenset({
+    "__globals__", "__code__", "__closure__", "__func__", "__builtins__",
+    "__subclasses__", "__bases__", "__mro__", "__dict__", "__getattribute__",
+    "__reduce__", "__reduce_ex__", "__class__", "func_globals", "gi_frame",
+    "cr_frame", "f_globals", "f_locals", "f_builtins",
+})
+
+
+def _safe_getattr(obj, name, *default):
+    """Restricted ``getattr`` reconstructor for ``_SafeUnpickler``: refuses introspection-escalation
+    attribute names (``__globals__`` / ``__code__`` / ``__subclasses__`` / ...) that could walk from an
+    allowlisted object to an arbitrary callable. Plain attribute access (including underscore-prefixed
+    library helpers) is allowed because the operand itself already passed the module/class allowlist."""
+    if not isinstance(name, str) or name in _DANGEROUS_GETATTR_ATTRS:
+        raise dill.UnpicklingError(
+            f"Unsafe getattr blocked by _SafeUnpickler allowlist: getattr({type(obj).__name__}, {name!r})"
+        )
+    return getattr(obj, name, *default)
+
+
+def _safe_setattr(obj, name, value):
+    """Restricted ``setattr`` reconstructor for ``_SafeUnpickler``. CatBoost's ``__reduce__`` restores
+    estimator state via ``builtins.setattr``; like ``getattr`` its target object already passed the
+    allowlist, so the only residual risk is type-confusion through dunder attributes (``__class__`` /
+    ``__dict__`` / ``__bases__`` / ...). Those names are refused; ordinary attribute restoration is allowed."""
+    if not isinstance(name, str) or name in _DANGEROUS_GETATTR_ATTRS:
+        raise dill.UnpicklingError(
+            f"Unsafe setattr blocked by _SafeUnpickler allowlist: setattr({type(obj).__name__}, {name!r})"
+        )
+    setattr(obj, name, value)
 
 
 class _SafeUnpickler(dill.Unpickler):
@@ -273,6 +312,11 @@ class _SafeUnpickler(dill.Unpickler):
             raise dill.UnpicklingError(
                 f"Unsafe builtin blocked by _SafeUnpickler allowlist: {module}.{name}"
             )
+        # ``getattr`` / ``setattr`` are allowed but via restricted reconstructors (dangerous attr names denied).
+        if module in ("builtins", "__builtin__") and name == "getattr":
+            return _safe_getattr
+        if module in ("builtins", "__builtin__") and name == "setattr":
+            return _safe_setattr
         # Allow exact specific pairs.
         if (module, name) in _SAFE_SPECIFIC:
             return super().find_class(module, name)
