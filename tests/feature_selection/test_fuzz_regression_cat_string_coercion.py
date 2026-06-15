@@ -119,9 +119,14 @@ class TestMrmrFeStepNumericGuard:
 class TestMrmrOrphanRecipeReplay:
     """``_append_engineered`` must not crash when a recipe references an engineered
     source column that no surviving recipe produces (fit-time pruning dropped a
-    chained producer); it emits a NaN column instead of KeyError (fuzz c0094)."""
+    chained producer); it emits a neutral zero-variance column instead of KeyError
+    (fuzz c0094). The column width is fixed by ``get_feature_names_out`` so the
+    feature cannot be physically removed; a constant 0.0 carries no signal (so the
+    feature is "dropped" in effect) yet -- unlike a NaN placeholder, the prior
+    behaviour -- is accepted by every downstream estimator (LogisticRegression et al.
+    reject NaN), see ``_mrmr_validate_transform`` orphan-recipe handling."""
 
-    def test_orphan_recipe_emits_nan_not_keyerror(self):
+    def test_orphan_recipe_emits_neutral_zero_not_keyerror(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
@@ -130,7 +135,7 @@ class TestMrmrOrphanRecipeReplay:
         sel.feature_names_in_ = ["a", "b"]
         base = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
         # Recipe whose source 'cross_missing' is absent from X and produced by no
-        # other recipe -> unreconstructable. Must degrade to a NaN column.
+        # other recipe -> unreconstructable. Must degrade to a neutral zero column.
         orphan = EngineeredRecipe(
             name="modular_of_cross",
             kind="modular",
@@ -139,7 +144,10 @@ class TestMrmrOrphanRecipeReplay:
         )
         out = sel._append_engineered(base.copy(), base.copy(), [orphan])
         assert "modular_of_cross" in out.columns
-        assert out["modular_of_cross"].isna().all()
+        col = out["modular_of_cross"]
+        # No KeyError (the core contract) AND a finite, signal-free, estimator-safe column:
+        assert not col.isna().any(), "orphan replay must be NaN-free (NaN crashes NaN-rejecting estimators)"
+        assert (col == 0.0).all(), "orphan replay must be the neutral zero-variance column"
 
     def test_chained_recipe_replays_out_of_order(self):
         """A consumer recorded BEFORE its producer still replays (dependency-aware)."""
