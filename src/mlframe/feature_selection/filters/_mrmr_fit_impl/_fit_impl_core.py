@@ -6816,6 +6816,47 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _removed_set = set(_ca_removed)
         selected_vars = [v for v in selected_vars if cols[v] not in _removed_set]
 
+    # FAST-SEARCH STANDALONE CROSS-GROUP GATE PRUNE (2026-06-15). Under fe_fast_search the conditional-gate
+    # pre-pass appends gate_mask columns into the screening pool and the greedy can select a STANDALONE one;
+    # the FE-step cross-group prune cannot reach it (it filters prospective_additions, not selected_vars).
+    # Drop a selected standalone gate column iff its gate pair is CROSS-GROUP (no single clean ENGINEERED
+    # survivor jointly covers its raw sources) AND those sources are already covered by the clean survivors'
+    # union -- the spurious gate_mask__c__b on y=a**2/b+log(c)*sin(d) (c,b from the two different groups,
+    # both already in div(sqr(a),..)+mul(log(c),sin(d))). A genuine warped (c,d) carrier is WITHIN-pair (or
+    # embedded in a composite, not a standalone gate name) so it is KEPT. GATED on fe_fast_search ->
+    # exhaustive path untouched. Never empties the support (only drops a gate fully covered by survivors).
+    if bool(getattr(self, "fe_fast_search", False)) and len(selected_vars) and getattr(self, "_gate_col_src_vars_", None):
+        try:
+            import re as _re_sg
+            _gmap_sg = dict(self._gate_col_src_vars_)
+            _tok_sg = _re_sg.compile(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])")
+            _sel_names_sg = [cols[v] for v in selected_vars]
+            # Clean engineered survivors = selected composites that are NOT a bare gate column and NOT raw.
+            _clean_tok_sets_sg = [
+                set(_tok_sg.findall(nm)) for nm in _sel_names_sg
+                if nm not in _gmap_sg and ("(" in nm) and ("gate_mask" not in nm)
+            ]
+            _clean_union_sg = set().union(*_clean_tok_sets_sg) if _clean_tok_sets_sg else set()
+            _drop_sg = set()
+            for nm in _sel_names_sg:
+                if nm not in _gmap_sg:
+                    continue  # only standalone bare gate columns
+                _src = set(str(s) for s in _gmap_sg.get(nm, ()))
+                if len(_src) < 2:
+                    continue
+                _within_one = any(_src <= _ts for _ts in _clean_tok_sets_sg)
+                if (not _within_one) and _src and _src <= _clean_union_sg:
+                    _drop_sg.add(nm)
+            if _drop_sg:
+                selected_vars = [v for v in selected_vars if cols[v] not in _drop_sg]
+                if getattr(self, "verbose", 0):
+                    logger.info(
+                        "MRMR FE fast-search: pruned %d standalone cross-group gate column(s) covered by "
+                        "clean engineered survivors: %s", len(_drop_sg), sorted(_drop_sg),
+                    )
+        except Exception as _sg_exc:
+            logger.warning("MRMR fast-search standalone-gate prune skipped (%s); continuing.", type(_sg_exc).__name__)
+
     # RAW-RETENTION (2026-06-03): re-add SCREENING-confirmed genuine raw features
     # that the post-FE re-selection dropped, UNLESS a SINGLE-PARENT engineered child
     # substitutes them (the prefer-engineered raw->transform swap, which is a
