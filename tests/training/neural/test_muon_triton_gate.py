@@ -41,6 +41,27 @@ def test_cpu_tensor_never_uses_triton():
     assert mtk.maybe_newton_schulz_triton(torch.randn(512, 512), steps=2) is None
 
 
+# Cache the one-shot "can this GPU actually EXECUTE the Triton kernel" probe. A CUDA error poisons the
+# context for the rest of the process, so we run the probe at most once.
+_TRITON_EXEC_PROBE: list = []
+
+
+def _triton_can_execute() -> tuple[bool, str]:
+    if _TRITON_EXEC_PROBE:
+        return _TRITON_EXEC_PROBE[0]
+    fn = mtk.get_triton_ns_fn()
+    result: tuple[bool, str]
+    try:
+        d = mtk._MIN_DIM_FOR_TRITON_NS
+        fn(torch.randn(d, d, device="cuda"), 2)
+        torch.cuda.synchronize()
+        result = (True, "")
+    except Exception as e:  # bf16 cublasGemmEx etc. on low-end Ada/Ampere laptop cards
+        result = (False, f"{type(e).__name__}: {str(e)[:120]}")
+    _TRITON_EXEC_PROBE.append(result)
+    return result
+
+
 def _require_ampere_gpu():
     if not torch.cuda.is_available():
         pytest.skip("needs a CUDA GPU")
@@ -48,6 +69,13 @@ def _require_ampere_gpu():
         pytest.skip("needs an Ampere+ (cc >= 8.0) GPU")
     if mtk.get_triton_ns_fn() is None:
         pytest.skip("Triton kernel did not compile on this host")
+    # Compilation != execution: low-end Ampere+/Ada laptop GPUs (cc >= 8.0) compile the kernel but its
+    # bf16 cublasGemmEx path raises CUBLAS_STATUS_INVALID_VALUE at runtime, so the gate correctly keeps
+    # them on eager and maybe_newton_schulz_triton returns None. The "Triton wins -> produces output"
+    # assertion is only meaningful on a card that can run the kernel; skip where it physically cannot.
+    ok, why = _triton_can_execute()
+    if not ok:
+        pytest.skip(f"Triton kernel compiles but cannot execute on this GPU ({why})")
 
 
 @pytest.mark.gpu

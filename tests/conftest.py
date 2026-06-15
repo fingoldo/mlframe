@@ -23,6 +23,23 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 # documented ``:4096:8`` workspace size (PyTorch CONTRIBUTING.md + NVIDIA cuBLAS docs).
 # Pre-set by operator wins (the alternative ``:16:8`` slot trades workspace for memory).
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+# Claim torch's CUDA (cuBLAS) context BEFORE any test imports mlframe (which pulls cupy + numba.cuda).
+# On some GPUs (observed: RTX 500 Ada laptop, CUDA 12.8) letting cupy AND numba.cuda establish the
+# device context first leaves torch's cublasSgemm raising CUBLAS_STATUS_INVALID_VALUE on EVERY matmul
+# for the rest of the process -- a one-way corruption, so a later warm-up cannot recover it. Done at
+# conftest import time (before collection imports mlframe) a tiny matmul claims torch's cublas handle
+# first and keeps it healthy regardless of later cupy/numba init order. Guarded so CPU-only runs
+# (CUDA_VISIBLE_DEVICES="") and no-torch / no-GPU hosts are unaffected; failures are non-fatal.
+if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
+    try:
+        import torch as _torch_warm
+        if _torch_warm.cuda.is_available():
+            _wm = _torch_warm.randn(8, 8, device="cuda")
+            _ = _wm @ _wm
+            _torch_warm.cuda.synchronize()
+            del _wm
+    except Exception:
+        pass
 # Headless tests MUST use the non-GUI Agg backend. The DSL render path renders each chart in a ThreadPoolExecutor
 # worker (render_and_save); under an interactive backend (TkAgg on a desktop) Tk calls from a non-main thread hang
 # ("main thread is not in main loop"), tripping the 60s render-thread timeout so EVERY chart is silently dropped --

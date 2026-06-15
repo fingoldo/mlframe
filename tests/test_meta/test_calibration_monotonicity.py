@@ -55,8 +55,13 @@ def test_isotonic_calibration_does_not_worsen_per_label_brier(n, k, miscal, seed
 
     p_miscal = np.clip(p_true + miscal, 1e-3, 1 - 1e-3)
 
+    # method="isotonic" is REQUIRED here: the Murphy-1973 "never worsens training Brier" guarantee is
+    # exact only for the free-form monotone isotonic fit. The calibrator now DEFAULTS to method="sigmoid"
+    # (a 2-parameter Platt fit that generalises better on held-out slices but, being parametric, can
+    # raise training Brier slightly on already-calibrated inputs), so this isotonic property test must
+    # request isotonic explicitly rather than rely on the default.
     cal = _PerClassIsotonicCalibrator.fit(
-        p_miscal, y, TargetTypes.MULTILABEL_CLASSIFICATION,
+        p_miscal, y, TargetTypes.MULTILABEL_CLASSIFICATION, method="isotonic",
     )
     calibrated = cal.predict_proba(p_miscal)
 
