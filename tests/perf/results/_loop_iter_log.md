@@ -3776,3 +3776,25 @@ So eliminating the redundant `_extract_base` saves ~0us; the cost is the `base.c
 **Verdict: REJECT — no clean, measurable e2e win; the only redundancy is zero-copy on the prod polars-float64 carrier, every other cost is mandatory vectorized numpy.** Honest measured reject as the surface saturates. Bench committed: `src/mlframe/training/composite/_benchmarks/bench_missing_aware_predict_iter133.py`.
 
 Streak: 2/100 (REJECT). **Cumulative loop wave: 101 RESOLVED, 34 REJECT across 133 iterations.**
+
+---
+
+## iter134 — REJECT (value_counts backend in compute_countaggs @10M; selection-altering on count ties + not prod shape)
+
+**Workload @10M (combo FREE).** Profiled a genuinely fresh, untapped full-n mlframe-own component: `compute_countaggs` (`feature_engineering/categorical.py:26`), the value-count-distribution FE aggregator. Its ONLY O(n) cost is line 54 `arr.value_counts(normalize=...)`; everything after operates on the small unique-value distribution.
+
+**Top mlframe-own frame / hotspot:** `pd.Series.value_counts(normalize=True)` — measured @10M:
+- int1k   (ncat=1000):    pandas **84.3 ms**   vs np.unique+sort 117.4 ms  → pandas WINS (hashtable beats O(n log n) sort at low card)
+- int100k (ncat=100000):  pandas **327.6 ms**  vs np.unique+sort **178.9 ms** → np WINS ~1.8x (pandas hashtable degrades at high card)
+
+**Lead:** swap to `np.unique(return_counts=True)` + descending argsort — a real ~1.8x isolated win, but ONLY at high cardinality (a detectable crossover).
+
+**REJECT — two independent reasons:**
+1. **Identity is selection-altering.** Downstream emits `top_value`/`btm_value` (`values[:top_n]`/`values[-top_n:]`) as feature values ranked by count. pandas (hashtable insertion order) and np.argsort (value order) break COUNT TIES differently. At high card the bottom region is dominated by singletons: in the 10M / 2M-unique probe, 67,230 values tied at the min count and the emitted `btm_value` diverged outright (pandas 1798070 vs np 1106159). That is a selection-altering divergence (NOT ~1e-9 FP) in exactly the high-card regime where np would win. Gate predicate ("no ties at the count extremes") is not cheaply satisfiable — singletons are the norm on high-card columns.
+2. **Not the prod shape.** Only callers (`_timeseries_emit.py:61/275`) invoke `compute_countaggs` on per-WINDOW sub-series (small), never a full 10M column — value_counts cost is already amortised over many tiny series.
+
+A/B: separate-process warm microbench (5-run median), real `pd.value_counts` baseline vs candidate np path; identity probe on tied-count bottom region. Bench committed: `src/mlframe/feature_engineering/_benchmarks/bench_countaggs_value_counts_iter134.py`.
+
+**Verdict: REJECT.** Honest measured reject — the perf surface remains saturated; the one real isolated win is identity-unsafe (selection-altering on ties) and outside the production call shape.
+
+Streak: 3/100 (REJECT). **Cumulative loop wave: 101 RESOLVED, 35 REJECT across 134 iterations.**
