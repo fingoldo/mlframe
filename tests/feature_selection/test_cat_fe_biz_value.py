@@ -155,6 +155,11 @@ def test_biz_cat_fe_disabled_recovers_no_synergy(xor_4way_dataset):
         full_npermutations=2, baseline_npermutations=2,
         verbose=0, n_jobs=1,
         cat_fe_config=CatFEConfig(enable=False),  # explicit legacy opt-in
+        # The XOR fixture is integer-categorical, so the SEPARATE default-on integer-lattice /
+        # pairwise-modular FE families (own generators + own coverage) fire and emit e.g. il_lcm --
+        # orthogonal to the CAT-FE disable contract this test pins. Disable them so the assertion
+        # isolates "cat-FE disabled -> cat-FE itself produces nothing" (2026-06-15).
+        fe_integer_lattice_enable=False, fe_pairwise_modular_enable=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

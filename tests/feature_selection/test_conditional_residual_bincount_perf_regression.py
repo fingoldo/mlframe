@@ -37,18 +37,23 @@ def _make_df(n: int = 5000) -> tuple[pd.DataFrame, list[str]]:
     return pd.DataFrame(data), cols
 
 
-def test_conditional_residual_generate_does_not_use_np_add_at(monkeypatch):
+def test_conditional_residual_generate_uses_bincount_not_add_at(monkeypatch):
+    # np.add.at is a ufunc METHOD and is READ-ONLY in current numpy -- it cannot be monkeypatched
+    # (setattr raises "'numpy.ufunc' object attribute 'at' is read-only"). Pin the iter111 rewrite by its
+    # POSITIVE signal instead: np.bincount IS used (it replaced the per-pair np.add.at scatter, 2 calls
+    # per pair). Bit-identical accumulation is pinned by the reference test below; together they guarantee
+    # the scatter-free bincount path. A regression back to np.add.at would drop bincount usage to zero here.
     calls = {"n": 0}
-    orig = np.add.at
+    orig = np.bincount
 
     def spy(*args, **kwargs):
         calls["n"] += 1
         return orig(*args, **kwargs)
 
-    monkeypatch.setattr(np.add, "at", spy)
+    monkeypatch.setattr(np, "bincount", spy)
     X, cols = _make_df()
     generate_conditional_residual_features(X, cols, n_bins=10)
-    assert calls["n"] == 0, "generate must not use np.add.at after the bincount rewrite"
+    assert calls["n"] > 0, "generate must use np.bincount (the iter111 scatter-free accumulation)"
 
 
 def test_conditional_residual_generate_bit_identical_to_add_at_reference():
