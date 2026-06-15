@@ -23,7 +23,7 @@ import numpy as np
 import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS
-from ._calibration_plot import fast_calibration_binning
+from ._calibration_plot import _fast_calibration_binning_serial
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -166,7 +166,8 @@ def compute_ece_and_brier_decomposition(
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
-    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
+    freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
         print(freqs_predicted, freqs_true)
     return calibration_metrics_from_freqs(

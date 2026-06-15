@@ -3827,3 +3827,27 @@ Root cause: `_predict_fn` (`reporting/charts/pdp_ice.py:56`) treats ANY callable
 **Verdict: RESOLVED.** A fresh-surface orchestration/diagnostics-glue correctness bug: regression PDP/ICE + KernelSHAP diagnostics were silently never produced (and burned per-model traceback-formatting work) for any regression model trained through the early-stopping wrapper — the default regression path. Fixed both call sites + pinned both.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 102 RESOLVED, 35 REJECT across 135 iterations.**
+
+## iter136 — RESOLVED (SUITE-ORCHESTRATION/REPORTING: `fast_calibration_metrics` njit-broken → silently aborts the entire metric-kernel prewarm)
+
+Continued on the iter135 FRESH surface: training-SUITE orchestration + reporting/diagnostics glue (leaf numeric kernels saturated). **Scale: n=5000, ridge-only suite** (RAM-fittable; ridge keeps external CatBoost/LightGBM `.fit` OUT of the profile so the suite glue + reporting/diagnostics layer dominates), full train+predict+save+load via the conftest-style import-order harness (`import scipy.stats; import numba; sys.modules['cupy']=None`) so the cold `mlframe.training.core` import does not segfault on py3.14. Reused harness `tests/perf/_iter135_suite_orchestration.py`.
+
+**cProfile top mlframe-own frames (external LightGBM `engine.py:109(train)` excluded per the "skip external-fit" rule):** the profile is dominated by matplotlib/plotly rendering glue (`basic.py:4092(update)` 1.07s — confirmed via `print_callers` to be LightGBM `engine.py:train`, i.e. external `.fit`, NOT mlframe; `ft2font.set_text` 0.82s; `text.py:_get_layout` 6.0s cum). The iter135 `diagnostics_dispatch: pdp_ice/shap failed` per-model smell is GONE (iter135 fix held). No further swallowed `diagnostics_dispatch` failures on the default regression/ES path.
+
+**The real finding — a CAUGHT-AND-DISCARDED orchestration bug surfaced in the suite stderr:** `[dummy-baselines] metric kernel pre-warmup failed (TypingError: Failed in nopython mode pipeline ...)` logged once per suite. Root cause: `metrics/calibration/_calibration_metrics.py:168` `fast_calibration_metrics` is `@numba.njit` but calls `fast_calibration_binning` — a plain-Python **size dispatcher** (`_calibration_plot.py:179`, picks serial vs prange njit kernel by `len(y_pred)`), NOT an njit kernel. Referencing a non-njit global from inside a nopython body fails type inference: `Untyped global name 'fast_calibration_binning': Cannot determine Numba type of <class 'function'>`. Two consequences:
+1. **The public `fast_calibration_metrics` API was completely broken** — re-exported from `mlframe.metrics.core` + `metrics.calibration`, ANY user call raised `TypingError`.
+2. **It single-handedly ABORTED `prewarm_numba_cache`**: the broken call sits in the first UN-guarded `for dtype` loop (`_core_numba_warmup.py:191`), so the TypingError propagated and every one of the ~480-line warmup body's remaining kernels (calibration inner kernels, all `_par` variants, fs/dummy/ranking kernels, heavy-lib imports) NEVER compiled. The entire on-disk numba-cache pre-warm — whose explicit purpose is to populate `__pycache__/*.nbc` for ALL subsequent processes/models — was fully defeated, paid 0 benefit, and logged a per-suite failure.
+
+**Fix (bit-identical):** `fast_calibration_metrics` now calls the serial njit kernel `_fast_calibration_binning_serial` directly (the natural njit-callable choice for this one-shot small-n convenience wrapper). Output is bit-identical to the dispatcher path at n below the prange threshold.
+
+**A/B + identity:** post-fix `fast_calibration_metrics(y_true,y_pred,nbins=10)` returns `(0.2222…, 0.13146…, 0.9)`, EXACTLY `== ` the public-dispatcher path (`fast_calibration_binning` + `calibration_metrics_from_freqs`). Pre-fix verified RED: the `HEAD:` version of `_calibration_metrics.py` loaded into a real temp file (so numba can locate+cache) raises `TypingError` on the same call. Post-fix the suite now logs `[dummy-baselines] metric kernel cache pre-warmed in 15.64s` (success) where it previously logged `pre-warmup failed`.
+
+**Regression tests (fail pre-fix, pass post-fix, verified):** `tests/metrics/test_fast_calibration_metrics_njit_callable.py`
+- `test_fast_calibration_metrics_is_njit_callable_and_matches_dispatcher` — runs (pre-fix raised TypingError) + asserts `== ` dispatcher path.
+- `test_prewarm_numba_cache_completes_without_aborting` — prewarm runs to completion (pre-fix aborted at the broken call).
+
+Broader calibration+prewarm suite (`test_calibration_binning_prange_iter128` + `test_prewarm_bool_dtype` + `test_tier2_metrics` + new file): 34 passed.
+
+**Verdict: RESOLVED.** A fresh-surface orchestration/diagnostics-glue correctness bug: a public metric API (`fast_calibration_metrics`) was numba-broken AND its broken call aborted the whole suite metric-kernel prewarm, silently defeating the on-disk JIT-cache optimization for every subsequent process. Fixed the njit call + pinned with two regression tests.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 103 RESOLVED, 35 REJECT across 136 iterations.**
