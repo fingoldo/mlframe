@@ -630,10 +630,22 @@ def evaluate_candidate(
             # var's redundancy against the candidate, so a feature fully redundant with the
             # most-recently-selected var could survive. For order >= 2 evaluate from scratch (re-min over
             # ALL combinations incl. the new ones); order == 1 keeps the byte-identical resume optimisation.
-            if max_veteranes_interactions_order < 2 and cand_idx in partial_gains:
-                current_gain, last_checked_k = partial_gains[cand_idx]
-                if best_gain is not None and (current_gain <= best_gain):
-                    return current_gain, sink_reasons
+            if cand_idx in partial_gains:
+                _stored_gain, _stored_k = partial_gains[cand_idx]
+                # EARLY-EXIT is safe at ANY interactions_order: the stored partial gain is a running MIN
+                # over the combinations checked so far, so the FINAL gain (min over MORE combinations) can
+                # only be <= it. If the partial is already <= best_gain this candidate cannot win -> return.
+                if best_gain is not None and (_stored_gain <= best_gain):
+                    return _stored_gain, sink_reasons
+                # RESUME (continue from last_checked_k) is only valid at order < 2, where a newly-selected
+                # var APPENDS at the tail of the combination sequence. At order >= 2 the new singleton
+                # inserts in the MIDDLE, so a stale last_checked_k would skip measuring its redundancy
+                # against the candidate -> re-evaluate from scratch (re-min over ALL combinations).
+                if max_veteranes_interactions_order < 2:
+                    current_gain, last_checked_k = _stored_gain, _stored_k
+                else:
+                    current_gain = LARGE_CONST
+                    last_checked_k = -1
             else:
                 current_gain = LARGE_CONST
                 last_checked_k = -1
