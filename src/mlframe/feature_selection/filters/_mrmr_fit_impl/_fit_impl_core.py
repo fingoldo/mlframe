@@ -4641,6 +4641,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
                 _rc_cols = [c for c in _rc_cols if c in X.columns] or None
                 _X_before_rc_cols = list(X.columns)
+                _rc_raw_floor = X[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
                 X_rc, _rc_appended, _rc_recipes, _ = hybrid_rare_category_fe(
                     X, _y_for_rc,
                     cat_cols=_rc_cols,
@@ -4651,6 +4652,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_rc_reject_sink,
+                    raw_floor_X=_rc_raw_floor,
                 )
                 _rc_appended = [
                     c for c in _rc_appended if c not in _X_before_rc_cols
@@ -4716,6 +4718,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cr_raw = set(_raw_input_cols_pre_fe)
                     _cr_cols = [c for c in X.columns if c in _cr_raw] or None
                 _X_before_cr_cols = list(X.columns)
+                _cr_raw_floor = X[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
                 X_cr, _cr_appended, _cr_recipes, _ = hybrid_conditional_residual_fe(
                     X, _y_for_cr,
                     num_cols=_cr_cols,
@@ -4727,6 +4730,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_cr_reject_sink,
+                    raw_floor_X=_cr_raw_floor,
                 )
                 _cr_appended = [
                     c for c in _cr_appended if c not in _X_before_cr_cols

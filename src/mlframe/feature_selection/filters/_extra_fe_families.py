@@ -333,12 +333,18 @@ def hybrid_rare_category_fe(
     mi_gate: bool = True,
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    raw_floor_X: Optional[pd.DataFrame] = None,
 ):
     """End-to-end rare-category FE: materialise is_rare / freq_band columns,
     MI-gate against the raw-baseline noise floor (Layer 91), keep top ``top_k``.
 
     Returns ``(X_aug, appended, recipes, scores)``. ``y`` is consumed only by
     the MI gate; recipes carry no ``y`` reference -> leak-safe replay.
+
+    ``raw_floor_X`` is the frame whose numeric columns anchor the local-MI noise
+    floor; it MUST contain only RAW inputs (never engineered intermediates) per the
+    Layer-90 lesson, else earlier FE families' engineered columns inflate the floor
+    and suppress this family. Defaults to ``X`` for standalone callers whose X is raw.
     """
     if not isinstance(X, pd.DataFrame):
         raise TypeError(
@@ -362,7 +368,7 @@ def hybrid_rare_category_fe(
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
         winners = local_mi_gate(
-            enc_df, y, raw_X=X,
+            enc_df, y, raw_X=(raw_floor_X if raw_floor_X is not None else X),
             top_k=int(mi_gate_top_k) if mi_gate_top_k else int(top_k),
             reject_sink=reject_sink,
         )
@@ -606,6 +612,7 @@ def hybrid_conditional_residual_fe(
     mi_gate: bool = True,
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    raw_floor_X: Optional[pd.DataFrame] = None,
 ):
     """End-to-end conditional-residual FE: bound the column set by top raw-MI
     (cardinality bound on the O(p^2) pair pool), materialise residuals, MI-gate
@@ -613,6 +620,11 @@ def hybrid_conditional_residual_fe(
 
     Returns ``(X_aug, appended, recipes, scores)``. ``y`` is consumed only by
     the column-ranking + MI gate; recipes carry no ``y`` reference -> leak-safe.
+
+    ``raw_floor_X`` is the frame whose numeric columns anchor the local-MI noise
+    floor; it MUST contain only RAW inputs (never engineered intermediates) per the
+    Layer-90 lesson, else earlier FE families' engineered columns inflate the floor
+    and suppress this family. Defaults to ``X`` for standalone callers whose X is raw.
     """
     if not isinstance(X, pd.DataFrame):
         raise TypeError(
@@ -648,7 +660,7 @@ def hybrid_conditional_residual_fe(
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
         winners = local_mi_gate(
-            enc_df, y, raw_X=X,
+            enc_df, y, raw_X=(raw_floor_X if raw_floor_X is not None else X),
             top_k=int(mi_gate_top_k) if mi_gate_top_k else int(top_k),
             reject_sink=reject_sink,
         )

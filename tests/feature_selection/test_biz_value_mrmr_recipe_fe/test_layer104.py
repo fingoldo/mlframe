@@ -477,6 +477,33 @@ class TestDefaultDisabledByteIdentical:
         m.fit(X, pd.Series(y, name="y"))
         assert len(list(getattr(m, "conditional_residual_features_", []) or [])) >= 1
 
+    def test_local_mi_floor_anchored_on_raw_not_engineered_pool(self):
+        # Regression sensor for the raw_floor_X contract: the local-MI noise floor
+        # MUST anchor on RAW inputs only. Inside MRMR, X is already augmented with
+        # earlier FE families' engineered columns; passing that wide X as the floor
+        # baseline inflated med+k*MAD and suppressed genuine conditional-residual
+        # columns. The wide frame here carries strong engineered signal columns that
+        # lift the polluted floor above the residual MI; the raw-anchored floor
+        # (raw_floor_X) keeps the survivors, the polluted one drops them.
+        from mlframe.feature_selection.filters._extra_fe_families import (
+            hybrid_conditional_residual_fe,
+        )
+        X, y = _build_conditional_income(42, n=4000)
+        raw_only = X[["age", "income", "noise1", "noise2"]]
+        wide = raw_only.copy()
+        rng = np.random.default_rng(0)
+        for j in range(6):
+            wide[f"eng_strong{j}"] = y.astype(float) + rng.normal(0.0, 0.25, len(X))
+        _, app_wide, _, _ = hybrid_conditional_residual_fe(
+            wide, y, num_cols=["age", "income"], n_bins=10, top_k=4, mi_gate=True,
+        )
+        _, app_raw, _, _ = hybrid_conditional_residual_fe(
+            wide, y, num_cols=["age", "income"], n_bins=10, top_k=4,
+            mi_gate=True, raw_floor_X=raw_only,
+        )
+        assert not app_wide, "engineered-polluted floor self-suppresses (the bug)"
+        assert app_raw, "raw-anchored floor must keep conditional-residual survivors"
+
     def test_mrmr_rankgauss_enabled_adds_columns(self):
         # As with the rare-category sibling above, the default-on general-FE
         # competitors (univariate basis/Fourier + the pair-FE step) independently
