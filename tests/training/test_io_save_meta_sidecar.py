@@ -245,3 +245,57 @@ def test_collect_lib_versions_does_not_load_uninstalled_heavy_dep(monkeypatch):
         "pre-fix __import__('torch') would force-load torch; post-fix must read "
         "metadata only and leave torch out of sys.modules"
     )
+
+
+def test_collect_lib_versions_memoised_avoids_metadata_reparse(monkeypatch):
+    """``_collect_lib_versions`` re-parsed ~15 RFC822 METADATA files via
+    ``importlib.metadata.version`` on EVERY save AND every load (~10 ms/call --
+    ~83% of a small-bundle load wall). Installed metadata is immutable for the
+    process lifetime, so the result is memoised per ``_LIB_VERSION_DISTS``
+    identity. This pins: the second call does NOT hit ``importlib.metadata.version``.
+
+    Fail-on-pre-fix: pre-fix code called ``_md.version`` once per dist on every
+    invocation, so the call counter would be > the dist-list length after two
+    calls; post-fix the second call is served from the memo and adds nothing.
+    """
+    from importlib import metadata as _md
+    from mlframe.training import io as _io
+
+    _io._lib_versions_cache_clear()
+    calls = {"n": 0}
+    _real = _md.version
+
+    def _counting_version(name):
+        calls["n"] += 1
+        return _real(name)
+
+    monkeypatch.setattr(_md, "version", _counting_version)
+
+    first = _io._collect_lib_versions()
+    after_first = calls["n"]
+    assert after_first > 0, "first call must consult importlib.metadata"
+    second = _io._collect_lib_versions()
+    assert calls["n"] == after_first, (
+        "second call must be served from the memo without re-parsing METADATA "
+        f"(saw {calls['n'] - after_first} extra importlib.metadata.version calls)"
+    )
+    assert first == second
+    # Callers may mutate the returned dict; the memo must be insulated.
+    second["__scratch__"] = "x"
+    assert "__scratch__" not in _io._collect_lib_versions()
+
+
+def test_collect_lib_versions_memo_respects_dist_list_swap(monkeypatch):
+    """The memo is keyed on ``_LIB_VERSION_DISTS`` identity, so a test that
+    monkeypatches a different dist tuple recomputes (no stale memo leakage)."""
+    from mlframe.training import io as _io
+
+    _io._lib_versions_cache_clear()
+    base = _io._collect_lib_versions()
+    assert "numpy" in base
+    # Swap to a one-entry list -> new tuple identity -> memo miss -> recompute.
+    monkeypatch.setattr(_io, "_LIB_VERSION_DISTS", (("numpy", "numpy"),))
+    swapped = _io._collect_lib_versions()
+    assert set(swapped) == {"numpy"}, (
+        f"memo must recompute for a swapped dist list; got {sorted(swapped)}"
+    )

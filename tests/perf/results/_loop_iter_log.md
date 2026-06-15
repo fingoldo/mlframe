@@ -3965,3 +3965,29 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 107 RESOLVED, 36 REJECT a
 **GPU-dispatcher surface status:** with `dispatch_batch_pair_mi` (139), `plugin_mi_classif_dispatch` (140), `joint_hist_batched` (141), and now `polyeval_dispatch` (142) all validated/recalibrated on this RTX 500 Ada, the major GPU dispatchers are now covered. Remaining GPU paths are `mi_direct_gpu` single-column (shares joint_hist machinery already tuned in 141) and `friend_graph_gpu` (DO NOT TOUCH — known cupy hang). **The GPU-dispatcher surface is essentially exhausted; the loop should pivot to a different surface next iter.**
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 108 RESOLVED, 36 REJECT across 142 iterations.**
+
+## iter143 — SAVE/LOAD I/O surface (PIVOT): version-sidecar `_collect_lib_versions` re-parsed ~15 METADATA files on EVERY save AND load — RESOLVED
+
+**Surface/scale:** model SAVE + LOAD / serialization I/O path (`mlframe/training/io.py`) — fresh surface, never previously the optimization target (GPU dispatchers exhausted after 139–142; leaf-kernels/orchestration saturated). Profiled `save_mlframe_model` + `load_mlframe_model` on a representative fitted bundle: SimpleNamespace(RandomForestRegressor 50×depth8, per-split preds/target/oof float32 arrays, feature_names, metrics) at n=5000; bundle ~394 KB on disk. Env CUDA_VISIBLE_DEVICES="" + `sys.modules['cupy']=None`.
+
+**Top mlframe-own frames (cProfile, 30 iters each):** BOTH legs dominated by `email/feedparser.py` (RFC822 parse) + `importlib/metadata` — NOT the pickle/zstd. On LOAD the actual `Unpickler.load` was ~0.064s cumulative while the metadata walk was ~0.35s+ (>80% of load wall). Root cause: `_collect_lib_versions()` calls `importlib.metadata.version()` for all ~15 dists in `_LIB_VERSION_DISTS`, each parsing a package METADATA file (email format). Called once per SAVE (`_write_save_meta_sidecar`) AND once per LOAD (`validate_load_meta_sidecar` reads live versions). Isolated cost ~9–10 ms/call.
+
+**Hotspot/bug:** installed-package metadata is IMMUTABLE for a process lifetime, yet it was re-parsed on every single save/load — pure waste. Classic "cache cheap-to-rebuild artefact" miss.
+
+**Fix:** memoise `_collect_lib_versions()` per `id(_LIB_VERSION_DISTS)` (`_LIB_VERSIONS_CACHE`). Keying on the dist-tuple identity (a module constant) keeps the cache correct under tests that `monkeypatch.setattr` a different dist tuple (new identity → recompute) with no explicit clear. Returns a fresh `dict(...)` copy so callers can mutate freely. Added `_lib_versions_cache_clear()` helper. No `__getstate__` change needed (the cache is a module-level dict, never part of any pickled object — no pickle-leak risk).
+
+**Measured (warm best-of-20, median; small RF bundle):**
+- SAVE: 24.89 → 14.33 ms (**1.74x**, −42%)
+- LOAD (cache-cleared each call): 11.26 → 1.78 ms (**6.3x**, −84%)
+
+**Separate-process A/B vs real baseline (`git show HEAD:io.py` shim):** OLD SAVE 23.64 / LOAD 10.20 ms; NEW SAVE 14.22 / LOAD 1.74 ms → 1.66x save, 5.9x load. Sign robust.
+
+**Round-trip identity:** byte-identical — `np.array_equal` on test_preds, `==` on feature_names/metrics, `pickle.dumps(model.predict(X))` equal pre/post; sidecar `lib_versions` content unchanged (same 15 keys). Pure caching, zero output change.
+
+**Regression test:** `tests/training/test_io_save_meta_sidecar.py::test_collect_lib_versions_memoised_avoids_metadata_reparse` (counts `importlib.metadata.version` calls; asserts second call adds zero) + `::test_collect_lib_versions_memo_respects_dist_list_swap` (memo recomputes on a monkeypatched dist tuple). Pre-fix verified FAIL: baseline `_collect_lib_versions` second-call delta = 16 (re-parses all dists), and lacks `_lib_versions_cache_clear`. Post-fix delta = 0.
+
+**Tests green:** 72 passed / 2 env-skips across the io + sidecar + SafeUnpickler-RCE + functools-partial + multi-output-roundtrip + shim-version-stamp + security-io + zstandard-no-flush + load-model-LRU suites.
+
+**Verdict: RESOLVED.** First SAVE/LOAD-surface iteration found a genuine hotspot the "profile full pipeline incl save+load" rule had stamped through without ever optimizing the save/load leg itself: a per-call metadata re-parse dominating both legs. ~1.7x save / ~6x load recovered, byte-identical. Note: the win scales inversely with bundle size — on a small bundle the fixed ~20 ms metadata cost is most of the wall; on a fat CatBoost bundle the pickle/zstd dominates and the relative win shrinks, but the absolute ~18 ms/save+load saving is constant and free. **SAVE/LOAD surface is NOT yet exhausted** — the email/feedparser cost is now gone, but the next profile should re-examine whether sidecar SHA-256 reopen + the pre-pickle `pympler.asizeof` precheck are worth re-bisecting now that the metadata noise is removed.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 109 RESOLVED, 36 REJECT across 143 iterations.**
