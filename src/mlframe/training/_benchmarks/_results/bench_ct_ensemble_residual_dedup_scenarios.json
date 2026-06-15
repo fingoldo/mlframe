@@ -1,0 +1,268 @@
+{
+  "bench": "ct_ensemble_residual_dedup_scenarios",
+  "decision_default": "OFF",
+  "scenarios": {
+    "mean_dup": {
+      "cfg": {
+        "jitter": 0.02,
+        "n_dup": 4,
+        "strategy": "mean"
+      },
+      "dedup_wins": 0,
+      "mean_rmse_dedup": 1.4896768455123177,
+      "mean_rmse_full": 1.4486676894031283,
+      "rows": [
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4514214872119329,
+          "rmse_full": 1.405003496853418,
+          "seed": 0
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.469689202100726,
+          "rmse_full": 1.4164521038564415,
+          "seed": 1
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4822346748717425,
+          "rmse_full": 1.4622626719009586,
+          "seed": 2
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4967549452033015,
+          "rmse_full": 1.4438145954759527,
+          "seed": 3
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4826731888447238,
+          "rmse_full": 1.4556090490806441,
+          "seed": 4
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4915605130510117,
+          "rmse_full": 1.442997438711957,
+          "seed": 5
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.5190490381712716,
+          "rmse_full": 1.4663751843544508,
+          "seed": 6
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4914474330155914,
+          "rmse_full": 1.4687989433086728,
+          "seed": 7
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.4956977227786363,
+          "rmse_full": 1.4527379496955197,
+          "seed": 8
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.5162402498742402,
+          "rmse_full": 1.4726254607932683,
+          "seed": 9
+        }
+      ],
+      "verdict": "OFF"
+    },
+    "nnls_dup": {
+      "cfg": {
+        "jitter": 0.02,
+        "n_dup": 4,
+        "strategy": "nnls"
+      },
+      "dedup_wins": 1,
+      "mean_rmse_dedup": 1.3045930890275792,
+      "mean_rmse_full": 1.3045376241663587,
+      "rows": [
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.2756994369692956,
+          "rmse_full": 1.2756994369692956,
+          "seed": 0
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.280995665367733,
+          "rmse_full": 1.280928651419048,
+          "seed": 1
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.3021608231933826,
+          "rmse_full": 1.3019078154878345,
+          "seed": 2
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.2968098178809961,
+          "rmse_full": 1.296591908838816,
+          "seed": 3
+        },
+        {
+          "dedup_wins": true,
+          "n_dropped": 4,
+          "rmse_dedup": 1.3219270786848918,
+          "rmse_full": 1.3221019889918766,
+          "seed": 4
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.3112377301138447,
+          "rmse_full": 1.3112377301138447,
+          "seed": 5
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.31628821822323,
+          "rmse_full": 1.31628821822323,
+          "seed": 6
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.3163250228319847,
+          "rmse_full": 1.3163250228319847,
+          "seed": 7
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.2955884109300246,
+          "rmse_full": 1.2955462003964604,
+          "seed": 8
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 4,
+          "rmse_dedup": 1.3288986860804068,
+          "rmse_full": 1.3287492683911957,
+          "seed": 9
+        }
+      ],
+      "verdict": "OFF"
+    },
+    "nnls_tight": {
+      "cfg": {
+        "jitter": 0.005,
+        "n_dup": 8,
+        "strategy": "nnls"
+      },
+      "dedup_wins": 1,
+      "mean_rmse_dedup": 1.30452932371649,
+      "mean_rmse_full": 1.3045174365583045,
+      "rows": [
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.2755844174319302,
+          "rmse_full": 1.2755844174319302,
+          "seed": 0
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.2808281460061952,
+          "rmse_full": 1.2808144096194043,
+          "seed": 1
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.3021586421062437,
+          "rmse_full": 1.3020955095648008,
+          "seed": 2
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.2966234758010757,
+          "rmse_full": 1.2966135695989705,
+          "seed": 3
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.3218437055841663,
+          "rmse_full": 1.3218437055841663,
+          "seed": 4
+        },
+        {
+          "dedup_wins": true,
+          "n_dropped": 8,
+          "rmse_dedup": 1.3112075220651127,
+          "rmse_full": 1.3112801662959517,
+          "seed": 5
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.3162334161563976,
+          "rmse_full": 1.3162334161563973,
+          "seed": 6
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.3164430923076382,
+          "rmse_full": 1.3164430923076382,
+          "seed": 7
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.2955767314490585,
+          "rmse_full": 1.2955667564746238,
+          "seed": 8
+        },
+        {
+          "dedup_wins": false,
+          "n_dropped": 8,
+          "rmse_dedup": 1.3287940882570846,
+          "rmse_full": 1.3286993225491621,
+          "seed": 9
+        }
+      ],
+      "verdict": "OFF"
+    }
+  },
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "timestamp": "2026-06-15T23:42:09"
+}
