@@ -174,14 +174,16 @@ def test_biz_val_waic_ranks_generalising_transform_over_overfit_when_mi_ties():
     assert margin >= 0.2, (margin, scores["A"], scores["B"])
 
 
-def test_biz_val_waic_config_flag_default_off():
+def test_biz_val_waic_config_flag_default_on():
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
+    # The flag now defaults ON: the tiny-rerank folds WAIC into its ordering as a strict tie-break (re-ranks only
+    # RMSE-noise-band-tied specs, never overrides a real RMSE difference), so the more-accurate path ships as default.
     cfg = CompositeTargetDiscoveryConfig()
-    assert cfg.transform_waic_validation_enabled is False
+    assert cfg.transform_waic_validation_enabled is True
     assert cfg.transform_waic_n_folds == 4
-    cfg2 = CompositeTargetDiscoveryConfig(transform_waic_validation_enabled=True)
-    assert cfg2.transform_waic_validation_enabled is True
+    cfg2 = CompositeTargetDiscoveryConfig(transform_waic_validation_enabled=False)
+    assert cfg2.transform_waic_validation_enabled is False
 
 
 if __name__ == "__main__":  # pragma: no cover
