@@ -76,7 +76,15 @@ def test_composite_fe_support_is_never_empty(seed):
 
 @pytest.mark.parametrize("seed", COLLAPSE_SEEDS)
 def test_composite_fe_retains_strongest_signal(seed):
-    """Fix B (deferred): the strongest raw signal x1 must survive composite FE -- as raw x1 or an x1-derived column.
+    """Fix B (IMPLEMENTED 2026-06-16): the strongest raw signal x1 must survive composite FE -- as raw x1 or an x1-derived column.
+
+    FIXED by the raw-feature floor-drop protection (``_fit_impl_core`` near the hinge/orth protection blocks):
+    the Westfall-Young maxT relevance floor, computed over the wide all-FE-on candidate pool, floored x1 out;
+    rather than lower the floor (which would admit high-card raw noise like the 50-level cat_b), the protection
+    re-adds a screen-dropped raw IFF it lifts a held-out linear fit over the already-selected design. seed=0 now
+    selects [x1,x2,x3,group_id,cat_a,cat_a__te_std]; cat_b stays out; CASE1 clean recovery intact.
+
+    Historical root-cause (kept for context):
 
     CONFIRMED seed=0 root-cause (2026-06-15, n=3000, nbins=10; instrumented, not hypothesised):
       * x1's binned MI = 0.0572 and is PRESENT in ``cached_MIs`` (singleton key) at fit time -- ~30x above noise
