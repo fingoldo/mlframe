@@ -226,3 +226,98 @@ def test_biz_val_composite_discovery_fallback_raw_on_pure_noise():
     drops = disc.filter_drops()
     assert isinstance(specs, list)
     assert drops is None or isinstance(drops, (list, dict))
+
+
+def _multibase_holdout_rmse(scenario, thr, seed, n=3000):
+    """Run the multi-base forward-stepwise gate (TRAIN only) at the given marginal-gain threshold, fit the joint-OLS composite target, train LGBM on it, and score the inverted prediction on a DISJOINT holdout the gate never saw. Returns (holdout_rmse, n_bases_kept). Leakage-safe by construction."""
+    import lightgbm as lgb
+
+    from mlframe.training.composite.discovery.forward_stepwise import forward_stepwise_multi_base
+    from mlframe.training.composite.transforms.linear import (
+        _linear_residual_multi_fit,
+        _linear_residual_multi_inverse,
+    )
+
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, 6))
+    b_strong = rng.normal(size=n) * 3.0
+    b_medium = rng.normal(size=n) * 1.2
+    b_weak = rng.normal(size=n) * 0.45
+    b_decoy = rng.normal(size=n) * 0.15
+    if scenario == "three_real_bases":
+        feat = 2.0 * X[:, 0] + 1.0 * np.tanh(X[:, 1]) + 0.7 * X[:, 2] * X[:, 3]
+        y = feat + b_strong + b_medium + b_weak + 0.02 * b_decoy + rng.normal(size=n) * 0.6
+    elif scenario == "one_dominant_plus_decoys":
+        feat = 2.2 * X[:, 0] - 1.1 * X[:, 1] + 0.6 * np.sin(X[:, 4])
+        y = feat + b_strong + rng.normal(size=n) * 0.6
+    else:
+        raise ValueError(scenario)
+    base_cols = {"b_strong": b_strong, "b_medium": b_medium, "b_weak": b_weak, "b_decoy": b_decoy}
+
+    n_tr = int(n * 0.6)
+    idx = rng.permutation(n)
+    tr, ho = idx[:n_tr], idx[n_tr:]
+    base_tr = {k: v[tr] for k, v in base_cols.items()}
+    base_ho = {k: v[ho] for k, v in base_cols.items()}
+    kept, _ = forward_stepwise_multi_base(
+        y[tr], base_tr, seed_bases=["b_strong"], max_k=4,
+        min_marginal_rmse_gain=thr, time_aware=False, random_state=seed,
+    )
+    bm_tr = np.column_stack([base_tr[c] for c in kept])
+    params = _linear_residual_multi_fit(y[tr], bm_tr)
+    alphas = np.asarray(params["alphas"], np.float64)
+    beta = float(params["beta"])
+    T_tr = y[tr] - (bm_tr @ alphas) - beta
+    model = lgb.LGBMRegressor(n_estimators=200, num_leaves=31, learning_rate=0.05, n_jobs=1, verbosity=-1, random_state=seed)
+    model.fit(X[tr], T_tr)
+    bm_ho = np.column_stack([base_ho[c] for c in kept])
+    y_hat = _linear_residual_multi_inverse(model.predict(X[ho]), bm_ho, params)
+    d = y_hat - y[ho]
+    return float(np.sqrt(np.mean(d * d))), len(kept)
+
+
+def test_biz_val_composite_discovery_multi_base_min_marginal_gain_default_is_0_005():
+    """The lever default must be 0.005 (qual-18 flip). A silent revert to the legacy 0.02 conservative gate is caught here."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    assert CompositeTargetDiscoveryConfig().multi_base_min_marginal_rmse_gain == 0.005
+
+
+def test_biz_val_composite_discovery_low_gain_gate_beats_legacy_on_additive_holdout():
+    """The 0.005 gate admits genuinely-helpful weak orthogonal bases the 0.02 gate leaves out; on a DISJOINT honest holdout this wins on a strong majority of seeds. Measured 10/10 seeds, ~16% holdout-RMSE win; floor here is a 6/7 majority + a >=5% mean improvement to absorb seed noise."""
+    seeds = list(range(11, 18))
+    wins = 0
+    new_rmses, old_rmses = [], []
+    for s in seeds:
+        r_new, k_new = _multibase_holdout_rmse("three_real_bases", 0.005, s)
+        r_old, _ = _multibase_holdout_rmse("three_real_bases", 0.02, s)
+        new_rmses.append(r_new)
+        old_rmses.append(r_old)
+        if r_new < r_old:
+            wins += 1
+        assert k_new >= 3, "0.005 gate should admit the weak real base (>=3 bases)"
+    assert wins >= 6, f"0.005 should beat 0.02 on a majority of seeds, got {wins}/{len(seeds)}"
+    mean_new, mean_old = float(np.mean(new_rmses)), float(np.mean(old_rmses))
+    assert mean_new <= mean_old * 0.95, f"0.005 mean holdout RMSE {mean_new:.4f} should be >=5% below 0.02's {mean_old:.4f}"
+
+
+def test_biz_val_composite_discovery_low_gain_gate_no_regression_on_dominant_base():
+    """On a single-dominant-base + noise-decoy DGP the lower 0.005 gate must NOT add the noise bases (the paired-fold majority gate rejects them independent of the relative threshold), so it ties the conservative 0.02 gate -- no honest-holdout regression. Measured exact ties; floor here is within 1% on the mean and <=1 base kept."""
+    seeds = list(range(11, 18))
+    new_rmses, old_rmses = [], []
+    for s in seeds:
+        r_new, k_new = _multibase_holdout_rmse("one_dominant_plus_decoys", 0.005, s)
+        r_old, _ = _multibase_holdout_rmse("one_dominant_plus_decoys", 0.02, s)
+        new_rmses.append(r_new)
+        old_rmses.append(r_old)
+        assert k_new <= 1, f"0.005 gate must reject noise decoy bases on a dominant-base DGP, kept {k_new}"
+    mean_new, mean_old = float(np.mean(new_rmses)), float(np.mean(old_rmses))
+    assert mean_new <= mean_old * 1.01, f"0.005 must not regress vs 0.02 on dominant-base DGP ({mean_new:.4f} vs {mean_old:.4f})"
+
+
+def test_biz_val_composite_discovery_legacy_002_gate_still_reachable():
+    """The legacy 2% conservative gate stays reachable for replay / highly-correlated pools."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    cfg = CompositeTargetDiscoveryConfig(multi_base_min_marginal_rmse_gain=0.02)
+    assert cfg.multi_base_min_marginal_rmse_gain == 0.02

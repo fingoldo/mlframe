@@ -1,0 +1,26 @@
+{
+  "lever": "CompositeTargetDiscoveryConfig.multi_base_min_marginal_rmse_gain",
+  "old_default": 0.02,
+  "new_default": 0.005,
+  "method": "leakage-safe honest holdout: forward_stepwise_multi_base gate runs on TRAIN only (internal TimeSeriesSplit/KFold CV); joint-OLS composite target fit on TRAIN; LGBM trained on composite target; predictions inverted to y-scale and scored on a DISJOINT 40% holdout the gate never saw",
+  "n": 3000,
+  "seeds": [11,12,13,14,15,16,17,18,19,20],
+  "thresholds": [0.005, 0.01, 0.02, 0.05],
+  "holdout_rmse_mean": {
+    "three_real_bases":          {"0.005": 0.7363, "0.01": 0.7503, "0.02": 0.8749, "0.05": 0.8749},
+    "one_dominant_plus_decoys":  {"0.005": 0.6799, "0.01": 0.6799, "0.02": 0.6799, "0.05": 0.6799},
+    "graded_weak_real":          {"0.005": 0.6761, "0.01": 0.6982, "0.02": 0.7786, "0.05": 0.7786}
+  },
+  "mean_bases_kept": {
+    "three_real_bases":          {"0.005": 3.00, "0.01": 2.90, "0.02": 2.00},
+    "one_dominant_plus_decoys":  {"0.005": 1.00, "0.01": 1.00, "0.02": 1.00},
+    "graded_weak_real":          {"0.005": 3.00, "0.01": 2.80, "0.02": 2.00}
+  },
+  "pairwise_0005_vs_002": {
+    "three_real_bases":         {"better": 10, "ties": 0, "n": 10, "delta_mean": -0.1386},
+    "one_dominant_plus_decoys": {"better": 0,  "ties": 10, "n": 10, "delta_mean": 0.0000},
+    "graded_weak_real":         {"better": 10, "ties": 0, "n": 10, "delta_mean": -0.1024}
+  },
+  "verdict": "RESOLVED: flip 0.02 -> 0.005. 0.005 wins 20/20 non-tied seeds on additive multi-base DGPs (~16-19% honest-holdout RMSE) and exact-ties the dominant-base+noise-decoy DGP (paired-fold majority gate independently rejects noise bases regardless of the relative threshold => zero regression). Legacy 0.02 kept reachable; replay-safe via getattr fallback (pre-field pickles default to 0.02).",
+  "bench": "src/mlframe/training/composite/discovery/_benchmarks/bench_multibase_min_marginal_gain.py"
+}

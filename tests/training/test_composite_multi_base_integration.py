@@ -134,4 +134,4 @@ class TestConfigDefaults:
 
     def test_multi_base_min_marginal_rmse_gain_default(self) -> None:
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.multi_base_min_marginal_rmse_gain == 0.02
+        assert cfg.multi_base_min_marginal_rmse_gain == 0.005

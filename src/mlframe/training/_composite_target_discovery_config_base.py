@@ -109,10 +109,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
         ]
     )
 
-    # Multi-base forward-stepwise auto-promotion: after single-base discovery + raw-y gate + rerank, each kept linear_residual spec greedily ADDS bases from the auto-base pool, upgrading to ``linear_residual_multi`` when the marginal CV-RMSE gain clears ``multi_base_min_marginal_rmse_gain`` (2%). Default ON (benchmark: +83% geo-mean on additive DGPs, no-harm on single-dominant / collinear pools; ``benchmarks/composite_multi_base_benchmark.py``); set ``multi_base_enabled=False`` for highly-correlated pools / very small n_train.
+    # Multi-base forward-stepwise auto-promotion: after single-base discovery + raw-y gate + rerank, each kept linear_residual spec greedily ADDS bases from the auto-base pool, upgrading to ``linear_residual_multi`` when the marginal CV-RMSE gain clears ``multi_base_min_marginal_rmse_gain``. Default ON (benchmark: +83% geo-mean on additive DGPs, no-harm on single-dominant / collinear pools; ``benchmarks/composite_multi_base_benchmark.py``); set ``multi_base_enabled=False`` for highly-correlated pools / very small n_train.
     multi_base_enabled: bool = True
     multi_base_max_k: int = 3
-    multi_base_min_marginal_rmse_gain: float = 0.02
+    # Marginal relative CV-RMSE gain a candidate base must clear to be ADDED. Default 0.005 (= 0.5%). The old 2% gate stopped early and left genuinely-helpful weak orthogonal bases out: on a disjoint honest holdout (discovery never sees it), 0.005 beats 0.02 in 20/20 non-tied seeds across additive multi-base DGPs (16-19% holdout-RMSE win) with ZERO regression on the single-dominant + noise-decoy DGP (the paired-fold majority gate in forward_stepwise_multi_base independently rejects noise bases regardless of this relative threshold). Bench: ``discovery/_benchmarks/bench_multibase_min_marginal_gain.py``. Set to 0.02 for the legacy conservative gate.
+    multi_base_min_marginal_rmse_gain: float = 0.005
 
     # Robust CV-selector: argmin(mean(fold_rmses)) silently rewards lucky candidates whose mean wins by less than the per-fold std. ``cv_selector_mode`` != "mean" augments the per-fold scores with a dispersion penalty before the argmin (stable mediocre beats unstable lucky); see ``_cv_aggregation.aggregate_fold_scores``. Default "mean" is bit-identical.
     cv_selector_mode: Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"] = "mean"
