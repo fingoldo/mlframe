@@ -1,8 +1,8 @@
 """Pins the ABSOLUTE host-free-RAM floor on the FE candidate-buffer budget (2026-06-13).
 
-The relative ``_FE_BUFFER_RAM_BUDGET_RATIO`` (0.4) cap left no guaranteed free headroom on
+The relative ``_FE_BUFFER_RAM_BUDGET_RATIO`` (0.3) cap left no guaranteed free headroom on
 small-RAM hosts; ``_fe_effective_buffer_budget_bytes`` now carves an absolute reserve
-(``MLFRAME_FE_MIN_FREE_RAM_GB`` / ``_FE_MIN_FREE_RAM_GB``, default 1 GiB) off ``available``
+(``MLFRAME_FE_MIN_FREE_RAM_GB`` / ``_FE_MIN_FREE_RAM_GB``, default 3 GiB) off ``available``
 BEFORE the ratio/overhead/worker divide. These tests pin:
   (i)   forced-small ``available`` -> budget never consumes RAM below the reserve;
   (ii)  reserve == 0 (and psutil-missing) -> BYTE-IDENTICAL to the legacy formula;
