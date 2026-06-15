@@ -48,6 +48,18 @@ class EarlyStoppingWrapper(BaseEstimator):
         self.best_model_ = None
         self.no_improvement_count_ = 0
 
+        # Support both classifiers and regressors. ``partial_fit`` takes a ``classes=`` kwarg ONLY on
+        # classifiers (it errors on regressors like SGDRegressor / PassiveAggressiveRegressor), and the
+        # default ``accuracy_score`` is meaningless for regression -- swap to R^2 (still greater-is-better,
+        # so the ``score > best_score_`` improvement logic is unchanged) unless the caller passed an
+        # explicit scorer.
+        from sklearn.base import is_regressor
+        self._is_regressor = is_regressor(self.base_model)
+        scoring = self.scoring
+        if self._is_regressor and scoring is accuracy_score:
+            from sklearn.metrics import r2_score
+            scoring = r2_score
+
         # Wave 24 P0 (2026-05-20): pre-fix int(len(X) * frac) could round
         # down to 0 on small X (e.g. len=9, frac=0.1 -> int(0.9)=0). Then
         # ``X[:-0]`` is Python's "slice from start to before index 0",
@@ -67,10 +79,11 @@ class EarlyStoppingWrapper(BaseEstimator):
         X_train, X_val = X[:-n_val_samples], X[-n_val_samples:]
         y_train, y_val = y[:-n_val_samples], y[-n_val_samples:]
 
+        pf_kwargs = {} if self._is_regressor else {"classes": np.unique(y)}
         for i in range(1, self.max_iter + 1):
-            self.base_model.partial_fit(X_train, y_train, classes=np.unique(y))
+            self.base_model.partial_fit(X_train, y_train, **pf_kwargs)
             y_pred = self.base_model.predict(X_val)
-            score = self.scoring(y_val, y_pred)
+            score = scoring(y_val, y_pred)
 
             if score > self.best_score_ + self.tolerance:
                 self.best_score_ = score
