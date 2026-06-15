@@ -3871,3 +3871,15 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 103 RESOLVED, 35 REJECT a
 **Verdict: RESOLVED.** Swallowed wrong-arity prewarm call left a hot MRMR marginal-screening prange kernel cold on every first-fit; fixed the call + pinned with a subprocess coverage regression test.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 104 RESOLVED, 35 REJECT across 137 iterations.**
+
+## iter138 — SWALLOWED-FAILURE SWEEP: prewarm + diagnostics glue fully healthy — REJECT
+
+**Surface/scale:** SWALLOWED-FAILURE / COLD-KERNEL sweep of the suite orchestration glue — the same surface that yielded a real bug in iters135/136/137. Probed every guarded (`try/except: pass` / `logger.exception`+`_record(...,False)`) block in: `metrics/_core_numba_warmup.py` (`numba_warmup` + `prewarm_numba_cache` body), `feature_selection/filters/_prewarm.py` (`prewarm_fs_numba_cache`, ~30 guarded kernel calls), `training/baselines/dummy.py` (`_warmup_numba_kernels`, 9 kernels), and `reporting/diagnostics_dispatch.py` + `_diagnostics_dispatch_extra.py` (every chart render: weak_segments, error_bias, segments, psi_heatmap, residual_vs_time, cusum_drift, metric_over_time, target_acf, calibration_drift, adversarial, pdp_ice, pdp_2d, slice_finder, decision_curve, target_dist, shap_panels, shap_interactions, shap_per_instance).
+
+**Method:** four instrumentation probes drove each guarded block with RAISE-instead-of-swallow (kernels called directly with prewarm args; diagnostics driven on fitted RandomForest regressor + classifier with timestamps/subgroups/train-test frames, capturing `charts['failed']` + ERROR-level log records). ~50 metric/dummy/fs kernels: all warmed clean. ~18 diagnostic chart renders × {regression, classification}: all SAVED, 0 FAILED, 0 logged ERROR records. Full `prewarm_fs_numba_cache` + `_warmup_numba_kernels` + `prewarm_numba_cache` end-to-end: ALL PREWARM OK.
+
+**One false positive investigated + cleared:** probe initially passed `metric="rmse"` to `metric_over_time`, which `compute_ml_perf_by_time._compute_metric` rejects (`Unsupported metric: rmse`; only roc_auc/average_precision/brier/mse supported) → swallowed to all-NaN → empty "no buckets" chart. Traced the PRODUCTION callers: `_eval_helpers.py:662` passes `metric="mse"` (regression) / `"roc_auc"` (classification) — both supported, verified populating; `_phase_train_one_target_model_setup.py:110` passes no y_true/y_pred so the metric_over_time block never fires. No prod path passes an unsupported metric → not a real bug.
+
+**Verdict: REJECT** (honest — no hidden real failure remains in this surface). The iter135/136/137 fixes hold and the swallowed-failure / cold-kernel glue is now healthy across every production-exercised path. This is the valuable "glue is clean" signal the brief anticipated; the surface is exhausted for this bug class.
+
+Streak: REJECT → streak 1. **Cumulative loop wave: 104 RESOLVED, 36 REJECT across 138 iterations.**
