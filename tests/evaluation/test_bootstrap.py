@@ -142,6 +142,41 @@ def test_bootstrap_metrics_bit_identical_to_per_metric(stratified):
         assert np.array_equal(shared[name]["samples"], single["samples"])
 
 
+def test_bootstrap_metric_method_bca_is_default():
+    """The default method is BCa; an explicit method='percentile' yields the legacy interval."""
+    y, score = _make_binary_auc_data(n=2000, separation=1.6, seed=8)
+    metric = lambda yt, yp: roc_auc_score(yt, yp)
+    default = bootstrap_metric(y, score, metric_fn=metric, n_bootstrap=300, random_state=11)
+    bca = bootstrap_metric(y, score, metric_fn=metric, n_bootstrap=300, random_state=11, method="bca")
+    pct = bootstrap_metric(y, score, metric_fn=metric, n_bootstrap=300, random_state=11, method="percentile")
+    assert default["lo"] == bca["lo"] and default["hi"] == bca["hi"], "default must equal method='bca'"
+    # On a skewed AUC the BCa cut-points shift away from the plain percentiles -> bounds differ.
+    assert (default["lo"], default["hi"]) != (pct["lo"], pct["hi"]), "BCa and percentile should differ on skewed AUC"
+    # Same resample distribution either way (method only changes the reduction, not the RNG draws).
+    np.testing.assert_array_equal(default["samples"], pct["samples"])
+
+
+def test_bootstrap_metric_bca_falls_back_to_percentile_when_no_skew_signal():
+    """A constant metric (every resample identical) has no z0/acceleration signal -> BCa == percentile bounds."""
+    y, score = _make_binary_auc_data(n=500, separation=1.0, seed=9)
+    const_metric = lambda yt, yp: 0.5
+    bca = bootstrap_metric(y, score, metric_fn=const_metric, n_bootstrap=100, random_state=3, method="bca")
+    pct = bootstrap_metric(y, score, metric_fn=const_metric, n_bootstrap=100, random_state=3, method="percentile")
+    assert bca["lo"] == pct["lo"] and bca["hi"] == pct["hi"]
+
+
+def test_bootstrap_metrics_bca_matches_per_metric_bca():
+    """bootstrap_metrics with default BCa must equal per-metric bootstrap_metric BCa (same seed/jackknife)."""
+    y, score = _make_binary_auc_data(n=2500, seed=14)
+    p = 1.0 / (1.0 + np.exp(-score))
+    mfns = _bm_metric_set()
+    shared = bootstrap_metrics(y, p, mfns, n_bootstrap=300, random_state=77)
+    for name, fn in mfns.items():
+        single = bootstrap_metric(y, p, metric_fn=fn, n_bootstrap=300, random_state=77)
+        assert shared[name]["lo"] == single["lo"]
+        assert shared[name]["hi"] == single["hi"]
+
+
 def test_bootstrap_metrics_isolates_a_failing_metric():
     """A metric that raises on every resample gets an ``error`` entry; the other
     metrics still return valid CIs (one bad metric must not sink the batch)."""

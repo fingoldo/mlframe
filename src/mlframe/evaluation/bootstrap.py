@@ -37,6 +37,124 @@ logger = logging.getLogger(__name__)
 _isfinite = math.isfinite
 
 
+def _ci_from_samples(
+    samples: np.ndarray,
+    point: float,
+    alpha: float,
+    method: str,
+    jackknife: Optional[np.ndarray] = None,
+) -> tuple[float, float]:
+    """Reduce a bootstrap distribution to a (lo, hi) CI by percentile or BCa.
+
+    ``method="percentile"`` is the plain Efron percentile interval (symmetric, fast). ``method="bca"`` is the
+    bias-corrected and accelerated interval (Efron 1987): it shifts the percentile cut-points to correct for
+    (a) median bias of the bootstrap distribution relative to the point estimate (``z0``) and (b) skew of the
+    sampling distribution (``acceleration`` from the jackknife). On skewed / bounded metrics (AUC near 1.0,
+    Pearson r) percentile silently UNDER-COVERS; BCa recovers close-to-nominal coverage. When the BCa inputs
+    are degenerate (no jackknife, all-equal samples, non-finite z0/a) BCa gracefully falls back to percentile.
+    """
+    lo_pct = (alpha / 2.0) * 100.0
+    hi_pct = (1.0 - alpha / 2.0) * 100.0
+    if method != "bca":
+        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+
+    n_s = samples.shape[0]
+    # z0: bias correction = inverse-normal of the fraction of resamples below the point estimate.
+    n_below = int(np.count_nonzero(samples < point))
+    if n_below == 0 or n_below == n_s:
+        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+    z0 = stats.norm.ppf(n_below / n_s)
+
+    # a: acceleration from the jackknife skew of the metric (Efron 1987 eq 6.6). No jackknife -> percentile.
+    if jackknife is None or jackknife.shape[0] < 3:
+        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+    jk_mean = jackknife.mean()
+    diffs = jk_mean - jackknife
+    denom = 6.0 * (np.sum(diffs ** 2) ** 1.5)
+    if denom == 0.0 or not np.isfinite(denom):
+        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+    a = float(np.sum(diffs ** 3) / denom)
+
+    z_lo = stats.norm.ppf(alpha / 2.0)
+    z_hi = stats.norm.ppf(1.0 - alpha / 2.0)
+    a_lo = stats.norm.cdf(z0 + (z0 + z_lo) / (1.0 - a * (z0 + z_lo)))
+    a_hi = stats.norm.cdf(z0 + (z0 + z_hi) / (1.0 - a * (z0 + z_hi)))
+    if not (np.isfinite(a_lo) and np.isfinite(a_hi)) or a_lo >= a_hi:
+        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+    return float(np.percentile(samples, a_lo * 100.0)), float(np.percentile(samples, a_hi * 100.0))
+
+
+def _jackknife_metric(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    metric_fn: Callable[[np.ndarray, np.ndarray], float],
+    max_n: int = 2000,
+) -> Optional[np.ndarray]:
+    """Leave-one-out jackknife of ``metric_fn`` for the BCa acceleration term.
+
+    Returns the ``(n,)`` leave-one-out metric values, or ``None`` if the jackknife is infeasible. For n > ``max_n``
+    the full LOO is O(n^2) in metric calls, so we sub-sample to a deterministic stride of ``max_n`` rows -- the
+    acceleration estimate is a low-order skew summary and tolerates sub-sampling far better than the percentile
+    cut-points themselves. Failed / non-finite LOO evaluations are dropped.
+    """
+    n = y_true.shape[0]
+    if n < 3:
+        return None
+    if n <= max_n:
+        sel = np.arange(n)
+    else:
+        sel = np.linspace(0, n - 1, max_n).astype(np.int64)
+    keep_mask = np.ones(n, dtype=bool)
+    out = np.empty(sel.shape[0], dtype=np.float64)
+    w = 0
+    for i in sel:
+        keep_mask[i] = False
+        try:
+            v = float(metric_fn(y_true[keep_mask], y_pred[keep_mask]))
+        except Exception:
+            keep_mask[i] = True
+            continue
+        keep_mask[i] = True
+        if not _isfinite(v):
+            continue
+        out[w] = v
+        w += 1
+    if w < 3:
+        return None
+    return out[:w]
+
+
+def _jackknife_metric_idx(
+    n: int,
+    metric_fn_idx: Callable[[np.ndarray], float],
+    max_n: int = 2000,
+) -> Optional[np.ndarray]:
+    """Leave-one-out jackknife for an INDEX-aware metric ``fn(idx) -> float`` (BCa acceleration term).
+
+    Mirrors ``_jackknife_metric`` but feeds the metric the leave-one-out index array instead of pre-sliced views,
+    so an index-aware metric (e.g. the pre-sorted AUC resampler) reuses its precomputed base structure.
+    """
+    if n < 3:
+        return None
+    sel = np.arange(n) if n <= max_n else np.linspace(0, n - 1, max_n).astype(np.int64)
+    full = np.arange(n, dtype=np.int64)
+    out = np.empty(sel.shape[0], dtype=np.float64)
+    w = 0
+    for i in sel:
+        loo_idx = np.delete(full, i)
+        try:
+            v = float(metric_fn_idx(loo_idx))
+        except Exception:
+            continue
+        if not _isfinite(v):
+            continue
+        out[w] = v
+        w += 1
+    if w < 3:
+        return None
+    return out[:w]
+
+
 def bootstrap_metric(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -45,8 +163,9 @@ def bootstrap_metric(
     alpha: float = 0.05,
     stratify: Optional[np.ndarray] = None,
     random_state: Optional[int] = None,
+    method: str = "bca",
 ) -> dict[str, Any]:
-    """Bootstrap percentile CI for an arbitrary ``metric_fn(y_true, y_pred)``.
+    """Bootstrap CI for an arbitrary ``metric_fn(y_true, y_pred)``.
 
     Parameters
     ----------
@@ -69,6 +188,14 @@ def bootstrap_metric(
         Seed for ``np.random.default_rng``. Required for reproducible diagnostics
         artefacts; ``None`` consults numpy's global entropy and the CI will
         differ between runs.
+    method
+        ``"bca"`` (default) is the bias-corrected and accelerated interval (Efron 1987); ``"percentile"`` is the
+        plain Efron percentile interval. BCa corrects for median bias + skew of the sampling distribution, which
+        the percentile interval ignores -- on skewed / bounded metrics (AUC near 1.0, Pearson r) percentile
+        UNDER-COVERS the nominal level, while BCa recovers close-to-nominal coverage (see
+        ``_benchmarks/bench_bootstrap_ci_coverage.py``). BCa adds an O(min(n, 2000)) jackknife pass for the
+        acceleration term and falls back to percentile automatically when its inputs are degenerate. Pass
+        ``method="percentile"`` for the legacy behaviour or to skip the jackknife on a very hot path.
 
     Returns
     -------
@@ -194,10 +321,8 @@ def bootstrap_metric(
             failures, n_bootstrap, first_err, valid,
         )
 
-    lo_pct = (alpha / 2.0) * 100.0
-    hi_pct = (1.0 - alpha / 2.0) * 100.0
-    lo = float(np.percentile(samples, lo_pct))
-    hi = float(np.percentile(samples, hi_pct))
+    jackknife = _jackknife_metric(y_true, y_pred, metric_fn) if method == "bca" else None
+    lo, hi = _ci_from_samples(samples, point, alpha, method, jackknife)
 
     return {"point": point, "lo": lo, "hi": hi, "samples": samples}
 
@@ -211,8 +336,9 @@ def bootstrap_metrics(
     stratify: Optional[np.ndarray] = None,
     random_state: Optional[int] = None,
     metric_fns_idx: Optional[Mapping[str, Callable[[np.ndarray], float]]] = None,
+    method: str = "bca",
 ) -> dict[str, dict]:
-    """Bootstrap percentile CIs for SEVERAL metrics sharing ONE resample loop.
+    """Bootstrap CIs for SEVERAL metrics sharing ONE resample loop.
 
     ``metric_fns_idx`` are INDEX-aware metric callables ``fn(idx) -> float`` that
     receive the raw resample indices instead of pre-sliced ``(yt, yp)`` views.
@@ -352,8 +478,6 @@ def bootstrap_metrics(
             samples[name][valid[name]] = v
             valid[name] += 1
 
-    lo_pct = (alpha / 2.0) * 100.0
-    hi_pct = (1.0 - alpha / 2.0) * 100.0
     for name in _all_active:
         v_n = valid[name]
         if v_n == 0:
@@ -367,12 +491,14 @@ def bootstrap_metrics(
                 "bootstrap_metrics[%s]: %d/%d resamples failed (first: %s); CI over %d surviving samples may be biased.",
                 name, failures[name], n_bootstrap, first_err[name], v_n,
             )
-        results[name] = {
-            "point": points[name],
-            "lo": float(np.percentile(s, lo_pct)),
-            "hi": float(np.percentile(s, hi_pct)),
-            "samples": s,
-        }
+        jackknife = None
+        if method == "bca":
+            if name in active:
+                jackknife = _jackknife_metric(y_true, y_pred, metric_fns[name])
+            else:
+                jackknife = _jackknife_metric_idx(n, metric_fns_idx[name])
+        lo, hi = _ci_from_samples(s, points[name], alpha, method, jackknife)
+        results[name] = {"point": points[name], "lo": lo, "hi": hi, "samples": s}
     return results
 
 
