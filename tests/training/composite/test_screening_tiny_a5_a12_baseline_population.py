@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 from mlframe.training.composite.discovery import _screening_tiny as st
+from mlframe.training.composite.discovery import _screening_tiny_perbin as stp
 from mlframe.training.composite.discovery._screening_tiny import (
     _tiny_cv_rmse_y_scale,
     _tiny_cv_rmse_y_scale_multiseed,
@@ -112,13 +113,16 @@ class TestA5BaselinePopulationParity:
             invalid_extreme=False,
         )
         seen_val_sizes: list[int] = []
-        real_per_bin = st._per_bin_rmse
+        # ``_per_bin_rmse`` and its caller ``_tiny_cv_rmse_y_scale`` both live in ``_screening_tiny_perbin`` after the
+        # monolith split, so the call resolves the sibling-local name -- patch THERE (patching the parent re-export
+        # ``st._per_bin_rmse`` would never intercept the in-module lookup).
+        real_per_bin = stp._per_bin_rmse
 
         def _spy_per_bin(y_true, y_hat, bin_var, n_bins=5):
             seen_val_sizes.append(int(np.asarray(y_true).shape[0]))
             return real_per_bin(y_true, y_hat, bin_var, n_bins=n_bins)
 
-        monkeypatch.setattr(st, "_per_bin_rmse", _spy_per_bin)
+        monkeypatch.setattr(stp, "_per_bin_rmse", _spy_per_bin)
         _tiny_cv_rmse_y_scale(
             y_train=y, base_train=base, transform=transform,
             fitted_params=params, x_train_matrix=X,
