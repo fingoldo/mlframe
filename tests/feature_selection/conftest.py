@@ -87,9 +87,16 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
         cat_fe_config=None,
         quantization_nbins=10,
         random_seed=0,
+        # Honour this factory's "lightest config" contract: the default-ON hinge/change-point basis (an FE stage
+        # independent of fe_max_steps) detects a slope change in a signal column and appends ``X__relu_*`` legs, which
+        # are legitimate FE but pollute the SELECTION / default-off invariants the biz_value layers pin (a signal's relu
+        # derivative outranking the raw column, or appearing under a "scorer off" assertion). Hinge behaviour is tested
+        # directly in its own files; pin it off here. An explicit override (or fe=True) re-enables it.
+        fe_hinge_enable=False,
     )
     if fe:
         kwargs["fe_max_steps"] = 1
+        kwargs["fe_hinge_enable"] = True
     if dcd:
         kwargs["dcd_enable"] = True
     kwargs.update(overrides)
