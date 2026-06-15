@@ -165,6 +165,83 @@ def compute_ece_and_brier_decomposition(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def compute_ece_debiased(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int,
+):
+    """Bias-corrected binned ECE (Kumar et al. NeurIPS 2019; Roelofs et al. AISTATS 2022).
+
+    The plug-in binned ECE ``sum_b (n_b/N)*|conf_b - acc_b|`` is a POSITIVELY biased estimator of the
+    population ECE: ``acc_b`` is a noisy Bernoulli-rate estimate, and ``E[|conf_b - acc_b|]`` is inflated
+    by the per-bin sampling noise (Jensen on the absolute value). A perfectly calibrated model (true ECE 0)
+    therefore reports a spurious positive ECE that grows with nbins and shrinks with bin population.
+
+    Correction: the per-bin squared gap satisfies ``E[g_b^2] = (conf_b - true_acc_b)^2 + Var(acc_b)`` with
+    ``Var(acc_b) = acc_b*(1-acc_b)/(n_b-1)`` (unbiased Bernoulli variance of the bin mean). Subtracting the
+    noise term and clamping at 0 gives a debiased squared gap; the debiased ECE is
+    ``sum_b (n_b/N)*sqrt(max(g_b^2 - Var(acc_b), 0))``. Bins with ``n_b < 2`` have no variance estimate and
+    keep the raw gap. This removes the noise floor so a calibrated model scores ~0 rather than a positive
+    artefact, without changing the verdict on a genuinely miscalibrated model (the true-gap term dominates).
+
+    Uses the SAME data-adaptive equal-width binning grid as ``compute_ece_and_brier_decomposition`` so the
+    debiased and plug-in estimates are directly comparable. Returns 1.0 on empty input (degenerate handling
+    mirrors the rest of the calibration pipeline).
+    """
+    n = len(y_true)
+    if n == 0:
+        return 1.0
+
+    min_val = 1.0
+    max_val = 0.0
+    for i in range(n):
+        p = y_pred[i]
+        if p > max_val:
+            max_val = p
+        if p < min_val:
+            min_val = p
+    span = max_val - min_val
+
+    pred_sum = np.zeros(nbins, dtype=np.float64)
+    true_sum = np.zeros(nbins, dtype=np.float64)
+    counts = np.zeros(nbins, dtype=np.int64)
+
+    if span > 0:
+        multiplier = (nbins - 1) / span
+        for i in range(n):
+            p = y_pred[i]
+            ind = int(floor((p - min_val) * multiplier))
+            counts[ind] += 1
+            pred_sum[ind] += p
+            true_sum[ind] += y_true[i]
+    else:
+        for i in range(n):
+            counts[0] += 1
+            pred_sum[0] += y_pred[i]
+            true_sum[0] += y_true[i]
+
+    ece = 0.0
+    inv_n = 1.0 / n
+    for k in range(nbins):
+        nk = counts[k]
+        if nk == 0:
+            continue
+        w = nk * inv_n
+        p_mean = pred_sum[k] / nk
+        acc = true_sum[k] / nk
+        gap = abs(p_mean - acc)
+        if nk >= 2:
+            var_acc = acc * (1.0 - acc) / (nk - 1)
+            corrected = gap * gap - var_acc
+            if corrected < 0.0:
+                corrected = 0.0
+            ece += w * np.sqrt(corrected)
+        else:
+            ece += w * gap
+    return ece
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)

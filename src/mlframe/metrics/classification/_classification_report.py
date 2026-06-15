@@ -40,6 +40,7 @@ from .._auc_per_group import (  # noqa: F401
 from ..calibration._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
     compute_ece_and_brier_decomposition,
+    compute_ece_debiased,
     integral_calibration_error_from_metrics,
 )
 from .._log_loss_and_separation import fast_log_loss  # noqa: F401
@@ -188,6 +189,7 @@ def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     nbins: int = 10,
+    ece_debiased: bool = True,
     show_plots: bool = True,
     #
     title_metrics_tokens: Sequence[str] = DEFAULT_TITLE_METRICS_TOKENS,
@@ -297,6 +299,14 @@ def fast_calibration_report(
     ece, brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_ece_and_brier_decomposition(
         y_true=y_true, y_pred=y_pred, nbins=nbins,
     )
+    # Headline ECE defaults to the bias-corrected estimator: the plug-in binned ECE positively overstates
+    # miscalibration by the per-bin Bernoulli sampling noise (a perfectly calibrated model reports a spurious
+    # positive ECE growing with nbins). compute_ece_debiased subtracts that noise floor; bench_ece_debiased
+    # shows it more than halves the bias-vs-truth on calibrated scenarios and wins ~80% of (scenario,seed) cells
+    # across nbins 10/15/20. Set ece_debiased=False to recover the legacy plug-in value. The Brier decomposition
+    # REL/RES/UNC is left on the plug-in grid so the Murphy identity REL-RES+UNC==BinnedBrier still holds exactly.
+    if ece_debiased:
+        ece = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
 
     _auc_desc_order = None
     _ks_fused = None

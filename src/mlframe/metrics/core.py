@@ -143,6 +143,7 @@ from .calibration import (  # noqa: F401, E402
 from .calibration import (  # noqa: E402,F401
     calibration_metrics_from_freqs,
     compute_ece_and_brier_decomposition,
+    compute_ece_debiased,
     fast_calibration_metrics,
 )
 
