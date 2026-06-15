@@ -579,7 +579,7 @@ def report_regression_model_perf(
                 _preds_arr = np.asarray(preds, dtype=np.float64).ravel()
                 _targ_arr = np.asarray(targets, dtype=np.float64).ravel()
                 if _preds_arr.size > plot_sample_size:
-                    from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+                    from mlframe.reporting.charts import subsample_preserving_extremes
                     _resid_for_extremes = _targ_arr - _preds_arr
                     idx = subsample_preserving_extremes(
                         _preds_arr, _targ_arr, sample_size=plot_sample_size,

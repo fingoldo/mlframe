@@ -74,8 +74,8 @@ def _mcc(tp: float, tn: float, fp: float, fn: float) -> float:
 
 def _classification_metrics(sort: _ScoreSort, yt: np.ndarray, ys: np.ndarray, threshold: float) -> Dict[str, float]:
     """Headline classification metrics from the shared score sort (one O(n log n) pass already paid)."""
-    from mlframe.metrics._core_auc_brier import fast_brier_score_loss
-    from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
+    from mlframe.metrics import fast_brier_score_loss
+    from mlframe.metrics.calibration import compute_ece_and_brier_decomposition
     from mlframe.reporting.charts.calibration import delong_auc_ci
     from mlframe.reporting.charts.binary import _ks_curve
 

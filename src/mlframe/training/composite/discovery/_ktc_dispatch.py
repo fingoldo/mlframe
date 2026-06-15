@@ -59,7 +59,7 @@ def _get_cache():
     failure returns ``None`` -> the caller uses its hardcoded fallback.
     """
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
     except Exception:  # pyutilz / FS package unavailable -> hardcoded fallback.
         return None
     try:

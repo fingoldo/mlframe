@@ -50,7 +50,7 @@ def _reliability_points(y_true: np.ndarray, y_score: np.ndarray, n_bins: int):
     all-equal scores / no populated bin). Reuses ``fast_calibration_binning`` so the binning matches the suite's
     reliability diagram exactly.
     """
-    from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
+    from mlframe.metrics.calibration import fast_calibration_binning
 
     fp, ft, hits = fast_calibration_binning(y_true, y_score, nbins=n_bins)
     if fp.size == 0:

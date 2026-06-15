@@ -83,8 +83,12 @@ from mlframe.reporting.charts.temporal import (
     build_temporal_audit_spec, compose_target_acf_figure,
 )
 from mlframe.reporting.charts.training_curve import compose_training_curve_figure
+# Public re-export of the chart-sampling helpers so cross-package consumers (renderers, diagnostics_dispatch, training-side reporting) import them from the package surface instead of the ``_sampling`` implementation module.
+from mlframe.reporting.charts._sampling import subsample_preserving_extremes, prebin_histogram
 
 __all__ = [
+    "subsample_preserving_extremes",
+    "prebin_histogram",
     "build_calibration_spec",
     "build_reliability_overlay_spec",
     "wilson_ci",

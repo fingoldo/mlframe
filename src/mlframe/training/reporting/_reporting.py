@@ -516,7 +516,7 @@ def _render_post_fit_diagnostics(
             )
 
     if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and y_arr.ndim == 1:
-        from mlframe.reporting._risk_coverage_diagnostic import render_risk_coverage_diagnostic
+        from mlframe.reporting import render_risk_coverage_diagnostic
         if tt == "binary_classification":
             _bs = _binary_positive_score(probs)
             if _bs is not None and len(_bs) == len(y_arr):

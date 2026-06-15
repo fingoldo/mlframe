@@ -13,6 +13,7 @@ from ._calibration_plot import (  # noqa: F401
     DEFAULT_TITLE_METRICS_TOKENS,
     render_title_metric_token,
     fast_calibration_binning,
+    _fast_calibration_binning_prange,
     _close_unless_interactive,
     show_calibration_plot,
     _show_plots_unless_agg,

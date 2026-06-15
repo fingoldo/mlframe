@@ -738,7 +738,7 @@ def plot_residual_diagnostics(
     # points (the heteroscedasticity funnel mouth + the MaxError row the title quotes) survive the draw -- a uniform
     # rng.choice silently drops exactly the points these panels exist to show.
     if residuals.size > plot_sample_size:
-        from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+        from mlframe.reporting.charts import subsample_preserving_extremes
         idx = subsample_preserving_extremes(
             y_pred_f, residuals, sample_size=plot_sample_size, extreme_values=residuals, rng=seed,
         )

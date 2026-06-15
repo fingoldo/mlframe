@@ -271,7 +271,7 @@ class PlotlyRenderer:
 
         if n > _SCATTER_MAX_POINTS:
             _warn_scatter_downsample(n)
-            from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+            from mlframe.reporting.charts import subsample_preserving_extremes
             idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
             x, y = x[idx], y[idx]
             if size_arr is not None and len(size_arr) == n:
@@ -417,7 +417,7 @@ class PlotlyRenderer:
         if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
             # Raw spec with n above the embed-hazard ceiling: bin once with numpy instead of shipping n values
             # into the HTML (37 MB / browser-freezing at 2M).
-            from mlframe.reporting.charts._sampling import prebin_histogram
+            from mlframe.reporting.charts import prebin_histogram
             heights, centers, width0 = prebin_histogram(np.asarray(p.values), p.bins, p.density)
             if heights is not None:
                 bin_centers = centers

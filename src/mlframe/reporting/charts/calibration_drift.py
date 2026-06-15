@@ -24,8 +24,8 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
-from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
+from mlframe.metrics.calibration import compute_ece_and_brier_decomposition
+from mlframe.metrics.calibration import fast_calibration_binning
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
 # Below this per-window count the ECE estimate is too noisy to trust; the window's ECE is set to NaN

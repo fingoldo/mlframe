@@ -34,8 +34,11 @@ from mlframe.reporting.charts import (
     is_tree_model,
     shap_summary_and_dependence,
 )
+# Public re-export so the training-side reporting layer imports the risk-coverage entrypoint from the package surface instead of the ``_risk_coverage_diagnostic`` implementation module.
+from mlframe.reporting._risk_coverage_diagnostic import render_risk_coverage_diagnostic
 
 __all__ = [
+    "render_risk_coverage_diagnostic",
     "PlotOutputSpec",
     "parse_plot_output_dsl",
     "BACKEND_FORMATS",

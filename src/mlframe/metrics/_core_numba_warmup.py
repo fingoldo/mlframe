@@ -187,7 +187,7 @@ def _prewarm_numba_cache_body():
         _ = fast_aucs(y_true, y_pred)
 
         _ = fast_calibration_binning(y_true, y_pred, nbins=10)
-        from mlframe.metrics.calibration._calibration_plot import _fast_calibration_binning_prange
+        from mlframe.metrics.calibration import _fast_calibration_binning_prange
         _ = _fast_calibration_binning_prange(y_true, y_pred, nbins=10)
         _ = fast_calibration_metrics(y_true, y_pred, nbins=10)
 

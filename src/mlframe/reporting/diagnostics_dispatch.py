@@ -127,7 +127,7 @@ def _bounded_sample_idx(n: int, loss: np.ndarray, seed: int = 0) -> np.ndarray:
     """Indices of a <=DIAG_ROW_CAP subsample preserving the largest-|loss| rows (so the weak region survives)."""
     if n <= DIAG_ROW_CAP:
         return np.arange(n, dtype=np.int64)
-    from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+    from mlframe.reporting.charts import subsample_preserving_extremes
 
     return subsample_preserving_extremes(
         loss, sample_size=DIAG_ROW_CAP, extreme_values=loss,
