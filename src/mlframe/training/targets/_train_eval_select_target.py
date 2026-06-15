@@ -210,6 +210,15 @@ def select_target(
         behavior_config = TrainingBehaviorConfig()
 
     effective_config_params = hyperparams_config.model_dump(exclude_none=True)
+    # ``exclude_none=True`` drops fields the caller EXPLICITLY set to None, conflating "unset" with
+    # "explicitly None". For ``early_stopping_rounds`` None is a meaningful sentinel that get_training_configs
+    # reads as "disable ES entirely" (0 = auto = iterations//3, int = as-is). Dropping it makes the user's
+    # explicit disable silently fall back to get_training_configs's auto-ES default, so the booster early-stops
+    # regardless -- a caller passing early_stopping_rounds=None never gets the full-iteration run they asked for.
+    # Re-add any field the caller explicitly set to None so explicit intent survives the dump.
+    for _explicit in hyperparams_config.model_fields_set:
+        if _explicit not in effective_config_params and getattr(hyperparams_config, _explicit, "") is None:
+            effective_config_params[_explicit] = None
     defined_behavior_fields = set(TrainingBehaviorConfig.model_fields.keys())
     _SUITE_LEVEL_FLAGS = {
         "enable_crash_reporting",

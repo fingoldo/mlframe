@@ -15,6 +15,7 @@ test set (RMSE / AUROC computed manually on out-of-suite hold-out, since the sui
 not surface a clean post-fit test metric in returned metadata).
 """
 
+import os
 import time
 import numpy as np
 import pandas as pd
@@ -131,6 +132,30 @@ def _train_and_score_regression(train_df, test_df, tmp_path, *, model_name, outl
     return rmse, metadata
 
 
+def _n_trees_trained(models_path, mlframe_model):
+    """Number of boosting rounds the saved model actually trained. This is the deterministic,
+    hardware-independent signature of early stopping: ES converging in << the iteration cap is the
+    mechanism that saves wall-time at production scale (on a tiny synthetic the 2000-tree fit is a
+    small fraction of fixed suite overhead, so wall-time alone is noise-dominated)."""
+    import glob
+    from mlframe.training.io import load_mlframe_model
+    dumps = sorted(glob.glob(os.path.join(models_path, "**", "*.dump"), recursive=True))
+    if not dumps:
+        return None
+    est = getattr(load_mlframe_model(dumps[0]), "model", None)
+    if est is None:
+        return None
+    if mlframe_model == "cb":
+        return int(getattr(est, "tree_count_", 0)) or None
+    if mlframe_model == "xgb":
+        try:
+            return int(est.get_booster().num_boosted_rounds())
+        except Exception:
+            return None
+    booster = getattr(est, "booster_", None)
+    return booster.num_trees() if booster is not None else None
+
+
 def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, iterations, early_stopping_rounds, common_init_params, mlframe_model="lgb"):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     data_dir = str(tmp_path / "data" / model_name)
@@ -170,7 +195,8 @@ def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, 
         preds = next(iter(results["predictions"].values()))
         score_vec = np.asarray(preds, dtype=float)
     auroc = float(roc_auc_score(test_df["target"].values, score_vec))
-    return auroc, elapsed, metadata
+    n_trees = _n_trees_trained(models_path, mlframe_model)
+    return auroc, elapsed, metadata, n_trees
 
 
 # --------------------------------------------------------------------------------------
@@ -264,43 +290,76 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
 def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_params, seed, mlframe_model):
     pytest.importorskip({"lgb": "lightgbm", "cb": "catboost", "xgb": "xgboost"}[mlframe_model])
 
+    # Time the suite with the expensive diagnostics OFF. shap/pdp/slice-finder/calibration-drift/
+    # risk-coverage/etc. all run on EVERY suite call and cost the SAME wall-time regardless of tree
+    # count, so leaving them on dilutes ES's training-time win into the noise (the ES-saveable fraction
+    # shrank to ~11% with diagnostics on vs the >=24% the bare train+predict shows). This biz_value claim
+    # is specifically that ES saves TRAINING time, so the measured region must isolate train+predict.
+    from mlframe.training.configs import ReportingConfig
+    lean_reporting = ReportingConfig(
+        print_report=False, show_perf_chart=False, show_fi=False,
+        honest_estimator_diagnostics=False, pdp_ice=False, shap_panels=False,
+        slice_finder=False, calibration_drift=False, cusum_drift=False,
+        risk_coverage_charts=False, split_comparison_charts=False,
+        fairness_calibration_charts=False, calibration_by_feature_charts=False,
+        calibration_heatmap_2d_charts=False,
+    )
+
     train_df, test_df = _make_classification(seed=seed)
 
     # Run A: ES disabled via early_stopping_rounds=None (clean disable path).
     # Use a large iterations cap so the no-ES run is forced to train all trees.
-    auroc_a, time_a, meta_a = _train_and_score_classification(
+    auroc_a, time_a, meta_a, trees_a = _train_and_score_classification(
         train_df, test_df, tmp_path,
         model_name=f"{mlframe_model}_no_es_s{seed}",
         iterations=2000,
         early_stopping_rounds=None,
-        common_init_params=common_init_params,
+        common_init_params=lean_reporting,
         mlframe_model=mlframe_model,
     )
 
     # Run B: aggressive early stopping with small patience — should converge in well
-    # under 100 trees on the noisy fixture, giving a large wall-time gap.
-    auroc_b, time_b, meta_b = _train_and_score_classification(
+    # under 100 trees on the noisy fixture, training far fewer boosting rounds.
+    auroc_b, time_b, meta_b, trees_b = _train_and_score_classification(
         train_df, test_df, tmp_path,
         model_name=f"{mlframe_model}_with_es_s{seed}",
         iterations=2000,
         early_stopping_rounds=10,
-        common_init_params=common_init_params,
+        common_init_params=lean_reporting,
         mlframe_model=mlframe_model,
     )
 
     speedup_pct = (1.0 - time_b / time_a) * 100.0 if time_a > 0 else 0.0
     auroc_delta = auroc_b - auroc_a
     msg = (
+        f"trees_a={trees_a} trees_b={trees_b} "
         f"time_a={time_a:.2f}s time_b={time_b:.2f}s speedup={speedup_pct:+.1f}% "
         f"auroc_a={auroc_a:.4f} auroc_b={auroc_b:.4f} delta={auroc_delta:+.4f}"
     )
 
-    # Hard assert: ES must not noticeably hurt AUROC.
+    # Hard assert: ES must not noticeably hurt AUROC (it typically helps on the noisy fixture).
     assert auroc_b >= auroc_a - 0.01, f"Early stopping hurt AUROC by more than 0.01. {msg}"
-    # Hard floor: ES converging in <100 trees vs a forced 2000-tree no-ES run is a wide wall-time win
-    # (measured +24% to +76% across seeds on this box). Floor at >=15% faster leaves comfortable headroom
-    # for loaded-runner jitter while still failing on a real ES regression (callback not firing / training
-    # all trees anyway).
-    assert time_b <= time_a * 0.85, (
-        f"Early stopping did not save >=15% wall-time vs the forced 2000-tree no-ES baseline. {msg}"
-    )
+
+    # The robust, hardware-independent win: ES converges in FAR fewer boosting rounds than the forced
+    # no-ES baseline. This tree-count reduction IS the mechanism that saves wall-time -- on a tiny
+    # synthetic the 2000-tree fit is only a small slice of fixed suite overhead (FE / split / save), so a
+    # wall-time floor is noise-dominated here (+5-25% run-to-run); at production data scale the same
+    # reduction is a large wall-time win. Asserting the tree count fails loudly on a real ES regression
+    # (callback not firing, early_stopping_rounds=None not disabling ES) without flaking on timer jitter.
+    if mlframe_model == "cb":
+        # CatBoost's use_best_model=True truncates the STORED model to best_iteration regardless of
+        # whether ES was active, so tree_count_ cannot distinguish the no-ES from the ES run. CB's
+        # per-tree cost is high enough that the forced 2000-tree fit genuinely dominates the suite, so
+        # here the wall-time speedup is the robust signal (measured +22-30% across seeds on this box).
+        assert speedup_pct >= 15.0, (
+            f"CB early stopping did not save >=15% wall-time vs the forced 2000-tree no-ES baseline. {msg}"
+        )
+    else:
+        # lgb / xgb keep every trained tree, so the boosting-round count is the deterministic ES signal.
+        assert trees_a is not None and trees_b is not None, f"could not read tree counts. {msg}"
+        # no-ES must train the full forced cap (ES genuinely disabled via early_stopping_rounds=None).
+        assert trees_a >= 1000, f"no-ES baseline should train the full ~2000-tree cap (ES disabled). {msg}"
+        # ES must converge in well under half the forced trees (measured ~12-160 vs 2000).
+        assert trees_b <= trees_a * 0.5, (
+            f"Early stopping did not reduce boosting rounds vs the forced 2000-tree no-ES baseline. {msg}"
+        )
