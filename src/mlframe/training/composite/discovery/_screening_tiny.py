@@ -33,7 +33,9 @@ import numpy as np
 # partially-loaded composite.estimator module on Python's import dance, leaving the local name unbound for
 # the second thread -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
-# is no circular-dep concern.
+# is no circular-dep concern. Kept at module level here (not only in the carved ``_screening_tiny_perbin``
+# sibling) so the race-safe hoist holds for importers of this parent module too.
+from ..estimator import _y_train_clip_bounds  # noqa: E402,F401
 
 logger = logging.getLogger(__name__)
 
