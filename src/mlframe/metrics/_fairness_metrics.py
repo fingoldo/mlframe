@@ -243,12 +243,18 @@ def compute_fairness_metrics(
     y_pred: np.ndarray,
     cont_nbins: int = 3,
     top_n: int = 5,
+    ddof: int = 1,
 ) -> pd.DataFrame:
     """Compute fairness metrics across demographic/categorical subgroups.
 
     Evaluates model performance consistency across different subpopulations
     to identify potential bias or discrimination. * is added to the bin name
-    if bin's metric is an outlier (computed using Tukey's fence & IQR)."""
+    if bin's metric is an outlier (computed using Tukey's fence & IQR).
+
+    ``metric_std`` is the across-subgroup dispersion of model performance: it estimates the population dispersion of subgroup performance from a small sample of K
+    subgroups (typically 2-10). ``ddof=1`` (Bessel, default) is the unbiased sample-variance / less-biased sample-std convention used everywhere else in mlframe and
+    by pandas / R; the legacy population estimator ``ddof=0`` systematically UNDER-reports dispersion at small K, making a model look fairer than it is. Pass
+    ``ddof=0`` for the old behaviour."""
 
     # Signature declares np.ndarray for y_true / y_pred but upstream
     # report_regression_model_perf threads through whatever the model
@@ -351,7 +357,9 @@ def compute_fairness_metrics(
                 # nanmean / nanstd so the metric_mean / metric_std columns
                 # aren't silently NaN whenever a single bin emits NaN.
                 line["metric_mean"] = float(np.nanmean(performances))
-                line["metric_std"] = float(np.nanstd(performances))
+                # Bessel-corrected sample std (ddof default 1): the K subgroup metrics are a sample, and ddof=0 systematically under-reports the dispersion at small K.
+                n_finite = int(np.sum(~np.isnan(performances)))
+                line["metric_std"] = float(np.nanstd(performances, ddof=ddof)) if n_finite > ddof else np.nan
 
                 l = len(metric_perf)
                 real_top_n = min(l // 2, top_n)
@@ -392,10 +400,14 @@ def robust_mlperf_metric(
     subgroups: dict = None,
     whole_set_weight: float = 0.5,
     min_group_size: int = 100,
+    ddof: int = 1,
 ) -> float:
     """Bins idices need to be aware of arr sizes: boostings can call the metric on
     multiple sets of differnt lengths - train, val, etc. Arrays will be pure numpy, so no other means to
-    distinguish except the arr size."""
+    distinguish except the arr size.
+
+    The dispersion penalty uses the Bessel-corrected sample std (``ddof=1`` default) over the per-subgroup metrics, matching ``compute_fairness_metrics``: ddof=0
+    under-estimates the spread at small group counts, under-penalising an unfair model. Pass ``ddof=0`` for the legacy population-std penalty."""
 
     weights_sum = whole_set_weight
     total_metric_value = metric(y_true, y_score) * whole_set_weight
@@ -427,10 +439,12 @@ def robust_mlperf_metric(
             if perfs:
                 perfs = np.array(perfs)
                 bin_metric_value = perfs.mean()
+                # ddof clamped so a single in-spec group (len 1) yields std 0 rather than NaN/inf.
+                spread = float(perfs.std(ddof=ddof)) if perfs.size > ddof else 0.0
                 if higher_is_better:
-                    bin_metric_value -= perfs.std()
+                    bin_metric_value -= spread
                 else:
-                    bin_metric_value += perfs.std()
+                    bin_metric_value += spread
 
                 weights_sum += bin_weight
                 total_metric_value += bin_metric_value * bin_weight
