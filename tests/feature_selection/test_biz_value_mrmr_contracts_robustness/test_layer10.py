@@ -182,35 +182,39 @@ def _fit_layer10(X, y, *, mi_normalization: str = "none"):
 
 
 class TestHighCardDefaultRefuses:
-    """The production default raises a clear error on a 1200-level cat
-    column; users get an actionable message rather than silent garbage."""
+    """The production default ``on_high_cardinality="skip"`` (set in
+    ``cat_fe_state``, commit 31910ce2 "high-card-cat crash" coverage-gap
+    fix) handles a 1200-level cat column WITHOUT crashing: cat-FE skips it
+    and it flows through as an ordinary column the relevance screen drops,
+    so a raw frame carrying an id / hash / free-text column no longer
+    hard-fails the whole fit. The earlier ``raise`` default is preserved as
+    an opt-in via ``cat_fe_config`` for callers who want the strict gate."""
 
-    def test_default_raises_on_highcard(self):
-        """``MRMR()`` with the default ``cat_fe_config=None`` (cat-FE
-        enabled) must raise ``ValueError`` on a 1200-level categorical
-        column. This is the production safety gate - if it ever stops
-        firing, downstream MI is computed on a column that violates the
-        int16 ceiling and produces garbage rankings.
+    def test_default_skips_highcard_without_crashing(self):
+        """``MRMR()`` with the default ``cat_fe_config=None`` must NOT crash
+        on a 1200-level categorical column. The high-card column is skipped
+        by cat-FE and dropped by the relevance screen (not in support), and
+        the genuine numeric signals are still selected -- no garbage MI on a
+        column that violates the int16 ceiling, achieved by skipping rather
+        than by aborting the fit.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_highcard_data()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with pytest.raises(ValueError) as exc_info:
-                MRMR(
-                    verbose=0, interactions_max_order=1, fe_max_steps=0
-                ).fit(X, y)
-        msg = str(exc_info.value).lower()
-        # Pin that the message is the high-card guard, not some other
-        # incidental ValueError elsewhere in fit.
-        assert "cardinality" in msg or "nbins" in msg, (
-            f"ValueError raised but doesn't reference high-cardinality / "
-            f"nbins guard. Got: {exc_info.value!r}"
+            sel = MRMR(
+                verbose=0, interactions_max_order=1, fe_max_steps=0
+            ).fit(X, y)
+        support = list(sel.get_feature_names_out())
+        # The 1200-level ``user_id`` must not survive into support (it carries no
+        # generalising signal and would violate the int16 binning ceiling).
+        assert not any("user_id" in str(c) for c in support), (
+            f"1200-level high-card column leaked into support: {support}"
         )
-        assert "drop" in msg or "categorical" in msg, (
-            f"ValueError message missing actionable guidance "
-            f"(drop / categorical). Got: {exc_info.value!r}"
+        # The genuine numeric signals must still be recovered.
+        assert any("num_signal" in str(c) for c in support), (
+            f"high-card handling dropped the genuine signals too: {support}"
         )
 
 

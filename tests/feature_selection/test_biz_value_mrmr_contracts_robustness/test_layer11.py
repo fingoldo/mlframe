@@ -169,6 +169,17 @@ def _fit_layer11(X, y):
             verbose=0,
             interactions_max_order=1,
             fe_max_steps=0,
+            # These contracts assert RAW-signal selection order under outliers (x1 rank #0, noise never outranks
+            # signal). The auxiliary default-on FE stages legitimately engineer derivatives of the signal column
+            # (x1 relu legs, binagg-of-x1) that can rank above raw x1 -- a real, separately-tested FE behaviour that is
+            # orthogonal to the outlier-robustness of the underlying relevance ranking under test here. Pin them off so
+            # the raw-signal ordering is what is exercised.
+            fe_hinge_enable=False,
+            fe_conditional_gate_enable=False,
+            fe_conditional_dispersion_enable=False,
+            fe_binned_numeric_agg_enable=False,
+            fe_univariate_basis_enable=False,
+            fe_univariate_fourier_enable=False,
         ).fit(X, y)
     return list(sel.get_feature_names_out())
 
