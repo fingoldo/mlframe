@@ -3851,3 +3851,23 @@ Broader calibration+prewarm suite (`test_calibration_binning_prange_iter128` + `
 **Verdict: RESOLVED.** A fresh-surface orchestration/diagnostics-glue correctness bug: a public metric API (`fast_calibration_metrics`) was numba-broken AND its broken call aborted the whole suite metric-kernel prewarm, silently defeating the on-disk JIT-cache optimization for every subsequent process. Fixed the njit call + pinned with two regression tests.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 103 RESOLVED, 35 REJECT across 136 iterations.**
+
+---
+
+## iter137 — PREWARM path: `_marginal_screen_njit` warmed with wrong arity (swallowed) — RESOLVED
+
+**Surface/scale:** training-SUITE orchestration / numba PREWARM path (`feature_selection/filters/_prewarm.py::prewarm_fs_numba_cache`), n~5000 ridge-only driver. Iter135/136 each found a swallowed-failure bug in the suite prewarm/diagnostics glue; this iter extends the probe to the FS-side prewarm body, which has ~30 independent `try/except: pass` blocks (same swallow-hides-cold-kernel class as iter136).
+
+**Method:** instrumented every guarded prewarm call (metrics + dummy-baselines + fs) to surface the swallowed exception instead of `pass`. 43 metric kernels + 9 dummy-baselines kernels all warmed clean (no FAIL) — confirms iter136's fix holds and the metric prewarm is healthy. The FS prewarm probe surfaced ONE FAIL.
+
+**Bug:** `prewarm_fs_numba_cache` called `_marginal_screen_njit(factors_data, nbins, classes_y, freqs_y, dtype)` — 5 args. Real signature is `(factors_data, candidate_idxs, nbins, classes_y, freqs_y, dtype)` — 6 args (the two real call sites in `_cat_interactions_step.py:222/233` pass `candidate_idxs=candidate_idxs_arr`). The missing `candidate_idxs` raised `TypeError: not enough arguments: expected 6, got 5`, swallowed by `except: pass`. Consequence: `_marginal_screen_njit` — a `prange` marginal-MI screening kernel run once per candidate column during MRMR cat-FE screening — never compiled at prewarm, so it paid full cold-JIT compile on the first real MRMR.fit (defeating the whole point of the on-disk numba cache for this kernel).
+
+**Fix:** add `candidate_idxs = np.arange(factors_data.shape[1], dtype=np.int64)` and pass it in the prewarm call. One-line correctness fix; no numerics changed.
+
+**Pre-fix-red proof:** PRE-FIX 5-arg call raises `TypeError: not enough arguments: expected 6, got 5` and leaves `_marginal_screen_njit.signatures == 0` (cold). POST-FIX: signatures == 1 (warm). Output identity is N/A (prewarm only triggers compilation; no result is consumed).
+
+**Regression test:** `tests/feature_selection/test_prewarm.py::TestPrewarmCoverage::test_marginal_screen_njit_compiled_in_fresh_process` — fresh subprocess runs prewarm then asserts `len(_marginal_screen_njit.signatures) >= 1`. FAILS pre-fix (kernel left cold), passes post-fix. Full prewarm suite: 13 passed.
+
+**Verdict: RESOLVED.** Swallowed wrong-arity prewarm call left a hot MRMR marginal-screening prange kernel cold on every first-fit; fixed the call + pinned with a subprocess coverage regression test.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 104 RESOLVED, 35 REJECT across 137 iterations.**

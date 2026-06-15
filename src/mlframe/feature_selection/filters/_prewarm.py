@@ -114,9 +114,10 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     # Marginal + pair-search MI kernels (entry points for cat-FE search).
     factors_data = np.column_stack([classes_x1, classes_x2]).astype(dtype)
     marginal_mi = np.zeros(2, dtype=np.float64)
+    candidate_idxs = np.arange(factors_data.shape[1], dtype=np.int64)
     try:
         _ = _marginal_screen_njit(
-            factors_data, nbins, classes_y, freqs_y, dtype,
+            factors_data, candidate_idxs, nbins, classes_y, freqs_y, dtype,
         )
     except Exception:
         pass

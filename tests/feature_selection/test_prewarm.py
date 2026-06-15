@@ -92,6 +92,24 @@ class TestPrewarmCoverage:
         assert len(parallel_mi_prange.signatures) >= 1
         assert len(shuffle_arr.signatures) >= 1
 
+    def test_marginal_screen_njit_compiled_in_fresh_process(self):
+        # Regression sensor: the prewarm body called ``_marginal_screen_njit`` with the wrong arity (5 args, omitting ``candidate_idxs``); the swallowing
+        # ``except: pass`` hid the TypeError, leaving this hot prange marginal-MI screening kernel cold so it paid full JIT compile on the first real MRMR.fit.
+        # Run in a fresh subprocess so no other test / import incidentally compiles the kernel first; assert prewarm populated a signature.
+        import subprocess
+        import sys
+        code = (
+            "import sys; sys.modules['cupy']=None\n"
+            "from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache\n"
+            "prewarm_fs_numba_cache(verbose=False)\n"
+            "from mlframe.feature_selection.filters.cat_interactions import _marginal_screen_njit\n"
+            "assert len(_marginal_screen_njit.signatures) >= 1, 'prewarm left _marginal_screen_njit cold'\n"
+            "print('OK')\n"
+        )
+        env = dict(__import__("os").environ, CUDA_VISIBLE_DEVICES="", NUMBA_DISABLE_CUDA="1", MPLBACKEND="Agg")
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)
+        assert res.returncode == 0 and "OK" in res.stdout, f"stdout={res.stdout!r} stderr={res.stderr[-1500:]!r}"
+
     def test_discretization_dtype_matrix_compiled(self, warmed):
         # The public ``discretize_array`` is a regular Python wrapper; its njit kernel is ``_discretize_array_impl``.
         # Guards the dtype-matrix prewarm regression (a missed dtype leaves a ~9s cold compile in prod).
