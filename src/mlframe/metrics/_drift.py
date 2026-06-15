@@ -126,7 +126,7 @@ def _kl_kernel(p: np.ndarray, q: np.ndarray, eps: float) -> float:
 def kl_divergence(
     reference: np.ndarray, target: np.ndarray,
     *, nbins: int = 50, eps: float = 1e-12,
-    pre_binned: bool = False,
+    pre_binned: bool = False, bias_correction: bool = True,
 ) -> float:
     """Kullback-Leibler divergence KL(P || Q) where P=target, Q=reference.
 
@@ -136,9 +136,15 @@ def kl_divergence(
     When ``pre_binned=True`` the inputs are taken as already-normalised
     probability vectors (e.g. multinomial parameters); when False they
     are binned into ``nbins`` quantile bins of the reference first.
+
+    The binned plug-in KL is positively biased in finite samples: the empirical histograms over-resolve the two
+    distributions so KL_hat(P||Q) sits well above the true value (and stays clearly positive even when P and Q are
+    drawn from the SAME distribution, where the truth is 0). The leading 1/n term is a sum of two Miller-Madow
+    entropy-bias contributions -- ``(Kp-1)/(2 np)`` from the empirical -H(P) plus ``(Kq-1)/(2 nq)`` from the cross
+    term -H(P, Q_hat), where Kp/Kq are the occupied-bin counts and np/nq the sample sizes. ``bias_correction=True``
+    (default) subtracts that floor and clamps at 0; pass ``bias_correction=False`` for the legacy plug-in. The
+    correction needs integer counts + sample sizes, so it only applies on the binned path (``pre_binned=False``).
     """
-    # iter608: skip-cast (see psi_score). Bench nbins=10..50: KL
-    # 1.16-3.42x across (f64, f32, mixed) dtype pairs. Bit-equiv.
     p = np.asarray(target)
     q = np.asarray(reference)
     if p.size == 0 or q.size == 0:
@@ -148,15 +154,33 @@ def kl_divergence(
             raise ValueError(f"shape mismatch p={p.shape}, q={q.shape}")
         return float(_kl_kernel(p, q, float(eps)))
     edges = _safe_quantile_bins(q, int(nbins))
-    pn = _bin_counts(p, edges); pn /= pn.sum() if pn.sum() > 0 else 1.0
-    qn = _bin_counts(q, edges); qn /= qn.sum() if qn.sum() > 0 else 1.0
-    return float(_kl_kernel(pn, qn, float(eps)))
+    pc = _bin_counts(p, edges); qc = _bin_counts(q, edges)
+    np_tot = pc.sum(); nq_tot = qc.sum()
+    pn = pc / (np_tot if np_tot > 0 else 1.0)
+    qn = qc / (nq_tot if nq_tot > 0 else 1.0)
+    kl = float(_kl_kernel(pn, qn, float(eps)))
+    if bias_correction:
+        kl = max(kl - _kl_mm_bias(pc, qc, np_tot, nq_tot), 0.0)
+    return kl
+
+
+def _kl_mm_bias(
+    pc: np.ndarray, qc: np.ndarray, np_tot: float, nq_tot: float,
+) -> float:
+    """Miller-Madow leading-order bias of the binned plug-in KL: (Kp-1)/(2 np) + (Kq-1)/(2 nq)."""
+    kp = float(np.count_nonzero(pc)); kq = float(np.count_nonzero(qc))
+    bias = 0.0
+    if np_tot > 0 and kp > 1.0:
+        bias += (kp - 1.0) / (2.0 * np_tot)
+    if nq_tot > 0 and kq > 1.0:
+        bias += (kq - 1.0) / (2.0 * nq_tot)
+    return bias
 
 
 def js_divergence(
     reference: np.ndarray, target: np.ndarray,
     *, nbins: int = 50, eps: float = 1e-12,
-    pre_binned: bool = False,
+    pre_binned: bool = False, bias_correction: bool = True,
 ) -> float:
     """Jensen-Shannon divergence between two distributions.
 
@@ -171,9 +195,14 @@ def js_divergence(
     against only the reference would break symmetry
     (js(a,b) != js(b,a)) because the bin edges depend on which sample is
     the reference.
+
+    JS equals the mutual information I(L; B) between the sample-label L in {P, Q} and the bin B, so the binned
+    plug-in is the same positively-biased MI plug-in: even when P and Q come from the SAME distribution (true JS=0)
+    JS_hat sits clearly above 0, the bias growing as the bin count rises and the sample shrinks. ``bias_correction=
+    True`` (default) subtracts the Miller-Madow MI floor ``(K-1)/(2 N)`` (K = occupied pooled bins, N = total
+    samples np+nq) and clamps at 0; pass ``bias_correction=False`` for the legacy plug-in. The correction needs the
+    raw counts + sample sizes, so it only applies on the binned path (``pre_binned=False``).
     """
-    # iter608: skip-cast (see psi_score / kl_divergence). Same
-    # _kl_kernel under the hood, same dispatch behavior.
     p = np.asarray(target)
     q = np.asarray(reference)
     if p.size == 0 or q.size == 0:
@@ -182,14 +211,23 @@ def js_divergence(
         if p.shape != q.shape:
             raise ValueError(f"shape mismatch p={p.shape}, q={q.shape}")
         pn = p; qn = q
-    else:
-        # Pool both samples for the bin grid to keep js symmetric.
-        pooled = np.concatenate([p, q])
-        edges = _safe_quantile_bins(pooled, int(nbins))
-        pn = _bin_counts(p, edges); pn /= pn.sum() if pn.sum() > 0 else 1.0
-        qn = _bin_counts(q, edges); qn /= qn.sum() if qn.sum() > 0 else 1.0
+        m = 0.5 * (pn + qn)
+        return 0.5 * float(_kl_kernel(pn, m, float(eps))) + 0.5 * float(_kl_kernel(qn, m, float(eps)))
+    # Pool both samples for the bin grid to keep js symmetric.
+    pooled = np.concatenate([p, q])
+    edges = _safe_quantile_bins(pooled, int(nbins))
+    pc = _bin_counts(p, edges); qc = _bin_counts(q, edges)
+    np_tot = pc.sum(); nq_tot = qc.sum()
+    pn = pc / (np_tot if np_tot > 0 else 1.0)
+    qn = qc / (nq_tot if nq_tot > 0 else 1.0)
     m = 0.5 * (pn + qn)
-    return 0.5 * float(_kl_kernel(pn, m, float(eps))) + 0.5 * float(_kl_kernel(qn, m, float(eps)))
+    js = 0.5 * float(_kl_kernel(pn, m, float(eps))) + 0.5 * float(_kl_kernel(qn, m, float(eps)))
+    if bias_correction:
+        n_tot = np_tot + nq_tot
+        k_active = float(np.count_nonzero(pc + qc))
+        if n_tot > 0 and k_active > 1.0:
+            js = max(js - (k_active - 1.0) / (2.0 * n_tot), 0.0)
+    return js
 
 
 # ----- Wasserstein-1 -----
