@@ -89,6 +89,9 @@ FE_ORIGIN_LABELS = (
     "cat_cross",
     "grouped_agg",
     "extra_fe",
+    "conditional_gate",
+    "row_argmax",
+    "integer_lattice",
     "engineered_unknown",
 )
 
@@ -148,6 +151,13 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "conditional_residual": "extra_fe",
     "conditional_dispersion": "extra_fe",
     "rankgauss": "extra_fe",
+    # Threshold-gate / number-theoretic / binned-aggregate families (default-ON 2026; previously
+    # unmapped -> their surviving columns showed as engineered_unknown in fe_provenance_).
+    "conditional_gate": "conditional_gate",   # gate_mask__ / gate_select__ regime-switch
+    "row_argmax": "row_argmax",
+    "pairwise_integer_lattice": "integer_lattice",  # il_gcd / il_lcm / il_and
+    "pairwise_modular": "periodic",            # pmod_ residue -- same family as the single-col "modular"
+    "binned_numeric_agg": "grouped_agg",       # binagg_ qbin-strata aggregate of a numeric col
     # ``factorize`` stays engineered_unknown by design: the cat k-way
     # materializer emits it as a generic ordinal lookup with no single
     # mechanism semantics worth a dedicated origin bucket.
