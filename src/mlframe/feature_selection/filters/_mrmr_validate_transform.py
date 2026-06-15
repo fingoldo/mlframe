@@ -612,10 +612,18 @@ def _append_engineered(self, base_out, X, recipes):
     if isinstance(base_out, pd.DataFrame):
         # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
         # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.
+        # Name the engineered output columns through the SAME value-preserving canonicaliser
+        # get_feature_names_out uses (abs(div(sqr(a),neg(b))) -> abs(div(sqr(a),b))) so the two
+        # stay byte-for-byte in sync (the all-or-nothing collision guard keeps widths equal). The
+        # internal ``chained``/``_results`` replay above still keys off the RAW r.name, so replay
+        # is unaffected. Build column-by-column (positional) to tolerate any duplicate display name.
+        from .engineered_recipes._recipe_name_simplify import simplified_recipe_names
+        _disp_names = simplified_recipe_names(recipes)
         engineered_df = pd.DataFrame(
-            {r.name: col for r, col in zip(recipes, engineered_cols)},
+            dict(zip(range(len(_disp_names)), engineered_cols)),
             index=base_out.index,
         )
+        engineered_df.columns = _disp_names
         return pd.concat([base_out, engineered_df], axis=1)
 
     # Try polars first if available (avoid hard import).

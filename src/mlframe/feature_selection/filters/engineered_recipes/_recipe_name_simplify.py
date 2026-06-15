@@ -100,6 +100,23 @@ def _simplify(node, sign_irrelevant: bool):
     return (op, [_simplify(a, False) for a in args])
 
 
+def simplified_recipe_names(recipes) -> list:
+    """Order-preserving simplified DISPLAY names for a recipe list.
+
+    Applies :func:`simplify_fe_name` to each ``recipe.name``, but ONLY adopts the simplified
+    set if it stays exactly as UNIQUE as the originals -- otherwise returns the original names
+    unchanged. This all-or-nothing guard prevents a (rare) canonicalisation COLLISION (two
+    recipes differing only by a dead ``neg``/``abs``) from shrinking the column set, which would
+    desync ``transform``'s output width from ``get_feature_names_out``. Both callers run the same
+    deterministic function over the same recipe order, so their names stay identical.
+    """
+    orig = [getattr(r, "name", "") for r in recipes]
+    simp = [simplify_fe_name(n) for n in orig]
+    if len(set(simp)) == len(set(orig)):
+        return simp
+    return orig
+
+
 def simplify_fe_name(name: str) -> str:
     """Return the value-preserving canonical form of an engineered op-NAME.
 

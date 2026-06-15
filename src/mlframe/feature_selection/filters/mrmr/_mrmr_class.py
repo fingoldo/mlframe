@@ -4165,10 +4165,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # advertise MORE columns than transform() emits on a legacy pickle -> a width mismatch that breaks
         # sklearn Pipeline / ColumnTransformer / set_output. For freshly-fit estimators every recipe has
         # the payload, so this is a strict no-op (the list comprehension keeps all recipes).
-        engineered_names = [
-            r.name for r in getattr(self, "_engineered_recipes_", [])
+        from ..engineered_recipes._recipe_name_simplify import simplified_recipe_names
+        _adv_recipes = [
+            r for r in getattr(self, "_engineered_recipes_", [])
             if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")
         ]
+        # Value-preserving DISPLAY canonicalisation (e.g. abs(div(sqr(a),neg(b))) -> abs(div(sqr(a),b)));
+        # transform() names its engineered columns through the SAME helper so widths/names stay in sync.
+        engineered_names = simplified_recipe_names(_adv_recipes)
         if len(support) == 0 and not engineered_names:
             return np.array([], dtype=object)
         if len(support) > 0 and isinstance(support[0], (bool, np.bool_)):
