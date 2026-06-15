@@ -15,7 +15,7 @@ callers keep working at the cost of a one-time deferred import.
 from __future__ import annotations
 
 
-from mlframe.evaluation.bootstrap import bootstrap_metric, delong_test  # noqa: F401
+from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, delong_test  # noqa: F401
 
 
 def __getattr__(name: str):

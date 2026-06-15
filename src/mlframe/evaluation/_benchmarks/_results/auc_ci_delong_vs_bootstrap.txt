@@ -1,0 +1,19 @@
+=== qual-9: DeLong AUC SE/CI vs bootstrap-of-AUC ===
+4000 MC draws for truth-SD; 8 seeds for SE-bias; 300 trials/cell for coverage
+
+[auc0.97_n150] truth SD(AUC)=0.0117 mean_auc=0.9700
+   DeLong  mean|SE-SD|=0.00431  (mean SE=0.0120)
+   Bootstrp mean|SE-SD|=0.00422  (mean SE=0.0121)
+   DeLong SE closer in 3/8 seeds
+   coverage(target 0.95): DeLong=0.943 (gap 0.007)  Bootstrap=0.943 (gap 0.007)
+
+[auc0.97_n400] truth SD(AUC)=0.0072 mean_auc=0.9700
+   DeLong  mean|SE-SD|=0.00079  (mean SE=0.0067)
+   Bootstrp mean|SE-SD|=0.00083  (mean SE=0.0067)
+   DeLong SE closer in 4/8 seeds
+   coverage(target 0.95): DeLong=0.937 (gap 0.013)  Bootstrap=0.933 (gap 0.017)
+
+[auc0.90_n100] truth SD(AUC)=0.0302 mean_auc=0.9005
+   DeLong  mean|SE-SD|=0.00319  (mean SE=0.0316)
+   Bootstrp mean|SE-SD|=0.00325  (mean SE=0.0316)
+   DeLong SE closer in 4/8 seeds

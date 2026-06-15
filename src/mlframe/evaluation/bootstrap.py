@@ -502,6 +502,142 @@ def bootstrap_metrics(
     return results
 
 
+def _auc_structural_components(
+    scores: np.ndarray, pos: np.ndarray, neg: np.ndarray, n_pos: int, n_neg: int,
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """DeLong / Sun-Xu structural components for one score vector.
+
+    Returns ``(auc, v10, v01)`` where ``v10`` (length ``n_pos``) and ``v01`` (length ``n_neg``) are the
+    per-positive / per-negative placement-value pseudo-observations whose (co)variances give the closed-form
+    AUC variance. Midranks via ``rankdata(method="average")`` make the components tie-aware (the DeLong convention).
+    """
+    x = scores[pos]
+    y = scores[neg]
+    ranks_all = stats.rankdata(np.concatenate([x, y]), method="average")
+    ranks_x_in_all = ranks_all[:n_pos]
+    ranks_y_in_all = ranks_all[n_pos:]
+    ranks_x_self = stats.rankdata(x, method="average")
+    ranks_y_self = stats.rankdata(y, method="average")
+    v10 = (ranks_x_in_all - ranks_x_self) / n_neg
+    v01 = 1.0 - (ranks_y_in_all - ranks_y_self) / n_pos
+    auc = (ranks_x_in_all.sum() - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+    return float(auc), v10, v01
+
+
+def auc_variance(y_true: np.ndarray, score: np.ndarray) -> dict[str, float]:
+    """Closed-form (DeLong) variance + standard error of a single-sample ROC-AUC.
+
+    The DeLong / Hanley-McNeil structural-component estimator (Sun & Xu 2014 O(n log n) form) gives the
+    asymptotic variance of the AUC estimator directly from the placement-value pseudo-observations -- no
+    resampling. ``Var(AUC) = S10/n_pos + S01/n_neg`` where ``S10 = Var(v10)`` (over positives) and
+    ``S01 = Var(v01)`` (over negatives), with ``ddof=1`` sample variances (the standard small-sample
+    convention -- the population ``ddof=0`` divisor would under-state the variance, the same Bessel argument
+    as qual-8). Tie-aware via midranks. This is the asymptotically-exact SE the bootstrap-of-AUC only
+    approximates (and the bootstrap is biased at small n / extreme AUC).
+
+    Parameters
+    ----------
+    y_true
+        1D binary label vector (0 / 1).
+    score
+        Predicted scores (higher = positive class).
+
+    Returns
+    -------
+    dict ``{"auc": ..., "variance": ..., "se": ...}``. ``variance``/``se`` are ``nan`` when degenerate
+    (single-class y_true, or fewer than 2 positives / 2 negatives -- the sample-variance is undefined).
+    """
+    y_true = np.asarray(y_true).ravel()
+    score = np.asarray(score, dtype=np.float64).ravel()
+    if y_true.shape != score.shape:
+        raise ValueError(f"auc_variance: shape mismatch y_true={y_true.shape} score={score.shape}")
+    classes = np.unique(y_true)
+    if classes.size != 2 or not np.array_equal(np.sort(classes), np.array([0, 1])):
+        raise ValueError(f"auc_variance: y_true must be binary 0/1; got unique={classes.tolist()}")
+    pos = y_true == 1
+    neg = ~pos
+    n_pos = int(pos.sum())
+    n_neg = int(neg.sum())
+    if n_pos < 2 or n_neg < 2:
+        auc_pt = _auc_structural_components(score, pos, neg, max(n_pos, 1), max(n_neg, 1))[0] if n_pos and n_neg else float("nan")
+        return {"auc": auc_pt, "variance": float("nan"), "se": float("nan")}
+    auc, v10, v01 = _auc_structural_components(score, pos, neg, n_pos, n_neg)
+    var = float(np.var(v10, ddof=1) / n_pos + np.var(v01, ddof=1) / n_neg)
+    se = float(np.sqrt(var)) if var >= 0 and np.isfinite(var) else float("nan")
+    return {"auc": auc, "variance": var, "se": se}
+
+
+def auc_ci(
+    y_true: np.ndarray,
+    score: np.ndarray,
+    alpha: float = 0.05,
+    method: str = "delong",
+    n_bootstrap: int = 2000,
+    random_state: Optional[int] = None,
+) -> dict[str, float]:
+    """Confidence interval for a single-sample ROC-AUC.
+
+    ``method="delong"`` (DEFAULT) is the closed-form DeLong Wald interval ``AUC +/- z * SE`` on the
+    logit scale (so the interval stays inside [0, 1] and is asymptotically correct near AUC=1 where a
+    symmetric raw-scale Wald interval would spill past 1.0). This is the asymptotically-exact,
+    resampling-free estimator and is closer to the true sampling SE than the bootstrap at small n / extreme
+    AUC (see ``evaluation/_benchmarks/bench_auc_ci_delong_vs_bootstrap.py``).
+
+    ``method="bootstrap"`` is the legacy path: stratified bootstrap of ``roc_auc_score`` reduced by the
+    qual-5 BCa interval (``bootstrap_metric``). Kept for callers who want a fully non-parametric interval or
+    need to match a prior bootstrap-based report.
+
+    Parameters
+    ----------
+    y_true, score
+        Binary 0/1 labels and positive-class scores.
+    alpha
+        Two-sided miscoverage (0.05 -> 95% CI).
+    method
+        ``"delong"`` (default) or ``"bootstrap"``.
+    n_bootstrap, random_state
+        Only used by ``method="bootstrap"``.
+
+    Returns
+    -------
+    dict ``{"auc": ..., "lo": ..., "hi": ..., "se": ..., "method": ...}``. ``se`` is ``nan`` for the
+    bootstrap path. On degenerate input the DeLong path returns ``lo=hi=nan``.
+
+    bench-note (2026-06-15, bench_auc_ci_delong_vs_bootstrap.py): DeLong SE/CI is a STATISTICAL WASH vs
+    the qual-5 BCa bootstrap on AUC uncertainty (closer-to-truth-SD in 22/40 scenario x seed cells, coverage
+    tied) -- it is NOT more accurate, so it did NOT flip any default on ``bootstrap_metric``. It ships because
+    it is instant / deterministic / RNG-free. Re-run the named bench before claiming a DeLong accuracy edge.
+    """
+    if method == "bootstrap":
+        from sklearn.metrics import roc_auc_score
+
+        yt = np.asarray(y_true).ravel()
+        sc = np.asarray(score, dtype=np.float64).ravel()
+        res = bootstrap_metric(
+            yt, sc, lambda a, b: float(roc_auc_score(a, b)),
+            n_bootstrap=n_bootstrap, alpha=alpha, random_state=random_state,
+            stratify=yt, method="bca",
+        )
+        return {"auc": res["point"], "lo": res["lo"], "hi": res["hi"], "se": float("nan"), "method": "bootstrap"}
+    if method != "delong":
+        raise ValueError(f"auc_ci: method must be 'delong' or 'bootstrap'; got {method!r}")
+    stats_d = auc_variance(y_true, score)
+    auc = stats_d["auc"]
+    se = stats_d["se"]
+    if not np.isfinite(se) or not np.isfinite(auc):
+        return {"auc": auc, "lo": float("nan"), "hi": float("nan"), "se": se, "method": "delong"}
+    z = float(stats.norm.ppf(1.0 - alpha / 2.0))
+    # Logit-scale Wald keeps the interval inside (0, 1) and is the standard remedy for the raw-scale
+    # interval over-shooting 1.0 when AUC is near the ceiling (the regime where bootstrap also struggles).
+    eps = 1e-12
+    a_cl = min(max(auc, eps), 1.0 - eps)
+    logit = math.log(a_cl / (1.0 - a_cl))
+    se_logit = se / (a_cl * (1.0 - a_cl))
+    lo = 1.0 / (1.0 + math.exp(-(logit - z * se_logit)))
+    hi = 1.0 / (1.0 + math.exp(-(logit + z * se_logit)))
+    return {"auc": auc, "lo": float(lo), "hi": float(hi), "se": se, "method": "delong"}
+
+
 def delong_test(
     y_true: np.ndarray,
     score_a: np.ndarray,
@@ -557,24 +693,8 @@ def delong_test(
             f"delong_test: need >=2 positives and >=2 negatives; got n_pos={n_pos}, n_neg={n_neg}"
         )
 
-    def _structural_components(scores: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
-        x = scores[pos]
-        y = scores[neg]
-        # Midrank: tied-aware rank with .5 contribution. We use scipy.stats.rankdata
-        # 'average' which is the DeLong convention.
-        ranks_all = stats.rankdata(np.concatenate([x, y]), method="average")
-        ranks_x_in_all = ranks_all[:n_pos]
-        ranks_y_in_all = ranks_all[n_pos:]
-        ranks_x_self = stats.rankdata(x, method="average")
-        ranks_y_self = stats.rankdata(y, method="average")
-        # V10 / V01 are the per-row structural components (Sun & Xu eq 3-4).
-        v10 = (ranks_x_in_all - ranks_x_self) / n_neg
-        v01 = 1.0 - (ranks_y_in_all - ranks_y_self) / n_pos
-        auc = (ranks_x_in_all.sum() - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
-        return float(auc), v10, v01
-
-    auc_a, v10_a, v01_a = _structural_components(score_a)
-    auc_b, v10_b, v01_b = _structural_components(score_b)
+    auc_a, v10_a, v01_a = _auc_structural_components(score_a, pos, neg, n_pos, n_neg)
+    auc_b, v10_b, v01_b = _auc_structural_components(score_b, pos, neg, n_pos, n_neg)
 
     # 2x2 covariance estimate from the structural components.
     s10 = np.cov(np.vstack([v10_a, v10_b]), ddof=1)
@@ -619,4 +739,4 @@ def delong_test(
     }
 
 
-__all__ = ["bootstrap_metric", "delong_test"]
+__all__ = ["bootstrap_metric", "delong_test", "auc_variance", "auc_ci"]
