@@ -396,12 +396,23 @@ class TestBizValue:
             X, y = _gate_target(seed, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
             for flag, store in ((True, on), (False, off)):
-                # fe_fast_search=False: the lift here is the gate's MARGINAL benefit (ON vs OFF). The
-                # default fast path (2026-06-14) strengthens the non-gate baseline (OFF AUC 0.80->0.96),
-                # compressing the measured lift below the +0.10 floor even though the gate ON result is
-                # unchanged (0.998). Pin the exhaustive path so the marginal-lift contract is faithful.
-                m = MRMR(fe_conditional_gate_enable=flag, fe_row_argmax_enable=False, fe_fast_search=False,
-                         fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=1)
+                # The lift here is the gate's MARGINAL benefit over a RAW+SMOOTH baseline -- the documented
+                # contract ("raw + smooth ops cannot" recover c>0?a:b). The modern FE arsenal grew many
+                # families that EACH partially reconstruct the regime (pair-FE add(sign(a),sign(b))~0.95, the
+                # degree-6 escalation poly esc_poly_legendre_mul(b,c)~0.95, the 2026-06-14 fast path 0.80->0.96),
+                # so leaving them ON compresses the marginal lift below the floor even though the gate ON result
+                # is unchanged at 0.998. Isolate the gate against a bare baseline (fe_max_steps=0 + every
+                # non-gate FE family OFF): OFF then measures raw a,b,c + linear (~0.83, cannot do the
+                # discontinuity), ON adds only the gate (gate_select__a__b__c__t<thr>, ~0.998) -> lift ~0.17.
+                _bare = dict(
+                    fe_max_steps=0, fe_fast_search=False, fe_row_argmax_enable=False,
+                    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
+                    fe_auto_escalation_enable=False, fe_hinge_enable=False,
+                    fe_conditional_dispersion_enable=False, fe_wavelet_enable=False,
+                    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
+                    fe_binned_numeric_agg_enable=False, max_runtime_mins=1,
+                )
+                m = MRMR(fe_conditional_gate_enable=flag, **_bare)
                 m.fit(Xtr, pd.Series(ytr, name="y"))
                 clf = LogisticRegression(max_iter=2000).fit(m.transform(Xtr), ytr)
                 store.append(roc_auc_score(yte, clf.predict_proba(m.transform(Xte))[:, 1]))
