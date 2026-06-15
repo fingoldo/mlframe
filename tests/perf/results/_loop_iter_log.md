@@ -3713,3 +3713,24 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 99 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +2.06x median e2e @10M (15/15 paired, min 3.4x), gated >=5M, bit-identical, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 100 RESOLVED, 32 REJECT across 130 iterations.**
+
+---
+
+## iter131 (@10M, calibration A-D PIT statistic) — RESOLVED
+
+**Workload @10M + why:** rotated to the calibration PIT-statistic family (`anderson_darling_statistic`). iter ~at-200k landed the numpy->fused-njit body for A-D but left the kernel SINGLE-THREAD. At 10M PIT values the reduction is a real O(n) cost and the kernel had no prange twin — the exact "size-gated prange twin of a serial @njit full-n kernel" seam.
+
+**Top mlframe-own (microbench @10M, 7 reps):** `_anderson_darling_kernel` serial 97.1ms; `np.sort` (upstream) 269.7ms. Kernel is ~26% of the `anderson_darling_statistic` wall — meaningful, plain single-thread @njit (read source: pure `acc +=` loop, no external dispatch), confirmed REAL O(n) by the microbench.
+
+**Hotspot:** the serial A-D reduction `acc += (2k-1)*(log a + log(1-b))`. Pure `+=` over independent indices → numba parallelises as a race-free reduction (NOT the `if x>m:m=x` racing form). Added `_anderson_darling_kernel_parallel` prange twin; `anderson_darling_statistic` size-dispatches at `_AD_PARALLEL_THRESHOLD=200_000` (serial below to dodge the prange thread-launch floor).
+
+**Before/after (isolated, 7-rep min @10M):** serial 97.1ms -> par 17.3ms = **5.60x** on the kernel.
+**Before/after (separate-process paired e2e @10M, full `anderson_darling_statistic` = sort + kernel):** OLD (git show HEAD serial) 184-185ms vs NEW 143-156ms — NEW faster in **4/4** trials, **~1.24x median e2e**. Sort dominates the remainder; kernel portion went 97->17ms.
+
+**Identity proof:** OLD 0.4855071529746 vs NEW 0.4855070933700 → abs ~6e-8, rel ~1.2e-7 — FP reduction-order under `parallel=True` on a goodness-of-fit statistic; NOT selection-altering.
+
+**Regression test:** `tests/calibration/test_quality.py` +2: (1) `test_anderson_darling_parallel_kernel_above_threshold` — routes through parallel kernel, NOT serial, output within 1e-5 of serial; (2) `test_anderson_darling_serial_kernel_below_threshold` — serial path below threshold, pins the gate. FAIL pre-fix: `_anderson_darling_kernel_parallel` + `_AD_PARALLEL_THRESHOLD` absent at HEAD (verified `grep -c`=0). 12 passed post-fix (full file). Bench committed: `src/mlframe/calibration/_benchmarks/bench_anderson_darling_parallel_iter131.py`.
+
+**Verdict: RESOLVED +5.60x kernel / ~1.24x e2e @10M (4/4 paired), gated >=200k, ~1e-7 reduction-order identity, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 101 RESOLVED, 32 REJECT across 131 iterations.**

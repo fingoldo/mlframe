@@ -108,6 +108,65 @@ def test_anderson_darling_uses_fused_njit_kernel():
 
 
 @pytest.mark.fast
+def test_anderson_darling_parallel_kernel_above_threshold():
+    """Above ``_AD_PARALLEL_THRESHOLD`` the public path routes through the prange twin (not the serial kernel), and its output matches the serial kernel within
+    FP reduction-order tolerance. Fails pre-fix: ``_anderson_darling_kernel_parallel`` did not exist."""
+    from mlframe.calibration import quality as q
+
+    n = q._AD_PARALLEL_THRESHOLD + 5000
+    rng = np.random.default_rng(0)
+    pit = rng.random(n)
+
+    par_called = {"n": 0}
+    ser_called = {"n": 0}
+    orig_par = q._anderson_darling_kernel_parallel
+    orig_ser = q._anderson_darling_kernel
+
+    def spy_par(sorted_pit, m):
+        par_called["n"] += 1
+        return orig_par(sorted_pit, m)
+
+    def spy_ser(sorted_pit, m):
+        ser_called["n"] += 1
+        return orig_ser(sorted_pit, m)
+
+    q._anderson_darling_kernel_parallel = spy_par
+    q._anderson_darling_kernel = spy_ser
+    try:
+        got = q.anderson_darling_statistic(pit)
+    finally:
+        q._anderson_darling_kernel_parallel = orig_par
+        q._anderson_darling_kernel = orig_ser
+
+    assert par_called["n"] == 1, "large-n A-D did not route through the parallel kernel"
+    assert ser_called["n"] == 0, "large-n A-D should not call the serial kernel"
+
+    sorted_pit = np.sort(pit.astype(np.float64))
+    exact = orig_ser(sorted_pit, n)
+    assert abs(got - exact) <= 1e-5 * max(1.0, abs(exact)), "parallel A-D diverges beyond FP reduction-order from serial"
+
+
+@pytest.mark.fast
+def test_anderson_darling_serial_kernel_below_threshold():
+    """Below the threshold the serial kernel stays the path (prange thread-launch floor would lose). Pins the gate so a future 'always parallel' cannot slip in."""
+    from mlframe.calibration import quality as q
+
+    par_called = {"n": 0}
+    orig_par = q._anderson_darling_kernel_parallel
+
+    def spy_par(sorted_pit, m):
+        par_called["n"] += 1
+        return orig_par(sorted_pit, m)
+
+    q._anderson_darling_kernel_parallel = spy_par
+    try:
+        q.anderson_darling_statistic(np.linspace(0.01, 0.99, 1000))
+    finally:
+        q._anderson_darling_kernel_parallel = orig_par
+    assert par_called["n"] == 0, "small-n A-D should not call the parallel kernel"
+
+
+@pytest.mark.fast
 def test_anderson_darling_empty_is_nan():
     """Empty input returns NaN (guards the n==0 division)."""
     from mlframe.calibration.quality import anderson_darling_statistic
