@@ -830,6 +830,16 @@ def fit(
                 extra_base_columns=tuple(_kept_bases[1:]),
             )
             _upgraded_specs.append(_upgraded_spec)
+            # The upgraded spec carries a NEW name (``...-linear_residual_multi-<bases>``); carry the
+            # seed's tiny-rerank CV-RMSE over to it so the raw-y baseline gate and the public
+            # ``tiny_rerank_scores_`` diagnostic can look it up by the new name. The multi-base composite
+            # is built by ADDING bases to a seed that already cleared the raw-y baseline gate, and every
+            # added base only reduced the joint-OLS residual, so the seed's score is a valid conservative
+            # stand-in. Without this the new name has no score entry and any ``tiny_rerank_scores_[name]``
+            # lookup KeyErrors (regressed the sklearn-matrix composite sweep).
+            _seed_score = getattr(self, "_tiny_rerank_scores", None)
+            if isinstance(_seed_score, dict) and _spec.name in _seed_score:
+                _seed_score[_new_name] = _seed_score[_spec.name]
             _accepted_steps = [d for d in _fwd_diag if d.get("accepted")]
             logger.info(
                 "[CompositeTargetDiscovery.multi_base] upgraded spec='%s' -> '%s' with %d base(s); accepted_steps=%s",
