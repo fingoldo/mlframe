@@ -12,12 +12,14 @@ both work without per-call wiring.
 
 CatBoost
 --------
-CatBoost does NOT host a Python per-iteration callback that can both observe the val metric AND
-veto continuation through the public sklearn ``fit`` API (its callback hook is limited and the
-od_type / overfitting-detector machinery is native C++). Implementing this for CatBoost would need
-a native-API change, so it is intentionally NOT provided here -- mlframe's CatBoost path keeps its
-native overfitting detector + the budget-scaled worsening detector already in
-``UniversalCallback`` (``training.callbacks._callbacks``). See the project report for the verdict.
+Modern CatBoost (verified against catboost 1.2.10) DOES host a usable Python per-iteration callback:
+``CatBoostClassifier/Regressor.fit(..., callbacks=[obj])`` where ``obj.after_iteration(info)`` returns
+``False`` to STOP and ``True`` to continue. ``info.metrics`` exposes the per-iteration eval scores keyed
+by dataset (``"learn"`` / ``"validation"``) then metric name. ``CBMonotonicDeclineStop`` wraps the same
+shared ``MonotonicDeclineStopper`` so CatBoost stops on the byte-identical rule as lgb / xgb / mlp. When
+the installed CatBoost build lacks ``callbacks=`` support (probed at wiring time), the detector is skipped
+and CatBoost's native overfitting detector (``od_wait``) plus the budget-scaled worsening detector in
+``UniversalCallback`` remain the stop signal.
 """
 from __future__ import annotations
 
@@ -162,4 +164,75 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 3, monitor_dataset: O
     return _XGBMonotonicDeclineStop()
 
 
-__all__ = ["LGBMonotonicDeclineStop", "_make_xgb_monotonic_callback", "_resolve_mode"]
+def catboost_callbacks_supported() -> bool:
+    """Runtime probe: does the installed CatBoost accept a Python ``callbacks=`` arg in ``fit``?
+
+    Probed on the ``fit`` signature rather than a version-string compare so a future build that adds or
+    removes the hook is detected directly. Returns False when catboost is absent. Mirrors the
+    capability-gate style of ``lgb_dataset_reuse_capable`` / ``xgb_dmatrix_reuse_capable``.
+    """
+    try:
+        import catboost
+        import inspect
+    except ImportError:
+        return False
+    try:
+        return "callbacks" in inspect.signature(catboost.CatBoostClassifier.fit).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+class CBMonotonicDeclineStop:
+    """CatBoost callback: stop on a fixed-N monotone strict-decline run of the monitored eval metric.
+
+    CatBoost calls ``after_iteration(info)`` once per boosting iteration with ``info.metrics`` shaped
+    ``{dataset_name: {metric_name: [values...]}}`` (dataset keys ``"learn"`` / ``"validation"``). We read
+    the monitored value (defaults: ``"validation"`` set, first metric), feed it to the shared stopper, and
+    return ``False`` to stop once the streak fires -- CatBoost then ends training, keeping its native
+    best-iteration bookkeeping (``best_iteration_`` via ``od_wait``/``use_best_model``) for model selection.
+    Returning ``True`` continues training; a disabled detector always returns ``True``.
+    """
+
+    def __init__(self, patience: Optional[int] = 3, monitor_dataset: Optional[str] = None,
+                 monitor_metric: Optional[str] = None, mode: Optional[str] = None) -> None:
+        self.patience = patience
+        self.monitor_dataset = monitor_dataset
+        self.monitor_metric = monitor_metric
+        self._mode = mode
+        self._stopper: Optional[MonotonicDeclineStopper] = None
+
+    def after_iteration(self, info) -> bool:
+        metrics = getattr(info, "metrics", None)
+        if not metrics:
+            return True
+        ds = self.monitor_dataset if self.monitor_dataset in metrics else (
+            "validation" if "validation" in metrics else next(iter(metrics))
+        )
+        ds_metrics = metrics.get(ds)
+        if not ds_metrics:
+            return True
+        mt = self.monitor_metric if (self.monitor_metric in ds_metrics) else next(iter(ds_metrics))
+        series = ds_metrics.get(mt)
+        if not series:
+            return True
+        value = float(series[-1])
+        if self._stopper is None:
+            self._stopper = MonotonicDeclineStopper(self.patience, mode=_resolve_mode(mt, self._mode))
+            if not self._stopper.enabled:
+                return True
+        if self._stopper.update(value):
+            logger.info(
+                "[cb monotonic-decline] stopping: %s/%s strictly worsened for %d consecutive iters "
+                "since best (confident overfitting).", ds, mt, self._stopper.streak,
+            )
+            return False  # CatBoost stops; best-iteration bookkeeping handled natively.
+        return True
+
+
+__all__ = [
+    "LGBMonotonicDeclineStop",
+    "_make_xgb_monotonic_callback",
+    "CBMonotonicDeclineStop",
+    "catboost_callbacks_supported",
+    "_resolve_mode",
+]

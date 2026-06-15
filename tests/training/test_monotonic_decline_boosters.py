@@ -56,6 +56,34 @@ def test_xgb_callback_disabled_returns_none():
     assert _make_xgb_monotonic_callback(patience=None) is None
 
 
+def test_cb_callback_fires_on_monotone_worsening():
+    from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
+
+    cb = CBMonotonicDeclineStop(patience=3, monitor_dataset="validation", monitor_metric="RMSE", mode="min")
+
+    def _info(value):
+        return type("I", (), {"metrics": {"validation": {"RMSE": [value]}}})()
+
+    # CatBoost convention: after_iteration returns True to continue, False to stop.
+    assert cb.after_iteration(_info(0.5)) is True
+    assert cb.after_iteration(_info(0.3)) is True  # best
+    assert cb.after_iteration(_info(0.32)) is True
+    assert cb.after_iteration(_info(0.34)) is True
+    assert cb.after_iteration(_info(0.36)) is False  # 3rd strict rise -> stop
+
+
+def test_cb_callback_disabled_always_continues():
+    from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
+
+    cb = CBMonotonicDeclineStop(patience=None, monitor_dataset="validation", monitor_metric="RMSE", mode="min")
+
+    def _info(value):
+        return type("I", (), {"metrics": {"validation": {"RMSE": [value]}}})()
+
+    for v in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
+        assert cb.after_iteration(_info(v)) is True
+
+
 # --------------------------------------------------------------------------- integration
 
 
