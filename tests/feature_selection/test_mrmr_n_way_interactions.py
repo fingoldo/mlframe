@@ -66,6 +66,19 @@ def test_3way_screening_finds_signal_triplet(seed):
     # the triplet at positions 0-2, seed=7 lands them at positions 3-5
     # (full support=[6,5,7,0,1,2,...]; top-4 is one signal short for that
     # seed, top-5 catches at least 2).
+    #
+    # CONFIRMED 2026-06-16 (instrumented, FE-independent -- identical with all FE off):
+    # the screen now returns only 1-2 features for the pure 3-way XOR (seed=42 -> [0,1] PASS;
+    # seed=7 -> [1]; seed=123 -> [2] -- FAIL), NOT the historical 6+. max_consec_unconfirmed
+    # up to 100 does not change it -- the greedy genuinely has no confirmable second feature
+    # (after one triplet member, the other two have ~0 conditional gain until all three are
+    # present). The old pass relied on the looser screen OVER-SELECTING (returning 6+ incl.
+    # noise so the triplet landed in top-5); the tighter selectivity (a noise-rejection
+    # IMPROVEMENT) removed that luck. The robust fix is interaction-SEEDING: at
+    # interactions_max_order=3 the screen should evaluate the {0,1,2} 3-way JOINT directly
+    # (its joint MI is high) and surface it as a candidate, instead of relying on greedy
+    # one-at-a-time assembly which cannot climb a pure-XOR gradient. That is a core
+    # interaction-screening change requiring full-suite validation -- tracked here, not masked.
     topk = set(int(i) for i in sel.support_[:5])
     signal = {0, 1, 2}
     overlap = topk & signal
