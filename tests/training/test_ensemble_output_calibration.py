@@ -336,6 +336,81 @@ def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
     )
 
 
+# --------------------------------------------------------------------------
+# biz_value / verdict-pin: the sigmoid OPTION now uses a proper maximum-likelihood
+# Platt fit (qual-16), not the legacy OLS-on-centred-logit surrogate. On a genuine
+# logistic miscalibration of a probability target -- the regime a sigmoid is the
+# right tool for -- the MLE Platt map beats BOTH the raw blend AND the old OLS-logit
+# map on an INDEPENDENT honest holdout. (The default method stays isotonic; this
+# pins that the sigmoid OPTION is now actually useful.)
+# bench: composite/ensemble/_benchmarks/bench_sigmoid_platt_vs_ols_logit.py.
+# --------------------------------------------------------------------------
+
+
+def _logistic_miscal_surface(m, rng):
+    """Probability target + a logistic raw blend with the WRONG slope/offset."""
+    s = rng.normal(0.0, 1.5, size=m)
+    ptrue = 1.0 / (1.0 + np.exp(-s))
+    y = (rng.uniform(size=m) < ptrue).astype(np.float64)
+    raw = 1.0 / (1.0 + np.exp(-(0.4 * s - 0.5)))
+    return raw.astype(np.float64), y
+
+
+@pytest.mark.parametrize("n_oof", [60, 150, 400])
+def test_biz_val_platt_sigmoid_beats_ols_logit_and_raw_on_holdout(n_oof):
+    """The Platt (MLE) sigmoid_fit beats the legacy OLS-logit map AND the raw blend
+    on a disjoint honest holdout for a genuinely-logistic probability miscalibration,
+    at every OOF size down to n=60. Measured platt/ols_logit RMSE ratio ~0.92 and
+    platt/raw ~0.92 at n_oof=60; floor the wins at <=0.98 (loose, regression-catching)."""
+    rng = np.random.default_rng(9100 + n_oof)
+    p_oof, y_oof = _logistic_miscal_surface(n_oof, rng)
+    p_hold, y_hold = _logistic_miscal_surface(4000, rng)
+
+    platt = OutputCalibrator(method="sigmoid", sigmoid_fit="platt").fit(p_oof, y_oof)
+    ols = OutputCalibrator(method="sigmoid", sigmoid_fit="ols_logit").fit(p_oof, y_oof)
+    rmse_platt = _rmse(platt.predict(p_hold), y_hold)
+    rmse_ols = _rmse(ols.predict(p_hold), y_hold)
+    rmse_raw = _rmse(p_hold, y_hold)
+
+    assert rmse_platt <= 0.98 * rmse_ols, (
+        f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} "
+        f"(platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
+    )
+    assert rmse_platt <= 0.98 * rmse_raw, (
+        f"MLE Platt must beat the raw blend at n_oof={n_oof} "
+        f"(platt={rmse_platt:.4f}, raw={rmse_raw:.4f})"
+    )
+
+
+def test_default_sigmoid_fit_is_platt():
+    """The shipped sigmoid_fit default is the maximum-likelihood Platt map (qual-16).
+    A future flip back to the OLS-logit surrogate must trip this sensor."""
+    assert OutputCalibrator(method="sigmoid").sigmoid_fit == "platt"
+    assert OutputCalibrator(method="sigmoid").export().get("method") == "sigmoid"
+
+
+def test_sigmoid_platt_is_monotone_and_rejects_bad_fit():
+    rng = np.random.default_rng(11)
+    p_oof, y_oof = _logistic_miscal_surface(800, rng)
+    cal = OutputCalibrator(method="sigmoid", sigmoid_fit="platt").fit(p_oof, y_oof)
+    grid = np.linspace(p_oof.min(), p_oof.max(), 200)
+    assert np.all(np.diff(cal.predict(grid)) >= -1e-9), "Platt sigmoid map not monotone"
+    with pytest.raises(ValueError):
+        OutputCalibrator(method="sigmoid", sigmoid_fit="bogus")
+
+
+def test_ols_logit_sigmoid_fit_still_reachable_for_replay():
+    """REJECTED != DELETED: the legacy OLS-logit fit stays opt-in for byte-identical replay."""
+    rng = np.random.default_rng(13)
+    p_oof, y_oof = _logistic_miscal_surface(500, rng)
+    legacy = OutputCalibrator(method="sigmoid", sigmoid_fit="ols_logit").fit(p_oof, y_oof)
+    assert legacy.sigmoid_fit == "ols_logit"
+    assert legacy.export()["sigmoid"]["fit"] == "ols_logit"
+    # Distinct parameters from the MLE fit (different objective).
+    platt = OutputCalibrator(method="sigmoid", sigmoid_fit="platt").fit(p_oof, y_oof)
+    assert not np.isclose(legacy._sig_A, platt._sig_A)
+
+
 def test_default_calibration_method_is_isotonic():
     """The shipped default for both the OutputCalibrator and the cross-target
     discovery config stays ``isotonic`` (qual-15 verdict). A future flip to

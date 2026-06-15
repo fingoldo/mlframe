@@ -1,0 +1,74 @@
+{
+  "logistic_miscal|n_oof=150": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.46071776113521734,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 8,
+    "platt_median": 0.4249672566058409,
+    "raw_median": 0.46008186671657175
+  },
+  "logistic_miscal|n_oof=400": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.46077092766889205,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 8,
+    "platt_median": 0.42269986637511603,
+    "raw_median": 0.4589889517333905
+  },
+  "logistic_miscal|n_oof=60": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.45890563815717145,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 8,
+    "platt_median": 0.4252670128230953,
+    "raw_median": 0.4585786372512557
+  },
+  "overconfident|n_oof=150": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.4958017570241726,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 5,
+    "platt_median": 0.44751912328418597,
+    "raw_median": 0.4515634788618392
+  },
+  "overconfident|n_oof=400": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.5004203978627423,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 8,
+    "platt_median": 0.44645701968163143,
+    "raw_median": 0.45305480767435075
+  },
+  "overconfident|n_oof=60": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.49926725960711293,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 5,
+    "platt_median": 0.4447890118413679,
+    "raw_median": 0.4490385317778721
+  },
+  "regression_s_shape|n_oof=150": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.7933434463152471,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 4,
+    "platt_median": 0.596888520526238,
+    "raw_median": 0.6010115187267964
+  },
+  "regression_s_shape|n_oof=400": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.6308346710614647,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 8,
+    "platt_median": 0.581206404037669,
+    "raw_median": 0.594006263234609
+  },
+  "regression_s_shape|n_oof=60": {
+    "n_seeds": 8,
+    "ols_logit_median": 0.9644959287015311,
+    "platt_beats_ols": 8,
+    "platt_beats_raw": 1,
+    "platt_median": 0.6335382169298871,
+    "raw_median": 0.6138847680916852
+  }
+}

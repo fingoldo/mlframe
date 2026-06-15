@@ -5,7 +5,7 @@ The cross-target ensemble blends K component predictions with NNLS / Ridge / gai
 This module provides :class:`OutputCalibrator`, a one-feature monotone regressor fit on ``(raw_ensemble_pred, y)`` pairs. Three methods:
 
 - ``"isotonic"`` (default): a free-form monotone non-decreasing step map (``sklearn.isotonic.IsotonicRegression``). Corrects an arbitrary S-shaped / saturating miscalibration. Out-of-range inputs are clipped to the fitted edge values (``out_of_bounds="clip"``).
-- ``"sigmoid"``: Platt-style 1-D logistic-link affine map fit by least squares on a centred-logit basis -- a smooth monotone S-correction with only 2 parameters (robust when OOF is small / noisy). Falls back to linear when the link fit is degenerate.
+- ``"sigmoid"``: Platt scaling -- a 2-parameter monotone S-correction ``sigmoid(A*z+B)`` fit by MAXIMUM LIKELIHOOD (weighted binomial cross-entropy of the [0,1]-normalised truth), the objective Platt scaling is defined by. Robust when OOF is small / noisy and the miscalibration is genuinely logistic (probability outputs). Falls back to linear when the basis is degenerate. The legacy OLS-on-centred-logit fit (which barely beat the raw blend -- qual-15) is kept opt-in via ``sigmoid_fit="ols_logit"`` for replay.
 - ``"linear"``: a 1-D ordinary least squares ``a * pred + b`` -- corrects only a global scale + offset bias (the cheapest map; use when the miscalibration is affine, e.g. NNLS shrinkage).
 
 Leakage contract
@@ -27,6 +27,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _VALID_METHODS = ("isotonic", "sigmoid", "linear")
+_VALID_SIGMOID_FITS = ("platt", "ols_logit")
 
 
 class OutputCalibrator:
@@ -38,17 +39,24 @@ class OutputCalibrator:
 
     - ``isotonic``: ``g`` is the pool-adjacent-violators isotonic fit (free-form, monotone non-decreasing), clipped to the fitted ``[p_min, p_max]`` range at the edges.
     - ``linear``: ``g(p) = a*p + b`` with ``(a, b)`` the weighted OLS slope/intercept; ``a`` is clamped to ``>= 0`` so the map stays monotone (a degenerate negative-slope fit collapses to ``a=0`` i.e. the weighted-mean constant).
-    - ``sigmoid``: ``g(p) = lo + (hi-lo) * sigmoid(A*z + B)`` where ``z`` is the min-max-normalised raw pred and ``(A, B)`` are the OLS fit of the centred logit of the normalised truth on ``z``; a smooth 2-parameter monotone S-map. Falls back to ``linear`` when the link basis is degenerate (constant pred, zero target range).
+    - ``sigmoid``: ``g(p) = lo + (hi-lo) * sigmoid(A*z + B)`` where ``z`` is the min-max-normalised raw pred and ``(A, B)`` are the MAXIMUM-LIKELIHOOD Platt fit (weighted binomial cross-entropy of the [0,1]-normalised truth) -- a smooth 2-parameter monotone S-map. ``sigmoid_fit="ols_logit"`` selects the legacy OLS-on-centred-logit surrogate for replay. Falls back to ``linear`` when the basis is degenerate (constant pred, zero target range).
 
     The map is always monotone non-decreasing, so it preserves the ensemble's ordering of any two rows; it only re-spaces predictions onto the truth scale.
     """
 
-    def __init__(self, method: str = "isotonic") -> None:
+    def __init__(self, method: str = "isotonic", sigmoid_fit: str = "platt") -> None:
         if method not in _VALID_METHODS:
             raise ValueError(
                 f"OutputCalibrator: method must be one of {_VALID_METHODS}; got {method!r}."
             )
+        if sigmoid_fit not in _VALID_SIGMOID_FITS:
+            raise ValueError(
+                f"OutputCalibrator: sigmoid_fit must be one of {_VALID_SIGMOID_FITS}; got {sigmoid_fit!r}."
+            )
         self.method = method
+        # "platt" = maximum-likelihood logistic fit (the correct Platt map, default since qual-16); "ols_logit" =
+        # the legacy OLS-on-centred-logit map, kept opt-in for byte-identical replay of pre-qual-16 fits.
+        self.sigmoid_fit = sigmoid_fit
         self._fitted = False
         # Per-method state (set in fit).
         self._iso: Any = None
@@ -137,6 +145,16 @@ class OutputCalibrator:
         self._lin_a, self._lin_b = float(a), float(b)
 
     def _fit_sigmoid(self, p: np.ndarray, t: np.ndarray, w: np.ndarray | None) -> None:
+        """Proper Platt scaling: fit ``(A, B)`` of ``sigmoid(A*z + B)`` by MINIMISING the weighted binomial
+        cross-entropy of the [0,1]-normalised truth, the maximum-likelihood objective Platt scaling is defined by.
+
+        The legacy implementation (kept as ``_fit_sigmoid_ols_logit`` and reachable via
+        ``sigmoid_fit="ols_logit"`` for replay) regressed ``logit(t_norm)`` on ``z`` by ORDINARY least squares.
+        That is statistically wrong for a logistic link: the squared error on the clipped logit is dominated by
+        the near-asymptote clipping, so the fit barely improved on the raw blend (qual-15: 8/8-seed losses to raw
+        at small OOF). The MLE objective here weights each row by the logistic likelihood and recovers the true
+        slope/offset; it beats the OLS-logit map on honest holdout in every measured cell (bench
+        ``bench_sigmoid_platt_vs_ols_logit.py``)."""
         pmin = float(p.min())
         pspan = float(p.max() - p.min())
         if pspan <= 0.0:
@@ -149,15 +167,32 @@ class OutputCalibrator:
         if tspan <= 0.0:
             self.method = "linear"
             return self._fit_linear(p, t, w)
-        # Logit of the min-max-normalised truth, clipped off the asymptotes so the
-        # link stays finite; fit (A, B) by weighted OLS of logit(t_norm) on z.
+        if getattr(self, "sigmoid_fit", "platt") == "ols_logit":
+            return self._fit_sigmoid_ols_logit(z, t, lo, hi, tspan, pmin, pspan, w)
+        # Normalised truth in [0,1] as the binomial response; the closed-asymptote clip avoids log(0) in the NLL.
+        tn = np.clip((t - lo) / tspan, 1e-6, 1.0 - 1e-6)
+        A, B = _platt_mle_1d(z, tn, w)
+        if not (np.isfinite(A) and np.isfinite(B)) or A <= 0.0:
+            # Degenerate / non-monotone MLE fit -> fall back to the affine map.
+            self.method = "linear"
+            return self._fit_linear(p, t, w)
+        self._sig_A, self._sig_B = float(A), float(B)
+        self._sig_lo, self._sig_hi = lo, hi
+        self._sig_pmin, self._sig_pspan = pmin, pspan
+
+    def _fit_sigmoid_ols_logit(
+        self, z: np.ndarray, t: np.ndarray, lo: float, hi: float, tspan: float,
+        pmin: float, pspan: float, w: np.ndarray | None,
+    ) -> None:
+        # bench-attempt-rejected (qual-16): OLS-on-centred-logit is NOT a Platt fit; it lost 8/8 seeds to the MLE
+        # Platt map (and to the raw blend at small OOF) on bench_sigmoid_platt_vs_ols_logit.py. Kept opt-in via
+        # ``sigmoid_fit="ols_logit"`` for byte-identical replay of pre-qual-16 pickles (REJECTED != DELETED).
         tn = np.clip((t - lo) / tspan, 1e-4, 1.0 - 1e-4)
         link = np.log(tn / (1.0 - tn))
         A, B = _weighted_ols_1d(z, link, w)
         if not (np.isfinite(A) and np.isfinite(B)) or A <= 0.0:
-            # Degenerate / non-monotone link fit -> fall back to the affine map.
             self.method = "linear"
-            return self._fit_linear(p, t, w)
+            return self._fit_linear((z * pspan + pmin), (tn * tspan + lo), w)
         self._sig_A, self._sig_B = float(A), float(B)
         self._sig_lo, self._sig_hi = lo, hi
         self._sig_pmin, self._sig_pspan = pmin, pspan
@@ -202,6 +237,7 @@ class OutputCalibrator:
                 "A": self._sig_A, "B": self._sig_B,
                 "lo": self._sig_lo, "hi": self._sig_hi,
                 "pmin": self._sig_pmin, "pspan": self._sig_pspan,
+                "fit": getattr(self, "sigmoid_fit", "platt"),
             }
         elif self.method == "isotonic" and self._iso is not None:
             d["isotonic"] = {
@@ -209,6 +245,45 @@ class OutputCalibrator:
                 "x_max": float(getattr(self._iso, "X_max_", np.nan)),
             }
         return d
+
+
+def _platt_mle_1d(
+    z: np.ndarray, t01: np.ndarray, w: np.ndarray | None,
+) -> tuple[float, float]:
+    """Maximum-likelihood Platt fit of ``sigmoid(A*z + B)`` to a [0,1] binomial response ``t01``.
+
+    Minimises the weighted binomial cross-entropy ``-sum_i w_i [t_i log s_i + (1-t_i) log(1-s_i)]`` with
+    ``s_i = sigmoid(A z_i + B)`` -- the objective Platt scaling is defined by, as opposed to the OLS-on-logit
+    surrogate the legacy map used. Newton iterations on the 2-parameter problem (well-conditioned, converges in a
+    handful of steps); returns ``(A, B)`` and falls back to the moment-matching OLS-logit slope if Newton stalls.
+    """
+    n = z.shape[0]
+    ww = np.ones(n, dtype=np.float64) if w is None else np.asarray(w, dtype=np.float64)
+    A, B = 1.0, 0.0
+    for _ in range(50):
+        s = 1.0 / (1.0 + np.exp(-(A * z + B)))
+        s = np.clip(s, 1e-12, 1.0 - 1e-12)
+        # Gradient of the weighted NLL wrt (A, B).
+        resid = ww * (s - t01)
+        g_a = float(np.sum(resid * z))
+        g_b = float(np.sum(resid))
+        # Hessian (logistic): w * s (1-s) outer-product of [z, 1].
+        v = ww * s * (1.0 - s)
+        h_aa = float(np.sum(v * z * z))
+        h_ab = float(np.sum(v * z))
+        h_bb = float(np.sum(v))
+        det = h_aa * h_bb - h_ab * h_ab
+        if not np.isfinite(det) or abs(det) < 1e-12:
+            break
+        dA = (h_bb * g_a - h_ab * g_b) / det
+        dB = (h_aa * g_b - h_ab * g_a) / det
+        A -= dA
+        B -= dB
+        if abs(dA) < 1e-9 and abs(dB) < 1e-9:
+            break
+    if not (np.isfinite(A) and np.isfinite(B)):
+        return _weighted_ols_1d(z, np.log(np.clip(t01, 1e-6, 1 - 1e-6) / (1.0 - np.clip(t01, 1e-6, 1 - 1e-6))), w)
+    return A, B
 
 
 def _weighted_ols_1d(
@@ -243,6 +318,7 @@ def fit_output_calibrator(
     y_oof: np.ndarray,
     method: str = "isotonic",
     sample_weight: np.ndarray | None = None,
+    sigmoid_fit: str = "platt",
 ) -> OutputCalibrator | None:
     """Fit an :class:`OutputCalibrator` on OOF blended predictions vs truth.
 
@@ -261,7 +337,7 @@ def fit_output_calibrator(
         )
         return None
     try:
-        return OutputCalibrator(method=method).fit(p, t, sample_weight=sample_weight)
+        return OutputCalibrator(method=method, sigmoid_fit=sigmoid_fit).fit(p, t, sample_weight=sample_weight)
     except Exception as exc:
         logger.warning(
             "fit_output_calibrator: calibrator fit failed (%s); skipping calibration (raw blend kept).",
