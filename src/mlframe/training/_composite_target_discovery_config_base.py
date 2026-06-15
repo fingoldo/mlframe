@@ -357,12 +357,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # out-of-fold predictive density of the tiny-CV residuals, penalised for
     # effective across-fold complexity -- see ``discovery._eval_waic``) as an
     # ADDITIONAL ranking signal alongside MI-gain, never replacing it. It
-    # separates two transforms that MI-gain ties when one genuinely generalises
-    # and the other overfits the screen. Default OFF: it costs an extra per-fold
-    # OOF pass per surviving candidate. The scorer is self-contained -- enabling
-    # this flag does not rewire the gate, it only invites the caller to fold the
-    # per-transform WAIC into its ranking.
-    transform_waic_validation_enabled: bool = False
+    # separates two transforms that MI-gain ties when one genuinely generalises and the other overfits the screen.
+    # Default ON: the tiny-rerank folds the per-transform WAIC into its ordering as a tie-break, re-ranking only specs
+    # whose tiny-CV RMSE falls within a relative noise band (so it never overrides a real RMSE difference) and only when
+    # every tied spec has a valid score -- a strict refinement that picks the generalising transform over an overfit
+    # one RMSE alone cannot tell apart. Costs one extra cheap K-fold OOF pass per surviving candidate on the small
+    # screen sample. Set False to restore the pre-tie-break (RMSE+name) ordering.
+    transform_waic_validation_enabled: bool = True
     transform_waic_n_folds: int = 4
 
     screening: str = "hybrid"  # "mi" | "tiny_model" | "hybrid"
