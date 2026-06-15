@@ -50,15 +50,17 @@ class EarlyStoppingWrapper(BaseEstimator):
 
         # Support both classifiers and regressors. ``partial_fit`` takes a ``classes=`` kwarg ONLY on
         # classifiers (it errors on regressors like SGDRegressor / PassiveAggressiveRegressor), and the
-        # default ``accuracy_score`` is meaningless for regression -- swap to R^2 (still greater-is-better,
-        # so the ``score > best_score_`` improvement logic is unchanged) unless the caller passed an
-        # explicit scorer.
+        # default ``accuracy_score`` is meaningless for regression. Swap to NEGATIVE RMSE: the
+        # improvement rule is greater-is-better (``score > best_score_``), so maximising ``-RMSE``
+        # minimises RMSE. RMSE is preferred over R^2 -- R^2's variance denominator makes it unstable on
+        # the small validation folds the wrapper holds out (a low-variance val slice inflates/explodes it).
+        # Only applied when the caller left the default scorer in place.
         from sklearn.base import is_regressor
         self._is_regressor = is_regressor(self.base_model)
         scoring = self.scoring
         if self._is_regressor and scoring is accuracy_score:
-            from sklearn.metrics import r2_score
-            scoring = r2_score
+            from sklearn.metrics import mean_squared_error
+            scoring = lambda _yt, _yp: -float(np.sqrt(mean_squared_error(_yt, _yp)))  # noqa: E731
 
         # Wave 24 P0 (2026-05-20): pre-fix int(len(X) * frac) could round
         # down to 0 on small X (e.g. len=9, frac=0.1 -> int(0.9)=0). Then
