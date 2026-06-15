@@ -8116,8 +8116,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # leaves an engineered-only support, which is legitimate and non-empty (the
                 # never-empty guarantee only forces a column when n_engineered_out == 0).
                 _rescue_redund_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
+                # The empty-screen rescue must honour the user's search-space restriction (``factors_names_to_use`` /
+                # ``factors_to_use``): without this gate it ranks EVERY raw input by MI(X_j, y) and resurrects the
+                # global top-MI column even when the caller pinned a disjoint subset, silently leaking a forbidden feature
+                # into ``support_``. Build the allowed input-space index set once; ``None`` means "no restriction".
+                _rescue_allowed_idx = None
+                _fnames_restrict = getattr(self, "factors_names_to_use", None)
+                _fidx_restrict = getattr(self, "factors_to_use", None)
+                if _fnames_restrict is not None:
+                    _allowed_names = set(_fnames_restrict)
+                    _rescue_allowed_idx = {_j for _j, _nm in enumerate(self.feature_names_in_) if _nm in _allowed_names}
+                elif _fidx_restrict is not None:
+                    _rescue_allowed_idx = set(int(_j) for _j in _fidx_restrict)
                 _raw_mi = []
                 for _i in range(self.n_features_in_):
+                    if _rescue_allowed_idx is not None and _i not in _rescue_allowed_idx:
+                        continue
                     _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
                     if _name in _rescue_redund_dropped:
                         continue

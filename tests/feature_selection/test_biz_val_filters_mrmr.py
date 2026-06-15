@@ -735,6 +735,30 @@ def test_biz_val_mrmr_factors_names_to_use_restricts_search(factors_names_subset
     )
 
 
+def test_biz_val_mrmr_factors_names_to_use_restricts_empty_screen_rescue():
+    """``factors_names_to_use`` must restrict the search space EVEN on the
+    empty-screen rescue path. With a noise-only subset the greedy screen
+    returns 0 features and the ``min_features_fallback`` rescue fires; the
+    rescue must rank ONLY the requested columns by MI(X_j, y), never the
+    global top-MI column. Pre-fix the rescue iterated every raw input and
+    resurrected ``x0`` (the strongest signal) for ``factors_names_to_use=['x3']``."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    subset = ["x3"]  # pure-noise column; forces the empty-screen rescue
+    sel = MRMR(verbose=0, random_seed=42, min_features_fallback=2,
+                factors_names_to_use=subset)
+    sel.fit(df, ys)
+    selected_names = set(df.columns[i] for i in sel.support_)
+    assert selected_names.issubset(set(subset)), (
+        f"empty-screen rescue leaked a forbidden feature; "
+        f"factors_names_to_use={subset}, got {selected_names}"
+    )
+
+
 @pytest.mark.parametrize("preset", ["minimal", "medium", "maximal"])
 def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
     """``fe_unary_preset`` parametrized over the documented presets.
