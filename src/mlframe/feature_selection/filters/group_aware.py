@@ -265,6 +265,42 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             f"GroupAwareMRMR cannot map its selection back to clusters."
         )
 
+    @staticmethod
+    def _prune_rank_deficient(X, support_idx):
+        """Drop columns of ``support_idx`` that are EXACT linear combinations of others already kept, so the wrapper never emits a singular design matrix.
+
+        The pairwise near-dup / correlation cluster guards catch scaled/shifted replicas and ~0.95 collinear clusters, but NOT an exact multi-feature
+        identity like ``x3 = 2*x1 - x2`` (x3's pairwise corr to either parent is moderate, so it survives every pairwise test yet makes the selected Gram
+        SINGULAR). We QR-pivot the standardised selected block and keep only the columns that raise the numerical rank; later columns that add no rank are
+        redundant linear combinations of earlier-kept ones and are dropped. Column order is preserved so the first member of any dependency survives.
+        """
+        idx = np.asarray(sorted(int(i) for i in support_idx), dtype=np.int64)
+        if idx.size < 2:
+            return idx
+        block = X.iloc[:, idx].to_numpy(dtype=float)
+        finite = np.all(np.isfinite(block), axis=0)
+        if not finite.all():
+            return idx  # NaN/inf columns -- leave selection untouched (rank test undefined).
+        block = block - block.mean(axis=0)
+        sd = block.std(axis=0)
+        nz = sd > 1e-12
+        block[:, nz] = block[:, nz] / sd[nz]
+        # Greedy rank-revealing pass in original column order: a column is kept only if it lifts the numerical rank of the kept set.
+        kept_cols: list[int] = []
+        kept_mat = None
+        tol = max(block.shape) * np.finfo(float).eps
+        for j in range(idx.size):
+            cand = block[:, j]
+            if not nz[j]:
+                continue  # constant column carries no signal; drop from a multicollinearity prune.
+            trial = cand[:, None] if kept_mat is None else np.column_stack([kept_mat, cand])
+            if np.linalg.matrix_rank(trial, tol=tol) > len(kept_cols):
+                kept_cols.append(j)
+                kept_mat = trial
+        if len(kept_cols) == idx.size:
+            return idx
+        return idx[np.asarray(kept_cols, dtype=np.int64)]
+
     @rng_hygienic_fit
     def fit(self, X, y, **fit_params):
         # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
@@ -302,7 +338,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             inner = clone(self.estimator)
             inner.fit(X, y, **fit_params)
             self.estimator_ = inner
-            self.support_ = self._inner_support_indices(inner, list(X.columns))
+            self.support_ = self._prune_rank_deficient(X, self._inner_support_indices(inner, list(X.columns)))
             self.selected_clusters_ = sorted(
                 set(int(self.cluster_assignments_[i]) for i in self.support_)
             )
@@ -330,15 +366,17 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         self.selected_clusters_ = sorted(set(int(medoid_cluster_ids[int(i)]) for i in sel_idx))
 
         if self.expand:
-            self.support_ = np.array(sorted([
+            _sup = np.array(sorted([
                 idx for idx in range(X.shape[1])
                 if self.cluster_assignments_[idx] in self.selected_clusters_
             ]), dtype=np.int64)
         else:
             # Just the medoids of selected clusters.
-            self.support_ = np.array(sorted([
+            _sup = np.array(sorted([
                 self.cluster_medoid_indices_[c] for c in self.selected_clusters_
             ]), dtype=np.int64)
+        # Prune any exact linear-combination column from the final selection so the wrapper never emits a singular design matrix (e.g. x3=2*x1-x2).
+        self.support_ = self._prune_rank_deficient(X, _sup)
 
         self.n_features_ = len(self.support_)
         self.n_features_in_ = X.shape[1]
@@ -350,6 +388,22 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_]
         return X[:, self.support_]
+
+    def get_support(self, indices: bool = False):
+        """sklearn SelectorMixin contract over the EXPANDED wrapper selection.
+
+        Defined on the wrapper itself so it does NOT fall through __getattr__ to the inner selector, whose support_/get_support() are sized to the
+        cluster-MEDOID subset (n_clusters), not the original feature space (n_features_in_). Returning the inner medoid mask would misalign with
+        feature_names_in_ and silently mislabel kept features (e.g. expose cluster members the wrapper never selected). support_ is the expanded
+        integer index array into feature_names_in_; convert to the requested form.
+        """
+        sup = np.asarray(self.support_)
+        if indices:
+            return sup.astype(np.int64)
+        mask = np.zeros(int(self.n_features_in_), dtype=bool)
+        if sup.size:
+            mask[sup.astype(np.int64)] = True
+        return mask
 
     def get_feature_names_out(self, input_features=None):
         """Selected feature names (sklearn transformer contract) so this is a

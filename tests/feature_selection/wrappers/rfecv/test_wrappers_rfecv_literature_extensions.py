@@ -102,18 +102,22 @@ class TestKnockoffWStatistic:
 
 
 class TestMultiOutputGuard:
-    def test_2d_y_raises_informative(self):
+    def test_2d_y_default_union_selects_per_target(self):
+        # The friendly default (multioutput_strategy='union') fits one single-target RFECV per output column and
+        # OR-aggregates support_ instead of crashing on a 2D y. Pins the default so the friendly behaviour can't regress.
         X, y = make_regression(n_samples=100, n_features=6, n_targets=3, random_state=0)
         rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=2)
-        with pytest.raises(NotImplementedError, match="multi-output"):
-            rfecv.fit(X, y)
+        rfecv.fit(X, y)
+        assert getattr(rfecv, "multioutput_strategy_", None) == "union"
+        assert rfecv.support_.shape[0] == 6 and rfecv.support_.dtype == bool
+        assert len(getattr(rfecv, "multioutput_supports_", {})) == 3
 
-    def test_2d_y_message_pins_shape_and_per_target_guidance(self):
-        # The early guard at RFECV.fit entry must raise BEFORE the deep sklearn NotImplementedError, with an actionable
-        # message: the offending y shape AND the per-target-loop + union(OR) recipe. Pins both so a future refactor
-        # cannot regress to the opaque sklearn error.
+    def test_2d_y_optout_raises_informative(self):
+        # Opting OUT (multioutput_strategy=None) restores the historical clear NotImplementedError at fit entry, BEFORE
+        # the deep sklearn error, with an actionable message: the offending y shape AND the per-target-loop + union(OR)
+        # recipe. Pins both so a future refactor cannot regress to the opaque sklearn error.
         X, y = make_regression(n_samples=80, n_features=5, n_targets=2, random_state=1)
-        rfecv = RFECV(estimator=Ridge(), cv=2, max_refits=2)
+        rfecv = RFECV(estimator=Ridge(), cv=2, max_refits=2, multioutput_strategy=None)
         with pytest.raises(NotImplementedError) as ei:
             rfecv.fit(X, y)
         msg = str(ei.value)
