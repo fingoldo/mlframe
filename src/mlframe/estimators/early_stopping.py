@@ -174,6 +174,10 @@ class EarlyStoppingWrapper(BaseEstimator):
         score-vs-stage curve costs one fit. We snapshot the estimator truncated to the best stage by copying
         it and setting ``n_estimators`` to that stage (the fast variant of the warm-start dichotomy).
         """
+        # Grow to the full budget first: staged_predict yields one prediction per existing stage, so the
+        # estimator must be built with max_iter stages for the curve to span the whole search range.
+        if "n_estimators" in self.base_model.get_params():
+            self.base_model.set_params(n_estimators=self.max_iter)
         self.base_model.fit(X_train, y_train)
         if not self._is_regressor and hasattr(self.base_model, "staged_predict_proba"):
             classes = self.base_model.classes_
