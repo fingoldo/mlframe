@@ -229,6 +229,50 @@ class TestPluginMIDispatcherConsultsKTC:
         )
 
 
+class TestPluginMIPerHostRegionOverridesFallback:
+    """A persisted per-host KTC region MUST override the hardcoded fallback.
+
+    The hardcoded fallback (75k single / 10k batch) was measured on a
+    GTX 1050 Ti cc 6.1. On other GPUs the real njit-vs-cuda crossover
+    differs -- e.g. on an RTX 500 Ada the batch crossover is ~50k, so the
+    10k fallback mis-routes the 10k-50k band to GPU where CPU is faster.
+    The fix is purely data: ``ensure_mi_classif_dispatch_tuning`` populates
+    a per-host region the lookup consults. This test pins that a region
+    saying "njit at n=20k k=5" beats the fallback's cuda, so a regression
+    that ignores the persisted crossover (reverting to the hardcoded
+    constant) is caught.
+    """
+
+    def test_persisted_region_njit_at_20k_batch_beats_fallback_cuda(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
+            dispatch as _ktc_dispatch,
+        )
+
+        n, k = 20_000, 5
+        # Sanity: the hardcoded fallback would (wrongly, on this HW) route
+        # batch n=20k to cuda -- that is exactly the band the per-host
+        # region corrects.
+        assert _ktc_dispatch._fallback_mi_backend(n, k) == "cuda"
+
+        class _FakeCache:
+            def get_or_tune(self, name, *, dims, tuner, axes, fallback, **kw):
+                # Emulate a persisted per-host region whose measured
+                # crossover routes batch n<=20k to njit (RTX 500 Ada shape).
+                if dims["n_samples"] <= 20_000:
+                    return {"backend_choice": "njit"}
+                return {"backend_choice": "cuda"}
+
+        monkeypatch.setattr(_ktc_dispatch, "_get_cache", lambda: _FakeCache())
+        choice = _ktc_dispatch.lookup_mi_classif_backend(n, k)
+        assert choice == "njit", (
+            "per-host KTC region was ignored; dispatcher fell back to the "
+            "hardcoded GTX-1050-Ti crossover (10k batch), which mis-routes "
+            "the 10k-50k band to GPU on faster-atomic GPUs."
+        )
+
+
 class TestPluginMIClassifFastSplitArgsort:
     """``plugin_mi_classif_fast`` / ``..._batch_fast`` hoist the
     ``np.argsort`` step OUT of numba into pure numpy (where it dispatches
