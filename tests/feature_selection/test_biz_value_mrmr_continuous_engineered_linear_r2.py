@@ -104,28 +104,39 @@ def test_engineered_unary_binary_transform_is_continuous():
         f"producing it entirely that is a separate regression worth investigating."
     )
 
-    for col in pair_cols:
-        vals = np.asarray(out[col], dtype=np.float64)
-        nuniq = int(np.unique(vals).size)
-        # CONTINUITY: a quantile code has exactly quantization_nbins (~10) distinct
-        # values; the continuous feature has ~n. Require far more than any plausible
-        # bin count.
-        assert nuniq > 1000, (
-            f"engineered column {col!r} looks QUANTIZED (nunique={nuniq}); transform must "
-            f"emit the continuous value, not the MI bin code. vals[:5]={vals[:5]}"
-        )
-        assert np.issubdtype(out[col].to_numpy().dtype, np.floating), (
-            f"engineered column {col!r} dtype is {out[col].dtype}; expected a floating "
-            f"continuous feature, not an integer code."
-        )
-        # MAGNITUDE preserved: the continuous a**2/b column correlates ~ +-1 with the
-        # true a**2/b. The 10-bin code had |Pearson| ~ 0.03 (rank preserved, magnitude
-        # destroyed) -- this is the precise discriminator between the bug and the fix.
-        pear = abs(float(np.corrcoef(vals, true_ab)[0, 1]))
-        assert pear > 0.95, (
-            f"engineered column {col!r} has |Pearson|={pear:.3f} with the true a**2/b; "
-            f"a quantized rank code scores ~0.03 here. Magnitude was not preserved."
-        )
+    # CASE2 has TWO additive terms (a**2/b AND log(c)*sin(d)), so MRMR may synthesize a
+    # pair feature for EACH. This sensor pins the a**2/b feature specifically -- it must be
+    # emitted as the CONTINUOUS value, not its 10-bin MI code. Identify it as the pair
+    # column best-correlated with the true a**2/b (the clean div(sqr(a),neg(b)) recovers it
+    # at |Pearson|~1); the OTHER term's feature may legitimately use inherently-discrete ops
+    # (rint / gate_mask) and recover a DIFFERENT term, so it is not held to the a**2/b
+    # magnitude contract here. Requiring EVERY pair column to equal a**2/b was wrong for a
+    # multi-term target.
+    pear_by_col = {
+        c: abs(float(np.corrcoef(np.asarray(out[c], dtype=np.float64), true_ab)[0, 1]))
+        for c in pair_cols
+    }
+    ab_col = max(pear_by_col, key=pear_by_col.get)
+    vals = np.asarray(out[ab_col], dtype=np.float64)
+    nuniq = int(np.unique(vals).size)
+    # CONTINUITY: a quantile code has exactly quantization_nbins (~10) distinct values;
+    # the continuous feature has ~n. Require far more than any plausible bin count.
+    assert nuniq > 1000, (
+        f"a**2/b engineered column {ab_col!r} looks QUANTIZED (nunique={nuniq}); transform must "
+        f"emit the continuous value, not the MI bin code. vals[:5]={vals[:5]}"
+    )
+    assert np.issubdtype(out[ab_col].to_numpy().dtype, np.floating), (
+        f"a**2/b engineered column {ab_col!r} dtype is {out[ab_col].dtype}; expected a floating "
+        f"continuous feature, not an integer code."
+    )
+    # MAGNITUDE preserved: the continuous a**2/b column correlates ~ +-1 with the true
+    # a**2/b. The 10-bin code had |Pearson| ~ 0.03 (rank preserved, magnitude destroyed) --
+    # this is the precise discriminator between the bug and the fix.
+    assert pear_by_col[ab_col] > 0.95, (
+        f"best a**2/b pair column {ab_col!r} has |Pearson|={pear_by_col[ab_col]:.3f} with the "
+        f"true a**2/b; a quantized rank code scores ~0.03 here. Magnitude was not preserved. "
+        f"All pair cols: { {c: round(v,3) for c,v in pear_by_col.items()} }"
+    )
 
 
 # ---------------------------------------------------------------------------
