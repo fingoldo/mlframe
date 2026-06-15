@@ -40,11 +40,11 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
 # byte-identical. When enabled, a ParamOracle keyed on the array-size fingerprint
 # picks njit vs njit_par from RECORDED wall-times instead of a hardcoded crossover.
 #
-# DEFERRED: the GPU (cuda) threshold migration is NOT done -- cupy is broken on
-# this dev box so the CUDA crossover cannot be benched. The cuda branch below
-# stays EXACTLY on kernel_tuning_cache (_lookup_polyeval_thresholds). Migrating it
-# needs a working CUDA box to populate honest wall-times; see PHASE 5 of the
-# migration note. The oracle here governs ONLY the {njit, njit_par} CPU choice.
+# The cuda branch stays EXACTLY on kernel_tuning_cache (_lookup_polyeval_thresholds), HW-tuned per host by
+# _run_sweep_polyeval. On transfer-bound laptop GPUs (e.g. RTX 500 Ada) the cheap degree-N Horner kernel
+# never beats njit_par because the H2D+D2H round trip dwarfs the compute, so the sweep persists a sentinel
+# cuda_threshold above the swept range -- the dispatcher then never routes to the slower cuda path on that host.
+# The oracle here governs ONLY the {njit, njit_par} CPU choice.
 
 _POLYEVAL_ORACLE_FN_NAME = "polyeval_cpu_backend"
 _POLYEVAL_ORACLE_PARAM_SPACE = {"backend": ["njit", "njit_par"]}

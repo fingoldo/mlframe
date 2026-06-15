@@ -436,9 +436,13 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
             if row["njit_par"] < row["njit"] * 0.95:
                 par_threshold = n
                 break
-        # Find cuda_threshold: smallest n where cuda <= njit_par * 0.95
-        # (skip if cuda never wins or unavailable).
-        cuda_threshold = 500_000  # source default fallback
+        # Find cuda_threshold: smallest n where cuda <= njit_par * 0.95. If cuda never wins at any swept n
+        # (common for the cheap per-element Horner kernel whose H2D+D2H transfer dwarfs the compute on a
+        # transfer-bound laptop GPU like the RTX 500 Ada), persist a sentinel ABOVE the largest swept size so
+        # the dispatcher never routes to the slower cuda path on this host -- not the 500k source default,
+        # which would itself be a mis-route since cuda loses at 500k+ here.
+        swept_max = max(timing_table)
+        cuda_threshold = swept_max * 100  # sentinel: "cuda never wins on this host"
         if _CUDA_AVAILABLE:
             for n in sorted(timing_table):
                 row = timing_table[n]
