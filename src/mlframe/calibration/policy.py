@@ -28,6 +28,8 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
 
+from mlframe.evaluation.bootstrap import _ci_from_samples, _jackknife_metric
+
 logger = logging.getLogger(__name__)
 
 
@@ -310,20 +312,22 @@ def _bootstrap_ece_with_indices(
     metric_fn: Callable[[np.ndarray, np.ndarray], float],
     alpha: float,
     n_bins: Optional[int] = None,
+    method: str = "bca",
 ) -> dict[str, Any]:
-    """Percentile-CI bootstrap for one candidate using a PRE-BUILT index matrix.
+    """Bootstrap CI for one candidate using a PRE-BUILT index matrix.
 
-    Numerically identical to ``bootstrap_metric`` (same indices -> same per-resample
-    metric -> same percentiles), but the resample matrix is generated once outside
-    the candidate loop and shared, removing the per-candidate RNG + regen cost.
+    Numerically identical to ``bootstrap_metric`` (same indices -> same per-resample metric -> same CI endpoints),
+    but the resample matrix is generated once outside the candidate loop and shared, removing the per-candidate
+    RNG + regen cost. The CI endpoints are reduced through the SAME ``_ci_from_samples`` machinery
+    ``bootstrap_metric``/``bootstrap_metrics`` use, so the default bias-corrected accelerated (BCa) interval and its
+    z0 / acceleration jackknife are honoured here too -- not the legacy raw-percentile interval.
 
-    When ``n_bins`` is supplied the per-resample metric is the fused idx-aware ECE
-    kernel ``_ece_score_idx_numba_serial``, which gathers ``y[idx]`` / ``p[idx]``
-    inside the njit bin loop -- removing the per-resample Python-level
-    ``y_true[idx]`` / ``y_pred[idx]`` fancy-index copy entirely. Bit-identical to
-    the slice-based ``metric_fn`` path (equal-width binning is order-independent).
-    ``metric_fn`` still produces the point estimate so any caller-specific ECE
-    config flows through unchanged.
+    When ``n_bins`` is supplied the per-resample metric is the fused idx-aware ECE kernel
+    ``_ece_score_idx_numba_serial``, which gathers ``y[idx]`` / ``p[idx]`` inside the njit bin loop -- removing the
+    per-resample Python-level ``y_true[idx]`` / ``y_pred[idx]`` fancy-index copy entirely. Bit-identical to the
+    slice-based ``metric_fn`` path (equal-width binning is order-independent). ``metric_fn`` still produces the point
+    estimate AND the BCa acceleration jackknife (slice-based, exactly as ``bootstrap_metric`` does), so any
+    caller-specific ECE config flows through unchanged.
     """
     point = float(metric_fn(y_true, y_pred))
     n_bootstrap = idx_matrix.shape[0]
@@ -340,27 +344,22 @@ def _bootstrap_ece_with_indices(
                 continue
             samples[valid] = v
             valid += 1
-        if valid == 0:
-            raise ValueError("pick_best_calibrator: all resamples failed for a candidate")
-        samples = samples[:valid]
-        lo = float(np.percentile(samples, (alpha / 2.0) * 100.0))
-        hi = float(np.percentile(samples, (1.0 - alpha / 2.0) * 100.0))
-        return {"point": point, "lo": lo, "hi": hi}
-    for b in range(n_bootstrap):
-        idx = idx_matrix[b]
-        try:
-            v = float(metric_fn(y_true[idx], y_pred[idx]))
-        except Exception:
-            continue
-        if not np.isfinite(v):
-            continue
-        samples[valid] = v
-        valid += 1
+    else:
+        for b in range(n_bootstrap):
+            idx = idx_matrix[b]
+            try:
+                v = float(metric_fn(y_true[idx], y_pred[idx]))
+            except Exception:
+                continue
+            if not np.isfinite(v):
+                continue
+            samples[valid] = v
+            valid += 1
     if valid == 0:
         raise ValueError("pick_best_calibrator: all resamples failed for a candidate")
     samples = samples[:valid]
-    lo = float(np.percentile(samples, (alpha / 2.0) * 100.0))
-    hi = float(np.percentile(samples, (1.0 - alpha / 2.0) * 100.0))
+    jackknife = _jackknife_metric(y_true, y_pred, metric_fn) if method == "bca" else None
+    lo, hi = _ci_from_samples(samples, point, alpha, method, jackknife)
     return {"point": point, "lo": lo, "hi": hi}
 
 
