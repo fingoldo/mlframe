@@ -3883,3 +3883,23 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 104 RESOLVED, 35 REJECT a
 **Verdict: REJECT** (honest — no hidden real failure remains in this surface). The iter135/136/137 fixes hold and the swallowed-failure / cold-kernel glue is now healthy across every production-exercised path. This is the valuable "glue is clean" signal the brief anticipated; the surface is exhausted for this bug class.
 
 Streak: REJECT → streak 1. **Cumulative loop wave: 104 RESOLVED, 36 REJECT across 138 iterations.**
+
+## iter139 — GPU-DISPATCHER surface (GPU ENABLED): batch_pair_mi crossover miscalibrated for this GPU — RESOLVED
+
+**Surface/scale:** GPU/cupy DISPATCHER paths + kernel_tuning_cache crossover thresholds — a genuinely FRESH surface. Iters 43-138 all ran CPU-only (`CUDA_VISIBLE_DEVICES=""`), so the GPU dispatchers were NEVER exercised/validated in this loop. CUDA Toolkit 12.9 + cupy 14.1.1 now work on this box (NVIDIA RTX 500 Ada Generation Laptop GPU, ~4GB VRAM, ~3.2GB free). Target: `dispatch_batch_pair_mi` (`feature_selection/filters/batch_pair_mi_gpu.py`), the canonical 4-backend dispatcher (njit_serial / njit_parallel / numba.cuda / cupy) with a kernel_tuning_cache region table + a hardcoded GTX-1050-Ti fallback.
+
+**Method:** warm best-of-7/9 A/B microbench of all 4 backends across n in {10k, 75k, 100k, 150k, 200k, 300k, 400k, 500k, 1M} at n_pairs=64, plus an n_pairs sweep {16,64,256} at n=500k, each in its own subprocess (free VRAM between runs). Bench committed: `feature_selection/_benchmarks/bench_batch_pair_mi_gpu_crossover_iter139.py`.
+
+**Measured crossover @ this GPU (n_pairs=64, ms, best-of-7):** n=10k par 1.24 / cuda 9.06 (CPU); n=75k par 9.62 / cuda 25.70 (CPU); n=100k par 13.87 / cuda 4.89 (CUDA 2.79x); n=150k par 32.18 / cuda 7.06 (CUDA 4.56x); n=200k par 62.42 / cuda 26.78; n=300k par 114.55 / cuda 17.74 (6.5x); n=400k par 160.89 / cuda 18.86 (8.5x); n=500k par 207.16 / cuda 20.82 (10x); n=1M par 433.01 / cuda 35.02 (12x). cupy never won. **REAL CUDA crossover ~85-100k rows, NOT the hardcoded 400k.**
+
+**Miscalibration:** the hardcoded fallback (`CUDA_MIN_ROWS=400_000`, calibrated on a GTX 1050 Ti cc 6.1) mis-routed the ENTIRE 100k-400k band to the slower CPU prange kernel — 2.8x-8.5x left on the table. Same miscalibration class as the 2026-05-20 plug-in-MI incident. cuda is bit-identical to the CPU baseline (max_abs_diff ~1e-18..1e-19, pure FP reduction order — far below selection-altering).
+
+**Fix (NOT a new hardcoded constant, per CLAUDE.md):** (1) populated the per-host kernel_tuning_cache via the already-registered `_BPMI_SPEC` sweep (`tune_spec(_BPMI_SPEC, force=True)`) — 22 measured regions persisted; the dispatcher already consults `_BPMI_SPEC.choose()` (cache) before the hardcoded fallback, so the measured map now drives routing on this host. (2) Lowered `_BPMI_SWEEP_N_SAMPLES` grid floor to {50_000, 100_000} (was 200_000) + bumped `_BPMI_SALT` 2->3, so the cache learns the CPU-favorable low-n region instead of extrapolating the lowest measured cell down to n=0 (which would mis-route 50-75k-row calls to a ~3x-slower GPU launch). Post-sweep cache map: n<=50k njit / n<=100k njit for <=64 pairs, cuda for 256 pairs / n>=200k cuda everywhere — matches the microbench crossover.
+
+**Identity proof:** cuda vs njit_serial max_abs_diff 1.9e-19..6.9e-18 across all n (FP reduction order); sweep regions record max_abs_diff <= 2.7e-17. Dispatcher post-fix routes n=50k->njit, n=200k->cuda, n=500k/1M->cuda (verified live).
+
+**Regression tests:** `tests/feature_selection/test_batch_pair_mi_gpu.py::test_bpmi_sweep_grid_floor_reaches_below_gpu_crossover` (env-independent, asserts grid floor <=100k; FAILS on the pre-fix 200k floor) + `::test_dispatch_routes_midband_to_cuda_when_cache_present` (GPU + populated-cache guarded; asserts 200k mid-band routes to cuda bit-identically — skips under the conftest's session-isolated cache, fires on a tuned GPU host). Full `test_batch_pair_mi_gpu.py`: 14 passed, 1 skipped (cache-isolated).
+
+**Verdict: RESOLVED.** First GPU-path validation in the perf loop surfaced a real crossover miscalibration (hardcoded 400k vs real ~90k); fixed via the kernel_tuning_cache sweep (not a hardcode) + a grid-floor extension so the low-n CPU region is learned, pinned with two regression tests. 2.8x-8.5x recovered on the 100k-400k band at this GPU; bit-identical.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 105 RESOLVED, 36 REJECT across 139 iterations.**

@@ -460,10 +460,12 @@ CUPY_MIN_PAIRS = 200
 # CUPY_MIN_PAIRS=200, matching the measured 28-120-pair bench band -- and threaded
 # through as an extra region key so the cached regions stay keyed on both axes).
 _BPMI_SWEEP_N_PAIRS_GRID = [16, 64, 256]  # full n_pairs axis (was a single fixed 64)
-_BPMI_SWEEP_N_SAMPLES = [200_000, 500_000, 1_000_000, 2_000_000, 5_000_000]
+# Grid floor reaches below the GPU crossover (measured ~85-100k rows on a laptop RTX 500 Ada) so the cache learns the CPU-favorable
+# low-n region instead of extrapolating the lowest measured cell down to n=0 (which mis-routed 50-75k-row calls to a slower GPU launch).
+_BPMI_SWEEP_N_SAMPLES = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000, 5_000_000]
 _BPMI_SWEEP_N_CLASSES_Y = 4
 _BPMI_SWEEP_N_BINS = 8  # joint card = 8*8 = 64 <= MAX_JOINT_BINS_CUDA fallback (128)
-_BPMI_SALT = 2  # serial-njit variant added + full 2-D (n_samples x n_pairs) grid
+_BPMI_SALT = 3  # serial-njit variant + full 2-D (n_samples x n_pairs) grid + grid floor lowered below the GPU crossover
 
 # Serial CPU variant: recompile the SAME prange body WITHOUT ``parallel`` -> numba
 # treats prange as range. The tuner now picks njit_serial (small n: no thread-spawn

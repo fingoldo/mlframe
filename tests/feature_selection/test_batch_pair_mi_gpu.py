@@ -144,3 +144,34 @@ def test_dispatch_force_unavailable_falls_back_to_cpu(monkeypatch):
         data, pa, pb, nbins, y, freqs_y, force_backend="cuda",
     )
     assert backend == "njit"
+
+
+def test_bpmi_sweep_grid_floor_reaches_below_gpu_crossover():
+    """The tuning grid must include n_samples cells below the GPU crossover (~85-100k on the laptop RTX 500 Ada). A floor at 200k extrapolates
+    the lowest measured cell's choice down to n=0, mis-routing 50-75k-row calls to a GPU launch that is ~3x slower than the CPU prange kernel."""
+    from mlframe.feature_selection.filters.batch_pair_mi_gpu import _BPMI_SWEEP_N_SAMPLES
+
+    assert min(_BPMI_SWEEP_N_SAMPLES) <= 100_000, "sweep grid floor must reach below the GPU crossover so the cache learns the CPU-favorable low-n region"
+
+
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available on this host")
+def test_dispatch_routes_midband_to_cuda_when_cache_present():
+    """On a GPU host with a populated kernel_tuning_cache, the 100k-400k-row band that the hardcoded GTX-1050-Ti fallback (CUDA_MIN_ROWS=400_000)
+    mis-routes to the slower CPU kernel must instead route to CUDA -- and CUDA must stay bit-identical to the CPU baseline (FP reduction-order only)."""
+    from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+    if not KernelTuningCache().get_regions("batch_pair_mi"):
+        pytest.skip("batch_pair_mi not tuned on this host yet (run mlframe-tune-kernels)")
+    n, n_pairs = 200_000, 64
+    rng = np.random.default_rng(0)
+    n_features = 16
+    data = rng.integers(0, 8, size=(n, n_features)).astype(np.int32)
+    nbins = np.full(n_features, 8, dtype=np.int32)
+    pa = rng.integers(0, n_features, size=n_pairs).astype(np.int64)
+    pb = ((pa + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features).astype(np.int64)
+    y = rng.integers(0, 4, size=n).astype(np.int32)
+    freqs_y = np.bincount(y, minlength=4).astype(np.float64) / n
+    mi, backend = dispatch_batch_pair_mi(data, pa, pb, nbins, y, freqs_y)
+    assert backend == "cuda", f"200k-row mid-band must route to CUDA on a tuned GPU host, got {backend}"
+    mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
+    np.testing.assert_allclose(mi, mi_cpu, atol=1e-9, rtol=1e-9)
