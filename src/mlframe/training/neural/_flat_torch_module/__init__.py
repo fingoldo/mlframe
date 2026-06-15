@@ -5,6 +5,8 @@ Re-imported at the parent module bottom so historical
 """
 from __future__ import annotations
 
+import contextvars as _contextvars
+import copyreg as _copyreg
 import logging
 import os
 from typing import Any, Callable, Dict, List, Optional
@@ -18,6 +20,23 @@ from ._flat_torch_loss import _LossMixin
 from ._flat_torch_predict_accel import _PredictAccelMixin
 
 logger = logging.getLogger("mlframe.training.neural.flat")
+
+
+def _rebuild_contextvar(name: str) -> "_contextvars.ContextVar":
+    return _contextvars.ContextVar(name)
+
+
+def _reduce_contextvar(cv: "_contextvars.ContextVar"):
+    # A ContextVar is pure runtime context (its per-thread/-task value is never part of a model's fitted state).
+    # Python 3.14 made the ``warnings`` filter state ContextVar-backed, so a captured warnings context can leak into a
+    # LightningModule's pickled state and crash dill ("cannot pickle '_contextvars.ContextVar' object"). Reduce a
+    # ContextVar to a fresh one with the same name -- the unpickled process re-initialises its own context, which is the
+    # correct semantics for a runtime-only object. Registered process-wide so it covers ContextVars nested anywhere in
+    # the serialised graph (hparams / torch submodules / captured closures), not only top-level module attributes.
+    return (_rebuild_contextvar, (cv.name,))
+
+
+_copyreg.pickle(_contextvars.ContextVar, _reduce_contextvar)
 
 
 class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
