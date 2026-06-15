@@ -93,6 +93,22 @@ def test_fast_search_recovers_signal_and_is_faster(case):
     assert ab, f"CASE{case} fast path lost the (a,b) interaction; selected={names_fast}"
     assert cd, f"CASE{case} fast path lost the (c,d) interaction; selected={names_fast}"
 
+    # QUALITY 1b -- CLEANLINESS (CASE1): the fast path must NOT re-introduce the over-materialised junk it
+    # used to (spurious cross-group gate_mask / cross-signal sub(sqr(a),invcbrt(c)) / rint composites). On
+    # equal-coefficient CASE1 the clean recovery is exactly div(sqr(a),..)+mul(log(c),sin(d)); assert no
+    # gate_mask / rint column survives and no cross-group (a&c / a&d / b&c / b&d) binary node. CASE2's
+    # warped (c,d) carrier IS a gate composite, so cleanliness is pinned on CASE1 only.
+    if case == 1:
+        assert not any("gate_mask" in str(nm) for nm in names_fast), (
+            f"CASE1 fast path kept a spurious gate_mask column: {names_fast}"
+        )
+        assert not any("rint" in str(nm) for nm in names_fast), (
+            f"CASE1 fast path kept a spurious rint composite: {names_fast}"
+        )
+        _cross = [nm for nm in names_fast if (_covers([nm], "a", "c") or _covers([nm], "a", "d")
+                                              or _covers([nm], "b", "c") or _covers([nm], "b", "d"))]
+        assert not _cross, f"CASE1 fast path kept a cross-group cross-signal artefact: {_cross}"
+
     # QUALITY 2: holdout MAE within 10% of the exhaustive selection (the user's tolerance).
     assert mae_fast <= mae_ref * 1.10 + 1e-9, (
         f"CASE{case} fast-path MAE {mae_fast:.5f} regressed >10% vs reference {mae_ref:.5f}"
