@@ -16,21 +16,49 @@ up to a SIGN-KILLER (``abs`` / even power ``sqr``) is SIGN-HOMOGENEOUS (``mul`` 
 ``neg`` itself); ``add`` / ``sub`` (and any non-sign-homogeneous unary) RESET sign-relevance,
 because there ``neg`` changes the value. We thread a ``sign_irrelevant`` flag downward.
 
-Identities applied (all numerically verified in test_recipe_name_simplify):
+Identities applied (all numerically verified against the REAL guarded FE ops in
+test_recipe_name_simplify -- abs, neg, sqr, sqrt, _safe_div, signed, abs_diff, hypot, ...):
   * under a sign-irrelevant context:  neg(x) -> x
   * abs(neg(x)) -> abs(x)   (via the flag)        * sqr(neg(x)) -> sqr(x)
+  * sqrt(neg(x)) -> sqrt(x) (sqrt == sqrt(|x|))
   * abs(abs(x)) -> abs(x)                          * abs(sqr(x)) -> sqr(x)
   * neg(neg(x)) -> x                               * sqr(abs(x)) -> sqr(x)
+  * abs(sqrt(x)) -> sqrt(x)                        * sqrt(abs(x)) -> sqrt(x)
+  * abs(abs_diff(a,b)) -> abs_diff(a,b)            * abs(hypot(a,b)) -> hypot(a,b)
+        (these binary ops already return a non-negative magnitude)
+  * signed(a, neg(b)) -> signed(a, b)             (2nd arg of ``signed`` enters as |b|)
+        signed is also sign-HOMOGENEOUS in its 1st arg (sign(neg a)*|b| == -(sign(a)*|b|)),
+        so it propagates an enclosing sign-irrelevant context to BOTH children.
+
+REJECTED candidates (numerically *would* hold in ideal math but were NOT adopted):
+  * exp(log(x)) -> x        -- BROKEN: ``smart_log`` adds a data-dependent shift
+                               (1e-5 - x_min), so exp(smart_log(x)) != x (fails on any
+                               column with a negative minimum, e.g. standard-normal input).
+  * sqr(sqrt(x)) -> abs(x), sqrt(sqr(x)) -> abs(x), reciproc(reciproc(x)) -> x
+                            -- these DO hold to ~1e-16 on tested data, but each is a
+                               cross-op float round-trip whose error is magnitude-dependent
+                               and not bit-exact; rejected to keep every adopted rule a
+                               purely structural / bit-identical rewrite (a wrong
+                               simplification is far worse than a missed one).
 """
 from __future__ import annotations
 
 # Operators whose OUTPUT sign does not depend on the sign of their argument(s):
 # applying them makes the argument's sign irrelevant (a neg below can be dropped).
-_SIGN_KILLERS = frozenset({"abs", "sqr"})
+# ``sqrt`` qualifies because the FE impl is ``sqrt(|x|)`` (see feature_engineering.create_unary).
+_SIGN_KILLERS = frozenset({"abs", "sqr", "sqrt"})
 # Operators that PROPAGATE sign-irrelevance to their children (sign-homogeneous in each
 # argument: flipping a child's sign only flips the result's sign, which a sign-killer above
-# discards). ``neg`` is included (it is purely a sign flip).
-_SIGN_HOMOGENEOUS = frozenset({"mul", "div", "neg"})
+# discards). ``neg`` is included (it is purely a sign flip). ``signed`` is sign-homogeneous
+# in its 1st arg and its 2nd arg is already taken as |b|, so an enclosing sign-killer makes
+# BOTH children's signs irrelevant.
+_SIGN_HOMOGENEOUS = frozenset({"mul", "div", "neg", "signed"})
+# Binary ops that ALREADY return a non-negative magnitude: an enclosing ``abs`` is dead.
+_NONNEG_BINARY = frozenset({"abs_diff", "hypot"})
+# Unary collapses (outer, inner) -> result-op, where the outer op is idempotent over the
+# inner's already-constrained range. ``sqrt(sqrt)`` and ``sqr(sqr)`` are NOT here (genuine
+# repeated application changes the value).
+_ABS_LIKE = frozenset({"abs", "sqr", "sqrt"})
 
 
 def _parse(name: str):
@@ -84,14 +112,23 @@ def _simplify(node, sign_irrelevant: bool):
 
     if op in _SIGN_KILLERS and len(args) == 1:
         child = _simplify(args[0], True)
-        # idempotent collapses: abs(abs)->abs, abs(sqr)->sqr, sqr(abs)->sqr, sqr(sqr) stays
-        if isinstance(child, tuple) and len(child[1]) == 1:
+        if isinstance(child, tuple):
             cop = child[0]
-            if op == "abs" and cop in ("abs", "sqr"):
-                return child            # abs(abs x)->abs x ; abs(sqr x)->sqr x
-            if op == "sqr" and cop == "abs":
-                return ("sqr", [child[1][0]])  # sqr(abs x)->sqr x
+            # ``abs`` of a value already known non-negative is dead:
+            #   abs(abs x)->abs x ; abs(sqr x)->sqr x ; abs(sqrt x)->sqrt x ;
+            #   abs(abs_diff a,b)->abs_diff a,b ; abs(hypot a,b)->hypot a,b
+            if op == "abs" and (cop in _ABS_LIKE or cop in _NONNEG_BINARY):
+                return child
+            # A sign-killer ignores its argument's sign, so a wrapping ``abs`` is dead:
+            #   sqr(abs x)->sqr x ; sqrt(abs x)->sqrt x
+            if cop == "abs" and len(child[1]) == 1:
+                return (op, [child[1][0]])
         return (op, [child])
+
+    if op == "signed" and len(args) == 2:
+        # arg0 is sign-homogeneous (propagate context); arg1 enters as |b| -> its sign is
+        # ALWAYS irrelevant, regardless of the enclosing context.
+        return ("signed", [_simplify(args[0], sign_irrelevant), _simplify(args[1], True)])
 
     if op in _SIGN_HOMOGENEOUS:  # mul / div : propagate the (possibly irrelevant) context
         return (op, [_simplify(a, sign_irrelevant) for a in args])
