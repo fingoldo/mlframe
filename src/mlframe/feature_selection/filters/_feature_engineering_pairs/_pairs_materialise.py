@@ -295,7 +295,8 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
     bin), so scrubbing here would change the codes. float64 throughout so the arithmetic
     is bit-identical to the numpy bin_funcs (which upcast the float32 ``param_a`` to
     float64 against the float64 ``param_b``): mul/add/sub/max/min are the exact numpy ops
-    and ``div`` is ``_safe_div``'s ``x/(y + sign(y)*1e-9 + 1e-9)`` in float64.
+    and ``div`` mirrors the current ``_safe_div`` -- exact ``x/y`` for every nonzero denominator, with the ``1e-9``
+    floor substituting only for an exact-zero ``y`` (the 2026-06-13 heavy-tail form, no per-denominator perturbation).
 
     ``op_codes`` are the ``_NJIT_BINARY_OP_CODES`` (0=mul 1=add 2=sub 3=div 4=max 5=min);
     callers MUST gate on ``_njit_binary_op_codes(...) is not None`` (only the minimal/
@@ -319,9 +320,8 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
                     v = a + b
                 elif op == 2:      # sub
                     v = a - b
-                elif op == 3:      # div = _safe_div: x / (y + sign(y)*1e-9 + 1e-9)
-                    sgn = 0.0 if b == 0.0 else (1.0 if b > 0.0 else -1.0)
-                    v = a / (b + sgn * 1e-9 + 1e-9)
+                elif op == 3:      # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
+                    v = a / (b if b != 0.0 else 1e-9)
                 elif op == 4:      # max = np.maximum (nan-propagating)
                     if a != a or b != b:
                         v = a + b
