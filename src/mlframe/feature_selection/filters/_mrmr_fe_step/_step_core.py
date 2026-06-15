@@ -1603,6 +1603,114 @@ def _run_fe_step(
                         len(_gate_composite_drop), sorted(_gate_composite_drop),
                     )
 
+        # FAST-SEARCH CLEANLINESS PRUNE (2026-06-15). The exhaustive path removes two further junk classes
+        # via passes the fast profile disables (the step>=1 CMI re-screen at the raised relative bar + the
+        # cross-fold stability vote + the fused-composite raw-redundancy cascade). To keep the fast path's
+        # selection clean WITHOUT re-enabling those expensive passes, replay the SAME cheap subset-coverage
+        # discriminator already proven safe for gate composites above, against two more over-materialisations:
+        #   (A) a STANDALONE bare gate column whose gate pair is CROSS-GROUP (no single clean survivor covers
+        #       the whole pair) AND whose raw coverage is already in the clean survivors -- the spurious
+        #       ``gate_mask__c__b`` on CASE1. The genuine warped (c,d) gate on CASE2 is WITHIN-pair with NO
+        #       clean (c,d) survivor, so it is KEPT (same tell-2/tell-3 logic as the composite prune);
+        #   (B) a non-gate engineered binary node whose two bare operands come from DIFFERENT signal groups
+        #       (no single clean survivor jointly covers both) while EACH operand is already covered by some
+        #       clean survivor -- the documented cross-signal artefact ``sub(sqr(a),invcbrt(c))`` (a & c from
+        #       the {a,b} and {c,d} groups). Dropping it also removes the false anchor that was propping up
+        #       the redundant raw a / raw c in the raw-redundancy KEEP decision.
+        # GATED on ``fe_fast_search`` so the exhaustive path is BYTE-IDENTICAL. Operates on the post-CMI
+        # ``prospective_additions`` and the same ``_clean_forms`` / ``_bare_tokens`` already built above; only
+        # fires when that gate-composite block ran (a gate fired) for (A), and unconditionally for (B).
+        if bool(getattr(self, "fe_fast_search", False)) and prospective_additions:
+            import re as _re_fsc
+
+            def _bare_tokens_fsc(_nm: str) -> set:
+                return set(_re_fsc.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
+
+            _gmap_fsc = dict(getattr(self, "_gate_col_src_vars_", None) or {})
+            _all_names_fsc = []
+            for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                if _ncols:
+                    _all_names_fsc.extend(_ncols)
+
+            def _gate_cols_in_fsc(_nm: str) -> list:
+                return [_gc for _gc in _gmap_fsc if _gc in _nm]
+
+            # Clean (non-gate) survivor coverage as a per-survivor list of bare-token sets, so "within one
+            # survivor" can be tested for a candidate operand pair (mirrors the composite block's _clean_forms).
+            _clean_token_sets_fsc = [
+                _bare_tokens_fsc(_nm) for _nm in _all_names_fsc if not _gate_cols_in_fsc(_nm)
+            ]
+
+            _fsc_drop: set = set()
+            for _nm in _all_names_fsc:
+                _gcs = _gate_cols_in_fsc(_nm)
+                if _nm in _gmap_fsc:
+                    # (A) STANDALONE bare gate column. Drop iff cross-group AND fully covered by clean survivors.
+                    _gate_src = set(_gmap_fsc.get(_nm, ()))
+                    if len(_gate_src) < 2:
+                        continue
+                    # Coverage of OTHER (non-this) clean survivors -- never let the candidate cover itself.
+                    _other_cov = set().union(*_clean_token_sets_fsc) if _clean_token_sets_fsc else set()
+                    _within_one = any(_gate_src <= _ts for _ts in _clean_token_sets_fsc)
+                    if (not _within_one) and _gate_src and _gate_src <= _other_cov:
+                        _fsc_drop.add(_nm)
+                    continue
+                if _gcs:
+                    continue  # gate COMPOSITES already handled by the block above
+                # (B) non-gate engineered binary node: cross-group cross-signal artefact.
+                _toks = _bare_tokens_fsc(_nm)
+                if len(_toks) < 2:
+                    continue
+                _others = [_ts for _ts in _clean_token_sets_fsc if _ts is not _bare_tokens_fsc(_nm) and _ts != _toks]
+                # "Cross-group" == no OTHER single clean survivor jointly covers this node's whole token set.
+                _within_one = any(_toks <= _ts for _ts in _clean_token_sets_fsc if _ts != _toks)
+                if _within_one:
+                    continue
+                _union_others = set().union(*_others) if _others else set()
+                # Each operand already covered by some clean within-group survivor -> dropping loses nothing.
+                if _toks and _toks <= _union_others:
+                    _fsc_drop.add(_nm)
+
+            if _fsc_drop:
+                from ..mrmr import get_new_feature_name as _gnf_fsc
+                _filtered_fsc: dict = {}
+                for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                    if not _tpf or _tvals is None or not _ncols:
+                        _filtered_fsc[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
+                        continue
+                    _keep_idx = [i for i, nm in enumerate(_ncols) if nm not in _fsc_drop]
+                    if not _keep_idx:
+                        continue
+                    if len(_keep_idx) == len(_ncols):
+                        _filtered_fsc[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
+                        continue
+                    _n2c = {_gnf_fsc(_cfg, cols): _cfg for _cfg, _ in _tpf}
+                    _new_tpf = set()
+                    for _np, _oi in enumerate(_keep_idx):
+                        _cfg = _n2c.get(_ncols[_oi])
+                        if _cfg is not None:
+                            _new_tpf.add((_cfg, _np))
+                    _new_nnb = (
+                        [_nnb[i] for i in _keep_idx]
+                        if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols)
+                        else _nnb
+                    )
+                    _filtered_fsc[_rp] = (_new_tpf, _tvals[:, _keep_idx], [_ncols[i] for i in _keep_idx], _new_nnb, _msgs)
+                prospective_additions = _filtered_fsc
+                for _dn in _fsc_drop:
+                    _record_fe_rejection(
+                        self, gate="fast_search_cross_group_overmaterialization",
+                        candidate=str(_dn), operands=None, operator="engineered",
+                        observed=float("nan"), threshold=float("nan"),
+                        reason="cross_group_coverage_subset_of_clean_survivors", step=int(num_fs_steps),
+                    )
+                if verbose:
+                    logger.info(
+                        "MRMR FE fast-search: pruned %d cross-group over-materialised column(s) (standalone "
+                        "cross-group gate / cross-signal artefact) covered by clean survivors: %s",
+                        len(_fsc_drop), sorted(_fsc_drop),
+                    )
+
         # ROOT CAUSE 5 fix (2026-06-01): collect the cols-space indices of the
         # engineered columns appended below so they can be added DIRECTLY to
         # ``selected_vars`` for the default single-step (``fe_max_steps==1``)
