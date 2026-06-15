@@ -172,3 +172,45 @@ def test_mi_direct_gpu_batched_streamed_matches_serial(n, npermutations):
     # Confidences should be in [0, 1]; sanity check.
     assert 0.0 <= conf_serial <= 1.0
     assert 0.0 <= conf_streamed <= 1.0
+
+
+@pytest.mark.parametrize("n,nbins_x,nbins_y", [
+    (10_000, 5, 5),
+    (50_000, 20, 20),
+    (500_000, 20, 20),
+])
+def test_joint_hist_shared_block_size_invariant(n, nbins_x, nbins_y):
+    """block_size only changes grid decomposition; the int32 atomic-add joint histogram is
+    order-independent, so bs=256 and bs=512 MUST be bit-identical. This pins the iter141
+    KTC block_size re-calibration (joint_size=400 -> bs512) as a pure-perf, zero-numeric change."""
+    from mlframe.feature_selection.filters import gpu as g
+    g._ensure_kernels_inited()
+    shared_k = g.compute_joint_hist_batched_shared_cuda
+
+    rng = np.random.default_rng(141)
+    cx = cp.asarray(rng.integers(0, nbins_x, size=n).astype(np.int32))
+    perms = cp.asarray(rng.integers(0, nbins_y, size=n).astype(np.int32)).reshape(1, n)
+    joint = nbins_x * nbins_y
+    smem = joint * 4
+    res = {}
+    for bs in (256, 512):
+        out = cp.zeros((1, joint), dtype=cp.int32)
+        grid_x = (n + bs - 1) // bs
+        shared_k((grid_x, 1), (bs,), (cx, perms, out, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)), shared_mem=smem)
+        cp.cuda.runtime.deviceSynchronize()
+        res[bs] = out.get()
+    assert np.array_equal(res[256], res[512]), "block_size changed the joint histogram (must be bit-identical)"
+    assert int(res[256].sum()) == n
+
+
+def test_joint_hist_lookup_routes_shared_variant():
+    """The per-host KTC dispatch must select the ``shared`` kernel variant across the MI-realistic
+    size range on this GPU (global-atomic is 1.5-4x slower everywhere on cc 8.x measured iter141).
+    The block_size is host-tuned (256 for small joint, 512 for joint>=400 / large-n) and not pinned
+    here since it is bit-identical and may legitimately vary per host."""
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_joint_hist
+    for n in (10_000, 100_000, 1_000_000):
+        for joint in (25, 100, 400):
+            choice = lookup_joint_hist(n_samples=n, joint_size=joint)
+            assert choice["kernel_variant"] == "shared", f"n={n} joint={joint} routed to {choice}"
+            assert int(choice["block_size"]) in (256, 512, 1024)
