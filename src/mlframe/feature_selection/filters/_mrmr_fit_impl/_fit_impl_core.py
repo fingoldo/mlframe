@@ -265,6 +265,27 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_passthrough), _emb_cols, _text_cols,
                 )
 
+    # NULLABLE-DTYPE DENSIFICATION (gaps_fe_masking-09). A pandas masked-array frame (Int64 / Float64 / boolean +
+    # pd.NA) is NOT what the screen / FE-pair numba kernels and the ``dtype.kind=="f"`` NaN guard expect:
+    # ``DataFrame.to_numpy()`` on a mixed nullable frame yields object cells holding pd.NA (NOT float64+NaN), so
+    # numeric FE families (e.g. conditional_gate) silently skip those columns and the SELECTION diverges from the
+    # dense-float64 fit. Densify masked numeric / boolean columns to float64 (pd.NA -> NaN, semantically lossless)
+    # so every downstream path is dtype-agnostic. Categorical / string extension columns are left untouched for
+    # categorize_dataset (their ``dtype.kind`` is 'O' / 'U', not in the masked numeric set). Default ON: a
+    # corrective mechanism (the legacy silent column-skip was wrong), no flag.
+    if isinstance(X, pd.DataFrame):
+        _nullable_num = [
+            c for c in X.columns
+            if pd.api.types.is_extension_array_dtype(X[c].dtype) and getattr(X[c].dtype, "kind", "O") in ("i", "u", "f", "b")
+        ]
+        if _nullable_num:
+            X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
+            if verbose:
+                logger.info(
+                    "MRMR.fit: densified %d nullable masked column(s) to float64 (NaN-preserving): %s",
+                    len(_nullable_num), _nullable_num[:8],
+                )
+
     # 2026-05-31 Layer 23 — hybrid orthogonal-polynomial + MI-greedy FE.
     # When ``fe_hybrid_orth_enable=True``, generate basis_n(z) columns for each
     # numeric input column and MI-rank against y; append the top-K winners

@@ -96,6 +96,14 @@ def _build_nullable_synergy(dtype: str, n: int = 2500, seed: int = 42,
     na_mask = rng.random((n, 4)) < na_frac
     for j, col in enumerate(("a", "b", "c", "d")):
         df_null.loc[na_mask[:, j], col] = pd.NA
+        # Mirror the SAME missingness into the float64 baseline as np.nan so the only
+        # difference between the two frames is the DTYPE (masked Float64/Int64 vs
+        # float64), not the data. Otherwise the baseline is fed strictly-denser data
+        # and a data-dependent FE threshold (e.g. conditional-gate ``gate_select__*__t<thr>``)
+        # legitimately fires differently -- which is a missingness effect, NOT the
+        # dtype-invariance contract test #3 means to pin. With this mirror + the fit-path
+        # nullable densification the two frames are byte-identical post-coercion.
+        df_f64.loc[na_mask[:, j], col] = np.nan
     return df_f64, df_null, pd.Series(y_bin, name="y")
 
 
