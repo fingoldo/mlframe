@@ -32,8 +32,14 @@ def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, ze
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
-    """Custom classification report, proof of concept."""
+def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0, macro_over_present: bool = True):
+    """Custom classification report, proof of concept.
+
+    ``macro_over_present`` (default True) averages macro precision/recall/F1 only over classes that appear in
+    ``y_true`` OR ``y_pred`` -- matching ``sklearn.metrics.classification_report``, whose label set is the union of
+    present classes. A class declared in ``nclasses`` but absent from both arrays would otherwise contribute a
+    zeroed P/R/F1 and DEFLATE the macro averages (the same defect ``balanced_accuracy`` was already corrected for).
+    Set ``macro_over_present=False`` for the legacy divide-by-``nclasses`` behaviour."""
 
     N_AVG_ARRAYS = 3  # precisions, recalls, f1s
 
@@ -84,12 +90,25 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     support_total = supports.sum()
     weight_denom = support_total if support_total > 0 else 1
 
+    # Macro denominator: classes present in y_true OR y_pred (sklearn classification_report semantics) vs the
+    # legacy divide-by-nclasses. Absent declared classes (neither labeled nor predicted) carry zeroed P/R/F1 that
+    # would deflate the macro mean -- the same exclusion already applied to balanced_accuracy above.
+    if macro_over_present:
+        present_macro = (supports > 0) | (allpreds > 0)
+        macro_count = int(present_macro.sum())
+    else:
+        present_macro = np.ones(nclasses, dtype=np.bool_)
+        macro_count = nclasses
+
     # fix nans & compute averages
     i = 0
     for arr in (precisions, recalls, f1s):
         np.nan_to_num(arr, copy=False, nan=zero_division)
         weighted_averages[i] = (arr * supports).sum() / weight_denom
-        macro_averages[i] = arr.mean()
+        if macro_count > 0:
+            macro_averages[i] = (arr * present_macro).sum() / macro_count
+        else:
+            macro_averages[i] = 0.0
         i += 1
 
     return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
