@@ -25,8 +25,21 @@ import pytest
 SRC_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe"
 
 
+def _is_test_adjacent(path: pathlib.Path) -> bool:
+    """Benchmarks / profilers are not prod save sites: they legitimately exercise the default forensic save to measure its cost.
+
+    Mirrors the exemption in ``test_no_underscore_imports_cross_package._is_test_adjacent`` so the two source-hygiene
+    sensors agree on what counts as production code.
+    """
+    if "_benchmarks" in path.parts:
+        return True
+    return path.name.startswith("_profile_") or path.name.startswith("_bench_")
+
+
 def _iter_python_files(root: pathlib.Path):
-    yield from root.rglob("*.py")
+    for path in root.rglob("*.py"):
+        if not _is_test_adjacent(path):
+            yield path
 
 
 def _find_save_calls_without_explicit_lean() -> list[tuple[str, int, str]]:

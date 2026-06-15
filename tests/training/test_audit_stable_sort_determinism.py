@@ -101,6 +101,7 @@ def _read(rel: str) -> str:
             "_fit_fold.py",
             "_fit_outer_loop.py",
             "_finalize.py",
+            "_sffs.py",
         ):
             sibling = _dir / nm
             if sibling.exists():

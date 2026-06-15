@@ -29,7 +29,7 @@ _BASELINE_PATH = Path(__file__).resolve().parent / "_docstring_baseline.json"
 
 _EXEMPT_FILES = {"version.py", "__init__.py", "__main__.py"}
 _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy",
-                          "profiling", "explore")
+                          "profiling", "explore", "_benchmarks")
 
 
 def _refresh_requested() -> bool:
