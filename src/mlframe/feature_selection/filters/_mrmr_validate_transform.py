@@ -590,10 +590,16 @@ def _append_engineered(self, base_out, X, recipes):
                         )
                     logger.warning(
                         "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
-                        "source(s) %s; emitting NaN column (feature dropped from replay).",
+                        "source(s) %s; emitting a neutral zero column (feature effectively dropped from replay).",
                         r.name, r.kind, _missing,
                     )
-                    _results[r.name] = np.full(len(chained), np.nan, dtype=np.float64)
+                    # The producer of the engineered intermediate was pruned at fit time, so this chained recipe is
+                    # unreconstructable. The output width is fixed by ``get_feature_names_out`` (the recipe count), so
+                    # the column cannot be physically removed without a shape mismatch -- emit a zero-variance column
+                    # instead. A NaN placeholder (the prior behaviour) propagates into every downstream estimator and
+                    # hard-crashes the ones that reject NaN (LogisticRegression et al.); a constant 0.0 carries no
+                    # signal (so it is "dropped" in effect) yet is accepted by every estimator.
+                    _results[r.name] = np.zeros(len(chained), dtype=np.float64)
                     chained = chained.assign(**{r.name: _results[r.name]})
                     _unresolved.add(r.name)
                 _still = []
