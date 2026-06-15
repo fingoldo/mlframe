@@ -473,11 +473,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         #     the FINAL survivor columns are still replayed at FULL n). Falls back to a safe default
         #     when no cached tuning exists.
         # On the two canonical n=100k interaction synthetics (y=a**2/b + log(c)*sin(d) and its warped
-        # variant) this lands each fit < 60s (from ~130s / ~100s warm) with the interactions still
-        # recovered and the Ridge-holdout MAE within tolerance (typically BETTER, since the dropped
-        # passes mostly add noise columns here). SELECTION-ALTERING (the selection is approximately,
-        # not bit-, equal) -- set ``fe_fast_search=False`` for the exhaustive legacy search.
-        fe_fast_search: bool = True,
+        # variant) this lands each fit < 60s (from ~130s / ~100s warm) with both interactions recovered
+        # and Ridge-holdout MAE within tolerance. BUT it is SELECTION-ALTERING and trades search
+        # exhaustiveness for speed: dropping the step-2 fusion + stability-vote + escalation passes lets
+        # EXTRA over-materialized columns through (spurious cross-group gate_mask / cross-signal / rint
+        # composites alongside the genuine div(sqr(a),neg(b)) + mul(log(c),sin(d))). The exhaustive search
+        # (default) instead returns the clean FUSED single composite. DEFAULT FALSE (2026-06-15): the
+        # exhaustive search's clean, minimal selection is the right default; opt IN to ``fe_fast_search=
+        # True`` when fit speed matters more than a tidy support set. (The fast path's over-materialization
+        # is a known gap -- the junk-pruning passes that run under the exhaustive search do not yet all
+        # run under fe_max_steps=1; until they do, fast trades cleanliness for speed.)
+        fe_fast_search: bool = False,
         # feature engineering settings
         # MULTI-STEP FE DEFAULT 1 -> 2 (2026-06-10, user request). At step k>1 the operand
         # pool also carries the engineered columns selected by the prior step (capped by
