@@ -189,3 +189,30 @@ def test_drift_metrics_empty_input():
     assert np.isnan(js_divergence(empty, a))
     assert np.isnan(wasserstein_1d(empty, a))
     assert np.isnan(ks_distribution_distance(empty, a))
+
+
+def test_ranking_extras_stable_tiebreak_matches_input_order():
+    """DCG / ERR break tied scores by stable input order, matching the core ranking.py NDCG/MAP/MRR convention.
+
+    The score vector has a tied 0.0 block; the sole relevant doc (row 7) must land at its stable-order rank (numpy's unstable quicksort would place it
+    elsewhere, but the @njit kernels sort stably). Invariant test pinning the stable-order DCG@k / ERR values so a future change of the kernel sort
+    (or numba's internal default) is caught.
+    """
+    score = np.array([2., 1., 1., 0., 0., 0., 0., 0., 0., 2., 1., 2.], dtype=np.float64)
+    rel = np.zeros_like(score)
+    rel[7] = 3.0  # sole relevant doc, sits inside the tied 0.0 block
+    g = np.zeros(score.shape[0], dtype=np.int64)
+
+    stable_order = np.argsort(-score, kind="mergesort")
+
+    dcg_ref = sum(((2.0 ** rel[stable_order[i]]) - 1.0) / np.log2(i + 2.0) for i in range(score.shape[0]))
+    assert dcg_at_k(rel, score, g, k=12) == pytest.approx(dcg_ref)
+
+    mg = rel.max()
+    err_ref = 0.0
+    p_remain = 1.0
+    for i in range(score.shape[0]):
+        R = ((2.0 ** rel[stable_order[i]]) - 1.0) / (2.0 ** mg)
+        err_ref += p_remain * R / (i + 1.0)
+        p_remain *= (1.0 - R)
+    assert expected_reciprocal_rank(rel, score, g, k=12) == pytest.approx(err_ref)

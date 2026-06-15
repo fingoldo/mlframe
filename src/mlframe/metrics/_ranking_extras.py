@@ -163,8 +163,8 @@ def _dcg_per_group_kernel(
     n = y_true.shape[0]
     if n == 0:
         return 0.0
-    # argsort descending by score; numba doesn't accept axis=, do it manually.
-    order = np.argsort(-y_score)
+    # Stable sort so tied scores break by input order deterministically, matching the core ranking.py NDCG/MAP/MRR convention; otherwise the metric value is arbitrary under ties.
+    order = np.argsort(-y_score, kind="mergesort")
     kk = k if k < n else n
     dcg = 0.0
     for i in range(kk):
@@ -221,7 +221,7 @@ def _err_per_group_kernel(
     n = y_true.shape[0]
     if n == 0:
         return 0.0
-    order = np.argsort(-y_score)
+    order = np.argsort(-y_score, kind="mergesort")  # stable: deterministic tie-break by input order
     kk = k if k < n else n
     denom = (2.0 ** max_grade)
     err = 0.0
@@ -277,7 +277,7 @@ def _hit_at_k_per_group_kernel(
     n = y_true.shape[0]
     if n == 0:
         return 0.0
-    order = np.argsort(-y_score)
+    order = np.argsort(-y_score, kind="mergesort")  # stable: deterministic tie-break by input order
     kk = k if k < n else n
     for i in range(kk):
         if y_true[order[i]] > 0:
@@ -293,7 +293,7 @@ def _precision_at_k_per_group_kernel(
     n = y_true.shape[0]
     if n == 0:
         return 0.0
-    order = np.argsort(-y_score)
+    order = np.argsort(-y_score, kind="mergesort")  # stable: deterministic tie-break by input order
     kk = k if k < n else n
     hits = 0
     for i in range(kk):
