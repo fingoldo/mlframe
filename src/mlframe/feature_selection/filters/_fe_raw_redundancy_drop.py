@@ -428,6 +428,39 @@ def drop_redundant_raw_operands(
     _eng_card = int(min(max(_BINS, int(np.unique(y_arr).size)),
                         max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
     _eng_cont = engineered_continuous or {}
+
+    # RAW-OPERAND BINNING (2026-06-15 compromise). The prior design binned the raw at the LOSSY fit codes
+    # in ``data`` and deliberately did NOT up-resolve (a finer raw binning inflates its residual CMI -> bias
+    # toward KEEP, the unsafe direction). That holds in the tuned regime (fit nbins >= the engineered
+    # survivors' resolution _eng_card), but at a COARSE fit nbins (e.g. 5) the ~5-code raw binning washes
+    # out a genuine INDEPENDENT linear residual (equal-coef sum operands), OVER-dropping them and emptying
+    # the raw support (never-empty regression at nbins=5). Compromise: up-resolve the raw from its
+    # CONTINUOUS values ONLY when the fit codes are COARSER than _eng_card, and CAP at _eng_card -- i.e.
+    # match the engineered survivor's resolution, NEVER finer (so the prior inflation concern is honoured;
+    # the "32 bins inflated the residual" failure mode is excluded). In the tuned regime (fit levels >=
+    # _eng_card) this is BYTE-IDENTICAL to the prior fit-code path -- the raw is still judged at the
+    # resolution the selector saw. Fair-comparison rationale: the raw and the consuming survivor are then
+    # binned at the SAME cardinality, so the conditional-excess verdict is not skewed by a resolution gap.
+    _raw_codes_cache: dict = {}
+    def _raw_codes(_rname, _ridx):
+        if _ridx in _raw_codes_cache:
+            return _raw_codes_cache[_ridx]
+        _fit = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
+        _levels = (int(_fit.max()) + 1) if _fit.size else 0
+        _out = _fit
+        if raw_X is not None and 0 < _levels < _eng_card:
+            try:
+                _rc = None
+                if hasattr(raw_X, "columns") and _rname in getattr(raw_X, "columns", []):
+                    _rc = np.asarray(raw_X[_rname], dtype=np.float64).ravel()
+                if _rc is not None and _rc.shape[0] == n_rows and np.isfinite(_rc).any():
+                    _out = np.ascontiguousarray(
+                        _quantile_bin(np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0), nbins=_eng_card)
+                    ).astype(np.int64)
+            except Exception:
+                _out = _fit
+        _raw_codes_cache[_ridx] = _out
+        return _out
     eng_bin: dict[int, np.ndarray] = {}
     eng_anchor_excess: dict[int, float] = {}
     for ei in eng_idx:
@@ -475,7 +508,7 @@ def drop_redundant_raw_operands(
         except ValueError:
             _raw_marg_cache[_rname] = (0.0, 0.0, 0.0)
             return _raw_marg_cache[_rname]
-        _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
+        _rb = _raw_codes(_rname, _ridx)
         _res = _excess_and_floor(_rb, y_arr, None, seed=seed)
         _raw_marg_cache[_rname] = _res
         return _res
@@ -617,12 +650,12 @@ def drop_redundant_raw_operands(
                     rname, [cols[e] for e in all_consumers],
                 )
             continue
-        # The raw column is binned at the SCREENING codes the selector itself used
-        # (already integer 0..k in ``data``). We do NOT up-resolve the raw from
-        # continuous values: the redundancy verdict must judge the raw at the
-        # resolution the selector saw, and a finer raw binning would only inflate
-        # its residual CMI (bias toward KEEP), the unsafe direction.
-        rb = np.asarray(data[:, ri]).astype(np.int64).ravel()
+        # The raw column is binned via ``_raw_codes`` (see its definition): the selector's lossy fit codes
+        # in the tuned regime (fit levels >= _eng_card, BYTE-IDENTICAL to the prior fit-code path -- judge
+        # the raw at the resolution the selector saw, no residual inflation), up-resolved from continuous to
+        # _eng_card ONLY when the fit binning is COARSER than the survivors' resolution (the coarse-nbins
+        # washout fix), never finer than _eng_card (the prior finer-binning inflation concern is honoured).
+        rb = _raw_codes(cols[ri], ri)
         # Per-consumer conditioning column: prefer the CLEAN nested ``rname``-containing
         # sub-expression (BUG1) when it was successfully isolated/replayed above, else the
         # whole consuming survivor's bin. The clean sub-expression isolates the raw's
