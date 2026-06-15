@@ -103,10 +103,10 @@ def test_clone_roundtrip():
 def test_aggregation_param_defaults_and_validation():
     bag = BaggedCompositeEstimator(base_estimator=_make_composite_proto())
     assert bag.aggregation == "trimmed_mean"
-    assert bag.trim_fraction == 0.1
-    cloned = clone(BaggedCompositeEstimator(base_estimator=_make_composite_proto(), aggregation="median", trim_fraction=0.2))
+    assert bag.trim_fraction == 0.2
+    cloned = clone(BaggedCompositeEstimator(base_estimator=_make_composite_proto(), aggregation="median", trim_fraction=0.15))
     assert cloned.aggregation == "median"
-    assert cloned.trim_fraction == 0.2
+    assert cloned.trim_fraction == 0.15
     with pytest.raises(ValueError):
         BaggedCompositeEstimator(aggregation="bogus")
     with pytest.raises(ValueError):

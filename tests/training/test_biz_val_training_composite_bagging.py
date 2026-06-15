@@ -102,12 +102,13 @@ def test_biz_val_predict_std_larger_in_sparse_region():
     )
 
 
-def _bag(aggregation, seed, n_estimators=25):
+def _bag(aggregation, seed, n_estimators=25, trim_fraction=0.2):
     return BaggedCompositeEstimator(
         base_estimator=DecisionTreeRegressor(max_depth=6, random_state=0),
         n_estimators=n_estimators,
         random_state=seed,
         aggregation=aggregation,
+        trim_fraction=trim_fraction,
     )
 
 
@@ -181,3 +182,60 @@ def test_biz_val_bagging_default_aggregation_is_trimmed_mean_not_mean():
     assert not np.array_equal(default_bag.predict(Xte), members.mean(axis=0)), (
         "default aggregation must be trimmed_mean (robust), not the legacy plain mean"
     )
+
+
+def _contam_data(seed, frac, n=1200, p=8):
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n, p)
+    truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])
+    noise = rng.randn(n) * 0.5
+    mask = rng.rand(n) < frac
+    noise[mask] += rng.randn(mask.sum()) * 12.0
+    y = truth + noise
+    cut = int(n * 0.7)
+    return X[:cut], y[:cut], X[cut:], truth[cut:]
+
+
+def test_biz_val_bagging_trim_fraction_default_is_0_2():
+    """Pin the qual-17 default flip: trim_fraction defaults to 0.2 (the robust knee), NOT the earlier 0.1.
+
+    A silent revert to 0.1 (or to mean=0.0) under-protects against heavy outlier contamination; this sensor catches it.
+    """
+    bag = BaggedCompositeEstimator(base_estimator=DecisionTreeRegressor(max_depth=6, random_state=0))
+    assert bag.trim_fraction == 0.2, f"default trim_fraction must be 0.2, got {bag.trim_fraction}"
+
+
+def test_biz_val_bagging_trim_0_2_beats_0_1_on_heavy_contamination():
+    """The qual-17 default trim=0.2 lowers honest-holdout RMSE vs the earlier trim=0.1 under 15-30% outlier contamination.
+
+    Bench bench_bagging_trim_fraction_qual17: trim 0.2 wins 7/7 seeds on every contaminated scenario (5/15/30%), ~5-9% RMSE
+    drop. Floor here: 0.2 beats 0.1 on a majority (>=4/5) of seeds across two heavy-contamination levels, ~5-15% below measured.
+    """
+    for frac in (0.15, 0.30):
+        wins = 0
+        seeds = [0, 1, 2, 3, 4]
+        for sd in seeds:
+            Xtr, ytr, Xte, truth_te = _contam_data(sd, frac)
+            rmse_01 = _rmse(_bag("trimmed_mean", sd, trim_fraction=0.1).fit(Xtr, ytr).predict(Xte), truth_te)
+            rmse_02 = _rmse(_bag("trimmed_mean", sd, trim_fraction=0.2).fit(Xtr, ytr).predict(Xte), truth_te)
+            if rmse_02 < rmse_01:
+                wins += 1
+        assert wins >= 4, f"trim=0.2 should beat trim=0.1 on a majority of seeds at {frac:.0%} contamination; won {wins}/{len(seeds)}"
+
+
+def test_biz_val_bagging_trim_0_2_near_0_1_on_clean_data():
+    """The qual-17 trim=0.2 default must NOT materially regress clean Gaussian data vs the earlier trim=0.1.
+
+    Bench: clean-data mean RMSE delta(0.2 vs 0.1) ~ +0.3% over 20 seeds. Guard a generous 3% ceiling so the flip is safe on
+    the no-contamination case.
+    """
+    rng = np.random.RandomState(11)
+    n, p = 1200, 8
+    X = rng.randn(n, p)
+    truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])
+    y = truth + rng.randn(n) * 0.5
+    cut = int(n * 0.7)
+    Xtr, ytr, Xte, truth_te = X[:cut], y[:cut], X[cut:], truth[cut:]
+    rmse_01 = _rmse(_bag("trimmed_mean", 11, trim_fraction=0.1).fit(Xtr, ytr).predict(Xte), truth_te)
+    rmse_02 = _rmse(_bag("trimmed_mean", 11, trim_fraction=0.2).fit(Xtr, ytr).predict(Xte), truth_te)
+    assert rmse_02 <= 1.03 * rmse_01, f"trim=0.2 must stay within 3% of trim=0.1 on clean data: 0.1={rmse_01:.4f} 0.2={rmse_02:.4f}"

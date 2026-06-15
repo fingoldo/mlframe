@@ -133,7 +133,8 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         maximally-robust option. ``predict_std`` / ``predict_interval_epistemic`` always use the mean+std (the epistemic spread is
         a Gaussian-band notion independent of the point-estimate aggregator).
     trim_fraction
-        Symmetric fraction (each tail) dropped when ``aggregation="trimmed_mean"``. Default 0.1; must be in [0, 0.5).
+        Symmetric fraction (each tail) dropped when ``aggregation="trimmed_mean"``. Default 0.2 (the robust knee across clean +
+        heavy-tail + 5-30% outlier contamination, see qual-17 bench); must be in [0, 0.5).
 
     Attributes set at fit
     ---------------------
@@ -153,7 +154,7 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         random_state: Optional[int] = None,
         n_jobs: int = 1,
         aggregation: str = "trimmed_mean",
-        trim_fraction: float = 0.1,
+        trim_fraction: float = 0.2,
     ) -> None:
         self.base_estimator = base_estimator
         self.n_estimators = n_estimators
@@ -171,12 +172,15 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
             raise ValueError(
                 f"BaggedCompositeEstimator: trim_fraction must be in [0, 0.5); got {trim_fraction!r}."
             )
-        # ``trimmed_mean`` (symmetric 10% trim) is the default point-estimate aggregator: on heavy-tailed / outlier-contaminated
-        # targets it lowers honest-holdout RMSE+MAE materially (bench bench_bagging_aggregation_qual14: -2.8% heavy-tail, -4.7%
-        # outlier-contam) while costing only ~0.4% under clean Gaussian noise (it converges to the plain mean as trim -> 0 / as
-        # contamination -> 0). ``mean`` is the legacy aggregator (Gaussian-MLE optimal, but a single wild member skews it);
-        # ``median`` is the maximally-robust fallback. Pickle-replay: old saved models lack these attrs -> predict() reads them
-        # via getattr with the LEGACY ``mean`` default so a v1 model replays byte-identically.
+        # ``trimmed_mean`` (symmetric 20% trim) is the default point-estimate aggregator: on heavy-tailed / outlier-contaminated
+        # targets it lowers honest-holdout RMSE+MAE materially while costing only a fraction of a percent under clean Gaussian
+        # noise. The 0.2 trim (vs the earlier 0.1) is the robust knee from the trim-fraction sweep (bench bench_bagging_trim_fraction_qual17):
+        # across clean / heavy-tail t(2) / 5-30% outlier contamination, 0.2 wins honest-holdout RMSE on 28/35 seed-scenario cells
+        # vs the 0.1 incumbent (7/7 on EVERY contaminated scenario, ~5-9% RMSE drop) for an immaterial ~0.3% clean cost; it captures
+        # essentially all the contamination benefit of larger trims without sitting on the grid edge (near-median, contamination-overfit risk).
+        # ``mean`` is the legacy aggregator (Gaussian-MLE optimal, but a single wild member skews it); ``median`` is the maximally-robust
+        # fallback. Pickle-replay: old saved models lack these attrs -> predict() reads them via getattr with the LEGACY ``mean``
+        # default so a v1 model replays byte-identically.
         self.aggregation = aggregation
         self.trim_fraction = trim_fraction
 
