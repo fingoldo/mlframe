@@ -415,6 +415,7 @@ class _DatasetReuseMixin:
         categorical_feature="auto",
         callbacks=None,
         init_model=None,
+        monotonic_decline_patience=3,
     ):
         """Cached-Dataset fit.
 
@@ -659,6 +660,16 @@ class _DatasetReuseMixin:
         train_callbacks = list(callbacks) if callbacks else []
         if valid_sets:
             train_callbacks.append(lgb.record_evaluation(evals_result))
+            # Default-on monotonic strict-decline overfitting stop, COMPLEMENTARY to native
+            # early_stopping_rounds: stop once the first val set's metric strictly worsens for
+            # ``monotonic_decline_patience`` consecutive rounds since the best. Skipped when the
+            # caller already supplied one, or when disabled (None). The native best-iteration
+            # rollback (EarlyStopException) keeps the global-best booster.
+            from .callbacks.monotonic_decline import LGBMonotonicDeclineStop
+            if monotonic_decline_patience is not None and not any(
+                isinstance(cb, LGBMonotonicDeclineStop) for cb in train_callbacks
+            ):
+                train_callbacks.append(LGBMonotonicDeclineStop(patience=monotonic_decline_patience))
 
         booster = lgb.train(
             params=params,

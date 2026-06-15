@@ -417,6 +417,7 @@ class _DMatrixReuseMixin:
         eval_set=None,
         sample_weight_eval_set=None,
         verbose=False,
+        monotonic_decline_patience=3,
         **fit_kwargs,
     ):
         """Cached-DMatrix fit.
@@ -602,6 +603,18 @@ class _DMatrixReuseMixin:
                     save_best=True,
                 )
             )
+
+        # Default-on monotonic strict-decline overfitting stop, COMPLEMENTARY to native
+        # early_stopping_rounds: stop once the first eval set's metric strictly worsens for
+        # ``monotonic_decline_patience`` consecutive rounds since the best. Only attached when
+        # eval sets exist, the caller hasn't already supplied one, and it isn't disabled (None).
+        if monotonic_decline_patience is not None and evals and not any(
+            getattr(cb, "_is_mlframe_monotonic_decline", False) for cb in callbacks
+        ):
+            from .callbacks.monotonic_decline import _make_xgb_monotonic_callback
+            _mono_cb = _make_xgb_monotonic_callback(patience=monotonic_decline_patience)
+            if _mono_cb is not None:
+                callbacks.append(_mono_cb)
 
         # Determine objective for classification — XGBClassifier sets it
         # automatically based on n_classes; we mimic that here for the
