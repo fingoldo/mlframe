@@ -100,6 +100,46 @@ def test_clone_roundtrip():
     assert not hasattr(cloned, "estimators_")  # unfitted shell
 
 
+def test_aggregation_param_defaults_and_validation():
+    bag = BaggedCompositeEstimator(base_estimator=_make_composite_proto())
+    assert bag.aggregation == "trimmed_mean"
+    assert bag.trim_fraction == 0.1
+    cloned = clone(BaggedCompositeEstimator(base_estimator=_make_composite_proto(), aggregation="median", trim_fraction=0.2))
+    assert cloned.aggregation == "median"
+    assert cloned.trim_fraction == 0.2
+    with pytest.raises(ValueError):
+        BaggedCompositeEstimator(aggregation="bogus")
+    with pytest.raises(ValueError):
+        BaggedCompositeEstimator(trim_fraction=0.5)
+
+
+def test_pickle_replay_legacy_model_aggregates_by_mean():
+    import pickle
+
+    X, y = _make_composite_data()
+    bag = BaggedCompositeEstimator(
+        base_estimator=_make_composite_proto(), n_estimators=6, random_state=3,
+    ).fit(X, y)
+    replayed = pickle.loads(pickle.dumps(bag))
+    # Simulate a pre-flip pickle: the aggregation attrs did not exist; predict must fall back to the legacy plain mean.
+    del replayed.aggregation, replayed.trim_fraction
+    members = replayed._member_predictions(X)
+    assert np.array_equal(replayed.predict(X), members.mean(axis=0))
+
+
+def test_aggregation_variants_match_their_definitions():
+    X, y = _make_composite_data()
+    bag = BaggedCompositeEstimator(
+        base_estimator=_make_composite_proto(), n_estimators=12, random_state=1, aggregation="median",
+    ).fit(X, y)
+    members = bag._member_predictions(X)
+    assert np.array_equal(bag.predict(X), np.median(members, axis=0))
+    bag_mean = BaggedCompositeEstimator(
+        base_estimator=_make_composite_proto(), n_estimators=12, random_state=1, aggregation="mean",
+    ).fit(X, y)
+    assert np.array_equal(bag_mean.predict(X), bag_mean._member_predictions(X).mean(axis=0))
+
+
 def test_deterministic_with_fixed_seed():
     X, y = _make_composite_data()
     p1 = BaggedCompositeEstimator(

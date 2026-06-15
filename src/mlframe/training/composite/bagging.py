@@ -126,6 +126,14 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         determinism + to avoid pickling a large frame to N workers. Accepting
         the param keeps the public signature stable for a future parallel
         backend. Default 1 (sequential).
+    aggregation
+        How ``predict`` collapses the per-member prediction matrix to a point estimate. ``"trimmed_mean"`` (default) drops the
+        symmetric ``trim_fraction`` extremes per row then averages -- robust to a wild bootstrap member on heavy-tailed / outlier
+        targets, near-mean-efficient on clean Gaussian data. ``"mean"`` is the legacy Gaussian-MLE aggregator; ``"median"`` is the
+        maximally-robust option. ``predict_std`` / ``predict_interval_epistemic`` always use the mean+std (the epistemic spread is
+        a Gaussian-band notion independent of the point-estimate aggregator).
+    trim_fraction
+        Symmetric fraction (each tail) dropped when ``aggregation="trimmed_mean"``. Default 0.1; must be in [0, 0.5).
 
     Attributes set at fit
     ---------------------
@@ -144,6 +152,8 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         vary_inner_random_state: bool = True,
         random_state: Optional[int] = None,
         n_jobs: int = 1,
+        aggregation: str = "trimmed_mean",
+        trim_fraction: float = 0.1,
     ) -> None:
         self.base_estimator = base_estimator
         self.n_estimators = n_estimators
@@ -152,6 +162,23 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         self.vary_inner_random_state = vary_inner_random_state
         self.random_state = random_state
         self.n_jobs = n_jobs
+        if aggregation not in ("trimmed_mean", "mean", "median"):
+            raise ValueError(
+                f"BaggedCompositeEstimator: aggregation must be one of "
+                f"'trimmed_mean' / 'mean' / 'median'; got {aggregation!r}."
+            )
+        if not (0.0 <= trim_fraction < 0.5):
+            raise ValueError(
+                f"BaggedCompositeEstimator: trim_fraction must be in [0, 0.5); got {trim_fraction!r}."
+            )
+        # ``trimmed_mean`` (symmetric 10% trim) is the default point-estimate aggregator: on heavy-tailed / outlier-contaminated
+        # targets it lowers honest-holdout RMSE+MAE materially (bench bench_bagging_aggregation_qual14: -2.8% heavy-tail, -4.7%
+        # outlier-contam) while costing only ~0.4% under clean Gaussian noise (it converges to the plain mean as trim -> 0 / as
+        # contamination -> 0). ``mean`` is the legacy aggregator (Gaussian-MLE optimal, but a single wild member skews it);
+        # ``median`` is the maximally-robust fallback. Pickle-replay: old saved models lack these attrs -> predict() reads them
+        # via getattr with the LEGACY ``mean`` default so a v1 model replays byte-identically.
+        self.aggregation = aggregation
+        self.trim_fraction = trim_fraction
 
     # ------------------------------------------------------------------
     # internals
@@ -275,8 +302,24 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         return np.vstack(preds)
 
     def predict(self, X: Any) -> np.ndarray:
-        """Lower-variance point estimate: the across-member mean prediction."""
-        return self._member_predictions(X).mean(axis=0)
+        """Lower-variance, outlier-robust point estimate across bootstrap members.
+
+        Aggregation is selected by ``self.aggregation`` (default ``trimmed_mean``). Pickle-replay: models saved before this
+        attribute existed are read via getattr with the legacy ``mean`` default, so an old saved model replays byte-identically.
+        """
+        members = self._member_predictions(X)
+        aggregation = getattr(self, "aggregation", "mean")
+        if aggregation == "mean":
+            return members.mean(axis=0)
+        if aggregation == "median":
+            return np.median(members, axis=0)
+        m = members.shape[0]
+        k = int(np.floor(getattr(self, "trim_fraction", 0.1) * m))
+        if k == 0:
+            # Too few members to trim symmetrically -- the trimmed mean degenerates to the plain mean.
+            return members.mean(axis=0)
+        ordered = np.sort(members, axis=0)
+        return ordered[k:m - k].mean(axis=0)
 
     def predict_std(self, X: Any) -> np.ndarray:
         """Across-member prediction spread -- an epistemic-uncertainty signal.

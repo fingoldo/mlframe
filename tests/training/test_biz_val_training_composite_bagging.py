@@ -100,3 +100,84 @@ def test_biz_val_predict_std_larger_in_sparse_region():
         f"epistemic std should grow in the sparse region: dense={std_dense:.4f} "
         f"sparse={std_sparse:.4f}"
     )
+
+
+def _bag(aggregation, seed, n_estimators=25):
+    return BaggedCompositeEstimator(
+        base_estimator=DecisionTreeRegressor(max_depth=6, random_state=0),
+        n_estimators=n_estimators,
+        random_state=seed,
+        aggregation=aggregation,
+    )
+
+
+def _outlier_contam_data(seed, n=1200, p=8):
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n, p)
+    truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])
+    noise = rng.randn(n) * 0.5
+    mask = rng.rand(n) < 0.05
+    noise[mask] += rng.randn(mask.sum()) * 12.0
+    y = truth + noise
+    cut = int(n * 0.7)
+    return X[:cut], y[:cut], X[cut:], truth[cut:]
+
+
+def test_biz_val_bagging_trimmed_mean_beats_mean_on_outlier_contamination():
+    """Default ``trimmed_mean`` aggregation must lower honest-holdout RMSE vs legacy ``mean`` on outlier-contaminated targets.
+
+    Bench bench_bagging_aggregation_qual14: trimmed-mean wins RMSE+MAE on 7/7 seeds for outlier-contam, mean rel RMSE gain
+    -4.7%. Floor here is a >=2% RMSE reduction on a majority (>=4/5) of seeds -- ~5-15% below the measured win, so seed noise
+    does not trip it but a regression that disables the robust aggregator (e.g. default silently reverting to mean) does.
+    """
+    wins = 0
+    seeds = [0, 1, 2, 3, 4]
+    for sd in seeds:
+        Xtr, ytr, Xte, truth_te = _outlier_contam_data(sd)
+        rmse_mean = _rmse(_bag("mean", sd).fit(Xtr, ytr).predict(Xte), truth_te)
+        rmse_trim = _rmse(_bag("trimmed_mean", sd).fit(Xtr, ytr).predict(Xte), truth_te)
+        if rmse_trim <= 0.98 * rmse_mean:
+            wins += 1
+    assert wins >= 4, (
+        f"trimmed_mean should beat mean by >=2% RMSE on a majority of outlier-contaminated seeds; "
+        f"won {wins}/{len(seeds)}"
+    )
+
+
+def test_biz_val_bagging_trimmed_mean_default_near_mean_on_clean_data():
+    """Default ``trimmed_mean`` must NOT materially regress clean Gaussian data vs ``mean`` (efficiency-preserving robustness).
+
+    Bench: clean-data mean rel RMSE delta(trim-mean)/mean = +0.42%, worst +1.16%. Guard a generous 5% ceiling so the default
+    flip is safe on the no-contamination case.
+    """
+    rng = np.random.RandomState(7)
+    n, p = 1200, 8
+    X = rng.randn(n, p)
+    truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])
+    y = truth + rng.randn(n) * 0.5
+    cut = int(n * 0.7)
+    Xtr, ytr, Xte, truth_te = X[:cut], y[:cut], X[cut:], truth[cut:]
+    rmse_mean = _rmse(_bag("mean", 7).fit(Xtr, ytr).predict(Xte), truth_te)
+    rmse_trim = _rmse(_bag("trimmed_mean", 7).fit(Xtr, ytr).predict(Xte), truth_te)
+    assert rmse_trim <= 1.05 * rmse_mean, (
+        f"trimmed_mean must stay within 5% of mean on clean data: mean={rmse_mean:.4f} trim={rmse_trim:.4f}"
+    )
+
+
+def test_biz_val_bagging_default_aggregation_is_trimmed_mean_not_mean():
+    """Pin the default flip: a default-constructed bag must aggregate by trimmed-mean, NOT the legacy plain mean.
+
+    On contaminated data the trimmed-mean point estimate differs from ``members.mean(axis=0)``; if the default ever silently
+    reverts to ``mean`` this sensor catches it (default.predict would then equal the member mean exactly).
+    """
+    Xtr, ytr, Xte, _ = _outlier_contam_data(0)
+    default_bag = BaggedCompositeEstimator(
+        base_estimator=DecisionTreeRegressor(max_depth=6, random_state=0),
+        n_estimators=25,
+        random_state=0,
+    ).fit(Xtr, ytr)
+    assert default_bag.aggregation == "trimmed_mean"
+    members = default_bag._member_predictions(Xte)
+    assert not np.array_equal(default_bag.predict(Xte), members.mean(axis=0)), (
+        "default aggregation must be trimmed_mean (robust), not the legacy plain mean"
+    )
