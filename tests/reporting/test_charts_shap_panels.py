@@ -130,6 +130,35 @@ def test_kernel_opt_in_runs_bounded():
     assert plt.get_fignums() == []
 
 
+class _RaisingProbaRegressor:
+    """Regressor exposing a bound ``predict_proba`` that raises at call time (mirrors PartialFitESWrapper on a regressor)."""
+
+    def __init__(self):
+        self._lr = LinearRegression()
+
+    def fit(self, X, y):
+        self._lr.fit(X, y)
+        return self
+
+    def predict(self, X):
+        return self._lr.predict(X)
+
+    def predict_proba(self, X):
+        raise AttributeError("Underlying estimator has no predict_proba or decision_function")
+
+
+def test_kernel_falls_back_to_predict_when_proba_raises():
+    X, y = _strong_f0(300, n_feat=4, seed=2)
+    model = _RaisingProbaRegressor().fit(X, y)
+    # Pre-fix: KernelExplainer was handed the raising predict_proba and blew up mid-explain. Post-fix it probes once and falls back to predict.
+    res = sp.shap_summary_and_dependence(
+        model, X, feature_names=list(X.columns), allow_kernel=True, kernel_max_rows=120, kernel_background=40, top_k=3,
+    )
+    assert res.skipped is None
+    assert res.explainer_kind == "kernel"
+    assert res.top_features[0] == "f0"
+
+
 def test_empty_input_skips():
     """Zero rows / zero columns is a best-effort skip, not a crash."""
     m = _fit_rf(*_strong_f0(200, seed=0))

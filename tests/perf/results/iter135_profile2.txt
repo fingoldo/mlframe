@@ -1,0 +1,123 @@
+  CatBoost Pool.set_label/set_weight not available in installed build -- mlframe will fall back to rebuilding the Pool on every weight schema and same-type target. Upgrade CatBoost to pick up the Pool label-swap PR.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning: X does not have valid feature names, but LGBMClassifier was fitted with feature names
+  warnings.warn(
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning: X does not have valid feature names, but LGBMClassifier was fitted with feature names
+  warnings.warn(
+C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\utils\validation.py:2691: UserWarning: X does not have valid feature names, but LGBMClassifier was fitted with feature names
+  warnings.warn(
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+diagnostics_dispatch: pdp_ice failed; continuing.
+Traceback (most recent call last):
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\diagnostics_dispatch.py", line 414, in render_pdp_ice_diagnostic
+    spec = compose_pdp_figure(
+        model, df, top, grid=grid, sample=sample, interaction_pair=interaction, seed=seed,
+    )
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 399, in compose_pdp_figure
+    pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 304, in pdp_panel
+    res = compute_pdp(model, X, feature, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed)
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 208, in compute_pdp
+    ice_full[k] = predict(block)
+                  ~~~~~~~^^^^^^^
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 80, in call
+    out = fn(arr)
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 59, in fn
+    p = np.asarray(proba(arr))
+                   ~~~~~^^^^^
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\training\_partial_fit_es_wrapper.py", line 231, in predict_proba
+    raise AttributeError("Underlying estimator has no predict_proba or decision_function")
+AttributeError: Underlying estimator has no predict_proba or decision_function
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+diagnostics_dispatch: pdp_ice failed; continuing.
+Traceback (most recent call last):
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\diagnostics_dispatch.py", line 414, in render_pdp_ice_diagnostic
+    spec = compose_pdp_figure(
+        model, df, top, grid=grid, sample=sample, interaction_pair=interaction, seed=seed,
+    )
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 399, in compose_pdp_figure
+    pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 304, in pdp_panel
+    res = compute_pdp(model, X, feature, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed)
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 208, in compute_pdp
+    ice_full[k] = predict(block)
+                  ~~~~~~~^^^^^^^
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 80, in call
+    out = fn(arr)
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\reporting\charts\pdp_ice.py", line 59, in fn
+    p = np.asarray(proba(arr))
+                   ~~~~~^^^^^
+  File "C:\Users\Admin\Machine learning\mlframe\.claude\worktrees\manual-perf135\src\mlframe\training\_partial_fit_es_wrapper.py", line 231, in predict_proba
+    raise AttributeError("Underlying estimator has no predict_proba or decision_function")
+AttributeError: Underlying estimator has no predict_proba or decision_function
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+Ignoring fixed x limits to fulfill fixed data aspect with adjustable data limits.
+===== TOTTIME TOP =====
+         30350371 function calls (29029609 primitive calls) in 40.977 seconds
+
+   Ordered by: internal time
+   List reduced from 8518 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+1500/1005    6.406    0.004    6.332    0.006 basic.py:4092(update)
+32015/31992    4.357    0.000    4.849    0.000 ffi.py:210(__call__)
+     4250    1.243    0.000    1.254    0.000 {built-in method matplotlib.ft2font.set_text}
+252771/252689    0.735    0.000    0.743    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+3123566/3123525    0.594    0.000    0.737    0.000 {built-in method builtins.isinstance}
+    18185    0.589    0.000    7.716    0.000 text.py:358(_get_layout)
+       42    0.582    0.014    0.582    0.014 {method 'encode' of 'ImagingEncoder' objects}
+   125954    0.352    0.000    0.523    0.000 font_manager.py:700(__hash__)
+849056/830386    0.333    0.000    1.014    0.000 {built-in method builtins.getattr}
+43942/31099    0.324    0.000    0.597    0.000 transforms.py:2432(get_affine)
+233716/39672    0.280    0.000    0.431    0.000 ir.py:321(_rec_list_vars)
+    70900    0.272    0.000    0.272    0.000 {built-in method matplotlib._path.affine_transform}
+   164147    0.229    0.000    0.561    0.000 copy.py:62(copy)
+243935/243774    0.228    0.000    0.228    0.000 {method 'copy' of 'numpy.ndarray' objects}
+363930/11931    0.225    0.000    0.630    0.000 copy.py:110(deepcopy)
+    77257    0.203    0.000    0.443    0.000 transforms.py:750(__init__)
+     5486    0.189    0.000    1.463    0.000 ticker.py:2159(_raw_ticks)
+521402/428564    0.182    0.000    0.303    0.000 artist.py:315(stale)
+26676/26570    0.180    0.000    0.858    0.000 artist.py:1188(_update_props)
+     3452    0.178    0.000    5.284    0.002 axis.py:1276(_update_ticks)
+    15875    0.174    0.000   10.009    0.001 text.py:926(get_window_extent)
+109335/109314    0.172    0.000    0.503    0.000 fromnumeric.py:69(_wrapreduction)
+    49157    0.166    0.000    0.222    0.000 basedatatypes.py:741(__getitem__)
+   685207    0.165    0.000    0.182    0.000 {method 'get' of 'dict' objects}
+    85414    0.155    0.000    0.255    0.000 cbook.py:2020(_setattr_cm)
+   302122    0.155    0.000    0.372    0.000 __init__.py:781(__getitem__)
+   144062    0.150    0.000    0.207    0.000 transforms.py:1770(__init__)
+    43197    0.149    0.000    0.364    0.000 fromnumeric.py:41(_wrapit)
+144367/144275    0.149    0.000    0.151    0.000 {built-in method numpy.asarray}
+     1777    0.148    0.000    0.194    0.000 {built-in method matplotlib.backends._backend_agg.draw_path}
+    94502    0.146    0.000    0.274    0.000 basedatatypes.py:4392(_get_validator)
+    77444    0.139    0.000    0.144    0.000 {built-in method numpy.array}
+  244/242    0.138    0.001    0.138    0.001 {built-in method _io.open_code}
+1037/1033    0.138    0.000    0.139    0.000 {built-in method nt.stat}
+38317/29605    0.136    0.000    1.057    0.000 basedatatypes.py:4732(__getitem__)
+    39466    0.134    0.000    4.475    0.000 text.py:65(_get_text_metrics_with_cache)
+      613    0.128    0.000    0.160    0.000 {built-in method _io.open}
+   545528    0.126    0.000    0.126    0.000 {method 'items' of 'dict' objects}
+    75938    0.125    0.000    0.318    0.000 transforms.py:1887(__init__)
+     3452    0.124    0.000    0.247    0.000 numeric.py:2373(isclose)
+    58563    0.124    0.000    0.354    0.000 copy.py:228(_reconstruct)
+    19891    0.122    0.000    0.156    0.000 cbook.py:1752(normalize_kwargs)
+    29731    0.121    0.000    0.121    0.000 transforms.py:2918(_interval_contains_close)
+155210/75073    0.121    0.000    0.389    0.000 {method 'format' of 'str' objects}
+   302125    0.121    0.000    0.218    0.000 __init__.py:701(_get)
+
+
+
+EXIT 0

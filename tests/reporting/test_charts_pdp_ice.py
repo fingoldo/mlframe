@@ -80,6 +80,36 @@ def test_compute_pdp_proba_model_uses_positive_column():
     assert np.all((res["pdp"] >= 0.0) & (res["pdp"] <= 1.0))
 
 
+class _RaisingProbaRegressor:
+    """Regressor that EXPOSES a bound ``predict_proba`` which raises at call time.
+
+    Mirrors mlframe's PartialFitESWrapper wrapping a plain regressor (Ridge): the wrapper always defines the
+    ``predict_proba`` method but raises ``AttributeError`` when the underlying estimator has neither proba nor
+    decision_function. ``compute_pdp`` must fall back to ``predict`` rather than failing the whole diagnostic.
+    """
+
+    def __init__(self, w):
+        self.w = np.asarray(w, dtype=np.float64)
+
+    def predict(self, X):
+        return np.asarray(X, dtype=np.float64) @ self.w
+
+    def predict_proba(self, X):
+        raise AttributeError("Underlying estimator has no predict_proba or decision_function")
+
+
+def test_compute_pdp_falls_back_to_predict_when_proba_raises_at_call_time():
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(500, 3))
+    model = _RaisingProbaRegressor([2.0, 0.0, 0.0])
+    res = pdp_ice.compute_pdp(model, X, 0, grid=10, sample=200, ice=True)
+    # Pre-fix this raised AttributeError out of compute_pdp; post-fix it renders via the predict fallback.
+    assert res["pdp"].shape == (10,)
+    # PDP slope must equal w[0]=2 (predict path), not a proba surface.
+    slope = (res["pdp"][-1] - res["pdp"][0]) / (res["grid"][-1] - res["grid"][0])
+    assert abs(slope - 2.0) < 1e-6
+
+
 def test_compute_pdp_discrete_feature_grid_is_categories():
     rng = np.random.default_rng(3)
     cont = rng.normal(size=2000)

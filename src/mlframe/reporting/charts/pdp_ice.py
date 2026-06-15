@@ -56,7 +56,11 @@ def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], np.ndarray], str]:
     proba = getattr(model, "predict_proba", None)
     if callable(proba):
         def fn(arr: np.ndarray) -> np.ndarray:
-            p = np.asarray(proba(arr))
+            # A bound ``predict_proba`` is not proof the model is a classifier: mlframe's PartialFitESWrapper always defines the method and only raises at CALL time when wrapping a regressor (no predict_proba / decision_function underneath). Treat that raise like the multiclass case -> return None so _scalar_predict falls back to predict, instead of failing the whole PDP/ICE diagnostic.
+            try:
+                p = np.asarray(proba(arr))
+            except (AttributeError, NotImplementedError, TypeError):
+                return None
             if p.ndim == 2 and p.shape[1] == 2:
                 return p[:, 1]
             if p.ndim == 1:

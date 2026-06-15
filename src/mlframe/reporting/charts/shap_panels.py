@@ -281,7 +281,13 @@ def shap_summary_and_dependence(
         explainer_kind = "tree"
     else:
         bg = shap.sample(X_sample, min(kernel_background, len(idx)), random_state=seed)
+        # A bound ``predict_proba`` is not proof of a classifier: mlframe's PartialFitESWrapper always defines the method and raises at CALL time when wrapping a regressor. Probe once on the tiny background sample and fall back to ``predict`` so KernelSHAP works for regression models instead of raising mid-explain.
         predict = getattr(model, "predict_proba", None) or getattr(model, "predict")
+        if predict is not getattr(model, "predict", None):
+            try:
+                predict(bg[:1])
+            except (AttributeError, NotImplementedError, TypeError):
+                predict = getattr(model, "predict")
         explainer = shap.KernelExplainer(predict, bg)
         shap_values = explainer.shap_values(X_sample)
         explainer_kind = "kernel"

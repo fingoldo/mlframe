@@ -3798,3 +3798,32 @@ A/B: separate-process warm microbench (5-run median), real `pd.value_counts` bas
 **Verdict: REJECT.** Honest measured reject — the perf surface remains saturated; the one real isolated win is identity-unsafe (selection-altering on ties) and outside the production call shape.
 
 Streak: 3/100 (REJECT). **Cumulative loop wave: 101 RESOLVED, 35 REJECT across 134 iterations.**
+
+---
+
+## iter135 — RESOLVED (SUITE-ORCHESTRATION pivot: PDP/ICE + KernelSHAP diagnostics fail for every regression model under PartialFitESWrapper)
+
+**PIVOT to a FRESH surface: training-SUITE orchestration / integration glue** (leaf numeric kernels are saturated after 130+ iters). **Scale: n=5000, ridge-only suite** (RAM-fittable; ridge keeps external CatBoost/LightGBM .fit OUT of the profile so the suite GLUE + reporting/diagnostics layer dominates). Drove the full `train_mlframe_models_suite` train+predict+save+load via a conftest-style import-order harness (`import scipy.stats; import numba; sys.modules['cupy']=None`) so the cold `mlframe.training.core` import does not segfault on py3.14. Harness: `tests/perf/_iter135_suite_orchestration.py`.
+
+**cProfile top mlframe-own frames (external .fit excluded):** at n=5000 the measured pass (40.9s, warm) is dominated NOT by mlframe per-fold/per-model Python loops (those are tight — result/leaderboard assembly, `_bulk_setattr_to_ctx`, kwargs builders, finalize_suite single-pass walk all sub-1%) but by the **reporting/diagnostics layer**: plotly `basic.py:4092 update` (6.4s tottime), plotly `ffi.py:210 __call__` (4.4s), matplotlib `ft2font.set_text` / `text._get_layout` / `transforms`. The orchestration loops themselves are confirmed already-tight.
+
+**The real finding — a CAUGHT-AND-DISCARDED orchestration bug surfaced repeatedly in the profile stderr:** `diagnostics_dispatch: pdp_ice failed; continuing` + a full traceback emitted **once per model**, every time:
+```
+pdp_ice.py:59  p = np.asarray(proba(arr))
+_partial_fit_es_wrapper.py:231  raise AttributeError("Underlying estimator has no predict_proba or decision_function")
+```
+Root cause: `_predict_fn` (`reporting/charts/pdp_ice.py:56`) treats ANY callable `predict_proba` as a classifier. But mlframe's `PartialFitESWrapper` ALWAYS defines `predict_proba` as a real method and only raises at CALL time when wrapping a regressor (no proba / no decision_function underneath). So for EVERY regression target trained through the ES wrapper, the PDP/ICE diagnostic commits to the proba branch, `proba(arr)` raises, and the whole diagnostic is lost (no chart) + a traceback is formatted and logged per model — pure wasted orchestration work. The SAME pattern exists at `reporting/charts/shap_panels.py:284` (`getattr(model,'predict_proba',None) or getattr(model,'predict')`), which hands the raising `predict_proba` to `shap.KernelExplainer` → blows up mid-explain → no KernelSHAP for regression models.
+
+**Fix (bit-identical for working classifiers; gated by call-time failure):**
+- `pdp_ice._predict_fn`: wrap `proba(arr)` in try/except (AttributeError/NotImplementedError/TypeError) → return None, which `_scalar_predict` already converts to a transparent `predict` fallback. Regression PDP/ICE now renders (slope == w, exact); classifier proba path UNCHANGED.
+- `shap_panels.shap_summary_and_dependence`: probe `predict_proba` once on the tiny background sample; fall back to `predict` on the same exceptions. KernelSHAP now works for regression; classifier path UNCHANGED.
+
+**A/B + identity:** clean standalone repro (Ridge under PartialFitESWrapper → `compute_pdp` raised AttributeError pre-fix, renders post-fix; KernelSHAP raised "Provided model function fails" pre-fix, produces beeswarm post-fix). Pre-fix failure verified via `git show HEAD:` loaded into an isolated module (both paths raise AttributeError on pre-fix code). Classifier proba paths produce identical probabilities post-fix (verified: LogisticRegression PDP kind=proba, real [0,1] probs; existing 16 pdp_ice + 9 shap_panels tests green).
+
+**Regression tests (fail pre-fix, pass post-fix, verified):**
+- `tests/reporting/test_charts_pdp_ice.py::test_compute_pdp_falls_back_to_predict_when_proba_raises_at_call_time`
+- `tests/reporting/test_charts_shap_panels.py::test_kernel_falls_back_to_predict_when_proba_raises`
+
+**Verdict: RESOLVED.** A fresh-surface orchestration/diagnostics-glue correctness bug: regression PDP/ICE + KernelSHAP diagnostics were silently never produced (and burned per-model traceback-formatting work) for any regression model trained through the early-stopping wrapper — the default regression path. Fixed both call sites + pinned both.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 102 RESOLVED, 35 REJECT across 135 iterations.**
