@@ -332,6 +332,15 @@ def binned_numeric_agg_with_recipes(
 
         y_cls = _coerce_y_classes(y)
         _src_bin_cache: dict[str, np.ndarray] = {}
+        # Permutation-null floor. The plug-in CMI estimator is positively biased at finite n: a binagg column that is
+        # genuinely redundant with its sources still scores a small POSITIVE CMI that a fixed threshold cannot separate
+        # from real signal (the bias grows as n shrinks / the conditioning support fragments, and the OOF per-fold
+        # aggregate adds further sampling noise). Calibrate per-candidate: score the SAME candidate against shuffled-y
+        # under the same conditioning; the max over a handful of permutations is the candidate's own noise ceiling.
+        # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling -- genuine cell-conditional
+        # signal sits far above the null, redundant re-encodings sit at it.
+        _n_perm = 15
+        _rng = np.random.default_rng(int(random_state))
 
         def _src_bins(col: str) -> np.ndarray:
             b = _src_bin_cache.get(col)
@@ -346,15 +355,24 @@ def binned_numeric_agg_with_recipes(
             z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
             cand_bin = _quantile_bin(feat_df[nm].to_numpy(dtype=np.float64), nbins=nbins_base)
             cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
+            null_ceiling = 0.0
             if np.isfinite(cmi) and cmi >= float(min_cmi_gain):
+                for _ in range(_n_perm):
+                    yp = y_cls[_rng.permutation(y_cls.shape[0])]
+                    c0 = _cmi_from_binned(cand_bin, yp, z_joint)
+                    if np.isfinite(c0) and c0 > null_ceiling:
+                        null_ceiling = c0
+            keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
+            if keep:
                 kept_cols.append(nm)
             elif reject_sink is not None:
                 try:
                     reject_sink(
                         gate="binagg_source_redundancy", candidate=str(nm),
                         operands=tuple(srcs), operator="binned_numeric_agg_redundancy_gate",
-                        observed=float(cmi) if np.isfinite(cmi) else 0.0, threshold=float(min_cmi_gain),
-                        reason="binagg adds no CMI about y beyond its own source columns (g, a)",
+                        observed=float(cmi) if np.isfinite(cmi) else 0.0,
+                        threshold=max(float(min_cmi_gain), float(null_ceiling)),
+                        reason="binagg CMI about y given its sources does not clear the permutation-null ceiling",
                     )
                 except Exception:
                     pass
