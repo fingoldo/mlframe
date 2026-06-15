@@ -16,6 +16,36 @@ from sklearn.multioutput import ClassifierChain, MultiOutputClassifier
 
 logger = logging.getLogger(__name__)
 
+PROBA_AGG_EPS = 1e-12
+
+
+def aggregate_member_probas(stacked: np.ndarray, method: str = "geometric", *, simplex: bool, eps: float = PROBA_AGG_EPS) -> np.ndarray:
+    """Blend per-member predicted probabilities into one matrix. ``stacked`` is ``(M, N, K)`` (M members).
+
+    method="arithmetic": linear opinion pool -- ``stacked.mean(axis=0)``. Best worst-case robustness to a confidently
+    wrong member; the historical default.
+    method="geometric": logarithmic opinion pool -- ``exp(mean_m log p)``, the proper-scoring-rule-optimal blend for
+    diverse members under log-loss. Measured (bench_proba_aggregation_arith_vs_geom) to win the majority of
+    seeds/scenarios on honest-holdout NLL/Brier/ECE; the new default.
+
+    ``simplex``: True for single-label multiclass (columns sum to 1 -> renormalise the geometric blend across classes);
+    False for multilabel-chain output (each column is an INDEPENDENT P(label_j=1), columns do NOT sum to 1 -> take the
+    per-label geometric mean of (p, 1-p) and renormalise WITHIN each label, never across labels).
+    """
+    if method == "arithmetic":
+        return stacked.mean(axis=0)
+    if method != "geometric":
+        raise ValueError(f"aggregate_member_probas: unknown method {method!r} (expected 'arithmetic' or 'geometric').")
+    clipped = np.clip(stacked, eps, 1.0)
+    geo = np.exp(np.log(clipped).mean(axis=0))
+    if simplex:
+        geo /= geo.sum(axis=-1, keepdims=True)
+        return geo
+    # Multilabel: renormalise each label independently against its own complement geometric mean.
+    comp = np.exp(np.log(np.clip(1.0 - stacked, eps, 1.0)).mean(axis=0))
+    return geo / (geo + comp)
+
+
 def _canonical_predict_proba_shape(probs, classes_=None):
     """Force a classifier's ``predict_proba`` output into ``(N, K)`` shape.
 
@@ -435,7 +465,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
     """
 
     def __init__(self, base_estimator=None, n_labels=None, n_chains=3, seeds=None,
-                 order_strategy="random", user_orders=None, cv=5):
+                 order_strategy="random", user_orders=None, cv=5, proba_aggregation="geometric"):
         # All params stored as plain attributes -- sklearn BaseEstimator
         # reads them back via get_params() for cloning. Defaults given to
         # `base_estimator` / `n_labels` so that sklearn dispatchers that
@@ -451,6 +481,10 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         self.order_strategy = order_strategy
         self.user_orders = user_orders
         self.cv = cv
+        # Member-probability blend across chains. "geometric" (logarithmic opinion pool) is the proper-scoring-rule
+        # default measured to win the majority of synthetic NLL/Brier/ECE cells; "arithmetic" is the legacy linear pool
+        # kept for replay of older pickles and for the rogue-member-robustness regime (see bench_proba_aggregation_*).
+        self.proba_aggregation = proba_aggregation
 
     def fit(self, X, y, **fit_params):
         # Validate required state at fit-time (defaults on __init__ are for
@@ -566,10 +600,12 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         return self
 
     def predict_proba(self, X):
-        # Each chain returns (N, K). Average them.
+        # Each chain returns (N, K) of INDEPENDENT per-label P(label_j=1) (multilabel; columns do not sum to 1), so
+        # the geometric blend renormalises per-label against its complement, not across labels (simplex=False).
         per_chain = [chain.predict_proba(X) for chain in self.chains_]
         stacked = np.stack(per_chain, axis=0)  # (n_chains, N, K)
-        return stacked.mean(axis=0)
+        method = getattr(self, "proba_aggregation", "arithmetic")  # pre-flip pickles lack the attribute -> replay legacy arithmetic exactly
+        return aggregate_member_probas(stacked, method=method, simplex=False)
 
     def predict(self, X, threshold=0.5):
         proba = self.predict_proba(X)
@@ -588,7 +624,8 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
 def _build_classifier_chain_ensemble(base_estimator, n_labels, *,
                                       n_chains=3, seeds=None,
                                       order_strategy="random",
-                                      user_orders=None, cv=5):
+                                      user_orders=None, cv=5,
+                                      proba_aggregation="geometric"):
     """Convenience factory for ``_ChainEnsemble`` (the public dispatch entry).
 
     See ``_ChainEnsemble`` for parameter semantics.
@@ -596,6 +633,7 @@ def _build_classifier_chain_ensemble(base_estimator, n_labels, *,
     return _ChainEnsemble(
         base_estimator, n_labels=n_labels, n_chains=n_chains, seeds=seeds,
         order_strategy=order_strategy, user_orders=user_orders, cv=cv,
+        proba_aggregation=proba_aggregation,
     )
 
 
