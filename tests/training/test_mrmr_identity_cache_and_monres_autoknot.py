@@ -138,17 +138,16 @@ class TestMRMRIdentityCache:
 
 class TestMonresAutoKnotTuning:
     def test_low_cardinality_base_gets_few_knots(self) -> None:
-        """When base has e.g. 20 unique values, n_unique // 200 = 0 -> auto-cap to 3 (the floor). The default 12 would oversmooth and likely produce degenerate fit."""
+        """Distinctness cap: a base with only 5 unique values can place at most 5 distinct quantile knots, so n_knots is capped at n_unique (floor 3). The default 12 would collapse to ties and produce a wobbly / degenerate spline."""
         rng = np.random.default_rng(0)
         n = 1000
-        # Base takes only 20 unique values (categorical-ish).
-        base = rng.choice(np.linspace(0, 10, 20), size=n)
+        # Base takes only 5 distinct values: at most 5 distinct quantile knots can be placed.
+        base = rng.choice(np.linspace(0, 10, 5), size=n)
         y = 0.5 * base + rng.normal(0, 0.5, n)
         params = _monotonic_residual_fit(y, base)
-        # The fitted spline must have at most 3 effective knots (cap by floor of auto_knots since 20 < 200).
-        assert params["n_knots_effective"] <= 3, (
-            f"low-cardinality base produced {params['n_knots_effective']} knots; "
-            f"expected <= 3"
+        assert params["n_knots_effective"] <= 5, (
+            f"5-distinct base produced {params['n_knots_effective']} knots; "
+            f"distinctness cap should hold it at <= 5"
         )
 
     def test_high_cardinality_base_keeps_default_knots(self) -> None:
@@ -161,16 +160,16 @@ class TestMonresAutoKnotTuning:
         # Effective knots should be exactly the default = 12 (or close, after dedup).
         assert params["n_knots_effective"] <= 12
 
-    def test_mid_cardinality_base_intermediate_knots(self) -> None:
-        """When base has ~400 unique values, n_unique // 200 = 2 -> cap to 3 (floor)."""
+    def test_mid_cardinality_continuous_base_keeps_full_resolution(self) -> None:
+        """The retired ``n_unique // 200`` rule starved a continuous mid-n base (e.g. 600 distinct values -> 3 knots) of resolution it could use. The distinctness cap keeps the full default for ANY base with >= n_knots distinct values, regardless of row count."""
         rng = np.random.default_rng(0)
-        n = 1000
-        # Round to 400 unique values.
-        base = np.round(rng.normal(0, 5, n) * 40) / 40
+        n = 600
+        # ~600 distinct continuous values: well above the default 12 knots, so the full resolution is kept.
+        base = rng.normal(0, 5, n)
         y = base + rng.normal(0, 0.3, n)
         params = _monotonic_residual_fit(y, base)
-        # 400 // 200 = 2 -> capped to 3 (floor).
-        assert params["n_knots_effective"] <= 4
+        # Full default (~12) retained, NOT starved to 3 by the old cardinality-as-discreteness rule.
+        assert params["n_knots_effective"] >= 10
 
 
 # ----------------------------------------------------------------------
