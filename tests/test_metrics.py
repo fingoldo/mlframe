@@ -35,6 +35,8 @@ from mlframe.metrics.core import (
     fast_calibration_metrics,
     calibration_metrics_from_freqs,
     compute_ece_and_brier_decomposition,
+    compute_ece_debiased,
+    compute_brier_decomposition_debiased,
     fast_calibration_report,
     render_title_metric_token,
     DEFAULT_TITLE_METRICS_TOKENS,
@@ -647,14 +649,34 @@ class TestCalibration:
         # roc_auc(8), pr_auc(9), ice(10), ll(11), precision(12), recall(13), f1(14),
         # metrics_string(15), fig(16).
         ece, rel, res, unc = out[4], out[5], out[6], out[7]
-        # Values match a direct kernel call on the same inputs.
+        # Headline ECE and Brier REL/RES default to the BIAS-CORRECTED estimators (ece_debiased / brier_debiased
+        # default True): the plug-in binned values overstate miscalibration by the per-bin Bernoulli sampling noise.
+        # So the default headline matches the debiased kernels, NOT the plug-in compute_ece_and_brier_decomposition.
+        ece_db = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=10)
+        rel_db, res_db, unc_db, _ = compute_brier_decomposition_debiased(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+        )
+        assert abs(ece - ece_db) < 1e-12
+        assert abs(rel - rel_db) < 1e-12
+        assert abs(res - res_db) < 1e-12
+        assert abs(unc - unc_db) < 1e-12
+
+        # The legacy plug-in path is still reachable via the opt-in flags, and must equal the plug-in kernel exactly.
+        out_legacy = fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+            show_plots=False, plot_file="",
+            ece_debiased=False, brier_debiased=False,
+        )
         ece_k, rel_k, res_k, unc_k, _ = compute_ece_and_brier_decomposition(
             y_true=y_true, y_pred=y_pred, nbins=10,
         )
-        assert abs(ece - ece_k) < 1e-12
-        assert abs(rel - rel_k) < 1e-12
-        assert abs(res - res_k) < 1e-12
-        assert abs(unc - unc_k) < 1e-12
+        assert abs(out_legacy[4] - ece_k) < 1e-12
+        assert abs(out_legacy[5] - rel_k) < 1e-12
+        assert abs(out_legacy[6] - res_k) < 1e-12
+        assert abs(out_legacy[7] - unc_k) < 1e-12
+
+        # And the debiased default genuinely differs from the legacy plug-in (the flip is observable, not a no-op).
+        assert abs(ece - ece_k) > 1e-6
 
     # ============================================================
     # Title-metrics token rendering
