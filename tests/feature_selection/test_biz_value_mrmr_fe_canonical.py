@@ -367,6 +367,13 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     env["CUDA_VISIBLE_DEVICES"] = ""
     env["MLFRAME_DISABLE_HNSW"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    # Disable the kernel_tuning_cache perf sweep. This is a CORRECTNESS pin, not a perf
+    # bench; the sweep adds nothing to the verdict but takes a shared on-disk lock, and
+    # under a concurrent full-suite run that lock TIMES OUT -- which crashed the fit
+    # (rc=1) or escalated to a native sweep crash (rc=0xC0000409) on some seeds, producing
+    # spurious "subprocess fit did not return a selection" failures unrelated to BUG1.
+    # Disabling it makes the verdict reproducible regardless of concurrent load (2026-06-15).
+    env["PYUTILZ_KERNEL_DISABLE_SWEEP"] = "1"
     proc = subprocess.run(
         [sys.executable, "-c", src], capture_output=True, text=True, timeout=850, env=env,
     )
