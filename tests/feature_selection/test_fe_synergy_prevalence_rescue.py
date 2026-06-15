@@ -29,7 +29,19 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-_LEAN = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False)
+# Disable the newer default-on FE families that ALSO recover the (a,b) multiplicative
+# synergy (pairwise-modular / integer-lattice / binned-agg / conditional-gate): with them
+# ON the rescue-OFF baseline already reconstructs the synergy (R^2 0.97), compressing the
+# rescue's marginal improvement below the floor even though rescue ON surfaces the (a,b)
+# feature and lifts R^2. Isolating them measures the rescue's OWN contribution -- the
+# documented intent of this biz-value sensor. NOTE: fe_auto_escalation MUST stay ON --
+# the rescue mechanism works BY routing the prevalence-failed pair into escalation, so
+# disabling it would break the rescue itself (not just the baseline).
+_LEAN = dict(
+    dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False,
+    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
+    fe_binned_numeric_agg_enable=False, fe_conditional_gate_enable=False,
+)
 
 
 def _make_f2(seed: int = 11, n: int = 12000):
