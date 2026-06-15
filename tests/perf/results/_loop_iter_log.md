@@ -3754,3 +3754,25 @@ The historical 2-3x `np.add.at` penalty no longer holds on this numpy build (add
 **Verdict: REJECT — no clean e2e win available on the surveyed fresh components (one already shipped at HEAD, one measured 1.01x on current numpy, one identity-blocked).** Honest measured reject as the surface saturates.
 
 Streak: 1/100 (REJECT). **Cumulative loop wave: 101 RESOLVED, 33 REJECT across 132 iterations.**
+
+---
+
+## iter133 (@10M, MissingAwareComposite fresh full-n component) — REJECT
+
+**Workload @10M + why:** rotated to a genuinely fresh component off the TAPPED list — `MissingAwareComposite` (training/composite/missing.py), the NaN-base imputation wrapper. Both fit and predict run an impute pass over n rows (extract base, `~np.isfinite`, masked fill, masked offset/median correction), so it is a real full-n scan candidate per the imputation suggestion.
+
+**Top mlframe-own frames (predict @10M, cProfile tottime, 3 calls):**
+    0.244s predict (missing.py:250)        — `~np.isfinite(base)` + `pred.astype.reshape.copy()` + masked writes
+    0.117s numpy.ndarray.copy (6 calls)    — base.copy() in _impute_inplace_safe + pred.copy()
+    0.093s _impute_inplace_safe (missing.py:124) — base.copy() + with_columns
+    ~0     _extract_base (zero-copy polars float64)
+
+**Hotspot audit.** The one structural redundancy: `predict` extracts the base column (line 263) and then `_impute_inplace_safe` re-extracts the SAME column (line 134) — a candidate "discarded/duplicated work" win. Microbench @10M isolated:
+    extract_base median 0.0014 ms   (ZERO-COPY — polars float64 to_numpy() + astype(copy=False) is a no-op)
+    base.copy()   median 13.4 ms    (mandatory — wrapper must not mutate caller's column)
+    predict       median 163.8 ms   (dominated by isfinite + the mandatory copies)
+So eliminating the redundant `_extract_base` saves ~0us; the cost is the `base.copy()` which is required for correctness (the wrapper owns the in-place fill and must not touch the caller's frame, per the 100GB-no-copy convention it copies only the single column). The `~np.isfinite` and `pred.copy()` are likewise fundamental vectorized numpy. (Secondary probe: `conformal_online.update_conformal` has a python `for i in range(n)` loop but it is an inherently SEQUENTIAL ACI online controller consuming rows one-at-a-time — not vectorizable, not a 10M-row batch path. Skipped.)
+
+**Verdict: REJECT — no clean, measurable e2e win; the only redundancy is zero-copy on the prod polars-float64 carrier, every other cost is mandatory vectorized numpy.** Honest measured reject as the surface saturates. Bench committed: `src/mlframe/training/composite/_benchmarks/bench_missing_aware_predict_iter133.py`.
+
+Streak: 2/100 (REJECT). **Cumulative loop wave: 101 RESOLVED, 34 REJECT across 133 iterations.**
