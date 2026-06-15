@@ -113,7 +113,8 @@ def _prewarm_numba_cache_body():
         maximum_absolute_percentage_error, probability_separation_score,
         calibration_metrics_from_freqs, fast_classification_report, fast_precision,
         compute_pr_recall_f1_metrics, integral_calibration_error_from_metrics,
-        compute_ece_and_brier_decomposition, compute_ece_debiased, fast_aucs_per_group_optimized,
+        compute_ece_and_brier_decomposition, compute_ece_debiased, compute_brier_decomposition_debiased,
+        fast_aucs_per_group_optimized,
         fast_ice_only, format_classification_report,
         cb_logits_to_probs_binary, cb_logits_to_probs_multiclass,
         _fast_brier_score_loss_par, _fast_log_loss_binary_par,
@@ -225,6 +226,7 @@ def _prewarm_numba_cache_body():
     try:
         _ = compute_ece_and_brier_decomposition(_yt_bool, _yp_f64, nbins=10)
         _ = compute_ece_debiased(_yt_bool, _yp_f64, nbins=10)
+        _ = compute_brier_decomposition_debiased(_yt_bool, _yp_f64, nbins=10)
         _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None)
         # iter86: the report now takes the fused ROC/PR/KS walk (return_ks=True -> fast_numba_aucs_with_ks), a distinct numba signature.
         _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None, return_order=True, return_ks=True)

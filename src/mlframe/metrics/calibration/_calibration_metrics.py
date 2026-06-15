@@ -242,6 +242,100 @@ def compute_ece_debiased(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def compute_brier_decomposition_debiased(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int,
+):
+    """Bias-corrected Murphy/Brier reliability + resolution (Broecker 2009).
+
+    The plug-in binned Brier decomposition terms ``REL = sum_b w_b (conf_b - acc_b)^2`` and
+    ``RES = sum_b w_b (acc_b - base_rate)^2`` are POSITIVELY biased by the same per-bin Bernoulli sampling
+    noise that inflates the plug-in ECE: ``acc_b`` is a noisy estimate of the bin's true positive rate, so
+    ``E[(conf_b - acc_b)^2] = (conf_b - true_acc_b)^2 + Var(acc_b)`` and likewise the squared centred term in
+    RES carries a ``+Var(acc_b)`` (the bias enters with the SAME sign because both terms square a quantity
+    that contains ``acc_b``). A perfectly calibrated model has true REL 0 yet the plug-in REL is strictly
+    positive and grows with nbins -- exactly the headline-overstatement problem qual-1 fixed for ECE.
+
+    Correction (Broecker 2009, "Reliability, sufficiency, and the decomposition of proper scores", QJRMS):
+    BOTH terms carry the same per-bin noise inflation, so the unbiased estimates subtract the within-bin variance
+    ``Var(acc_b) = acc_b*(1-acc_b)/(n_b-1)`` from EACH: ``REL_db = REL_plugin - sum_b w_b Var(acc_b)`` and
+    ``RES_db = RES_plugin - sum_b w_b Var(acc_b)``. Because the SAME amount leaves both, ``REL_db - RES_db ==
+    REL_plugin - RES_plugin`` and the Murphy identity ``BinnedBrier = REL - RES + UNC`` (and the BinnedBrier value
+    itself) is preserved EXACTLY -- only the split between the (now-unbiased) reliability and resolution shifts.
+    REL is clamped at 0 (true reliability is non-negative); the clamp can break the exact REL-RES cancellation in
+    the rare bins where the plug-in REL term falls below its noise floor, which is the deliberate accuracy choice.
+    Bins with n_b<2 have no variance estimate and contribute their raw squared term.
+
+    Returns ``(reliability_debiased, resolution_debiased, uncertainty, brier_binned)``. ``uncertainty`` is unchanged
+    from the plug-in; ``brier_binned`` is recomputed from the debiased terms (equals the plug-in BinnedBrier when no
+    REL bin clamps). Uses the SAME data-adaptive equal-width grid as ``compute_ece_and_brier_decomposition`` so the
+    debiased and plug-in decompositions are directly comparable. Returns 1.0/0.0/0.0/1.0 on empty input.
+    """
+    n = len(y_true)
+    if n == 0:
+        return 1.0, 0.0, 0.0, 1.0
+
+    base_rate = 0.0
+    for i in range(n):
+        base_rate += y_true[i]
+    base_rate /= n
+
+    min_val = 1.0
+    max_val = 0.0
+    for i in range(n):
+        p = y_pred[i]
+        if p > max_val:
+            max_val = p
+        if p < min_val:
+            min_val = p
+    span = max_val - min_val
+
+    pred_sum = np.zeros(nbins, dtype=np.float64)
+    true_sum = np.zeros(nbins, dtype=np.float64)
+    counts = np.zeros(nbins, dtype=np.int64)
+
+    if span > 0:
+        multiplier = (nbins - 1) / span
+        for i in range(n):
+            p = y_pred[i]
+            ind = int(floor((p - min_val) * multiplier))
+            counts[ind] += 1
+            pred_sum[ind] += p
+            true_sum[ind] += y_true[i]
+    else:
+        for i in range(n):
+            counts[0] += 1
+            pred_sum[0] += y_pred[i]
+            true_sum[0] += y_true[i]
+
+    reliability = 0.0
+    resolution = 0.0
+    inv_n = 1.0 / n
+    for k in range(nbins):
+        nk = counts[k]
+        if nk == 0:
+            continue
+        w = nk * inv_n
+        p_mean = pred_sum[k] / nk
+        acc = true_sum[k] / nk
+        diff = p_mean - acc
+        rel_term = diff * diff
+        res_term = (acc - base_rate) ** 2
+        if nk >= 2:
+            var_acc = acc * (1.0 - acc) / (nk - 1)
+            rel_term -= var_acc
+            if rel_term < 0.0:
+                rel_term = 0.0
+            res_term -= var_acc
+        reliability += w * rel_term
+        resolution += w * res_term
+    uncertainty = base_rate * (1.0 - base_rate)
+    brier_binned = reliability - resolution + uncertainty
+    return reliability, resolution, uncertainty, brier_binned
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)

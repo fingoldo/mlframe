@@ -142,6 +142,7 @@ from .calibration import (  # noqa: F401, E402
 # other moved names) imports continue to resolve.
 from .calibration import (  # noqa: E402,F401
     calibration_metrics_from_freqs,
+    compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,
     compute_ece_debiased,
     fast_calibration_metrics,

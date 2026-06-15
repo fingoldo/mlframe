@@ -39,6 +39,7 @@ from .._auc_per_group import (  # noqa: F401
 )
 from ..calibration._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
+    compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,
     compute_ece_debiased,
     integral_calibration_error_from_metrics,
@@ -190,6 +191,7 @@ def fast_calibration_report(
     y_pred: np.ndarray,
     nbins: int = 10,
     ece_debiased: bool = True,
+    brier_debiased: bool = True,
     show_plots: bool = True,
     #
     title_metrics_tokens: Sequence[str] = DEFAULT_TITLE_METRICS_TOKENS,
@@ -307,6 +309,17 @@ def fast_calibration_report(
     # REL/RES/UNC is left on the plug-in grid so the Murphy identity REL-RES+UNC==BinnedBrier still holds exactly.
     if ece_debiased:
         ece = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    # Headline Brier reliability/resolution default to the bias-corrected decomposition: REL and RES carry the
+    # same per-bin Bernoulli noise floor that inflates the plug-in ECE (a perfectly calibrated model reports a
+    # spurious positive REL growing with nbins). compute_brier_decomposition_debiased subtracts Var(acc_b) from BOTH
+    # REL and RES (Broecker 2009), so REL-RES, UNC and BinnedBrier are all preserved exactly -- the Murphy identity
+    # still holds. bench_brier_decomp_debiased shows it more than halves the REL bias-vs-truth on
+    # calibrated scenarios and wins the majority of (scenario,seed) cells. Set brier_debiased=False for the legacy
+    # plug-in REL/RES.
+    if brier_debiased:
+        brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_brier_decomposition_debiased(
+            y_true=y_true, y_pred=y_pred, nbins=nbins,
+        )
 
     _auc_desc_order = None
     _ks_fused = None

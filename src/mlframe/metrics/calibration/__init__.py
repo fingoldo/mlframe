@@ -20,6 +20,7 @@ from ._calibration_plot import (  # noqa: F401
 
 from ._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
+    compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,
     compute_ece_debiased,
     fast_calibration_metrics,
