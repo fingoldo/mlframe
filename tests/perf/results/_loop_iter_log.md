@@ -3734,3 +3734,23 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 100 RESOLVED, 32 REJE
 **Verdict: RESOLVED +5.60x kernel / ~1.24x e2e @10M (4/4 paired), gated >=200k, ~1e-7 reduction-order identity, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 101 RESOLVED, 32 REJECT across 131 iterations.**
+
+---
+
+## iter132 (@10M, two fresh full-n components surveyed) — REJECT
+
+**Workload @10M + why:** rotated OFF the thinning single-thread-njit -> prange-twin seam (99/108/128/129/130/131). Surveyed two genuinely fresh full-n mlframe-own components per the rotation directive: (1) the naive outlier-bound score (`preprocessing/outliers.compute_naive_outlier_score` + `count_num_outofranges` + `_nanminmax_cols`), (2) the ensemble quality-gate group-collapse (`models/ensembling/quality_gate.py` `np.add.at` scatter).
+
+**Candidate 1 — naive outlier score (ALREADY SHIPPED).** On profiling `compute_naive_outlier_score` @10M (e2e ~0.8s, dominated by per-column nanmin/nanmax over X_train), found origin/master ALREADY carries both the row-parallel `count_num_outofranges` (iter99 prange twin) AND a fused single-pass `_nanminmax_cols` njit-prange (committed 2026-06-15, ~2-3x over `np.nanmin+np.nanmax`, bit-identical, wired into the prod path). The component is fully optimized at HEAD; the apparent "serial kernel" I first saw was the STALE editable-install in the main repo tree, not the worktree HEAD. No work owed. (The earlier mlframe.__file__ check confirmed worktree isolation; the staleness was the main-tree editable install, correctly avoided.)
+
+**Candidate 2 — ensemble quality-gate group-collapse (`np.add.at` -> `np.bincount`).** The group-collapse path (group_ids + sample_weight both supplied) scatters per-sample weights into per-group accumulators via `np.add.at` over n samples — the classic add.at -> bincount rewrite. Microbenched @10M (G in {1k, 100k}, M=5):
+    N=10M G=  1000 M=5  add.at 0.1908  bincount 0.1885  **1.01x**  exact=True
+    N=10M G=100000 M=5  add.at 0.2161  bincount 0.2147  **1.01x**  exact=True
+    N= 1M G=  1000 M=5  add.at 0.0192  bincount 0.0189  1.02x  exact=True
+The historical 2-3x `np.add.at` penalty no longer holds on this numpy build (add.at has been C-optimized). Output exact. Not worth the diff churn. **REJECT.** Bench committed: `src/mlframe/models/ensembling/_benchmarks/bench_quality_gate_groupcollapse_iter132.py`.
+
+**Candidate 3 (structural reject, no bench) — error_analysis `np.unique(arr.astype(str), return_inverse=True)`** (`reporting/charts/error_analysis.py:103`). `pd.factorize(sort=False)` would skip the full-n `astype(str)` + sort, but produces appearance-order codes vs np.unique's sorted codes; those code VALUES feed tree split thresholds in the diagnostic, so the rewrite is output-altering (not bit-identical). Diagnostic path is also subsampled. Not pursued.
+
+**Verdict: REJECT — no clean e2e win available on the surveyed fresh components (one already shipped at HEAD, one measured 1.01x on current numpy, one identity-blocked).** Honest measured reject as the surface saturates.
+
+Streak: 1/100 (REJECT). **Cumulative loop wave: 101 RESOLVED, 33 REJECT across 132 iterations.**
