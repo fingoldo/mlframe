@@ -809,6 +809,53 @@ def check_prospective_fe_pairs(
     # Operands recur across pairs, so memoise by cols-space var index.
     _operand_marginal_mi_cache: dict = {}
 
+    # NOISE-WRAP CORR-COLLAPSE GUARD (2026-06-15). A subsample-aligned CONTINUOUS target for a cheap |corr|
+    # discriminator that catches the failure mode where the per-pair search WRAPS a strong, clean operand
+    # (e.g. a univariate-basis column ``a__T2`` ~ a**2) with a PURE-NOISE operand (``e``) via an extreme
+    # heavy-tailed transform (``sub(log(e),invqubed(a__T2))``). That composite's binned-MI ``best_mi/pair_mi``
+    # ratio CLEARS the joint-prevalence gate (the extreme transform inflates BOTH MIs), yet its |corr| with the
+    # target COLLAPSES to ~0 while the clean operand's |corr| is ~1.0 -- so the artefact displaces the clean
+    # basis from the support and recovery dies. Genuine synergy pairs (a*b, log(c)*sin(d)) do NOT collapse this
+    # way: the engineered column still tracks y monotonically. Prefer the continuous y; fall back to the binned
+    # ``classes_y`` codes (still a usable monotone proxy) when no continuous target was threaded.
+    _corr_y_cont = None
+    try:
+        _cyc_src = prewarp_y_continuous if prewarp_y_continuous is not None else classes_y
+        _cyc = np.asarray(_cyc_src, dtype=np.float64).ravel()
+        if _use_subsample and _cyc.shape[0] == _full_n_rows:
+            _cyc = _cyc[_sample_idx]
+        if _cyc.shape[0] == len(classes_y) and np.isfinite(_cyc).any() and float(np.nanstd(_cyc)) > 1e-12:
+            _corr_y_cont = _cyc
+    except Exception:
+        _corr_y_cont = None
+
+    def _safe_abs_corr(_v) -> float:
+        """|Pearson corr| of a column with the (subsample-aligned) target over their jointly-finite rows;
+        0.0 when the guard target is unavailable or either side is degenerate. Cheap (one corrcoef)."""
+        if _corr_y_cont is None:
+            return 0.0
+        try:
+            _a = np.asarray(_v, dtype=np.float64).ravel()
+            if _a.shape[0] != _corr_y_cont.shape[0]:
+                return 0.0
+            _m = np.isfinite(_a) & np.isfinite(_corr_y_cont)
+            if int(_m.sum()) < 8:
+                return 0.0
+            _av, _yv = _a[_m], _corr_y_cont[_m]
+            if float(np.std(_av)) <= 1e-12 or float(np.std(_yv)) <= 1e-12:
+                return 0.0
+            return abs(float(np.corrcoef(_av, _yv)[0, 1]))
+        except Exception:
+            return 0.0
+
+    # The winning composite is condemned as a noise-wrap when its |corr| with the target is a small FRACTION
+    # of the best single operand's |corr| AND that operand is genuinely strong on its own. Calibrated wide:
+    # the artefact collapses to ~0.02 vs the clean operand's ~0.99 (a >40x collapse), while a genuine synergy
+    # pair's engineered column tracks y at least comparably to its strongest operand. ``0.5`` keeps a 2x margin
+    # so a real synergy that modestly trades linear |corr| for a higher-order MI gain is never condemned.
+    _NOISE_WRAP_CORR_COLLAPSE_FRAC: float = 0.5
+    _NOISE_WRAP_MIN_OPERAND_CORR: float = 0.30
+
     # bench-attempt-rejected (2026-06-07): BATCH all distinct operands' marginal MI through
     # one discretize_2d_quantile_batch + one _dispatch_batch_mi_with_noise_gate (Q9), instead
     # of this per-var single-column discretize_array + mi_direct. It WOULD be bit-identical
@@ -1462,6 +1509,51 @@ def check_prospective_fe_pairs(
                         f"{fe_min_engineered_mi_prevalence:.2f} would have rejected it); "
                         f"admitting the genuine synergy pair."
                     )
+
+        # NOISE-WRAP CORR-COLLAPSE VETO (2026-06-15). Whatever path admitted the winner, VETO it when the
+        # winning composite WRAPS a strong, clean operand with a (near-)noise operand: its |corr| with the
+        # target collapses to a small fraction of the best single operand's |corr| while that operand is
+        # genuinely strong on its own. This is the ``sub(log(e),invqubed(a__T2))`` failure -- an extreme
+        # heavy-tailed transform inflates the binned ``best_mi/pair_mi`` so it clears the joint-prevalence
+        # gate, yet the column carries ~0 linear/monotone signal (|corr|~0.02) versus the clean operand's
+        # |corr|~0.99, so it would DISPLACE the clean univariate basis from the support and kill recovery.
+        # Genuine synergy (a*b, log(c)*sin(d)) keeps the engineered column tracking y (no collapse), so the
+        # wide 2x fraction margin never condemns it. Pure-noise pairs never reach here (upstream screens).
+        if (
+            (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept)
+            and _corr_y_cont is not None
+            and best_config is not None
+        ):
+            try:
+                _win_vals = final_transformed_vals[:, best_config[2]] if final_transformed_vals is not None else None
+                _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
+                # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
+                # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` -- raw ``a`` is ~0 corr
+                # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
+                # genuine single-source signal the wrap is diluting.
+                _op_corr = 0.0
+                _tp = best_config[0]
+                for _side in (0, 1):
+                    _opk = _tp[_side] if isinstance(_tp, (tuple, list)) and len(_tp) > _side else None
+                    if _opk is not None and _opk in vars_transformations:
+                        _op_corr = max(_op_corr, _safe_abs_corr(transformed_vars[:, vars_transformations[_opk]]))
+                    _op_corr = max(_op_corr, _safe_abs_corr(_extval_raw_col(raw_vars_pair[_side])))
+                if (
+                    _win_corr is not None
+                    and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR
+                    and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC
+                ):
+                    _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
+                    if verbose:
+                        messages.append(
+                            f"noise-wrap corr-collapse veto: winning composite |corr| with target "
+                            f"{_win_corr:.3f} collapsed below {_NOISE_WRAP_CORR_COLLAPSE_FRAC:.2f}x the "
+                            f"best operand |corr| {_op_corr:.3f}; the pair wraps a clean strong operand with "
+                            f"a near-noise operand (binned-MI inflated by an extreme transform) -- rejecting "
+                            f"so it cannot displace the clean operand."
+                        )
+            except Exception:
+                pass
 
         # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
         # to DROP -- the joint-prevalence floor declined AND both the prewarp and the

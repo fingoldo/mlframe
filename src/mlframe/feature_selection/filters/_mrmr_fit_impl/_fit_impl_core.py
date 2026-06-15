@@ -7309,6 +7309,57 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_hinge), [cols[i] for i in _readd_hinge],
                 )
 
+    # ORTH-BASIS UNIVARIATE PROTECTION (2026-06-15): re-add a single-source orthogonal-basis univariate column
+    # (``a__T2`` ~ a**2, ``a__He4`` ~ a Hermite degree-4, ...) the MRMR screen dropped. Like a hinge leg, an
+    # orth basis column is a DETERMINISTIC function of ONE raw source, so the greedy MI screen drops it as
+    # redundant with that raw source under the data-processing inequality -- EVEN WHEN raw ``a`` carries ~0
+    # linear/monotone signal about an even target (``exp(-a**2)`` / ``a**2``) and the basis column carries the
+    # whole recoverable nonlinearity (|corr| ~0.85). The basis value is downstream LINEAR usability, not
+    # marginal MI (the same MI-vs-linear-usability rule the hinge / adaptive-Fourier protections enforce). The
+    # generating univariate-basis stage already uplift-gated each column, so a candidate is a confirmed
+    # univariate win. SELF-LIMITING GATE mirrors the hinge block: (1) the raw source survived the screen (a
+    # basis on a never-selected noise column is left out); (2) the basis lifts a HELD-OUT linear fit over the
+    # ALREADY-SELECTED feature set (which already contains the raw source as a linear term) -- so a basis
+    # subsumed by a surviving composite/raw adds ~0 and is rejected, while a genuine single-var nonlinearity
+    # the screen DPI-dropped clears the floor. NO ``[src, src^2]`` smooth-curve term in the baseline (unlike
+    # the hinge gate): for the basis the curve IS the win, so adding ``src^2`` would self-reject the very
+    # quadratic basis we want. Reuses ``_heldout_incr_over_selected`` with ``_src_vals=None``.
+    _orth_feats = getattr(self, "hybrid_orth_features_", None)
+    if _orth_feats and len(selected_vars) and ("_heldout_incr_over_selected" in locals()):
+        _cols_index_o = {c: i for i, c in enumerate(cols)}
+        _sv_set_o = set(selected_vars)
+        _sel_names_o = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+        _ORTH_PROTECT_MIN_INCR_R2 = 0.01  # wider than hinge 0.003: a genuine single-var basis lifts held-out R^2 by >>0.01 (~0.7 for exp(-a**2)); keeps noise-fit basis out
+        _readd_orth = []
+        for _on in _orth_feats:
+            _oidx = _cols_index_o.get(_on)
+            if _oidx is None or _oidx in _sv_set_o:
+                continue
+            _rec_o = _hybrid_orth_pre_recipes.get(_on)
+            _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
+            # Self-limit #1: single-source basis whose raw source survived the screen.
+            if len(_src_o) != 1 or _src_o[0] not in _sel_names_o:
+                continue
+            _basis_vals = _eng_continuous_snapshot.get(_on)
+            if _basis_vals is None and isinstance(X, pd.DataFrame) and _on in X.columns:
+                _basis_vals = X[_on].to_numpy()
+            if _basis_vals is None:
+                continue
+            # Self-limit #2: lifts a held-out linear fit over the already-selected design (raw source already
+            # present there as a linear term) -- not subsumed by a surviving composite/raw.
+            if _heldout_incr_over_selected(_basis_vals, None) < _ORTH_PROTECT_MIN_INCR_R2:
+                continue
+            _readd_orth.append(_oidx)
+            _sv_set_o.add(_oidx)
+        if _readd_orth:
+            selected_vars = list(selected_vars) + _readd_orth
+            if verbose:
+                logger.info(
+                    "MRMR orth-basis univariate protection: re-added %d single-source basis column(s) the "
+                    "MI screen DPI-dropped (value is downstream linear usability over the raw source): %s",
+                    len(_readd_orth), [cols[i] for i in _readd_orth],
+                )
+
     # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the
     # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors -- it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here

@@ -164,16 +164,22 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
         cc = float(np.corrcoef(vals_va, y_va)[0, 1])
         return abs(cc) if np.isfinite(cc) else 0.0
 
-    # Best SINGLE-operand warp baseline (chebyshev 1-D fit per side, train-fit /
-    # val-scored) -- the bar the PAIR reconstruction must clear by the margin.
+    # Best SINGLE-operand warp baseline (1-D fit per side, train-fit / val-scored) -- the bar the PAIR
+    # reconstruction must clear by the margin. Sweep the SAME bases the PAIR ALS sweeps below (not chebyshev
+    # alone): the pair search picks its best basis over all of ``_ESCALATION_POLY_BASES``, so a fair pair-ness
+    # bar must give the single-operand baseline the same freedom. A chebyshev-only single baseline UNDER-states
+    # the genuine single-source recovery for an even target like ``exp(-a**2)`` (the bounded chebyshev warp of
+    # ``a`` under-recovers while the hermite single warp recovers ~0.85), letting a noise-wrap pair whose ALS
+    # collapses the noise side to ~const beat the under-stated bar and admit ``esc_poly_*_mul(a,e)``.
     single_best = 0.0
     for xs in (xa, xb):
-        try:
-            spec_1d = fit_operand_prewarp(xs[tr], y_tr, basis="chebyshev", max_degree=degree)
-            if spec_1d is not None:
-                single_best = max(single_best, _heldout_corr(apply_operand_prewarp(xs[va], spec_1d)))
-        except Exception:
-            continue
+        for _sb_basis in _ESCALATION_POLY_BASES:
+            try:
+                spec_1d = fit_operand_prewarp(xs[tr], y_tr, basis=_sb_basis, max_degree=degree)
+                if spec_1d is not None:
+                    single_best = max(single_best, _heldout_corr(apply_operand_prewarp(xs[va], spec_1d)))
+            except Exception:
+                continue
 
     best_corr = -1.0
     best_basis = None
