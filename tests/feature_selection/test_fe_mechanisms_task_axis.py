@@ -62,10 +62,14 @@ SEEDS = (0, 1, 2, 3)
 N = 1300
 
 # Common MRMR kwargs: disable the default-on general-FE competitors (hinge,
-# conditional-dispersion, wavelet, univariate basis/Fourier, the pair-FE step)
-# so the family under test is the only mechanism that can engineer a column --
-# otherwise a redundant sibling reads the same signal and the roster reconciles
-# empty (the documented layer104 caveat). max_runtime keeps each fit bounded.
+# conditional-dispersion, wavelet, univariate basis/Fourier, the pair-FE step,
+# AND the newer default-on cat-aware families -- pairwise-modular, integer-lattice,
+# binned-numeric-agg, conditional-gate, row-argmax) so the family under test is the
+# only mechanism that can engineer a column -- otherwise a redundant sibling reads
+# the same signal and the roster reconciles empty (the documented layer104 caveat).
+# Concretely, ``pmod_self__cat_region`` (pairwise-modular self-feature) re-encodes
+# the same low-card categorical the mechanism-under-test targets and was winning its
+# screening slot, leaving kfold_te_features_ empty. max_runtime keeps each fit bounded.
 _ISOLATE = dict(
     max_runtime_mins=0.6,
     fe_max_steps=0,
@@ -74,6 +78,11 @@ _ISOLATE = dict(
     fe_hinge_enable=False,
     fe_conditional_dispersion_enable=False,
     fe_wavelet_enable=False,
+    fe_pairwise_modular_enable=False,
+    fe_integer_lattice_enable=False,
+    fe_binned_numeric_agg_enable=False,
+    fe_conditional_gate_enable=False,
+    fe_row_argmax_enable=False,
     verbose=0,
 )
 
@@ -152,7 +161,11 @@ _MECHS = [
             fe_grouped_agg_group_cols=("cat_region",),
             fe_grouped_agg_num_cols=("num1",),
         ),
-        _fx_cat_effect, "grouped_agg_features_", "grpagg", 0.05, 0.05,
+        # The grouped-agg family emits several column kinds (grpagg_*, grpratio(...),
+        # grpp90p10(...), grpiqr(...)); match the shared ``grp`` family prefix so the
+        # surviving column (e.g. grpratio(num1|cat_region)) satisfies the roster->output
+        # contract regardless of which grouped statistic wins the slot.
+        _fx_cat_effect, "grouped_agg_features_", "grp", 0.05, 0.05,
         id="grouped-agg",
     ),
     pytest.param(
