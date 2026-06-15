@@ -54,6 +54,8 @@ from sklearn.linear_model import SGDClassifier
 
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
+from .early_stopping_monotonic import MonotonicDeclineStopper
+
 
 # Incremental-count attributes a warm-start learner uses to grow capacity, in probe order: boosters/ensembles
 # expose ``n_estimators``, linear/MLP expose ``max_iter``. Mirrors learning_curve._WARM_START_N_ATTRS.
@@ -69,6 +71,13 @@ class EarlyStoppingWrapper(BaseEstimator):
         # stopping conditions
         max_runtime_mins: float = None,
         patience: int = 5,
+        # Monotonic strict-decline overfitting stop, COMPLEMENTARY to ``patience``: stop once the val
+        # score has STRICTLY worsened for this many CONSECUTIVE iterations since the global best (a
+        # confident overfitting signal). A new best, a plateau, or a bounce-up resets the run. Training
+        # stops when EITHER patience OR this streak fires. Default-on at 3 (per CLAUDE.md "enable
+        # corrective mechanisms by default"; benchmarked no-harm on cleanly-improving targets, saves
+        # iterations on overfit-prone ones). Set to ``None`` to disable.
+        monotonic_decline_patience: int = 3,
         tolerance: float = 0.0,
         # CV
         validation_fraction: float = 0.1,
@@ -140,8 +149,9 @@ class EarlyStoppingWrapper(BaseEstimator):
         """Apply the greater-is-better improvement rule; snapshot a deep copy of the best model.
 
         ``model_provider`` is a zero-arg callable returning the model to snapshot -- deferred so we only
-        deep-copy when the score actually improves. Returns True once patience is exhausted (stop signal).
-        Patience only starts counting at/after ``start_iter`` (the warm-up grace window).
+        deep-copy when the score actually improves. Returns True once EITHER patience is exhausted OR the
+        monotonic strict-decline streak fires (whichever first). Patience only starts counting at/after
+        ``start_iter`` (the warm-up grace window).
         """
         if score > self.best_score_ + self.tolerance:
             self.best_score_ = score
@@ -151,7 +161,13 @@ class EarlyStoppingWrapper(BaseEstimator):
             self.no_improvement_count_ = 0
         else:
             self.no_improvement_count_ += 1
-        return self.no_improvement_count_ >= self.patience
+        # Count every scored iteration so callers / tests can see the work the stop saved.
+        self.n_iterations_ += 1
+        # Monotonic strict-decline streak (greater-is-better -- the wrapper's scorer is always
+        # greater-is-better: accuracy or negative-RMSE). Fires independently of patience; best_model_
+        # already holds the global-best snapshot so a streak-stop keeps the right model.
+        monotonic_stop = self._monotonic_stopper.update(score)
+        return (self.no_improvement_count_ >= self.patience) or monotonic_stop
 
     # ------------------------------------------------------------------ backends
 
@@ -232,10 +248,22 @@ class EarlyStoppingWrapper(BaseEstimator):
         self.best_score_ = -np.inf
         self.best_model_ = None
         self.no_improvement_count_ = 0
+        self.n_iterations_ = 0
+        # Scorer is always greater-is-better here, so the monotonic detector runs in mode="max".
+        self._monotonic_stopper = MonotonicDeclineStopper(self.monotonic_decline_patience, mode="max")
 
-        self._is_regressor = is_regressor(self.base_model)
-        scoring = self._resolve_scoring()
+        # Validate the train/val split FIRST (before probing the base model) so a degenerate
+        # validation_fraction raises the clear "zero training rows" error rather than failing later
+        # inside an estimator-introspection call on an exotic base model.
         X_train, X_val, y_train, y_val = self._split(X, y)
+        # ``is_regressor`` on a base model that does not inherit ``BaseEstimator`` raises under recent
+        # sklearn (no ``__sklearn_tags__`` in the MRO). The wrapper supports any duck-typed partial_fit /
+        # warm_start object, so fall back to "not a regressor" (classifier scoring) when tags are absent.
+        try:
+            self._is_regressor = is_regressor(self.base_model)
+        except AttributeError:
+            self._is_regressor = False
+        scoring = self._resolve_scoring()
         if self.max_iter is None:
             raise ValueError("EarlyStoppingWrapper requires max_iter to bound the iteration / growth schedule.")
         deadline = self._deadline()

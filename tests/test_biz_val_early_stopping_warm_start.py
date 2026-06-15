@@ -93,7 +93,11 @@ def test_biz_val_warm_classifier_no_accuracy_loss(name):
     # patience >= max count so ES evaluates the WHOLE count curve; its val-argmax snapshot is then provably
     # >= the full-grown model on that same val fold (bagging ensembles like RF/ET don't overfit with more
     # trees, so full is often the optimum -- ES must tie, never lose, by selecting it).
-    es = _fit_es(_CLF_FACTORIES[name], X, y, patience=_MAX_N + 1)
+    # monotonic_decline_patience=None: this no-loss test deliberately evaluates the WHOLE curve to compare
+    # the val-argmax snapshot against the full-grown model, so BOTH ES stop signals (patience AND the
+    # default-on monotonic strict-decline detector) must be disabled -- a noisy bagging val curve can
+    # produce a spurious 3-strict-decline run that truncates the forest before its optimum.
+    es = _fit_es(_CLF_FACTORIES[name], X, y, patience=_MAX_N + 1, monotonic_decline_patience=None)
     assert es.best_model_ is not None and es.best_score_ > -np.inf
     es_acc = accuracy_score(yv, es.predict(Xv))
 
@@ -111,7 +115,9 @@ def test_biz_val_warm_regressor_no_rmse_loss(name):
     X, y = _reg_data()
     n_val = max(1, int(len(X) * 0.15))
     Xv, yv = X[-n_val:], y[-n_val:]
-    es = _fit_es(_REG_FACTORIES[name], X, y, patience=_MAX_N + 1)  # see classifier test: evaluate full curve.
+    # monotonic_decline_patience=None: full-curve no-loss comparison (see classifier test) -- disable BOTH
+    # stop signals so the noisy bagging val curve isn't truncated by a spurious strict-decline run.
+    es = _fit_es(_REG_FACTORIES[name], X, y, patience=_MAX_N + 1, monotonic_decline_patience=None)
     assert es.best_model_ is not None and es.best_score_ > -np.inf
     es_rmse = _rmse(yv, es.predict(Xv))
 
@@ -160,7 +166,10 @@ def test_start_iter_defers_patience_counting():
     rng = np.random.RandomState(7)
     X = rng.randn(400, 10)
     y = rng.randint(0, 2, size=400)
-    es = _fit_es(lambda: GradientBoostingClassifier(n_estimators=1, random_state=0), X, y, patience=2, start_iter=_MAX_N)
+    # monotonic_decline_patience=None: this test pins that start_iter alone defers patience to the full
+    # count; disable the orthogonal monotonic detector so it doesn't co-fire and confound the assertion.
+    es = _fit_es(lambda: GradientBoostingClassifier(n_estimators=1, random_state=0), X, y, patience=2,
+                 start_iter=_MAX_N, monotonic_decline_patience=None)
     # Patience only starts at the last stage, so it can never accumulate -> best uses the full count.
     assert es.best_model_.get_params()["n_estimators"] == _MAX_N
 
