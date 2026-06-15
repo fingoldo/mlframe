@@ -122,7 +122,7 @@ def main():
     print(f"median jaccard: {st.median(r['jaccard'] for r in rows):.2f}")
     print(f"median |ho_delta|: {st.median(abs(r['ho_delta']) for r in rows):.4f}")
     print(f"median iters auto/mid: {st.median(r['iters_auto'] for r in rows):.0f}/{st.median(r['iters_mid'] for r in rows):.0f}")
-    print(f"wins (spd>=1.10 & J>=0.9 & |hoΔ|<=0.02): {len(wins)}/{len(rows)}")
+    print(f"wins (spd>=1.10 & J>=0.9 & |ho_delta|<=0.02): {len(wins)}/{len(rows)}")
     return rows
 
 
