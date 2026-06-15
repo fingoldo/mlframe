@@ -171,6 +171,17 @@ def _make_mrmr(**overrides):
         verbose=0,
         interactions_max_order=1,
         fe_max_steps=0,
+        # These contracts pin SELECTION invariants (support_/mrmr_gains_ length + alignment). The auxiliary default-on
+        # FE stages have their OWN enable flags independent of ``fe_max_steps``, so they still inject engineered columns
+        # (hinge relu legs, etc.) that legitimately enter support_ and inflate n_features_ past the raw selected set --
+        # breaking the gains/support/n_features equality this file asserts. FE behaviour is covered in the FE test
+        # files; pin it OFF here so the selection invariant is what is actually under test.
+        fe_hinge_enable=False,
+        fe_conditional_gate_enable=False,
+        fe_conditional_dispersion_enable=False,
+        fe_binned_numeric_agg_enable=False,
+        fe_univariate_basis_enable=False,
+        fe_univariate_fourier_enable=False,
     )
     kwargs.update(overrides)
     return MRMR(**kwargs)

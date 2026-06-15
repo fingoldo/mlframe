@@ -256,6 +256,11 @@ def _fit_mrmr(X, y):
             verbose=0,
             interactions_max_order=1,
             fe_max_steps=0,
+            # This contract counts non-signal columns in support to prove the relevance gate is not collapsing under
+            # rare-class imbalance. The default-on hinge stage legitimately detects a kink in the genuine ``x_signal``
+            # column and appends ``x_signal__relu_*`` legs (real held-out uplift), which the test scores as "non-signal"
+            # and which are orthogonal to the binning-artefact behaviour under test. Pin the leg-emitting FE stage OFF.
+            fe_hinge_enable=False,
         ).fit(X, y)
     return sel
 

@@ -212,6 +212,11 @@ class TestDCDDuplicateDecoyPruning:
                 dcd_tau_cluster=tau,
                 dcd_cluster_size_threshold=2,
                 interactions_max_order=1, fe_max_steps=0,
+                # This contract counts ``decoy*`` columns to verify DCD collapses the two near-duplicate decoys to one.
+                # The default-on hinge stage legitimately detects a kink in ``decoy_a`` vs y (real held-out uplift) and
+                # appends ``decoy_a__relu_*`` legs, which also start with "decoy" and inflate the count -- orthogonal to
+                # the DCD-pruning behaviour under test. Pin the leg-emitting FE stage OFF so the count reflects DCD only.
+                fe_hinge_enable=False,
             ).fit(X, y)
         names = list(sel.get_feature_names_out())
         decoys_picked = [c for c in names if c.startswith("decoy")]

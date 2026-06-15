@@ -193,6 +193,16 @@ def _make_mrmr(**overrides):
         verbose=0,
         interactions_max_order=1,
         fe_max_steps=0,
+        # Pin the auxiliary default-on FE stages OFF: they have enable flags independent of ``fe_max_steps`` and
+        # otherwise inject engineered columns (hinge relu legs, etc.) that legitimately enter support_ and inflate
+        # n_features_ past the raw selected set, breaking the gains/support alignment + ordering invariants under test
+        # here. FE behaviour is covered in the FE test files; this file tests the SELECTION machinery.
+        fe_hinge_enable=False,
+        fe_conditional_gate_enable=False,
+        fe_conditional_dispersion_enable=False,
+        fe_binned_numeric_agg_enable=False,
+        fe_univariate_basis_enable=False,
+        fe_univariate_fourier_enable=False,
     )
     kwargs.update(overrides)
     return MRMR(**kwargs)
