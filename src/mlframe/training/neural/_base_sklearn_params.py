@@ -42,6 +42,7 @@ def get_params(self, deep: bool = True) -> Dict[str, Any]:
         "tune_batch_size": self.tune_batch_size,
         "float32_matmul_precision": self.float32_matmul_precision,
         "early_stopping_rounds": self.early_stopping_rounds,
+        "monotonic_decline_patience": self.monotonic_decline_patience,
     }
     return params
 

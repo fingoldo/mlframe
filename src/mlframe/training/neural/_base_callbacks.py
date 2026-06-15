@@ -121,6 +121,48 @@ class ValLossDivergenceCallback(Callback):
             self._warned = True
 
 
+class MonotonicDeclineStopCallback(Callback):
+    """Monotonic strict-decline overfitting stop for Lightning, COMPLEMENTARY to ``EarlyStopping``.
+
+    At every validation-epoch-end it feeds ``trainer.callback_metrics[monitor]`` to the shared
+    ``MonotonicDeclineStopper``: once the monitored val metric has STRICTLY worsened for
+    ``patience`` consecutive epochs since the global best, it sets ``trainer.should_stop = True``.
+    A new global best, a plateau, or a bounce-up resets the streak. This is the confident-
+    overfitting signal that fires faster than (and alongside) the patience-based ``EarlyStopping``
+    -- whichever stop fires first wins. ``BestEpochModelCheckpoint`` still restores the global-best
+    epoch's weights, so an early monotonic stop keeps the right model.
+
+    ``mode`` must match the monitored metric's direction (``"min"`` for val_loss / val_RMSE / val_ICE,
+    ``"max"`` for AUC-style). ``patience=None`` disables the callback.
+    """
+
+    def __init__(self, monitor: str = "val_loss", patience: Optional[int] = 3, mode: str = "min") -> None:
+        super().__init__()
+        # Lazy import keeps the estimators package free of any lightning/torch coupling.
+        from mlframe.estimators.early_stopping_monotonic import MonotonicDeclineStopper
+
+        self._monitor = monitor
+        self._stopper = MonotonicDeclineStopper(patience, mode=mode)
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if not self._stopper.enabled:
+            return
+        metrics = trainer.callback_metrics
+        if self._monitor not in metrics:
+            return
+        try:
+            current = float(metrics[self._monitor])
+        except (TypeError, ValueError):
+            return
+        if self._stopper.update(current):
+            logger.info(
+                "[monotonic-decline] stopping at epoch %d: %s strictly worsened for %d "
+                "consecutive epochs since the best (confident overfitting).",
+                trainer.current_epoch, self._monitor, self._stopper.streak,
+            )
+            trainer.should_stop = True
+
+
 class BestEpochModelCheckpoint(ModelCheckpoint):
     """
     Custom ModelCheckpoint that tracks the epoch of the best model according to the monitored metric.

@@ -23,7 +23,61 @@ from mlframe.training.neural import (
     AggregatingValidationCallback,
     BestEpochModelCheckpoint,
     PeriodicLearningRateFinder,
+    MonotonicDeclineStopCallback,
 )
+
+
+# ================================================================================================
+# MonotonicDeclineStopCallback Tests
+# ================================================================================================
+
+
+class TestMonotonicDeclineStopCallback:
+    """Tests for the monotonic strict-decline overfitting stop callback."""
+
+    def _trainer(self, value):
+        t = Mock()
+        t.callback_metrics = {"val_loss": torch.tensor(float(value))}
+        t.current_epoch = 0
+        t.should_stop = False
+        return t
+
+    def _feed(self, cb, values):
+        last = None
+        for v in values:
+            last = self._trainer(v)
+            cb.on_validation_epoch_end(last, Mock())
+        return last
+
+    def test_fires_after_N_strict_declines_min_mode(self):
+        cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=3, mode="min")
+        # loss falls to 0.1 then rises 3 consecutive times -> stop
+        t = self._feed(cb, [0.5, 0.3, 0.1, 0.12, 0.14, 0.16])
+        assert t.should_stop is True
+
+    def test_does_not_fire_before_N(self):
+        cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=3, mode="min")
+        t = self._feed(cb, [0.5, 0.1, 0.12, 0.14])  # only 2 rises
+        assert t.should_stop is False
+
+    def test_plateau_and_bounce_reset(self):
+        cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=3, mode="min")
+        # rise, rise, plateau(==prev) resets, rise once -> not 3 in a row
+        t = self._feed(cb, [0.1, 0.12, 0.14, 0.14, 0.16])
+        assert t.should_stop is False
+
+    def test_disabled_when_patience_none(self):
+        cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=None, mode="min")
+        t = self._feed(cb, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+        assert t.should_stop is False
+
+    def test_missing_monitor_is_noop(self):
+        cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=2, mode="min")
+        t = Mock()
+        t.callback_metrics = {"other": torch.tensor(0.5)}
+        t.should_stop = False
+        cb.on_validation_epoch_end(t, Mock())
+        assert t.should_stop is False
 
 
 # ================================================================================================

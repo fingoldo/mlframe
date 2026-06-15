@@ -201,6 +201,10 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
         early_stopping_rounds: int = 100,
+        # Monotonic strict-decline overfitting stop, COMPLEMENTARY to ``early_stopping_rounds`` patience:
+        # stop once val_<metric> strictly worsens for this many consecutive epochs since the best (a
+        # confident-overfitting signal that fires faster than patience). Default-on; None disables.
+        monotonic_decline_patience: Optional[int] = 3,
         random_state: Optional[int] = None,
         class_weight=None,
         use_learnable_cat_embeddings: bool = True,
@@ -251,6 +255,7 @@ from .._base_callbacks import (  # noqa: F401, E402
     NetworkGraphLoggingCallback,
     AggregatingValidationCallback,
     ValLossDivergenceCallback,
+    MonotonicDeclineStopCallback,
     BestEpochModelCheckpoint,
     PeriodicLearningRateFinder,
 )

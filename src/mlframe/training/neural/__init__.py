@@ -21,6 +21,7 @@ from .base import (
     # Callbacks
     NetworkGraphLoggingCallback,
     AggregatingValidationCallback,
+    MonotonicDeclineStopCallback,
     BestEpochModelCheckpoint,
     PeriodicLearningRateFinder,
     # Utilities
@@ -71,6 +72,7 @@ __all__ = [
     # Base - Callbacks
     "NetworkGraphLoggingCallback",
     "AggregatingValidationCallback",
+    "MonotonicDeclineStopCallback",
     "BestEpochModelCheckpoint",
     "PeriodicLearningRateFinder",
     # Base - Utilities

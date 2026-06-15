@@ -28,7 +28,7 @@ from mlframe.metrics.core import compute_probabilistic_multiclass_error
 from .._base_logging import MetricSpec, _rmse_metric
 from .._base_tensor_helpers import to_tensor_any, safe_accelerator
 from ._base_losses import _make_binary_focal_loss, _validate_no_nan_inf
-from .._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback
+from .._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback, MonotonicDeclineStopCallback
 
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
@@ -834,6 +834,21 @@ class _FitMixin:
                     divergence_factor=100.0,
                 )
             )
+            # Monotonic strict-decline overfitting stop, COMPLEMENTARY to EarlyStoppingCallback above:
+            # stops once the monitored val metric strictly worsens for ``monotonic_decline_patience``
+            # consecutive epochs since the best (a confident-overfitting signal that fires faster than
+            # patience). Default-on; the monitored val_<metric> is min-direction (RMSE / ICE). The
+            # BestEpochModelCheckpoint still restores the global-best epoch, so an early stop keeps the
+            # right weights. ``monotonic_decline_patience=None`` on the estimator disables it.
+            _mono_patience = getattr(self, "monotonic_decline_patience", 3)
+            if _mono_patience is not None:
+                callbacks.append(
+                    MonotonicDeclineStopCallback(
+                        monitor=f"val_{metric_name}",
+                        patience=_mono_patience,
+                        mode="min",
+                    )
+                )
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
