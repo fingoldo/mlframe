@@ -76,7 +76,21 @@ def test_composite_fe_support_is_never_empty(seed):
 
 @pytest.mark.parametrize("seed", COLLAPSE_SEEDS)
 def test_composite_fe_retains_strongest_signal(seed):
-    """Fix B (deferred, xfail-tracked): the strongest raw signal x1 must survive composite FE -- as raw x1 or an x1-derived column."""
+    """Fix B (deferred): the strongest raw signal x1 must survive composite FE -- as raw x1 or an x1-derived column.
+
+    Concrete seed=0 root-cause (2026-06-15, n=3000, nbins=10 binned MI):
+      x1=0.0572  x2=0.0311  x3=0.0146  cat_a=0.0725  group_id=0.0664  cat_a__te=0.0725  (noise x4=0.0012, cat_b=0.0019)
+    x1's MI (0.0572) is genuine signal, ~30x above noise -- it is NOT weak. Yet the all-FE-on screen stops at
+    support=[cat_a, cat_a__te_std] and drops x1. Two compounding mechanisms:
+      (1) cat_a__te_std is a kfold target-encoding of cat_a -- it carries the SAME 5-level signal, but the
+          out-of-fold fold-noise lowers MI(cat_a; cat_a__te_std) below the redundancy cutoff, so the redundancy
+          term fails to recognise it as a bijective re-encoding of the already-selected cat_a and wastes the 2nd
+          slot on it instead of a genuinely-independent signal (group_id 0.066 / x1 0.057).
+      (2) the maxT relevance floor is inflated by the ~hundreds-wide engineered candidate pool (mostly overfit
+          grouped_agg / kfold_te columns), pushing the family-wise significance threshold near x1's genuine 0.057.
+    The real fix is core-screen work (semantic redundancy for derived encodings + pool-size-corrected relevance
+    null) that must be benchmarked across the layer suite before shipping -- high regression risk, NOT a test patch.
+    seeds 7/13/42 currently pass; seed=0 is the hard tail. Tracked, not masked (no xfail)."""
     X, y = _build_mega(seed)
     m = _make_mega_mrmr(random_seed=seed).fit(X, y)
     names = _support_names(m)
