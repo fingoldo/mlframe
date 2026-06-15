@@ -299,7 +299,7 @@ from .suite_features import CompositeFeatureGenerator  # noqa: E402,F401
 from .discovery._stability import stability_select_specs  # noqa: E402,F401
 
 # Compositional (simplex) target composite + quantile-regression-forest distribution.
-from .simplex import CompositeSimplexEstimator  # noqa: E402,F401
+from .simplex import CompositeSimplexEstimator, aitchison_distance  # noqa: E402,F401
 from .qrf import CompositeQRFEstimator  # noqa: E402,F401
 
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
@@ -348,7 +348,7 @@ __all__ = [
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
     "CompositeRankEstimator", "CompositePanelEstimator", "TailCompositeEstimator",
     "MissingAwareComposite", "CompositeFeatureGenerator", "stability_select_specs",
-    "CompositeSimplexEstimator", "CompositeQRFEstimator",
+    "CompositeSimplexEstimator", "CompositeQRFEstimator", "aitchison_distance",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",

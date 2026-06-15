@@ -227,12 +227,14 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
         reference: Optional[int] = None,
         zero_delta: float = _DEFAULT_ZERO_DELTA,
         per_coordinate_base: Optional[Sequence[dict]] = None,
+        score_metric: str = "aitchison",
     ) -> None:
         self.base_estimator = base_estimator
         self.transform = transform
         self.reference = reference
         self.zero_delta = zero_delta
         self.per_coordinate_base = per_coordinate_base
+        self.score_metric = score_metric
 
     # ---- internals -------------------------------------------------------
 
@@ -292,3 +294,26 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
         """Predict a valid ``(n, K)`` composition: non-negative parts summing to 1."""
         z = self.predict_coordinates(X)
         return self._inverse(z)
+
+    def score(self, X: Any, y: np.ndarray) -> float:
+        """Compositional skill score on the simplex (default ``score_metric='aitchison'``).
+
+        The inherited ``RegressorMixin.score`` is the Euclidean R^2, which is meaningless for compositions (Euclidean
+        distance ignores the constant-sum constraint and the relative scale of the parts). The Aitchison score is the
+        natural analogue: ``1 - SS_aitch(prediction) / SS_aitch(baseline)`` where the squared Aitchison distances are
+        taken against the closed geometric-mean composition (the simplex "mean"). 1.0 is perfect; <= 0 means no better
+        than predicting that constant composition -- exactly the R^2 interpretation, transported to the simplex. Set
+        ``score_metric='euclidean'`` to recover the (meaningless-here but sklearn-contract) Euclidean R^2.
+        """
+        if getattr(self, "score_metric", "aitchison") == "euclidean":
+            return float(super().score(X, y))
+        y_arr = np.asarray(y, dtype=np.float64)
+        y_safe = multiplicative_zero_replacement(_close(y_arr), self.zero_delta)
+        pred = self.predict(X)
+        d_pred = aitchison_distance(pred, y_safe, delta=self.zero_delta)
+        gmean = _close(np.exp(np.log(y_safe).mean(axis=0, keepdims=True)))
+        baseline = np.repeat(gmean, y_safe.shape[0], axis=0)
+        d_base = aitchison_distance(baseline, y_safe, delta=self.zero_delta)
+        ss_pred = float(np.sum(np.square(d_pred)))
+        ss_base = float(np.sum(np.square(d_base)))
+        return 1.0 - ss_pred / ss_base if ss_base > 0.0 else 0.0
