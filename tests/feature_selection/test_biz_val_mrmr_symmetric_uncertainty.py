@@ -331,6 +331,10 @@ class TestMRMRMiNormalizationE2E:
                 full_npermutations=10, min_relevance_gain_frac=0.16,
                 min_relevance_gain_mode="relative_to_entropy",
                 min_features_fallback=0,
+                # scope to RAW-feature SU normalization: the default-ON integer-lattice builds a
+                # cardinality-inflated il_lcm(sig_lo, hi_c) that displaces the raw signal under "none",
+                # confounding this raw-cardinality-bias test (the lattice has its own coverage).
+                fe_integer_lattice_enable=False,
             )
             sel_none.fit(Xdf.copy(), ys.copy())
             sel_su = MRMR(
@@ -338,6 +342,7 @@ class TestMRMRMiNormalizationE2E:
                 full_npermutations=10, min_relevance_gain_frac=0.16,
                 min_relevance_gain_mode="relative_to_entropy",
                 min_features_fallback=0,
+                fe_integer_lattice_enable=False,  # see sel_none note: isolate raw-feature SU normalization
             )
             sel_su.fit(Xdf.copy(), ys.copy())
 
