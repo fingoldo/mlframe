@@ -3991,3 +3991,27 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 108 RESOLVED, 36 REJECT a
 **Verdict: RESOLVED.** First SAVE/LOAD-surface iteration found a genuine hotspot the "profile full pipeline incl save+load" rule had stamped through without ever optimizing the save/load leg itself: a per-call metadata re-parse dominating both legs. ~1.7x save / ~6x load recovered, byte-identical. Note: the win scales inversely with bundle size — on a small bundle the fixed ~20 ms metadata cost is most of the wall; on a fat CatBoost bundle the pickle/zstd dominates and the relative win shrinks, but the absolute ~18 ms/save+load saving is constant and free. **SAVE/LOAD surface is NOT yet exhausted** — the email/feedparser cost is now gone, but the next profile should re-examine whether sidecar SHA-256 reopen + the pre-pickle `pympler.asizeof` precheck are worth re-bisecting now that the metadata noise is removed.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 109 RESOLVED, 36 REJECT across 143 iterations.**
+
+## iter144 — SAVE/LOAD I/O surface: both flagged leads (asizeof precheck + sha256 reopen) re-bisected and confirmed cheap — REJECT
+
+**Surface:** SAVE/LOAD I/O (`training/io.py`), re-profiled now that iter143's per-call metadata reparse is gone.
+
+**Leads (both flagged by iter143):**
+
+1. **Pre-pickle `pympler.asizeof` size precheck** (`save_mlframe_model:~606`). Microbench (`_benchmarks/bench_save_asizeof_precheck.py`, warm best-of-5): on a shallow ndarray bundle asizeof = **0.02 ms**; on a DEEP fitted-RandomForest graph (300 trees) asizeof = **5.0 ms** vs pickle.dumps 100 ms (ratio 0.05x). End-to-end profile (`bench_save_load_profile.py`, warm best-of-7): full save **min 247 ms / med 257 ms**; asizeof `_sizer`+`_refs`+`_dict_refs` sum ≈ 0.16 s / 5.1 s loop = **~3% of save wall**. Already cheap; no optimization warranted. SECONDARY FINDING: asizeof grossly UNDER-estimates Cython/numpy-buffer-backed models (RF est **0.4 MB** vs **155 MB** serialized) — correctly used only for the SimpleNamespace eager/lean flip; must NOT be swapped for a "cheaper" estimate that changes the gate.
+
+2. **Sidecar SHA-256 reopen** (`_bundle_sha256:384`). Re-ran the committed `_benchmarks/bench_bundle_sha256_reopen_vs_inline.py`: reopen-read costs ~0.63 ms@0.5MB / 3.07 ms@4MB / 24.5 ms@32MB; inline saves only the reopen-read (~0.83/1.7/9.9 ms). The bench proves a HashTee around `stream_writer` IS bit-identical (`HashTee inline digest == reopen digest: True`), but the only bit-identical inline capture entangles the hash with the `threads=-1` background flush + atomic-write `fsync(fileno)` durability invariant. In the e2e profile `_bundle_sha256` cumtime = 0.334 s / 5.1 s = **~2.4% of save wall** (hashlib.update tottime 0.122 s). Sub-1%-to-3% of save; durability-path entanglement not worth it. Verdict unchanged from iter143.
+
+**Hotspot reality:** save wall is dominated by irreducible serialization — `_pickle.dumps` 0.98 s + zstd `write`+`__exit__` 0.93 s = **~37% combined** (10 iters); `Unpickler.load` 2.28 s on the read leg. Both flagged leads are single-digit-% sideshows. Load is already memoized via `_LOAD_MODEL_CACHE` (warm load = 0.01 ms on cache hit).
+
+**Round-trip identity:** byte-identical + deterministic — same bundle saved twice → identical SHA-256; `load_mlframe_model` round-trip `np.array_equal` True. No prod code path changed (no eager/lean decision touched), so the decision is unchanged by construction.
+
+**Regression test:** `tests/training/test_io_asizeof_precheck_verdict.py` — pins (a) asizeof under-estimates a buffer-backed RF by >2x vs pickle (so the estimate is never treated as a real byte count / wired into the gate), (b) asizeof is accurate (≤1.2x) on a plain-ndarray SimpleNamespace (the case the precheck is calibrated for). Documents the verdict; both assertions would trip if asizeof semantics flip.
+
+**Benches committed:** `bench_save_asizeof_precheck.py`, `bench_save_load_profile.py` (new), `bench_bundle_sha256_reopen_vs_inline.py` (re-run, unchanged). Bench-attempt-rejected note added at the asizeof precheck site.
+
+**Tests green:** 58 passed / 2 env-skips across io-asizeof-verdict + sidecar + size-sensor + multi-output-roundtrip + shim-version-stamp + SafeUnpickler-RCE + functools-partial + zstandard-no-flush + atomic-write-fsync + calibrated-threshold-roundtrip + meta-json-propagation + load-model-LRU suites.
+
+**Verdict: REJECT.** Both iter143-flagged leads measured, multi-shape, end-to-end, and written down: asizeof ~3% / sha256 ~2.4% of save wall, the rest irreducible pickle+zstd. **SAVE/LOAD surface is now EXHAUSTED at the profiled scales** — the only remaining costs are serialization primitives (pickle.dumps, zstd, Unpickler) with no bit-identical lever; revisit only if a 30MB+ fat-bundle hashing or a non-SimpleNamespace lean path surfaces in a real full-pipeline profile.
+
+Streak: RESOLVED→0, REJECT→1 (first reject after iter143's RESOLVED). **Cumulative loop wave: 109 RESOLVED, 37 REJECT across 144 iterations.**

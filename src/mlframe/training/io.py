@@ -603,6 +603,13 @@ def save_mlframe_model(
     # Threshold defaults to 100 MB in-memory (zstd-level-4 lean dumps land
     # ~50 MB on disk for similar shapes; the 2x margin avoids tripping on
     # borderline payloads that would still fit comfortably).
+    #
+    # bench-attempt-rejected (_benchmarks/bench_save_asizeof_precheck.py + bench_save_load_profile.py): the asizeof
+    # graph walk is already cheap relative to the save -- ~0.02 ms on a shallow ndarray bundle and ~5 ms on a deep
+    # fitted-RandomForest graph (300 trees), vs ~250 ms full save; ~3% of save wall, the rest is irreducible
+    # pickle.dumps + zstd. No optimization warranted. NOTE asizeof grossly under-estimates Cython/numpy-buffer-backed
+    # models (RF: est 0.4 MB vs 155 MB serialized), so it is correctly used ONLY for the SimpleNamespace eager/lean
+    # flip and must NOT be swapped for a "cheaper" estimate that would change the gate decision.
     if (
         not lean
         and auto_lean_retry
