@@ -42,10 +42,17 @@ from __future__ import annotations
 
 from typing import Dict, Union
 
+import os
+
 import numpy as np
 import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+
+# Max-error gets its own (higher) crossover: the prange ``max`` reduction carries more per-launch overhead than the ``+=``
+# reductions of MAE/MSE/R2, so it only nets positive at large n (~2-4x at 5-10M, a wash below ~1M -- bench
+# bench_fast_max_error_par_iter130.py). Conservative 5M default; override per-host via the env var.
+_MAX_ERROR_PAR_THRESHOLD: int = int(os.environ.get("MLFRAME_MAX_ERROR_PAR_THRESHOLD", "5000000"))
 
 
 # ---------- 1-D unweighted ----------
@@ -97,6 +104,17 @@ def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         d = abs(y_true[i] - y_pred[i])
         if d > m:
             m = d
+    return m
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_max_error_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    # ``max`` of |diff| is an order-invariant comparison reduction: numba recognises the ``m = max(m, ...)`` form as a
+    # prange reduction, and max has no FP reordering (only > comparisons), so this is BIT-IDENTICAL to the serial scan.
+    n = len(y_true)
+    m = 0.0
+    for i in numba.prange(n):
+        m = max(m, abs(y_true[i] - y_pred[i]))
     return m
 
 
@@ -404,16 +422,18 @@ def fast_max_error(
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if yt.ndim == 1:
-        return _fast_max_error_seq(yt, yp)
+        n = yt.shape[0]
+        return _fast_max_error_par(yt, yp) if n >= _MAX_ERROR_PAR_THRESHOLD else _fast_max_error_seq(yt, yp)
     yt2 = _to_2d(yt)
     yp2 = _to_2d(yp)
     M = yt2.shape[1]
+    n_rows = yt2.shape[0]
+    use_par = n_rows >= _MAX_ERROR_PAR_THRESHOLD
     per_out = np.empty(M, dtype=np.float64)
     for j in range(M):
-        per_out[j] = _fast_max_error_seq(
-            np.ascontiguousarray(yt2[:, j]),
-            np.ascontiguousarray(yp2[:, j]),
-        )
+        col_yt = np.ascontiguousarray(yt2[:, j])
+        col_yp = np.ascontiguousarray(yp2[:, j])
+        per_out[j] = _fast_max_error_par(col_yt, col_yp) if use_par else _fast_max_error_seq(col_yt, col_yp)
     return _aggregate_multioutput(per_out, multioutput)
 
 

@@ -3693,3 +3693,23 @@ Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 98 RESOLVED, 32 REJEC
 **Verdict: RESOLVED +5.6x e2e @10M (17.9x isolated kernel), gated >=50k, byte-identical, no uglification.**
 
 Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 99 RESOLVED, 32 REJECT across 129 iterations.**
+
+---
+
+## iter130 (@10M) — regression metrics: `fast_max_error` parallel reduction twin + size dispatch — RESOLVED
+
+**Workload @10M / why:** Untapped seam = single-thread `@njit` full-n reduction lacking a `parallel=True` twin (the 99/108/128/129 family). `fast_max_error` (`metrics/regression/_regression_metrics.py`) dispatched ONLY to `_fast_max_error_seq` — the lone regression metric with no parallel twin (MAE/MSE/RMSE/R2 all have seq+par+threshold dispatch). Called once per regression report at `_reporting_regression/__init__.py:247` on full-n targets/preds (`fast_regression_metrics_block`).
+
+**Hotspot:** `_fast_max_error_seq` — serial max-of-|diff| reduction. @10M float64: 14.4-14.8ms (plain njit comparison loop, REAL O(n), one pass). e2e fraction: one scalar metric per regression report; tiny absolute but a clean consistency-with-siblings twin per "fastest variant must be default + dispatch".
+
+**Optimization + audit:** Added `_fast_max_error_par` (`numba.prange` with `m = max(m, abs(...))` — numba recognises the `max(...)` form as a reduction; the racy `if d>m: m=d` form does NOT and gives nondeterministic results, verified identical=False). `max` is order-invariant comparison-only -> BIT-IDENTICAL (no FP reorder). Dispatch via new `_MAX_ERROR_PAR_THRESHOLD` (default 5M, env `MLFRAME_MAX_ERROR_PAR_THRESHOLD`); 1-D and per-output (2-D) paths both routed. Higher threshold than the +=  metrics' 100k because the prange `max` reduction carries more per-launch overhead (wash below ~1M, positive 5-10M).
+
+**Before/after:** isolated bench (`bench_fast_max_error_par_iter130.py`): seq 14.6ms / par 3.6-4.9ms @10M = 2.9-4.1x; 1.75x @1M; par loses below ~1M (spawn overhead). Separate-process paired interleaved A/B on public `fast_max_error` @10M (15 trials): OLD(seq) min 14.35 / med 14.75ms; NEW(par) min 4.26 / med 7.16ms; **NEW faster 15/15, median 2.06x (min 3.4x)**.
+
+**Identity proof:** paired A/B `old()==new()` -> `True`; isolated bench `identical=True` at every N (50k..10M). Comparison-only reduction, bit-identical by construction.
+
+**Regression test:** `tests/metrics/test_fast_max_error_par_iter130.py` — (1) `_fast_max_error_par` exists + bit-identical to seq at n=1,17,1000,250k; (2) dispatcher routes large 1-D to par / small to seq (spy + monkeypatched threshold); (3) sklearn parity. FAILS pre-fix: `_fast_max_error_par` and `_MAX_ERROR_PAR_THRESHOLD` absent at HEAD (verified `grep -c`=0). 3 passed post-fix; broader regression-metrics suite 52 passed.
+
+**Verdict: RESOLVED +2.06x median e2e @10M (15/15 paired, min 3.4x), gated >=5M, bit-identical, no uglification.**
+
+Streak: RESET to 0/100 (RESOLVED). **Cumulative loop wave: 100 RESOLVED, 32 REJECT across 130 iterations.**
