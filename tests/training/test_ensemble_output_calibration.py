@@ -292,3 +292,57 @@ def test_biz_val_linear_corrects_affine_shrinkage_bias():
         f"linear recalibration should recover affine shrinkage bias; "
         f"raw={rmse_raw:.4f}, cal={rmse_cal:.4f}"
     )
+
+
+# --------------------------------------------------------------------------
+# biz_value / verdict-pin: isotonic is the most-accurate calibration DEFAULT
+# even at small OOF (the regime where the 2-param sigmoid was hypothesised to
+# generalise better). qual-15 shootout REJECTED that hypothesis: isotonic beats
+# sigmoid on honest holdout RMSE in 8/8 seeds at every OOF size down to n=60.
+# bench: composite/ensemble/_benchmarks/bench_calibration_method.py.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("n_oof", [60, 150, 400])
+def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
+    """The OutputCalibrator default ``method='isotonic'`` is the most-accurate
+    map on an INDEPENDENT honest holdout even at the smallest OOF the cross-target
+    ensemble uses, contradicting the "sigmoid is more robust at small n" prior.
+
+    On an S-shaped (tanh-squashed) miscalibration the free-form isotonic PAV map
+    tracks the distortion that the 2-parameter logistic-link sigmoid cannot, and
+    the holdout-RMSE gap WIDENS as OOF shrinks (sigmoid's logit-OLS fit degrades
+    faster than isotonic's). Measured isotonic/sigmoid holdout RMSE ratio ~0.49
+    at n_oof=60; floor the win at <=0.85 (15% margin)."""
+    rng = np.random.default_rng(7000 + n_oof)
+    n_hold = 4000
+
+    def _surface(m):
+        s = rng.normal(0.0, 1.0, size=m)
+        y = 2.0 * s + rng.normal(0.0, 0.3, size=m)
+        p = 3.0 * np.tanh(0.8 * s) + rng.normal(0.0, 0.1, size=m)
+        return p.astype(np.float64), y.astype(np.float64)
+
+    p_oof, y_oof = _surface(n_oof)
+    p_hold, y_hold = _surface(n_hold)
+
+    iso = OutputCalibrator(method="isotonic").fit(p_oof, y_oof)
+    sig = OutputCalibrator(method="sigmoid").fit(p_oof, y_oof)
+    rmse_iso = _rmse(iso.predict(p_hold), y_hold)
+    rmse_sig = _rmse(sig.predict(p_hold), y_hold)
+
+    assert rmse_iso <= 0.85 * rmse_sig, (
+        f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout "
+        f"(iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
+    )
+
+
+def test_default_calibration_method_is_isotonic():
+    """The shipped default for both the OutputCalibrator and the cross-target
+    discovery config stays ``isotonic`` (qual-15 verdict). A future flip to
+    sigmoid/linear must trip this sensor + re-run the shootout bench."""
+    assert OutputCalibrator().method == "isotonic"
+    from mlframe.training._composite_target_discovery_config import (
+        CompositeTargetDiscoveryConfig,
+    )
+
+    assert CompositeTargetDiscoveryConfig().cross_target_calibration_method == "isotonic"
