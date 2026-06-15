@@ -136,8 +136,11 @@ def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = None) -> 
     Args:
         y_true: Ground truth labels (0 or 1).
         y_pred: Predicted probabilities for class 1.
-        eps: Small value for clipping to prevent log(0). Default uses dtype's eps (sklearn-compatible).
-
+        eps: Small value for clipping to prevent log(0). Default uses the input dtype's machine eps (``np.finfo(y_pred.dtype).eps``), matching sklearn's
+            legacy ``eps="auto"``. This is dtype-DEPENDENT on purpose: float32 cannot represent probabilities in ``(1 - 1.19e-7, 1)`` -- a confident
+            ``1 - 1e-8`` collapses to exactly ``1.0`` on cast -- so clipping a float32 input at the smaller float64 eps (2.22e-16) would penalise that
+            unrepresentable-near-1 region with ``-log(2.22e-16) ~= 36`` instead of the intended ``-log(1e-8) ~= 18``, OVERSHOOTING the honest value. The
+            float32 eps is the correct precision-matched floor for float32 inputs; pass an explicit ``eps`` to override.
     Returns:
         Binary cross-entropy loss.
     """
