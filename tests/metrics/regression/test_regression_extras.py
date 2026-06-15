@@ -16,7 +16,8 @@ import pytest
 from mlframe.metrics.core import (
     fast_rmsle, fast_mape_mean, fast_smape, fast_mdape, fast_wmape, fast_mase,
     fast_mean_bias_error, fast_cv_rmse, fast_nash_sutcliffe,
-    fast_explained_variance, fast_huber_loss,
+    fast_explained_variance, fast_adjusted_r2_score, fast_huber_loss,
+    fast_r2_score,
     fast_pearson_corr, fast_spearman_corr, fast_kendall_tau,
     fast_concordance_index,
     fast_regression_metrics_block_extended,
@@ -430,3 +431,43 @@ def test_extended_block_constant_y():
     assert block["MAE"] == pytest.approx(0.5, abs=1e-12)
     # R2 follows sklearn convention: -inf when ss_tot=0 and SSE>0
     assert block["R2"] == float("-inf")
+
+
+# ----- Adjusted R^2 -----
+
+
+def test_adjusted_r2_matches_textbook_formula():
+    yt = np.array([1.0, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    yp = yt + np.array([0.3, -0.2, 0.1, -0.4, 0.2, -0.1, 0.3, -0.2, 0.0, 0.1])
+    r2 = fast_r2_score(yt, yp)
+    n, p = len(yt), 2
+    expected = 1.0 - (1.0 - r2) * (n - 1) / (n - p - 1)
+    assert fast_adjusted_r2_score(yt, yp, p) == pytest.approx(expected, rel=1e-12)
+
+
+def test_adjusted_r2_p_zero_returns_plain_r2():
+    yt = np.array([1.0, 2, 3, 4, 5])
+    yp = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
+    assert fast_adjusted_r2_score(yt, yp, 0) == pytest.approx(fast_r2_score(yt, yp), rel=1e-12)
+
+
+def test_adjusted_r2_perfect_fit_stays_one():
+    yt = np.array([1.0, 2, 3, 4, 5, 6])
+    assert fast_adjusted_r2_score(yt, yt.copy(), 2) == pytest.approx(1.0, abs=1e-12)
+
+
+def test_adjusted_r2_degenerate_denominator_is_nan():
+    yt = np.array([1.0, 2, 3, 4, 5])
+    # p == n - 1 -> denom = 0; p > n - 1 -> denom < 0. Both NaN.
+    assert np.isnan(fast_adjusted_r2_score(yt, yt.copy(), 4))
+    assert np.isnan(fast_adjusted_r2_score(yt, yt.copy(), 7))
+
+
+def test_adjusted_r2_penalises_below_plain_when_p_positive():
+    rng = np.random.default_rng(0)
+    yt = rng.normal(0, 1, 50)
+    yp = yt + rng.normal(0, 0.5, 50)
+    r2 = fast_r2_score(yt, yp)
+    adj = fast_adjusted_r2_score(yt, yp, 10)
+    # With non-trivial p and R^2 < 1, adjusted is strictly below plain.
+    assert adj < r2

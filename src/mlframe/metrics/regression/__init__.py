@@ -36,6 +36,7 @@ from ._regression_extras import (  # noqa: F401
     fast_cv_rmse,
     fast_nash_sutcliffe,
     fast_explained_variance,
+    fast_adjusted_r2_score,
     fast_huber_loss,
     fast_pearson_corr,
     fast_spearman_corr,
