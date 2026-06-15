@@ -7389,6 +7389,89 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_orth), [cols[i] for i in _readd_orth],
                 )
 
+    # RAW-FEATURE FLOOR-DROP PROTECTION (Fix-B, 2026-06-16). The Westfall-Young maxT relevance floor is computed
+    # over the FULL candidate pool; when the all-FE-on config widens that pool to hundreds of (already FE-stage-
+    # gated) engineered columns, the per-shuffle MAX corrected MI inflates and the acceptance bar rises ABOVE a
+    # genuine raw feature's true marginal MI -- so a real linear signal (e.g. x1 ~ y at binned-MI 0.057, ~30x
+    # noise) is dropped from the screen entirely (confirmed root-cause of test_biz_value_mrmr_underselection).
+    # LOWERING the floor would surface x1 but ALSO admit high-cardinality raw NOISE (a 50-level pure-noise
+    # categorical whose finite-sample MI is inflated) -- a regression. Instead, KEEP the floor (noise stays
+    # rejected) and re-add a raw feature the screen dropped IFF it lifts a HELD-OUT linear fit over the already-
+    # selected design -- the SAME MI-vs-linear-usability protection the hinge / orth-basis blocks use. A genuine
+    # linear/monotone raw signal clears the lift; a high-card noise categorical (no held-out linear usability)
+    # does not, so it stays out. Conditioned on _y_for_hinge_gate (the held-out scorer); no-op when it is None.
+    # Self-contained held-out scorer (the hinge block's _y_for_hinge_gate / _heldout_incr_over_selected only
+    # exist when hinge legs were generated; this protection must run regardless). Baseline = intercept + the
+    # continuous values of the ALREADY-SELECTED columns (engineered from the snapshot, raw from X), so a raw
+    # feature SUBSUMED by a selected composite adds ~0 and is NOT re-added (no raw-redundancy regression).
+    if isinstance(X, pd.DataFrame) and len(selected_vars):
+        _rp_y = None
+        try:
+            _rp_yv = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).reshape(-1)
+            if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
+                _rp_y = _rp_yv
+        except Exception:
+            _rp_y = None
+        if _rp_y is not None:
+            _RAW_PROTECT_MIN_INCR_R2 = 0.005  # genuine linear raw signal lifts held-out R^2 >> 0.005; noise ~0
+            _rp_n = _rp_y.shape[0]
+            _rp_idx = np.arange(_rp_n); _rp_va = (_rp_idx % 3) == 0; _rp_tr = ~_rp_va
+            _rp_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+            _rp_base = [np.ones(_rp_n)]
+            for _sn in _rp_sel_names:
+                _cv = _eng_continuous_snapshot.get(_sn)
+                if _cv is None and _sn in X.columns:
+                    _cv = X[_sn].to_numpy()
+                if _cv is None:
+                    continue
+                try:
+                    _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                except (TypeError, ValueError):
+                    continue  # raw categorical/string selected column -- not a numeric R^2 regressor
+                if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
+                    _rp_base.append(_cv)
+
+            def _rp_r2(_design):
+                _A = np.column_stack(_design)
+                _yv = _rp_y[_rp_va]
+                _ss = float(np.sum((_yv - _yv.mean()) ** 2))
+                if _ss < 1e-24:
+                    return 0.0
+                try:
+                    _coef, *_ = np.linalg.lstsq(_A[_rp_tr], _rp_y[_rp_tr], rcond=None)
+                except Exception:
+                    return -np.inf
+                return 1.0 - float(np.sum((_yv - _A[_rp_va] @ _coef) ** 2)) / _ss
+
+            if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
+                _rp_r2_base = _rp_r2(_rp_base)
+                _cols_index_r = {c: i for i, c in enumerate(cols)}
+                _sv_set_r = set(selected_vars)
+                _readd_raw = []
+                for _rn in (getattr(self, "feature_names_in_", None) or []):
+                    _ridx = _cols_index_r.get(_rn)
+                    if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
+                        continue
+                    try:
+                        _rv = np.asarray(X[_rn].to_numpy(), dtype=np.float64).reshape(-1)
+                    except (TypeError, ValueError):
+                        continue  # non-numeric raw (categorical/string) -> not a linear-usability candidate
+                    if _rv.shape[0] != _rp_n or not np.all(np.isfinite(_rv)):
+                        continue
+                    if _rp_r2(_rp_base + [_rv]) - _rp_r2_base < _RAW_PROTECT_MIN_INCR_R2:
+                        continue
+                    _readd_raw.append(_ridx)
+                    _sv_set_r.add(_ridx)
+                if _readd_raw:
+                    selected_vars = list(selected_vars) + _readd_raw
+                    if verbose:
+                        logger.info(
+                            "MRMR raw-feature floor-drop protection: re-added %d held-out-validated raw "
+                            "feature(s) the maxT relevance floor dropped (genuine linear usability, not "
+                            "high-card noise): %s",
+                            len(_readd_raw), [cols[i] for i in _readd_raw],
+                        )
+
     # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the
     # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors -- it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
