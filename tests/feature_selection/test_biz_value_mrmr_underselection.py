@@ -78,19 +78,24 @@ def test_composite_fe_support_is_never_empty(seed):
 def test_composite_fe_retains_strongest_signal(seed):
     """Fix B (deferred): the strongest raw signal x1 must survive composite FE -- as raw x1 or an x1-derived column.
 
-    Concrete seed=0 root-cause (2026-06-15, n=3000, nbins=10 binned MI):
-      x1=0.0572  x2=0.0311  x3=0.0146  cat_a=0.0725  group_id=0.0664  cat_a__te=0.0725  (noise x4=0.0012, cat_b=0.0019)
-    x1's MI (0.0572) is genuine signal, ~30x above noise -- it is NOT weak. Yet the all-FE-on screen stops at
-    support=[cat_a, cat_a__te_std] and drops x1. Two compounding mechanisms:
-      (1) cat_a__te_std is a kfold target-encoding of cat_a -- it carries the SAME 5-level signal, but the
-          out-of-fold fold-noise lowers MI(cat_a; cat_a__te_std) below the redundancy cutoff, so the redundancy
-          term fails to recognise it as a bijective re-encoding of the already-selected cat_a and wastes the 2nd
-          slot on it instead of a genuinely-independent signal (group_id 0.066 / x1 0.057).
-      (2) the maxT relevance floor is inflated by the ~hundreds-wide engineered candidate pool (mostly overfit
-          grouped_agg / kfold_te columns), pushing the family-wise significance threshold near x1's genuine 0.057.
-    The real fix is core-screen work (semantic redundancy for derived encodings + pool-size-corrected relevance
-    null) that must be benchmarked across the layer suite before shipping -- high regression risk, NOT a test patch.
-    seeds 7/13/42 currently pass; seed=0 is the hard tail. Tracked, not masked (no xfail)."""
+    CONFIRMED seed=0 root-cause (2026-06-15, n=3000, nbins=10; instrumented, not hypothesised):
+      * x1's binned MI = 0.0572 and is PRESENT in ``cached_MIs`` (singleton key) at fit time -- ~30x above noise
+        (x4=0.0012). x1 is genuinely scorable, NOT weak and NOT missing from the screen.
+      * there is NO feature-budget cap in play (max_features / n_features_to_select / max_runtime_mins all None,
+        fallback_used_=False). So x1 was not crowded out by a cap -- it was REJECTED by the relevance floor.
+      * the order-1 maxT acceptance floor (``_permutation_null.maxt_*`` order-1, returns the q-quantile of the
+        per-shuffle MAX corrected marginal MI over ALL ``candidate_indices``) is computed over the FULL screening
+        pool, which the all-FE-on config widens to ~hundreds of (mostly overfit) engineered columns. A wider pool
+        raises the per-shuffle max, so the floor a genuine raw feature must clear rises ABOVE x1's true 0.0572 and
+        x1 is dropped. This is Westfall-Young FWER control behaving as designed -- the defect is that overfit
+        engineered candidates are admitted into the SAME family that judges raw-feature significance.
+    Concrete fix recipe (for the dedicated, full-suite-validated effort): judge raw-feature acceptance against a
+    maxT null whose candidate pool is the RAW (or pre-screened) feature set, not the engineered-inflated full pool
+    -- i.e. give engineered candidates their own family rather than letting them widen the raw-feature null. A
+    naive CMI-given-source redundancy gate on the kfold-TE column is the WRONG fix: TE's value is linear-usability
+    of the same partition (CMI(te; y | cat) ~ 0 by construction), so gating on CMI would regress legitimate TE use.
+    This change touches the core FWER null for EVERY selection -> high regression risk -> must be benchmarked across
+    the whole layer suite before shipping. seeds 7/13/42 pass; seed=0 is the hard tail. Tracked, not masked (no xfail)."""
     X, y = _build_mega(seed)
     m = _make_mega_mrmr(random_seed=seed).fit(X, y)
     names = _support_names(m)
