@@ -7357,6 +7357,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _oidx is None or _oidx in _sv_set_o:
                 continue
             _rec_o = _hybrid_orth_pre_recipes.get(_on)
+            # Hinge legs (``kind="hinge_basis"``) are routed through hybrid_orth_features_ too, but they have a
+            # DEDICATED protection block above that gates them against a ``[src, src^2]`` baseline (the smooth-
+            # curve guard: a parabola is fit by src^2 so a kink adds ~0 and is rejected). This orth-basis block
+            # deliberately OMITS that guard (for a curved basis the curve IS the win), so re-handling a hinge leg
+            # here would bypass the smooth-curve guard and re-add spurious legs on y=x^2 data. Skip them -- the
+            # hinge block already made the correct keep/drop decision (2026-06-16 regression fix).
+            if getattr(_rec_o, "kind", None) == "hinge_basis":
+                continue
             _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
             # Self-limit #1: single-source basis whose raw source survived the screen.
             if len(_src_o) != 1 or _src_o[0] not in _sel_names_o:
