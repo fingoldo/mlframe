@@ -259,6 +259,24 @@ def train_and_evaluate_model(
             fit_params = {}
         fit_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
 
+    # Thread per-iteration metric-capture knobs to the boosters (meta-learning / HPO-from-early-observation). Same
+    # behavior-config plumbing as monotonic_decline_patience: cb via callback_params, lgb / xgb via fit_params.
+    # ``capture_iteration_metrics`` defaults to None in the config -> resolve to the family default (OFF for
+    # boosters, since re-predicting val every round is non-trivial; the user opts in explicitly).
+    _cap_iter_cfg = _mono_beh.get("capture_iteration_metrics") if _mono_beh is not None else getattr(control, "capture_iteration_metrics", None)
+    _iter_stride_cfg = _mono_beh.get("iteration_metrics_stride", 1) if _mono_beh is not None else getattr(control, "iteration_metrics_stride", 1)
+    _cap_iter_boosters = bool(_cap_iter_cfg) if _cap_iter_cfg is not None else False
+    if _cap_iter_boosters:
+        if model_category == "cb" or callback_params:
+            callback_params = dict(callback_params or {})
+            callback_params.setdefault("capture_iteration_metrics", True)
+            callback_params.setdefault("iteration_metrics_stride", _iter_stride_cfg)
+        if model_category in ("lgb", "xgb"):
+            if fit_params is None:
+                fit_params = {}
+            fit_params.setdefault("capture_iteration_metrics", True)
+            fit_params.setdefault("iteration_metrics_stride", _iter_stride_cfg)
+
     nbins = metrics.nbins
     custom_ice_metric = metrics.custom_ice_metric
     custom_rice_metric = metrics.custom_rice_metric

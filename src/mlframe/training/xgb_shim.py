@@ -418,6 +418,8 @@ class _DMatrixReuseMixin:
         sample_weight_eval_set=None,
         verbose=False,
         monotonic_decline_patience=3,
+        capture_iteration_metrics=False,
+        iteration_metrics_stride=1,
         **fit_kwargs,
     ):
         """Cached-DMatrix fit.
@@ -503,6 +505,8 @@ class _DMatrixReuseMixin:
 
         # ---- Eval DMatrix(s): cache-or-build -------------------------
         evals: list[tuple[Any, str]] = []
+        _iter_metrics_dval = None
+        _iter_metrics_yval = None
         if eval_set:
             # Support eval_set = [(X_val, y_val), ...] form.
             for i, pair in enumerate(eval_set):
@@ -571,6 +575,9 @@ class _DMatrixReuseMixin:
                         id(dval), dval.num_row(), dval.num_col(),
                     )
                 evals.append((dval, f"validation_{i}"))
+                if i == 0:
+                    _iter_metrics_dval = dval
+                    _iter_metrics_yval = np.asarray(y_val)
 
         # ---- Resolve params for xgb.train() --------------------------
         # ``get_xgb_params()`` excludes sklearn-only fields (n_estimators,
@@ -616,6 +623,28 @@ class _DMatrixReuseMixin:
             if _mono_cb is not None:
                 callbacks.append(_mono_cb)
 
+        # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). The val DMatrix can be
+        # re-predicted directly via iteration_range; capture every stride round + always the final round.
+        _iter_metrics_cb = None
+        if capture_iteration_metrics and _iter_metrics_dval is not None:
+            from sklearn.base import is_classifier as _sk_is_classifier
+            from .callbacks.iteration_metrics import make_xgb_iteration_metrics_callback
+            _ncls = getattr(self, "n_classes_", None) or getattr(self, "_n_classes", None)
+            if _ncls is None and _sk_is_classifier(self):
+                _ncls = int(np.unique(np.asarray(y)).shape[0])
+            if not _sk_is_classifier(self):
+                _tt = "regression"
+            elif _ncls is not None and int(_ncls) > 2:
+                _tt = "multiclass_classification"
+            else:
+                _tt = "binary_classification"
+            _iter_metrics_cb = make_xgb_iteration_metrics_callback(
+                _iter_metrics_dval, _iter_metrics_yval, _tt,
+                stride=int(iteration_metrics_stride), n_classes=int(_ncls) if _ncls else None,
+            )
+            if _iter_metrics_cb is not None:
+                callbacks.append(_iter_metrics_cb)
+
         # Determine objective for classification — XGBClassifier sets it
         # automatically based on n_classes; we mimic that here for the
         # native API. Subclasses (XGBClassifierWithDMatrixReuse) override
@@ -644,6 +673,9 @@ class _DMatrixReuseMixin:
         # Subclass-specific bookkeeping (classifier needs ``n_classes_``
         # — ``classes_`` is a property returning ``np.arange(n_classes_)``).
         self._post_fit_bookkeeping(X, y)
+
+        if _iter_metrics_cb is not None:
+            self.iteration_metrics_ = _iter_metrics_cb.iteration_metrics_
 
         return self
 

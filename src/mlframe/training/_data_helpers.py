@@ -839,6 +839,49 @@ def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
     return None
 
 
+def _build_cb_iteration_metrics_callback(fit_params, model_obj, stride):
+    """Build the CatBoost per-iteration metric-capture callback from the val eval_set + model target type.
+
+    Requires the build's ``callbacks=`` support and an eval_set in fit_params (the val Pool source). The callback's
+    ``iteration_metrics_`` dict is bound by reference onto ``model_obj.iteration_metrics_`` at wiring time so the
+    trajectory is readable on the fitted estimator without a post-fit stamp step (CatBoost callbacks have no
+    after-training hook). Returns None when capture is not wireable (no eval_set / unsupported build / import fail).
+    """
+    from .callbacks.monotonic_decline import catboost_callbacks_supported
+
+    if not catboost_callbacks_supported():
+        return None
+    eval_set = fit_params.get("eval_set")
+    if not eval_set:
+        return None
+    pair = eval_set[0] if isinstance(eval_set, (list, tuple)) and eval_set and isinstance(eval_set[0], (list, tuple)) else eval_set
+    try:
+        X_val, y_val = pair[0], pair[1]
+    except (TypeError, IndexError, KeyError):
+        return None
+    try:
+        from sklearn.base import is_classifier as _sk_is_classifier
+        from catboost import Pool
+
+        from .callbacks.iteration_metrics import CBIterationMetricsCallback
+
+        import numpy as _np
+
+        if model_obj is not None and not _sk_is_classifier(model_obj):
+            target_type, n_classes = "regression", None
+        else:
+            n_classes = int(_np.unique(_np.asarray(y_val)).shape[0])
+            target_type = "binary_classification" if n_classes <= 2 else "multiclass_classification"
+        val_pool = Pool(X_val, y_val)
+        cb = CBIterationMetricsCallback(val_pool, y_val, target_type, stride=stride, n_classes=n_classes)
+        if model_obj is not None:
+            model_obj.iteration_metrics_ = cb.iteration_metrics_  # bound by reference; filled during fit
+        return cb
+    except Exception as exc:
+        logger.debug("CatBoost iteration-metrics capture not wired: %s", exc)
+        return None
+
+
 def _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj=None):
     """Set up early stopping callback for the given model category."""
     no_callback_list_models = {"xgb", "hgb", "ngb"}
@@ -863,6 +906,15 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         callback_params = dict(callback_params)
         _mono_patience = callback_params.pop("monotonic_decline_patience")
 
+    # Pull the per-iteration metric-capture knobs out before splatting callback_params into the UniversalCallback
+    # subclass (which does not accept them). Wired below for CatBoost (the lgb / xgb shims read them as fit kwargs).
+    _cap_iter = False
+    _iter_stride = 1
+    if isinstance(callback_params, dict) and "capture_iteration_metrics" in callback_params:
+        callback_params = dict(callback_params)
+        _cap_iter = bool(callback_params.pop("capture_iteration_metrics"))
+        _iter_stride = int(callback_params.pop("iteration_metrics_stride", 1))
+
     if model_category == "lgb":
         es_callback = LightGBMCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
@@ -876,6 +928,10 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
             from .callbacks.monotonic_decline import CBMonotonicDeclineStop, catboost_callbacks_supported
             if catboost_callbacks_supported():
                 fit_params["callbacks"].append(CBMonotonicDeclineStop(patience=_mono_patience))
+        if _cap_iter:
+            _cb = _build_cb_iteration_metrics_callback(fit_params, model_obj, _iter_stride)
+            if _cb is not None:
+                fit_params["callbacks"].append(_cb)
     elif model_category == "xgb" and model_obj is not None:
         es_callback = XGBoostCallback(**callback_params)
         existing_callbacks = model_obj.get_params().get("callbacks", []) or []

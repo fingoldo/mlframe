@@ -205,6 +205,10 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         # stop once val_<metric> strictly worsens for this many consecutive epochs since the best (a
         # confident-overfitting signal that fires faster than patience). Default-on; None disables.
         monotonic_decline_patience: Optional[int] = 3,
+        # Per-epoch full-metric-suite capture into ``iteration_metrics_`` for meta-learning / HPO-from-early-
+        # observation. Default-ON for neural (val preds are already concatenated each epoch, so the only marginal
+        # cost is the cheap metric kernel). Set False to skip the capture; None also resolves to the ON default.
+        capture_iteration_metrics: Optional[bool] = True,
         random_state: Optional[int] = None,
         class_weight=None,
         use_learnable_cat_embeddings: bool = True,

@@ -856,6 +856,23 @@ class _FitMixin:
             callbacks.append(
                 TrainingHistoryRecorder(monitor=f"val_{metric_name}", mode="min")
             )
+            # Per-epoch full-metric-suite capture for meta-learning / HPO-from-early-observation. Default-ON for
+            # neural: val predictions are already concatenated each validation epoch, so the only marginal cost is
+            # the cheap metric kernel. ``capture_iteration_metrics=False`` on the estimator opts out.
+            _cap_iter = getattr(self, "capture_iteration_metrics", None)
+            if _cap_iter is None:
+                _cap_iter = True  # neural family default
+            if _cap_iter:
+                from .._history_recorder import IterationMetricsRecorder
+                if self._is_multilabel:
+                    _tt, _ncls = "multilabel_classification", None
+                elif isinstance(self, ClassifierMixin):
+                    _classes = getattr(self, "classes_", None)
+                    _ncls = int(len(_classes)) if _classes is not None else 2
+                    _tt = "binary_classification" if _ncls <= 2 else "multiclass_classification"
+                else:
+                    _tt, _ncls = "regression", None
+                callbacks.append(IterationMetricsRecorder(target_type=_tt, n_classes=_ncls or None))
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
@@ -949,6 +966,12 @@ class _FitMixin:
                     self.evals_result_ = callback.evals_result_
                     if callback.best_iteration_ is not None:
                         self.best_iteration_ = callback.best_iteration_
+                break
+        from .._history_recorder import IterationMetricsRecorder
+        for callback in trainer.callbacks:
+            if isinstance(callback, IterationMetricsRecorder):
+                if callback.iteration_metrics_:
+                    self.iteration_metrics_ = callback.iteration_metrics_
                 break
 
         # Extract best epoch from model (set by checkpoint callback, DDP-safe). Prefer model.best_epoch over callback.best_epoch

@@ -416,6 +416,8 @@ class _DatasetReuseMixin:
         callbacks=None,
         init_model=None,
         monotonic_decline_patience=3,
+        capture_iteration_metrics=False,
+        iteration_metrics_stride=1,
     ):
         """Cached-Dataset fit.
 
@@ -523,6 +525,9 @@ class _DatasetReuseMixin:
         eval_set = normalize_eval_set(eval_set)
         valid_sets: list[Any] = []
         valid_names: list[str] = []
+        # Raw first-eval-pair frame/labels retained for per-iteration metric capture (the binned Dataset cannot be re-predicted).
+        _iter_metrics_Xval = None
+        _iter_metrics_yval = None
         if eval_set:
             for i, pair in enumerate(eval_set):
                 assert isinstance(pair, tuple) and len(pair) in (2, 3), (
@@ -585,6 +590,9 @@ class _DatasetReuseMixin:
                     self._cached_val_dataset = dval
                     self._cached_val_key = val_key
                 valid_sets.append(dval)
+                if i == 0:
+                    _iter_metrics_Xval = X_val
+                    _iter_metrics_yval = y_val
                 if eval_names and i < len(eval_names):
                     valid_names.append(eval_names[i])
                 else:
@@ -671,6 +679,25 @@ class _DatasetReuseMixin:
             ):
                 train_callbacks.append(LGBMonotonicDeclineStop(patience=monotonic_decline_patience))
 
+        # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). lgb's binned val
+        # Dataset cannot be re-predicted, so the raw first eval pair (_iter_metrics_Xval/_iter_metrics_yval, captured
+        # in the eval_set loop above) is scored via env.model.predict(X_val, num_iteration=round) each stride round.
+        _iter_metrics_cb = None
+        if capture_iteration_metrics and valid_sets and _iter_metrics_Xval is not None:
+            from .callbacks.iteration_metrics import LGBIterationMetricsCallback
+            from sklearn.base import is_classifier as _sk_is_classifier
+            _ncls = getattr(self, "_n_classes", None)
+            if not _sk_is_classifier(self):
+                _tt = "regression"
+            elif _ncls is not None and _ncls > 2:
+                _tt = "multiclass_classification"
+            else:
+                _tt = "binary_classification"
+            _iter_metrics_cb = LGBIterationMetricsCallback(
+                _iter_metrics_Xval, _iter_metrics_yval, _tt, stride=int(iteration_metrics_stride), n_classes=_ncls
+            )
+            train_callbacks.append(_iter_metrics_cb)
+
         booster = lgb.train(
             params=params,
             train_set=dtrain,
@@ -695,6 +722,8 @@ class _DatasetReuseMixin:
         self._evals_result = evals_result
         self._best_iteration = booster.best_iteration
         self._best_score = booster.best_score
+        if _iter_metrics_cb is not None:
+            self.iteration_metrics_ = _iter_metrics_cb.iteration_metrics_
         # ``fitted_`` is the flag ``__sklearn_is_fitted__`` checks --
         # without it predict raises NotFittedError even though _Booster
         # is set. Mirror of LGBMModel.fit's final state-flip line.

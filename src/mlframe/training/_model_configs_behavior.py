@@ -119,6 +119,22 @@ class TrainingBehaviorConfig(BaseConfig):
     # cap unless its native ``early_stopping_rounds`` fires first.
     monotonic_decline_patience: Optional[int] = 3
 
+    # Per-iteration FULL-metric-suite capture for meta-learning / HPO-from-early-observation. When enabled, a
+    # per-round (booster) / per-epoch (neural) callback computes the complete target-type metric suite
+    # (``metrics.compute_all_metrics``) on the val set and stores the trajectory in ``model.iteration_metrics_``
+    # ({iteration -> {metric_name -> float}}). Downstream meta-learners predict final holdout performance from the
+    # first K iterations and prune bad configs early. Defaults differ by model family because the cost profile does:
+    #   - NEURAL: default ON. Val predictions are already concatenated at each validation-epoch-end, so the marginal
+    #     cost is only the (cheap, numba-kernel) metric suite -- essentially free.
+    #   - BOOSTERS (lgb/xgb/cb): default OFF. The cost driver is re-PREDICTING the val set at each round via the
+    #     booster's native per-iteration prediction; that is non-trivial at production val sizes, so it is opt-in and
+    #     stride-sampled. ``None`` is treated as the family default; True / False force it on / off for both families.
+    capture_iteration_metrics: Optional[bool] = None
+    # Booster stride for ``capture_iteration_metrics``: capture every Kth round (the best/last round is always
+    # captured regardless). 1 = every round. Bounds the per-round predict+metric overhead. Ignored for neural
+    # (every validated epoch is captured -- the preds are already materialised so there is nothing to amortise).
+    iteration_metrics_stride: int = 1
+
     # Default True: ``_trainer_train_and_evaluate.maybe_wrap_for_partial_fit_es``
     # auto-wraps linear/ridge/lasso/elasticnet/huber/sgd/ransac models in
     # ``PartialFitESWrapper`` when an X_val/y_val pair is available so val drives
