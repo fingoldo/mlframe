@@ -59,9 +59,15 @@ def _dispatch_batch_mi_with_noise_gate(
     if int(npermutations) > 0 and not use_su:
         try:
             from .._analytic_mi_null import (
-                analytic_batch_noise_gate, analytic_null_enabled, analytic_null_min_n,
+                analytic_batch_noise_gate, analytic_null_enabled, analytic_null_applicable,
             )
-            _an_ok = analytic_null_enabled() and int(n) >= analytic_null_min_n()
+            # Candidates are quantised to ``quantization_nbins`` (low, fixed cardinality); each column's
+            # OCCUPIED bins are <= that, so checking applicability with the declared count + occupied y
+            # bins is conservative (worst-case sparsest table) -- if it passes here it passes per column.
+            _by_occ = int(np.unique(np.asarray(classes_y)).size)
+            _an_ok = analytic_null_enabled() and analytic_null_applicable(
+                int(n), int(quantization_nbins), _by_occ,
+            )
         except Exception:
             _an_ok = False
         if _an_ok:

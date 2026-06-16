@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters._analytic_mi_null import (
     analytic_mi_null,
     analytic_batch_noise_gate,
     analytic_null_min_n,
+    analytic_null_applicable,
 )
 
 NB = 10
@@ -37,6 +38,19 @@ def _md(data, nbins, **kw):
     return mi_direct(data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=64,
                      min_nonzero_confidence=0.0, parallelism="none", prefer_gpu=False,
                      return_null_mean=True, **kw)
+
+
+def test_occupancy_safe_condition():
+    """The analytic null applies only when n >= threshold AND cells are not sparse (avg expected
+    count N/(Bx*By) >= 5). A high-cardinality table with sparse cells must NOT be applicable even at
+    large n -- the caller then falls back to the (sparsity-correct) permutation test."""
+    n = max(int(analytic_null_min_n()), 60_000)
+    # low cardinality (10x10 -> 100 cells -> ~600/cell at 60k): applicable.
+    assert analytic_null_applicable(n, 10, 10)
+    # high cardinality (300x300 -> 90k cells -> <1/cell at 60k): sparse -> NOT applicable.
+    assert not analytic_null_applicable(n, 300, 300)
+    # below the n threshold: never applicable regardless of occupancy.
+    assert not analytic_null_applicable(int(analytic_null_min_n()) - 1, 10, 10)
 
 
 def test_analytic_formula_miller_madow():

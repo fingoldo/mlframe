@@ -485,7 +485,9 @@ def mi_direct(
     # it the legacy permutation path runs byte-for-byte unchanged. Covers BOTH the 2-tuple confidence
     # and 4-tuple null-mean contracts, so it also bypasses the GPU permutation branch below.
     try:
-        from ._analytic_mi_null import analytic_mi_null, analytic_null_enabled, analytic_null_min_n
+        from ._analytic_mi_null import (
+            analytic_mi_null, analytic_null_enabled, analytic_null_min_n, analytic_null_applicable,
+        )
         _analytic_ok = (
             analytic_null_enabled()
             and int(factors_data.shape[0]) >= analytic_null_min_n()
@@ -503,13 +505,17 @@ def mi_direct(
                 factors_data=factors_data, vars_indices=y,
                 var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
             )
-        _ax_mi = compute_relevance_score(False, _ax_classes, _ax_freqs, classes_y, freqs_y, dtype=dtype)
-        _ax_nm, _ax_p = analytic_mi_null(
-            _ax_mi, int(_ax_classes.shape[0]), int(_ax_freqs.shape[0]), int(freqs_y.shape[0]),
-        )
-        if return_null_mean:
-            return _ax_mi, 1.0 - _ax_p, _ax_nm, _ax_p
-        return _ax_mi, 1.0 - _ax_p
+        # Occupancy safe-condition: the chi-square / Miller-Madow approximation is only trustworthy
+        # when the contingency cells are not sparse (a high-cardinality x can have sparse cells even at
+        # large n). When sparse, FALL THROUGH to the sparsity-correct permutation path below.
+        if analytic_null_applicable(int(_ax_classes.shape[0]), int(_ax_freqs.shape[0]), int(freqs_y.shape[0])):
+            _ax_mi = compute_relevance_score(False, _ax_classes, _ax_freqs, classes_y, freqs_y, dtype=dtype)
+            _ax_nm, _ax_p = analytic_mi_null(
+                _ax_mi, int(_ax_classes.shape[0]), int(_ax_freqs.shape[0]), int(freqs_y.shape[0]),
+            )
+            if return_null_mean:
+                return _ax_mi, 1.0 - _ax_p, _ax_nm, _ax_p
+            return _ax_mi, 1.0 - _ax_p
 
     # Transparent route to the GPU permutation path when CUDA is available AND
     # the caller is asking for a high enough permutation count to amortise the

@@ -63,6 +63,39 @@ def analytic_null_min_n() -> int:
     return _ANALYTIC_NULL_MIN_N_DEFAULT
 
 
+# Minimum AVERAGE expected count per contingency cell for the chi-square approximation to be
+# trustworthy. The G-test tail (and the Miller-Madow bias) degrade when cells are sparse -- the
+# classic "expected count >= 5" rule. With Bx*By cells over N rows the average expected count is
+# N/(Bx*By); below this floor the analytic null is NOT applicable and the caller must fall back to
+# the (sparsity-correct) permutation test. Env-tunable. This is the safe-condition the n-only gate
+# was missing: a fixed N threshold does not bound cardinality, so a high-cardinality raw feature can
+# have sparse cells even at large N.
+_ANALYTIC_NULL_MIN_EXPECTED_CELL_DEFAULT = 5.0
+
+
+def _min_expected_cell() -> float:
+    raw = os.environ.get("MLFRAME_MI_ANALYTIC_NULL_MIN_CELL", "").strip()
+    if raw:
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return _ANALYTIC_NULL_MIN_EXPECTED_CELL_DEFAULT
+
+
+def analytic_null_applicable(n_rows: int, n_bins_x: int, n_bins_y: int) -> bool:
+    """True when BOTH safe-conditions hold: n >= threshold AND the contingency cells are not sparse
+    (average expected count N/(Bx*By) >= the min-cell floor). When False the caller must use the
+    permutation test -- the chi-square approximation is unreliable on sparse / high-cardinality tables.
+    """
+    if int(n_rows) < analytic_null_min_n():
+        return False
+    cells = max(1, int(n_bins_x) * int(n_bins_y))
+    return (float(n_rows) / cells) >= _min_expected_cell()
+
+
 def analytic_mi_null(original_mi: float, n_rows: int, n_bins_x: int, n_bins_y: int) -> tuple[float, float]:
     """Return ``(null_mean, p_value)`` for the MI permutation test, computed analytically.
 
@@ -130,4 +163,5 @@ __all__ = [
     "analytic_batch_noise_gate",
     "analytic_null_enabled",
     "analytic_null_min_n",
+    "analytic_null_applicable",
 ]
