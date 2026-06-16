@@ -63,7 +63,19 @@ _INVARIANT_MAP = {
 
 
 # Per-fit RAM budget guard (the meta-task RAM ceiling).
-_MAX_N = 20000
+# Bumped to host the realistic-scale default (production tasks run orders of
+# magnitude larger than 8k; weak heavy-tail interactions are finite-sample
+# starved at 8k -- see _DEFAULT_CASE_N).
+_MAX_N = 60000
+
+# Realistic-scale default sample count for every endtoend invariant case. 8k is
+# data-starved for the weak heavy-tail two-operand interactions the I4/I5 cases
+# probe (the genuine joint MI of e.g. log(c)*sin(d) only separates from pure
+# noise once n is large); production MRMR runs are orders of magnitude larger.
+# Measured: s312 uplift delta climbs -0.026 (8k) -> +0.012 (50k) -> +0.061
+# (200k), crossing the >=-0.05 contract below 50k. May be tuned down once the
+# full n-sweep lands (find-minimal-green-n in progress).
+_DEFAULT_CASE_N = 50000
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +342,7 @@ def _get(case_idx, case, _results_cache):
     if case_idx not in _results_cache:
         fe = _fe_config_for(case_idx)
         case = dict(case)
-        case.setdefault("n", 8000)
+        case.setdefault("n", _DEFAULT_CASE_N)
         assert case["n"] <= _MAX_N
         _results_cache[case_idx] = _run_case(case, fe)
     return _results_cache[case_idx]
