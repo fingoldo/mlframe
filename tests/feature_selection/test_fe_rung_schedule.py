@@ -254,6 +254,7 @@ def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     assert sig_on, f"rung schedule dropped all signal-pair engineered features: off={sig_off}"
 
 
+@pytest.mark.slow
 def test_bizvalue_equal_wall_deeper_needle():
     """DEEPER-SEARCH win at EQUAL wall-time. A genuine signal pair ranked OUTSIDE a hard
     flat top-K budget is missed by the flat sweep but RECOVERED by the rung schedule,
