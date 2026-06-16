@@ -93,10 +93,25 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
         # derivative outranking the raw column, or appearing under a "scorer off" assertion). Hinge behaviour is tested
         # directly in its own files; pin it off here. An explicit override (or fe=True) re-enables it.
         fe_hinge_enable=False,
+        # Same "lightest config" contract for the directed discrete-structural FE families (modular / pairwise-modular / integer-
+        # lattice / row-argmax / conditional-gate): each is an FE stage independent of fe_max_steps and default-ON, so they inject
+        # engineered columns into the supposed no-FE baseline -- a gate_/argmax_/pmod_ column outranking the raw set or dragging a
+        # LINEAR downstream score below the raw-only level (MI-relevant but not linearly usable). The biz_value layers measure the
+        # raw screen / hybrid-orth delta against a TRULY raw-only baseline, so pin these off here. An explicit override re-enables them.
+        fe_modular_enable=False,
+        fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_row_argmax_enable=False,
+        fe_conditional_gate_enable=False,
     )
     if fe:
         kwargs["fe_max_steps"] = 1
         kwargs["fe_hinge_enable"] = True
+        kwargs["fe_modular_enable"] = True
+        kwargs["fe_pairwise_modular_enable"] = True
+        kwargs["fe_integer_lattice_enable"] = True
+        kwargs["fe_row_argmax_enable"] = True
+        kwargs["fe_conditional_gate_enable"] = True
     if dcd:
         kwargs["dcd_enable"] = True
     kwargs.update(overrides)

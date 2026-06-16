@@ -107,12 +107,21 @@ def _unb(gate_med: bool):
     lever under test is the elementary unary/binary pair search with or without
     the per-operand median gate. (The univariate paths would otherwise shadow the
     pair feature on single-column-dominant beds; here they are silenced so the
-    A/B isolates gate_med.)"""
+    A/B isolates gate_med.)
+
+    ``fe_conditional_gate_enable`` is ALSO disabled here: it is an independent,
+    default-ON FE family that recovers the SAME ``(a>med_a)&(b>med_b)`` conjunction
+    via its own ``gate_mask__a__b`` feature at a near-identical target MI (measured
+    0.1047 vs gate_med's 0.1045). Left on, that duplicate out-competes the gate_med
+    pseudo-unary by a hair in the final greedy MRMR selection and shadows it from the
+    support -- exactly the shadowing reason the univariate paths above are silenced.
+    Disabling it keeps this a clean single-knob A/B on ``fe_gate_med_enable``."""
     return MRMR(verbose=0, n_jobs=1, random_seed=0,
                 fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
                 fe_pair_prewarp_enable=False,
                 fe_univariate_basis_enable=False,
                 fe_univariate_fourier_enable=False,
+                fe_conditional_gate_enable=False,
                 fe_gate_med_enable=gate_med, **_LEAN)
 
 
