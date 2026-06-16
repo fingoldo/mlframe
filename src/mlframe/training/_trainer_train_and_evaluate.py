@@ -955,7 +955,7 @@ def train_and_evaluate_model(
 
     _maybe_clean_ram()
 
-    _calib_probs_out, _calib_target_out, _oof_preds_out, _oof_probs_out = compute_calib_and_oof_outputs(
+    _calib_probs_out, _calib_target_out, _calib_preds_out, _oof_preds_out, _oof_probs_out = compute_calib_and_oof_outputs(
         model=model,
         calib_df=calib_df,
         calib_target=calib_target,
@@ -984,6 +984,7 @@ def train_and_evaluate_model(
             oof_probs=_oof_probs_out,
             calib_probs=_calib_probs_out,
             calib_target=_calib_target_out,
+            calib_preds=_calib_preds_out,
             metrics=metrics,
             columns=columns,
             pre_pipeline=pre_pipeline,

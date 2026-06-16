@@ -1,4 +1,5 @@
 """Suite-end finalization: fairness reports, phase summaries, selected features."""
+
 from __future__ import annotations
 
 import logging
@@ -51,6 +52,7 @@ def _pick_best_flavour(ensembles_for_target: dict) -> str | None:
         return None
     # Leaf import: ``_ensemble_chooser`` is the canonical home for the chooser; no cycle to dodge.
     from ._ensemble_chooser import _choose_ensemble_flavour as _canonical_chooser
+
     return _canonical_chooser(ensembles_for_target)
 
 
@@ -66,8 +68,10 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
     if not getattr(ctx, "data_dir", "") or not getattr(ctx, "models_dir", ""):
         return
     _base = join(
-        ctx.data_dir, ctx.models_dir,
-        slugify(ctx.target_name), slugify(ctx.model_name),
+        ctx.data_dir,
+        ctx.models_dir,
+        slugify(ctx.target_name),
+        slugify(ctx.model_name),
     )
     try:
         os.makedirs(_base, exist_ok=True)
@@ -91,7 +95,7 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
             # Wave 46 (2026-05-20): defence-in-depth: a key like "_CT_ENSEMBLE__../../evil" would
             # bypass the prefix gate and traverse out of _base; slugify keeps the prefix as a literal
             # marker while neutralising any path separators / parent-dir refs inside the rest.
-            _dir_name = "_CT_ENSEMBLE__" + slugify(_tname[len("_CT_ENSEMBLE__"):])
+            _dir_name = "_CT_ENSEMBLE__" + slugify(_tname[len("_CT_ENSEMBLE__") :])
             _target_dir = join(_base, _tt_slug, _dir_name)
             try:
                 os.makedirs(_target_dir, exist_ok=True)
@@ -123,7 +127,9 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
                 except Exception as _exc:
                     logger.warning(
                         "[_CT_ENSEMBLE persist] save failed for %s/%s: %s. Predict-from-disk for this target will fall back to component models without the ensemble combiner.",
-                        _tt, _tname, _exc,
+                        _tt,
+                        _tname,
+                        _exc,
                     )
             ctx.slug_to_original_target_name[_dir_name] = _tname
             ctx.slug_to_original_target_name[slugify(_dir_name)] = _tname
@@ -221,10 +227,7 @@ def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
             _members = [(str(_m), 1.0 / len(_methods)) for _m in sorted(_methods.keys())]
             _fallback_reason = None
             if _flavour is None:
-                _fallback_reason = (
-                    "no metric-driven winner; predict will use first-emitted flavour fallback "
-                    "(deterministic via dict-insertion order)"
-                )
+                _fallback_reason = "no metric-driven winner; predict will use first-emitted flavour fallback " "(deterministic via dict-insertion order)"
             _composition["simple"].setdefault(_tt_str, {})[_tname_str] = {
                 "flavour": _flavour,
                 "members": _members,
@@ -253,10 +256,7 @@ def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
             _strategy = _exp.get("strategy")
             _names = _exp.get("component_names") or []
             _weights = _exp.get("weights") or []
-            _members = [
-                (str(_n), float(_w))
-                for _n, _w in zip(_names, _weights)
-            ]
+            _members = [(str(_n), float(_w)) for _n, _w in zip(_names, _weights)]
             _notes = _exp.get("notes") or {}
             _fallback_reason = None
             if _strategy == "single_best_fallback":
@@ -354,6 +354,7 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
     if _calib_idx is None or len(_calib_idx) == 0:
         return
     from .._calibration_models import calibrate_namespace_model
+
     _n = 0
     for _ttype, _by_name in (ctx.models or {}).items():
         if not isinstance(_by_name, dict):
@@ -369,6 +370,103 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
                     logger.warning("[calib] auto-calibration failed for %s/%s: %s", _ttype, _tname, _cal_err)
     if _n and getattr(ctx, "verbose", 0):
         logger.info("[calib] auto-calibrated %d per-target model(s) on the disjoint calib slice.", _n)
+
+
+def _conformal_finalize_structure(ctx: "TrainingContext") -> str:
+    """Infer the conformal split-structure tag from the suite's split config (best-effort, defaults iid)."""
+    from .._conformal_finalize import infer_split_structure
+
+    _sc = getattr(ctx, "split_config", None)
+    if _sc is None:
+        _root = getattr(ctx, "configs", None)
+        _sc = getattr(_root, "split_config", None) if _root is not None else None
+    if _sc is None:
+        return "iid"
+    return infer_split_structure(
+        time_column=getattr(_sc, "time_column", None),
+        cv_strategy=getattr(_sc, "cv_strategy", None),
+        use_groups=bool(getattr(_sc, "use_groups", False)),
+        bucket_stratify=bool(getattr(_sc, "bucket_stratify", False)),
+        wholeday_splitting=bool(getattr(_sc, "wholeday_splitting", False)),
+    )
+
+
+def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
+    """Stamp regression conformal prediction intervals + achieved test coverage per per-target model.
+
+    For each regression entry that carries a test split, build distribution-free intervals from the
+    leakage-free calib-slice residuals (split-conformal, >=1-alpha) when present, else from OOF residuals
+    (CV+/Jackknife+, >=1-2alpha); measure coverage/width/Winkler on the honest test split. Best-effort and
+    additive: it only reads already-stamped arrays and writes ``metadata["conformal"]``, never mutating a
+    model, so a run without calib/OOF data is a clean no-op. The compact report drops the per-row interval
+    arrays to keep metadata small.
+    """
+    import numpy as _np
+
+    from .._conformal_finalize import conformal_regression_report
+
+    _cfg = getattr(ctx, "conformal_config", None)
+    if _cfg is None:
+        _root = getattr(ctx, "configs", None)
+        _cfg = getattr(_root, "conformal_config", None) if _root is not None else None
+    if _cfg is not None and not bool(getattr(_cfg, "enabled", True)):
+        return
+    alphas = tuple(getattr(_cfg, "alphas", (0.1, 0.2))) if _cfg is not None else (0.1, 0.2)
+    score = str(getattr(_cfg, "score", "normalized")) if _cfg is not None else "normalized"
+    structure = _conformal_finalize_structure(ctx)
+
+    def _arr(v):
+        if v is None:
+            return None
+        a = v.values if hasattr(v, "values") else v
+        a = _np.asarray(a, dtype=_np.float64).reshape(-1)
+        return a if a.size else None
+
+    out: dict = {}
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+                # Classification entries carry test_probs -> conformal sets / Venn-Abers are a later increment; skip here.
+                if getattr(_e, "test_probs", None) is not None:
+                    continue
+                y_pred_test = _arr(getattr(_e, "test_preds", None))
+                y_true_test = _arr(getattr(_e, "test_target", None))
+                if y_pred_test is None or y_true_test is None or y_pred_test.size != y_true_test.size:
+                    continue
+                calib_preds = _arr(getattr(_e, "calib_preds", None))
+                calib_target = _arr(getattr(_e, "calib_target", None))
+                oof_preds = _arr(getattr(_e, "oof_preds", None))
+                train_target = _arr(getattr(_e, "train_target", None))
+                kwargs: dict = {}
+                if calib_preds is not None and calib_target is not None and calib_preds.size == calib_target.size:
+                    kwargs = dict(residuals_cal=calib_target - calib_preds, y_pred_cal=calib_preds, score=score)
+                elif oof_preds is not None and train_target is not None and oof_preds.size == train_target.size:
+                    kwargs = dict(oof_residuals=train_target - oof_preds)
+                else:
+                    continue
+                try:
+                    rep = conformal_regression_report(
+                        y_pred_test=y_pred_test,
+                        y_true_test=y_true_test,
+                        alphas=alphas,
+                        structure=structure,
+                        **kwargs,
+                    )
+                except Exception as _cf_err:
+                    logger.warning("[conformal] report failed for %s/%s: %s", _ttype, _tname, _cf_err)
+                    continue
+                rep.pop("intervals", None)  # drop per-row arrays; keep the compact per-alpha coverage summary
+                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                out[f"{_ttype}/{_tname}/{_mn}"] = rep
+    if out:
+        ctx.metadata["conformal"] = out
+        if getattr(ctx, "verbose", 0):
+            logger.info("[conformal] stamped intervals + coverage for %d regression model(s).", len(out))
 
 
 def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
@@ -390,6 +488,7 @@ def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
     if not plot_outputs:
         return
     from mlframe.reporting.diagnostics_dispatch import render_model_comparison_from_suite
+
     _n = 0
     for _tt, _by_name in (ctx.models or {}).items():
         if not isinstance(_by_name, dict):
@@ -398,14 +497,22 @@ def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
             if not isinstance(_entries, list) or len(_entries) < 2:
                 continue
             _base = join(
-                data_dir, "charts", slugify(ctx.target_name), slugify(ctx.model_name),
-                slugify(str(_tt).lower()), slugify(str(_tname)), "model_comparison",
+                data_dir,
+                "charts",
+                slugify(ctx.target_name),
+                slugify(ctx.model_name),
+                slugify(str(_tt).lower()),
+                slugify(str(_tname)),
+                "model_comparison",
             )
             try:
                 os.makedirs(os.path.dirname(_base), exist_ok=True)
                 if render_model_comparison_from_suite(
-                    model_entries=_entries, target_type=str(_tt),
-                    plot_outputs=plot_outputs, base_path=_base, metrics_dict=ctx.metadata,
+                    model_entries=_entries,
+                    target_type=str(_tt),
+                    plot_outputs=plot_outputs,
+                    base_path=_base,
+                    metrics_dict=ctx.metadata,
                 ):
                     _n += 1
             except Exception as _mc_err:
@@ -433,6 +540,7 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
     if not plot_outputs:
         return
     from mlframe.reporting.diagnostics_dispatch import render_split_comparison_from_suite
+
     _n = 0
     for _tt, _by_name in (ctx.models or {}).items():
         if not isinstance(_by_name, dict):
@@ -443,14 +551,23 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
             for _i, _entry in enumerate(_entries):
                 _mn = str(getattr(_entry, "model_name", None) or type(getattr(_entry, "model", None)).__name__ or f"model_{_i}")
                 _base = join(
-                    data_dir, "charts", slugify(ctx.target_name), slugify(ctx.model_name),
-                    slugify(str(_tt).lower()), slugify(str(_tname)), slugify(_mn),
+                    data_dir,
+                    "charts",
+                    slugify(ctx.target_name),
+                    slugify(ctx.model_name),
+                    slugify(str(_tt).lower()),
+                    slugify(str(_tname)),
+                    slugify(_mn),
                 )
                 try:
                     os.makedirs(os.path.dirname(_base), exist_ok=True)
                     if render_split_comparison_from_suite(
-                        entry=_entry, target_type=str(_tt), plot_outputs=plot_outputs,
-                        base_path=_base, metrics_dict=ctx.metadata, model_name=_mn,
+                        entry=_entry,
+                        target_type=str(_tt),
+                        plot_outputs=plot_outputs,
+                        base_path=_base,
+                        metrics_dict=ctx.metadata,
+                        model_name=_mn,
                     ):
                         _n += 1
                 except Exception as _sc_err:
@@ -478,6 +595,7 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
     if not plot_outputs:
         return
     from mlframe.reporting.diagnostics_dispatch import render_prediction_stability_diagnostic
+
     _n = 0
     for _tt, _by_name in (ctx.models or {}).items():
         if not isinstance(_by_name, dict):
@@ -495,14 +613,22 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
                 _mn = str(getattr(_e, "model_name", None) or (type(_model).__name__ if _model is not None else f"ensemble_{_i}"))
                 _yt = getattr(_e, "test_target", None)
                 _base = join(
-                    data_dir, "charts", slugify(ctx.target_name), slugify(ctx.model_name),
-                    slugify(str(_tt).lower()), slugify(str(_tname)), slugify(_mn),
+                    data_dir,
+                    "charts",
+                    slugify(ctx.target_name),
+                    slugify(ctx.model_name),
+                    slugify(str(_tt).lower()),
+                    slugify(str(_tname)),
+                    slugify(_mn),
                 )
                 try:
                     os.makedirs(os.path.dirname(_base), exist_ok=True)
                     if render_prediction_stability_diagnostic(
-                        member_preds=_mp, y_true=_yt, plot_outputs=plot_outputs,
-                        base_path=_base, metrics_dict=ctx.metadata,
+                        member_preds=_mp,
+                        y_true=_yt,
+                        plot_outputs=plot_outputs,
+                        base_path=_base,
+                        metrics_dict=ctx.metadata,
                     ):
                         _n += 1
                 except Exception as _ps_err:
@@ -522,6 +648,12 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _auto_calibrate_on_calib_slice(ctx)
     except Exception as _cal_err:
         logger.warning("[calib] auto-calibration pass failed: %s", _cal_err)
+
+    # Additive, best-effort: stamp regression conformal intervals + achieved test coverage into metadata.
+    try:
+        _conformal_on_calib_slice(ctx)
+    except Exception as _conf_err:
+        logger.warning("[conformal] finalize pass failed: %s", _conf_err)
 
     # Single pass over ctx.models that collects BOTH the per-split fairness reports
     # (lifted from model.metrics) AND the per-entry selected-features list (mirrored to
@@ -619,6 +751,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     if _hd_on:
         try:
             from ..honest_diagnostics import run_honest_diagnostics
+
             run_honest_diagnostics(ctx, getattr(ctx, "models", {}) or {}, ctx.metadata)
         except Exception as _hd_err:
             logger.warning("[honest_diagnostics] aggregator failed: %s", _hd_err)
@@ -630,8 +763,8 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     # whether diagnostics were saved, skipped by design (no data_dir), or lost to a render failure.
     try:
         from ._setup_helpers import log_chart_summary
-        log_chart_summary(ctx.metadata, save_charts=bool(getattr(ctx, "save_charts", False)),
-                          data_dir=getattr(ctx, "data_dir", "") or None)
+
+        log_chart_summary(ctx.metadata, save_charts=bool(getattr(ctx, "save_charts", False)), data_dir=getattr(ctx, "data_dir", "") or None)
     except Exception as _cs_err:
         logger.debug("[finalize] chart-summary log failed: %s", _cs_err)
 
@@ -641,14 +774,12 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         # Wall-share percentages computed against the longest-running phase (suite root).
         try:
             from ..phases import phase_snapshot
+
             _snap = phase_snapshot()
             if _snap:
                 _root_wall = _snap[0][1] if _snap else 0.0
                 if _root_wall > 0:
-                    _share_str = ", ".join(
-                        f"{p}={tot/_root_wall*100:.1f}%"
-                        for p, tot, _ in _snap[:8]
-                    )
+                    _share_str = ", ".join(f"{p}={tot/_root_wall*100:.1f}%" for p, tot, _ in _snap[:8])
                     logger.info("[wall-share] top: %s", _share_str)
         except Exception:
             pass
@@ -656,8 +787,10 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         # Surface cumulative kaleido oneshot cost; per-call warning is suppressed (idempotent).
         try:
             from mlframe.reporting.renderers.plotly import (
-                get_kaleido_oneshot_stats, reset_kaleido_oneshot_stats,
+                get_kaleido_oneshot_stats,
+                reset_kaleido_oneshot_stats,
             )
+
             _kal_n, _kal_wall = get_kaleido_oneshot_stats()
             if _kal_n > 0:
                 logger.info(
@@ -665,7 +798,9 @@ def finalize_suite(ctx: TrainingContext) -> dict:
                     "(cumulative %.1fs wall, %.0fms/call avg). Persistent "
                     "sync-server path would be ~10-100x faster -- upgrade "
                     "kaleido (>=1.x ships ``start_sync_server``) to enable.",
-                    _kal_n, _kal_wall, (_kal_wall / _kal_n) * 1000,
+                    _kal_n,
+                    _kal_wall,
+                    (_kal_wall / _kal_n) * 1000,
                 )
             reset_kaleido_oneshot_stats()
         except Exception:
@@ -686,21 +821,25 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     if _residual_audit_prior is not None:
         try:
             from mlframe.training.evaluation import _set_residual_audit_enabled
+
             _set_residual_audit_enabled(_residual_audit_prior)
         except (ImportError, AttributeError) as _restore_err:
             logger.debug(
                 "[finalize] residual_audit flag restore failed: %s: %s",
-                type(_restore_err).__name__, _restore_err,
+                type(_restore_err).__name__,
+                _restore_err,
             )
     if "_process_flag_prior_inline_display" in _artifacts:
         _inline_display_prior = _artifacts.pop("_process_flag_prior_inline_display")
         try:
             from mlframe.reporting.renderers.save import set_inline_display_mode
+
             set_inline_display_mode(_inline_display_prior)
         except (ImportError, AttributeError) as _restore_err:
             logger.debug(
                 "[finalize] inline_display flag restore failed: %s: %s",
-                type(_restore_err).__name__, _restore_err,
+                type(_restore_err).__name__,
+                _restore_err,
             )
 
     return ctx.metadata

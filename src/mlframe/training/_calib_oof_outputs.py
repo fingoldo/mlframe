@@ -5,6 +5,7 @@ main function stays under the LOC ceiling: the disjoint-calib predict + OOF
 mirror outputs, and the optional confidence-analysis dispatch. Each reads an
 explicit set of inputs and has no shared-local-namespace coupling.
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,12 +74,14 @@ def compute_calib_and_oof_outputs(
     fit_params: dict,
     model_type_name: str,
     model_name: str,
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Any, Any]:
-    """Run the fitted model's calib-slice predict_proba and mirror OOF preds/probs.
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Any, Any]:
+    """Run the fitted model's calib-slice predict (proba for classification, point for regression) and mirror OOF preds/probs.
 
-    Returns ``(calib_probs, calib_target, oof_preds, oof_probs)``. The calib outputs
-    are ``None`` for regression / no-``predict_proba`` models or when no calib frame
-    exists; the OOF outputs mirror whatever was stamped on ``model`` during training.
+    Returns ``(calib_probs, calib_target, calib_preds, oof_preds, oof_probs)``. ``calib_probs`` is
+    ``None`` for regression / no-``predict_proba`` models; ``calib_preds`` is the regression point
+    prediction on the calib slice (``None`` for classification or when no calib frame exists) -- the
+    leakage-free residual source for split-conformal in finalize. The OOF outputs mirror whatever was
+    stamped on ``model`` during training.
     """
     # Disjoint-calib predict (TrainingSplitConfig.calib_size > 0): run the fitted base model's predict_proba on the calib
     # slice and stamp (calib_probs, calib_target) so finalize's _auto_calibrate_on_calib_slice fits the post-hoc isotonic
@@ -87,6 +90,7 @@ def compute_calib_and_oof_outputs(
     # model exposing predict_proba (classification) -- regression / no-predict_proba models stamp nothing (consumer no-ops).
     calib_probs = None
     calib_target_out = None
+    calib_preds = None
     if model is not None and calib_df is not None and hasattr(model, "predict_proba"):
         try:
             _calib_df_prep, _calib_target_prep, _ = _prepare_test_split(
@@ -106,19 +110,47 @@ def compute_calib_and_oof_outputs(
             if _calib_df_prep is not None and _calib_target_prep is not None and len(_calib_df_prep) > 0:
                 from ._classif_helpers import _canonical_predict_proba_shape
                 from ._data_helpers import _prepare_df_for_model
+
                 _calib_X = _prepare_df_for_model(_calib_df_prep, model_type_name)
                 _cp = _predict_with_fallback(model, _calib_X, method="predict_proba")
                 _cp = _canonical_predict_proba_shape(_cp)
                 calib_probs = _cp
-                calib_target_out = (
-                    _calib_target_prep.values if hasattr(_calib_target_prep, "values") else np.asarray(_calib_target_prep)
-                )
+                calib_target_out = _calib_target_prep.values if hasattr(_calib_target_prep, "values") else np.asarray(_calib_target_prep)
         except Exception as _calib_err:
             logger.warning("calib-slice predict failed for %s; finalize calibration will no-op for this model: %s", model_name, _calib_err)
+
+    # Regression calib-slice point predictions: the leakage-free residual source for split-conformal in finalize.
+    # Runs only when the model has no predict_proba (regression) but can predict; mirrors the classification block's
+    # subset+transform+predict path. None on classification / no calib frame so the conformal consumer no-ops.
+    if model is not None and calib_df is not None and calib_probs is None and hasattr(model, "predict"):
+        try:
+            _calib_df_prep, _calib_target_prep, _ = _prepare_test_split(
+                df=None,
+                test_df=calib_df,
+                test_idx=None,
+                test_target=calib_target,
+                target=None,
+                real_drop_columns=real_drop_columns,
+                model=model,
+                pre_pipeline=pre_pipeline,
+                skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+                skip_preprocessing=skip_preprocessing,
+                selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
+            )
+            _calib_df_prep = _sanitize_frame_columns(_calib_df_prep)
+            if _calib_df_prep is not None and _calib_target_prep is not None and len(_calib_df_prep) > 0:
+                from ._data_helpers import _prepare_df_for_model
+
+                _calib_X = _prepare_df_for_model(_calib_df_prep, model_type_name)
+                calib_preds = np.asarray(_predict_with_fallback(model, _calib_X, method="predict")).reshape(-1)
+                if calib_target_out is None:
+                    calib_target_out = _calib_target_prep.values if hasattr(_calib_target_prep, "values") else np.asarray(_calib_target_prep)
+        except Exception as _calib_reg_err:
+            logger.warning("calib-slice regression predict failed for %s; finalize conformal will fall back: %s", model_name, _calib_reg_err)
 
     # OOF preds/probs were stamped on ``model`` right after training (see ``_compute_oof_preds`` call above). Mirror them onto
     # the returned namespace so ensemble member shapes carry the OOF signal alongside the per-split predictions without
     # callers having to fish them off the model object.
     oof_preds = getattr(model, "oof_preds", None) if model is not None else None
     oof_probs = getattr(model, "oof_probs", None) if model is not None else None
-    return calib_probs, calib_target_out, oof_preds, oof_probs
+    return calib_probs, calib_target_out, calib_preds, oof_preds, oof_probs
