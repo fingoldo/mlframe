@@ -110,6 +110,15 @@ class TrainingBehaviorConfig(BaseConfig):
     early_stop_on_worsening_coeff: int = 5
     early_stop_on_worsening_min_iters: int = 5
 
+    # Canonical monotonic strict-decline overfitting-stop knob (default 3). Threads through to the lgb / xgb
+    # shims' ``.fit(monotonic_decline_patience=...)`` and the CatBoost ``callback_params`` so a single value
+    # controls the byte-identical ``MonotonicDeclineStopper`` rule across all three boosters (and mirrors the
+    # neural / sklearn-wrapper paths). The detector stops once the monitored val metric strictly worsens for
+    # this many CONSECUTIVE rounds since the global best (a new best, a plateau, or a bounce-up all reset the
+    # streak). ``None`` disables it entirely -- the off-switch -- so the booster trains to its full iteration
+    # cap unless its native ``early_stopping_rounds`` fires first.
+    monotonic_decline_patience: Optional[int] = 3
+
     # Default True: ``_trainer_train_and_evaluate.maybe_wrap_for_partial_fit_es``
     # auto-wraps linear/ridge/lasso/elasticnet/huber/sgd/ransac models in
     # ``PartialFitESWrapper`` when an X_val/y_val pair is available so val drives

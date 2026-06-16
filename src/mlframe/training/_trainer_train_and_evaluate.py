@@ -240,6 +240,25 @@ def train_and_evaluate_model(
     callback_params = control.callback_params
     model_category = control.model_category
 
+    # Thread ``TrainingBehaviorConfig.monotonic_decline_patience`` (default 3; None disables) to the boosters:
+    # for cb it travels via ``callback_params`` (consumed by ``_setup_early_stopping_callback``), for the lgb /
+    # xgb shims it is a ``.fit()`` kwarg read from ``fit_params``. Mirrors the ``early_stop_on_worsening*``
+    # plumbing. A value already present in callback_params / fit_params (explicit per-call override) wins.
+    _mono_beh = getattr(getattr(control, "behavior", None), "__dict__", None)
+    if _mono_beh is not None and "monotonic_decline_patience" in _mono_beh:
+        _mono_patience_cfg = _mono_beh["monotonic_decline_patience"]
+    else:
+        _mono_patience_cfg = getattr(control, "monotonic_decline_patience", 3)
+    if model_category == "cb" or callback_params:
+        # Only materialise callback_params for cb (which consumes the key) or when the caller already passed
+        # one -- avoid injecting an empty callbacks kwarg into non-booster fits that previously got None.
+        callback_params = dict(callback_params or {})
+        callback_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
+    if model_category in ("lgb", "xgb"):
+        if fit_params is None:
+            fit_params = {}
+        fit_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
+
     nbins = metrics.nbins
     custom_ice_metric = metrics.custom_ice_metric
     custom_rice_metric = metrics.custom_rice_metric
