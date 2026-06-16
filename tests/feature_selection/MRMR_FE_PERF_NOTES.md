@@ -66,3 +66,25 @@ All FE families guard `isinstance(X, pd.DataFrame)` and SKIP (with a warning) on
 raw MI screening runs, no engineered features. TODO: auto-convert polars->pandas at fit entry when FE
 is enabled (fit AND transform consistently) so polars users get full FE (one materialization; the FE
 needs pandas anyway -- strictly better than silently skipping FE).
+
+## Scaling profile 2026-06-16 (100k/400k/1M) -- the REAL large-n hotspot is the MI permutation null
+
+bench_scaling (full MRMR.fit, cProfile, fe_max_steps=2) settled two things measured, not guessed:
+
+* **FE candidate CONSTRUCTION is NOT the bottleneck and its share SHRINKS with n:** 12.2% (100k) ->
+  3.9% (400k). Absolute construction grew ~linearly (30s->93s) while MI exploded ~17x (130s->2188s).
+  Micro-bench (microbench_fe.py, 1M rows): njit/prange beats numpy only ~1.0-1.3x on arithmetic
+  (memory-bound) and ~2.5x on transcendentals (log/sin) -- so even a big construction speedup buys a
+  few % of wall. CONCLUSION: do NOT re-platform FE construction to numba FOR SPEED (polars/OOM are
+  separate, legitimate reasons). This confirms the older `_conditional_gate_fe.py:420-424` bench
+  (construction ~0ms of the MI-bound scan) holds AND strengthens at scale.
+
+* **The dominant large-n cost is the MI PERMUTATION NULL:** at 400k the cupy `argsort` permutation
+  generator (gpu.py:mi_direct_gpu_batched, and the CPU prange twin) was ~72% of the fit -- thousands
+  of O(n) shuffles across the FE scan. (1M OOM'd: peak 9.87GB at 400k on a 15.9GB box; the argsort
+  blowup is amplified by the dev GTX 1050 Ti -- ~30x faster on a strong GPU -- but it stays the top
+  hotspot by rank regardless.) FIXED 2026-06-16 (commit cda55bcb): the analytic large-n null
+  (Miller-Madow null mean + G-test p, `_analytic_mi_null.py`) replaces the shuffles at n>=50k,
+  measured 24-35x on the null computation, identical MI/null + decision-equivalent p. NEXT large-n
+  lever if more is needed: the joint-hist / binning path (`_binned_numeric_agg_fe`, MDLP), not
+  construction.
