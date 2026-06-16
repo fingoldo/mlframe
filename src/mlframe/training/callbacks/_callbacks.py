@@ -52,12 +52,14 @@ class UniversalCallback:
         # math, no patience bump). Used for shipping per-shard diagnostics without changing the
         # ES behaviour. Ignored when ``slice_k == 0``.
         slice_diagnostic_only: bool = False,
-        # Curve-shape ES detector (see TrainingBehaviorConfig docstring). Forward-looking
-        # complement to patience: when a strict-monotone-worsening run since the best iter
-        # has lasted ``max(max_iter // worsening_coeff, worsening_min_iters)`` iterations,
-        # stop. ``worsening_max_iter`` is the booster's iteration budget; when None we
-        # fall back to ``worsening_min_iters`` as the threshold (conservative).
-        worsening_enabled: bool = True,
+        # Legacy budget-scaled curve-shape ES detector. DEFAULT OFF: the canonical monotonic strict-decline
+        # stop is now ``MonotonicDeclineStopper`` / ``monotonic_decline_patience`` wired directly into the
+        # lgb / xgb / cb shims (a fixed-N, plateau-resets rule, byte-identical across backends + the sklearn /
+        # lightning wrappers). Keeping this ON too would double-stop the SAME fit on two different rules. This
+        # ``worsening_enabled=True`` variant -- whose threshold is budget-scaled (``max_iter // coeff``) and
+        # which does NOT reset on an exact plateau -- is retained for opt-in parity benchmarks against the
+        # pre-monotonic behaviour; pass ``worsening_enabled=True`` explicitly to re-enable it.
+        worsening_enabled: bool = False,
         worsening_coeff: int = 5,
         worsening_min_iters: int = 5,
         worsening_max_iter: int | None = None,
