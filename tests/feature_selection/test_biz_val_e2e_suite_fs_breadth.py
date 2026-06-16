@@ -125,7 +125,13 @@ def _train(df, fte, target_type, fs_config, *, models=("cb",), iters=10, **suite
             reporting_config=_REPORTING,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=d, models_dir="models"),
+            # save_charts=False: these FS-breadth tests inspect only the selected feature
+            # set, never a chart. Leaving the OutputConfig default (save_charts=True) makes
+            # the suite render the model-comparison leaderboard via a matplotlib/tk backend
+            # whose render future stalls under a headless pytest worker thread
+            # (render_and_save -> ThreadPoolExecutor f.result), wasting minutes per test on
+            # a chart nobody reads. Same knob _suite_fe_helpers.run_suite already uses.
+            output_config=OutputConfig(data_dir=d, models_dir="models", save_charts=False),
             verbose=0,
             feature_selection_config=fs_config,
             **suite_kw,
