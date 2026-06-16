@@ -833,6 +833,15 @@ def _evaluate(formula, spec, selected, df_cols):
 
 
 def _fit_and_eval(formula, n, fe_max_steps=1):
+    # DETERMINISM (2026-06-16): the FE path consumes the GLOBAL ``np.random`` (permutation
+    # nulls / subsampling) IN ADDITION to the seeded ``random_seed=SEED``, so running many
+    # cases in ONE process leaves the global RNG in a prior-case-dependent state -> a later
+    # case's FE selection silently changes (the same global-RNG-contamination the endtoend
+    # layer avoids via subprocess-per-case). These broad cases do NOT subprocess, so pin the
+    # global RNG here: every fit starts from the SAME global state, making each case's verdict
+    # reproducible and order-independent (was flaky: ~20 cases flipped pass/fail purely on the
+    # in-process execution order). Pure test-determinism -- no production behaviour change.
+    np.random.seed(SEED)
     spec = FORMULAS[formula]
     df, y = spec["builder"](SEED, n)
     df_cols = set(df.columns)
