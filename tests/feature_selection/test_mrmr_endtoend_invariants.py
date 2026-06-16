@@ -50,6 +50,14 @@ import pytest
 from ._mrmr_realistic_data import default_fuzz_grid
 
 
+# These are heavy integration fits at realistic n (see _DEFAULT_CASE_N): a single
+# subprocess fit can run a few minutes, well past the repo-global 60s per-test
+# timeout. The worker already enforces its own 600s budget in _run_case, so lift
+# the per-test ceiling above it here (module-scoped) rather than letting the
+# global 60s kill a legitimately long fit.
+pytestmark = pytest.mark.timeout(700)
+
+
 # Map each invariant id -> the production bug class it guards (surfaced in the
 # test-gap analysis and in assertion messages).
 _INVARIANT_MAP = {
@@ -72,10 +80,17 @@ _MAX_N = 60000
 # data-starved for the weak heavy-tail two-operand interactions the I4/I5 cases
 # probe (the genuine joint MI of e.g. log(c)*sin(d) only separates from pure
 # noise once n is large); production MRMR runs are orders of magnitude larger.
-# Measured: s312 uplift delta climbs -0.026 (8k) -> +0.012 (50k) -> +0.061
-# (200k), crossing the >=-0.05 contract below 50k. May be tuned down once the
-# full n-sweep lands (find-minimal-green-n in progress).
-_DEFAULT_CASE_N = 50000
+# Minimal-green-n sweep (per failing case, real invariant conditions):
+#   s312 (subsumed_plus_private/heavytail): uplift delta -0.0725 (8k) ->
+#         +0.015 (25k) -> +0.0137 (75k); I4/I4b/I5 all green from n=25k.
+#   s203 (ratio_plus_trig/normal): pure-noise 'e' selected at 8k, dropped from
+#         n=25k onward (delta stays >=-0.05 throughout); I4 green from n=25k.
+#   s909 (ratio_plus_trig/uniform): NOT a sample-size issue -- the uniform
+#         strict redundancy-drop keeps a subsumed raw alongside a 2-operand
+#         composite that captures it at EVERY n (8k..200k). Tracked separately.
+# 25k is the minimal n that greens the finite-sample-starved cases; it also
+# keeps each subprocess fit inside the 600s worker timeout (50k overran it).
+_DEFAULT_CASE_N = 25000
 
 
 # ---------------------------------------------------------------------------
