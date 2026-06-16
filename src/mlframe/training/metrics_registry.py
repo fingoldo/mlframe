@@ -163,7 +163,7 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     "recall_at_k", "hit_rate", "hit_at_k",
     "dcg", "dcg_at_k", "err", "expected_reciprocal_rank",
     # Classification-quality metrics
-    "auc", "roc_auc", "pr_auc", "auprc",
+    "auc", "roc_auc", "pr_auc", "auprc", "auc_mu",
     "accuracy", "accuracy_score",
     "f1", "f1_score", "f1_macro", "f1_micro", "f1_weighted",
     "f_beta", "f0_5", "f2",
@@ -233,6 +233,11 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "fpr", "fnr",
     # Quantile losses
     "pinball", "pinball_loss", "quantile_loss",
+    # Native booster eval-metric aliases (LightGBM / XGBoost / CatBoost). All are lower-is-better losses; they
+    # arrive verbatim from ``evals_log`` / ``env.evaluation_result_list`` so the monotonic-decline + worsening
+    # detectors must resolve their direction or they self-disable on an otherwise-known metric.
+    "l2", "l1", "binary_logloss", "multi_logloss", "binary_error", "multi_error", "error",
+    "fair", "tweedie", "gamma", "poisson",
 })
 
 # Carry-out: LRAP is higher-is-better; ensure it lands in HIGHER bucket

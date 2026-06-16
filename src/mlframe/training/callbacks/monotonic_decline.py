@@ -30,9 +30,17 @@ from mlframe.estimators.early_stopping_monotonic import MonotonicDeclineStopper
 
 logger = logging.getLogger(__name__)
 
+# Sentinel returned by ``_resolve_mode`` when the metric direction is unknown and no explicit mode= was given.
+# Each backend treats it as "skip the monotonic stop for this fit" rather than guessing a (possibly inverted) direction.
+_UNKNOWN_DIRECTION = "unknown"
+
 
 def _resolve_mode(metric_name: str, mode: Optional[str]) -> str:
-    """Pick the optimization direction for a metric name (explicit ``mode`` wins)."""
+    """Pick the optimization direction for a metric name (explicit ``mode`` wins).
+
+    Returns ``"min"`` / ``"max"`` for a resolved direction, or the ``_UNKNOWN_DIRECTION`` sentinel when the
+    metric is not registered and no ``mode=`` override is supplied -- callers must then disable the detector.
+    """
     if mode in ("min", "max"):
         return mode
     from ..metrics_registry import metric_name_higher_is_better
@@ -42,13 +50,17 @@ def _resolve_mode(metric_name: str, mode: Optional[str]) -> str:
         return "max"
     if direction is False:
         return "min"
-    # Unknown metric: default to min (the safe boosting-loss assumption) but warn so the caller
-    # can register the metric or pass mode= explicitly.
+    # Unknown metric AND no explicit mode: do NOT guess a direction. Guessing "min" inverts the rule for a
+    # higher-is-better custom metric (it would treat improving steps as declines and stop at/near the best, or
+    # never stop) -- a silent correctness bug. Return the SKIP sentinel so the caller disables the monotonic
+    # stop for this fit, warned once, rather than wiring a detector that may stop at the wrong iteration.
     logger.warning(
-        "monotonic-decline callback: unknown direction for metric=%r; defaulting to mode='min'. "
-        "Pass mode= explicitly or register the metric in metrics_registry.", metric_name,
+        "monotonic-decline callback: unknown optimization direction for metric=%r and no mode= given; "
+        "DISABLING the monotonic strict-decline stop for this fit (would otherwise have to guess a "
+        "direction). Pass mode='min'/'max' explicitly or register the metric in metrics_registry to "
+        "re-enable.", metric_name,
     )
-    return "min"
+    return _UNKNOWN_DIRECTION
 
 
 class LGBMonotonicDeclineStop:
@@ -91,7 +103,11 @@ class LGBMonotonicDeclineStop:
         if value is None:
             return
         if self._stopper is None:
-            self._stopper = MonotonicDeclineStopper(self.patience, mode=_resolve_mode(mt, self._mode))
+            resolved = _resolve_mode(mt, self._mode)
+            if resolved == _UNKNOWN_DIRECTION:
+                self._stopper = MonotonicDeclineStopper(None)  # disabled: unknown direction, never stops
+                return
+            self._stopper = MonotonicDeclineStopper(self.patience, mode=resolved)
             if not self._stopper.enabled:
                 return
             self._best_value = value
@@ -136,6 +152,8 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 3, monitor_dataset: O
             self._mode = mode
             self._monitor_dataset = monitor_dataset
             self._monitor_metric = monitor_metric
+            self._best_iter = 0
+            self._best_value: Optional[float] = None
 
         def after_iteration(self, model, epoch, evals_log) -> bool:
             if not evals_log:
@@ -150,15 +168,37 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 3, monitor_dataset: O
                 return False
             value = float(series[-1])
             if self._stopper is None:
-                self._stopper = MonotonicDeclineStopper(patience, mode=_resolve_mode(mt, self._mode))
+                resolved = _resolve_mode(mt, self._mode)
+                if resolved == _UNKNOWN_DIRECTION:
+                    self._stopper = MonotonicDeclineStopper(None)  # disabled: unknown direction, never stops
+                    return False
+                self._stopper = MonotonicDeclineStopper(patience, mode=resolved)
                 if not self._stopper.enabled:
                     return False
+                self._best_value = value
+                self._best_iter = epoch
+            # Track best iteration so the stop can roll the booster back to it. Unlike LightGBM's
+            # EarlyStopException (which truncates the returned booster to ``best_iteration``), XGBoost's
+            # ``after_iteration``-return-True keeps the FULL booster including the post-best overfit tail,
+            # and ``XGBModel.predict`` would then score with every round. Stamp ``best_iteration`` on the
+            # booster so ``_get_iteration_range`` truncates prediction to ``best_iteration + 1``.
+            is_better = (
+                self._best_value is None
+                or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
+            )
+            if is_better:
+                self._best_value = value
+                self._best_iter = epoch
             if self._stopper.update(value):
                 logger.info(
                     "[xgb monotonic-decline] stopping at iteration %d: %s/%s strictly worsened for %d "
-                    "consecutive rounds since best.", epoch, ds, mt, self._stopper.streak,
+                    "consecutive rounds since best @%d.", epoch, ds, mt, self._stopper.streak, self._best_iter,
                 )
-                return True  # XGBoost stops training; best_iteration bookkeeping already tracked natively.
+                if model is not None:
+                    # ``best_iteration`` is 0-based; predict uses ``(0, best_iteration + 1)``.
+                    model.set_attr(best_iteration=str(int(self._best_iter)),
+                                   best_score=str(float(self._best_value)))
+                return True
             return False
 
     return _XGBMonotonicDeclineStop()
@@ -217,7 +257,11 @@ class CBMonotonicDeclineStop:
             return True
         value = float(series[-1])
         if self._stopper is None:
-            self._stopper = MonotonicDeclineStopper(self.patience, mode=_resolve_mode(mt, self._mode))
+            resolved = _resolve_mode(mt, self._mode)
+            if resolved == _UNKNOWN_DIRECTION:
+                self._stopper = MonotonicDeclineStopper(None)  # disabled: unknown direction, never stops
+                return True
+            self._stopper = MonotonicDeclineStopper(self.patience, mode=resolved)
             if not self._stopper.enabled:
                 return True
         if self._stopper.update(value):
