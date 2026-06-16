@@ -8225,6 +8225,34 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _pre_n - len(selected_vars),
             )
 
+    # SEARCH-SPACE RESTRICTION FINAL ENFORCEMENT (2026-06-16). When the caller pins the candidate
+    # pool via ``factors_names_to_use`` / ``factors_to_use``, the SCREEN honours it, but the many
+    # post-screen raw-retention / masked-raw rescue / hinge / orth / pcr / never-empty / count-floor
+    # re-add passes do NOT all consult the restriction, so a forbidden raw column (e.g. ``good2`` when
+    # the pool is pinned to ``["good1"]``) leaks into ``support_`` -- and because the in-object fit-skip
+    # / _FIT_CACHE replay a stale selection unless every param change invalidates it, the bug also shows
+    # as a stale-replay regression. Enforce the restriction ONCE at the support chokepoint (raw indices
+    # into feature_names_in_): a raw column the user excluded can never reach support_ regardless of which
+    # re-add path admitted it. Engineered survivors (in ``_engineered_recipes_``) are untouched -- they are
+    # built only from allowed raws by the screen, which already respects the restriction.
+    _allowed_raw_idx = None
+    _fn_restrict = getattr(self, "factors_names_to_use", None)
+    _fi_restrict = getattr(self, "factors_to_use", None)
+    if _fn_restrict:
+        _allowed_names = set(_fn_restrict)
+        _allowed_raw_idx = {_j for _j, _nm in enumerate(self.feature_names_in_) if _nm in _allowed_names}
+    elif _fi_restrict is not None:
+        _allowed_raw_idx = set(int(_j) for _j in _fi_restrict)
+    if _allowed_raw_idx is not None and selected_vars:
+        _pre_r = len(selected_vars)
+        selected_vars = [v for v in selected_vars if int(v) in _allowed_raw_idx]
+        if verbose and len(selected_vars) != _pre_r:
+            logger.info(
+                "MRMR: dropped %d raw feature(s) outside the pinned factors_names_to_use / "
+                "factors_to_use search space that a downstream re-add pass had admitted.",
+                _pre_r - len(selected_vars),
+            )
+
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
     # USABILITY-AWARE MULTI-LIST POST-PASS (2026-06-13). ``support_`` above is the pure-MI selection
