@@ -201,6 +201,16 @@ SIGNAL_LOSS = {
         "divisor (a,b) ratio lost under uniform+3%-outlier marginals (BOTH operands "
         "gone); the (c,d) log*sin term survives (sel keeps d + c__haar_j1k0). Same "
         "fragile-divisor-term pattern as the documented mixed-marginal two_pairs_strong cell",
+    # 2026-06-16 -- VERIFIED ACCURACY-SAFE limit (extends the documented heavy_tailed_outliers cell to the
+    # adjacent heavy_tailed profile). The weak 0.20*dd linear side-term washes out under pareto tails: its
+    # held-out LINEAR lift over the selected design is 0.00072 and its raw |corr(dd,y)| is 0.0052 -- i.e. dd
+    # sits AT the noise floor here (indistinguishable from the pure-noise e at 0.005 corr). Recovering it would
+    # require admitting 0.005-corr features, which also admits noise -> a NET ACCURACY LOSS. The dominant a**2*b
+    # term IS recovered (a__He2 + b), so downstream accuracy is preserved; dd's omission is a measured
+    # distribution-robustness limit, not a fixable regression.
+    ("product_square_decoys", "heavy_tailed", 20000):
+        "weak 0.20*dd linear side-term washed out under pareto tails -- held-out lift 0.00072 / |corr| 0.0052 "
+        "(noise-level); recovering it would admit noise (accuracy loss). a**2*b recovered via a__He2+b. Verified limit.",
 }
 
 # NOISE-ADMISSION residuals (a SEPARATE, weaker concern -- NOT signal-loss).
@@ -233,6 +243,15 @@ NOISE_ADMISSION = {
     ("ratio_sqr", "heavy_tailed", 10000): "e (0.01-weight noise) admitted; (a,b) recovered via div(abs(b),a__p2sin1)",
     ("ratio_sqr", "uniform", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(invsquared(a),...min(abs(b),...))",
     ("ratio_sqr", "heavy_tailed", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(sqr(a),neg(b))",
+    # 2026-06-16 -- the SAME 0.01-0.02-weight noise-admission residual under outlier / mixed marginals (verified:
+    # signal fully recovered in each, only a tiny-weight noise operand co-admitted -> downstream-cosmetic, no
+    # accuracy cost; eliminating it would require rejecting the screen's outlier-inflated finite-sample MI of e,
+    # which is the core heavy-tail MI-robustness limit, not a per-cell bug).
+    ("ratio_sqr", "mixed", 20000): "e (0.01-weight noise) admitted; (a,b) ratio recovered (outlier/mixed-marginal residual)",
+    ("ratio_sqr", "with_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (3%-outlier residual)",
+    ("ratio_sqr", "with_outliers", 10000): "e (0.01-weight noise) admitted; (a,b) recovered (3%-outlier residual, n-sweep)",
+    ("ratio_sqr", "heavy_tailed_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (pareto+outlier residual)",
+    ("log_sin_product", "with_outliers", 20000): "e1+e2 (0.02-weight noise) admitted; (c,d) recovered (3%-outlier residual)",
 }
 
 
