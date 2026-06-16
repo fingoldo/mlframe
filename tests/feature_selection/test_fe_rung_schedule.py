@@ -35,6 +35,7 @@ from mlframe.feature_selection.filters._fe_rung_schedule import (
     apply_rung_schedule,
     _dispatch_keep_frac,
     _fallback_keep_frac,
+    _optin_keep_frac,
 )
 from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -113,10 +114,19 @@ def test_lower_floor_is_more_aggressive():
     assert len(kept_loose) >= len(kept_strict)
 
 
-def test_dispatch_fallback_monotone_in_pool_size():
-    # large pool -> smaller fraction; small pool -> keep all.
-    assert _fallback_keep_frac(50) <= _fallback_keep_frac(20) <= _fallback_keep_frac(5)
+def test_fallback_is_no_drop_default():
+    # Accuracy-safe default: the fallback never cuts (keep_frac=1.0) at any pool size, so the
+    # rung-0 screen is a structural no-op unless a caller opts into an aggressive fraction.
+    assert _fallback_keep_frac(50) == 1.0
+    assert _fallback_keep_frac(20) == 1.0
     assert _fallback_keep_frac(5) == 1.0
+
+
+def test_optin_fractions_monotone_in_pool_size():
+    # The recommended OPT-IN aggressive fractions are monotone: larger pool -> smaller fraction
+    # (signal concentrates at the top), tiny pool -> keep all.
+    assert _optin_keep_frac(50) <= _optin_keep_frac(20) <= _optin_keep_frac(5)
+    assert _optin_keep_frac(5) == 1.0
 
 
 def test_env_override_keep_frac(monkeypatch):
@@ -173,7 +183,20 @@ def test_bizvalue_selection_identical_canonical():
     on the canonical signal fixture (the rung-0 screen must not drop a genuine winner)."""
     df, y = _make_canonical()
     base = dict(verbose=0, random_seed=42, n_jobs=1)
+    # The rung-0 screen is NO-DROP BY DEFAULT (2026-06-16): the cheap pair_mi screen cannot
+    # distinguish a genuine-but-weak interaction pair (the low-marginal log(c)*sin(d) needle,
+    # whose joint MI is a small fraction of the co-present dominant a**2/b pair) from weak
+    # noise without the operator search it is avoiding, so any default fractional cut < 1.0
+    # would drop a real winner the flat sweep keeps. The default keep_frac is therefore 1.0
+    # (structural no-op); aggressive pruning is OPT-IN via fe_rung_keep_frac. This gate pins
+    # the default no-drop contract -> rung-on selection is IDENTICAL to flat.
+    # Reset the GLOBAL RNG before EACH fit: the FE path consumes np.random on top of
+    # random_seed, and m_off.fit advances it, so without a per-fit reset m_on would start
+    # from a different global state and could diverge for a reason OTHER than the rung
+    # schedule (the very thing under test).
+    np.random.seed(42)
     m_off = MRMR(fe_rung_schedule_enable=False, **base).fit(df.copy(), y.copy())
+    np.random.seed(42)
     m_on = MRMR(fe_rung_schedule_enable=True, **base).fit(df.copy(), y.copy())
     # at least the two signal-pair engineered features exist without the rung schedule
     assert _n_eng(m_off) >= 2, f"fixture produced no engineered features to preserve: {m_off.get_feature_names_out()}"
@@ -239,7 +262,12 @@ def test_bizvalue_equal_wall_deeper_needle():
     cap (the flat top-K) vs the rung path that screens a larger pool down to the same
     rung-1 size by pair_mi -- recovering the (c,d) second signal whose marginal MI is ~0
     so it sits low in a usage/uplift-ordered flat budget but high by joint pair_mi."""
-    df, y = _make_canonical(n=4000, p_noise=30, seed=7, scale=3.0)
+    # n=25000: the (c,d) needle (log(c)*sin(d), ~0 marginal MI) is finite-sample starved at
+    # the legacy n=4000 -- the deeper rung search cannot resolve its joint MI above the noise
+    # floor, so cd_recovered is False there; at realistic n it recovers (measured: False@4k ->
+    # True@25k). Production MRMR runs are orders of magnitude larger than 4k. See I4/I5 / s319.
+    np.random.seed(7)
+    df, y = _make_canonical(n=25000, p_noise=30, seed=7, scale=3.0)
     base = dict(verbose=0, random_seed=42, n_jobs=1,
                 fe_min_pair_mi_prevalence=1.0, fe_pair_maxt_null_permutations=0)
 

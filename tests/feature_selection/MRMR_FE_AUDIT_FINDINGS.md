@@ -247,5 +247,37 @@ output-bound engineered features). A composite about to be dropped no longer sup
 operands. Post-fix support = {a,b,g,k}, delta +0.0005. When engineered survivors DO reach output (the
 F2 `a**2/b + log(c)*sin(d)` composite case) they remain in `_engineered_recipes_` and still correctly
 drop their subsumed operands — unchanged there (verified by the full I4/I4b/I5 grid at n=25000).
+
+### [RESOLVED] rung-0 screen — aggressive default could drop a genuine weak-interaction pair
+
+**Severity P1** (speed lever costs accuracy by default). FIXED 2026-06-16 in `_fe_rung_schedule.py`
+(no-drop default). Surfaced after raising the per-test timeout 60s→600s, which unmasked two
+`test_fe_rung_schedule.py` failures previously hidden as numba-JIT-compile timeouts.
+
+**Two distinct causes:**
+1. `test_bizvalue_equal_wall_deeper_needle` — **finite-sample**. The (c,d) needle (`log(c)*sin(d)`,
+   ~0 marginal MI) is starved at the legacy fixture n=4000; the deeper rung search cannot resolve
+   its joint MI above the noise floor. Measured `cd_recovered` False@4k → True@25k. Fixed by running
+   the fixture at realistic n=25000 (production runs are orders of magnitude larger). Uses an explicit
+   opt-in `fe_rung_keep_frac=0.25`, so it still exercises real pruning.
+2. `test_bizvalue_selection_identical_canonical` — **real rung miscalibration** (NOT finite-sample;
+   fails at n=4000 AND n=25000 with clean per-fit RNG). The rung-0 screen ranks gate-survivor pairs by
+   their CHEAP joint `pair_mi` and cuts the bottom `(1 - keep_frac)`. A genuine-but-WEAK interaction
+   pair (the `(c,d)` needle, joint MI a small fraction of the co-present dominant `a**2/b` pair) sits
+   near the bottom of that ranking AND below `rel_floor * max_pair_mi` (the dominant pair inflates
+   `max_pair_mi`), so it is cut before the operator search and `mul(log(c),sin(d))` never forms. The
+   cheap screen CANNOT distinguish weak-genuine from weak-noise without the operator search it is
+   avoiding, so any default fractional cut < 1.0 risks dropping a real winner the flat sweep keeps.
+
+**Fix (cause 2):** the rung-0 screen is now **no-drop by default** — `_fallback_keep_frac` returns
+1.0 (structural no-op, byte-identical to the flat sweep) at every pool size. The measurement-backed
+aggressive fractions (0.34 / 0.50, ~2–11×) move to `_optin_keep_frac` and are **opt-in**: a caller
+takes the speedup by setting `fe_rung_keep_frac` (or `MLFRAME_FE_RUNG_KEEP_FRAC`, or an offline
+kernel_tuning_cache entry), accepting the weak-interaction tradeoff on their data. This honors the
+project rule that a speed lever must never regress accuracy by default. The path to a screen that is
+BOTH no-drop and fast is the joint-synergy screen of the planned numba FE re-platform (it scores the
+true joint structure cheaply, so it can keep a low-marginal needle without the full operator search).
+Regression: the IDENTICAL gate pins the default no-drop contract; the speedup / needle tests pin the
+opt-in pruning path.
 Regression: `test_mrmr_smooth_interaction_underselection.py` (asserts `b` survives + support ≥ 3;
 fails pre-fix, where the fallback rescued only 1 raw).

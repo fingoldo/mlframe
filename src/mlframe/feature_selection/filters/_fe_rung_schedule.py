@@ -68,15 +68,25 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Measurement-backed fallback rung fractions (Intel host, 2026-06-10; n=5000, p=40,
-# canonical fixture + noise, 5 seeds). keep_frac=0.5 is universally no-drop (genuine
-# pairs kept in every seed) and yields ~2x; the relative floor below makes a more
-# aggressive 0.25 safe too (3-11x) but 0.5 is the conservative default. Bigger pools
-# concentrate the genuine signal at the top, so a slightly smaller fraction is safe
-# once the pool is large; tiny pools keep everything (nothing to gain by cutting).
-# Other hosts / data shapes refine these via the kernel_tuning_cache sweep.
-_FALLBACK_KEEP_FRAC_BY_POOL: tuple[tuple[int, float], ...] = (
-    # (min_pairs_in_pool, keep_frac) -- first matching row from the TOP wins
+# ACCURACY-SAFE DEFAULT (2026-06-16). The rung-0 screen ranks gate-survivor pairs by their
+# CHEAP joint pair_mi and cuts the bottom (1 - keep_frac). That cut is FUNDAMENTALLY UNSAFE for
+# a genuine-but-WEAK interaction pair: a low-marginal second signal (the canonical log(c)*sin(d)
+# needle) has a joint pair_mi that is a small FRACTION of a co-present dominant pair (a**2/b), so
+# it sits near the bottom of the pair_mi ranking AND below rel_floor * max_pair_mi -> it is cut
+# before the operator search and the genuine mul(log(c),sin(d)) never forms. The cheap screen
+# cannot distinguish weak-genuine from weak-noise WITHOUT the expensive operator search it is
+# trying to avoid, so any fractional cut < 1.0 risks dropping a real winner the flat sweep keeps
+# (measured: rung-on drops mul(log(c),sin(d)) at n=4000 AND n=25000 on the canonical fixture).
+# Per the project rule that accuracy must never regress for a speed lever, the DEFAULT is now
+# no-drop (keep_frac=1.0 -> the screen is a structural no-op, byte-identical to the flat sweep).
+# The aggressive fractions below are still measurement-backed (Intel host, 2026-06-10; n=5000,
+# p=40, 5 seeds: ~2x at 0.5, 3-11x at 0.25) but are now OPT-IN -- a caller takes the speedup by
+# setting ``fe_rung_keep_frac`` (or MLFRAME_FE_RUNG_KEEP_FRAC, or an offline kernel_tuning_cache
+# entry) explicitly, accepting the weak-interaction tradeoff on their data. The joint-synergy
+# screen of the planned numba FE re-platform is the path to a no-drop screen that is ALSO fast.
+_OPTIN_KEEP_FRAC_BY_POOL: tuple[tuple[int, float], ...] = (
+    # (min_pairs_in_pool, keep_frac) -- the recommended OPT-IN aggressive fractions; first
+    # matching row from the TOP wins. Surfaced for callers / the offline sweep, NOT the default.
     (40, 0.34),   # large pool: signal concentrated at top, keep ~1/3
     (16, 0.50),   # moderate pool: single halving
     (0, 1.00),    # small pool: keep everything (no meaningful screen)
@@ -97,7 +107,16 @@ _MIN_PAIRS_DEFAULT = 6
 
 
 def _fallback_keep_frac(n_pairs: int) -> float:
-    for min_pairs, frac in _FALLBACK_KEEP_FRAC_BY_POOL:
+    # Accuracy-safe default: no fractional cut (no-drop). The screen only prunes when a caller
+    # opts into an aggressive keep_frac explicitly (fe_rung_keep_frac / env / tuned cache).
+    return 1.0
+
+
+def _optin_keep_frac(n_pairs: int) -> float:
+    """The recommended aggressive keep_frac for a pool of ``n_pairs`` -- for callers that
+    explicitly opt into the rung speedup (and the offline kernel_tuning_cache sweep). NOT used
+    as the default; see ``_fallback_keep_frac`` and the module-level rationale."""
+    for min_pairs, frac in _OPTIN_KEEP_FRAC_BY_POOL:
         if n_pairs >= min_pairs:
             return frac
     return 1.0
@@ -221,4 +240,4 @@ def apply_rung_schedule(
     return kept, info
 
 
-__all__ = ["apply_rung_schedule", "_dispatch_keep_frac", "_fallback_keep_frac"]
+__all__ = ["apply_rung_schedule", "_dispatch_keep_frac", "_fallback_keep_frac", "_optin_keep_frac"]
