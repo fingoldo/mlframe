@@ -85,9 +85,18 @@ _MAX_N = 60000
 #         +0.015 (25k) -> +0.0137 (75k); I4/I4b/I5 all green from n=25k.
 #   s203 (ratio_plus_trig/normal): pure-noise 'e' selected at 8k, dropped from
 #         n=25k onward (delta stays >=-0.05 throughout); I4 green from n=25k.
-#   s909 (ratio_plus_trig/uniform): NOT a sample-size issue -- the uniform
-#         strict redundancy-drop keeps a subsumed raw alongside a 2-operand
-#         composite that captures it at EVERY n (8k..200k). Tracked separately.
+#   s909 (ratio_plus_trig/uniform): FIXED 2026-06-16 -- the uniform strict
+#         redundancy-drop kept a subsumed raw (``a``) alongside a NON-INVERTIBLE
+#         additive fusion composite ``add(a,sin(c))`` because the raw was conditioned
+#         on the fused sum alone (``sin(c)`` nuisance un-held -> 6.66% spurious
+#         residual > 5% bar). The raw-redundancy drop now ALSO conditions on the
+#         consumer's sibling operands and takes the MIN excess; ``a`` collapses to
+#         0.25% -> DROP. See MRMR_FE_AUDIT_FINDINGS.md + test_raw_redundancy_sibling_fusion.py.
+#   s319 (smooth_interaction/uniform/regression): PRE-EXISTING RED, NOT a redundancy
+#         issue -- I5 FE-vs-raw no-harm fails (delta -0.311; fe R^2 0.245 vs raw 0.556)
+#         because MRMR UNDER-SELECTS on the smooth bivariate interaction (drops raws the
+#         HGB needs). Identical with the redundancy drop disabled, so orthogonal to the
+#         s909 fix. Tracked for a dedicated selection-quality pass (see audit findings).
 # 25k is the minimal n that greens the finite-sample-starved cases; it also
 # keeps each subprocess fit inside the 600s worker timeout (50k overran it).
 _DEFAULT_CASE_N = 25000

@@ -668,6 +668,61 @@ def drop_redundant_raw_operands(
         ]
         z_support, _ = _renumber_joint(*_cond_bins)
         cmi, floor, excess = _excess_and_floor(rb, y_arr, z_support, seed=seed)
+        # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
+        # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
+        # form that is not invertible from the composite alone -- e.g. ``add(a, sin(c))``
+        # carries ``a`` LINEARLY plus a ``sin(c)`` nuisance term. Conditioning ``a`` on the
+        # fused sum ALONE leaves the ``sin(c)`` variation un-held across the strata, so ``a``
+        # retains a spurious finite-sample residual (measured s909: cond-excess frac 6.7% >
+        # the 5% self-retention bar -> wrongly KEPT) even though ``a`` is FULLY recoverable
+        # once its sibling operand is known (``a = add(a,sin(c)) - sin(c)``). The clean-
+        # subexpr anchor cannot help: ``add(a,sin(c))`` has no tighter sub-expression that
+        # still pairs ``a`` with a second signal source. So ALSO measure the residual with
+        # each consumer's OTHER signal-bearing raw operands (the siblings) added to the
+        # conditioning -- which HOLDS the nuisance term fixed -- and take the SMALLEST
+        # debiased excess across {base, +siblings} as the verdict: "is the raw subsumed
+        # under the BEST available conditioning?". A linearly-fused operand collapses with
+        # its sibling held (s909 ``a``: 6.7% -> 0.57%, cmi below floor -> DROP). Taking the
+        # MIN never over-drops a GENUINE PRIVATE term: its residual is high under EVERY
+        # conditioning (siblings -- other raws -- cannot manufacture independence from a
+        # term the composite+siblings do not span). It also defuses the converse hazard the
+        # naive "always add siblings" form created: for an ALREADY-collapsed operand whose
+        # composite is invertible without the sibling (``b`` in ``div(sqr(a),exp(b))``:
+        # ``e**b = a**2/div``, base frac 2%), adding the sibling ``a`` only FRAGMENTS the
+        # strata and INFLATES ``b``'s plug-in residual to 11% -- a false KEEP. The MIN keeps
+        # the un-fragmented base verdict there (2% -> DROP). Siblings are added one at a time
+        # only while the realised joint cell count stays within the fragmentation budget
+        # (avg rows/cell >= _SUPPORT_FRAG_DIVISOR), strongest-marginal first. Byte-identical
+        # when a raw has no signal-bearing sibling operand (the candidate set is empty).
+        _sibling_names: list = []
+        for ei in consumers:
+            for _sp in (_eng_signal_parents.get(ei, set()) - {rname}):
+                if _sp not in _sibling_names:
+                    _sibling_names.append(_sp)
+        if _sibling_names:
+            _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
+            _budget = max(1, n_rows // _SUPPORT_FRAG_DIVISOR)
+            _sib_cond = list(_cond_bins)
+            _added = False
+            for _sn in _sibling_names:
+                try:
+                    _sidx = cols.index(_sn)
+                except ValueError:
+                    continue
+                _sb = _raw_codes(_sn, _sidx)
+                _trial, _ = _renumber_joint(*_sib_cond, _sb)
+                if (int(np.unique(_trial).size) if _trial.size else 1) > _budget:
+                    continue  # adding this sibling would over-fragment the joint strata
+                _sib_cond.append(_sb)
+                _added = True
+            if _added:
+                _z_sib, _ = _renumber_joint(*_sib_cond)
+                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb, y_arr, _z_sib, seed=seed)
+                # Take the conditioning that gives the SMALLEST debiased excess -- the
+                # strongest evidence of subsumption -- carrying its own (cmi, floor) so the
+                # floor check below stays consistent with the chosen conditioning.
+                if _excess_s < excess:
+                    cmi, floor, excess = _cmi_s, _floor_s, _excess_s
         # Raw's OWN marginal debiased excess -- the reference scale for both keep legs.
         _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
         # Strongest consuming engineered survivor's own debiased marginal excess.

@@ -189,3 +189,50 @@ OOS tests (`test_triplet_cross_basis.py:339-361`, `test_layer77.py:346-367`) bui
 full data and slice AFTER generation, sidestepping the drift. Add: fit on frame A, `apply_recipe` on a
 drifted/sliced frame B, assert byte-equality vs the fit-time column slice (will fail RED on current code,
 GREEN after the fix) -- mirror `test_fe_rowwise_pure_replay.py` / the pair adversarial slice-replay battery.
+
+### [RESOLVED] s909 I4b — subsumed raw kept alongside a NON-INVERTIBLE additive fusion composite
+
+**Severity P2** (cosmetic redundant-raw kept; no functional cost — the no-harm leg was green).
+FIXED 2026-06-16 in `_fe_raw_redundancy_drop.py` (sibling-operand conditioning).
+
+**Case:** `ratio_plus_trig` / `uniform` / `classification` / seed 909, n=25000. The fit produced
+the engineered survivors `add(a,sin(c))` and `div(sqr(a),exp(b))` and KEPT raw `a` even though `a`
+is fully subsumed (subsumed_raws={a,b,c,d,g,k}, no private term). `b` and `c` correctly dropped.
+
+**Root cause:** the raw-vs-engineered redundancy verdict conditions a raw on its consuming composites
+only. `add(a,sin(c))` is a NON-INVERTIBLE additive fusion — `a` enters linearly, `sin(c)` is a
+nuisance term not held fixed across the conditioning strata. So `CMI(a;y|add,div)` retains a spurious
+finite-sample residual: cond-excess frac 6.66% > the 5% `RAW_SELF_RETAIN_FRAC` bar -> wrongly KEPT.
+(The clean-subexpr anchor can't help: `add(a,sin(c))` has no tighter sub-expression still pairing `a`
+with a second signal source.)
+
+**Fix:** ALSO measure the raw's residual with each consumer's OTHER signal-bearing raw operands (the
+siblings) added to the conditioning — which HOLDS the nuisance term fixed — and take the SMALLEST
+debiased excess across {base, +siblings} as the verdict ("is the raw subsumed under the BEST
+available conditioning?"). For `a`: conditioning on {add, div, c} drops the frac 6.66% -> 0.57% and the
+cmi falls below the floor -> DROP. Taking the MIN (not always-add-siblings) is load-bearing twice over:
+(1) a GENUINE PRIVATE term keeps a high residual under EVERY conditioning, so it is never over-dropped
+(other raws cannot manufacture independence from a term the composite+siblings do not span); (2) for an
+ALREADY-collapsed operand whose composite is invertible without the sibling (`b` in
+`div(sqr(a),exp(b))`: `e**b=a**2/div`, base frac 2%), naively adding the sibling `a` FRAGMENTS the
+strata and INFLATES `b`'s plug-in residual to 11% (a false KEEP) — the MIN keeps the un-fragmented base
+verdict (2% -> DROP). Siblings added one at a time only while the joint cell count stays within the
+fragmentation budget (avg rows/cell >= `_SUPPORT_FRAG_DIVISOR`). Byte-identical when a raw has no
+signal-bearing sibling operand. Post-fix s909 drops a,b,c (engineered-only support — the intended
+fully-subsumed outcome). Regression: `test_raw_redundancy_sibling_fusion.py` (drop leg + over-drop
+control, both driven by the real generator at seed 909; the drop leg fails pre-fix, verified).
+
+### [PRE-EXISTING RED — NOT this change] s319 I5 — FE under-selection on smooth_interaction
+
+**Severity P1** (FE space scores materially worse than raw-only). NOT introduced by the s909 sibling-
+conditioning fix — confirmed by running the failing node with the sibling block disabled: identical
+`delta=-0.311 fe=0.245 raw_only=0.556`, byte-for-byte, so the redundancy drop is a no-op on this case.
+
+**Case:** `smooth_interaction` / `uniform` / `regression` / seed 319, fe config idx 8 (fe_max_steps=2,
+fe_auto_escalation_enable). subsumed_raws={a,b,g,k}, no private. The screen + retention passes select a
+very small support (a single raw / one composite) and DROP raws the HGB downstream needs to recover the
+smooth interaction, so the FE space (fe R²=0.245) falls well below the all-raw baseline (0.556). This is
+an MRMR SELECTION-QUALITY problem (under-selection on a smooth bivariate interaction), orthogonal to the
+raw-redundancy-drop subsystem; the "n=25000 minimal-green" commit (71b2d5e) appears to have been green by
+RNG chance in the worker. Tracked here for a dedicated selection-quality pass (needs the joint/CMI
+interaction screen, not a redundancy tweak); do NOT mask via tolerance widening.
