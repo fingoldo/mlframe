@@ -66,6 +66,44 @@ def test_select_single_best_name_tiebreak_when_all_equal():
     assert winner == expected, f"name tie-break failed: {names}"
 
 
+def test_select_single_best_usability_breaks_mi_ties():
+    """LINEAR-USABILITY tie-break (2026-06-16): among forms with EQUAL target MI,
+    prefer the one with the higher |corr(continuous y)| -- a linearly-usable leg.
+    The canonical case is a bilinear product ``y=1.5*a*b`` where ``mul(a,b)`` (|corr|
+    ~0.76), ``log(a)+log(b)`` (~0.61) and ``1/(a**2*b**2)`` (~0.004) all tie in
+    binned MI but only ``mul`` lets a linear model recover the magnitude. Pre-fix the
+    MI-tie was broken by extval-MI then NAME, so a useless inverse form could win and
+    cap the downstream linear R2 (test_suite_fe_linear_recovery bilinear: 0.884<0.90)."""
+    primary = {_CFG_TRUE: 0.30, _CFG_ALT: 0.30, _CFG_Z: 0.30}
+    usability = {_CFG_TRUE: 0.76, _CFG_ALT: 0.61, _CFG_Z: 0.004}
+    winner = _select_single_best(primary, _COLS, usability=usability)
+    assert winner == _CFG_TRUE, (
+        f"usability tie-break must pick the most linearly-usable MI-tied form "
+        f"{get_new_feature_name(_CFG_TRUE, _COLS)}, got {get_new_feature_name(winner, _COLS)}"
+    )
+
+
+def test_select_single_best_usability_never_overrides_higher_mi():
+    """Usability is a TIE-BREAK only: a higher-MI form still wins even when a lower-MI
+    form is more linearly usable -- the MI-primary contract is preserved (no regression
+    to the rank objective the tree list depends on)."""
+    primary = {_CFG_TRUE: 0.32, _CFG_ALT: 0.25}
+    usability = {_CFG_TRUE: 0.10, _CFG_ALT: 0.99}  # ALT more usable but lower MI
+    winner = _select_single_best(primary, _COLS, usability=usability)
+    assert winner == _CFG_TRUE, "usability must not override a genuinely higher target MI"
+
+
+def test_select_single_best_usability_ranks_above_secondary():
+    """On an MI tie, linear usability is decisive ABOVE the external-validation
+    secondary -- the project prioritises linear usability over external generalisation
+    when the rank objective (MI) cannot separate the forms."""
+    primary = {_CFG_TRUE: 0.30, _CFG_ALT: 0.30}
+    usability = {_CFG_TRUE: 0.80, _CFG_ALT: 0.10}
+    secondary = {_CFG_TRUE: 0.10, _CFG_ALT: 0.99}  # secondary favours ALT
+    winner = _select_single_best(primary, _COLS, secondary=secondary, usability=usability)
+    assert winner == _CFG_TRUE, "usability must outrank the external-validation secondary on an MI tie"
+
+
 def test_select_single_best_empty_returns_none():
     assert _select_single_best({}, _COLS) is None
 

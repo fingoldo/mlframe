@@ -1614,6 +1614,30 @@ def check_prospective_fe_pairs(
                         continue
                     leading_features.append(next_config)
 
+            # LINEAR-USABILITY TIE-BREAK over the MI-leaders (2026-06-16). MI is a RANK
+            # statistic blind to linear usability, so a raw pair's leading-features
+            # equivalence class can hold forms with IDENTICAL target MI but wildly
+            # different linear usability (canonical: on a ``y=1.5*a*b`` bilinear target the
+            # forms ``mul(a,b)``, ``log(a)+log(b)`` and ``1/(a**2*b**2)`` are ALL strictly-
+            # monotone in ``a*b`` -> bit-identical binned MI 0.4561, but |corr(y)| 0.76 /
+            # 0.61 / 0.004). Pre-fix ``_select_single_best`` broke the MI-tie by extval-MI
+            # then NAME, so a linearly-useless inverse-square form could win and cap the
+            # downstream LINEAR model (test-R2 0.884 < 0.90 floor). Score each leader's
+            # |corr(continuous y)| from its materialised column so the tie-break prefers the
+            # linearly-usable leg (the project's "prefer the linearly-usable member" rule).
+            # Tie-break is gated on EQUAL MI inside _select_single_best, so it never overrides
+            # a higher-MI form; trees are rank-indifferent so this cannot hurt the tree list.
+            _leader_usability: dict = {}
+            if len(leading_features) > 1 and _corr_y_cont is not None:
+                for _lc in leading_features:
+                    try:
+                        _li = _lc[2]
+                        _lvals = final_transformed_vals[:, _li] if final_transformed_vals is not None else None
+                        if _lvals is not None:
+                            _leader_usability[_lc] = _safe_abs_corr(_lvals)
+                    except Exception:
+                        continue
+
             if len(leading_features) > 1:
                 if len(numeric_vars_to_consider) > 2:
 
@@ -1811,7 +1835,8 @@ def check_prospective_fe_pairs(
                     # the true max-target-MI form -- e.g. picking add(log(c),1/d)
                     # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
                     _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-                    _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf)
+                    _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf,
+                                                  usability=_leader_usability)
                     if _winner is not None:
                         new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
                         if verbose:
@@ -1824,7 +1849,7 @@ def check_prospective_fe_pairs(
                     # still emit ONE best representative (highest engineered MI,
                     # deterministic name tie-break) rather than the whole class.
                     _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-                    _winner = _select_single_best(_lead_perf, cols)
+                    _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability)
                     if _winner is not None:
                         if verbose:
                             messages.append(

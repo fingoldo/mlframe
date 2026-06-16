@@ -164,7 +164,8 @@ def _gate_med_apply(vals: np.ndarray, median: float) -> np.ndarray:
     return (np.asarray(vals, dtype=np.float64) > float(median)).astype(np.float64)
 
 
-def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None):
+def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None,
+                        usability: dict | None = None):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
     Selection key, in priority order:
@@ -175,11 +176,26 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
          search would discard the true max-target-MI form. e.g. on
          y = log(c)*sin(d) it picked add(log(c),1/d) at MI=0.25 over the true
          mul(log(c),sin(d)) at MI=0.32. Primary MUST be target MI.)
-      2. SECONDARY (optional tie-break): maximum ``secondary[config]`` -- the
-         external-validation MI. Only decisive among leaders whose target MI is
-         exactly equal; prefers the representation that also generalises against
-         other approved factors.
-      3. deterministic tie-break by the engineered feature name (ascending).
+      2. LINEAR-USABILITY (optional tie-break): maximum ``usability[config]`` --
+         |corr(continuous engineered values, continuous y)|. Decisive among
+         leaders whose target MI is EQUAL: MI is a RANK statistic, blind to
+         linear usability, so a raw pair's equivalence class can hold forms with
+         IDENTICAL MI but wildly different linear usability -- e.g. on a
+         ``y=1.5*a*b`` bilinear target the forms ``mul(a,b)``, ``log(a)+log(b)``
+         and ``1/(a**2*b**2)`` are ALL strictly-monotone functions of ``a*b`` so
+         their binned MI is bit-identical (0.4561), yet |corr(y)| is 0.76 / 0.61 /
+         0.004 respectively. Prefer the linearly-usable leg (``mul``) so a linear
+         downstream recovers the magnitude; trees are indifferent (rank-equal).
+         (This is exactly the case the 2026-06-03 |corr| experiment MISSED: it
+         tested ratio variants (``a2/b == sqr(a)/b``) that ARE linearly equivalent
+         within the band, concluding "no gain" -- but DISTINCT monotone warps with
+         equal MI and different |corr| are common, the bilinear product being the
+         canonical one. The tie-break is gated on EQUAL MI, so it never overrides
+         a genuinely higher-MI form -> no regression to the MI-primary contract.)
+      3. SECONDARY (optional tie-break): maximum ``secondary[config]`` -- the
+         external-validation MI. Decisive among leaders tied on MI AND usability;
+         prefers the representation that also generalises against other factors.
+      4. deterministic tie-break by the engineered feature name (ascending).
 
     Used to collapse the leading-features equivalence class (many near-identical
     representations of the same algebraic target) down to a single representative
@@ -188,21 +204,16 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
     """
     if not perf:
         return None
-    # measure-experiment-rejected (2026-06-03): a |corr| tie-break among the
-    # MI-leading equivalence class (to prefer the most linearly-usable algebraic
-    # form) was benchmarked and gives NO gain -- the forms within ~5% of the max
-    # target MI are syntactic variants of the SAME function (a2/b == sqr(a)/b),
-    # so their |corr| with y is identical (0/6 cases differed, OOS-Ridge delta
-    # +0.000). Genuinely-different forms (a/b, a2/sqrt|b|) have DIFFERENT MI and
-    # fall outside the band. The MI primary key + external-val secondary is right.
     # Lazy import (parent re-imports this module at its bottom -> avoid a
     # top-level cycle); mirrors the in-function import at the call sites.
     from ..feature_engineering import get_new_feature_name
     _sec = secondary or {}
+    _use = usability or {}
     return max(
         perf.items(),
         key=lambda kv: (
             kv[1],
+            float(_use.get(kv[0], 0.0)),
             float(_sec.get(kv[0], 0.0)),
             _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
         ),
