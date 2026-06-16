@@ -124,6 +124,12 @@ class TrainingSplitConfig(BaseConfig):
     # shrunk train (train-minus-calib) so calib rows are leakage-free, and finalize auto-fits a post-hoc
     # isotonic calibrator per per-target model on this slice. None/0 -> no carve, behaviour unchanged.
     calib_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
+    # Second DISJOINT holdout (from the TRAIN portion, like calib) reserved for CONFORMAL residuals of the
+    # already-recalibrated shipped predictor: calib_size fits the recalibration map g, conformal_size scores
+    # g(model) so the interval reflects what ships (sharing one slice makes residuals in-sample for g ->
+    # optimistic coverage). None/0 -> finalize falls back to the calib slice (regression-safe until g exists)
+    # or to CV+/OOF residuals. Carved by the SAME structure-aware splitter (group-disjoint / forward-walk).
+    conformal_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
     shuffle_val: bool = False
     shuffle_test: bool = False
     val_sequential_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -181,13 +187,14 @@ class TrainingSplitConfig(BaseConfig):
 
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":
-        """Ensure test_size + val_size + calib_size <= 1.0 to leave room for training data."""
+        """Ensure test_size + val_size + calib_size + conformal_size <= 1.0 to leave room for training data."""
         _calib = self.calib_size if self.calib_size is not None else 0.0
-        _total = self.test_size + self.val_size + _calib
+        _conformal = self.conformal_size if self.conformal_size is not None else 0.0
+        _total = self.test_size + self.val_size + _calib + _conformal
         if _total > 1.0:
             raise ValueError(
-                f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) = "
-                f"{_total} must be <= 1.0"
+                f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) + "
+                f"conformal_size ({_conformal}) = {_total} must be <= 1.0"
             )
         return self
 
