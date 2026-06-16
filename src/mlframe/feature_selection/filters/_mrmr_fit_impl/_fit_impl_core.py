@@ -8195,6 +8195,36 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _ne_exc:
             logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
 
+    # CLUSTER-AGGREGATE 'replace' FINAL EXCLUSION (2026-06-16). Members folded into a denoised
+    # MULTI-parent aggregate (``cluster_aggregate_mode='replace'`` -> ``_cluster_aggregate_removals_``,
+    # or a DCD PC1/mean_z swap -> ``cluster_members_``) were dropped from ``selected_vars`` at the
+    # replace step, but the many intervening raw-retention / masked-raw rescue / hinge / orth / pcr /
+    # never-empty-representative / additional-RFECV passes can resurrect a removed member when it is an
+    # OPERAND of a SURVIVING engineered child (e.g. ``add(refl0,sin(indep))`` keeps a private residual
+    # given the aggregate). Several of those passes pre-date the cluster-aggregate feature and do not
+    # consult ``_cluster_aggregate_removals_``, so rather than patch each call site we re-apply the
+    # exclusion ONCE here -- the single chokepoint right before ``support_`` is frozen, in
+    # feature_names_in_ index space -- guaranteeing a replaced member can never reach support_ /
+    # get_feature_names_out regardless of which re-add path touched it. The denoised aggregate itself
+    # (an engineered name in ``_engineered_recipes_``) is untouched.
+    _ca_final_excl = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
+    _cm_final = getattr(self, "cluster_members_", None)
+    if isinstance(_cm_final, dict):
+        for _anchor, _members in _cm_final.items():
+            _ca_final_excl.add(_anchor)
+            if isinstance(_members, (list, tuple, set)):
+                _ca_final_excl.update(_members)
+    if _ca_final_excl and selected_vars:
+        _fni = self.feature_names_in_
+        _pre_n = len(selected_vars)
+        selected_vars = [v for v in selected_vars if _fni[v] not in _ca_final_excl]
+        if verbose and len(selected_vars) != _pre_n:
+            logger.info(
+                "MRMR cluster-aggregate 'replace': re-stripped %d cluster member(s) a downstream "
+                "retention/rescue pass had resurrected; only the denoised aggregate survives.",
+                _pre_n - len(selected_vars),
+            )
+
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
     # USABILITY-AWARE MULTI-LIST POST-PASS (2026-06-13). ``support_`` above is the pure-MI selection
@@ -8470,6 +8500,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # leaves an engineered-only support, which is legitimate and non-empty (the
                 # never-empty guarantee only forces a column when n_engineered_out == 0).
                 _rescue_redund_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
+                # Cluster members folded into a denoised aggregate (cluster_aggregate 'replace' mode ->
+                # ``_cluster_aggregate_removals_``, or a DCD PC1/mean_z swap -> ``cluster_members_``) are ALREADY
+                # represented by that aggregate and were deliberately dropped from the support. The empty-raw
+                # rescue ranks every raw input by MI(X_j, y) and would otherwise resurrect the highest-MI member
+                # (e.g. ``refl0`` of a denoised reflection cluster) as the never-empty / count-floor stand-in,
+                # re-injecting the very redundancy the aggregation collapsed. Mirror the same exclusion the
+                # raw-retention block, the additional-RFECV rescue pool, and the augmentation already apply.
+                _rescue_redund_dropped |= set(getattr(self, "_cluster_aggregate_removals_", None) or ())
+                _cm_rescue = getattr(self, "cluster_members_", None)
+                if isinstance(_cm_rescue, dict):
+                    for _anchor, _members in _cm_rescue.items():
+                        _rescue_redund_dropped.add(_anchor)
+                        if isinstance(_members, (list, tuple, set)):
+                            _rescue_redund_dropped.update(_members)
                 # The empty-screen rescue must honour the user's search-space restriction (``factors_names_to_use`` /
                 # ``factors_to_use``): without this gate it ranks EVERY raw input by MI(X_j, y) and resurrects the
                 # global top-MI column even when the caller pinned a disjoint subset, silently leaking a forbidden feature
