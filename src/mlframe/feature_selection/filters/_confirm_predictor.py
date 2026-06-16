@@ -607,6 +607,20 @@ def confirm_one_predictor(
     confidence = 1.0
     run_out_of_time = False
 
+    # Order-invariant gain tie-break. The descending-gain selection order below
+    # used ``np.arange`` (candidate POSITION) as its secondary key, so on a gain
+    # tie the lower-positioned candidate won -- making the whole greedy path
+    # depend on input column order: reversing the columns reverses the positions
+    # and a DIFFERENT feature wins the tie, then conditions every later pick,
+    # yielding a different selected set (column-order-invariance contract break,
+    # reproducible at n=400 AND n=25000). Tie-break instead on the candidate's
+    # NAME, which is invariant under column reordering; rank gives a stable,
+    # contiguous integer key for ``np.lexsort``.
+    _cand_names = [get_candidate_name(c, factors_names=factors_names) for c in candidates]
+    _name_rank = np.empty(len(candidates), dtype=np.int64)
+    for _rank, _pos in enumerate(sorted(range(len(_cand_names)), key=lambda i: _cand_names[i])):
+        _name_rank[_pos] = _rank
+
     while True:  # confirmation loop (by random permutations)
 
         best_gain, best_candidate, run_out_of_time = score_candidates(ctx, best_gain, best_candidate, expected_gains)
@@ -631,7 +645,7 @@ def confirm_one_predictor(
         # decisive selection ordering, so the promotion here fixes BOTH the wrong
         # pick (raw parent winning an MI-tie) AND the backend nondeterminism (the
         # promotion reads only the backend-identical ``expected_gains`` array).
-        _gain_order = np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))
+        _gain_order = np.lexsort((_name_rank, -np.asarray(expected_gains)))
         _gain_order = _prefer_engineered_order(_gain_order, expected_gains, ctx)
         for n, next_best_candidate_idx in enumerate(_gain_order):
             next_best_gain = expected_gains[next_best_candidate_idx]
