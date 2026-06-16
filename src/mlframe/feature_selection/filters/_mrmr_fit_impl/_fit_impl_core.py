@@ -7520,10 +7520,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cols_index_r = {c: i for i, c in enumerate(cols)}
                 _sv_set_r = set(selected_vars)
                 _readd_raw = []
+                # RELEVANCE GATE on the re-add. The held-out single-split R^2 increment alone is an UNCORRECTED linear-usability test: an
+                # unregularised regressor overfits idiosyncratic noise on one ~n/3 val split enough to clear the loose 0.005 floor for a
+                # feature the relevance screen correctly rejected as within-null (e.g. decoy = x_real**2 on y = sign(x_real): MI ~ 0.00014,
+                # below the effective floor, corr -0.04, yet R^2 incr ~0.011). Require the candidate to ALSO clear the SAME marginal-MI
+                # relevance floor the screen used (absolute effective floor AND the relative-to-strongest floor) so a below-null raw cannot
+                # be resurrected by linear-usability alone -- this re-opened exactly the hole the screen floor closes.
+                _rp_rel_floor = float(_effective_min_relevance_gain) if "_effective_min_relevance_gain" in dir() else float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
+                _rp_rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
+                _rp_max_mi = max((float(_v) for _v in cached_MIs.values()), default=0.0) if isinstance(cached_MIs, dict) else 0.0
+                _rp_floor = max(_rp_rel_floor, _rp_max_mi * _rp_rel_frac)
                 for _rn in (getattr(self, "feature_names_in_", None) or []):
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
                         continue
+                    _rp_cand_mi = float(cached_MIs.get((_ridx,), 0.0)) if isinstance(cached_MIs, dict) else 0.0
+                    if _rp_cand_mi <= _rp_floor:
+                        continue  # within-null / below the screen's relevance floor -> not a genuine signal, do not resurrect
                     try:
                         _rv = np.asarray(X[_rn].to_numpy(), dtype=np.float64).reshape(-1)
                     except (TypeError, ValueError):
@@ -8252,6 +8265,34 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 "factors_to_use search space that a downstream re-add pass had admitted.",
                 _pre_r - len(selected_vars),
             )
+
+    # P>=N FP-CONTROL TOTAL CAP. In the p>>n regime some pure-noise column WILL correlate with y by chance, and the post-screen
+    # retention / rescue passes can admit a few of them (measured: 51 raws at p=150, 103 at p=300 -- 1-3 over the multiple-comparison
+    # ceiling). When p >= n, cap the total selected raw set at ``max(20, p//3)`` features chosen by descending relevance MI(X_j, y),
+    # mirroring the RFECV ``p_ge_n_fp_control_cap``. Confined to p >= n so the well-powered p<n path is byte-unchanged. Engineered
+    # survivors are counted toward the cap (they reach the output too) but never the dropped tail -- only raw ``selected_vars`` is trimmed.
+    _pgn_n = int(data.shape[0]) if "data" in dir() else 0
+    _pgn_p = int(getattr(self, "n_features_in_", 0) or 0)
+    if _pgn_p > 0 and _pgn_n > 0 and _pgn_p >= _pgn_n and selected_vars:
+        _pgn_ceiling = max(20, _pgn_p // 3)
+        _pgn_eng = int(n_engineered_out) if "n_engineered_out" in dir() else 0
+        _pgn_raw_budget = max(0, _pgn_ceiling - _pgn_eng)
+        if len(selected_vars) > _pgn_raw_budget:
+            _pgn_cached = self.cached_MIs if hasattr(self, "cached_MIs") else {}
+            _pgn_n2ci = {c: i for i, c in enumerate(cols)} if "cols" in dir() else {}
+            _fni_pgn = self.feature_names_in_
+
+            def _pgn_rel(_v):
+                _nm = _fni_pgn[_v] if _v < len(_fni_pgn) else None
+                _ci = _pgn_n2ci.get(_nm)
+                return float(_pgn_cached.get((_ci,), 0.0)) if _ci is not None else 0.0
+            # Descending relevance, stable secondary key on the raw index so ties are column-order invariant.
+            selected_vars = [v for v in sorted(selected_vars, key=lambda v: (-_pgn_rel(v), int(v)))][:_pgn_raw_budget]
+            if verbose:
+                logger.info(
+                    "MRMR p>=n FP-control: capped raw support to top-%d by relevance (p=%d >= n=%d, ceiling=%d, engineered=%d).",
+                    _pgn_raw_budget, _pgn_p, _pgn_n, _pgn_ceiling, _pgn_eng,
+                )
 
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
