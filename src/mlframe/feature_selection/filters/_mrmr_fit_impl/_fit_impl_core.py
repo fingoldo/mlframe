@@ -5887,6 +5887,77 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         self._target_names_for_cleanup = list(target_names)
 
     # ---------------------------------------------------------------------------------------------------------------
+    # MEM: free per-family FE intermediate frames before discretizing (PEAK-RSS bound).
+    # Each of the ~50 FE families above produces a full-width intermediate DataFrame
+    # (``X_t``/``X_q``/``X_te``/... -- internally ``pd.concat([X, new_cols])``) and the
+    # accepted subset is folded into ``X`` while the intermediate stays bound to its own
+    # distinct local name. None is reused or deleted, so at this point (the peak: every
+    # float frame coexists, ``categorize_dataset`` is about to allocate the int-code
+    # ``data`` on top) the process holds ~one full-frame copy PER family that ran.
+    # These locals are provably dead here -- the only column data that must survive is in
+    # ``X`` (consulted by categorize_dataset, the DCD ``X_raw=X`` path, and transform-time
+    # recipe replay). Dropping them is SELECTION-NEUTRAL: ``data``/``cols``/``nbins`` and
+    # every downstream MI estimate are computed from ``X`` alone, untouched by these names.
+    # Names are bound only when that family ran and its helper returned (gated-off /
+    # raised families never bind the name), so each drop is an explicit ``del`` guarded by
+    # a membership check. For the ``X = X_<fam>`` rebind families the name is an ALIAS of
+    # the live ``X`` and ``del`` only removes the alias (X survives); for the concat
+    # families it frees a genuine separate full-width frame -- the actual memory win.
+    # NOTE: ``del locals()[name]`` does NOT free a real local in CPython; a literal ``del``
+    # statement is required, hence the explicit per-name lines below.
+    _fe_live = set(locals())
+    if "X_h" in _fe_live: del X_h
+    if "X_e" in _fe_live: del X_e
+    if "X_t" in _fe_live: del X_t
+    if "X_q" in _fe_live: del X_q
+    if "X_aa" in _fe_live: del X_aa
+    if "X_ad" in _fe_live: del X_ad
+    if "X_rt" in _fe_live: del X_rt
+    if "X_df" in _fe_live: del X_df
+    if "X_cb" in _fe_live: del X_cb
+    if "X_boot" in _fe_live: del X_boot
+    if "X_tg" in _fe_live: del X_tg
+    if "X_ksg" in _fe_live: del X_ksg
+    if "X_copula" in _fe_live: del X_copula
+    if "X_dcor" in _fe_live: del X_dcor
+    if "X_hsic" in _fe_live: del X_hsic
+    if "X_jmim" in _fe_live: del X_jmim
+    if "X_tc" in _fe_live: del X_tc
+    if "X_cmim" in _fe_live: del X_cmim
+    if "X_auto" in _fe_live: del X_auto
+    if "X_ens" in _fe_live: del X_ens
+    if "X_meta" in _fe_live: del X_meta
+    if "X_mg" in _fe_live: del X_mg
+    if "X_cmi" in _fe_live: del X_cmi
+    if "X_te" in _fe_live: del X_te
+    if "X_ba" in _fe_live: del X_ba
+    if "X_c" in _fe_live: del X_c
+    if "X_f" in _fe_live: del X_f
+    if "X_cn" in _fe_live: del X_cn
+    if "X_i" in _fe_live: del X_i
+    if "X_p" in _fe_live: del X_p
+    if "X_r" in _fe_live: del X_r
+    if "X_lr" in _fe_live: del X_lr
+    if "X_gd" in _fe_live: del X_gd
+    if "X_ld" in _fe_live: del X_ld
+    if "X_ga" in _fe_live: del X_ga
+    if "X_cga" in _fe_live: del X_cga
+    if "X_gq" in _fe_live: del X_gq
+    if "X_cp" in _fe_live: del X_cp
+    if "X_ct" in _fe_live: del X_ct
+    if "X_nd" in _fe_live: del X_nd
+    if "X_md" in _fe_live: del X_md
+    if "X_rc" in _fe_live: del X_rc
+    if "X_cr" in _fe_live: del X_cr
+    if "X_cd" in _fe_live: del X_cd
+    if "X_wv" in _fe_live: del X_wv
+    if "X_rg" in _fe_live: del X_rg
+    if "X_ta" in _fe_live: del X_ta
+    del _fe_live
+    import gc as _gc
+    _gc.collect()
+
+    # ---------------------------------------------------------------------------------------------------------------
     # Discretize continuous data
     # ---------------------------------------------------------------------------------------------------------------
 
