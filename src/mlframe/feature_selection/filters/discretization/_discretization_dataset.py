@@ -9,12 +9,29 @@ numeric-column kernels and missing-value handling in the parent module
 from __future__ import annotations
 
 import logging
+import os
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _discretize_input_dtype():
+    """Working dtype for the numeric matrix that ``categorize_dataset`` discretises.
+
+    ``categorize_dataset`` copies ALL numeric columns into one dense array before binning
+    (``arr = df[...].to_numpy(...)``) -- a second full-frame copy that coexists with the caller's
+    (already large) engineered float frame, and is the dominant term of the large-n FE peak (a 1M-row
+    fit projects to ~21GB, OOMing a 16GB box). Quantile / MDLP edges + searchsorted do NOT need
+    float64: float32 edges differ only at ~1e-7 (far below the selection-altering ~1e-3 bar) and only
+    for values sitting exactly on a bin edge. ``MLFRAME_DISCRETIZE_FLOAT32=1`` halves that copy.
+    Default float64 (byte-for-byte legacy) so it is opt-in + reversible until validated default-on.
+    """
+    if os.environ.get("MLFRAME_DISCRETIZE_FLOAT32", "").strip() in ("1", "true", "True"):
+        return np.float32
+    return np.float64
 
 
 def create_redundant_continuous_factor(
@@ -99,11 +116,12 @@ def categorize_dataset(
         numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "string", "bool")).columns.values.tolist()
         categorical_cols_detected = None
 
+    _dt = _discretize_input_dtype()
     if _is_polars:
         _num_frame = df.select(numerical_cols)
-        arr = _num_frame.to_numpy().astype(np.float64, copy=False)
+        arr = _num_frame.to_numpy().astype(_dt, copy=False)
     else:
-        arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
+        arr = df[numerical_cols].to_numpy(dtype=_dt, na_value=np.nan)
 
     # Snapshot the NaN positions BEFORE _handle_missing rewrites them: the
     # "separate_bin" strategy fills NaN with the column median so np.percentile
