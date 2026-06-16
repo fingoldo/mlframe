@@ -299,6 +299,42 @@ def select_optimal_nfeatures_(
         self.support_ = np.array([])
         return
 
+    # p>=n FP-control gate. On p>>n the elimination search routinely collapses to evaluating ONLY {N=0 dummy, N=full}: the per-step
+    # CV score is non-decreasing out to the full set, so every selection rule (argmax / 1-SE / plateau) is forced to pick N=full --
+    # i.e. ALL p features, which gives ZERO multiple-comparison control. When that collapse happens AND the full set is SE-significantly
+    # WORSE than the no-features dummy, the full set is not just uncontrolled but actively below the trivial baseline, so selecting it
+    # is never right -- return empty support_ instead. This is GATED to the p>=n regime (n_features_in_ >= n_samples) and to the
+    # collapsed-search case (the only non-zero candidate IS the full set), so the well-powered p<n path -- where the search explores
+    # intermediate N and the 1-SE rule legitimately recovers signal -- is untouched. The earlier unconditional version of this reject
+    # (bench-attempt-rejected 2026-06-11, see below) sacrificed recoverable signal precisely because it fired on p<n collapses too;
+    # the p>=n + below-dummy gate confines it to the corner where the full set can never be the honest answer.
+    n_samples_fit = getattr(self, "_n_samples_fit_", None)
+    p_in = int(getattr(self, "n_features_in_", 0))
+    nz_candidates = nfeatures_arr[nonzero_mask]
+    if (
+        n_samples_fit is not None
+        and p_in >= int(n_samples_fit)
+        and nz_candidates.size == 1
+        and int(nz_candidates[0]) == p_in
+        and (nfeatures_arr == 0).any()
+    ):
+        _full_pos = int(np.flatnonzero(nonzero_mask)[0])
+        _zero_pos = int(np.flatnonzero(nfeatures_arr == 0)[0])
+        _mean = np.array(cv_mean_perf)
+        _std = np.array(cv_std_perf)
+        if np.isfinite(_mean[_full_pos]) and np.isfinite(_mean[_zero_pos]):
+            _full_se = _std[_full_pos] if np.isfinite(_std[_full_pos]) else 0.0
+            if _mean[_full_pos] + _full_se < _mean[_zero_pos]:
+                logger.warning(
+                    "select_optimal_nfeatures_: p>=n collapsed search ({N=0, N=%d}); the full set scores SE-worse than the "
+                    "no-features dummy. Returning empty support_ for multiple-comparison control instead of selecting all %d features.",
+                    p_in, p_in,
+                )
+                self.resolved_n_features_rule_ = f"{rule}+p_ge_n_below_dummy_reject"
+                self.n_features_ = 0
+                self.support_ = np.array([])
+                return
+
     if rule == "argmax":
         # Pick the index with the highest ultimate_perf among the candidate N values; nonzero_mask honours max_nfeatures.
         sorted_idx = np.argsort(ultimate_perf)[::-1]

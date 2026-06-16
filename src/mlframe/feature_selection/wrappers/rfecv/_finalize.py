@@ -114,6 +114,8 @@ def _finalize_fit_results(
 
     # Save best result found so far as final.
     self.n_features_in_ = X.shape[1]
+    # Row count at fit, consumed by select_optimal_nfeatures_'s p>=n FP-control gate (the collapsed-search below-dummy reject).
+    self._n_samples_fit_ = int(X.shape[0])
     self.feature_names_in_ = X.columns.tolist() if isinstance(X, pd.DataFrame) else list(map(str, np.arange(self.n_features_in_)))
 
     self.estimators_ = fitted_estimators  # dict keyed by nfeatures_nfold
