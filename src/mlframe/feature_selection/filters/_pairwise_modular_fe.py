@@ -236,6 +236,8 @@ def cheap_modular_scan(
         cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
     else:
         cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
+    # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
+    cols = sorted(cols, key=lambda c: str(c))
     yi = np.asarray(y).astype(np.int64)
     arrs = {c: np.asarray(X[c]) for c in cols}
     mods = [int(k) for k in moduli if int(k) >= 2]
@@ -274,7 +276,8 @@ def cheap_modular_scan(
         _scan_one("sum3", (a, b, c), arrs[a].astype(np.int64) + arrs[b].astype(np.int64) + arrs[c].astype(np.int64))
         triple_budget -= 1
 
-    hits.sort(key=lambda h: h.margin_over_baseline, reverse=True)
+    # Canonical secondary key on (op, operand names) so near-ties don't break by enumeration (column) order.
+    hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.op), tuple(str(c) for c in h.cols)))
     return hits
 
 

@@ -279,6 +279,8 @@ def cheap_row_argmax_scan(
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
     else:
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
+    # Canonicalize the eligible-column order so the budgeted triple enumeration below scans the SAME triples regardless of the caller's input column order; without this a reversed-column frame walks a different ``max_triples`` prefix and synthesizes different argmax features, making the downstream selection column-order dependent.
+    cols = sorted(cols, key=lambda c: str(c))
     yi = np.asarray(y).astype(np.int64)
     arrs = {c: np.asarray(X[c], dtype=np.float64) for c in cols}
 
@@ -298,7 +300,8 @@ def cheap_row_argmax_scan(
             null_hi = float("inf")
         hits.append(ArgmaxHit(tuple(tri), feat_mi, operand_floor, null_hi))
 
-    hits.sort(key=lambda h: h.margin_over_operands, reverse=True)
+    # Canonical secondary key on the triple identity so near-ties don't break by enumeration (column) order.
+    hits.sort(key=lambda h: (-h.margin_over_operands, tuple(str(c) for c in h.cols)))
     return hits
 
 
@@ -319,7 +322,8 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     Both signals are O(p) one-shot batched MI calls; the resulting O(k_operand^2 * k_gate) sweep is independent of p."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    cols = list(cols)
+    # Canonicalize column order so the stable argsort tie-breaks below resolve by feature name, not by the caller's input column order (reversed-column invariance).
+    cols = sorted(cols, key=lambda c: str(c))
     if not cols:
         return [], []
     arrs = [np.asarray(X[c], dtype=np.float64) for c in cols]
@@ -456,7 +460,8 @@ def cheap_conditional_gate_scan(
                     null_hi = float("inf")
                 hits.append(GateHit("select", (a, b, cgate), best_tau, best_mi, baseline, null_hi))
 
-    hits.sort(key=lambda h: h.margin_over_baseline, reverse=True)
+    # Canonical secondary key on (mode, operand names) so near-ties don't break by ranking/enumeration (column) order.
+    hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
     return hits
 
 
