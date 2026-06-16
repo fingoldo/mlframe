@@ -3504,6 +3504,30 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
 
+        # ---- polars FE bridge (TEMPORARY, 2026-06-16) --------------------------------------------
+        # The feature-engineering families require pandas (several raise TypeError on a polars frame),
+        # so a polars input silently gets NO FE today. As an interim measure -- until the native
+        # matrix path lands -- bridge a polars DataFrame to an Arrow-backed (near-zero-copy) pandas
+        # VIEW via ``get_pandas_view_of_polars_df`` so FE runs. ONLY when FE is enabled
+        # (fe_max_steps >= 1): with FE off, the native-polars screening path is preserved (it exists
+        # deliberately to avoid materialising 100GB+ frames). polars stays the user's primary format;
+        # this is a bridge, not the destination (native polars FE is the eventual goal).
+        if int(getattr(self, "fe_max_steps", 0) or 0) >= 1 and str(type(X).__module__).startswith("polars"):
+            if type(X).__name__ in ("DataFrame", "LazyFrame"):
+                try:
+                    from mlframe.training.utils import get_pandas_view_of_polars_df
+
+                    _src = X.collect() if type(X).__name__ == "LazyFrame" else X
+                    X = get_pandas_view_of_polars_df(_src)
+                    if str(type(y).__module__).startswith("polars"):
+                        y = y.to_pandas()
+                except Exception as _pl_exc:  # fall through to the native path on any bridge failure
+                    warnings.warn(
+                        f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
+                        f"native path -- feature engineering may be skipped for this polars input.",
+                        UserWarning, stacklevel=2,
+                    )
+
         # Stability-selection outer-loop short-circuit.
         # When ``stability_selection_method`` is 'cluster' or
         # 'complementary_pairs', delegate to the bootstrap aggregator before
