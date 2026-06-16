@@ -357,9 +357,15 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
     else:
         # lgb / xgb keep every trained tree, so the boosting-round count is the deterministic ES signal.
         assert trees_a is not None and trees_b is not None, f"could not read tree counts. {msg}"
-        # no-ES must train the full forced cap (ES genuinely disabled via early_stopping_rounds=None).
-        assert trees_a >= 1000, f"no-ES baseline should train the full ~2000-tree cap (ES disabled). {msg}"
-        # ES must converge in well under half the forced trees (measured ~12-160 vs 2000).
-        assert trees_b <= trees_a * 0.5, (
-            f"Early stopping did not reduce boosting rounds vs the forced 2000-tree no-ES baseline. {msg}"
+        # NOTE: with the monotonic strict-decline overfitting stop now DEFAULT-ON in the lgb / xgb shims
+        # (governing training even when ``early_stopping_rounds=None``), the "no-ES" run no longer trains
+        # the full 2000-tree cap -- the monotonic detector legitimately stops it early on this overfit-prone
+        # noisy fixture. So this test no longer asserts a full-cap baseline; instead it pins the surviving
+        # mechanism: patience-ES (rounds=10) must train NO MORE boosting rounds than the monotonic-only
+        # baseline (both stop early; patience is at least as aggressive here), and well under the 2000 cap.
+        assert trees_b <= trees_a, (
+            f"patience ES trained MORE rounds than the monotonic-only baseline -- ES regression. {msg}"
+        )
+        assert trees_a < 2000 and trees_b < 1000, (
+            f"a stop mechanism should have fired well under the 2000-tree cap for both runs. {msg}"
         )
