@@ -195,6 +195,7 @@ STRATEGIES = {
     "rfecv":     lambda: _fs_sel_adapter(lambda: _fs().RFECVSel("lgbm_perm")),  # numpy-mirror estimator path
     "boruta":    lambda: _fs_sel_adapter(lambda: _fs().BorutaSel()),            # memoized binom_test
     "shap":      lambda: _fs_sel_adapter(lambda: _fs().ShapSel()),              # ShapProxiedFS
+    "relieff":   lambda: _fs_sel_adapter(lambda: _fs().ReliefFSel()),           # skrebate ReliefF (positive-weight cut)
 }
 
 

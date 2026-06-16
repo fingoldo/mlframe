@@ -180,6 +180,47 @@ class ShapSel:
         return X[keep]
 
 
+class ReliefFSel:
+    """ReliefF ranker (skrebate) as a selector. ReliefF scores features by local
+    near-hit/near-miss separation; we keep features with POSITIVE weight (irrelevant
+    features get <=0 weight under Relief), an adaptive, parameter-light cut. Falls back
+    to top-max(8, sqrt(F)) if none are positive. Pure ranker -> no engineered columns.
+
+    Rows are subsampled to <=RELIEFF_ROW_CAP for the fit only (ReliefF is O(n^2*F));
+    the selected column set is then applied to the full frame. n_neighbors small for speed.
+    """
+    name = "relieff"
+    RELIEFF_ROW_CAP = 2000
+
+    def __init__(self, n_neighbors: int = 50):
+        self.n_neighbors = n_neighbors
+
+    def fit(self, X, y):
+        from skrebate import ReliefF
+        Xn = X.to_numpy(dtype=np.float64) if hasattr(X, "to_numpy") else np.asarray(X, dtype=np.float64)
+        yn = np.asarray(y).astype(np.int64)
+        n = Xn.shape[0]
+        if n > self.RELIEFF_ROW_CAP:
+            rng = np.random.default_rng(0)
+            idx = rng.choice(n, self.RELIEFF_ROW_CAP, replace=False)
+            Xn, yn = Xn[idx], yn[idx]
+        k = min(self.n_neighbors, max(1, (yn == np.bincount(yn).argmin()).sum() - 1))
+        r = ReliefF(n_neighbors=k, n_jobs=-1)
+        r.fit(Xn, yn)
+        w = np.asarray(r.feature_importances_, dtype=np.float64)
+        cols = list(X.columns)
+        keep = [cols[i] for i in range(len(cols)) if w[i] > 0]
+        if not keep:
+            kk = max(8, int(np.sqrt(len(cols))))
+            keep = [cols[i] for i in np.argsort(-w)[:kk]]
+        self.raw_selected_ = keep
+        self.n_engineered_ = 0
+        return self
+
+    def transform(self, X):
+        return X[self.raw_selected_]
+
+
 # ----------------------------------------------------------------------------- combinators
 class Cascade:
     """Chain fitted selectors: each stage fits on the previous stage's output."""
