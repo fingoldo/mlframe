@@ -601,6 +601,29 @@ def evaluate_candidate(
                 # textbook level (0.05), not a fixture-tuned fraction, and the selection is stable across a wide alpha band because real signal clears p ~ 0 and noise sits at p ~ 1.
                 if p_value >= _MRMR_NULL_SIGNIF_ALPHA:
                     direct_gain = max(0.0, direct_gain - null_mean)
+            # SU-NORMALIZE THE MARGINAL RELEVANCE under mi_normalization='su'. The conditional/redundancy term already uses
+            # conditional_symmetric_uncertainty, but the marginal relevance (the value the min_relevance_gain floor compares against,
+            # and the first-pick score) was left as RAW MI -- so a high-cardinality noise column whose raw MI clears the entropy-relative
+            # floor (e.g. 80-level hi_* with MI ~0.11 > 0.16*H(y)=0.111) was admitted even though its SU ~0.044 sits far below. Scale the
+            # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
+            # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
+            if use_su_normalization() and direct_gain > 0.0:
+                try:
+                    _x_idx = np.asarray(X, dtype=np.int64)
+                    _y_idx = np.asarray(y, dtype=np.int64)
+                    _, _freqs_x_su, _ = merge_vars(
+                        factors_data=factors_data, vars_indices=_x_idx, var_is_nominal=None,
+                        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+                    )
+                    _, _freqs_y_su, _ = merge_vars(
+                        factors_data=factors_data, vars_indices=_y_idx, var_is_nominal=None,
+                        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+                    )
+                    _denom_su = entropy(freqs=_freqs_x_su) + entropy(freqs=_freqs_y_su)
+                    if _denom_su > 1e-12:
+                        direct_gain = 2.0 * direct_gain / _denom_su
+                except Exception:
+                    pass  # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance
             cached_MIs[X] = direct_gain
 
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the
