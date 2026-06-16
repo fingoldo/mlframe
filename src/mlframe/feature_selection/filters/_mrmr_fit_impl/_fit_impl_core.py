@@ -4921,6 +4921,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     max_scale=int(getattr(self, "fe_wavelet_max_scale", 3)),
                     max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),
                     top_k=int(getattr(self, "fe_wavelet_top_k", 8)),
+                    feature_dtype=getattr(self, "usability_feature_dtype", np.float32),
                 )
                 _wv_appended = [
                     c for c in _wv_appended if c not in _X_before_wv_cols

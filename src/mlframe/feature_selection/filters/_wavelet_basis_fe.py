@@ -151,17 +151,25 @@ _WAVELET_MIN_INCR_MI: float = 0.005
 _WAVELET_SMOOTH_COMPLEMENT_RATIO: float = 0.5
 
 
-def _dyadic_haar_leg(z: np.ndarray, j: int, k: int) -> np.ndarray:
+def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndarray:
     """Closed-form Haar wavelet indicator ``psi_{j,k}(z)`` for ``z`` in [0, 1].
 
     ``+1`` on the LEFT half ``[k/2^j, (k+0.5)/2^j)``, ``-1`` on the RIGHT half
     ``[(k+0.5)/2^j, (k+1)/2^j)``, ``0`` outside. Pure function of ``z`` -- no y,
-    no fitted state beyond the (j, k) integers, so it replays leak-free."""
+    no fitted state beyond the (j, k) integers, so it replays leak-free.
+
+    The output is allocated in ``dtype`` (float32 by default, the large-n working
+    dtype). The leg holds only the exact values {-1, 0, +1}, which are bit-exact in
+    float32 -> every downstream consumer (binned MI via np.unique/searchsorted, the
+    engineered column) is bit-identical to float64 while halving the (n_scales, n)
+    working-array footprint (e.g. (10, 1M) = 76 MiB -> 38 MiB). The dyadic-cell
+    boolean masks are computed against the float64 ``z`` axis, so the cell
+    membership (and hence the leg) does not depend on the output dtype."""
     width = 1.0 / (2 ** int(j))
     left = int(k) * width
     mid = left + width / 2.0
     right = left + width
-    leg = np.zeros_like(z, dtype=np.float64)
+    leg = np.zeros_like(z, dtype=dtype)
     leg[(z >= left) & (z < mid)] = 1.0
     leg[(z >= mid) & (z < right)] = -1.0
     return leg
@@ -366,6 +374,7 @@ def generate_wavelet_features(
     scale_sigma: float = _WAVELET_SCALE_SIGMA,
     dedup_collinear_sources: bool = True,
     dedup_corr_threshold: float = 0.999,
+    feature_dtype=np.float32,
 ) -> tuple[pd.DataFrame, dict]:
     """For each numeric column, held-out-select a small dyadic Haar leg set and
     emit the legs, returning the columns alongside the per-column fit meta needed
@@ -438,7 +447,7 @@ def generate_wavelet_features(
             continue
         z = np.clip((x - lo) / span, 0.0, 1.0)
         for (j, k) in legs:
-            leg = _dyadic_haar_leg(z, j, k)
+            leg = _dyadic_haar_leg(z, j, k, dtype=feature_dtype)
             if float(np.std(leg)) <= 1e-12:
                 continue
             name = f"{col}__haar_j{j}k{k}"
@@ -515,6 +524,7 @@ def hybrid_wavelet_fe_with_recipes(
     min_incr_mi: float = _WAVELET_MIN_INCR_MI,
     smooth_complement_ratio: float = _WAVELET_SMOOTH_COMPLEMENT_RATIO,
     nbins: int = 10,
+    feature_dtype=np.float32,
     **_legacy_ignored,
 ) -> tuple[pd.DataFrame, list, list, pd.DataFrame]:
     """Haar wavelet basis FE + held-out-incremental-MI selection, returning
@@ -556,6 +566,7 @@ def hybrid_wavelet_fe_with_recipes(
     engineered, meta = generate_wavelet_features(
         X, cols=cols, y=y,
         max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
+        feature_dtype=feature_dtype,
     )
     _empty_cols = [
         "engineered_col", "source_col", "incr_mi", "smooth_gain", "passed",
