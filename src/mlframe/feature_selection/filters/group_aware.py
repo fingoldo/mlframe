@@ -307,6 +307,13 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         # are row-aligned, so they pass straight through to the inner selector
         # whether it fits on the medoid subset or the full X (same rows).
         is_df = isinstance(X, pd.DataFrame)
+        # GroupAwareMRMR itself tolerates duplicate column names (FE-expansion lag/one-hot collisions -- positional ``.iloc`` throughout the corr / medoid pass), so it does NOT blanket-reject. But when the inner selector itself rejects duplicate names (RFECV's _fit_init guard), the wrapper must surface that rejection at its OWN fit entry: the inner only sees the cluster-MEDOID subset (deduped), so without this propagation a duplicate-named X would silently slip past the inner's guard. Mirrors the inner contract for the wrapped-RFECV path while leaving the graceful MRMR-inner path untouched.
+        if is_df and X.columns.has_duplicates and getattr(self.estimator, "rejects_duplicate_feature_names", False):
+            dup_names = X.columns[X.columns.duplicated()].unique().tolist()
+            raise ValueError(
+                f"GroupAwareMRMR.fit: the wrapped {type(self.estimator).__name__} rejects duplicate column names: {dup_names[:10]}. "
+                f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+            )
         if not is_df:
             X = pd.DataFrame(X, columns=[f"f_{i}" for i in range(X.shape[1])])
 
@@ -410,10 +417,19 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         faithful drop-in inside the training-suite pre-pipeline. ``support_`` is
         an integer index array into ``feature_names_in_``."""
         names = getattr(self, "feature_names_in_", None)
+        # sklearn ``_check_feature_names_in`` contract: a passed input_features MUST match n_features_in_ (column-drift detection) and, when correct-length, OVERRIDES the stored feature_names_in_ -- so a caller can re-inject real names after an ndarray fit (which synthesized f_0..f_N placeholders).
+        if input_features is not None:
+            input_features = list(input_features)
+            n_in = int(getattr(self, "n_features_in_", len(input_features)))
+            if len(input_features) != n_in:
+                raise ValueError(
+                    f"input_features has {len(input_features)} elements, expected {n_in} "
+                    f"(n_features_in_); names passed to get_feature_names_out must match the "
+                    f"feature set this selector was fit on (sklearn column-drift contract)."
+                )
+            return np.asarray([input_features[int(i)] for i in self.support_], dtype=object)
         if names is not None:
             return np.asarray([names[int(i)] for i in self.support_], dtype=object)
-        if input_features is not None:
-            return np.asarray([input_features[int(i)] for i in self.support_], dtype=object)
         return np.asarray([f"f_{int(i)}" for i in self.support_], dtype=object)
 
     @property

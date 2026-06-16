@@ -161,6 +161,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
     """
 
+    # RFECV rejects duplicate input column names at fit entry (_fit_init guard); the GroupAwareMRMR wrapper reads this flag to surface that rejection when RFECV is the inner selector (the inner only sees the deduped cluster medoids, so the wrapper must guard on its behalf).
+    rejects_duplicate_feature_names = True
+
     def __init__(
         self,
         estimator: Union[BaseEstimator, None] = None,
@@ -763,17 +766,30 @@ class RFECV(BaseEstimator, TransformerMixin):
             # ``except NotFittedError`` discriminators work.
             from sklearn.exceptions import NotFittedError as _NFE
             raise _NFE("RFECV is not fitted; call fit() first.")
-        cache = getattr(self, "_selected_cols_cache", None)
-        if cache is not None:
-            return np.asarray(cache, dtype=object)
+        # sklearn ``_check_feature_names_in`` contract: when the caller passes input_features it MUST match the fitted width, else raise (column-drift detection). A correct-length input_features overrides the stored feature_names_in_ -- this lets a caller re-inject real names after an ndarray fit (which synthesized x0..xN placeholders).
+        names_in = getattr(self, "feature_names_in_", None)
+        if input_features is not None:
+            input_features = list(input_features)
+            n_in = int(getattr(self, "n_features_in_", len(input_features)))
+            if len(input_features) != n_in:
+                raise ValueError(
+                    f"input_features has {len(input_features)} elements, expected {n_in} "
+                    f"(n_features_in_). The names passed to get_feature_names_out must match the "
+                    f"feature set RFECV was fit on (sklearn column-drift contract)."
+                )
+            names_in = input_features
+        else:
+            cache = getattr(self, "_selected_cols_cache", None)
+            if cache is not None:
+                return np.asarray(cache, dtype=object)
         if len(self.support_) == 0:
             return np.array([], dtype=object)
         if isinstance(self.support_[0], (bool, np.bool_)):
             return np.asarray(
-                [c for c, s in zip(self.feature_names_in_, self.support_) if s],
+                [c for c, s in zip(names_in, self.support_) if s],
                 dtype=object,
             )
-        return np.asarray([self.feature_names_in_[i] for i in self.support_], dtype=object)
+        return np.asarray([names_in[i] for i in self.support_], dtype=object)
 
     def get_support(self, indices: bool = False):
         """sklearn ``SelectorMixin`` protocol. Returns a bool mask of length
