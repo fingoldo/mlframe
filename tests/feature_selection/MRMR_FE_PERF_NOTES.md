@@ -36,3 +36,33 @@ discretising the NEWLY-appended engineered columns would cut this. VERIFY first:
 are on overlapping column sets (redundant) vs genuinely new data each time; bench the cache; ensure
 bit-identical selection (edges must be frozen identically). Mature-perf caveat: may already be
 intentional (FE changes nbins/strategy per step) -- check before assuming redundancy.
+
+---
+
+## 2026-06-16 -- 400k / fe_max_steps=3 cProfile (WALL=585s, clean composite selected)
+
+CPU hotspots (cumtime / tottime):
+* **conditional-gate FE = #1 lever (~31% of wall, ~180s+):** cheap_conditional_gate_scan
+  (_conditional_gate_fe.py:351, 62s TOTTIME / 181s cumtime) + _gate_grid_mi (:201, 80s)
+  + best_existing_op_mi (:143, 46s) + _baseline (:409, 37s). PRIME speed target at scale.
+* orth-family MI batch _mi_classif_batch (945 calls, 166s cumtime) -- MI estimation, harder.
+* binned_numeric_agg (93s; per_cell_stats_bincount 21s tottime).
+* MDLP supervised binning _mdlp_best_split_njit (34s tottime).
+TODO (/loop): optimize the conditional-gate scan -- the grid-MI sweep dominates; check whether
+the per-(tau,op) MI grid recomputes redundant baselines / can prune the op x threshold grid early.
+
+## 2026-06-16 -- large-n MEMORY: all FE candidates materialized at once
+
+1M x fe_max_steps=3 OOMs a 16GB box: the ~46 FE families EACH append their candidate columns into one
+growing `X` frame, so the discretised screening matrix holds (n, raw + EVERY family's candidates)
+simultaneously. Mitigations landed: free dead per-family concat-frames before categorize_dataset
+(28dc86d4); Haar-wavelet legs float32 (5e8ec8c6). FURTHER: orth-poly working arrays kept float64
+(orthogonality); a genuinely chunked/streamed candidate screen (preserving zero-marginal SYNERGY
+candidates -- can't pre-discard by marginal MI) is the deeper fix if 1M must fit.
+
+## 2026-06-16 -- polars input gets ZERO feature engineering
+
+All FE families guard `isinstance(X, pd.DataFrame)` and SKIP (with a warning) on polars input -- only
+raw MI screening runs, no engineered features. TODO: auto-convert polars->pandas at fit entry when FE
+is enabled (fit AND transform consistently) so polars users get full FE (one materialization; the FE
+needs pandas anyway -- strictly better than silently skipping FE).
