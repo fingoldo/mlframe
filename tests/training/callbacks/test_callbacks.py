@@ -279,3 +279,55 @@ class TestSetupEarlyStoppingCallbackLegacyFilter:
         assert len(callbacks) == 2
         xgb_cbs = [cb for cb in callbacks if isinstance(cb, XGBoostCallback)]
         assert len(xgb_cbs) == 1
+
+
+# =============================================================================
+# CatBoost monotonic-decline stop wiring in _setup_early_stopping_callback
+# =============================================================================
+
+
+class TestCatBoostMonotonicDeclineWiring:
+    """The cb branch injects both the ``CatBoostCallback`` (patience / worsening) AND the dedicated
+    ``CBMonotonicDeclineStop`` (default-on at 3), gated on the build's ``fit(callbacks=)`` support."""
+
+    @requires_catboost
+    @requires_mlframe_trainer
+    def test_cb_branch_injects_monotonic_decline_callback(self):
+        from mlframe.training.callbacks.monotonic_decline import (
+            CBMonotonicDeclineStop,
+            catboost_callbacks_supported,
+        )
+
+        assert catboost_callbacks_supported(), "this catboost build should support fit(callbacks=)"
+        fit_params = {}
+        _setup_early_stopping_callback("cb", fit_params, {"patience": 10}, None)
+        cbs = fit_params["callbacks"]
+        mono = [c for c in cbs if isinstance(c, CBMonotonicDeclineStop)]
+        assert len(mono) == 1, "exactly one monotonic-decline callback must be wired for cb"
+        assert mono[0].patience == 3, "default-on at patience=3"
+
+    @requires_catboost
+    @requires_mlframe_trainer
+    def test_cb_monotonic_decline_disabled_via_none(self):
+        from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
+
+        fit_params = {}
+        _setup_early_stopping_callback("cb", fit_params, {"patience": 10, "monotonic_decline_patience": None}, None)
+        cbs = fit_params["callbacks"]
+        assert not any(isinstance(c, CBMonotonicDeclineStop) for c in cbs), "None disables the cb monotonic stop"
+
+    @requires_catboost
+    def test_cb_callback_plateau_resets(self):
+        from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
+
+        cb = CBMonotonicDeclineStop(patience=3, monitor_dataset="validation", monitor_metric="Logloss", mode="min")
+
+        def _info(value):
+            return type("I", (), {"metrics": {"validation": {"Logloss": [value]}}})()
+
+        for v in [0.5, 0.6, 0.7]:
+            cb.after_iteration(_info(v))
+        assert cb.after_iteration(_info(0.7)) is True   # plateau resets streak
+        assert cb.after_iteration(_info(0.8)) is True   # decline 1
+        assert cb.after_iteration(_info(0.9)) is True   # decline 2
+        assert cb.after_iteration(_info(1.0)) is False  # decline 3 -> stop

@@ -774,17 +774,20 @@ class TestSetupEarlyStoppingCallback:
         assert len(fit_params_lgb2["callbacks"]) == 1
         assert fit_params_lgb2["callbacks"][0] is not first_lgb_callback
 
-        # Test CatBoost
+        # Test CatBoost: the patience/worsening CatBoostCallback PLUS the default-on monotonic-decline
+        # stop (CBMonotonicDeclineStop) are both wired into a FRESH callback list each call.
+        from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
+
         fit_params_cb = {}
         _setup_early_stopping_callback("cb", fit_params_cb, callback_params, None)
-        assert len(fit_params_cb["callbacks"]) == 1
         assert isinstance(fit_params_cb["callbacks"][0], CatBoostCallback)
+        assert any(isinstance(c, CBMonotonicDeclineStop) for c in fit_params_cb["callbacks"])
         first_cb_callback = fit_params_cb["callbacks"][0]
 
-        # Call again - should create fresh list with new callback
+        # Call again - should create fresh list with new callbacks
         fit_params_cb2 = {}
         _setup_early_stopping_callback("cb", fit_params_cb2, callback_params, None)
-        assert len(fit_params_cb2["callbacks"]) == 1
+        assert isinstance(fit_params_cb2["callbacks"][0], CatBoostCallback)
         assert fit_params_cb2["callbacks"][0] is not first_cb_callback
 
 
