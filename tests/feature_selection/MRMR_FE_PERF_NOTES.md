@@ -88,3 +88,21 @@ bench_scaling (full MRMR.fit, cProfile, fe_max_steps=2) settled two things measu
   measured 24-35x on the null computation, identical MI/null + decision-equivalent p. NEXT large-n
   lever if more is needed: the joint-hist / binning path (`_binned_numeric_agg_fe`, MDLP), not
   construction.
+
+## Analytic-null equivalence + minimum-permutations study (2026-06-16)
+
+Two questions settled empirically (D:/Temp/equiv_study.py, minperm2.py; pinned by
+test_analytic_mi_null.py::test_permutation_converges_to_analytic):
+
+* **The analytic null IS the permutation null's nperm->infinity limit, not an approximation.**
+  Both estimate the same independence null; the permutation is a Monte-Carlo estimate (error
+  ~1/sqrt(nperm)). At n=80k the permutation null_mean converges 0.00049 (32 perms) -> 0.00051
+  (= analytic) and p converges 0.25 -> 0.36 (= analytic, |dp| -> 0.0002); for genuine signal p=0 at
+  every nperm. So the analytic value is MORE accurate than any finite-nperm run (zero MC noise).
+
+* **Minimum permutations for a stable keep/reject DECISION: ~32.** Panel of 24 candidates
+  (strong/weak/borderline/noise) at n=80k, keep-set vs the analytic ground truth: nperm<=8 admits
+  1-3 Monte-Carlo noise false-positives; nperm=16 matches but only 2/3 seeds; **nperm=32 matches the
+  reference on 3/3 seeds** and is rock-stable above. This independently validates the existing
+  ``_NULL_MEAN_MIN_PERMS=32`` floor as the minimum safe permutation budget for the n<50k path (below
+  the analytic threshold). Above 50k the analytic null (= the nperm->inf limit) supersedes it.
