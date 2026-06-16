@@ -199,6 +199,22 @@ STRATEGIES = {
 }
 
 
+def _prod_weighted(a):
+    """Production-weighted AUC: emphasise the gradient-boosting model (the real production
+    downstream) over the dimensionality-sensitive knn / linear logit. 0.6 lgbm + 0.2 logit +
+    0.2 knn, renormalised over whichever models are non-NaN. The equal mean(lgbm,logit,knn)
+    over-rewards ultra-sparse selectors because knn AUC collapses with feature count; this
+    column restores the tree-model view (e.g. on scene/breast_cancer hybrid looks competitive
+    here while it 'loses' on the equal mean)."""
+    w = {"lgbm": 0.6, "logit": 0.2, "knn": 0.2}
+    num = den = 0.0
+    for k, wk in w.items():
+        v = a.get(k)
+        if v is not None and v == v:  # non-NaN
+            num += wk * v; den += wk
+    return round(num / den, 4) if den > 0 else float("nan")
+
+
 def eval_strategy(nm, mk, Xtr, Xte, ytr, yte):
     """Fit one strategy + score downstream AUC. Returns a result dict (or an error dict on failure)."""
     t0 = time.time()
@@ -213,7 +229,8 @@ def eval_strategy(nm, mk, Xtr, Xte, ytr, yte):
     Ztr, Zte = Ztr[common], Zte[common]
     a = downstream(Ztr, Zte, ytr, yte)
     am = round(float(np.nanmean(list(a.values()))), 4)
-    return dict(strategy=nm, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1), auc_mean=am, **a)
+    return dict(strategy=nm, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1),
+                auc_mean=am, auc_prod=_prod_weighted(a), **a)
 
 
 _OOM_MARKERS = ("unable to allocate", "out of memory", "memoryerror", "paging file",
@@ -235,12 +252,12 @@ def run_dataset(name, X, y, note):
             r = eval_strategy(nm, mk, Xtr, Xte, ytr, yte)
             r["dataset"] = name
             rows.append(r)
-            _chk(f"  {name}/{nm:10s} n={r['n']:4d} {r['fit_s']:6.1f}s mean={r['auc_mean']} "
+            _chk(f"  {name}/{nm:10s} n={r['n']:4d} {r['fit_s']:6.1f}s mean={r['auc_mean']} prod={r.get('auc_prod')} "
                  f"lgbm={r.get('lgbm')} logit={r.get('logit')} knn={r.get('knn')}")
         except Exception as e:
             _chk(f"  {name}/{nm:10s} STRATEGY FAILED: {type(e).__name__}: {e}")
             rows.append(dict(dataset=name, strategy=nm, n=-1, fit_s=-1.0, auc_mean=float("nan"),
-                             lgbm=float("nan"), logit=float("nan"), knn=float("nan"),
+                             auc_prod=float("nan"), lgbm=float("nan"), logit=float("nan"), knn=float("nan"),
                              error=f"{type(e).__name__}: {e}"))
         gc.collect()
     return rows
@@ -278,8 +295,10 @@ def write_results(df):
 
     # full table
     lines.append("## Full dataset x strategy table\n")
-    lines.append("| dataset | strategy | n_sel | fit_s | lgbm | logit | knn | mean |")
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("`prod` = production-weighted AUC (0.6 lgbm + 0.2 logit + 0.2 knn): the gradient-boosting view. "
+                 "The equal `mean` over-rewards ultra-sparse selectors because knn AUC collapses with feature count.\n")
+    lines.append("| dataset | strategy | n_sel | fit_s | lgbm | logit | knn | mean | prod |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
     for ds in df["dataset"].drop_duplicates():
         sub = df[df.dataset == ds]
         for _, r in sub.iterrows():
@@ -287,8 +306,8 @@ def write_results(df):
                 v = r.get(k)
                 return "" if (v is None or (isinstance(v, float) and np.isnan(v))) else (f"{v:.4f}" if isinstance(v, float) else v)
             lines.append(f"| {ds} | {r['strategy']} | {int(r['n']) if r['n']==r['n'] else ''} | "
-                         f"{r['fit_s']} | {g('lgbm')} | {g('logit')} | {g('knn')} | {g('auc_mean')} |")
-        lines.append("| | | | | | | | |")
+                         f"{r['fit_s']} | {g('lgbm')} | {g('logit')} | {g('knn')} | {g('auc_mean')} | {g('auc_prod')} |")
+        lines.append("| | | | | | | | | |")
 
     # per-dataset deltas vs mrmr_fe and vs all
     lines.append("\n## Per-dataset deltas (mean AUC)\n")
