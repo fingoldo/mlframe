@@ -76,6 +76,7 @@ import logging
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -374,7 +375,7 @@ def generate_wavelet_features(
     scale_sigma: float = _WAVELET_SCALE_SIGMA,
     dedup_collinear_sources: bool = True,
     dedup_corr_threshold: float = 0.999,
-    feature_dtype=np.float32,
+    feature_dtype: npt.DTypeLike = np.float32,
 ) -> tuple[pd.DataFrame, dict]:
     """For each numeric column, held-out-select a small dyadic Haar leg set and
     emit the legs, returning the columns alongside the per-column fit meta needed
@@ -524,8 +525,8 @@ def hybrid_wavelet_fe_with_recipes(
     min_incr_mi: float = _WAVELET_MIN_INCR_MI,
     smooth_complement_ratio: float = _WAVELET_SMOOTH_COMPLEMENT_RATIO,
     nbins: int = 10,
-    feature_dtype=np.float32,
-    **_legacy_ignored,
+    feature_dtype: npt.DTypeLike = np.float32,
+    **_legacy_ignored: object,
 ) -> tuple[pd.DataFrame, list, list, pd.DataFrame]:
     """Haar wavelet basis FE + held-out-incremental-MI selection, returning
     leak-safe recipes. Returns ``(X_augmented, appended_names, recipes, scores)``.

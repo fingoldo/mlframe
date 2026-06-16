@@ -23,6 +23,7 @@ import logging
 from typing import Optional
 
 import numpy as np
+import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +225,8 @@ def _regression_metrics(y_true: np.ndarray, y_score: np.ndarray) -> dict:
 
 
 def compute_all_metrics(
-    y_true,
-    y_score,
+    y_true: npt.ArrayLike,
+    y_score: npt.ArrayLike,
     target_type: str = "binary_classification",
     *,
     n_classes: Optional[int] = None,

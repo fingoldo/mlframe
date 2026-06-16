@@ -43,6 +43,8 @@ REJECTED candidates (numerically *would* hold in ideal math but were NOT adopted
 """
 from __future__ import annotations
 
+from typing import Sequence
+
 # Operators whose OUTPUT sign does not depend on the sign of their argument(s):
 # applying them makes the argument's sign irrelevant (a neg below can be dropped).
 # ``sqrt`` qualifies because the FE impl is ``sqrt(|x|)`` (see feature_engineering.create_unary).
@@ -137,7 +139,7 @@ def _simplify(node, sign_irrelevant: bool):
     return (op, [_simplify(a, False) for a in args])
 
 
-def simplified_recipe_names(recipes) -> list:
+def simplified_recipe_names(recipes: Sequence[object]) -> list[str]:
     """Order-preserving simplified DISPLAY names for a recipe list.
 
     Applies :func:`simplify_fe_name` to each ``recipe.name``, but ONLY adopts the simplified

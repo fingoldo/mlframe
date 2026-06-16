@@ -20,6 +20,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ class LGBIterationMetricsCallback:
         _store(self.iteration_metrics_, round_idx, self.y_val, score, self.target_type, self.n_classes)
 
 
-def make_xgb_iteration_metrics_callback(dval, y_val, target_type: str, *, stride: int = 1, n_classes: Optional[int] = None):
+def make_xgb_iteration_metrics_callback(
+    dval: Any, y_val: npt.ArrayLike, target_type: str, *, stride: int = 1, n_classes: Optional[int] = None
+) -> Optional[Any]:
     """Build an XGBoost ``TrainingCallback`` capturing the full val metric suite every ``stride`` rounds.
 
     Factory so ``xgboost`` is imported lazily (module stays importable without xgboost). The val DMatrix ``dval``
