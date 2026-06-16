@@ -8546,7 +8546,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # engineered survivor captures still passes and is rescued. Structure-independent:
                 # correct at every n, no tuning constant beyond the existing ``_redundancy_frac``.
                 _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
-                for _eng_name in (self._engineered_features_ or []):
+                # SEED ONLY ON SURVIVING ENGINEERED FEATURES (2026-06-16, s319 under-selection).
+                # Condition the dedup on the engineered features that ACTUALLY REACH THE OUTPUT
+                # -- i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
+                # -- NOT ``self._engineered_features_``, which still carries composites that were
+                # SELECTED by the greedy step but then DROPPED downstream (recipeless nested parents,
+                # or features that failed the ``fe_min_engineered_mi_prevalence`` gate). A composite
+                # about to be dropped must not suppress its raw operands here: doing so loses BOTH the
+                # composite (dropped from transform) AND every operand it captures (flagged redundant
+                # with it), collapsing the rescue. Measured s319 (y = 1.5*a*b + 0.5*g/k, uniform,
+                # n=25000): ``mul(a,b)`` was formed but prevalence-gated out, yet still suppressed raw
+                # ``b`` -> the rescue fell to a single raw ``a`` (fe R^2 0.245 vs raw-only 0.556,
+                # delta -0.311). Seeding on the (empty here) survivor set lets b,g,k pass the raw-vs-raw
+                # dedup -> support {a,b,g,k}, delta +0.0005. When engineered survivors DO reach output
+                # (the F2 ``a**2/b + log(c)*sin(d)`` composite case) they remain in ``_engineered_recipes_``
+                # and still correctly drop their subsumed operands -- behaviour unchanged there.
+                def _surv_eng_name(_r):
+                    _nm = getattr(_r, "name", None)
+                    return str(_nm) if _nm is not None else str(_r)
+                for _eng_name in (_surv_eng_name(_r) for _r in (self._engineered_recipes_ or [])):
                     _eng_ci = _name_to_cols_idx_eng.get(_eng_name)
                     if _eng_ci is not None:
                         _accepted_cols.append(_eng_ci)

@@ -222,17 +222,30 @@ signal-bearing sibling operand. Post-fix s909 drops a,b,c (engineered-only suppo
 fully-subsumed outcome). Regression: `test_raw_redundancy_sibling_fusion.py` (drop leg + over-drop
 control, both driven by the real generator at seed 909; the drop leg fails pre-fix, verified).
 
-### [PRE-EXISTING RED — NOT this change] s319 I5 — FE under-selection on smooth_interaction
+### [RESOLVED] s319 I5 — empty-raw-screen fallback suppressed by a DROPPED engineered composite
 
-**Severity P1** (FE space scores materially worse than raw-only). NOT introduced by the s909 sibling-
-conditioning fix — confirmed by running the failing node with the sibling block disabled: identical
-`delta=-0.311 fe=0.245 raw_only=0.556`, byte-for-byte, so the redundancy drop is a no-op on this case.
+**Severity P1** (FE space scored materially worse than raw-only). FIXED 2026-06-16 in
+`_fit_impl_core.py` (empty-raw fallback conditions on SURVIVING engineered features only). NOT the
+s909 sibling-conditioning change — confirmed orthogonal (the failing node was byte-identical with the
+sibling block disabled).
 
 **Case:** `smooth_interaction` / `uniform` / `regression` / seed 319, fe config idx 8 (fe_max_steps=2,
-fe_auto_escalation_enable). subsumed_raws={a,b,g,k}, no private. The screen + retention passes select a
-very small support (a single raw / one composite) and DROP raws the HGB downstream needs to recover the
-smooth interaction, so the FE space (fe R²=0.245) falls well below the all-raw baseline (0.556). This is
-an MRMR SELECTION-QUALITY problem (under-selection on a smooth bivariate interaction), orthogonal to the
-raw-redundancy-drop subsystem; the "n=25000 minimal-green" commit (71b2d5e) appears to have been green by
-RNG chance in the worker. Tracked here for a dedicated selection-quality pass (needs the joint/CMI
-interaction screen, not a redundancy tweak); do NOT mask via tolerance widening.
+fe_auto_escalation_enable), `y = 1.5*a*b + 0.5*g/k + conf`. subsumed_raws={a,b,g,k}, no private.
+
+**Root cause:** the greedy screen returned 0 surviving raws, so the empty-raw-screen fallback rescued
+the raws clearing the relevance floor, deduping them against the *selected* engineered features. It
+seeded that dedup from `self._engineered_features_` (every greedily-selected engineered name) instead
+of `self._engineered_recipes_` (the replayable survivors that actually reach the output, counted in
+`n_engineered_out`). The interaction composite `mul(a,b)` was formed and selected but then DROPPED —
+it failed the `fe_min_engineered_mi_prevalence` gate (and a deeper nested parent was recipeless) — yet
+it still appeared in `_engineered_features_`, so its operand `b` was flagged redundant-with-it and
+dropped. Result: BOTH the composite (dropped from transform) AND the operand `b` were lost, collapsing
+the rescue to the single raw `a`. fe R²=0.245 vs raw-only 0.556, delta −0.311 < −0.05 bar.
+
+**Fix:** seed the fallback redundancy dedup only on `self._engineered_recipes_` (the surviving,
+output-bound engineered features). A composite about to be dropped no longer suppresses its raw
+operands. Post-fix support = {a,b,g,k}, delta +0.0005. When engineered survivors DO reach output (the
+F2 `a**2/b + log(c)*sin(d)` composite case) they remain in `_engineered_recipes_` and still correctly
+drop their subsumed operands — unchanged there (verified by the full I4/I4b/I5 grid at n=25000).
+Regression: `test_mrmr_smooth_interaction_underselection.py` (asserts `b` survives + support ≥ 3;
+fails pre-fix, where the fallback rescued only 1 raw).

@@ -92,11 +92,14 @@ _MAX_N = 60000
 #         residual > 5% bar). The raw-redundancy drop now ALSO conditions on the
 #         consumer's sibling operands and takes the MIN excess; ``a`` collapses to
 #         0.25% -> DROP. See MRMR_FE_AUDIT_FINDINGS.md + test_raw_redundancy_sibling_fusion.py.
-#   s319 (smooth_interaction/uniform/regression): PRE-EXISTING RED, NOT a redundancy
-#         issue -- I5 FE-vs-raw no-harm fails (delta -0.311; fe R^2 0.245 vs raw 0.556)
-#         because MRMR UNDER-SELECTS on the smooth bivariate interaction (drops raws the
-#         HGB needs). Identical with the redundancy drop disabled, so orthogonal to the
-#         s909 fix. Tracked for a dedicated selection-quality pass (see audit findings).
+#   s319 (smooth_interaction/uniform/regression): FIXED 2026-06-16 -- I5 FE-vs-raw
+#         no-harm was failing (delta -0.311; fe R^2 0.245 vs raw 0.556) because the
+#         empty-raw-screen fallback deduped the rescue against a DROPPED engineered
+#         composite (``mul(a,b)`` was prevalence-gated out yet still suppressed raw ``b``),
+#         collapsing the support to a single raw ``a``. The fallback now conditions only on
+#         SURVIVING engineered features (``_engineered_recipes_``), so b,g,k survive ->
+#         support {a,b,g,k}, delta +0.0005. See MRMR_FE_AUDIT_FINDINGS.md +
+#         test_mrmr_smooth_interaction_underselection.py.
 # 25k is the minimal n that greens the finite-sample-starved cases; it also
 # keeps each subprocess fit inside the 600s worker timeout (50k overran it).
 _DEFAULT_CASE_N = 25000
