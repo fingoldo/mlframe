@@ -91,4 +91,43 @@ def analytic_mi_null(original_mi: float, n_rows: int, n_bins_x: int, n_bins_y: i
     return null_mean, p_value
 
 
-__all__ = ["analytic_mi_null", "analytic_null_enabled", "analytic_null_min_n"]
+def analytic_batch_noise_gate(
+    disc_2d: np.ndarray,
+    observed_mi: np.ndarray,
+    classes_y: np.ndarray,
+    n_rows: int,
+    min_nonzero_confidence: float,
+) -> np.ndarray:
+    """Analytic large-n form of the batched FE-candidate permutation noise gate.
+
+    The permutation gate rejects candidate ``k`` (sets ``fe_mi[k]=0``) when its permutation p-value
+    ``nfailed/npermutations >= 1 - min_nonzero_confidence``, else keeps the observed MI. At large n the
+    p-value is the G-test tail, so this reproduces the keep/reject decision WITHOUT any shuffles.
+
+    ``observed_mi`` is the per-column ungated observed MI in NATS (compute it once via the CPU kernel
+    with ``npermutations=0``). ``disc_2d`` is the (n, K) discretised candidate matrix (integer codes);
+    occupied marginal bin counts drive each column's G-test df. Returns ``fe_mi[K]``.
+    """
+    observed = np.asarray(observed_mi, dtype=np.float64)
+    K = int(disc_2d.shape[1])
+    fe_mi = observed.copy()
+    alpha_reject = 1.0 - float(min_nonzero_confidence)  # reject when analytic p >= this
+    by = int(np.unique(np.asarray(classes_y)).size)     # occupied y categories
+    for k in range(K):
+        mi_k = float(fe_mi[k])
+        if mi_k <= 0.0:
+            fe_mi[k] = 0.0
+            continue
+        bx = int(np.unique(disc_2d[:, k]).size)         # occupied x bins for this candidate
+        _nm, p = analytic_mi_null(mi_k, int(n_rows), bx, by)
+        if p >= alpha_reject:
+            fe_mi[k] = 0.0
+    return fe_mi
+
+
+__all__ = [
+    "analytic_mi_null",
+    "analytic_batch_noise_gate",
+    "analytic_null_enabled",
+    "analytic_null_min_n",
+]

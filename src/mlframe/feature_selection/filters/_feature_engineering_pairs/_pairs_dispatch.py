@@ -47,6 +47,39 @@ def _dispatch_batch_mi_with_noise_gate(
     K = disc_2d.shape[1]
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
 
+    # ---- Analytic large-n noise gate (2026-06-16) -------------------------------------------------
+    # The per-candidate permutation null -- CPU prange shuffles AND the GPU cupy-argsort twin below --
+    # is the dominant large-n FE-scan cost. At large n the gate's permutation p-value is the analytic
+    # G-test tail (2N*MI ~ chi2), so the shuffles are unnecessary: compute the ungated observed MI once
+    # (the CPU kernel with npermutations=0) and apply the keep/reject decision analytically. Only when
+    # MI is raw (not SU-normalised -- the chi2 identity requires it) and n >= threshold; below it the
+    # permutation path (CPU/GPU) runs byte-for-byte unchanged. Bypasses the GPU branch entirely.
+    if int(npermutations) > 0 and not use_su:
+        try:
+            from .._analytic_mi_null import (
+                analytic_batch_noise_gate, analytic_null_enabled, analytic_null_min_n,
+            )
+            _an_ok = analytic_null_enabled() and int(n) >= analytic_null_min_n()
+        except Exception:
+            _an_ok = False
+        if _an_ok:
+            try:
+                _observed = batch_mi_kernel(
+                    disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
+                    classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=0,
+                    base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
+                    use_su=False, dtype=np.int32,
+                    classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 4 else np.int32,
+                )
+                return analytic_batch_noise_gate(
+                    disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence),
+                )
+            except Exception as _an_exc:  # any failure -> fall through to the permutation path
+                _module_logger.debug(
+                    "analytic noise gate failed (%s: %s); permutation fallback",
+                    type(_an_exc).__name__, _an_exc,
+                )
+
     # Per-host CPU/GPU backend choice via the canonical ``get_or_tune`` orchestrator
     # (per-host cache, code-version checked -> on-miss tuner -> measurement-backed
     # fallback; no hardcoded threshold). The GPU twin (``batch_mi_noise_gate_gpu``)

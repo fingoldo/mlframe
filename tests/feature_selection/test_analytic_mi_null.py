@@ -16,6 +16,7 @@ import pytest
 from mlframe.feature_selection.filters.permutation import mi_direct
 from mlframe.feature_selection.filters._analytic_mi_null import (
     analytic_mi_null,
+    analytic_batch_noise_gate,
     analytic_null_min_n,
 )
 
@@ -95,3 +96,46 @@ def test_analytic_is_faster_large_n(monkeypatch):
     t_p = time.perf_counter() - t
     # analytic skips the permutation shuffles entirely -> materially faster (conservative bar: 3x).
     assert t_a < t_p / 3.0, f"analytic not faster: analytic={t_a:.3f}s permutation={t_p:.3f}s"
+
+
+def _mi_nats(x, y, n, nb):
+    j = np.zeros((nb, nb)); np.add.at(j, (x, y), 1); j /= n
+    px = j.sum(1, keepdims=True); py = j.sum(0, keepdims=True)
+    m = j > 0
+    return float((j[m] * np.log(j[m] / (px @ py)[m])).sum())
+
+
+def test_batch_noise_gate_keeps_signal_rejects_noise():
+    """The analytic batch gate keeps every genuine-signal candidate and rejects pure noise at large n
+    -- the asymptotic-exact decision the per-candidate permutation gate approximates (without its
+    Monte-Carlo false positives)."""
+    nb = NB
+    n = max(int(analytic_null_min_n()), 80_000)
+    K = 30
+    rng = np.random.default_rng(4)
+    y = rng.integers(0, nb, n).astype(np.int64)
+    cols, signal = [], set()
+    for k in range(K):
+        if k % 3 == 0:
+            signal.add(k)
+            cols.append(np.where(rng.random(n) < 0.06, y, rng.integers(0, nb, n)).astype(np.int64))
+        else:
+            cols.append(rng.integers(0, nb, n).astype(np.int64))
+    disc = np.column_stack(cols)
+    observed = np.array([_mi_nats(disc[:, k], y, n, nb) for k in range(K)])
+
+    fe = analytic_batch_noise_gate(disc, observed, y, n, min_nonzero_confidence=0.95)
+    kept = set(np.where(fe > 0)[0].tolist())
+
+    # all genuine signal kept (no false negatives); kept candidates keep their observed MI unchanged.
+    assert signal <= kept, f"dropped genuine signal: missing {sorted(signal - kept)}"
+    for k in kept:
+        assert fe[k] == pytest.approx(observed[k])
+    # noise rejection: a significance gate at alpha = 1 - 0.95 = 0.05 admits ~alpha * n_noise nulls by
+    # construction (here 20 noise cols -> ~1 expected). Allow a small false-positive budget; the point
+    # is the gate rejects the BULK of noise, not that it is infallible.
+    n_noise = K - len(signal)
+    false_pos = kept - signal
+    assert len(false_pos) <= max(3, int(0.10 * n_noise)), (
+        f"too many noise candidates admitted: {sorted(false_pos)} (n_noise={n_noise})"
+    )
