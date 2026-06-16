@@ -193,10 +193,13 @@ class TestTargetLeakageHandling:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, pd.Series(y_arr))
         names = list(sel.get_feature_names_out())
-        # Either leak directly OR signal (its cluster partner) must
-        # surface; both perfectly predict y so DCD picks one.
-        assert "leak" in names or "signal" in names, (
-            f"99% leak AND its cluster partner both missed; "
+        # Either leak directly OR signal (its cluster partner) must surface; both perfectly predict y so DCD picks one. Credit an
+        # engineered child too: with directed-FE default-ON the near-perfect predictor's signal can reach the output folded into a
+        # transform of its operand (e.g. ``pmod_self__leak__m69`` = leak mod 69, lossless on a 0/1 leak), so the contract is "the
+        # leak/signal information reaches the support", checked by raw-name membership OR an engineered name referencing the operand.
+        _carries_signal = any(("leak" in str(nm)) or ("signal" in str(nm)) for nm in names)
+        assert _carries_signal, (
+            f"99% leak AND its cluster partner both missed (neither raw nor as an engineered operand); "
             f"support={names}"
         )
         assert not getattr(sel, "fallback_used_", False), (

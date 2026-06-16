@@ -227,7 +227,14 @@ def test_mrmr_drops_uninformative_features(tmp_path):
     )
 
     selected_set = set(selected)
-    n_info_kept = sum(1 for c in INFORMATIVE_NAMES if c in selected_set)
+    # Credit an informative feature whose signal REACHES the support, whether as a bare raw OR folded into a selected engineered child
+    # (with directed-FE default-ON the redundancy pass absorbs a raw operand into its composite and drops the bare raw -- e.g. info_0
+    # survives only inside ``add(info_0_neg(info_1))`` / ``sub(neg(info_0)_sin(info_2))``). The contract is "informative signal reaches
+    # the model", not "the literal raw column name is in the support"; a per-feature regex over selected names matches the operand.
+    _info_refs = set()
+    for nm in selected:
+        _info_refs |= {f"info_{i}" for i in re.findall(r"info_(\d+)", str(nm))}
+    n_info_kept = sum(1 for c in INFORMATIVE_NAMES if c in _info_refs)
     n_noise_kept = sum(1 for c in selected if c.startswith("noise_"))
     n_total_sel = len(selected)
 
@@ -237,7 +244,7 @@ def test_mrmr_drops_uninformative_features(tmp_path):
     )
 
     assert n_info_kept >= 3, (
-        f"Expected >=3 of 5 informative features retained, got {n_info_kept}. "
+        f"Expected >=3 of 5 informative features retained (raw or as an engineered operand), got {n_info_kept}. "
         f"Selected: {selected}"
     )
     # Noise REJECTION-rate contract: MRMR should drop the vast majority

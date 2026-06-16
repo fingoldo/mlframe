@@ -70,7 +70,15 @@ def _fit():
     # FE OFF so the candidate pool is the RAW features: selection-frequency then
     # directly separates genuine raw inputs from noise raw inputs (with FE on the
     # pool is dominated by engineered columns and the raw/noise framing dissolves).
-    sel = _mrmr(fe_max_pair_features=0, fe_max_steps=0).fit(X, y)
+    # The pair/step knobs alone are insufficient -- the directed-FE families (modular / lattice / row-argmax / conditional-gate) are
+    # independently default-ON and would otherwise inject engineered g0/noise children into the bootstrap replay pool, splitting a
+    # genuine feature's selection share below the 0.7 floor.
+    sel = _mrmr(
+        fe_max_pair_features=0, fe_max_steps=0,
+        fe_modular_enable=False, fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False, fe_row_argmax_enable=False,
+        fe_conditional_gate_enable=False,
+    ).fit(X, y)
     return sel
 
 
