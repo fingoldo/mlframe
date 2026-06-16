@@ -19,3 +19,5 @@ from mlframe.metrics.scoring import *  # noqa: F401,F403
 from mlframe.metrics.calibration import _show_plots_unless_agg as show_plots_unless_agg  # noqa: F401
 # Public re-export of the Brier kernel so reporting consumers (model_card) import it from the package surface instead of the ``_core_auc_brier`` implementation module.
 from mlframe.metrics._core_auc_brier import fast_brier_score_loss  # noqa: F401
+# Lean full-suite per-target-type aggregator used by per-iteration metric capture (meta-learning / HPO-from-early-observation).
+from mlframe.metrics.iteration_metrics import compute_all_metrics  # noqa: F401
