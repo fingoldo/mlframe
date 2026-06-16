@@ -29,6 +29,7 @@ from .._base_logging import MetricSpec, _rmse_metric
 from .._base_tensor_helpers import to_tensor_any, safe_accelerator
 from ._base_losses import _make_binary_focal_loss, _validate_no_nan_inf
 from .._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback, MonotonicDeclineStopCallback
+from .._history_recorder import TrainingHistoryRecorder
 
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
@@ -849,6 +850,12 @@ class _FitMixin:
                         mode="min",
                     )
                 )
+            # Record per-epoch train/val history in the booster ``evals_result_`` shape so the per-model
+            # training-curve chart (reporting._render_training_curves, default-ON) auto-emits for neural
+            # models exactly as it does for lgb/xgb/cb -- with the early-stop vline + wasted-post-ES shading.
+            callbacks.append(
+                TrainingHistoryRecorder(monitor=f"val_{metric_name}", mode="min")
+            )
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
@@ -932,6 +939,17 @@ class _FitMixin:
                 self._tuned = True
 
         trainer.fit(model=self.model, datamodule=dm)
+
+        # Expose per-epoch train/val history (booster ``evals_result_`` shape) + the best epoch so the
+        # reporting layer's training-curve chart picks it up with no neural-specific code (it already
+        # consumes ``evals_result_``/``best_iteration_`` for lgb/xgb/cb).
+        for callback in trainer.callbacks:
+            if isinstance(callback, TrainingHistoryRecorder):
+                if callback.evals_result_:
+                    self.evals_result_ = callback.evals_result_
+                    if callback.best_iteration_ is not None:
+                        self.best_iteration_ = callback.best_iteration_
+                break
 
         # Extract best epoch from model (set by checkpoint callback, DDP-safe). Prefer model.best_epoch over callback.best_epoch
         # for distributed training compatibility.
