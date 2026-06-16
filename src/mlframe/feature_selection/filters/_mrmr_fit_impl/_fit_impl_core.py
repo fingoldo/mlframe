@@ -7746,6 +7746,84 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _exc_redund,
             )
 
+    # RAW-vs-RAW MONOTONE-TWIN DROP (2026-06-16, F6). The cross-stage Spearman-0.99 dedup
+    # (above, ~line 5343) collapses monotone-equivalent ENGINEERED columns, and the
+    # raw-vs-engineered redundancy sweep (above) drops a raw subsumed by an engineered
+    # CHILD. Neither catches a RAW DECOY that is a pure MONOTONE re-encoding of ANOTHER
+    # selected RAW column (``a_exp = exp(a)`` when raw ``a`` is selected): both bin
+    # byte-identically under the quantile / rank-invariant MI screen, so they carry the
+    # SAME information about y, yet the greedy screen / floor-drop protection / retention
+    # passes can admit BOTH (the redundancy penalty is computed on coarse bins and the
+    # nonlinear twin slips a small residual past it). Mirror the engineered dedup at the
+    # RAW level: among selected raw columns, when two are monotone twins (|Spearman rho|
+    # >= the same 0.99 bar), drop the LOWER-relevance one (by screening marginal MI;
+    # ties keep the earlier-selected). A genuine independent raw (rank-uncorrelated with
+    # every other selected raw) is untouched, so this never over-drops. Byte-identical
+    # when no two selected raws are monotone twins. Shares the
+    # ``fe_drop_redundant_raw_operands`` toggle (off restores the prior behaviour).
+    if getattr(self, "fe_drop_redundant_raw_operands", True) and isinstance(X, pd.DataFrame) and len(selected_vars) >= 2:
+        try:
+            _MONO_TWIN_RHO = 0.99
+            _raw_set_mt = set(self.feature_names_in_)
+            _raw_sel_mt = [v for v in selected_vars if cols[v] in _raw_set_mt and cols[v] in X.columns]
+            if len(_raw_sel_mt) >= 2:
+                _mt_n = int(data.shape[0])
+                _mt_ranks: dict[int, np.ndarray] = {}
+                for _v in _raw_sel_mt:
+                    try:
+                        _cv = np.asarray(X[cols[_v]].to_numpy(), dtype=np.float64).reshape(-1)
+                    except (TypeError, ValueError):
+                        continue
+                    if _cv.shape[0] == _mt_n and np.all(np.isfinite(_cv)) and _cv.std() > 1e-12:
+                        _mt_ranks[_v] = pd.Series(_cv).rank(method="average").to_numpy()
+                # Relevance to break ties / pick the survivor: the screening marginal MI.
+                def _mt_relevance(_v):
+                    try:
+                        return float(cached_MIs.get((_v,), 0.0))
+                    except Exception:
+                        return 0.0
+                _mt_keep: list[int] = []
+                _mt_drop: set[int] = set()
+                # Keep order = selection order, so an earlier-selected twin is preferred on a tie.
+                for _v in _raw_sel_mt:
+                    if _v not in _mt_ranks:
+                        _mt_keep.append(_v)
+                        continue
+                    _twin_of = None
+                    for _k in _mt_keep:
+                        _rk = _mt_ranks.get(_k)
+                        if _rk is None:
+                            continue
+                        _rho = float(np.corrcoef(_mt_ranks[_v], _rk)[0, 1])
+                        if np.isfinite(_rho) and abs(_rho) >= _MONO_TWIN_RHO:
+                            _twin_of = _k
+                            break
+                    if _twin_of is None:
+                        _mt_keep.append(_v)
+                    else:
+                        # Drop the LOWER-relevance twin; if the candidate out-scores the kept twin,
+                        # displace the kept one instead.
+                        if _mt_relevance(_v) > _mt_relevance(_twin_of) + 1e-12:
+                            _mt_drop.add(_twin_of)
+                            _mt_keep.remove(_twin_of)
+                            _mt_keep.append(_v)
+                        else:
+                            _mt_drop.add(_v)
+                if _mt_drop:
+                    selected_vars = [v for v in selected_vars if v not in _mt_drop]
+                    if verbose:
+                        logger.info(
+                            "MRMR raw monotone-twin drop: removed %d raw decoy(s) that are pure "
+                            "monotone re-encodings of a higher-relevance selected raw (|Spearman rho|"
+                            ">=%.2f, rank-redundant): %s",
+                            len(_mt_drop), _MONO_TWIN_RHO, [cols[v] for v in _mt_drop],
+                        )
+        except Exception as _exc_mt:
+            logger.warning(
+                "MRMR raw monotone-twin drop failed: %s; keeping the un-pruned support.",
+                _exc_mt,
+            )
+
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
     # ---------------------------------------------------------------------------------------------------------------
