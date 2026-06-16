@@ -98,6 +98,11 @@ def _engineered_selected(selected) -> list:
 
 
 def _fit(df: pd.DataFrame, y: pd.Series, seed: int = 0, **kw) -> MRMR:
+    # DETERMINISM: the FE path consumes the GLOBAL np.random (permutation nulls / subsampling)
+    # on top of random_seed, so in-process case order shifts a later case's FE selection
+    # (the global-RNG-contamination the endtoend layer subprocesses around). Pin the global RNG
+    # per fit so each adversarial case's verdict is order-independent (was flaky across cases).
+    np.random.seed(seed)
     fs = MRMR(verbose=0, random_seed=seed, **kw)
     fs.fit(df, y)
     return fs
