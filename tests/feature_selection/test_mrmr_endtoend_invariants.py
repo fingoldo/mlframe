@@ -384,6 +384,24 @@ def test_I3_slice_replay_byte_exact(case_idx, case, _results_cache):
 # ===========================================================================
 # I4 -- BUG1: subsumed raw dropped at any depth; genuine private raw kept.
 # ===========================================================================
+# CONFIRMED ROOT-CAUSE of the residual heavy-tail FAILS (subsumed_plus_private-heavytail s312,
+# ratio_plus_trig s203/s909) -- 2026-06-16, after ~8 measured approaches. NOT masked: these are a
+# genuine FE-quality gap, tracked-red until the unified-core re-platform can crack them.
+#   * Mechanism (instrumented): MARGINAL supervised MDLP binning collapses an INTERACTION-ONLY operand
+#     (c in log(c)*sin(d): MI(c;y)~0) to 1 bin (verified: a/b/d -> 9/3/7 bins, c -> 1, noise e -> 1), so
+#     the (c,d) JOINT MI on the global codes is ~0 -> the synergy pair is never detected/formed -> FE
+#     emits diluting d-only transforms + drops raw c -> a TREE downstream loses the c,d interaction that
+#     raw-only keeps (fe~0.84 < raw_only~0.92).
+#   * The BARRIER (why no clean fix): a min-bins FLOOR on the pair-MI screen DOES recover detection
+#     (verified: (c,d) then forms add(log(c),sin(d))), but because a zero-marginal SYNERGY operand (c) is
+#     INDISTINGUISHABLE from pure NOISE (e) at the marginal level, flooring c's bins equally floors e's ->
+#     noise admission (regressed test_pure_noise_raw_not_re_added_by_retention + 3 synergy-rescue tests).
+#     And even when detected, log(c)*sin(d) is a WEAK term whose composite (MI~0.09) loses the greedy to
+#     the dominant a-signal (MI~1.4) -> not selected. So detection-vs-noise + weak-term-selection are two
+#     compounding walls; ruled out: linear/tree raw-protection (c lift -0.003), FE-no-harm guard
+#     (codes/continuous, config-fragile), GBM-seeder (self-gated off), synergy bin-floor (noise admission).
+#   * The principled fix lives in the planned UNIFIED numpy/numba FE re-platform (a joint/CMI synergy
+#     screen that resolves the interaction without giving every zero-marginal column noise resolution).
 @pytest.mark.parametrize("case_idx, case", _CASES)
 def test_I4_raw_redundancy_drop_and_keep(case_idx, case, _results_cache):
     r = _get(case_idx, case, _results_cache)
