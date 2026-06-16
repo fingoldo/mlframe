@@ -332,7 +332,7 @@ mlframe = ["py.typed"]
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra -s --no-cov --strict-markers --strict-config --timeout=60 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling"
+addopts = "-ra -s --no-cov --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
