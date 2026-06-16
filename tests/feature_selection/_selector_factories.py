@@ -199,7 +199,7 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
     ),
     "RFECV": SelectorSpec(
         name="RFECV", make=_make_rfecv, tasks=("binary", "regression"),
-        nan_in_X_policy="unknown", determinism=1.0,
+        nan_in_X_policy="unknown", determinism=1.0, rejects_duplicate_names=True,
     ),
     "ShapProxiedFS": SelectorSpec(
         name="ShapProxiedFS", make=_make_shap_proxied, tasks=("binary", "regression"),
@@ -228,7 +228,7 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         supports_sample_weight=True,        # forwards sample_weight to the inner RFECV
         column_order_invariant=False,       # corr-cluster medoid pick is order-sensitive
         validates_transform_width=False,    # wrapper does not re-validate ndarray width
-        nan_in_X_policy="unknown", determinism=1.0, slow=True,
+        nan_in_X_policy="unknown", determinism=1.0, slow=True, rejects_duplicate_names=True,
     ),
 }
 
