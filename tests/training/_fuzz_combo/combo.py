@@ -444,7 +444,6 @@ class FuzzCombo:
     behavior_model_file_hash_suffix_cfg: bool = True
     # 2026-05-30 audit-pass-6 (W6). Defaults source-verified against
     # SliceStableESConfig (_training_runtime_configs.py:42-95),
-    # TrainingBehaviorConfig.early_stop_on_worsening (_model_configs.py:505),
     # MRMR Wave 7/8/9 ctor args (filters/mrmr.py:224-302, 589), and
     # CompositeTargetDiscoveryConfig.cv_selector_mode
     # (_composite_target_discovery_config.py:117).
@@ -453,7 +452,6 @@ class FuzzCombo:
     slice_stable_es_source_cfg: str = "temporal"
     slice_stable_es_pareto_best_iter_selection_cfg: bool = False
     slice_stable_es_diagnostic_only_cfg: bool = False
-    early_stop_on_worsening_cfg: bool = True
     mrmr_nbins_strategy_cfg: str = "mdlp"
     mrmr_mi_correction_cfg: str = "none"
     mrmr_redundancy_aggregator_cfg: "str | None" = None
@@ -480,8 +478,7 @@ class FuzzCombo:
     # 2026-05-30 audit-pass-6 LOW-tier deferred batch (W6 LOW). 28 axes,
     # S27 dropped (no source ctor param). Defaults source-verified against
     # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:79-113),
-    # TrainingBehaviorConfig.early_stop_on_worsening_{coeff,min_iters}
-    # (_model_configs.py:506-507), MRMR Wave 8 sibling knobs
+    # MRMR Wave 8 sibling knobs
     # (filters/mrmr.py:241,249,252,265), and CompositeTargetDiscoveryConfig
     # cv_selector_{alpha,confidence,quantile_level} + cv_persist_fold_scores
     # (_composite_target_discovery_config.py:127-130).
@@ -503,8 +500,6 @@ class FuzzCombo:
     shap_proxied_revalidation_ucb_slack_cfg: "float | None" = None
     shap_proxied_revalidation_ucb_stdev_multiplier_cfg: "float | None" = None
     shap_proxied_inner_n_jobs_cap_cfg: bool = False
-    early_stop_on_worsening_coeff_cfg: int = 5
-    early_stop_on_worsening_min_iters_cfg: int = 5
     mrmr_relaxmrmr_alpha_cfg: float = 0.0
     mrmr_uaed_auto_size_cfg: bool = False
     mrmr_cpt_test_cfg: bool = False
@@ -1786,11 +1781,6 @@ class FuzzCombo:
                 if self.slice_stable_es_enabled_cfg
                 else False
             ),
-            # Curve-shape ES detector: meaningful on every model that runs
-            # iterative fits with a val metric (boosters + linear partial-fit
-            # ES wrapper). No secondary gate -- the detector is unconditionally
-            # constructed when the booster path runs.
-            self.early_stop_on_worsening_cfg,
             # MRMR Wave 7/8/9 axes: all collapse to MRMR.__init__ defaults
             # when use_mrmr_fs is False so dedup absorbs identical-behaviour
             # combos that differ only on inactive MRMR knobs.
@@ -1952,18 +1942,6 @@ class FuzzCombo:
                 self.shap_proxied_inner_n_jobs_cap_cfg
                 if self.use_shap_proxied_fs
                 else False
-            ),
-            # Curve-shape ES scalars (S25, S26): only meaningful when the
-            # worsening detector is enabled.
-            (
-                self.early_stop_on_worsening_coeff_cfg
-                if self.early_stop_on_worsening_cfg
-                else 5
-            ),
-            (
-                self.early_stop_on_worsening_min_iters_cfg
-                if self.early_stop_on_worsening_cfg
-                else 5
             ),
             # MRMR Wave 8 LOW scalars (S32, S34, S35, S37): collapse to
             # MRMR.__init__ defaults when use_mrmr_fs=False.

@@ -776,8 +776,8 @@ def maybe_wrap_for_partial_fit_es(
     Parameters
     ----------
     behavior_kwargs
-        Optional dict carrying ``TrainingBehaviorConfig`` ES knobs (worsening_enabled,
-        worsening_coeff, worsening_min_iters, patience, max_iter) forwarded to the wrapper.
+        Optional dict carrying ``TrainingBehaviorConfig`` ES knobs (patience, min_delta,
+        max_iter, budget bounds) forwarded to the wrapper.
     random_state
         Outer suite seed forwarded to the wrapper's internal train/val ES split so ES is
         reproducible per-seed and independent across seeds. ``None`` lets the split vary.
@@ -810,9 +810,6 @@ def maybe_wrap_for_partial_fit_es(
         budget_param=budget_param,
         budget_min=int(kw.pop("budget_min", 1)),
         budget_max=int(kw.pop("budget_max", 1000)),
-        worsening_enabled=bool(kw.pop("early_stop_on_worsening", True)),
-        worsening_coeff=int(kw.pop("early_stop_on_worsening_coeff", 5)),
-        worsening_min_iters=int(kw.pop("early_stop_on_worsening_min_iters", 5)),
         external_X_val=X_val,
         external_y_val=y_val,
         verbose=int(kw.pop("verbose", 0)),
@@ -823,8 +820,8 @@ def maybe_wrap_for_partial_fit_es(
 def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
     """Best-effort extraction of the iteration budget from a sklearn-API booster.
 
-    Used by the curve-shape ES detector (``worsening_max_iter``) and the
-    "best_iter hit max_iter" diagnostic. Returns None when the budget is not discoverable.
+    Used by the "best_iter hit max_iter" diagnostic (``UniversalCallback.max_iter``).
+    Returns None when the budget is not discoverable.
     """
     if model_obj is None:
         return None
@@ -890,18 +887,17 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         if "callbacks" not in fit_params:
             fit_params["callbacks"] = []
 
-    # Auto-inject the booster's iteration budget so the curve-shape detector can scale its
-    # worsening-streak threshold against it AND so the max-iter-hit diagnostic can fire.
-    # Caller-provided ``worsening_max_iter`` wins if set.
-    if isinstance(callback_params, dict) and callback_params.get("worsening_max_iter") is None:
+    # Auto-inject the booster's iteration budget so the "best_iter hit max_iter" diagnostic
+    # can fire. Caller-provided ``max_iter`` wins if set.
+    if isinstance(callback_params, dict) and callback_params.get("max_iter") is None:
         budget = _detect_max_iter(model_category, model_obj)
         if budget:
-            callback_params = {**callback_params, "worsening_max_iter": int(budget)}
+            callback_params = {**callback_params, "max_iter": int(budget)}
 
-    # Pull the monotonic-decline patience out of callback_params (default-on at 3, mirroring the lgb / xgb
+    # Pull the monotonic-decline patience out of callback_params (default-on at 5, mirroring the lgb / xgb
     # shims) before splatting the rest into the UniversalCallback subclass, which does not accept this kwarg.
-    # ``None`` disables the fixed-N monotonic stop, leaving the booster's native + budget-scaled detectors.
-    _mono_patience = 3
+    # ``None`` disables the fixed-N monotonic stop, leaving the booster's native detector.
+    _mono_patience = 7
     if isinstance(callback_params, dict) and "monotonic_decline_patience" in callback_params:
         callback_params = dict(callback_params)
         _mono_patience = callback_params.pop("monotonic_decline_patience")

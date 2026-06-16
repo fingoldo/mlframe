@@ -2,7 +2,7 @@
 
 User directive: the monotonic-decline stop must GOVERN TRAINING of every mlframe model type and
 DEMONSTRATE its value across them -- explicitly lgb, xgb, cb, AND mlp. This file is the quantitative
-proof: on an overfit-prone synthetic, the monotonic stop (default-on, patience=3) ends training STRICTLY
+proof: on an overfit-prone synthetic, the monotonic stop (default-on, patience=5) ends training STRICTLY
 EARLIER (fewer trees / epochs) than the no-monotonic baseline for EACH backend, WITHOUT hurting the
 held-out metric.
 

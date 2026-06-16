@@ -1204,13 +1204,12 @@ def test_iter558_audit_pass_5_axes_flow_to_kwargs():
 
 
 def test_iter569_audit_pass_6_axes_flow_to_kwargs():
-    """15 audit-pass-6 (W6) fuzz axes must:
+    """14 audit-pass-6 (W6) fuzz axes must:
       (a) be present in AXES with >=2 candidate values,
       (b) carry the SOURCE-verified library defaults in the FuzzCombo
           dataclass (verified pre-edit against
           src/mlframe/training/_training_runtime_configs.py:42-95 for
-          SliceStableESConfig, _model_configs.py:505 for
-          early_stop_on_worsening, filters/mrmr.py:224-302,589 for
+          SliceStableESConfig, filters/mrmr.py:224-302,589 for
           Wave 7/8/9, and _composite_target_discovery_config.py:117
           for cv_selector_mode),
       (c) collapse correctly under the documented secondary gates:
@@ -1225,10 +1224,9 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
             - cv_selector_mode flows through
               ``build_composite_discovery_config_from_flat`` kwargs
               (consumed by CompositeTargetDiscoveryConfig.cv_selector_mode),
-            - slice_stable_es + early_stop_on_worsening are CANON-ONLY:
-              the fuzz suite does not currently propagate
-              ``SliceStableESConfig`` or ``TrainingBehaviorConfig.early_stop_on_worsening``
-              into ``train_mlframe_models_suite`` (the suite-level kwarg is
+            - slice_stable_es is CANON-ONLY: the fuzz suite does not
+              currently propagate ``SliceStableESConfig`` into
+              ``train_mlframe_models_suite`` (the suite-level kwarg is
               not exposed); only the canon dedup is exercised by fuzz.
               Pinned by canonical_key collapse assertions below.
 
@@ -1237,8 +1235,6 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
         SOURCE _training_runtime_configs.py:78 says "temporal". Using source.
       - audit said ``slice_stable_es_aggregate_cfg`` default "t_lcb" -->
         SOURCE _training_runtime_configs.py:89 says "mean". Using source.
-      - audit said ``early_stop_on_worsening_cfg`` default unspecified;
-        SOURCE _model_configs.py:505 says True. Using source.
     """
     from tests.training._fuzz_combo import (
         AXES, _build_combo, build_mrmr_kwargs,
@@ -1251,7 +1247,6 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
         "slice_stable_es_source_cfg",
         "slice_stable_es_pareto_best_iter_selection_cfg",
         "slice_stable_es_diagnostic_only_cfg",
-        "early_stop_on_worsening_cfg",
         "mrmr_nbins_strategy_cfg",
         "mrmr_mi_correction_cfg",
         "mrmr_redundancy_aggregator_cfg",
@@ -1276,7 +1271,6 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     assert c_default.slice_stable_es_source_cfg == "temporal"
     assert c_default.slice_stable_es_pareto_best_iter_selection_cfg is False
     assert c_default.slice_stable_es_diagnostic_only_cfg is False
-    assert c_default.early_stop_on_worsening_cfg is True
     assert c_default.mrmr_nbins_strategy_cfg == "mdlp"
     assert c_default.mrmr_mi_correction_cfg == "none"
     assert c_default.mrmr_redundancy_aggregator_cfg is None
@@ -1380,11 +1374,10 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     # Source field name verified at _composite_target_discovery_config.py:117.
     assert getattr(cfg, "cv_selector_mode", None) == "t_lcb"
 
-    # (d.3) slice_stable_es + early_stop_on_worsening are CANON-ONLY:
-    # the suite does not currently expose SliceStableESConfig nor the
-    # early_stop_on_worsening behaviour flag as a top-level kwarg to
-    # train_mlframe_models_suite; canon dedup is exercised above (c.3)
-    # and the master enable/disable axis below.
+    # (d.3) slice_stable_es is CANON-ONLY: the suite does not currently
+    # expose SliceStableESConfig as a top-level kwarg to
+    # train_mlframe_models_suite; the master enable/disable axis is still
+    # meaningful and must not canon-collapse.
     e_a = dict(base_axes)
     e_a.update(slice_stable_es_enabled_cfg=True)
     e_b = dict(base_axes)
@@ -1396,27 +1389,14 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
         "(master toggle is always meaningful)"
     )
 
-    # early_stop_on_worsening is unconditionally meaningful (no gate),
-    # so flipping it must yield a distinct canonical_key.
-    w_a = dict(base_axes)
-    w_a.update(early_stop_on_worsening_cfg=True)
-    w_b = dict(base_axes)
-    w_b.update(early_stop_on_worsening_cfg=False)
-    c_w_a = _build_combo(models=("cb",), axes=w_a, seed=0)
-    c_w_b = _build_combo(models=("cb",), axes=w_b, seed=0)
-    assert c_w_a.canonical_key() != c_w_b.canonical_key(), (
-        "early_stop_on_worsening_cfg must differentiate combos (no canon gate)"
-    )
-
 
 def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
-    """28 audit-pass-6 LOW-tier (W6 LOW) deferred fuzz axes must:
+    """26 audit-pass-6 LOW-tier (W6 LOW) deferred fuzz axes must:
       (a) be present in AXES with >=2 candidate values,
       (b) carry the SOURCE-verified library defaults in the FuzzCombo
           dataclass (verified pre-edit against
           src/mlframe/feature_selection/shap_proxied_fs.py:79-113 for
-          ShapProxiedFS S1-S18, _model_configs.py:506-507 for
-          early_stop_on_worsening_{coeff,min_iters},
+          ShapProxiedFS S1-S18,
           filters/mrmr.py:241,249,252,265 for Wave 8 S32/S34/S35/S37,
           _composite_target_discovery_config.py:127-130 for S41-S44),
       (c) collapse correctly under the documented secondary gates:
@@ -1424,8 +1404,6 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
               use_shap_proxied_fs=False (with refine_ucb sub-knobs also
               gated by within_cluster_refine; revalidation_ucb sub-knobs
               also gated by revalidate_cfg),
-            - 2 early_stop_on_worsening_{coeff,min_iters} collapse when
-              early_stop_on_worsening_cfg=False,
             - 4 mrmr_* LOW scalars collapse when use_mrmr_fs=False,
             - 4 cv_selector_* LOW scalars collapse when
               composite_discovery_enabled_cfg=False OR target != regression.
@@ -1469,9 +1447,6 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
         "shap_proxied_revalidation_ucb_stdev_multiplier_cfg",
         # ShapProxiedFS Threading (S18).
         "shap_proxied_inner_n_jobs_cap_cfg",
-        # Curve-shape ES (S25, S26).
-        "early_stop_on_worsening_coeff_cfg",
-        "early_stop_on_worsening_min_iters_cfg",
         # MRMR Wave 8 LOW (S32, S34, S35, S37).
         "mrmr_relaxmrmr_alpha_cfg",
         "mrmr_uaed_auto_size_cfg",
@@ -1485,7 +1460,7 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
     )
 
     # (a) Presence in AXES with >=2 candidates.
-    assert len(new_axes) == 28, f"expected 28 W6 LOW axes, got {len(new_axes)}"
+    assert len(new_axes) == 26, f"expected 26 W6 LOW axes, got {len(new_axes)}"
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -1515,9 +1490,6 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
     assert c_default.shap_proxied_revalidation_ucb_stdev_multiplier_cfg is None
     # ShapProxiedFS Threading: shap_proxied_fs.py:113.
     assert c_default.shap_proxied_inner_n_jobs_cap_cfg is False
-    # Curve-shape ES: _model_configs.py:506-507.
-    assert c_default.early_stop_on_worsening_coeff_cfg == 5
-    assert c_default.early_stop_on_worsening_min_iters_cfg == 5
     # MRMR Wave 8 scalars: filters/mrmr.py:241,249,252,265.
     assert c_default.mrmr_relaxmrmr_alpha_cfg == 0.0
     assert c_default.mrmr_uaed_auto_size_cfg is False
@@ -1560,22 +1532,7 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
         "source defaults when use_shap_proxied_fs=False"
     )
 
-    # (c.2) Curve-shape ES scalars collapse when detector is disabled.
-    es_a = dict(base_axes)
-    es_a.update(early_stop_on_worsening_cfg=False)
-    es_b = dict(es_a)
-    es_b.update(
-        early_stop_on_worsening_coeff_cfg=7,
-        early_stop_on_worsening_min_iters_cfg=10,
-    )
-    c_es_a = _build_combo(models=("cb",), axes=es_a, seed=0)
-    c_es_b = _build_combo(models=("cb",), axes=es_b, seed=0)
-    assert c_es_a.canonical_key() == c_es_b.canonical_key(), (
-        "early_stop_on_worsening_{coeff,min_iters} must collapse to source "
-        "defaults when early_stop_on_worsening_cfg=False"
-    )
-
-    # (c.3) MRMR LOW scalars collapse when use_mrmr_fs=False.
+    # (c.2) MRMR LOW scalars collapse when use_mrmr_fs=False.
     mr_a = dict(base_axes)
     mr_a.update(use_mrmr_fs=False)
     mr_b = dict(mr_a)

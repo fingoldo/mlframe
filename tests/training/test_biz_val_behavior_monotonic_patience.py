@@ -12,11 +12,11 @@ import numpy as np
 import pytest
 
 
-def test_behavior_config_has_monotonic_decline_patience_default_3():
+def test_behavior_config_has_monotonic_decline_patience_default_7():
     from mlframe.training._model_configs_behavior import TrainingBehaviorConfig
 
     cfg = TrainingBehaviorConfig()
-    assert cfg.monotonic_decline_patience == 3
+    assert cfg.monotonic_decline_patience == 7
     cfg_off = TrainingBehaviorConfig(monotonic_decline_patience=None)
     assert cfg_off.monotonic_decline_patience is None
 
@@ -52,7 +52,7 @@ def test_behavior_patience_none_threads_to_lgb_booster_full_cap():
         f"patience=None should train full cap {n_estimators}, got {m.booster_.num_trees()}"
     )
 
-    # Sanity: default patience=3 DOES stop earlier on the same overfit data (the off-switch actually switches).
+    # Sanity: an enabled patience DOES stop earlier on the same overfit data (the off-switch actually switches).
     m_on = LGBMRegressorWithDatasetReuse(
         n_estimators=n_estimators, learning_rate=0.1, num_leaves=63, min_child_samples=5,
         verbose=-1, random_state=0,

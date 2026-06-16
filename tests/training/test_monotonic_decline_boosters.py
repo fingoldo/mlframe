@@ -293,18 +293,13 @@ def test_monotonic_n3_false_stops_on_three_consecutive_declines():
 # --------------------------------------------------------------------------- D2: single monotonic detector by default
 
 
-def test_universal_callback_worsening_disabled_by_default():
-    """With defaults, the OLD budget-scaled worsening detector in UniversalCallback is OFF so the NEW
-    fixed-N MonotonicDeclineStopper (wired into the shims) is the SOLE monotonic stop. Only ONE detector
-    fires per fit; the legacy one is opt-in via worsening_enabled=True."""
+def test_universal_callback_has_no_worsening_detector():
+    """The OLD budget-scaled worsening detector was REMOVED from UniversalCallback (benchmarked no-op +
+    worst test accuracy). The fixed-N MonotonicDeclineStopper (wired into the shims) is now the SOLE
+    monotonic stop, so UniversalCallback no longer carries any worsening machinery."""
     from mlframe.training.callbacks._callbacks import UniversalCallback
 
     cb = UniversalCallback(patience=10, monitor_dataset="valid_0", monitor_metric="rmse", mode="min", verbose=0)
-    assert cb.worsening_enabled is False
-    # The legacy detector must never fire while disabled, even on a monotone-worsening run.
-    cb.worsening_max_iter = 100
-    for v in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
-        assert cb._update_worsening_streak(v, improved=False) is False
-    # Opt-in re-enables it.
-    cb2 = UniversalCallback(patience=10, mode="min", verbose=0, worsening_enabled=True)
-    assert cb2.worsening_enabled is True
+    assert not hasattr(cb, "worsening_enabled")
+    assert not hasattr(cb, "_update_worsening_streak")
+    assert not hasattr(cb, "_worsening_threshold")

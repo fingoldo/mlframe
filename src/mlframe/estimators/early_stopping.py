@@ -74,10 +74,11 @@ class EarlyStoppingWrapper(BaseEstimator):
         # Monotonic strict-decline overfitting stop, COMPLEMENTARY to ``patience``: stop once the val
         # score has STRICTLY worsened for this many CONSECUTIVE iterations since the global best (a
         # confident overfitting signal). A new best, a plateau, or a bounce-up resets the run. Training
-        # stops when EITHER patience OR this streak fires. Default-on at 3 (per CLAUDE.md "enable
-        # corrective mechanisms by default"; benchmarked no-harm on cleanly-improving targets, saves
-        # iterations on overfit-prone ones). Set to ``None`` to disable.
-        monotonic_decline_patience: int = 3,
+        # stops when EITHER patience OR this streak fires. Default-on at 5 (per CLAUDE.md "enable
+        # corrective mechanisms by default"; N=5 calibrated by bench_worsening_vs_monotonic_stop.py --
+        # ties patience-level holdout accuracy while stopping ~3.6x earlier than the full budget).
+        # Set to ``None`` to disable.
+        monotonic_decline_patience: int = 7,
         tolerance: float = 0.0,
         # CV
         validation_fraction: float = 0.1,

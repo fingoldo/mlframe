@@ -518,7 +518,6 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         slice_stable_es_diagnostic_only_cfg=axes.get(
             "slice_stable_es_diagnostic_only_cfg", False
         ),
-        early_stop_on_worsening_cfg=axes.get("early_stop_on_worsening_cfg", True),
         mrmr_nbins_strategy_cfg=axes.get("mrmr_nbins_strategy_cfg", "mdlp"),
         mrmr_mi_correction_cfg=axes.get("mrmr_mi_correction_cfg", "none"),
         mrmr_redundancy_aggregator_cfg=axes.get("mrmr_redundancy_aggregator_cfg", None),
@@ -592,12 +591,6 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ),
         shap_proxied_inner_n_jobs_cap_cfg=axes.get(
             "shap_proxied_inner_n_jobs_cap_cfg", False
-        ),
-        early_stop_on_worsening_coeff_cfg=axes.get(
-            "early_stop_on_worsening_coeff_cfg", 5
-        ),
-        early_stop_on_worsening_min_iters_cfg=axes.get(
-            "early_stop_on_worsening_min_iters_cfg", 5
         ),
         mrmr_relaxmrmr_alpha_cfg=axes.get("mrmr_relaxmrmr_alpha_cfg", 0.0),
         mrmr_uaed_auto_size_cfg=axes.get("mrmr_uaed_auto_size_cfg", False),

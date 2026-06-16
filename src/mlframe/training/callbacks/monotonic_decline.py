@@ -76,7 +76,7 @@ class LGBMonotonicDeclineStop:
     order = 30
     before_iteration = False
 
-    def __init__(self, patience: Optional[int] = 3, monitor_dataset: Optional[str] = None,
+    def __init__(self, patience: Optional[int] = 7, monitor_dataset: Optional[str] = None,
                  monitor_metric: Optional[str] = None, mode: Optional[str] = None) -> None:
         self.patience = patience
         self.monitor_dataset = monitor_dataset
@@ -128,7 +128,7 @@ class LGBMonotonicDeclineStop:
             raise lgb.callback.EarlyStopException(self._best_iter, [(ds, mt, self._best_value, self._stopper.mode == "max")])
 
 
-def _make_xgb_monotonic_callback(patience: Optional[int] = 3, monitor_dataset: Optional[str] = None,
+def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: Optional[str] = None,
                                  monitor_metric: Optional[str] = None, mode: Optional[str] = None):
     """Build an XGBoost ``TrainingCallback`` subclass instance for the monotone strict-decline stop.
 
@@ -233,7 +233,7 @@ class CBMonotonicDeclineStop:
     Returning ``True`` continues training; a disabled detector always returns ``True``.
     """
 
-    def __init__(self, patience: Optional[int] = 3, monitor_dataset: Optional[str] = None,
+    def __init__(self, patience: Optional[int] = 7, monitor_dataset: Optional[str] = None,
                  monitor_metric: Optional[str] = None, mode: Optional[str] = None) -> None:
         self.patience = patience
         self.monitor_dataset = monitor_dataset

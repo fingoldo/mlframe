@@ -417,7 +417,7 @@ class _DMatrixReuseMixin:
         eval_set=None,
         sample_weight_eval_set=None,
         verbose=False,
-        monotonic_decline_patience=3,
+        monotonic_decline_patience=7,
         capture_iteration_metrics=False,
         iteration_metrics_stride=1,
         **fit_kwargs,

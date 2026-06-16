@@ -45,7 +45,7 @@ def test_partial_fit_regression_sgd_stops_via_callback() -> None:
     assert wrapper._fitted
     assert wrapper.best_iter is not None
     assert wrapper.best_metric is not None
-    assert wrapper.stopped_via in {"patience", "curve_shape", "max_iter_hit"}
+    assert wrapper.stopped_via in {"patience", "max_iter_hit"}
     assert len(wrapper.history) > 0
     # Sanity: predicting back on the train data shouldn't crash.
     preds = wrapper.predict(X)
@@ -70,8 +70,9 @@ def test_partial_fit_classification_sgd_uses_predict_proba() -> None:
     assert probs.shape == (len(y), 2)
 
 
-def test_partial_fit_curve_shape_can_fire() -> None:
-    """With a degenerate setup (huge learning rate -> diverging val), curve-shape ES catches it."""
+def test_partial_fit_es_stops_on_divergence() -> None:
+    """With a degenerate setup (huge learning rate -> diverging val), ES stops the wrapper
+    via patience (or the epoch budget) rather than running to no useful end."""
     pytest.importorskip("sklearn")
     from sklearn.linear_model import SGDRegressor
 
@@ -79,12 +80,10 @@ def test_partial_fit_curve_shape_can_fire() -> None:
     wrapper = PartialFitESWrapper(
         SGDRegressor(max_iter=1, tol=None, random_state=0,
                       learning_rate="constant", eta0=10.0),  # blow-up rate
-        metric="rmse", patience=200, max_iter=80,  # large patience
-        worsening_enabled=True, worsening_coeff=5, worsening_min_iters=5,
+        metric="rmse", patience=10, max_iter=80,
     )
     wrapper.fit(X, y)
-    # Either curve-shape catches the divergence early, or numerics blew up so patience kicked in
-    assert wrapper.stopped_via in {"curve_shape", "patience", "max_iter_hit"}
+    assert wrapper.stopped_via in {"patience", "max_iter_hit"}
 
 
 # -- dichotomic-search path -----------------------------------------------------

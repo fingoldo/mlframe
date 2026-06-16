@@ -841,7 +841,7 @@ class _FitMixin:
             # patience). Default-on; the monitored val_<metric> is min-direction (RMSE / ICE). The
             # BestEpochModelCheckpoint still restores the global-best epoch, so an early stop keeps the
             # right weights. ``monotonic_decline_patience=None`` on the estimator disables it.
-            _mono_patience = getattr(self, "monotonic_decline_patience", 3)
+            _mono_patience = getattr(self, "monotonic_decline_patience", 7)
             if _mono_patience is not None:
                 callbacks.append(
                     MonotonicDeclineStopCallback(

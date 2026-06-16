@@ -109,8 +109,6 @@ class PartialFitESWrapper:
         ``"max_iter"`` for Ridge). Only used when the estimator lacks ``partial_fit``.
     budget_min, budget_max
         Bounds for the dichotomic search.
-    worsening_enabled, worsening_coeff, worsening_min_iters
-        Curve-shape detector knobs (forwarded to ``UniversalCallback``). Default ON.
     """
 
     def __init__(
@@ -127,9 +125,6 @@ class PartialFitESWrapper:
         budget_param: str | None = None,
         budget_min: int = 1,
         budget_max: int = 1000,
-        worsening_enabled: bool = True,
-        worsening_coeff: int = 5,
-        worsening_min_iters: int = 5,
         verbose: int = 0,
         # When the caller (typically the mlframe training suite) already has a held-out val
         # set, passing it here means fit(X_tr, y_tr) -- WITHOUT the X_val=/y_val= kwargs --
@@ -152,9 +147,6 @@ class PartialFitESWrapper:
         self.budget_param = budget_param
         self.budget_min = int(budget_min)
         self.budget_max = int(budget_max)
-        self.worsening_enabled = bool(worsening_enabled)
-        self.worsening_coeff = int(worsening_coeff)
-        self.worsening_min_iters = int(worsening_min_iters)
         self.verbose = int(verbose)
         self.external_X_val = external_X_val
         self.external_y_val = external_y_val
@@ -173,9 +165,7 @@ class PartialFitESWrapper:
                     random_state=self.random_state, max_iter=self.max_iter,
                     is_classification=self.is_classification, budget_param=self.budget_param,
                     budget_min=self.budget_min, budget_max=self.budget_max,
-                    worsening_enabled=self.worsening_enabled,
-                    worsening_coeff=self.worsening_coeff,
-                    worsening_min_iters=self.worsening_min_iters, verbose=self.verbose)
+                    verbose=self.verbose)
 
     def set_params(self, **kw) -> "PartialFitESWrapper":
         for k, v in kw.items():
@@ -258,10 +248,7 @@ class PartialFitESWrapper:
         cb = UniversalCallback(
             patience=self.patience, min_delta=self.min_delta,
             monitor_dataset="val", monitor_metric=metric_name, mode=mode,
-            worsening_enabled=self.worsening_enabled,
-            worsening_coeff=self.worsening_coeff,
-            worsening_min_iters=self.worsening_min_iters,
-            worsening_max_iter=self.max_iter, verbose=0,
+            max_iter=self.max_iter, verbose=0,
         )
         cb.start_time = time.time(); cb.last_reporting_ts = time.time(); cb.iter = 0
         for epoch in range(self.max_iter):
@@ -274,7 +261,7 @@ class PartialFitESWrapper:
             self.history.append(v)
             cb.metric_history.setdefault("val", {}).setdefault(metric_name, []).append(v)
             if cb.should_stop():
-                self.stopped_via = "curve_shape" if cb._worsening_stopped else "patience"
+                self.stopped_via = "patience"
                 break
         else:
             self.stopped_via = "max_iter_hit"

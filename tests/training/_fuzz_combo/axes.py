@@ -1088,7 +1088,6 @@ AXES: dict[str, tuple[Any, ...]] = {
     # 2026-05-30 audit-pass-6 (W6) -- 15 axes from commits landed since
     # fcc47d04 wave 5. All defaults SOURCE-verified at this commit:
     #   - SliceStableESConfig at src/mlframe/training/_training_runtime_configs.py:42-95
-    #   - TrainingBehaviorConfig.early_stop_on_worsening at _model_configs.py:505
     #   - MRMR Wave 7/8/9 ctor args at filters/mrmr.py:224-302, 589
     #   - CompositeTargetDiscoveryConfig.cv_selector_mode at
     #     _composite_target_discovery_config.py:117
@@ -1112,9 +1111,6 @@ AXES: dict[str, tuple[Any, ...]] = {
     # Slice-stable ES diagnostic-only path: register K eval-sets + log
     # trace WITHOUT changing stop decisions. _training_runtime_configs.py:76.
     "slice_stable_es_diagnostic_only_cfg": (False, True),
-    # Curve-shape ES detector (HIGH; new strictly-monotone worsening
-    # detector at _model_configs.py:505). Source default True.
-    "early_stop_on_worsening_cfg": (True, False),
     # MRMR Wave 7 -- per-feature discretisation strategy. Source default
     # "mdlp" (Fayyad-Irani per-feature MDLP), alternative "quantile"
     # restores the pre-2026-05-29 fixed quantile binning behaviour.
@@ -1224,11 +1220,6 @@ AXES: dict[str, tuple[Any, ...]] = {
     # ShapProxiedFS Threading (S18). Gate on use_shap_proxied_fs=True.
     # Source default at shap_proxied_fs.py:113.
     "shap_proxied_inner_n_jobs_cap_cfg": (False, True),
-    # Curve-shape ES scalar tuning (S25, S26). Gate on
-    # early_stop_on_worsening_cfg=True. Source defaults at
-    # _model_configs.py:506 (coeff=5) and :507 (min_iters=5).
-    "early_stop_on_worsening_coeff_cfg": (5, 7),
-    "early_stop_on_worsening_min_iters_cfg": (5, 10),
     # MRMR Wave 8 LOW scalars (S32, S34, S35, S37). Gate on
     # use_mrmr_fs=True. Source defaults at filters/mrmr.py:241,249,252,265.
     "mrmr_relaxmrmr_alpha_cfg": (0.0, 0.1),

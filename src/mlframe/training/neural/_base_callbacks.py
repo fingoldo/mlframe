@@ -136,7 +136,7 @@ class MonotonicDeclineStopCallback(Callback):
     ``"max"`` for AUC-style). ``patience=None`` disables the callback.
     """
 
-    def __init__(self, monitor: str = "val_loss", patience: Optional[int] = 3, mode: str = "min") -> None:
+    def __init__(self, monitor: str = "val_loss", patience: Optional[int] = 7, mode: str = "min") -> None:
         super().__init__()
         # Lazy import keeps the estimators package free of any lightning/torch coupling.
         from mlframe.estimators.early_stopping_monotonic import MonotonicDeclineStopper

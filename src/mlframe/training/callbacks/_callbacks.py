@@ -52,17 +52,13 @@ class UniversalCallback:
         # math, no patience bump). Used for shipping per-shard diagnostics without changing the
         # ES behaviour. Ignored when ``slice_k == 0``.
         slice_diagnostic_only: bool = False,
-        # Legacy budget-scaled curve-shape ES detector. DEFAULT OFF: the canonical monotonic strict-decline
-        # stop is now ``MonotonicDeclineStopper`` / ``monotonic_decline_patience`` wired directly into the
-        # lgb / xgb / cb shims (a fixed-N, plateau-resets rule, byte-identical across backends + the sklearn /
-        # lightning wrappers). Keeping this ON too would double-stop the SAME fit on two different rules. This
-        # ``worsening_enabled=True`` variant -- whose threshold is budget-scaled (``max_iter // coeff``) and
-        # which does NOT reset on an exact plateau -- is retained for opt-in parity benchmarks against the
-        # pre-monotonic behaviour; pass ``worsening_enabled=True`` explicitly to re-enable it.
-        worsening_enabled: bool = False,
-        worsening_coeff: int = 5,
-        worsening_min_iters: int = 5,
-        worsening_max_iter: int | None = None,
+        # Iteration budget of the booster, used ONLY by the ``maybe_warn_max_iter_hit()`` diagnostic
+        # (logs a WARN when ``best_iter`` reached the budget cap, i.e. val never served as a stop
+        # signal). This is purely informational and does NOT drive any stop decision -- the canonical
+        # overfitting stop is the fixed-N ``MonotonicDeclineStopper`` / ``monotonic_decline_patience``
+        # wired directly into the lgb / xgb / cb shims (byte-identical across backends + the sklearn /
+        # lightning wrappers). ``None`` disables the diagnostic.
+        max_iter: int | None = None,
     ) -> None:
 
         params = get_parent_func_args()
@@ -81,13 +77,6 @@ class UniversalCallback:
         self.slice_shard_score_history: list[list[float]] = []
         self.slice_resolved_dataset_names: list[str] | None = None
 
-        # Curve-shape detector state: count of consecutive iterations since the best that
-        # produced a STRICTLY worse value than their immediate predecessor (no improvement
-        # over the previous iter in the is_greater_better direction). Resets to 0 the moment
-        # any successor improves on its predecessor, even if it's not a new best.
-        self._worsening_streak_len: int = 0
-        self._worsening_last_value: float | None = None
-        self._worsening_stopped: bool = False
         # Tracks whether the booster ran to (almost) its full iteration budget without our
         # ES ever firing. When True at finalize time, the val curve was still improving at
         # the budget cap -- val essentially didn't get used as a stop signal, so the
@@ -263,14 +252,12 @@ class UniversalCallback:
         the existing booster on val rows for a few more iters. Neither auto-applies; the
         warning surfaces the diagnostic so the operator can decide.
         """
-        if self.worsening_max_iter is None or self.worsening_max_iter <= 0:
+        if self.max_iter is None or self.max_iter <= 0:
             return
         if not hasattr(self, "best_iter") or self.best_iter is None:
             return
-        if self._worsening_stopped:
-            return  # we stopped via curve-shape detector; budget wasn't exhausted
         # ``best_iter`` is 0-indexed; "hit the budget" means within 1 of the cap.
-        if int(self.best_iter) >= int(self.worsening_max_iter) - 1:
+        if int(self.best_iter) >= int(self.max_iter) - 1:
             logger.warning(
                 "best_iter=%d hit the iteration budget max_iter=%d. The val curve was still "
                 "improving at the cap, so val essentially didn't serve as a stop signal. "
@@ -278,48 +265,8 @@ class UniversalCallback:
                 "at the same (or doubled) max_iter; or (3) partial_fit-on-val to extend "
                 "the booster on the val rows. None of these auto-apply -- see TODO in "
                 "UniversalCallback.__init__.",
-                int(self.best_iter), int(self.worsening_max_iter),
+                int(self.best_iter), int(self.max_iter),
             )
-
-    def _worsening_threshold(self) -> int:
-        """Resolve the worsening-streak length threshold for the curve-shape ES trigger.
-
-        The threshold scales with the booster's iteration budget so a 1000-iter run tolerates
-        a longer worsening tail (200 iters at coeff=5) than a 30-iter run (5 iters via the
-        min-iters floor). Returns ``worsening_min_iters`` when no budget is known.
-        """
-        if self.worsening_max_iter is None or self.worsening_max_iter <= 0:
-            return int(self.worsening_min_iters)
-        return max(int(self.worsening_max_iter) // int(self.worsening_coeff),
-                    int(self.worsening_min_iters))
-
-    def _update_worsening_streak(self, current_value: float, improved: bool) -> bool:
-        """Track strict-monotone-worsening run length. Returns True when stop is triggered.
-
-        The streak counts post-best iterations where each successor is NOT strictly better
-        than its immediate predecessor (in the is_greater_better direction). A new global
-        best resets the streak. A non-best value that nevertheless improves over its
-        immediate predecessor also resets (the curve has "bent back" -- not monotone worsening).
-        Equal-to-prev does NOT reset -- the user spec is "no successor BETTER than predecessor".
-        """
-        if not self.worsening_enabled:
-            return False
-        cur = float(current_value)
-        if self._worsening_last_value is None:
-            # First observation: no predecessor to compare against. Initialize and wait.
-            self._worsening_last_value = cur
-            return False
-        prev = self._worsening_last_value
-        self._worsening_last_value = cur
-        improved_over_prev = (cur < prev) if self.mode == "min" else (cur > prev)
-        if improved or improved_over_prev:
-            self._worsening_streak_len = 0
-            return False
-        self._worsening_streak_len += 1
-        if self._worsening_streak_len >= self._worsening_threshold():
-            self._worsening_stopped = True
-            return True
-        return False
 
     def _effective_min_delta(self, shard_values: list[float] | None) -> float:
         """When ``slice_min_delta_in_se`` is set, scale the per-iteration absolute min_delta by
@@ -405,26 +352,11 @@ class UniversalCallback:
                             )
                             self.last_reporting_ts = cur_ts
                         return True
-                    # Curve-shape detector: forward-looking complement to patience. Triggers
-                    # when each successor since the best has STRICTLY failed to improve over
-                    # its predecessor for ``_worsening_threshold()`` iterations -- the val
-                    # curve is monotonically bending wrong and there's no point burning the
-                    # remaining "uncashed" iterations to confirm patience.
-                    if self._update_worsening_streak(current_value, improved):
-                        if self.verbose > 0:
-                            logger.info(
-                                "Stopping early via curve-shape detector: strict-worsening "
-                                "streak of %d iters since best @%d. %s",
-                                self._worsening_streak_len, self.best_iter,
-                                self._get_state(current_value=current_value),
-                            )
-                            self.last_reporting_ts = cur_ts
-                        return True
                     # Last-iteration check: when the booster is at its iteration cap and we're
                     # NOT stopping early, log the diagnostic so the operator can decide whether
                     # to raise the budget or refit on train+val.
-                    if (self.worsening_max_iter is not None and
-                            self.iter >= int(self.worsening_max_iter) - 1):
+                    if (self.max_iter is not None and
+                            self.iter >= int(self.max_iter) - 1):
                         self.maybe_warn_max_iter_hit()
         return False
 

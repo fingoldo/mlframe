@@ -415,7 +415,7 @@ class _DatasetReuseMixin:
         categorical_feature="auto",
         callbacks=None,
         init_model=None,
-        monotonic_decline_patience=3,
+        monotonic_decline_patience=7,
         capture_iteration_metrics=False,
         iteration_metrics_stride=1,
     ):

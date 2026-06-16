@@ -96,28 +96,18 @@ class TrainingBehaviorConfig(BaseConfig):
     # "balanced_accuracy" (default) recovers the Bayes-optimal operating point ~10x closer than "f1" and wins test balanced-accuracy in 29/30 imbalance x seed cells (bench_threshold_objective.py); F1 chases precision/recall trade and drifts the threshold high under imbalance.
     tune_decision_threshold_metric: str = "balanced_accuracy"  # "f1" or "balanced_accuracy"
 
-    # Curve-shape ES detector (default ON).
-    # Triggers when, starting from the best-known iteration, the monitored val metric
-    # STRICTLY worsens (no successive value better than its predecessor in the
-    # ``is_greater_better`` direction) for at least
-    # ``max(max_iter // early_stop_on_worsening_coeff, early_stop_on_worsening_min_iters)``
-    # iterations. Conceptually a forward-looking complement to patience-based ES:
-    # patience says "no NEW best for N iters", this says "the curve is monotonically
-    # bending the wrong way and has been for a while". Cheap to compute (one comparison
-    # per iter) and the strict-monotone condition is robust to per-iter noise without
-    # any smoothing hyperparameters.
-    early_stop_on_worsening: bool = True
-    early_stop_on_worsening_coeff: int = 5
-    early_stop_on_worsening_min_iters: int = 5
-
-    # Canonical monotonic strict-decline overfitting-stop knob (default 3). Threads through to the lgb / xgb
+    # Canonical monotonic strict-decline overfitting-stop knob (default 5). Threads through to the lgb / xgb
     # shims' ``.fit(monotonic_decline_patience=...)`` and the CatBoost ``callback_params`` so a single value
     # controls the byte-identical ``MonotonicDeclineStopper`` rule across all three boosters (and mirrors the
     # neural / sklearn-wrapper paths). The detector stops once the monitored val metric strictly worsens for
     # this many CONSECUTIVE rounds since the global best (a new best, a plateau, or a bounce-up all reset the
     # streak). ``None`` disables it entirely -- the off-switch -- so the booster trains to its full iteration
     # cap unless its native ``early_stopping_rounds`` fires first.
-    monotonic_decline_patience: Optional[int] = 3
+    # N=5 calibrated by bench_worsening_vs_monotonic_stop.py (18 lgb fits): ties patience-level holdout
+    # accuracy while stopping ~3.6x earlier than the full budget; N=3 was too aggressive (catastrophic
+    # 7-tree stops). The old budget-scaled ``early_stop_on_worsening`` detector was REMOVED (benchmarked
+    # no-op: stopped at 499/500 in 18/18 fits, and had the worst test accuracy).
+    monotonic_decline_patience: Optional[int] = 7
 
     # Per-iteration FULL-metric-suite capture for meta-learning / HPO-from-early-observation. When enabled, a
     # per-round (booster) / per-epoch (neural) callback computes the complete target-type metric suite

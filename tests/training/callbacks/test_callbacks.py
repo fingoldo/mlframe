@@ -304,7 +304,7 @@ class TestCatBoostMonotonicDeclineWiring:
         cbs = fit_params["callbacks"]
         mono = [c for c in cbs if isinstance(c, CBMonotonicDeclineStop)]
         assert len(mono) == 1, "exactly one monotonic-decline callback must be wired for cb"
-        assert mono[0].patience == 3, "default-on at patience=3"
+        assert mono[0].patience == 7, "default-on at patience=7"
 
     @requires_catboost
     @requires_mlframe_trainer
