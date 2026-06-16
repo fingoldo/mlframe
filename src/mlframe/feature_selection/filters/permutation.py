@@ -474,6 +474,43 @@ def mi_direct(
     if parallel_kwargs is None:
         parallel_kwargs = {}
 
+    # ---- Analytic large-n null (2026-06-16) -------------------------------------------------------
+    # The permutation null -- the CPU prange shuffles AND the GPU cupy-argsort branch just below --
+    # is the dominant large-n cost (bench_scaling: the GPU argsort permutation generator was 72% of a
+    # 400k fit). At large n the plug-in MI null is analytic, so the shuffles are unnecessary:
+    #   null_mean = (Bx-1)(By-1)/(2N)  [nats, Miller-Madow]    p = chi2.sf(2N*MI, (Bx-1)(By-1)) [G-test].
+    # Validated against the permutation kernel (npermutations=64) across n in {5k..200k}: the null mean
+    # matches to 3+ digits even at 5k and the p reproduces the significance decision. Engaged ONLY when
+    # MI is raw (NOT SU-normalised -- the 2N*MI~chi2 identity requires it) AND n >= a threshold; below
+    # it the legacy permutation path runs byte-for-byte unchanged. Covers BOTH the 2-tuple confidence
+    # and 4-tuple null-mean contracts, so it also bypasses the GPU permutation branch below.
+    try:
+        from ._analytic_mi_null import analytic_mi_null, analytic_null_enabled, analytic_null_min_n
+        _analytic_ok = (
+            analytic_null_enabled()
+            and int(factors_data.shape[0]) >= analytic_null_min_n()
+            and not use_su_normalization()
+        )
+    except Exception:
+        _analytic_ok = False
+    if _analytic_ok:
+        _ax_classes, _ax_freqs, _ = merge_vars(
+            factors_data=factors_data, vars_indices=x,
+            var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+        )
+        if classes_y is None:
+            classes_y, freqs_y, _ = merge_vars(
+                factors_data=factors_data, vars_indices=y,
+                var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+            )
+        _ax_mi = compute_relevance_score(False, _ax_classes, _ax_freqs, classes_y, freqs_y, dtype=dtype)
+        _ax_nm, _ax_p = analytic_mi_null(
+            _ax_mi, int(_ax_classes.shape[0]), int(_ax_freqs.shape[0]), int(freqs_y.shape[0]),
+        )
+        if return_null_mean:
+            return _ax_mi, 1.0 - _ax_p, _ax_nm, _ax_p
+        return _ax_mi, 1.0 - _ax_p
+
     # Transparent route to the GPU permutation path when CUDA is available AND
     # the caller is asking for a high enough permutation count to amortise the
     # H2D copy of (classes_x, classes_y). Profile on 1M x 30 features (commit
