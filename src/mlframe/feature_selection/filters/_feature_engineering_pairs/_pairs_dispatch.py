@@ -1,6 +1,8 @@
 """CPU/GPU dispatch for the batched FE-candidate MI + permutation noise-gate."""
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from ._pairs_common import _module_logger
@@ -87,6 +89,26 @@ def _dispatch_batch_mi_with_noise_gate(
     # bit-exact path), so the tuner runs a real CPU-vs-GPU sweep and the cache routes
     # large (n_rows x n_cols) batches to GPU where it measurably wins on this host.
     backend = "cpu"
+    # Explicit GPU OPT-OUT honoured BEFORE the KTC lookup. ``CUDA_VISIBLE_DEVICES=""`` (empty string -- the documented mlframe
+    # convention for "no GPU on this run") must force CPU here: cupy ignores that env for device enumeration on some builds, so a
+    # cached GPU ``backend_choice`` would route to the cupy path whose device->host copy then HANGS indefinitely (not an exception,
+    # so the GPU try/except below never catches it). Skip the GPU route entirely when the user asked for no CUDA device.
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
+    if _gpu_opted_out:
+        return batch_mi_kernel(
+            disc_2d=disc_2d,
+            factors_nbins=factors_nbins,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
+            npermutations=int(npermutations),
+            base_seed=np.uint64(0),
+            min_nonzero_confidence=float(min_nonzero_confidence),
+            use_su=bool(use_su),
+            dtype=np.int32,
+            classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 4 else np.int32,
+        )
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
