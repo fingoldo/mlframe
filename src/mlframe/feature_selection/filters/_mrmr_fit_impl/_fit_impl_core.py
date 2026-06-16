@@ -7557,6 +7557,103 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             len(_readd_raw), [cols[i] for i in _readd_raw],
                         )
 
+    # CAT-FE FLOOR-DROP PROTECTION (Fix-C, 2026-06-16). The Westfall-Young maxT relevance floor (computed over
+    # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
+    # of a genuine categorical-FE encoding -- a K-fold target encoding (``cat__te``), a count/frequency encoding,
+    # or a cat-num residual (``price__resid_by__cat_region``) -- so the greedy screen drops it after 2 features
+    # EVEN THOUGH it carries strong LINEAR usability to y (the MI-vs-linear-usability gap, a recurring mlframe
+    # theme). The cat-num residual on the kitchen-sink frame has univariate corr ~0.27 / held-out R^2-incr ~0.06
+    # over the selected design yet is screened out, so downstream LogReg loses ~0.6% AUC. This is the SAME class
+    # of false-drop the raw-feature / orth-basis / hinge protections already correct -- but those iterate only
+    # over raw ``feature_names_in_`` / single-source orth bases / hinge legs, so an engineered cat-FE column falls
+    # through every one of them. Mirror the raw protection here: KEEP the floor (sub-null noise stays rejected)
+    # and re-add a dropped cat-FE column IFF it lifts a HELD-OUT linear fit over the already-selected design by
+    # >= the same R^2 floor. The cat-FE columns live as quantized codes in ``data[:, idx]`` (the continuous
+    # snapshot is only populated by the fe_max_steps>0 path); the binned codes preserve the monotone/linear
+    # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
+    if isinstance(X, pd.DataFrame) and len(selected_vars):
+        _cf_names = []
+        for _attr in ("kfold_te_features_", "count_encoding_features_",
+                      "frequency_encoding_features_", "cat_num_interaction_features_"):
+            _cf_names.extend(getattr(self, _attr, None) or [])
+        _cf_names = [n for n in dict.fromkeys(_cf_names)]  # dedup, preserve order
+        if _cf_names:
+            _cf_y = None
+            try:
+                _cf_yv = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).reshape(-1)
+                if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
+                    _cf_y = _cf_yv
+            except Exception:
+                _cf_y = None
+            if _cf_y is not None:
+                _CF_PROTECT_MIN_INCR_R2 = 0.005  # genuine encoding lifts held-out R^2 >> 0.005; noise ~0 (same bar as raw protection)
+                _cf_n = _cf_y.shape[0]
+                _cf_idx = np.arange(_cf_n); _cf_va = (_cf_idx % 3) == 0; _cf_tr = ~_cf_va
+                _cf_cols_index = {c: i for i, c in enumerate(cols)}
+                _cf_sv_set = set(selected_vars)
+                _cf_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+                # Baseline design = intercept + continuous/binned values of the ALREADY-SELECTED columns, so a
+                # cat-FE column subsumed by a selected feature adds ~0 and is NOT re-added (no redundancy regression).
+                _cf_base = [np.ones(_cf_n)]
+                for _sn in _cf_sel_names:
+                    _cv = _eng_continuous_snapshot.get(_sn)
+                    if _cv is None and _sn in X.columns:
+                        try:
+                            _cv = X[_sn].to_numpy()
+                        except Exception:
+                            _cv = None
+                    if _cv is None:
+                        _si = _cf_cols_index.get(_sn)
+                        if _si is not None:
+                            _cv = data[:, _si]
+                    if _cv is None:
+                        continue
+                    try:
+                        _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                    except (TypeError, ValueError):
+                        continue
+                    if _cv.shape[0] == _cf_n and np.all(np.isfinite(_cv)):
+                        _cf_base.append(_cv)
+
+                def _cf_r2(_design):
+                    _A = np.column_stack(_design)
+                    _yv = _cf_y[_cf_va]
+                    _ss = float(np.sum((_yv - _yv.mean()) ** 2))
+                    if _ss < 1e-24:
+                        return 0.0
+                    try:
+                        _coef, *_ = np.linalg.lstsq(_A[_cf_tr], _cf_y[_cf_tr], rcond=None)
+                    except Exception:
+                        return -np.inf
+                    return 1.0 - float(np.sum((_yv - _A[_cf_va] @ _coef) ** 2)) / _ss
+
+                if int(_cf_tr.sum()) >= 32 and int(_cf_va.sum()) >= 16:
+                    _cf_r2_base = _cf_r2(_cf_base)
+                    _readd_cf = []
+                    for _cn in _cf_names:
+                        _cidx = _cf_cols_index.get(_cn)
+                        if _cidx is None or _cidx in _cf_sv_set or _cn in _cf_sel_names:
+                            continue
+                        try:
+                            _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
+                        except (TypeError, ValueError, IndexError):
+                            continue
+                        if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
+                            continue
+                        if _cf_r2(_cf_base + [_cvv]) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
+                            continue  # no held-out linear usability over the selected design -> stays out
+                        _readd_cf.append(_cidx)
+                        _cf_sv_set.add(_cidx)
+                    if _readd_cf:
+                        selected_vars = list(selected_vars) + _readd_cf
+                        if verbose:
+                            logger.info(
+                                "MRMR cat-FE floor-drop protection: re-added %d held-out-validated categorical-FE "
+                                "encoding(s) the maxT relevance floor dropped (genuine linear usability, not "
+                                "sub-null noise): %s",
+                                len(_readd_cf), [cols[i] for i in _readd_cf],
+                            )
+
     # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the
     # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors -- it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
