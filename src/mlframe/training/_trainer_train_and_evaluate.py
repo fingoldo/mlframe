@@ -124,6 +124,10 @@ import lightgbm as _lgb_for_factory
 
 logger = logging.getLogger("mlframe.training.trainer")
 
+# Split-metrics emitters carved into a sibling to keep this orchestration module under the LOC budget.
+from ._trainer_train_and_evaluate_helpers import _run_val_split_metrics, _run_test_split_metrics  # noqa: E402
+
+
 def train_and_evaluate_model(
     model: object,
     data: DataConfig,
@@ -920,44 +924,14 @@ def train_and_evaluate_model(
         # Parallelize val and test metric computation -- numba kernels release GIL,
         # Agg matplotlib is thread-safe. Pure-Python parts still block, but the
         # heavy cumtime (binning, AUC, calibration plot save) runs concurrently.
-        def _run_val():
-            if _val_cfg is None:
-                return None
-            _, sdf, starg, sidx, spreds, sprobs, sdet, _sc = _val_cfg
-            return _compute_split_metrics(
-                split_name="val",
-                df=sdf,
-                target=starg,
-                idx=sidx,
-                metrics_dict=metrics["val"],
-                preds=spreds,
-                probs=sprobs,
-                details=sdet,
-                has_other_splits=has_test,
-                **common_metrics_params,
-            )
-
-        def _run_test_metrics():
-            if not _run_test:
-                return None
-            return _compute_split_metrics(
-                split_name="test",
-                df=test_df,
-                target=test_target,
-                idx=test_idx,
-                metrics_dict=metrics["test"],
-                preds=test_preds,
-                probs=test_probs,
-                details=test_details,
-                has_other_splits=False,
-                **common_metrics_params,
-            )
-
         # Concurrent ThreadPoolExecutor was tried but matplotlib figure creation from concurrent threads races on pyplot's shared state even with Agg backend, producing "Argument must be an image or collection" errors in calibration plots. Sequential path is correct.
         with phase("compute_split_metrics", split="val"):
-            val_res = _run_val()
+            val_res = _run_val_split_metrics(_val_cfg, metrics, has_test, common_metrics_params)
         with phase("compute_split_metrics", split="test"):
-            test_res = _run_test_metrics()
+            test_res = _run_test_split_metrics(
+                _run_test, metrics, test_df, test_target, test_idx,
+                test_preds, test_probs, test_details, common_metrics_params,
+            )
 
         if val_res is not None:
             val_preds, val_probs, columns = val_res
