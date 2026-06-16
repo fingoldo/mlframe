@@ -1060,5 +1060,45 @@ For every method.
 
 No production integration unless benchmark gates are passed.
 
+---
+
+# Phase-0 probe results & verdict (2026-06-16)
+
+Probe: `research/coreset_probe/coreset_probe.py`. Methods random / stratified (Baselines A/B) +
+EL2N (=GraNd for binary logloss) / forgetting-events / k-center-greedy, keep 10/30/50%, LightGBM,
+2 seeds, on n large enough for fit time to matter (synth 60k + electricity/adult/bank-marketing ~45k).
+CNN / k-medoids skipped (O(n^2), impractical at the n where speedup matters -- noted, not hidden).
+The decisive metric is END-TO-END: `e2e_speedup = full_fit / (prune_time + fit_time)`.
+
+Representative numbers (TEST AUC retention, end-to-end speedup):
+
+| dataset (full fit) | method | keep | retain | prune_s | e2e_speedup |
+|---|---|---|---|---|---|
+| synth 60k (2.1s) | random | 30% | 0.994 | 0.0 | 0.73x |
+| | el2n | 10% | **0.059** | 4.9 | 0.34x |
+| | kcenter | 50% | 0.999 | 192 | **0.01x** |
+| electricity (6.0s) | stratified | 10% | 0.954 | 0.0 | **2.56x** |
+| | forgetting | 50% | 0.991 | 4.1 | 1.21x |
+| | el2n | 10% | 0.121 | 17.6 | 0.38x |
+| adult (5.2s) | random | 10% | 0.976 | 0.0 | 2.43x |
+| | kcenter | 30% | 0.993 | 42.9 | 0.09x |
+
+**Verdict: REJECT all sophisticated pruning methods.**
+1. **GBM fit is so cheap (0.9-6s) that prune_time never pays off.** EL2N / forgetting / k-center all
+   have `e2e_speedup < 1` -- i.e. NET SLOWER than just training on the full data. Fails the >=2x gate.
+2. **EL2N destroys quality at aggressive pruning** (keep 10% -> AUC 0.06-0.12): keeping only highest-error
+   samples discards the bulk distribution. Classic coreset failure mode.
+3. **k-center has the best retention (0.999) but O(n*k) prune cost (40-192s)** -> 3x-100x slower
+   end-to-end. Impractical.
+4. **Q2 ("which methods beat random?") -> NONE.** random/stratified match the retention curve at ZERO
+   prune cost; the clever methods are strictly dominated. Only the free baselines ever reach ~2x e2e,
+   and only at keep=10% on the larger sets (inconsistent).
+
+Honest caveat: this measures SINGLE-model fit. The ТЗ's real motivation is amortizing one prune over many
+fits (HPO / ensemble / AutoML). But even there the clever methods lose: random at keep=30% already retains
+~0.99 for free, so "random-subsample for the HPO search, refit the winner on full data" captures the entire
+benefit with no pruning machinery. Do NOT build coreset/pruning estimators. If anything is ever wanted, it
+is plain random/stratified subsampling as a cheap HPO accelerator -- already trivially available.
+
 
 
