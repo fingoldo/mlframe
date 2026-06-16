@@ -451,8 +451,14 @@ def configure_training_params(
     #     because prefer_cpu_for_lightgbm=True by default and lgb GPU uses
     #     OpenCL, not the CUDA topology this probe reports.
     _t0_gpu = timer()
-    cb_task_type = config_params.get("cb_kwargs", {}).get("task_type")
-    cb_devices = config_params.get("cb_kwargs", {}).get("devices")
+    # ``cb_kwargs`` may be present-but-None (an explicit ``cb_kwargs=None`` in config_params),
+    # so ``dict.get(..., {})`` is not enough -- it only substitutes the default for a MISSING
+    # key, not for a present None value. Coerce to {} before the nested ``.get`` to avoid an
+    # AttributeError: 'NoneType' object has no attribute 'get' (observed on the binary-imbalanced
+    # edge-case path where the strategy left cb_kwargs unset to None).
+    _cb_kwargs = config_params.get("cb_kwargs") or {}
+    cb_task_type = _cb_kwargs.get("task_type")
+    cb_devices = _cb_kwargs.get("devices")
     _cb_requested = models_set is None or "cb" in models_set
     _xgb_gpu_eligible = (
         (models_set is None or "xgb" in models_set)
