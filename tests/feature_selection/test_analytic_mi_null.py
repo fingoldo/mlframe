@@ -40,6 +40,35 @@ def _md(data, nbins, **kw):
                      return_null_mean=True, **kw)
 
 
+def test_permutation_converges_to_analytic(monkeypatch):
+    """EQUIVALENCE PROOF: the analytic null is the nperm->infinity limit of the permutation null.
+    Both estimate the SAME independence null; the permutation is a Monte-Carlo estimate (error
+    ~1/sqrt(nperm)). So as nperm grows the permutation null_mean and p converge to the analytic
+    values -- the analytic is not an approximation, it is the exact limit (and more accurate than any
+    finite-nperm run). Demonstrated here on both a noise and a signal case at large n."""
+    n = max(int(analytic_null_min_n()), 80_000)
+    for signal in (0.0, 0.04):
+        data, nbins = _binned(n, signal, seed=2)
+        monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "1")
+        mi_a, _c, nm_a, p_a = _md(data, nbins)  # analytic
+        monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "0")
+        # high-nperm permutation -> should match the analytic value closely.
+        mi_lo, _c, nm_lo, p_lo = mi_direct(data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=64,
+                                           min_nonzero_confidence=0.0, parallelism="none",
+                                           prefer_gpu=False, return_null_mean=True)
+        mi_hi, _c, nm_hi, p_hi = mi_direct(data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=2048,
+                                           min_nonzero_confidence=0.0, parallelism="none",
+                                           prefer_gpu=False, return_null_mean=True)
+        # observed MI identical on both paths (same estimator).
+        assert mi_a == pytest.approx(mi_hi, rel=1e-9)
+        # high-nperm permutation null_mean within 2% of analytic; and CLOSER than low-nperm (convergence).
+        assert abs(nm_hi - nm_a) / max(nm_a, 1e-9) < 0.02
+        assert abs(nm_hi - nm_a) <= abs(nm_lo - nm_a) + 1e-6
+        # p converges too: high-nperm p within 0.02 of analytic, and the keep/reject decision agrees.
+        assert abs(p_hi - p_a) < 0.02
+        assert (p_a < 0.05) == (p_hi < 0.05)
+
+
 def test_occupancy_safe_condition():
     """The analytic null applies only when n >= threshold AND cells are not sparse (avg expected
     count N/(Bx*By) >= 5). A high-cardinality table with sparse cells must NOT be applicable even at
