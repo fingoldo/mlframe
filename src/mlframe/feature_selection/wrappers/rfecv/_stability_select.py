@@ -28,6 +28,56 @@ from .._helpers import (
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
+def _rank_features_by_importance(
+    self,
+    *,
+    use_all_fi_runs: bool,
+    use_last_fi_run_only: bool,
+    use_one_freshest_fi_run: bool,
+    use_fi_ranking: bool,
+    votes_aggregation_method,
+    nfeatures: int,
+):
+    """Vote-aggregate ``self.feature_importances_`` into a ranked feature list (best first).
+
+    Shared by the ``conduct_final_voting`` final-pick path and the p>=n FP-control cap. Returns ``None``
+    when no usable feature importances were captured (so callers can fall back to a positional pick).
+    """
+    fi_to_consider = select_appropriate_feature_importances(
+        feature_importances=self.feature_importances_,
+        nfeatures=nfeatures,
+        n_original_features=self.n_features_in_,
+        use_all_fi_runs=use_all_fi_runs,
+        use_last_fi_run_only=use_last_fi_run_only,
+        use_one_freshest_fi_run=use_one_freshest_fi_run,
+        use_fi_ranking=use_fi_ranking,
+    )
+    if not fi_to_consider:
+        return None
+
+    _imp_agg = getattr(self, "importance_agg", "legacy")
+    _fi_family = getattr(self, "_fi_family", None)
+    if _imp_agg == "dispatched" and _fi_family in ("tree", "linear"):
+        from .._helpers_importance_agg import aggregate_importances_dispatched
+        _signed = getattr(self, "_signed_importances", None)
+        _signed_subset = None
+        if _signed and _fi_family == "linear":
+            _signed_subset = {k: v for k, v in _signed.items() if k in fi_to_consider}
+        return aggregate_importances_dispatched(
+            feature_importances=fi_to_consider,
+            family=_fi_family,
+            votes_aggregation_method=votes_aggregation_method,
+            signed_importances=_signed_subset,
+            k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
+            fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
+        )
+    return get_actual_features_ranking(
+        feature_importances=fi_to_consider,
+        votes_aggregation_method=votes_aggregation_method,
+        fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
+    )
+
+
 def _fit_stability_selection(self, X, y, signature):
     """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
 
@@ -302,12 +352,15 @@ def select_optimal_nfeatures_(
     # p>=n FP-control gate. On p>>n the elimination search routinely collapses to evaluating ONLY {N=0 dummy, N=full}: the per-step
     # CV score is non-decreasing out to the full set, so every selection rule (argmax / 1-SE / plateau) is forced to pick N=full --
     # i.e. ALL p features, which gives ZERO multiple-comparison control. When that collapse happens AND the full set is SE-significantly
-    # WORSE than the no-features dummy, the full set is not just uncontrolled but actively below the trivial baseline, so selecting it
-    # is never right -- return empty support_ instead. This is GATED to the p>=n regime (n_features_in_ >= n_samples) and to the
-    # collapsed-search case (the only non-zero candidate IS the full set), so the well-powered p<n path -- where the search explores
-    # intermediate N and the 1-SE rule legitimately recovers signal -- is untouched. The earlier unconditional version of this reject
-    # (bench-attempt-rejected 2026-06-11, see below) sacrificed recoverable signal precisely because it fired on p<n collapses too;
-    # the p>=n + below-dummy gate confines it to the corner where the full set can never be the honest answer.
+    # WORSE than the no-features dummy, selecting all p is never right. Instead of selecting the full set we CAP the selection at the
+    # FP-control ceiling ``max(20, p//3)`` features chosen by importance ranking: that keeps multiple-comparison inflation bounded
+    # (a controlled selector must not return ~all p) WHILE still recovering the genuinely-informative columns (the top-ceiling by
+    # importance includes them), so a noise-diluted-but-recoverable signal is no longer sacrificed. This is GATED to the p>=n regime
+    # (n_features_in_ >= n_samples) and to the collapsed-search case (the only non-zero candidate IS the full set), so the well-powered
+    # p<n path -- where the search explores intermediate N and the 1-SE rule legitimately recovers signal -- is untouched. An earlier
+    # version of this gate ABSTAINED (returned empty support_) here; that broke signal-bearing high-dim selection (it fired on
+    # overfit-but-recoverable high-dim too, not just pure noise), so it was replaced by the bounded cap. The even-earlier unconditional
+    # below-dummy reject (bench-attempt-rejected 2026-06-11, see below) was worse still -- it fired on p<n collapses too.
     n_samples_fit = getattr(self, "_n_samples_fit_", None)
     p_in = int(getattr(self, "n_features_in_", 0))
     nz_candidates = nfeatures_arr[nonzero_mask]
@@ -325,14 +378,34 @@ def select_optimal_nfeatures_(
         if np.isfinite(_mean[_full_pos]) and np.isfinite(_mean[_zero_pos]):
             _full_se = _std[_full_pos] if np.isfinite(_std[_full_pos]) else 0.0
             if _mean[_full_pos] + _full_se < _mean[_zero_pos]:
-                logger.warning(
-                    "select_optimal_nfeatures_: p>=n collapsed search ({N=0, N=%d}); the full set scores SE-worse than the "
-                    "no-features dummy. Returning empty support_ for multiple-comparison control instead of selecting all %d features.",
-                    p_in, p_in,
+                _cap = min(p_in, max(20, p_in // 3))
+                _ranking = _rank_features_by_importance(
+                    self,
+                    use_all_fi_runs=use_all_fi_runs,
+                    use_last_fi_run_only=use_last_fi_run_only,
+                    use_one_freshest_fi_run=use_one_freshest_fi_run,
+                    use_fi_ranking=use_fi_ranking,
+                    votes_aggregation_method=votes_aggregation_method,
+                    nfeatures=p_in,
                 )
-                self.resolved_n_features_rule_ = f"{rule}+p_ge_n_below_dummy_reject"
-                self.n_features_ = 0
-                self.support_ = np.array([])
+                if _ranking is not None and len(_ranking) > 0:
+                    _capped = _cap if _cap <= len(_ranking) else len(_ranking)
+                    _keep = set(_ranking[:_capped])
+                    self.support_ = np.array([f in _keep for f in self.feature_names_in_])
+                    self.n_features_ = int(self.support_.sum())
+                    self.ranking_ = _ranking
+                else:
+                    # Importance ranking unavailable (no FI captured): keep the first ``_cap`` features by position.
+                    _capped = min(_cap, len(self.feature_names_in_))
+                    self.support_ = np.array([i < _capped for i in range(len(self.feature_names_in_))])
+                    self.n_features_ = int(self.support_.sum())
+                logger.warning(
+                    "select_optimal_nfeatures_: p>=n collapsed search ({N=0, N=%d}); the full set scores SE-worse than the no-features "
+                    "dummy. Capping selection at %d features (ceiling max(20, p//3)) by importance for multiple-comparison control "
+                    "instead of selecting all %d.",
+                    p_in, self.n_features_, p_in,
+                )
+                self.resolved_n_features_rule_ = f"{rule}+p_ge_n_fp_control_cap"
                 return
 
     if rule == "argmax":
@@ -446,39 +519,15 @@ def select_optimal_nfeatures_(
         else:
 
             # Advanced alternative: vote for feature_importances using all info up to date.
-            fi_to_consider = select_appropriate_feature_importances(
-                feature_importances=self.feature_importances_,
-                nfeatures=best_top_n,
-                n_original_features=self.n_features_in_,
+            self.ranking_ = _rank_features_by_importance(
+                self,
                 use_all_fi_runs=use_all_fi_runs,
                 use_last_fi_run_only=use_last_fi_run_only,
                 use_one_freshest_fi_run=use_one_freshest_fi_run,
                 use_fi_ranking=use_fi_ranking,
+                votes_aggregation_method=votes_aggregation_method,
+                nfeatures=best_top_n,
             )
-
-            _imp_agg = getattr(self, "importance_agg", "legacy")
-            _fi_family = getattr(self, "_fi_family", None)
-            if _imp_agg == "dispatched" and _fi_family in ("tree", "linear"):
-                from .._helpers_importance_agg import aggregate_importances_dispatched
-                _signed = getattr(self, "_signed_importances", None)
-                _signed_subset = None
-                if _signed and _fi_family == "linear":
-                    _signed_subset = {k: v for k, v in _signed.items() if k in fi_to_consider}
-                self.ranking_ = aggregate_importances_dispatched(
-                    feature_importances=fi_to_consider,
-                    family=_fi_family,
-                    votes_aggregation_method=votes_aggregation_method,
-                    signed_importances=_signed_subset,
-                    k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
-                    fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
-                )
-            else:
-                self.ranking_ = get_actual_features_ranking(
-                    feature_importances=fi_to_consider,
-                    votes_aggregation_method=votes_aggregation_method,
-                    fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
-                )
-
             self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
     if verbose:

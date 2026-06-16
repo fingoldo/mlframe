@@ -189,6 +189,31 @@ class TestT4_FeatureGroups:
             f"{dup_in_names}/5 selected"
         )
 
+    def test_group_members_exempt_from_near_dup_dedup(self):
+        """Columns declared in feature_groups must survive the fit-entry exact/near-dup dedup so the all-or-nothing
+        group expansion sees every member. The 5 ``dup*`` columns are near-perfect monotone replicas (|Spearman| ~1),
+        which the near-dup-corr dedup would otherwise collapse to a single survivor -- leaving feature_names_in_ with
+        only ``dup0`` and breaking the group decision. With the exemption all 5 stay in feature_names_in_."""
+        rng = np.random.default_rng(0)
+        n = 300
+        driver = rng.standard_normal(n)
+        cols_dup = np.column_stack([driver + rng.standard_normal(n) * 0.001 for _ in range(5)])
+        noise = rng.standard_normal((n, 5))
+        X = pd.DataFrame(
+            np.column_stack([cols_dup, noise]),
+            columns=[f"dup{i}" for i in range(5)] + [f"noise{i}" for i in range(5)],
+        )
+        y = (driver > 0).astype(int)
+        rfecv = _rfecv(
+            estimator=LogisticRegression(max_iter=400, random_state=0),
+            cv=3, max_refits=4, verbose=0,
+            feature_groups={"dup_group": [f"dup{i}" for i in range(5)]},
+        )
+        rfecv.fit(X, y)
+        names_in = set(rfecv.feature_names_in_)
+        for i in range(5):
+            assert f"dup{i}" in names_in, f"group member dup{i} was dropped by dedup; feature_names_in_={sorted(names_in)}"
+
 
 # ----------------------------------------------------------------------------
 # T5: bootstrap CI on best n_features_

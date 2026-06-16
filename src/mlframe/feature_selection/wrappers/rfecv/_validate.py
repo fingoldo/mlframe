@@ -124,6 +124,16 @@ def _sanitize_X_inputs(self, X, y):
     # biasing selection toward isolated noise features whose FI isn't diluted. ``pandas.util.hash_array`` is dtype-agnostic and treats NaN as a single sentinel,
     # so a real ``-1.234e308`` value no longer collides with NaN the way the prior ``np.nan_to_num(...).tobytes()`` path did; categorical columns are factorised
     # to integer codes before hashing so two semantically-identical category sequences with different ordered category dictionaries still dedup.
+    # Columns the user declared in ``feature_groups`` are EXEMPT from every dedup pass: the group exists precisely to keep a set of
+    # (often collinear / near-identical) columns together for the all-or-nothing decision, so silently dropping its members would
+    # both break that contract and make the finalize-time group expansion see only the surviving member. The docstrings below promise
+    # "pass them via feature_groups" -- this is where that promise is honoured.
+    _group_protected: set = set()
+    _fg = getattr(self, "feature_groups", None)
+    if _fg:
+        for _members in _fg.values():
+            _group_protected.update(_members)
+
     if isinstance(X, pd.DataFrame) and X.shape[1] > 1:
         try:
             from pandas.util import hash_array as _hash_array
@@ -131,6 +141,8 @@ def _sanitize_X_inputs(self, X, y):
             _hashes: dict[bytes, str] = {}
             _to_drop = []
             for _col in X.columns:
+                if _col in _group_protected:
+                    continue
                 _ser = X[_col]
                 _dtype = _ser.dtype
                 if pd.api.types.is_numeric_dtype(_dtype) or pd.api.types.is_bool_dtype(_dtype):
@@ -177,20 +189,25 @@ def _sanitize_X_inputs(self, X, y):
         _thr = float(getattr(self, "near_dup_corr_threshold", 0.999))
         from pandas.api.types import is_numeric_dtype as _is_num_dup
 
-        _num_cols = [c for c in X.columns if _is_num_dup(X[c])]
+        _num_cols = [c for c in X.columns if _is_num_dup(X[c]) and c not in _group_protected]
         if len(_num_cols) > 1:
             try:
                 _rc = X[_num_cols].corr(method="spearman").abs().to_numpy()
             except (TypeError, ValueError):
                 _rc = None
             if _rc is not None and _rc.shape[0] == len(_num_cols):
+                # NaN masks per column: a column whose missingness pattern differs from an earlier-kept column is NOT a pure monotone
+                # replica -- it carries a real value where the other is missing (or vice versa), a genuine semantic distinction.
+                # Spearman pairwise-drops the differing rows and can round to >= the threshold over the shared tail, so without this
+                # guard a column differing only by a single NaN-vs-real entry gets falsely deduplicated against the other.
+                _nan_masks = [X[_c].isna().to_numpy() for _c in _num_cols]
                 _dup_drop: list = []
                 _kept_idx: list = []
                 for _i in range(len(_num_cols)):
                     _is_dup = False
                     for _j in _kept_idx:
                         _v = _rc[_i, _j]
-                        if np.isfinite(_v) and _v >= _thr:
+                        if np.isfinite(_v) and _v >= _thr and np.array_equal(_nan_masks[_i], _nan_masks[_j]):
                             _is_dup = True
                             break
                     if _is_dup:
@@ -221,7 +238,7 @@ def _sanitize_X_inputs(self, X, y):
             from pandas.api.types import is_numeric_dtype as _is_num_id
             _id_like: list = []
             for _c in X.columns:
-                if not _is_num_id(X[_c]):
+                if _c in _group_protected or not _is_num_id(X[_c]):
                     continue
                 _ser = X[_c]
                 try:

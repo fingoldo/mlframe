@@ -18,15 +18,16 @@ are ~10-12 s each AND not the relevant univariate-relevance family) three things
   (c) FP-CONTROL   -- the selected set does NOT blow up to ~all p features (multiple-comparison
                       inflation is controlled).
 
-Two real, MEASURED selector weaknesses surface here and are pinned as ``xfail(strict=False)`` rather
-than silenced with a weakened assertion (per CLAUDE.md "real selector weakness -> xfail"):
+One real, MEASURED selector weakness surfaces here and is pinned as ``xfail(strict=False)`` rather than
+silenced with a weakened assertion (per CLAUDE.md "real selector weakness -> xfail"):
 
   * MRMR recovers FP-control beautifully (it returns a tight 1-5 feature set on p up to 300) but its
     3-permutation confirmation gate loses POWER at n=40-80, so recovery of the 4 informative columns
     is below the chance bar on a majority of seeds -> RECOVERY xfail.
-  * RFECV recovers all 4 informative columns every time but with the argmax rule (no plateau) it
-    selects ALL p features on p >> n -> FP-CONTROL xfail (the same RFECV argmax FP gap that
-    ``test_biz_val_null_fdr_and_stability.py`` documents on the pure-null fixture, here under signal).
+
+RFECV clears BOTH legs: the p>=n FP-control gate (select_optimal_nfeatures_) used to make RFECV select ALL p on the
+collapsed {N=0, N=full} search (zero multiple-comparison control); it now CAPS the selection at max(20, p//3) features
+chosen by importance, which both controls FP and recovers the 4 informative columns (they rank in the top-ceiling).
 
 All floors are calibrated from a measured dev run (CPU, seeds {0,1,2}) and pinned 5-15% below the
 measured value. Seeds are fixed; majority-of-seeds is used everywhere (selectors are high-variance).
@@ -132,13 +133,11 @@ def test_biz_val_p_gt_n_fit_completes(name, n, p):
 #   MRMR  n=60 p=150 recovered(of4)=[3,1,0] total=[3,1,2]
 #   MRMR  n=60 p=300 recovered(of4)=[0,1,0] total=[1,4,2]
 #   MRMR  n=80 p=300 recovered(of4)=[0,1,2] total=[1,1,3]
-#   RFECV (post FP-control gate) all cells recovered(of4)=[0,0,0] total=[0,0,0]  (honest abstention)
-# -> BOTH selectors recover below the bar at small-n p>>n -> RECOVERY xfail for MRMR AND RFECV.
-#    RFECV's pre-fix [4,4,4] "recovery" was an ARTIFACT of selecting ALL p (the 4 informative were
-#    trivially included among 300); once the p>=n FP-control gate rejects the below-dummy full set
-#    (_rfecv_stability_select.py), RFECV honestly abstains here -- it cannot isolate the 4 informative
-#    cols because the collapsed elimination search only ever evaluated {N=0, N=full}. Genuine recovery
-#    in this regime needs an outer-loop that explores intermediate N (the rejected-bench's owed fix).
+#   RFECV (post FP-control cap) recovers the informative columns: the p>=n cap keeps the top-max(20,p//3) by
+#   importance, which includes the 4 informative cols, so RFECV clears the above-chance bar here.
+# -> MRMR recovers below the bar at small-n p>>n (its 3-permutation gate loses power) -> RECOVERY xfail for MRMR only.
+#    RFECV passes: the bounded cap recovers signal AND controls FP (the pre-fix select-all [4,4,4] "recovery" trivially
+#    included the 4 informative among all 300; the cap recovers them in a bounded set instead).
 # ---------------------------------------------------------------------------
 
 _MRMR_RECOVERY_XFAIL = (
@@ -147,15 +146,6 @@ _MRMR_RECOVERY_XFAIL = (
     "(measured e.g. n=40,p=150 recovered=[1,0,0]; n=60,p=300 recovered=[0,1,0]). The selector errs "
     "toward UNDER-selection here (excellent FP-control, weak power); a higher full_npermutations or "
     "an n-aware gate would restore power. Not a crash -- a documented power gap."
-)
-
-_RFECV_RECOVERY_XFAIL = (
-    "FS GAP: RFECV honestly abstains (selects 0) at small-n p>>n once the p>=n FP-control gate rejects "
-    "the below-dummy full set: the collapsed elimination search only evaluates {N=0, N=full}, the full "
-    "set scores SE-worse than the no-features dummy, so no intermediate subset isolating the 4 "
-    "informative columns is ever explored. Recovery here is traded for FP-control (the pre-fix [4,4,4] "
-    "'recovery' was the select-all artifact). Genuine recovery needs an outer-loop that explores "
-    "intermediate N before concluding -- the same owed fix the FP-control bench documents."
 )
 
 
@@ -180,8 +170,6 @@ def test_biz_val_p_gt_n_recovers_signal_above_chance(name):
     if hits <= trials // 2:
         if name == "MRMR":
             pytest.xfail(_MRMR_RECOVERY_XFAIL + f" | {msg}")
-        if name == "RFECV":
-            pytest.xfail(_RFECV_RECOVERY_XFAIL + f" | {msg}")
     assert hits > trials // 2, msg
 
 
@@ -189,10 +177,10 @@ def test_biz_val_p_gt_n_recovers_signal_above_chance(name):
 # (c) FP-CONTROL -- the selected set does not blow up to ~all p features.
 # A multiple-comparison-controlling selector keeps the total selected well below p even when SOME noise
 # column spuriously correlates with y. MEASURED: MRMR total in {1..5} of p (TIGHT control); RFECV total
-# now 0 on every p>>n cell (the p>=n FP-control gate rejects the below-dummy full set). Both clear the
-# ceiling -> hard PASS for BOTH. RFECV's pre-fix select-all (total==p) FP gap is closed by the gate in
-# _rfecv_stability_select.py (select_optimal_nfeatures_): when the collapsed elimination search evaluates
-# only {N=0, N=full} and the full set is SE-worse than the no-features dummy, RFECV returns empty support_.
+# capped at max(20, p//3) on the p>>n collapsed-search cells. Both clear the ceiling -> hard PASS for BOTH.
+# RFECV's pre-fix select-all (total==p) FP gap is closed by the gate in _stability_select.py
+# (select_optimal_nfeatures_): when the collapsed elimination search evaluates only {N=0, N=full} and the
+# full set is SE-worse than the no-features dummy, RFECV caps the selection at the FP ceiling by importance.
 # ---------------------------------------------------------------------------
 
 # FP-control ceiling: a controlled selector keeps the set small. p//3 is a generous bound (it would
@@ -227,20 +215,23 @@ def test_biz_val_p_gt_n_false_positive_rate_bounded(name):
 # ---------------------------------------------------------------------------
 
 
-def test_rfecv_p_ge_n_below_dummy_full_set_returns_empty_support():
-    """RFECV p>=n FP-control gate: when the elimination search collapses to {N=0, N=full} and the full
-    set scores SE-worse than the no-features dummy, RFECV returns empty support_ instead of selecting
-    all p (zero multiple-comparison control). Pins Bug D. Pre-fix this returned support_ of size p."""
+def test_rfecv_p_ge_n_below_dummy_full_set_caps_at_fp_ceiling():
+    """RFECV p>=n FP-control gate: when the elimination search collapses to {N=0, N=full} and the full set scores SE-worse than the
+    no-features dummy, RFECV CAPS the selection at the FP ceiling ``max(20, p//3)`` features chosen by importance ranking instead of
+    selecting all p (zero multiple-comparison control). Pins Bug D. Pre-fix this returned support_ of size p; an interim abstention
+    version returned empty support_ (rejected: it broke signal-bearing high-dim selection)."""
     from mlframe.feature_selection.wrappers import RFECV
     from sklearn.linear_model import LogisticRegression
     X, y, _ = make_p_gt_n(60, 300, seed=0)
     sel = RFECV(estimator=LogisticRegression(max_iter=200, random_state=0), cv=3, max_refits=3,
                 random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
     sel.fit(X, y)
-    assert int(np.asarray(sel.get_support()).sum()) == 0, (
-        f"p>=n below-dummy full set must yield empty support_, got n_features_={sel.n_features_}; "
-        f"cv_results={sel.cv_results_}")
-    assert "p_ge_n_below_dummy_reject" in getattr(sel, "resolved_n_features_rule_", "")
+    n_sel = int(np.asarray(sel.get_support()).sum())
+    ceiling = max(20, 300 // 3)
+    assert 0 < n_sel <= ceiling, (
+        f"p>=n below-dummy full set must cap at the FP ceiling {ceiling}, not select all p / abstain; "
+        f"got n_features_={n_sel}; cv_results={sel.cv_results_}")
+    assert "p_ge_n_fp_control_cap" in getattr(sel, "resolved_n_features_rule_", "")
 
 
 def test_rfecv_p_lt_n_recovery_untouched_by_fp_gate():
@@ -259,7 +250,7 @@ def test_rfecv_p_lt_n_recovery_untouched_by_fp_gate():
     sel.fit(Xdf, pd.Series(ya))
     selected = set(np.flatnonzero(np.asarray(sel.get_support())).tolist())
     recall = len(selected & set(range(8))) / 8
-    assert "p_ge_n_below_dummy_reject" not in getattr(sel, "resolved_n_features_rule_", ""), (
+    assert "p_ge_n_fp_control_cap" not in getattr(sel, "resolved_n_features_rule_", ""), (
         "p>=n FP gate wrongly fired on a p<n problem")
     assert recall >= 0.5, f"p<n recovery regressed: recall={recall:.2f}, selected={sorted(selected)}"
 
