@@ -124,6 +124,38 @@ def cv2_recalibration_gain(y_pred_cal: np.ndarray, y_cal: np.ndarray, method: st
     return 0.5 * (gain_a + gain_b)
 
 
+def duan_log_smearing_factor(residuals_cal: np.ndarray) -> float:
+    """Duan (1983) smearing factor for a log-transformed target: ``mean(exp(resid))`` on the log scale.
+
+    Naive back-transform ``exp(pred)`` is biased low (Jensen) when the model is fit on ``log(y)``; the
+    unbiased mean estimate is ``exp(pred) * factor`` with this factor computed from held-out log-scale
+    residuals. Returns 1.0 (no correction) on too-few / non-finite residuals.
+    """
+    r = np.asarray(residuals_cal, dtype=np.float64).reshape(-1)
+    r = r[np.isfinite(r)]
+    if r.size < 5:
+        return 1.0
+    return float(np.mean(np.exp(r)))
+
+
+def smearing_predict(pred_transformed: np.ndarray, residuals_cal: np.ndarray, inverse_fn, *, max_cal: int = 2000, seed: int = 0) -> np.ndarray:
+    """General Duan smearing: ``yhat(x) = mean_i inverse_fn(pred(x) + resid_i)`` over calib residuals.
+
+    Unbiased back-transform for an arbitrary monotone ``inverse_fn`` (e.g. ``np.expm1`` for log1p). The
+    calib residual set is subsampled to ``max_cal`` to bound the O(n_test * n_cal) cost.
+    """
+    p = np.asarray(pred_transformed, dtype=np.float64).reshape(-1)
+    r = np.asarray(residuals_cal, dtype=np.float64).reshape(-1)
+    r = r[np.isfinite(r)]
+    if r.size == 0:
+        return np.asarray(inverse_fn(p), dtype=np.float64)
+    if r.size > max_cal:
+        r = np.random.default_rng(seed).choice(r, size=max_cal, replace=False)
+    # (n_test, n_cal) broadcast then mean over calib; inverse_fn applied elementwise.
+    grid = inverse_fn(p[:, None] + r[None, :])
+    return np.asarray(np.mean(grid, axis=1), dtype=np.float64)
+
+
 class DistributionalRecalibrator:
     """Kuleshov-2018 distributional recalibration: make the predicted CDF's PIT uniform.
 

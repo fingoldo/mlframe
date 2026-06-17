@@ -38,6 +38,13 @@
       "builtins.object"
     ]
   },
+  "DistributionalRecalibrator": {
+    "kind": "class",
+    "module": "mlframe.training._regression_calibration",
+    "mro": [
+      "builtins.object"
+    ]
+  },
   "EnsemblingConfig": {
     "kind": "class",
     "module": "mlframe.training._model_configs_ensembling",
@@ -174,6 +181,13 @@
       "builtins.object"
     ]
   },
+  "NoiseAugmentedEnsemble": {
+    "kind": "class",
+    "module": "mlframe.training._noise_ensemble",
+    "mro": [
+      "builtins.object"
+    ]
+  },
   "OutlierDetectionConfig": {
     "kind": "class",
     "module": "mlframe.training._training_runtime_configs",
@@ -204,6 +218,13 @@
   "PartialFitESWrapper": {
     "kind": "class",
     "module": "mlframe.training._partial_fit_es_wrapper",
+    "mro": [
+      "builtins.object"
+    ]
+  },
+  "PointRecalibrator": {
+    "kind": "class",
+    "module": "mlframe.training._regression_calibration",
     "mro": [
       "builtins.object"
     ]
@@ -250,6 +271,13 @@
     "mro": [
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "RecalibratedRegressor": {
+    "kind": "class",
+    "module": "mlframe.training._regression_calibration",
+    "mro": [
       "builtins.object"
     ]
   },
@@ -415,6 +443,16 @@
     "module": "mlframe.training._trainer_configure",
     "signature": "(df:any:1, train_df:any:1, test_df:any:1, val_df:any:1, target:any:1, target_label_encoder:any:1, train_target:any:1, test_target:any:1, val_target:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, fairness_features:any:1, cont_nbins:any:1, fairness_min_pop_cat_thresh:any:1, use_robust_eval_metric:any:1, sample_weight:any:1, prefer_gpu_configs:any:1, nbins:any:1, use_regression:any:1, verbose:any:1, rfecv_model_verbose:any:1, prefer_cpu_for_lightgbm:any:1, prefer_cpu_for_xgboost:any:1, xgboost_verbose:any:1, cb_fit_params:any:1, prefer_calibrated_classifiers:any:1, default_regression_scoring:any:1, default_classification_scoring:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, model_name:any:1, common_params:any:1, config_params:any:1, metamodel_func:any:1, _precomputed_fairness_subgroups:any:1, mlframe_models:any:1, linear_model_config:any:1, callback_params:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, target_type:any:1, n_classes:any:1, multilabel_dispatch_config:any:1, pre_pipeline_cache_max:any:1, _unused_behavior_kwargs:**kw:0)"
   },
+  "conformal_classification_report": {
+    "kind": "callable",
+    "module": "mlframe.training._conformal_finalize",
+    "signature": "(test_probs:kw:0, test_target:kw:0, calib_probs:kw:0, calib_target:kw:0, classes:kw:0, alphas:kw:1, score:kw:1, structure:kw:1)"
+  },
+  "conformal_regression_report": {
+    "kind": "callable",
+    "module": "mlframe.training._conformal_finalize",
+    "signature": "(y_pred_test:kw:0, y_true_test:kw:0, residuals_cal:kw:1, y_pred_cal:kw:1, oof_residuals:kw:1, alphas:kw:1, score:kw:1, structure:kw:1)"
+  },
   "core": {
     "kind": "value",
     "type": "module"
@@ -446,6 +484,11 @@
     "kind": "callable",
     "module": "mlframe.training.utils",
     "signature": "(df:any:0, additional_columns_to_drop:any:1, config_drop_columns:any:1, verbose:any:1)"
+  },
+  "duan_log_smearing_factor": {
+    "kind": "callable",
+    "module": "mlframe.training._regression_calibration",
+    "signature": "(residuals_cal:any:0)"
   },
   "ensemble_ranker_scores": {
     "kind": "callable",
@@ -508,6 +551,11 @@
     "module": "mlframe.training.pipeline._pipeline_fit_transform",
     "signature": "(train_df:any:0, val_df:any:0, test_df:any:0, config:any:0, ensure_float32:any:1, verbose:any:1, text_features:any:1, embedding_features:any:1)"
   },
+  "fit_point_recalibrator": {
+    "kind": "callable",
+    "module": "mlframe.training._regression_calibration",
+    "signature": "(y_pred_cal:any:0, y_cal:any:0, method:any:1)"
+  },
   "fit_ranker": {
     "kind": "callable",
     "module": "mlframe.training.ranking.ranking",
@@ -567,6 +615,11 @@
     "kind": "value",
     "type": "module"
   },
+  "infer_split_structure": {
+    "kind": "callable",
+    "module": "mlframe.training._conformal_finalize",
+    "signature": "(time_column:kw:1, cv_strategy:kw:1, use_groups:kw:1, bucket_stratify:kw:1, wholeday_splitting:kw:1)"
+  },
   "io": {
     "kind": "value",
     "type": "module"
@@ -620,6 +673,11 @@
     "module": "mlframe.training._ram_helpers",
     "signature": "(baseline_rss_mb:any:0, df_size_mb:any:0, verbose:any:1, reason:any:1)"
   },
+  "mc_dropout_predict": {
+    "kind": "callable",
+    "module": "mlframe.training._mc_dropout",
+    "signature": "(module:any:0, X:any:0, n:kw:1)"
+  },
   "models": {
     "kind": "value",
     "type": "module"
@@ -656,6 +714,11 @@
     "kind": "callable",
     "module": "mlframe.training.ranking.ranking",
     "signature": "(fitted:any:0, X:any:0, group_ids:any:1)"
+  },
+  "predictive_entropy": {
+    "kind": "callable",
+    "module": "mlframe.training._mc_dropout",
+    "signature": "(mean_probs:any:0, eps:any:1)"
   },
   "prepare_df_for_catboost": {
     "kind": "callable",
@@ -740,6 +803,11 @@
     "module": "mlframe.training._ram_helpers",
     "signature": "(baseline_rss_mb:any:0, df_size_mb:any:0, min_growth_mb:any:1)"
   },
+  "smearing_predict": {
+    "kind": "callable",
+    "module": "mlframe.training._regression_calibration",
+    "signature": "(pred_transformed:any:0, residuals_cal:any:0, inverse_fn:any:0, max_cal:kw:1, seed:kw:1)"
+  },
   "splitting": {
     "kind": "value",
     "type": "module"
@@ -784,6 +852,16 @@
   "trainer": {
     "kind": "value",
     "type": "module"
+  },
+  "tta_predict": {
+    "kind": "callable",
+    "module": "mlframe.training._tta",
+    "signature": "(predict_fn:any:0, X:any:0, n:kw:1, sigma_scale:kw:1, feature_std:kw:1, agg:kw:1, seed:kw:1)"
+  },
+  "tta_predict_spread": {
+    "kind": "callable",
+    "module": "mlframe.training._tta",
+    "signature": "(predict_fn:any:0, X:any:0, n:kw:1, sigma_scale:kw:1, feature_std:kw:1, seed:kw:1)"
   },
   "utils": {
     "kind": "value",
