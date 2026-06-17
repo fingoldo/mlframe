@@ -434,3 +434,87 @@ def test_biz_val_suite_mrmr_ltr_excludes_noise():
     assert len(signal_kept) >= 2, f"LtR signal lost: kept only {sorted(signal_kept)}"
 
     _assert_suite_predicts(df, _res, _meta, fte)
+
+
+# ---------------------------------------------------------------------------
+# (g) MRMR-FS on QUANTILE_REGRESSION / MULTILABEL / MULTI_TARGET_REGRESSION
+# ---------------------------------------------------------------------------
+
+
+def _two_d_signal_noise_frame(n, kind, n_noise=8, seed=0):
+    """Frame with 2 signal + ``n_noise`` noise cols and an object-cell 2-D target for multilabel /
+    multi-target regression (each cell a length-2 list). Returns (df, signal_cols, noise_cols)."""
+    rng = np.random.default_rng(seed)
+    s0 = rng.standard_normal(n)
+    s1 = rng.standard_normal(n)
+    noise = rng.standard_normal((n, n_noise))
+    cols = {"s0": s0, "s1": s1}
+    cols.update({f"noise_{i}": noise[:, i] for i in range(n_noise)})
+    if kind == "multilabel":
+        l0 = (s0 + 0.3 * rng.standard_normal(n) > 0).astype(int)
+        l1 = (s1 + 0.3 * rng.standard_normal(n) > 0).astype(int)
+        tgt = [[int(a), int(b)] for a, b in zip(l0, l1)]
+    elif kind == "multitarget":
+        o0 = s0 + 0.3 * rng.standard_normal(n)
+        o1 = s1 + 0.3 * rng.standard_normal(n)
+        tgt = [[float(a), float(b)] for a, b in zip(o0, o1)]
+    else:
+        raise ValueError(kind)
+    df = pd.DataFrame(cols)
+    df["target"] = pd.Series(tgt, dtype=object)
+    return df, ["s0", "s1"], [f"noise_{i}" for i in range(n_noise)]
+
+
+def _assert_noise_excluded(inner, signal_cols, noise_cols, *, min_signal=2, min_excl=0.75):
+    used, fs_model = _fs_model_used_features(inner)
+    assert used is not None, "no FS-branch model produced (use_mrmr_fs=True ignored?)"
+    noise_kept = used & set(noise_cols)
+    signal_kept = used & set(signal_cols)
+    excl = 1.0 - len(noise_kept) / len(noise_cols)
+    assert excl >= min_excl, f"kept too many noise cols: kept={sorted(noise_kept)} excl={excl:.2f}"
+    assert len(signal_kept) >= min_signal, f"signal lost: kept only {sorted(signal_kept)}"
+
+
+def test_biz_val_suite_mrmr_quantile_regression_excludes_noise():
+    """MRMR-FS through the suite on a QUANTILE_REGRESSION target: FS-branch trains, predicts, excludes
+    planted noise. Quantile target is a 1-D continuous label (rides the regression-shaped FS path)."""
+    df, signal_cols, noise_cols = _signal_noise_frame(n=480, seed=0, kind="regression")
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column="target", target_type=TargetTypes.QUANTILE_REGRESSION,
+    )
+    inner, _res, _meta = _train(
+        df, fte, TargetTypes.QUANTILE_REGRESSION,
+        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+    )
+    _assert_noise_excluded(inner, signal_cols, noise_cols)
+    _assert_suite_predicts(df, _res, _meta, fte)
+
+
+def test_biz_val_suite_mrmr_multilabel_excludes_noise():
+    """MRMR-FS through the suite on a MULTILABEL target (2-D binary y): FS-branch trains, predicts,
+    excludes planted noise while keeping both signal cols."""
+    df, signal_cols, noise_cols = _two_d_signal_noise_frame(n=480, kind="multilabel", seed=0)
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column="target", target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
+    )
+    inner, _res, _meta = _train(
+        df, fte, TargetTypes.MULTILABEL_CLASSIFICATION,
+        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+    )
+    _assert_noise_excluded(inner, signal_cols, noise_cols)
+    _assert_suite_predicts(df, _res, _meta, fte)
+
+
+def test_biz_val_suite_mrmr_multi_target_regression_excludes_noise():
+    """MRMR-FS through the suite on a MULTI_TARGET_REGRESSION target (2-D continuous y): FS-branch
+    trains, predicts, excludes planted noise while keeping both signal cols."""
+    df, signal_cols, noise_cols = _two_d_signal_noise_frame(n=480, kind="multitarget", seed=0)
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column="target", target_type=TargetTypes.MULTI_TARGET_REGRESSION,
+    )
+    inner, _res, _meta = _train(
+        df, fte, TargetTypes.MULTI_TARGET_REGRESSION,
+        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+    )
+    _assert_noise_excluded(inner, signal_cols, noise_cols)
+    _assert_suite_predicts(df, _res, _meta, fte)
