@@ -106,3 +106,27 @@ test_analytic_mi_null.py::test_permutation_converges_to_analytic):
   reference on 3/3 seeds** and is rock-stable above. This independently validates the existing
   ``_NULL_MEAN_MIN_PERMS=32`` floor as the minimum safe permutation budget for the n<50k path (below
   the analytic threshold). Above 50k the analytic null (= the nperm->inf limit) supersedes it.
+
+## 2026-06-17 -- large-n FE OOM RESOLVED: 1M fits a 16GB box
+
+A 1M-row fe_max_steps=2 fit went from OOM (projected ~21GB) to COMPLETING at ~10.1GB peak on a
+16GB box (WALL 1176s), recovering the genuine a**2/b + log(c)*sin(d) structure. Three layered cuts,
+each measured on this box (bench_fe_peak_memory + D:/Temp/oom_1m.py):
+
+* **float32 discretization input** (commit 64923354, `MLFRAME_DISCRETIZE_FLOAT32=1`, OPT-IN): the
+  ~21GB->~10GB step. categorize_dataset copied ALL numeric cols into one float64 array (a 2nd
+  full-frame copy); quantile/MDLP edges don't need float64. Selection IDENTICAL float32-vs-float64 on
+  the canonical 60k fit. Kept opt-in (binning is edge-sensitive; accuracy-first default = float64).
+* **Fourier-detection subsample cap** (commit 76081a89, `MLFRAME_FOURIER_DETECT_MAX_N`, default 200k,
+  DEFAULT-ON): the coarse (grid x n) sin/cos planes OOM'd next; detection is a heuristic, a uniform
+  row-subsample preserves the dominant frequencies. n<=cap untouched.
+* **FDR maxT null int32 codes** (commit 76081a89, `MLFRAME_FDR_NULL_INT32`, DEFAULT-ON): the uncaught
+  OOM driver -- pooled_permutation_null_gain_floor's (n_cand x n) scaled_flat + (nperm x n) y_perms
+  were int64; the values are joint codes < nbins_x*nbins_y, so int32 is BIT-IDENTICAL (A/B confirmed)
+  and halves both GB-scale pools.
+
+To run 1M today: set `MLFRAME_DISCRETIZE_FLOAT32=1` (the other two are default-on). On a normally-free
+16GB box the ~10.1GB peak fits; on a loaded box free RAM must exceed the peak (a stale 11h-hung pytest
+eating 2GB commit had to be reclaimed during this work). DEEPER future cut (not needed for 1M now):
+float32 on the engineered candidate frame itself (the float64 X base), which needs the same
+binning-safety validation as the discretization lever.
