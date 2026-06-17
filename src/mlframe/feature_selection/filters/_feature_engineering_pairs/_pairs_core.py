@@ -133,6 +133,17 @@ def check_prospective_fe_pairs(
     # the MI screen + every gate keep using ``classes_y`` codes. None -> legacy
     # behaviour (ALS reconstructs against ``classes_y``).
     prewarp_y_continuous: np.ndarray | None = None,
+    # LINEAR-USABILITY GUARD TARGET (2026-06-17). The leader-equivalence tie-break and the
+    # noise-wrap |corr| guard must score against the CONTINUOUS regression target, NOT the
+    # binned ``classes_y`` codes: on a heavy-tailed target the Pearson |corr| of a magnitude-
+    # carrying form (e.g. ``a**2/b``) with the quantile-RANK codes COLLAPSES (~0.05) while a
+    # bounded monotone warp (e.g. ``a/sqrt(b)``) scores higher (~0.4) -- the EXACT INVERSE of
+    # linear usability. The prewarp path already threaded continuous y, so the exhaustive
+    # (prewarp-on) path was correct; the fast (prewarp-off) path fell back to ``classes_y`` and
+    # picked the linearly-useless leg (biz_value_mrmr_fast_search MAE 0.05 -> 37). Thread the
+    # continuous y here UNCONDITIONALLY (independent of prewarp) so both paths agree. None ->
+    # legacy ``classes_y`` fallback (correct for classification / non-numeric y).
+    usability_y_continuous: np.ndarray | None = None,
     prewarp_basis: str = "chebyshev",
     prewarp_max_degree: int = 4,
     # Minimum ratio (best-prewarp-MI / best-nonprewarp-MI) for the alternative
@@ -820,7 +831,10 @@ def check_prospective_fe_pairs(
     # ``classes_y`` codes (still a usable monotone proxy) when no continuous target was threaded.
     _corr_y_cont = None
     try:
-        _cyc_src = prewarp_y_continuous if prewarp_y_continuous is not None else classes_y
+        _cyc_src = (
+            usability_y_continuous if usability_y_continuous is not None
+            else (prewarp_y_continuous if prewarp_y_continuous is not None else classes_y)
+        )
         _cyc = np.asarray(_cyc_src, dtype=np.float64).ravel()
         if _use_subsample and _cyc.shape[0] == _full_n_rows:
             _cyc = _cyc[_sample_idx]

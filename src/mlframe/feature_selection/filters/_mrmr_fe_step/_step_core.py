@@ -1068,6 +1068,15 @@ def _run_fe_step(
             _pwc = getattr(self, "_fe_prewarp_y_continuous_", None)
             if _pwc is not None and len(_pwc) == len(classes_y):
                 _prewarp_y_cont = _pwc
+        # LINEAR-USABILITY GUARD TARGET (2026-06-17): the leader tie-break + noise-wrap |corr|
+        # guard must score against CONTINUOUS y regardless of prewarp -- the binned ``classes_y``
+        # fallback INVERTS linear usability on heavy-tailed targets (picks ``a/sqrt(b)`` over
+        # ``a**2/b``). Threaded unconditionally; None for classification/non-numeric y (correct
+        # ``classes_y`` fallback inside ``check_prospective_fe_pairs``).
+        _usab_y_cont = None
+        _uyc = getattr(self, "_fe_prewarp_y_continuous_", None)
+        if _uyc is not None and len(_uyc) == len(classes_y):
+            _usab_y_cont = _uyc
         _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
         _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
         _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
@@ -1163,6 +1172,7 @@ def _run_fe_step(
                 prewarp_enable=_prewarp_enable,
                 prewarp_y=classes_y if _prewarp_enable else None,
                 prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
+                usability_y_continuous=_usab_y_cont,
                 prewarp_basis=_prewarp_basis,
                 prewarp_max_degree=_prewarp_max_degree,
                 prewarp_uplift_threshold=_prewarp_uplift,
@@ -1251,6 +1261,7 @@ def _run_fe_step(
                         prewarp_enable=_prewarp_enable,
                         prewarp_y=classes_y if _prewarp_enable else None,
                         prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
+                        usability_y_continuous=_usab_y_cont,
                         prewarp_basis=_prewarp_basis,
                         prewarp_max_degree=_prewarp_max_degree,
                         prewarp_uplift_threshold=_prewarp_uplift,
