@@ -8819,11 +8819,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _topk = list(_accepted)
                 # ``min_features_fallback`` count floor: if the significance/redundancy gates left fewer than the requested K, top up from the remaining above-absolute-floor
                 # candidates (magnitude order) so legacy callers asking for >=K always get at least K. The never-empty guarantee then keeps one column even on a fully-null pool.
-                if len(_topk) < _min_fb:
+                # SURVIVING ENGINEERED FEATURES COUNT TOWARD THE FLOOR (2026-06-17): the floor is "support is never empty / has >= K features", and ``get_feature_names_out`` returns
+                # raw (``support_``) + engineered. When an engineered feature already survived (``n_engineered_out >= 1``), the floor is met WITHOUT a raw, so do NOT magnitude-top-up a
+                # raw that FAILED the permutation-significance gate -- that force-added a pure-noise raw (``e`` in ``y=log(a)*c+0.4*f``: MI 0.0004, p=0.34, only candidate left after the
+                # engineered operands a/c were excluded) purely to satisfy a floor the engineered feature already satisfies. Mirrors the ``_redundancy_emptied_raw_`` branch's engineered-
+                # only support. The top-up also stays gated on the absolute relevance floor so it never adds a sub-floor column.
+                if len(_topk) + n_engineered_out < _min_fb:
                     for i, _mi, _c in _raw_mi:
                         if i not in _topk and _mi > _abs_floor:
                             _topk.append(i)
-                        if len(_topk) >= _min_fb:
+                        if len(_topk) + n_engineered_out >= _min_fb:
                             break
                 if not _topk and n_engineered_out == 0 and _raw_mi:
                     _topk = [_raw_mi[0][0]]
