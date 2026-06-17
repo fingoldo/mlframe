@@ -308,7 +308,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         self,
         # quantization
         quantization_method: str = "quantile",
-        quantization_nbins: int = 10,
+        quantization_nbins: int = 10,  # [ACCURACY-CAVEAT] <5 is too coarse for the plug-in MI; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         quantization_dtype: object = np.int32,
         # per-feature adaptive bin chooser. Default
         # ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the
@@ -439,7 +439,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # test rejects it too). Set to 0.0 to always use the strict conditional
         # test (legacy behaviour). Default 5.0 (ON), tuned on diabetes: at 5
         # rows/cell the plug-in CMI bias dominates the estimate.
-        fe_confirm_undersample_rows_per_cell: float = 5.0,
+        fe_confirm_undersample_rows_per_cell: float = 5.0,  # [ACCURACY-CAVEAT] 0.0 (legacy strict) under-selects small-n; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         # stopping conditions
         # min_relevance_gain: absolute MI floor. In ``min_relevance_gain_mode='absolute'`` the screening stops when marginal gain < this value verbatim; in the default ``'relative_to_entropy'`` mode this value is IGNORED and the effective absolute floor is ``min_relevance_gain_frac * H(y)``. The absolute mode is dataset-blind -- 0.0001 is enormous on a low-entropy target (99/1 binary, H(y) ~= 0.056) and tiny on a high-entropy one (uniform 10-class, H(y) ~= 2.30), so the default switched to the relative formulation.
         min_relevance_gain: float = 0.0001,
@@ -1088,7 +1088,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # support causes downstream estimators to crash with a 0-column transform output. Set to 0 explicitly to
         # restore the legacy "let the pipeline fail loudly" semantics. Chosen features are flagged via
         # ``self.fallback_used_``.
-        min_features_fallback: int = 1,
+        min_features_fallback: int = 1,  # [ACCURACY-CAVEAT] 0 removes the never-empty floor (support_ can be empty); see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         # Cat-FE (categorical feature interactions): single dataclass consolidating ~22 cat_fe_* knobs.
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
@@ -1234,7 +1234,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # vs giving every user cluster-aware selection out of the box. The
         # 0.003x overhead is negligible. Users wanting the legacy behaviour
         # opt out via dcd_enable=False.
-        dcd_enable: bool = True,
+        dcd_enable: bool = True,  # [ACCURACY-CAVEAT] False disables denoised cluster-aggregate; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         # ``dcd_tau_cluster`` accepts ``'auto'`` to
         # opt into the per-fit bimodality-detection calibration sweep
         # (``make_dcd_state`` samples 100 random feature pairs, fits a
@@ -1337,7 +1337,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # behind ``fe_hybrid_orth_enable``. Set False for the legacy pair-only FE.
         fe_univariate_basis_enable: bool = True,
         # ACCURACY GATE, DEFAULT ON. After every FE stage, drop engineered columns that add no held-out downstream uplift over their raw source (a Fourier/Hermite/chirp of a monotone / MNAR / leak column that would otherwise evict the raw signal from support_). Opt out for legacy byte-stability / benchmarks.
-        fe_accuracy_gate: bool = True,
+        fe_accuracy_gate: bool = True,  # [ACCURACY-CAVEAT] False lets sub-bar engineered candidates in; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         # FOURIER univariate basis, DEFAULT ON. The orthogonal-poly
         # univariate basis (``a__T2`` / ``a__He2`` ...) recovers polynomial
         # nonlinearities but a degree<=4 polynomial CANNOT express a full-period
@@ -2456,8 +2456,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # All default ON (measured downstream model lift, e.g. gcd +0.087 held-out AUC where a tree cannot form gcd(a,b)).
         # Set fe_discrete_structural_operators_enable=False to disable ALL FOUR at once (pure classical FE), regardless of the
         # individual flags; leave it True (default) and the per-operator fe_*_enable flags govern individually.
-        fe_discrete_structural_operators_enable: bool = True,
-        fe_pairwise_modular_enable: bool = True,
+        fe_discrete_structural_operators_enable: bool = True,  # [ACCURACY-CAVEAT] False disables ALL FOUR discrete-structural FE families; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
+        fe_pairwise_modular_enable: bool = True,  # [ACCURACY-CAVEAT] False drops modular/parity/period interactions; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         fe_pairwise_modular_top_k: int = 4,
         fe_pairwise_modular_max_int_cols: int = 30,
         fe_pairwise_modular_max_triple_cols: int = 20,
@@ -2485,7 +2485,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # bench_conditional_gate_wideframe), leak-free deterministic replay (np.argmax over the stacked source columns). Default ON;
         # opt out with fe_row_argmax_enable=False for byte-identical legacy/replay. BUDGET GUARD: max_cols=30 skips the whole
         # C(p,3) sweep above 30 eligible columns (logged, never silent).
-        fe_row_argmax_enable: bool = True,
+        fe_row_argmax_enable: bool = True,  # [ACCURACY-CAVEAT] False drops the row-argmax interaction; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         fe_row_argmax_top_k: int = 4,
         fe_row_argmax_max_cols: int = 30,
         # CONDITIONAL-GATE FE (frontier pass 2). Emits a regime switch c>tau ? a : b (select) and a masked interaction 1[c>tau]*a
@@ -2503,7 +2503,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # sweep is then O(k_operand^2 * k_gate * tau-scan), FLAT in p -- measured ~flat (~+10-15% of a full fit at n=20000, comparable
         # to modular/lattice/argmax) instead of +50%..+291%. k_operand=10 / k_gate=8 keep all 3 gate-synthetic seeds caught amid 25
         # noise; 0 FP at p=30 over 3 seeds (smooth/ordinary_mul/random) holds. BUDGET GUARD: max_cols=200 defense-in-depth outer cap.
-        fe_conditional_gate_enable: bool = True,
+        fe_conditional_gate_enable: bool = True,  # [ACCURACY-CAVEAT] False drops the conditional-gate interaction; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         fe_conditional_gate_top_k: int = 4,
         fe_conditional_gate_max_cols: int = 200,
         fe_conditional_gate_k_gate: int = 8,
@@ -3568,6 +3568,18 @@ class MRMR(BaseEstimator, TransformerMixin):
                         f"native path -- feature engineering may be skipped for this polars input.",
                         UserWarning, stacklevel=2,
                     )
+
+        # ACCURACY-CAVEAT WARNING. Surface (once) any parameter value that is valid but KNOWN to degrade
+        # selection accuracy (an explicit opt-out of an on-by-default accuracy mechanism, or a numeric
+        # knob pinned to a documented-bad setting). Silent on a default config. See
+        # ``_param_accuracy_warnings.ACCURACY_SUBOPTIMAL`` -- the single source of truth for the
+        # ``# [ACCURACY-CAVEAT]`` markers on the flagged constructor parameters.
+        try:
+            from .._param_accuracy_warnings import warn_accuracy_suboptimal_params
+
+            warn_accuracy_suboptimal_params(self)
+        except Exception:
+            pass  # a diagnostic warning must never break a fit
 
         # Stability-selection outer-loop short-circuit.
         # When ``stability_selection_method`` is 'cluster' or

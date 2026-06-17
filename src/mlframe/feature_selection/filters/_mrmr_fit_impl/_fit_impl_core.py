@@ -8652,6 +8652,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         self._predictors_log_ = ()
     self.fallback_used_ = False
     self.fallback_metadata_ = None
+
+    # USABILITY-AWARE PURE-FORM RETENTION (2026-06-17). On an ADDITIVE target whose terms share
+    # operands, the MI greedy keeps a high-MI CROSS-MIX feature and drops the pure single-pair forms
+    # (``a**2/b`` / ``log(c)*sin(d)``) as conditionally redundant -- the right call for a TREE model but
+    # not for the LINEAR/additive downstream, which needs the clean pure form the lossy cross-mix cannot
+    # replace. Re-attach a pure single-pair engineered form whenever a CROSS-VALIDATED linear wrapper
+    # confirms it lowers the linear CV-MAE on top of the current selection AND the pair is not already
+    # represented by a pure (<=2-operand) selected feature. Purely ADDITIVE (nothing MI-selected is
+    # removed; support_ untouched) and no-op when the pure form adds no linear value -> byte-identical
+    # there. Only when FE is enabled (fe_max_steps>0); skipped on the fe-disabled raw-only path.
+    if fe_max_steps > 0:
+        try:
+            from .._fe_pure_form_retention import retain_usable_pure_forms
+
+            _retain_extra = retain_usable_pure_forms(
+                self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
+                seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+            )
+            for _r_recipe, _r_name in _retain_extra:
+                self._engineered_recipes_.append(_r_recipe)
+                self._engineered_features_.append(_r_name)
+            if _retain_extra and verbose:
+                logger.info(
+                    "MRMR usability-aware retention: re-attached %d linearly-usable pure pair form(s) "
+                    "the MI greedy dropped for a higher-MI cross-mix: %s",
+                    len(_retain_extra), [n for _, n in _retain_extra],
+                )
+        except Exception as _retain_exc:  # never let the optional retention break a fit
+            if verbose:
+                logger.info("MRMR usability-aware pure-form retention skipped (%s: %s).",
+                            type(_retain_exc).__name__, _retain_exc)
+
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
     n_engineered_out = len(self._engineered_recipes_)

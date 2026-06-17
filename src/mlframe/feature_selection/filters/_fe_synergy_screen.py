@@ -102,13 +102,20 @@ def _renumber_joint_codes(code_x: np.ndarray, code_y: np.ndarray) -> tuple[np.nd
     return inv.astype(np.int64), int(uniq.size)
 
 
-def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.ndarray) -> float:
+def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.ndarray,
+                     *, min_rows_per_cell: float = 5.0) -> float:
     """Miller-Madow-corrected MI (nats) between the JOINT (x,y) code grid and the target codes.
 
     The bias correction debits ``(k_joint-1 + k_target-1 - (k_cells-1)) / (2n)`` using the OCCUPIED
     class/cell counts, so a noise pair's positive finite-sample joint MI collapses toward zero while a
     genuine synergy pair (XOR and friends) retains a large excess -- see the module docstring's
-    measured detection-vs-noise separation. Returns ``max(0.0, corrected_mi)``."""
+    measured detection-vs-noise separation. Returns ``max(0.0, corrected_mi)``.
+
+    OCCUPANCY FLOOR: the MM debit does NOT keep a noise grid's joint MI near zero once rows-per-cell
+    gets small (a 30x30 noise grid over n=3000 -- ~1.6 rows/occupied-cell -- still reports ~0.29 nats).
+    When the realised grid has fewer than ``min_rows_per_cell`` rows per OCCUPIED (joint x target) cell
+    the estimate is statistically unreliable, so return 0.0 (cannot claim synergy from too little data).
+    Genuine low-cardinality synergies (XOR/parity: a few cells, hundreds of rows each) are unaffected."""
     jc, _ = _renumber_joint_codes(code_x, code_y)
     yt = np.asarray(target_codes).astype(np.int64).ravel()
     n = jc.shape[0]
@@ -116,6 +123,8 @@ def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.nd
         return 0.0
     kx = int(jc.max()) + 1
     ky = int(yt.max()) + 1
+    if min_rows_per_cell > 0.0 and n < min_rows_per_cell * float(kx) * float(ky):
+        return 0.0
     joint = np.zeros((kx, ky), dtype=np.float64)
     np.add.at(joint, (jc, yt), 1.0)
     joint /= n
@@ -146,6 +155,7 @@ def detect_synergy_combos(
     code_cols, target_codes: np.ndarray, candidate_idx, *,
     max_order: int = 3, min_order: int = 2, synergy_ratio: float = 1.5,
     min_joint_mi: float = 0.05, max_candidates: int = 24, max_combos: int = 4000,
+    min_rows_per_cell: float = 5.0,
 ):
     """Find feature COMBOS whose JOINT MI with the target greatly exceeds the SUM of their members'
     marginal MIs -- i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
@@ -178,6 +188,16 @@ def detect_synergy_combos(
     # whose mixed-radix cell count blows past this bound (high-card columns) -- such a combo's joint MI
     # would be unreliable anyway (too few samples/cell). Bounds memory + keeps the kernel allocation small.
     _MAX_CELLS = 1 << 20
+    # OCCUPANCY FLOOR (2026-06-17, adversarial-found). The Miller-Madow occupancy debit does NOT keep a
+    # NOISE combo's joint MI near zero once rows-per-cell gets small: a pure-noise grid's finite-sample
+    # joint MI scales with cardinality (measured n=3000: k=10->0.034, k=20->0.14, k=30->0.29, k=50->0.48
+    # nats), so two independent high-cardinality columns clear the ``min_joint_mi`` floor AND the
+    # ``synergy_ratio`` gate (both marginals ~0) and a noise pair is wrongly admitted as synergy. ``_MAX_CELLS``
+    # only bounds memory, not this regime. Require at least ``min_rows_per_cell`` samples per joint cell
+    # (n / prod(card) >= min_rows_per_cell) so the joint MI estimate is statistically reliable before the
+    # MM-ratio gate is even consulted -- the genuine low-cardinality XOR/parity synergies are unaffected
+    # (a 2-3 way binary/low-card grid has hundreds of rows/cell), while a sparse high-card grid is skipped.
+    _MIN_ROWS_PER_CELL = float(min_rows_per_cell)
     out = []
     _seen = 0
     for _order in range(max(2, int(min_order)), int(max_order) + 1):
@@ -189,6 +209,10 @@ def detect_synergy_combos(
             for _c in combo:
                 _ncells *= _ccard[_c]
             if _ncells <= 0 or _ncells * _kt > _MAX_CELLS:
+                continue
+            # statistical-reliability floor: a grid with too few rows/cell yields an inflated joint MI
+            # the MM debit cannot correct (false synergy on high-card noise) -- skip it.
+            if _MIN_ROWS_PER_CELL > 0.0 and _n < _MIN_ROWS_PER_CELL * float(_ncells):
                 continue
             _mat = np.empty((_n, _order), dtype=np.int64)
             for _k, _c in enumerate(combo):

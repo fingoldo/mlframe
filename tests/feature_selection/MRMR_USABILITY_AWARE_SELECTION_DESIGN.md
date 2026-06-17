@@ -75,3 +75,27 @@ to today's behaviour (no regression for existing tree pipelines).
   genuinely linear; fall back to the rank target only if continuous y is unavailable.
 - **No-regression.** List 1 (`w=0`) must reproduce the current selection exactly; List 2/3 are
   additive metadata the suite consumes per-model.
+
+## Remaining RED tests this design must turn green (status 2026-06-17)
+
+After the small-n de-dup / FE-leak / polars fixes landed (commit `c7689a4b`), the FS suite's
+residual failures collapse to ONE class -- the cross-mix-subsumes-the-pure-form problem this design
+targets. These four are the acceptance gate for wiring `_usability_aware_selection` into the fit:
+
+- `test_fe_cmi_redundancy_gate::test_user_f2_e2e...[20000]` -- the headline case, and NOT small-n:
+  every engineered `(a,b)` feature also drags in `c`/`d` (e.g.
+  `div(sqr(add(invcbrt(b),prewarp(d))),invsqrt(mul(exp(a),sqr(c))))`), so `_covers("a","b",
+  exclude=("c","d"))` finds NO pure `a**2/b` form. The cross-mix wins on MI (F2's y is the additive
+  sum of the two terms, so a single a&c feature informs about BOTH), but a linear model needs the
+  pure form. List 2/3 (usability-blended) is what recovers the pure `(a,b)` term.
+- `test_mrmr_create_keep_drop::test_create_keep_drop_nsweep[1000-MS_three_tier_strength]` --
+  `y=5*(a*b)+sqrt(c)+...`; at n=1000 the greedy picks raw `a,b,c` and never forms the `mul(a,b)`
+  interaction `_covers({a,b})` demands (a single feature spanning both operands).
+- `test_mrmr_endtoend_invariants::test_I5...[ratio_plus_trig-uniform-regression-s101-fe2]` -- the
+  fe_max_steps=2 structure-uplift invariant, same cross-mix-over-pure-form subsumption.
+- `test_mrmr_weak_f2_seed_stability::test_weak_f2_stability_summary` -- the genuine `(c,d)` joint is
+  recovered far less often than the `(a,b)` ratio; the asymmetry is the same pure-form instability.
+
+These are intentionally NOT xfailed: they fail loudly until the usability-aware list (or the P3
+joint-synergy screen feeding a richer pool) lands. The pure-MI List 1 (`w=0`) must stay byte-identical
+so no tree pipeline or existing green test regresses.
