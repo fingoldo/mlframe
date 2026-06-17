@@ -287,6 +287,21 @@ class MRMR(BaseEstimator, TransformerMixin):
             if _ss_cur is None or _fast_ss < int(_ss_cur):
                 saved["fe_check_pairs_subsample_n"] = _ss_cur
                 self.fe_check_pairs_subsample_n = _fast_ss
+        # UNIFIED detection subsample (2026-06-17): tie the per-family DETECTION caps that read env
+        # (currently the Fourier frequency detection) to the same fast-search subsample, so EVERY
+        # family's detection runs on the small sample while values/recipes still replay full-n. Saved
+        # under an ``__env__`` sentinel key; the fit's restore loop resets os.environ. Only SHRINK
+        # (never raise a user-set smaller cap). At large n this caps the Fourier z_tr (else ~200k) to
+        # the fast-search subsample -- bit-safe (detection-only; the recipe replays sin(2*pi*f*x) full-n).
+        _fast_ss2 = getattr(self, "fe_check_pairs_subsample_n", None)
+        if _fast_ss2:
+            import os as _os
+            for _envk in ("MLFRAME_FOURIER_DETECT_MAX_N",):
+                _cur_env = _os.environ.get(_envk, None)
+                _cur_val = int(_cur_env) if (_cur_env and _cur_env.strip().isdigit()) else 200_000
+                if int(_fast_ss2) < _cur_val:
+                    saved[f"__env__{_envk}"] = _cur_env
+                    _os.environ[_envk] = str(int(_fast_ss2))
         return saved
 
     def __init__(
@@ -3859,9 +3874,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                 pass
             # restore the fast-search profile overrides (constructor-arg stability).
             if _fast_search_saved:
+                import os as _os_restore
                 for _k, _v in _fast_search_saved.items():
                     try:
-                        setattr(self, _k, _v)
+                        if _k.startswith("__env__"):
+                            _envk = _k[len("__env__"):]
+                            if _v is None:
+                                _os_restore.environ.pop(_envk, None)
+                            else:
+                                _os_restore.environ[_envk] = _v
+                        else:
+                            setattr(self, _k, _v)
                     except Exception:
                         pass
             # restore any fe_*_enable flags fe_auto flipped ON, so the
