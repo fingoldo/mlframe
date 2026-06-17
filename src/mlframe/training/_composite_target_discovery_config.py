@@ -96,6 +96,13 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         ]
     )
 
+    # Structural pre-discovery leakage guard (detect_base_target_leakage). Default ON, but it only ACTS when a
+    # time_ordering is supplied to fit() -- the lag-probe then distinguishes a genuine time-shifted lag(y) base
+    # (NOT leaky, the canonical composite case) from a same-time near-identity re-encoding of y (leaky), so it
+    # never drops a legitimate lag. Catches target-encoding / rolling-target bases the forbidden_base regex misses.
+    # On non-temporal data (no time_ordering) it is a no-op so it can never mistake autocorrelation for leakage.
+    detect_base_leakage: bool = True
+
     # Block columns whose Pearson |corr(base, y)| exceeds this threshold.
     # Intent: catch literal copies / trivial linear transforms of y
     # (e.g. ``y_renamed = y``, ``y_scaled = y / 1000``). NOT intended
