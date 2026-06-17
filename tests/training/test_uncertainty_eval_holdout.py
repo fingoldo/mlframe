@@ -1,9 +1,8 @@
-"""Unit tests for the public TTA uncertainty-evaluation helper (Workstream B).
+"""Unit + e2e tests for TTA uncertainty evaluation (Workstream B).
 
-``evaluate_tta_quality`` is the supported way to assess TTA predictive uncertainty on val/test: call it
-with your fitted model + the held-out (X, y). (In-suite auto-stamping was investigated and reverted --
-the trained model and the model-ready transformed frame do not co-exist at any clean point in the
-per-target body, so it cannot be wired without destabilising the hot training path.)
+``evaluate_tta_quality`` assesses TTA predictive uncertainty on a held-out (X, y); it is also wired into
+the suite (``behavior_config.uncertainty_eval=True``) to stamp test-split TTA quality into
+``metadata["uncertainty_eval"]`` after each regression model trains (e2e test below).
 """
 
 from __future__ import annotations
@@ -48,3 +47,54 @@ def test_evaluate_tta_quality_is_public():
 
     assert hasattr(training_mod, "evaluate_tta_quality")
     assert "evaluate_tta_quality" in training_mod.__all__
+
+
+def _reg_frame(seed=17, n=1400):
+    import polars as pl
+
+    rng = np.random.default_rng(seed)
+    x0 = rng.normal(size=n).astype(np.float32)
+    x1 = rng.normal(size=n).astype(np.float32)
+    x2 = rng.normal(size=n).astype(np.float32)
+    y = (2 * x0 - x1 + 0.5 * x2 + 0.3 * rng.normal(size=n)).astype(np.float32)
+    return pl.DataFrame({"f0": x0, "f1": x1, "f2": x2, "target": y})
+
+
+def test_e2e_uncertainty_eval_stamped_in_suite(tmp_path):
+    pytest.importorskip("xgboost")
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        PreprocessingBackendConfig,
+        OutputConfig,
+        TrainingBehaviorConfig,
+        BaselineDiagnosticsConfig,
+        DummyBaselinesConfig,
+        ReportingConfig,
+    )
+    from mlframe.training._preprocessing_configs import TrainingSplitConfig
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    _, metadata = train_mlframe_models_suite(
+        df=_reg_frame(),
+        target_name="ue",
+        model_name="ue_run",
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
+        mlframe_models=["xgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None),
+        split_config=TrainingSplitConfig(test_size=0.25, val_size=0.1),
+        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, uncertainty_eval=True),
+        hyperparams_config={"iterations": 40, "xgb_kwargs": {"device": "cpu"}},
+        baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+        dummy_baselines_config=DummyBaselinesConfig(enabled=False),
+        reporting_config=ReportingConfig(honest_estimator_diagnostics=False),
+        enable_target_distribution_analyzer=False,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
+    )
+    import json as _json
+
+    assert "uncertainty_eval" in metadata, "not stamped; dbg=" + _json.dumps(metadata.get("_ue_dbg", {}), default=str)
+    rep = next(iter(metadata["uncertainty_eval"].values()))
+    assert "test" in rep and "spread_error_corr" in rep["test"] and "tta_rmse_gain" in rep["test"]

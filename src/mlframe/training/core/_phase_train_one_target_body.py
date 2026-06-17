@@ -905,6 +905,38 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
                 if not _is_neural and t0_model is not None:
                     _non_neural_train_times.append(timer() - t0_model)
+                # Opt-in (B): TTA predictive-uncertainty quality on the model-ready transformed test frame
+                # (live here alongside the just-trained model entry). Regression + numeric features only.
+                if getattr(behavior_config, "uncertainty_eval", False) and test_df_transformed is not None and current_test_target is not None:
+                    try:
+                        _ue_ents = (ctx.models.get(str(target_type)) or {}).get(cur_target_name) or []
+                        _ue_e = _ue_ents[-1] if _ue_ents else None
+                        _ue_e = _ue_e[0] if isinstance(_ue_e, tuple) and _ue_e else _ue_e
+                        _ue_model = getattr(_ue_e, "model", None) if _ue_e is not None else None
+                        if _ue_model is not None and hasattr(_ue_model, "predict") and getattr(_ue_e, "test_probs", None) is None:
+                            from .._uncertainty_eval import _narrow_numeric_frame, evaluate_tta_quality
+
+                            _fni = getattr(_ue_model, "feature_names_in_", None)
+                            _ue_cols = list(_fni) if _fni is not None else []
+                            if not _ue_cols:
+                                _ue_cols = [c for c in list(getattr(test_df_transformed, "columns", []) or []) if c != cur_target_name]
+                            _ue_X = _narrow_numeric_frame(test_df_transformed, _ue_cols) if _ue_cols else None
+                            if _ue_X is not None:
+                                _ue_y = np.asarray(
+                                    current_test_target.values if hasattr(current_test_target, "values") else current_test_target, dtype=np.float64
+                                ).reshape(-1)
+                                if _ue_y.shape[0] == _ue_X.shape[0]:
+                                    import pandas as _ue_pd
+
+                                    _ue_rep = evaluate_tta_quality(
+                                        lambda Z, _m=_ue_model, _c=list(_ue_cols): np.asarray(_m.predict(_ue_pd.DataFrame(Z, columns=_c))).reshape(-1),
+                                        _ue_X,
+                                        _ue_y,
+                                    )
+                                    _ue_key = f"{target_type}/{cur_target_name}/{getattr(_ue_e, 'model_name', '') or mlframe_model_name}"
+                                    metadata.setdefault("uncertainty_eval", {})[_ue_key] = {"test": _ue_rep}
+                    except Exception as _ue_err:
+                        logger.warning("[uncertainty_eval] eval failed for %s/%s: %s", target_type, cur_target_name, _ue_err)
                 # Per-model IMMEDIATE y-scale emit for composite targets:
                 # composite per-model reporting is suppressed upstream (the
                 # T-scale chart is skipped and the T-scale metric line emits

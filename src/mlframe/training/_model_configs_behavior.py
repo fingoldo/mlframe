@@ -71,6 +71,10 @@ class TrainingBehaviorConfig(BaseConfig):
     """
 
     prefer_gpu_configs: bool = True
+    # Opt-in (B): after each regression model trains, evaluate TTA predictive-uncertainty quality on the
+    # model-ready transformed test frame (live in the per-target body) and stamp metrics into
+    # metadata["uncertainty_eval"] (TTA-vs-point RMSE, spread<->error corr). Numeric features only; default OFF.
+    uncertainty_eval: bool = False
     prefer_cpu_for_lightgbm: bool = True
     prefer_cpu_for_xgboost: bool = False
     prefer_calibrated_classifiers: bool = True
@@ -295,7 +299,12 @@ class TrainingBehaviorConfig(BaseConfig):
     #   * Drop per-group aggregate features from the neural input set.
     mlp_extreme_ar_group_aware_skip: bool = False
     extreme_ar_group_aware_skip_models: tuple = (
-        "mlp", "ngb", "lstm", "gru", "rnn", "transformer",
+        "mlp",
+        "ngb",
+        "lstm",
+        "gru",
+        "rnn",
+        "transformer",
     )
     mlp_extreme_ar_threshold: float = 0.99
 
@@ -409,14 +418,9 @@ class MultilabelDispatchConfig(BaseConfig):
         _STRATEGY = {"auto", "wrapper", "chain", "native"}
         _ORDER = {"random", "by_frequency", "user"}
         if self.strategy not in _STRATEGY:
-            raise ValueError(
-                f"MultilabelDispatchConfig.strategy={self.strategy!r} not in {sorted(_STRATEGY)}"
-            )
+            raise ValueError(f"MultilabelDispatchConfig.strategy={self.strategy!r} not in {sorted(_STRATEGY)}")
         if self.chain_order_strategy not in _ORDER:
-            raise ValueError(
-                f"MultilabelDispatchConfig.chain_order_strategy={self.chain_order_strategy!r} "
-                f"not in {sorted(_ORDER)}"
-            )
+            raise ValueError(f"MultilabelDispatchConfig.chain_order_strategy={self.chain_order_strategy!r} " f"not in {sorted(_ORDER)}")
         if self.chain_order_strategy == "user":
             if self.chain_order_user is None:
                 raise ValueError(
@@ -427,8 +431,7 @@ class MultilabelDispatchConfig(BaseConfig):
                 )
             if len(self.chain_order_user) != self.n_chains:
                 raise ValueError(
-                    f"MultilabelDispatchConfig: chain_order_user has {len(self.chain_order_user)} "
-                    f"orderings but n_chains={self.n_chains}. Sizes must match."
+                    f"MultilabelDispatchConfig: chain_order_user has {len(self.chain_order_user)} " f"orderings but n_chains={self.n_chains}. Sizes must match."
                 )
         return self
 
@@ -575,25 +578,13 @@ class QuantileRegressionConfig(BaseConfig):
         if not alphas:
             raise ValueError("QuantileRegressionConfig.alphas must be non-empty.")
         if any(not (0.0 < a < 1.0) for a in alphas):
-            raise ValueError(
-                f"QuantileRegressionConfig.alphas must be in (0, 1) "
-                f"strict; got {list(alphas)}"
-            )
+            raise ValueError(f"QuantileRegressionConfig.alphas must be in (0, 1) " f"strict; got {list(alphas)}")
         if list(alphas) != sorted(alphas):
-            raise ValueError(
-                f"QuantileRegressionConfig.alphas must be sorted ascending; "
-                f"got {list(alphas)}"
-            )
+            raise ValueError(f"QuantileRegressionConfig.alphas must be sorted ascending; " f"got {list(alphas)}")
         if len(set(alphas)) != len(alphas):
-            raise ValueError(
-                f"QuantileRegressionConfig.alphas must be unique; "
-                f"got {list(alphas)}"
-            )
+            raise ValueError(f"QuantileRegressionConfig.alphas must be unique; " f"got {list(alphas)}")
         if self.crossing_fix not in ("sort", "isotonic", "none"):
-            raise ValueError(
-                f"crossing_fix must be one of sort/isotonic/none; "
-                f"got {self.crossing_fix!r}"
-            )
+            raise ValueError(f"crossing_fix must be one of sort/isotonic/none; " f"got {self.crossing_fix!r}")
         # point_estimate_alpha membership is enforced loosely (closest match)
         # so callers don't need to update both fields in lockstep.
         if self.point_estimate_alpha not in alphas:
@@ -602,13 +593,7 @@ class QuantileRegressionConfig(BaseConfig):
             object.__setattr__(self, "point_estimate_alpha", closest)
         for lo, hi in self.coverage_pairs:
             if lo not in alphas or hi not in alphas:
-                raise ValueError(
-                    f"coverage_pair ({lo}, {hi}) not in alphas {list(alphas)}"
-                )
+                raise ValueError(f"coverage_pair ({lo}, {hi}) not in alphas {list(alphas)}")
             if lo >= hi:
-                raise ValueError(
-                    f"coverage_pair lo={lo} must be < hi={hi}"
-                )
+                raise ValueError(f"coverage_pair lo={lo} must be < hi={hi}")
         return self
-
-
