@@ -281,7 +281,7 @@ class DummyBaselinesConfig(BaseConfig):
 # ``from mlframe.training.configs import ReportingConfig`` (and the other
 # moved names) imports continue to resolve. See sibling for SSOT.
 from ._reporting_configs import (  # noqa: E402,F401
-    ReportingConfig, ConfidenceAnalysisConfig, NamingConfig,
+    ReportingConfig, ConfidenceAnalysisConfig, ConformalConfig, RegressionCalibrationConfig, NamingConfig,
     PredictionsContainer, FairnessConfig,
     _REPORTING_ALLOWED_TITLE_TOKENS,
 )
@@ -355,6 +355,8 @@ __all__ = [
     "OutlierDetectionConfig",
     "SliceStableESConfig",
     "ConfidenceAnalysisConfig",
+    "ConformalConfig",
+    "RegressionCalibrationConfig",
     "NamingConfig",
     "PredictionsContainer",
     "FairnessConfig",

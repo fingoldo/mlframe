@@ -427,6 +427,52 @@ class ConfidenceAnalysisConfig(BaseConfig):
     model_kwargs: Dict[str, Any] = Field(default_factory=dict)  # keys: n_estimators, max_depth
 
 
+class ConformalConfig(BaseConfig):
+    """Conformal prediction intervals (regression) / sets (classification) stamped into ``metadata["conformal"]``.
+
+    Default ON: pure added output (distribution-free uncertainty + achieved test coverage); never changes the
+    point prediction. Regression uses the disjoint calib slice (split-conformal, marginal >=1-alpha) or OOF
+    residuals (CV+, >=1-2alpha). Classification builds prediction sets from the calib probs.
+
+    Parameters
+    ----------
+    enabled : bool
+        Master switch (default True).
+    alphas : tuple of float
+        Miscoverage levels; each yields a (1-alpha) interval/set (default (0.1, 0.2)).
+    score : {"normalized", "absolute"}
+        Regression nonconformity score. ``normalized`` scales the band by a conditional residual-scale model
+        (restores conditional coverage on heteroscedastic targets); ``absolute`` is constant-width.
+    classification_mode : {"sets_lac", "sets_aps", "off"}
+        Classification conformal-set score: LAC (smallest sets, default), APS (better conditional coverage,
+        larger sets), or off (skip classification).
+    """
+
+    enabled: bool = True
+    alphas: Tuple[float, ...] = (0.1, 0.2)
+    score: Literal["normalized", "absolute"] = "normalized"
+    classification_mode: Literal["sets_lac", "sets_aps", "off"] = "sets_lac"
+
+
+class RegressionCalibrationConfig(BaseConfig):
+    """Opt-in monotone point recalibration ``g(yhat)~=E[y|yhat]`` for regression models.
+
+    Corrects shrinkage (ridge / early-stopped GBM / tree averaging compress the tails) without changing
+    ranking. Fit on the disjoint calib slice and applied ONLY when an honest 2-fold-within-calib RMSE gain
+    beats ``min_gain``. Default OFF (``point="off"``).
+
+    Parameters
+    ----------
+    point : {"off", "isotonic", "linear"}
+        Recalibration map family (default "off").
+    min_gain : float
+        Minimum 2-fold-within-calib RMSE gain required to apply (default 0.0 -> apply on any positive gain).
+    """
+
+    point: Literal["off", "isotonic", "linear"] = "off"
+    min_gain: float = 0.0
+
+
 class NamingConfig(BaseConfig):
     """Model naming configuration for train_and_evaluate_model.
 

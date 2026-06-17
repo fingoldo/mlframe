@@ -10,6 +10,7 @@ from ..configs import (
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
     ConfidenceAnalysisConfig,
+    ConformalConfig,
     DummyBaselinesConfig,
     FeatureSelectionConfig,
     FeatureTypesConfig,
@@ -19,6 +20,7 @@ from ..configs import (
     PreprocessingBackendConfig,
     PreprocessingConfig,
     QuantileRegressionConfig,
+    RegressionCalibrationConfig,
     ReportingConfig,
     TrainingBehaviorConfig,
     TrainingSplitConfig,
@@ -69,6 +71,8 @@ def setup_configuration(
     baseline_diagnostics_config: Any,
     dummy_baselines_config: Any,
     quantile_regression_config: Any,
+    conformal_config: Any,
+    regression_calibration_config: Any,
     composite_target_discovery_config: Any,
     feature_handling_config: Any,
     model_name: str,
@@ -220,7 +224,9 @@ def setup_configuration(
     baseline_diagnostics_config = _ensure_config(baseline_diagnostics_config, BaselineDiagnosticsConfig, {})
     dummy_baselines_config = _ensure_config(dummy_baselines_config, DummyBaselinesConfig, {})
     quantile_regression_config = _ensure_config(quantile_regression_config, QuantileRegressionConfig, {})
-    _step_done("_ensure_config x7 (output..quantile)")
+    conformal_config = _ensure_config(conformal_config, ConformalConfig, {})
+    regression_calibration_config = _ensure_config(regression_calibration_config, RegressionCalibrationConfig, {})
+    _step_done("_ensure_config x9 (output..regression_calibration)")
 
     # Pre-warm numba kernels so first call doesn't pay 6-10s JIT cold-start.
     if dummy_baselines_config.enabled:
@@ -390,6 +396,8 @@ def setup_configuration(
         baseline_diagnostics_config=baseline_diagnostics_config,
         dummy_baselines_config=dummy_baselines_config,
         quantile_regression_config=quantile_regression_config,
+        conformal_config=conformal_config,
+        regression_calibration_config=regression_calibration_config,
         composite_target_discovery_config=composite_target_discovery_config,
         linear_model_config=linear_model_config,
         multilabel_dispatch_config=multilabel_dispatch_config,

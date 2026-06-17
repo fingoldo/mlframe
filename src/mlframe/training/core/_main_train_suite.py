@@ -22,6 +22,8 @@ from ..configs import (
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
     ConfidenceAnalysisConfig,
+    ConformalConfig,
+    RegressionCalibrationConfig,
     DummyBaselinesConfig,
     FeatureSelectionConfig,
     FeatureTypesConfig,
@@ -132,6 +134,10 @@ def train_mlframe_models_suite(
     baseline_diagnostics_config: Optional[Union["BaselineDiagnosticsConfig", Dict]] = None,
     dummy_baselines_config: Optional[Union["DummyBaselinesConfig", Dict]] = None,
     quantile_regression_config: Optional[Union["QuantileRegressionConfig", Dict]] = None,
+    # Conformal prediction intervals (regression) / sets (classification) + achieved coverage into metadata["conformal"]; default ON. See ``ConformalConfig``.
+    conformal_config: Optional[Union["ConformalConfig", Dict]] = None,
+    # Opt-in monotone point recalibration g(yhat)~=E[y|yhat] for regression models (default OFF). See ``RegressionCalibrationConfig``.
+    regression_calibration_config: Optional[Union["RegressionCalibrationConfig", Dict]] = None,
     # MLFRAME_DISABLE_COMPOSITE=1 env var forces OFF regardless of config (kill switch).
     composite_target_discovery_config: Optional[Union["CompositeTargetDiscoveryConfig", Dict]] = None,
     feature_handling_config: Optional[Any] = None,
@@ -278,6 +284,8 @@ def train_mlframe_models_suite(
         baseline_diagnostics_config=baseline_diagnostics_config,
         dummy_baselines_config=dummy_baselines_config,
         quantile_regression_config=quantile_regression_config,
+        conformal_config=conformal_config,
+        regression_calibration_config=regression_calibration_config,
         composite_target_discovery_config=composite_target_discovery_config,
         feature_handling_config=feature_handling_config,
         ranking_config=ranking_config,

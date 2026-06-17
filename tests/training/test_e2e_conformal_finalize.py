@@ -22,7 +22,7 @@ def _regression_frame(seed: int = 17, n: int = 1600):
     return pl.DataFrame({"f0": x0, "f1": x1, "f2": x2, "target": y})
 
 
-def _run_regression_suite(tmp_path, calib_size, seed=17):
+def _run_regression_suite(tmp_path, calib_size, seed=17, conformal_config=None, regression_calibration_config=None):
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
@@ -56,10 +56,26 @@ def _run_regression_suite(tmp_path, calib_size, seed=17):
         baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
         dummy_baselines_config=DummyBaselinesConfig(enabled=False),
         reporting_config=ReportingConfig(honest_estimator_diagnostics=False),
+        conformal_config=conformal_config,
+        regression_calibration_config=regression_calibration_config,
         enable_target_distribution_analyzer=False,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
     )
+
+
+def test_e2e_conformal_config_threads_alphas(tmp_path):
+    """The ConformalConfig param threads through the suite: requested alphas appear in metadata['conformal']."""
+    pytest.importorskip("xgboost")
+    from mlframe.training.configs import ConformalConfig
+
+    _, metadata = _run_regression_suite(
+        tmp_path, calib_size=0.2, conformal_config=ConformalConfig(alphas=(0.05,), score="absolute"),
+    )
+    assert "conformal" in metadata
+    rep = next(iter(metadata["conformal"].values()))
+    assert 0.05 in rep["per_alpha"], rep["per_alpha"].keys()
+    assert rep["score"] == "absolute"
 
 
 def _first_entry(models):

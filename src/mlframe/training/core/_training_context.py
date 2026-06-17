@@ -18,6 +18,8 @@ if TYPE_CHECKING:
         BaselineDiagnosticsConfig,
         CompositeTargetDiscoveryConfig,
         ConfidenceAnalysisConfig,
+        ConformalConfig,
+        RegressionCalibrationConfig,
         DummyBaselinesConfig,
         FeatureSelectionConfig,
         FeatureTypesConfig,
@@ -72,6 +74,8 @@ class TrainingContext:
     baseline_diagnostics_config: BaselineDiagnosticsConfig | None = None
     dummy_baselines_config: DummyBaselinesConfig | None = None
     quantile_regression_config: QuantileRegressionConfig | None = None
+    conformal_config: ConformalConfig | None = None
+    regression_calibration_config: RegressionCalibrationConfig | None = None
     composite_target_discovery_config: CompositeTargetDiscoveryConfig | None = None
     linear_model_config: LinearModelConfig | None = None
     multilabel_dispatch_config: MultilabelDispatchConfig | None = None
