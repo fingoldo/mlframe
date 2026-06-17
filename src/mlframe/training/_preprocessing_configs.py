@@ -185,6 +185,17 @@ class TrainingSplitConfig(BaseConfig):
     # Bucket-stratify ALL split modes (regression by decile/quartile bins, classification by class). When True (default), regression targets are binned and stratified the same way classification targets are -- prevents heavy-tail / multimodal regression from concentrating tail rows in val or test. Combine with groups via iterative-stratification when installed; with timestamps the temporal split wins and a chi-square check on bucket distribution per fold logs a WARN on imbalance.
     bucket_stratify: bool = True
 
+    # Optional chronological-order column (timestamp / monotone index). When set, downstream consumers treat the
+    # split as TEMPORAL: the conformal finalize structure-inference (``infer_split_structure``) flags split-conformal
+    # marginal coverage as INVALID for this split (it needs online/blocked conformal), and the time-series CV
+    # routing (``cv_strategy``) reads it. ``None`` = cross-sectional (legacy behaviour). This is the config surface;
+    # routing the suite's MAIN split through ``composite/cv.py`` (purged forward-walk) is wired in a follow-up.
+    time_column: Optional[str] = None
+    # CV strategy for the main split: "random" (default, legacy) / "timeseries" (forward-walk) / "purged"
+    # (forward-walk + purge/embargo). Consumed by the conformal structure-inference today; the make_train_test_split
+    # routing lands in the E2 follow-up. Kept here so the intent is declarable now and conformal validity is honest.
+    cv_strategy: Literal["random", "timeseries", "purged"] = "random"
+
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":
         """Ensure test_size + val_size + calib_size + conformal_size <= 1.0 to leave room for training data."""
@@ -195,6 +206,12 @@ class TrainingSplitConfig(BaseConfig):
             raise ValueError(
                 f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) + "
                 f"conformal_size ({_conformal}) = {_total} must be <= 1.0"
+            )
+        if self.cv_strategy in ("timeseries", "purged") and self.val_placement == "backward":
+            raise ValueError(
+                f"cv_strategy={self.cv_strategy!r} (forward-walk) conflicts with val_placement='backward'; "
+                "backward val places val BEFORE train on the timeline, which a forward-walk split cannot honour. "
+                "Use val_placement='forward' with a time-series cv_strategy."
             )
         return self
 
