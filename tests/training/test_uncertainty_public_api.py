@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def test_public_uncertainty_api_importable():
-    import mlframe.training as T
+    import mlframe.training as training_mod
 
     names = [
         "conformal_regression_report",
@@ -23,5 +23,5 @@ def test_public_uncertainty_api_importable():
         "NoiseAugmentedEnsemble",
     ]
     for n in names:
-        assert hasattr(T, n), f"mlframe.training missing public symbol {n}"
-        assert n in T.__all__, f"{n} not in mlframe.training.__all__"
+        assert hasattr(training_mod, n), f"mlframe.training missing public symbol {n}"
+        assert n in training_mod.__all__, f"{n} not in mlframe.training.__all__"
