@@ -285,6 +285,7 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_cuda
+    from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     n = x.shape[0]
     if forced == "njit":
@@ -293,9 +294,9 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
         if _CUDA_AVAILABLE:
             return _plugin_mi_classif_cuda(x, y, n_bins)
         return float(_plugin_mi_classif_njit(x, y, n_bins))
-    # Consult the kernel tuning cache. Fallback to njit when cuda
-    # unavailable regardless of cache choice.
-    if not _CUDA_AVAILABLE:
+    # Consult the kernel tuning cache. Fallback to njit when cuda unavailable OR the global GPU
+    # off-switch is set (cupy ignores MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="" on its own).
+    if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return float(_plugin_mi_classif_njit(x, y, n_bins))
     try:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
@@ -320,15 +321,20 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_batch_njit
+    from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     n, k = X_cols.shape
     if forced == "njit":
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+    # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") -- cupy's own
+    # device detection ignores both, so without this a CPU-only / weak-GPU run still routes this HOT
+    # batched orth-FE MI to cupy (37% of a 300k fit: cupy argsort + GPU-sync sleep, CPU idle).
+    # An explicit MLFRAME_MI_BACKEND=cuda still wins (handled above / below).
     if forced == "cuda":
         if _CUDA_AVAILABLE:
             return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
-    if not _CUDA_AVAILABLE:
+    if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
     try:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (

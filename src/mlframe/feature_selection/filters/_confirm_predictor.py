@@ -433,7 +433,31 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
         if X in cached_confident_MIs:
             bootstrapped_gain, confidence = cached_confident_MIs[X]
         else:
-            if use_gpu:
+            # Route the confirm to CPU ``mi_direct`` (which carries the analytic large-n null -- the
+            # nperm->inf limit of the permutation test: faster, decision-equivalent) whenever the
+            # analytic path would engage (n >= threshold) OR the GPU is globally disabled. The GPU
+            # permutation confirm (``mi_direct_gpu``, cupy argsort) was 37% of a 300k fit on a weak
+            # GPU (cupy argsort + GPU-sync sleep, CPU idle), and ignored MLFRAME_DISABLE_GPU. At large
+            # n the analytic CPU path supersedes it everywhere; small-n + enabled GPU still uses GPU.
+            _confirm_use_gpu = use_gpu
+            if _confirm_use_gpu:
+                try:
+                    import os as _os
+                    from ._analytic_mi_null import analytic_null_min_n, analytic_null_enabled
+                    _cvd = _os.environ.get("CUDA_VISIBLE_DEVICES", None)
+                    _gpu_off = (
+                        _os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
+                        or (_cvd is not None and _cvd.strip() == "")
+                    )
+                    _analytic_n = (
+                        analytic_null_enabled()
+                        and int(factors_data.shape[0]) >= analytic_null_min_n()
+                    )
+                    if _gpu_off or _analytic_n:
+                        _confirm_use_gpu = False
+                except Exception:
+                    pass
+            if _confirm_use_gpu:
                 bootstrapped_gain, confidence = mi_direct_gpu(
                     factors_data,
                     x=X,
