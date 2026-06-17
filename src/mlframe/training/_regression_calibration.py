@@ -124,6 +124,38 @@ def cv2_recalibration_gain(y_pred_cal: np.ndarray, y_cal: np.ndarray, method: st
     return 0.5 * (gain_a + gain_b)
 
 
+class DistributionalRecalibrator:
+    """Kuleshov-2018 distributional recalibration: make the predicted CDF's PIT uniform.
+
+    Fits the empirical CDF ``R`` of the calibration PIT values (probability-integral transforms of the
+    held-out targets through the model's predictive CDF). Applying ``R`` to any PIT maps it toward uniform
+    (the PIT theorem), so a quantile predicted at nominal level ``p`` is recalibrated to level ``R(p)`` --
+    restoring calibrated coverage for models that emit quantiles/a CDF. Monotone (isotonic), picklable.
+    """
+
+    def fit(self, pit_cal: np.ndarray) -> "DistributionalRecalibrator":
+        from sklearn.isotonic import IsotonicRegression
+
+        p = np.asarray(pit_cal, dtype=np.float64).reshape(-1)
+        p = p[np.isfinite(p)]
+        if p.size < 10:
+            self._identity = True
+            return self
+        self._identity = False
+        order = np.argsort(p)
+        ps = p[order]
+        ecdf = (np.arange(1, ps.size + 1)) / (ps.size + 1)  # empirical CDF levels in (0,1)
+        self._iso = IsotonicRegression(y_min=0.0, y_max=1.0, increasing=True, out_of_bounds="clip").fit(ps, ecdf)
+        return self
+
+    def recalibrate(self, pit: np.ndarray) -> np.ndarray:
+        """Map PIT (or a nominal level) through R toward a calibrated/uniform scale."""
+        p = np.asarray(pit, dtype=np.float64).reshape(-1)
+        if getattr(self, "_identity", True):
+            return p
+        return np.asarray(self._iso.predict(p), dtype=np.float64)
+
+
 class RecalibratedRegressor:
     """Picklable wrapper that ships ``g(base.predict(X))`` -- the recalibrated predictor.
 
