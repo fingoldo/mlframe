@@ -349,6 +349,21 @@ def _detect_fourier_freqs_for_col(
     y_va = y[val_mask].copy()
     if z_tr.size < 16 or z_va.size < 8:
         return []
+    # Frequency DETECTION is a proposal heuristic; at very large n the coarse-basis (grid x n) sin/cos
+    # planes dominate memory (a 1M-row fit OOMs building (25, ~667k) planes per column). A uniform
+    # random ROW-subsample preserves the (z, y) joint distribution the detector fits sin(2*pi*f*z) to,
+    # so it recovers the same dominant frequencies at a fraction of the memory. Cap via
+    # MLFRAME_FOURIER_DETECT_MAX_N (0 = no cap; default 200k is ample for dominant-frequency detection).
+    # Seeded local Generator -> deterministic + NO global-RNG contamination. Below the cap: untouched.
+    _fdet_cap = int(os.environ.get("MLFRAME_FOURIER_DETECT_MAX_N", "200000") or "0")
+    if _fdet_cap > 0 and z_tr.size > _fdet_cap:
+        _fdet_rng = np.random.default_rng(0xF0F0_1234)
+        _sub_tr = _fdet_rng.choice(z_tr.size, size=_fdet_cap, replace=False)
+        z_tr = np.ascontiguousarray(z_tr[_sub_tr]); y_tr = np.ascontiguousarray(y_tr[_sub_tr])
+        _va_cap = max(8, _fdet_cap // 2)
+        if z_va.size > _va_cap:
+            _sub_va = _fdet_rng.choice(z_va.size, size=_va_cap, replace=False)
+            z_va = np.ascontiguousarray(z_va[_sub_va]); y_va = np.ascontiguousarray(y_va[_sub_va])
     if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
         return []
     # POLYNOMIAL DETREND (2026-06-03): regress y on [1, z, z^2, z^3] and run
