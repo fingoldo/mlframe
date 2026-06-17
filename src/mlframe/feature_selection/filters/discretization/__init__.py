@@ -583,7 +583,19 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     else:
         edges = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)
         if n_cols > 0 and n_rows > 0:
-            _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, edges)
+            # Order-statistic indices the kernel's lerp actually reads (lo / lo+1 per
+            # quantile, with the n-1 endpoint clamp). Partitioning at exactly these is O(n)
+            # vs the full O(n log n) sort and bit-identical at the read indices.
+            _vidx = (quantiles / 100.0) * (n_rows - 1)
+            _lo = np.floor(_vidx).astype(np.int64)
+            _kths_set = set()
+            for _l in _lo.tolist():
+                if _l >= n_rows - 1:
+                    _kths_set.add(n_rows - 1)
+                else:
+                    _kths_set.add(int(_l)); _kths_set.add(int(_l) + 1)
+            _kths = np.array(sorted(_kths_set), dtype=np.int64)
+            _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edges)
     out = np.empty((n_rows, n_cols), dtype=dtype)
     # njit per-column searchsorted (bit-identical to the numpy loop, incl. NaN
     # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from
