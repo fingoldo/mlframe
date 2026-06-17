@@ -97,23 +97,98 @@ def retain_usable_pure_forms(
             X_fit = X.iloc[_idx]
             y_fit = y_cont[_idx]
 
-        from ._usability_aware_selection import select_usability_aware_features
-
-        # Cheap config: the genuine pure pairs have the highest marginal-MI sum so they survive a small
-        # pool, and a 3-fold shortlisted greedy is enough to confirm linear usability. Keeps the per-fit
-        # cost bounded so the pass is affordable as a DEFAULT (it runs on every continuous-y FE fit).
-        usable = select_usability_aware_features(
-            X_fit, y_fit, base_names, w=w, K=K, seed=int(seed),
-            pool_kwargs=dict(max_pairs=15, max_per_pair=6),
-            greedy_kwargs=dict(n_folds=3, shortlist=15),
+        from ._usability_aware_selection import (
+            build_usability_candidate_pool, usability_greedy, _f64, _scrub,
         )
+
+        _yv = _scrub(np.asarray(y_fit, dtype=np.float64))
+        _nrows = _yv.shape[0]
+        # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found 2026-06-17):
+        # it admits a linear SUM like add(x1,x2) -- a linear model ALREADY builds it from the raw operands --
+        # and CROSS-PAIR / noise-operand forms that lower MAE on a fold by chance. The retention's whole
+        # point is the NONLINEAR interaction a linear model cannot build from the raws (a**2/b,
+        # log(c)*sin(d)). Discriminator that avoids the other-additive-term variance confound (a global
+        # CV-MAE-over-raws comparison is dominated by the UNEXPLAINED term's variance, so a genuine form's
+        # relative gain can fall below any fixed threshold): regress the FORM on its two raw operands, take
+        # the RESIDUAL (the part the raws cannot linearly reproduce), and require BOTH (a) the residual is
+        # non-negligible (the form is genuinely nonlinear in its raws -- rejects add(x1,x2), whose residual
+        # ~0) AND (b) that residual correlates with y (the nonlinearity is RELEVANT -- rejects a cross-pair
+        # / noise form whose nonlinear part is unrelated to the target). a**2/b: large residual, correlated
+        # with y -> kept; both holes -> rejected.
+        from sklearn.linear_model import LinearRegression
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.pipeline import make_pipeline
+
+        def _abscorr(u, v):
+            u = u - u.mean(); v = v - v.mean()
+            du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
+            if du <= 1e-12 or dv <= 1e-12:
+                return 0.0
+            return abs(float((u * v).sum()) / (du * dv))
+
+        def _single_operand_basis(x):
+            # a modest additive single-operand basis: any SEPARABLE function f(a)+g(b) lives in the span
+            # of [basis(a)] + [basis(b)], so a cross-pair form that merely sums two single-operand
+            # nonlinearities (a**3 + sqrt(d)) is reconstructed here with ~0 residual, while a genuine
+            # NON-separable joint form (a**2/b is a ratio, log(c)*sin(d) a product) is not.
+            xs = (x - x.mean()) / (x.std() + 1e-12)
+            cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)),
+                    np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
+            return cols
+
+        def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=0.10, min_resid_corr=0.08):
+            try:
+                xa = _f64(_scrub(X_fit[nm_a].to_numpy()))
+                xb = _f64(_scrub(X_fit[nm_b].to_numpy()))
+                fv = _f64(_scrub(np.asarray(form_vals)))
+                if xa.shape[0] != _nrows or fv.shape[0] != _nrows:
+                    return False
+                f_std = float(np.std(fv))
+                if f_std <= 1e-12:
+                    return False
+                # residual of the form after the ADDITIVE single-operand basis of BOTH operands: the part
+                # that is genuinely a JOINT (non-separable) interaction of the two operands.
+                Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
+                lr = make_pipeline(StandardScaler(), LinearRegression()).fit(Xr, fv)
+                resid = fv - lr.predict(Xr)
+                # (a) the form must be genuinely NON-separable in its operands (rejects a linear sum AND a
+                #     separable cross-pair sum-of-single-operand-nonlinearities).
+                if float(np.std(resid)) < min_resid_frac * f_std:
+                    return False
+                # (b) that joint structure must be RELEVANT to y (rejects a non-separable but useless form).
+                return _abscorr(resid, _yv) >= min_resid_corr
+            except Exception:
+                return False
+
+        # Build the candidate pool, then FILTER pair forms by the non-separability gate BEFORE the greedy.
+        # The CV-MAE greedy, given the raw pool, prefers a SEPARABLE cross-pair form (it absorbs the CV
+        # gain first), so a post-greedy gate would reject the cross-pair and leave nothing -- the genuine
+        # JOINT form was never selected. Filtering the pool to non-separable joint forms first makes the
+        # greedy optimise CV-MAE over GENUINE interactions only, so it picks a**2/b / g/k / log(c)*sin(d).
+        pool = build_usability_candidate_pool(
+            X_fit, _yv, base_names, max_pairs=25, max_per_pair=8,
+        )
+        filtered = []
+        for cand in pool:
+            recipe = getattr(cand, "recipe", None)
+            if recipe is None:
+                filtered.append(cand)  # raw passthrough: the linear baseline the greedy builds on
+                continue
+            src = tuple(getattr(cand, "src", ()) or ())
+            if len(set(src)) != 2:
+                continue
+            if _adds_nonlinear_value(getattr(cand, "values", None), src[0], src[1]):
+                filtered.append(cand)
+        usable = usability_greedy(filtered, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15)
+
         existing_names = set(getattr(mrmr, "_engineered_features_", []) or [])
         out = []
         for cand in usable:
             recipe = getattr(cand, "recipe", None)
             if recipe is None:
                 continue  # raw passthrough -- raw retention handles those
-            pair = frozenset(getattr(cand, "src", ()) or ())
+            src = tuple(getattr(cand, "src", ()) or ())
+            pair = frozenset(src)
             if len(pair) != 2:
                 continue  # only genuine single-PAIR forms
             if pair in covered_pairs:
