@@ -53,13 +53,17 @@ def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], 
     Imports ``recommendation["module"].recommendation["estimator"]`` and instantiates it with ``kwargs``.
     Returns ``None`` when ``recommendation`` is None so the caller keeps its default estimator.
 
-    IMPORTANT (proven empirically): ``TailCompositeEstimator`` and ``CompositeDistributionEstimator`` are
-    NOT generic drop-in regressors -- they wrap a ``CompositeTargetEstimator`` and REQUIRE a ``base_column``
-    (or ``base_columns``) kwarg; calling ``.fit(X, y)`` without one raises. So a live auto-swap to them is
-    inseparable from the composite-discovery base-selection flow (which picks the dominant base feature) --
-    it is a dedicated composite-integration step, not a strategy-layer estimator swap. Pass ``base_column=``
-    here when you have one. (``BaggedCompositeEstimator`` is the only base-free drop-in, but no analyzer
-    pathology currently recommends it.) The recommendation itself remains advisory until that integration.
+    IMPORTANT (two blockers proven empirically -- this is why E3 stays advisory, not auto-trained):
+      1. ``TailCompositeEstimator`` / ``CompositeDistributionEstimator`` are NOT generic drop-in regressors --
+         they wrap a ``CompositeTargetEstimator`` and REQUIRE a ``base_column``/``base_columns``; ``.fit(X, y)``
+         without one raises. So picking the estimator is inseparable from composite-discovery base selection.
+      2. The per-target training loop (``_phase_train_one_target_body``) is STRING-TAG based: it iterates model
+         name strings, looks up ``strategy_by_model[name]`` + per-tag config dicts, and constructs the model from
+         configs -- it does NOT train an injected estimator INSTANCE. Adding a ``(name, estimator)`` to the model
+         list (which ``get_strategy`` accepts) is therefore not trained by this body; auto-training the recommended
+         estimator needs registering a tag in the strategy/config machinery (a dedicated integration PR).
+    Pass ``base_column=`` here when you have one. (``BaggedCompositeEstimator`` is the only base-free drop-in, but
+    no analyzer pathology recommends it.) The recommendation stays advisory until that integration lands.
     """
     if not recommendation:
         return None
