@@ -692,6 +692,19 @@ def check_prospective_fe_pairs(
                     _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
                     (_avail * _FE_BUFFER_RAM_BUDGET_RATIO) / 2**30 if _avail >= 0 else float("nan"),
                 )
+    # bench-attempt-rejected (2026-06-17): BLOCK-STREAMING the candidate buffer when the full
+    # per-pair buffer does not hoist (alloc a narrow N-col block buffer, flush materialise ->
+    # discretize_2d_quantile_batch -> batched-MI per block; route the 7 downstream
+    # ``final_transformed_vals[:, cfg]`` reads -- usability-corr, winner occupied-K, multi-emit,
+    # ext-val, survivor -- through a recompute helper). Implemented + VALIDATED bit-identical
+    # (block-on selection == per-column selection on the n=100k user fixture), but MEASURED SLOWER
+    # in every config: n=100k 4-core box, per-column fallback 103s vs block 119s (joblib default) /
+    # 192s (n_jobs=1). The per-block discretise+MI dispatch + the recompute of the downstream
+    # winner/leader columns outweigh the parallel-kernel gain, and the per-column fallback ALREADY
+    # RAM-bounds (one column at a time via ``_col_buf_1d``), so block-streaming adds no OOM benefit
+    # either. The genuine speed lever is the FULL single-buffer batch path (n=100k 54s when it hoists)
+    # firing more often, NOT blocking it. Do not re-attempt block-streaming for speed; if 1M-on-16GB
+    # ever needs it for RAM, gate it on n and re-bench against the per-column serial baseline first.
     # In the recompute-fallback path we need to look up the
     # ``(transformations_pair, bin_func_name)`` for any index ``i`` that
     # was assigned in the inner loop, so the validation + survivor-packing
