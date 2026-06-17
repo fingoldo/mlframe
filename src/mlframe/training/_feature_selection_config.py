@@ -10,6 +10,7 @@ Behaviour preserved bit-for-bit; ``configs.py`` re-exports the class so
 ``from mlframe.training.configs import FeatureSelectionConfig`` continues to
 resolve identity-equal.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
@@ -18,16 +19,13 @@ from pydantic import Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig
 
-
 # Keys consumed by ``registry._instantiate_rfecv`` / ``_instantiate_boruta_shap``
 # (popped from the kwargs to drive the default-ON GroupAwareMRMR cluster-medoid
 # pre-reduction wrap), NOT forwarded to the underlying RFECV / BorutaShap ctor. The
 # kwargs validators must allow them through -- same rationale as ``cv_n_splits`` for
 # RFECV -- otherwise the (default-ON) cluster-reduce wrap is unreachable via
 # FeatureSelectionConfig: the validator rejects the keys before the registry pops them.
-_REGISTRY_CLUSTER_REDUCE_KEYS = frozenset(
-    {"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"}
-)
+_REGISTRY_CLUSTER_REDUCE_KEYS = frozenset({"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"})
 
 
 class FeatureSelectionConfig(BaseConfig):
@@ -116,13 +114,32 @@ class FeatureSelectionConfig(BaseConfig):
     # selector to run on the raw frame (MRMR's default) so the recipe replay has the raw operand columns.
     mrmr_usability_aware_lists: bool = False
 
+    # First-class FS levers (D-surface). Each is an undocumented MRMR/RFECV constructor knob promoted to a named
+    # field so it is discoverable from the suite call; ALL default to the unset sentinel so a config that does not
+    # set them merges NOTHING into mrmr_kwargs / rfecv_kwargs and is byte-identical to today. ``None`` (or False for
+    # the boolean enable-flags) = unset. The ``_merge_fs_levers`` validator folds set levers into the kwargs dicts
+    # and RAISES if the same key is also passed explicitly in mrmr_kwargs / rfecv_kwargs (silent-override guard).
+    # Whether each becomes default-ON is a SEPARATE bench-gated decision (D-flip); surfacing here changes no default.
+    rfecv_must_include: Optional[List[str]] = None
+    rfecv_must_exclude: Optional[List[str]] = None
+    rfecv_feature_groups: Optional[Dict[str, List[str]]] = None
+    rfecv_n_features_selection_rule: Optional[str] = None
+    rfecv_enable_stability_selection: bool = False
+    rfecv_enable_permutation_importance: bool = False
+    rfecv_prescreen: Optional[str] = None
+    rfecv_swap_top_k: Optional[int] = None
+    mrmr_mi_normalization: Optional[str] = None
+    mrmr_redundancy_aggregator: Optional[str] = None
+    mrmr_cpt_test: bool = False
+    mrmr_uaed_auto_size: bool = False
+    mrmr_pid_synergy_bonus: Optional[float] = None
+    mrmr_mi_correction: Optional[str] = None
+
     @field_validator("mrmr_identity_cache_scope")
     @classmethod
     def _validate_mrmr_identity_cache_scope(cls, v: str) -> str:
         if v not in {"ctx", "process"}:
-            raise ValueError(
-                f"FeatureSelectionConfig.mrmr_identity_cache_scope must be 'ctx' or 'process', got {v!r}"
-            )
+            raise ValueError(f"FeatureSelectionConfig.mrmr_identity_cache_scope must be 'ctx' or 'process', got {v!r}")
         return v
 
     @field_validator("mrmr_kwargs")
@@ -132,13 +149,11 @@ class FeatureSelectionConfig(BaseConfig):
             return v
         import inspect
         from mlframe.feature_selection.filters import MRMR
+
         valid_keys = set(inspect.signature(MRMR.__init__).parameters) - {"self"}
         unknown = sorted(set(v) - valid_keys)
         if unknown:
-            raise ValueError(
-                f"FeatureSelectionConfig.mrmr_kwargs: unknown key(s) {unknown}. "
-                f"Valid keys: {sorted(valid_keys)}"
-            )
+            raise ValueError(f"FeatureSelectionConfig.mrmr_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
         return v
 
     @field_validator("rfecv_kwargs")
@@ -148,14 +163,12 @@ class FeatureSelectionConfig(BaseConfig):
             return v
         import inspect
         from mlframe.feature_selection.wrappers import RFECV
+
         # ``cv_n_splits`` is consumed by get_training_configs to construct a CV splitter; not a direct RFECV.__init__ arg.
         valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"} | _REGISTRY_CLUSTER_REDUCE_KEYS
         unknown = sorted(set(v) - valid_keys)
         if unknown:
-            raise ValueError(
-                f"FeatureSelectionConfig.rfecv_kwargs: unknown key(s) {unknown}. "
-                f"Valid keys: {sorted(valid_keys)}"
-            )
+            raise ValueError(f"FeatureSelectionConfig.rfecv_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
         return v
 
     @field_validator("boruta_shap_kwargs")
@@ -165,14 +178,69 @@ class FeatureSelectionConfig(BaseConfig):
             return v
         import inspect
         from mlframe.feature_selection.boruta_shap import BorutaShap
+
         valid_keys = (set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}) | _REGISTRY_CLUSTER_REDUCE_KEYS
         unknown = sorted(set(v) - valid_keys)
         if unknown:
-            raise ValueError(
-                f"FeatureSelectionConfig.boruta_shap_kwargs: unknown key(s) {unknown}. "
-                f"Valid keys: {sorted(valid_keys)}"
-            )
+            raise ValueError(f"FeatureSelectionConfig.boruta_shap_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
         return v
+
+    @model_validator(mode="after")
+    def _merge_fs_levers(self):
+        """Fold the first-class FS lever fields into ``mrmr_kwargs`` / ``rfecv_kwargs`` (D-surface).
+
+        Each set lever maps to its MRMR/RFECV constructor key; unset levers (None / False) merge nothing, so a
+        config that touches no lever is byte-identical to today. RAISES if a lever's target key is ALSO present in
+        the explicit kwargs dict -- the silent-override hazard (the kwarg validator accepts the key, then a naive
+        setdefault would drop it). Runs before the master-flag check so the merged dict triggers that gate too.
+        """
+        rfecv_levers: dict = {}
+        if self.rfecv_must_include is not None:
+            rfecv_levers["must_include"] = self.rfecv_must_include
+        if self.rfecv_must_exclude is not None:
+            rfecv_levers["must_exclude"] = self.rfecv_must_exclude
+        if self.rfecv_feature_groups is not None:
+            rfecv_levers["feature_groups"] = self.rfecv_feature_groups
+        if self.rfecv_n_features_selection_rule is not None:
+            rfecv_levers["n_features_selection_rule"] = self.rfecv_n_features_selection_rule
+        if self.rfecv_enable_stability_selection:
+            rfecv_levers["stability_selection"] = True
+        if self.rfecv_enable_permutation_importance:
+            rfecv_levers["importance_getter"] = "permutation"
+        if self.rfecv_prescreen is not None:
+            rfecv_levers["prescreen"] = self.rfecv_prescreen
+        if self.rfecv_swap_top_k is not None:
+            rfecv_levers["swap_top_k"] = self.rfecv_swap_top_k
+
+        mrmr_levers: dict = {}
+        if self.mrmr_mi_normalization is not None:
+            mrmr_levers["mi_normalization"] = self.mrmr_mi_normalization
+        if self.mrmr_redundancy_aggregator is not None:
+            mrmr_levers["redundancy_aggregator"] = self.mrmr_redundancy_aggregator
+        if self.mrmr_cpt_test:
+            mrmr_levers["cpt_test"] = True
+        if self.mrmr_uaed_auto_size:
+            mrmr_levers["uaed_auto_size"] = True
+        if self.mrmr_pid_synergy_bonus is not None:
+            mrmr_levers["pid_synergy_bonus"] = self.mrmr_pid_synergy_bonus
+        if self.mrmr_mi_correction is not None:
+            mrmr_levers["mi_correction"] = self.mrmr_mi_correction
+
+        for name, levers, current in (("rfecv_kwargs", rfecv_levers, self.rfecv_kwargs), ("mrmr_kwargs", mrmr_levers, self.mrmr_kwargs)):
+            if not levers:
+                continue
+            merged = dict(current or {})
+            conflicts = sorted(set(levers) & set(merged))
+            if conflicts:
+                raise ValueError(
+                    f"FeatureSelectionConfig: key(s) {conflicts} set BOTH as a first-class lever field AND inside "
+                    f"{name}. Set one or the other, not both (the first-class field would otherwise silently override)."
+                )
+            merged.update(levers)
+            # object.__setattr__ bypasses validate_assignment so this merge does not re-enter the model
+            # validators (which would re-see the now-merged key as a false conflict on the second pass).
+            object.__setattr__(self, name, merged)
+        return self
 
     @model_validator(mode="after")
     def _check_kwargs_have_matching_master_flag(self):
@@ -206,4 +274,3 @@ class FeatureSelectionConfig(BaseConfig):
                 "boruta_shap_kwargs to make the intent explicit."
             )
         return self
-
