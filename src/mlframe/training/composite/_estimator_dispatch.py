@@ -45,3 +45,21 @@ def recommend_composite_estimator(pathologies: Sequence[str]) -> Optional[dict[s
             "reason": multimodal,
         }
     return None
+
+
+def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], **kwargs: Any):
+    """Construct the recommended composite estimator from a ``recommend_composite_estimator`` dict (or None).
+
+    Imports ``recommendation["module"].recommendation["estimator"]`` and instantiates it with ``kwargs``
+    (e.g. the base regressor / transform). Returns ``None`` when ``recommendation`` is None so the caller
+    keeps its default estimator. This is the mechanical 'auto-swap'; the live wiring point is the strategy
+    layer that builds the per-model estimator -- it calls this with the verdict to opt into the specialised
+    estimator (gated by ``behavior_config.distribution_driven_estimator``).
+    """
+    if not recommendation:
+        return None
+    import importlib
+
+    mod = importlib.import_module(recommendation["module"])
+    cls = getattr(mod, recommendation["estimator"])
+    return cls(**kwargs)

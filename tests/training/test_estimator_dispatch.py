@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from mlframe.training.composite._estimator_dispatch import recommend_composite_estimator
+from mlframe.training.composite._estimator_dispatch import (
+    instantiate_recommended_estimator,
+    recommend_composite_estimator,
+)
 from mlframe.training.core._phase_finalize import _stamp_composite_estimator_recommendation
 
 
@@ -47,3 +50,13 @@ def test_finalize_noop_without_analyzer_report():
     ctx = SimpleNamespace(metadata={}, verbose=0)
     _stamp_composite_estimator_recommendation(ctx)
     assert "composite_estimator_recommendation" not in ctx.metadata
+
+
+def test_instantiate_recommended_estimator_builds_class():
+    rec = recommend_composite_estimator(["heavy_tail(excess_kurt=20)"])
+    est = instantiate_recommended_estimator(rec)
+    assert type(est).__name__ == "TailCompositeEstimator"
+
+
+def test_instantiate_none_returns_none():
+    assert instantiate_recommended_estimator(None) is None
