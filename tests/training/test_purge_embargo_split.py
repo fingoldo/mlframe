@@ -27,7 +27,6 @@ def test_embargo_drops_newest_train_rows():
 def test_embargo_respects_time_order_not_index_order():
     # train_idx not in time order; embargo must drop by TIME, not by index position.
     train_idx = np.array([5, 0, 9, 3])
-    ts = np.array([50, 0, 90, 30])  # aligned to full row space; _apply_purge_embargo indexes ts[train_idx]
     full_ts = np.zeros(10)
     full_ts[[5, 0, 9, 3]] = [50, 0, 90, 30]
     out = _apply_purge_embargo(train_idx, full_ts, purge=1)
