@@ -77,11 +77,20 @@ def _signal_noise_frame(n, n_signal=4, n_noise=8, seed=0, kind="binary"):
         y = np.digitize(score, q).astype(int)
     elif kind == "regression":
         y = score.astype(float)
+    elif kind == "ltr":
+        # Graded relevance (0..4) rising with the linear score -- the LtR target the suite consumes
+        # under LEARNING_TO_RANK; a per-query group id is added below.
+        q = np.quantile(score, [0.2, 0.4, 0.6, 0.8])
+        y = np.digitize(score, q).astype(int)
     else:
         raise ValueError(kind)
     cols = {f"s{i}": sig[:, i] for i in range(n_signal)}
     cols.update({f"noise_{i}": noise[:, i] for i in range(n_noise)})
     cols["target"] = y
+    if kind == "ltr":
+        # Contiguous per-query blocks (LtR convention); group id is NOT a feature (group_field excludes it).
+        n_queries = max(2, n // 30)
+        cols["qid"] = np.sort(rng.integers(0, n_queries, size=n))
     signal_cols = [f"s{i}" for i in range(n_signal)]
     noise_cols = [f"noise_{i}" for i in range(n_noise)]
     return pd.DataFrame(cols), signal_cols, noise_cols
@@ -381,3 +390,47 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
         f"excl_frac={noise_excl_frac:.2f}"
     )
     assert len(signal_kept) >= 2, f"signal lost: kept only {sorted(signal_kept)}"
+
+
+# ---------------------------------------------------------------------------
+# (f) MRMR-FS on a LEARNING_TO_RANK target (graded relevance + query groups)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.xfail(
+    reason="FS GAP: suite FS x LEARNING_TO_RANK. The LtR suite path returns a model-keyed ranker output "
+    "(result['cb'] -> CatBoostRanker), not the target_type-keyed baseline+FS-branch structure the other "
+    "target types use, so the per-target MRMR-FS branch is not wired into the ranker path. Independently, "
+    "MRMR's MI is group-naive and the suite forces strict_groups=True under the LtR group-aware split. "
+    "Full support needs (1) routing use_mrmr_fs through the LtR ranker branch and (2) group-aware MI in MRMR.",
+    strict=False,
+)
+def test_biz_val_suite_mrmr_ltr_excludes_noise():
+    """MRMR feature selection through the suite on a LEARNING_TO_RANK target: the FS-branch model must
+    train, predict, and its used feature set must EXCLUDE the planted pure-noise columns while keeping
+    the linear-relevance signal. Group ids (``qid``) are passed via ``group_field``; selection is driven
+    by the graded relevance label.
+
+    biz_value floor: >=75% of 8 noise columns excluded AND >=2 of 4 signal columns kept.
+    """
+    df, signal_cols, noise_cols = _signal_noise_frame(n=600, seed=0, kind="ltr")
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column="target", target_type=TargetTypes.LEARNING_TO_RANK, group_field="qid",
+    )
+    inner, _res, _meta = _train(
+        df, fte, TargetTypes.LEARNING_TO_RANK,
+        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+    )
+    used, fs_model = _fs_model_used_features(inner)
+    assert used is not None, "no FS-branch model produced for LtR (use_mrmr_fs=True ignored?)"
+
+    noise_kept = used & set(noise_cols)
+    signal_kept = used & set(signal_cols)
+    noise_excl_frac = 1.0 - len(noise_kept) / len(noise_cols)
+    assert noise_excl_frac >= 0.75, (
+        f"suite MRMR-FS (LtR) kept too many noise cols: kept={sorted(noise_kept)} "
+        f"excl_frac={noise_excl_frac:.2f} (floor 0.75)"
+    )
+    assert len(signal_kept) >= 2, f"LtR signal lost: kept only {sorted(signal_kept)}"
+
+    _assert_suite_predicts(df, _res, _meta, fte)

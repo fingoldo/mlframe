@@ -90,6 +90,11 @@ def make_target(seed: int, kind: str):
         o0 = xs[:, 0] + 0.3 * rng.normal(size=N)
         o1 = xs[:, 1] + 0.3 * rng.normal(size=N)
         y = pd.DataFrame(np.column_stack([o0, o1]), columns=["o0", "o1"])
+    elif kind == "ltr":
+        # Learning-to-rank target: graded relevance labels (0..4) rising with x0+x1. MRMR's MI
+        # estimator treats the relevance grade as the target (it does not consume query groups),
+        # so signal recovery is governed by the graded label exactly as for an ordinal target.
+        y = pd.Series(np.digitize(score, np.quantile(score, [0.2, 0.4, 0.6, 0.8])).astype(int), name="relevance")
     else:  # pragma: no cover - guard
         raise ValueError(kind)
     return df, y
@@ -130,7 +135,7 @@ def _selected(selector) -> set:
 # recover BOTH signal cols, reject noise.
 # ===========================================================================
 
-_SINGLE_TARGET = ["multiclass", "count", "ordinal"]
+_SINGLE_TARGET = ["multiclass", "count", "ordinal", "ltr"]
 _MULTI_TARGET = ["multilabel", "multioutput"]
 _ALL_KINDS = _SINGLE_TARGET + _MULTI_TARGET
 
@@ -176,6 +181,63 @@ def test_biz_val_mrmr_rejects_noise_multi_target_2d(kind):
     assert total_noise <= 5, (
         f"MRMR on {kind}: expected <=1 noise/seed across 5 seeds; got {total_noise}"
     )
+
+
+# ===========================================================================
+# Learning-to-rank: graded relevance + query groups. MRMR accepts ``groups`` for
+# API compat but does NOT consume them (MI is per-row); the relevance label drives
+# selection, so signal recovery must hold WITH groups passed -- and the
+# groups-not-consumed contract (warn-only, or raise under strict_groups) must hold.
+# ===========================================================================
+
+
+def _ltr_design_with_query_groups(seed: int, n_queries: int = 40):
+    """LtR data: 2 signal + 6 noise cols, graded relevance (0..4) from x0+x1, and a contiguous qid array."""
+    rng, df, xs = _design(seed)
+    score = xs[:, 0] + xs[:, 1]
+    relevance = np.digitize(score, np.quantile(score, [0.2, 0.4, 0.6, 0.8])).astype(int)
+    qid = np.sort(rng.integers(0, n_queries, size=N))  # sorted -> contiguous per-query blocks (LtR convention)
+    return df, pd.Series(relevance, name="relevance"), qid
+
+
+def test_biz_val_mrmr_ltr_recovers_signal_with_query_groups():
+    """MRMR on an LtR target (graded relevance + query groups) recovers BOTH signal cols and rejects
+    noise, with ``groups=qid`` passed. The query groups are accepted-but-ignored, so recovery is driven
+    by the relevance grade -- it must match the ordinal floor. Measured: 5/5 seeds recover 2/2, 0 noise."""
+    n_full, total_noise = 0, 0
+    for s in range(5):
+        df, y, qid = _ltr_design_with_query_groups(s)
+        sel = _make_mrmr(s)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # groups-not-consumed warning is exercised separately below
+            sel.fit(df, y, groups=qid)
+        sup = _selected(sel)
+        n_full += int(len(SIGNAL & sup) >= N_SIGNAL)
+        total_noise += len([i for i in sup if i >= N_SIGNAL])
+        assert getattr(sel, "groups_ignored_", False), "LtR: groups_ignored_ should be set when groups passed"
+    assert n_full >= 4, f"MRMR LtR: expected >=2/2 signal on >=4/5 seeds; n_full={n_full}"
+    assert total_noise <= 2, f"MRMR LtR: expected ~0 noise across 5 seeds; got {total_noise}"
+
+
+def test_mrmr_ltr_groups_accepted_but_not_consumed_contract():
+    """Contract: passing query ``groups`` warns (groups-not-consumed) by default and raises under
+    ``strict_groups=True``. Pins the documented LtR API behaviour so a silent change is caught."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    df, y, qid = _ltr_design_with_query_groups(0)
+
+    sel = _make_mrmr(0)
+    with pytest.warns(UserWarning, match="does NOT consume them"):
+        sel.fit(df, y, groups=qid)
+    assert sel.groups_ignored_ is True
+
+    strict = MRMR(
+        verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
+        cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
+        quantization_nbins=10, random_seed=0, strict_groups=True,
+    )
+    with pytest.raises(NotImplementedError):
+        strict.fit(df, y, groups=qid)
 
 
 def test_biz_val_mrmr_accepts_2d_y_shape():
