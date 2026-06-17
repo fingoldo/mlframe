@@ -8324,6 +8324,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _ca_final_excl.add(_anchor)
             if isinstance(_members, (list, tuple, set)):
                 _ca_final_excl.update(_members)
+    # PSEUDO-REMIX SELF-SOURCE PROTECTION (2026-06-17). A conditional-gate / binned-numeric-agg /
+    # row-argmax anchor (``gate_mask__a__b`` / ``binagg_mean(d|qbin(a))`` / ``argmax__a__b``) is a
+    # LOSSY threshold/binning RE-MIX of its raw source(s): it cannot carry a raw operand's private
+    # LINEAR term (a binary gate of ``a`` does not span ``10*a``). When the clustering folds a RAW
+    # column into a cluster ANCHORED by such a pseudo-remix BUILT FROM that raw and strips the raw as
+    # a "member", a genuine private term is lost (test_private_raw_a_kept: raw ``a`` with a dominant
+    # ``10*a`` term clustered under ``gate_mask__a__b`` and dropped). Mirror the redundancy gate's
+    # ``_is_pseudo_remix_child`` exclusion here: never strip a raw whose cluster anchor is a
+    # pseudo-remix of that raw. Engineered members + genuine (non-pseudo) aggregate members are
+    # untouched, so byte-identical when no pseudo-anchored raw member exists.
+    if _ca_final_excl and isinstance(_cm_final, dict):
+        from .._fe_raw_redundancy_drop import _is_pseudo_remix_child, _PSEUDO_SRC_SPLIT
+        _raw_names_ca = set(self.feature_names_in_)
+        _protect_ca = set()
+        for _anchor, _members in _cm_final.items():
+            if not _is_pseudo_remix_child(str(_anchor)):
+                continue
+            _anchor_raw_srcs = {t for t in _PSEUDO_SRC_SPLIT.split(str(_anchor)) if t in _raw_names_ca}
+            for _m in (_members or []):
+                if _m in _raw_names_ca and _m in _anchor_raw_srcs:
+                    _protect_ca.add(_m)
+        if _protect_ca:
+            _ca_final_excl -= _protect_ca
     if _ca_final_excl and selected_vars:
         _fni = self.feature_names_in_
         _pre_n = len(selected_vars)
