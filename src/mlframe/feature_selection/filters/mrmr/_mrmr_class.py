@@ -3770,15 +3770,18 @@ class MRMR(BaseEstimator, TransformerMixin):
             except Exception:
                 _fast_search_saved = {}
         try:
-            # GLOBAL-RNG LEAK CONTAINMENT (2026-06-17): a fit consumes process-global ``np.random``
-            # in several places no per-call Generator covers (cat-confirm permutation shuffles, etc.),
-            # so an unseeded fit advanced the caller's global MT19937 and a second fit in the same
-            # process drifted (run-order flakiness under the xdist suite, e.g. the DCD pool-prune
-            # comparison). Scope the WHOLE fit in a snapshot/restore so the caller's global numpy RNG is
-            # byte-identical after fit() returns. ``None`` -> restore ONLY, never reseed: the fit's
-            # internal RNG behaviour is byte-unchanged (no shift of any pinned seeded-fit result); only
-            # the LEAK into the caller / the next fit is sealed.
-            with _preserve_global_numpy_rng_state(None):
+            # GLOBAL-RNG CONTAINMENT + SEED DETERMINISM (2026-06-17): a fit consumes process-global
+            # ``np.random`` in places no per-call Generator covers (cat-confirm permutation shuffles,
+            # the FE families' global shuffles, etc.). Two failures followed: (a) an UNSEEDED fit
+            # advanced the caller's MT19937 -> a second fit in the same process drifted (run-order
+            # flakiness under the xdist suite); (b) even a SEEDED fit (``random_seed`` set) was NON-
+            # deterministic in those global-RNG parts because nothing reseeded the process RNG, so the
+            # selection drifted run-to-run (e.g. the 5-class layer16 LogReg-macro-F1 gate flaked).
+            # Scope the WHOLE fit: when ``random_seed`` is set the block reseeds numpy/numba/cupy to it
+            # (the fit becomes reproducible) AND restores the caller's state on exit; ``None`` (no seed
+            # requested) restores only. A seeded fit is now deterministic + leak-free; an unseeded fit
+            # is leak-free with unchanged (entropy) behaviour.
+            with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
                 result = self._fit_impl(X, y, groups, **fit_params)
             try:
                 from mlframe.training.provenance import record_provenance as _record_provenance
