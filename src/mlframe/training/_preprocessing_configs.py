@@ -195,6 +195,11 @@ class TrainingSplitConfig(BaseConfig):
     # (forward-walk + purge/embargo). Consumed by the conformal structure-inference today; the make_train_test_split
     # routing lands in the E2 follow-up. Kept here so the intent is declarable now and conformal validity is honest.
     cv_strategy: Literal["random", "timeseries", "purged"] = "random"
+    # Embargo gap (rows) for cv_strategy="purged": drop the most-recent ``cv_purge`` TRAIN rows (closest in
+    # time to the future val/test block) so a windowed/recurrent label near the boundary cannot leak into the
+    # holdout (Lopez de Prado). Default 0 -> no gap (purged == timeseries until set); applied post-split as a
+    # pure train-index trim (train only shrinks), so it never reorders or touches val/test.
+    cv_purge: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":

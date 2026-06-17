@@ -147,6 +147,21 @@ def _resolve_timeseries_timestamps(timestamps, split_config, df, *, verbose: boo
         return timestamps
 
 
+def _apply_purge_embargo(train_idx, timestamps, purge: int):
+    """Drop the most-recent ``purge`` train rows (largest timestamps) to embargo the train/holdout boundary.
+
+    Pure index trim: returns a subset of ``train_idx`` (train only shrinks), used for cv_strategy="purged" so a
+    windowed/recurrent label adjacent to the future val/test block cannot leak. No-op when purge<=0, timestamps
+    is None, or the trim would empty train. Does not touch val/test.
+    """
+    if purge <= 0 or timestamps is None or train_idx is None or len(train_idx) <= purge:
+        return train_idx
+    ti = np.asarray(train_idx)
+    ts = np.asarray(timestamps)[ti]
+    keep_order = np.argsort(ts, kind="stable")[: ti.size - int(purge)]  # drop the newest `purge` train rows
+    return ti[np.sort(keep_order)]
+
+
 def _phase_train_val_test_split(
     *,
     df: pl.DataFrame | pd.DataFrame | None,
@@ -411,6 +426,12 @@ def _phase_train_val_test_split(
             return_calib=True,
             **_cfg_dict,
         )
+        # E2 embargo: for cv_strategy="purged", trim the newest train rows adjacent to the future holdout.
+        if getattr(split_config, "cv_strategy", "random") == "purged" and getattr(split_config, "cv_purge", 0):
+            _n_before = len(train_idx) if train_idx is not None else 0
+            train_idx = _apply_purge_embargo(train_idx, timestamps, int(split_config.cv_purge))
+            if verbose and train_idx is not None and len(train_idx) < _n_before:
+                logger.info("E2 embargo: dropped %d most-recent train rows (cv_purge=%d).", _n_before - len(train_idx), split_config.cv_purge)
     if verbose:
         log_ram_usage()
 
