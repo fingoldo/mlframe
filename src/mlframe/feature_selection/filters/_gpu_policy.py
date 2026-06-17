@@ -19,6 +19,11 @@ import os
 
 
 def gpu_globally_disabled() -> bool:
+    """True when this run must avoid the GPU: ``MLFRAME_DISABLE_GPU=1`` or ``CUDA_VISIBLE_DEVICES=""``.
+
+    The single source of truth every GPU dispatch consults (alongside per-kernel size/availability
+    gates) so a CPU-only or weak-GPU run can force the CPU path; see the module docstring for why
+    cupy's own detection is insufficient."""
     if os.environ.get("MLFRAME_DISABLE_GPU", "").strip() == "1":
         return True
     cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
