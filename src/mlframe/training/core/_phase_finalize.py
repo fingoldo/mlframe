@@ -464,6 +464,29 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
             logger.info("[regression_recal] applied monotone recalibration to %d regression model(s).", len(applied))
 
 
+def _stamp_composite_estimator_recommendation(ctx: "TrainingContext") -> None:
+    """Stamp the distribution-driven composite-estimator recommendation into metadata (advisory, E3).
+
+    Reads the analyzer's pathology list from ``metadata["target_distribution_report"]`` and records the
+    matching specialised estimator (heavy-tail -> TailComposite, multi-modal -> CompositeDistribution) under
+    ``metadata["composite_estimator_recommendation"]``. Advisory only -- it surfaces the dispatch decision;
+    auto-applying it (swapping the trained estimator) is a follow-up. No-op when the analyzer did not run.
+    """
+    report = (ctx.metadata or {}).get("target_distribution_report")
+    if not isinstance(report, dict):
+        return
+    pathologies = report.get("pathologies")
+    if not pathologies:
+        return
+    from ..composite._estimator_dispatch import recommend_composite_estimator
+
+    rec = recommend_composite_estimator(pathologies)
+    if rec is not None:
+        ctx.metadata["composite_estimator_recommendation"] = rec
+        if getattr(ctx, "verbose", 0):
+            logger.info("[estimator_recommendation] %s recommended (%s).", rec["estimator"], rec["reason"])
+
+
 def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     """Stamp regression conformal prediction intervals + achieved test coverage per per-target model.
 
@@ -775,6 +798,12 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _conformal_on_calib_slice(ctx)
     except Exception as _conf_err:
         logger.warning("[conformal] finalize pass failed: %s", _conf_err)
+
+    # Advisory: map the target-distribution analyzer verdict to a recommended composite estimator (E3).
+    try:
+        _stamp_composite_estimator_recommendation(ctx)
+    except Exception as _rec_err:
+        logger.warning("[estimator_recommendation] finalize pass failed: %s", _rec_err)
 
     # Single pass over ctx.models that collects BOTH the per-split fairness reports
     # (lifted from model.metrics) AND the per-entry selected-features list (mirrored to
