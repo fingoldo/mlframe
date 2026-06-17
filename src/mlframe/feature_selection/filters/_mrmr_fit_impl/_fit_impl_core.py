@@ -4279,7 +4279,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # combination of integer columns -- (a+b) mod m, (a*b) mod m, n-way parity, or a
     # single column's hidden non-calendar period -- which smooth bases cannot fit.
     # Cheap-first / escalate + permutation-null gate; budget-guarded on wide frames.
-    _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True))
+    # fe_max_steps==0 means the user disabled feature engineering entirely; the four discrete-structural
+    # families (pairwise-modular / row-argmax / conditional-gate / binned-agg) are FE too, so they must
+    # NOT fire in that case -- otherwise a fe_max_steps=0 fit silently emits gate_select__/binagg__/argmax__
+    # composites that crowd the clean raw signal out of small-n selections (the RC2 de-dup contract).
+    _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True)) and fe_max_steps > 0
     if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -8372,11 +8376,44 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (an engineered name in ``_engineered_recipes_``) is untouched.
     _ca_final_excl = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
     _cm_final = getattr(self, "cluster_members_", None)
+    _raw_names_cmfinal = set(self.feature_names_in_)
     if isinstance(_cm_final, dict):
+        # ``cluster_members_`` is populated by mechanisms with DIFFERENT final-exclusion semantics:
+        #   * an ENGINEERED-anchor cluster (DCD PC1/mean_z swap whose anchor is the denoised aggregate, a
+        #     name NOT in feature_names_in_): the aggregate survives, so its raw members are stripped from
+        #     any raw support a downstream pass resurrected.
+        #   * a pure RAW redundancy cluster (exact-duplicate / collinear / DCD decoy pair, ALL names raw):
+        #     exactly ONE representative must survive. The cluster dict's anchor/member DIRECTION is NOT
+        #     reliable for which to keep (e.g. ``{'collinear_b': ['good_b']}`` labels the genuine ``good_b``
+        #     as a member), so keep the highest cached-MI(.,y) column of the cluster and strip the rest.
+        #     This de-duplicates (RC2 exact-duplicate / realistic-mixed-degenerate -> keep ``good_a``,
+        #     ``good_b``) AND prunes genuine decoys (layer6 DCD second-decoy -> keep the strong driver).
+        # Mixed clusters (raw anchor + pseudo-remix/engineered member) fall to the pseudo-remix-protected
+        # member strip below.
+        _nm2col_cm = {c: i for i, c in enumerate(cols)}
+        _cached_cm = self.cached_MIs if hasattr(self, "cached_MIs") else {}
+        _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
+
+        def _cm_mi(_nm):
+            _ci = _nm2col_cm.get(_nm)
+            return float(_cached_cm.get((_ci,), 0.0)) if _ci is not None else 0.0
+
         for _anchor, _members in _cm_final.items():
-            _ca_final_excl.add(_anchor)
-            if isinstance(_members, (list, tuple, set)):
-                _ca_final_excl.update(_members)
+            _a = str(_anchor)
+            _mlist = [str(_m) for _m in (_members or [])] if isinstance(_members, (list, tuple, set)) else []
+            _group = [_a] + _mlist
+            if all(_nm in _raw_names_cmfinal for _nm in _group):
+                # pure raw cluster -- keep the single strongest representative, strip the rest.
+                if len(_group) >= 2:
+                    _rep = min(_group, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
+                    _ca_final_excl.update(_nm for _nm in _group if _nm != _rep)
+            elif _a not in _raw_names_cmfinal:
+                # engineered/aggregate anchor -- strip its (raw) members; the aggregate itself survives.
+                _ca_final_excl.update(_mlist)
+            else:
+                # raw anchor + engineered/pseudo member(s) -- strip only the non-raw members (pseudo-remix
+                # protection below keeps a raw operand the cluster pairs with a pseudo-remix built from it).
+                _ca_final_excl.update(_m for _m in _mlist if _m not in _raw_names_cmfinal)
     # PSEUDO-REMIX SELF-SOURCE PROTECTION (2026-06-17). A conditional-gate / binned-numeric-agg /
     # row-argmax anchor (``gate_mask__a__b`` / ``binagg_mean(d|qbin(a))`` / ``argmax__a__b``) is a
     # LOSSY threshold/binning RE-MIX of its raw source(s): it cannot carry a raw operand's private
@@ -8921,6 +8958,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             break
                 if not _topk and n_engineered_out == 0 and _raw_mi:
                     _topk = [_raw_mi[0][0]]
+                elif not _topk and n_engineered_out == 0 and not _raw_mi:
+                    # The redundancy/cluster exclusion (``_rescue_redund_dropped``) emptied the rescue pool:
+                    # EVERY raw candidate was marked redundant -- but with a mutually-redundant cluster
+                    # (e.g. two ~0.997-collinear columns each recorded as the other's cluster member) that
+                    # leaves the support EMPTY even though one representative should survive. The never-empty
+                    # guarantee must keep the single strongest column REGARDLESS of the exclusion, so a
+                    # symmetric redundancy verdict de-duplicates the pair rather than dropping both.
+                    _raw_mi_all = []
+                    for _i in range(self.n_features_in_):
+                        if _rescue_allowed_idx is not None and _i not in _rescue_allowed_idx:
+                            continue
+                        _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+                        _cols_idx = _name_to_cols_idx.get(_name)
+                        _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
+                        _raw_mi_all.append((_i, float(_mi)))
+                    if _raw_mi_all:
+                        _raw_mi_all.sort(key=lambda kv: (-kv[1], kv[0]))
+                        _topk = [_raw_mi_all[0][0]]
                 if _topk:
                     self.support_ = np.array(_topk)
                     self.n_features_ = len(_topk) + n_engineered_out

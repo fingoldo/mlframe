@@ -3519,6 +3519,32 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
 
+        # ---- polars input-validation contract ----------------------------------------------------
+        # Independent of the FE bridge below (which only fires when FE is enabled): a polars LazyFrame
+        # is auto-collected (with a warning, since that materialises the frame the user kept lazy), and
+        # a polars Struct column is rejected up front (it has no scalar MI interpretation; flattening is
+        # the caller's decision, not a silent one). Runs for ALL polars inputs regardless of fe_max_steps.
+        if str(type(X).__module__).startswith("polars"):
+            if type(X).__name__ == "LazyFrame":
+                warnings.warn(
+                    "MRMR.fit received a polars LazyFrame; auto-collecting it to a DataFrame before "
+                    "fitting (this materialises the lazy plan in memory). Collect explicitly to control "
+                    "when/where materialisation happens.",
+                    UserWarning, stacklevel=2,
+                )
+                X = X.collect()
+            if type(X).__name__ == "DataFrame":
+                try:
+                    import polars as _pl
+                    _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]
+                except Exception:
+                    _struct_cols = []
+                if _struct_cols:
+                    raise ValueError(
+                        f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct "
+                        f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
+                    )
+
         # ---- polars FE bridge (TEMPORARY, 2026-06-16) --------------------------------------------
         # The feature-engineering families require pandas (several raise TypeError on a polars frame),
         # so a polars input silently gets NO FE today. As an interim measure -- until the native

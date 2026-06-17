@@ -72,12 +72,20 @@ def test_rc2_diabetes_full_mode_recovers_features_and_r2():
     assert r2 >= 0.35, f"downstream R2 too low: {r2:.4f} with {feats}"
 
 
-def test_rc2_diabetes_legacy_strict_path_still_underselects():
-    """The bug is real and the threshold is the lever: with
-    ``fe_confirm_undersample_rows_per_cell=0`` (strict conditional test
-    everywhere, i.e. legacy behaviour) full mode still collapses to 1 feature.
-    Pins that the default-ON fix -- not some unrelated change -- is what fixes
-    (a)."""
+def test_rc2_diabetes_strict_path_also_recovers_after_discrete_fe_gating():
+    """RE-FRAMED 2026-06-17. Originally this pinned that the strict conditional path
+    (``fe_confirm_undersample_rows_per_cell=0``) STILL collapsed to <=2 features --
+    asserting the sample-size-aware confirmation fallback was the sole lever fixing (a).
+
+    That collapse turned out to have a DIFFERENT root cause: the four discrete-structural
+    FE families (conditional-gate / pairwise-modular / row-argmax / binned-agg) fired even
+    at ``fe_max_steps=0`` and their lossy composites crowded the genuine raw signal out of
+    the small-n (n=442) selection. With those families now correctly gated on
+    ``fe_max_steps>0`` (FE disabled => no engineered features), the strict conditional path
+    ALSO recovers the full diabetes signal. The confirmation fallback is still valuable on
+    genuinely-undersampled REAL joints (test (a) and the fallback-benefit unit), but it is no
+    longer the only thing between fe_max_steps=0 and a correct raw selection -- so we pin the
+    corrected behaviour: the strict path recovers >=6 features at a healthy downstream R2."""
     X, y = load_diabetes(return_X_y=True, as_frame=True)
     sel = MRMR(
         verbose=0, random_seed=42, fe_max_steps=0,
@@ -85,7 +93,9 @@ def test_rc2_diabetes_legacy_strict_path_still_underselects():
     )
     sel.fit(X, y)
     feats = _raw_selected(sel, X.columns)
-    assert len(feats) <= 2, f"legacy strict path unexpectedly recovered: {feats}"
+    assert len(feats) >= 6, f"strict path under-selected after FE gating: {feats}"
+    r2 = cross_val_score(Ridge(), X[feats].to_numpy(), y, cv=5, scoring="r2").mean()
+    assert r2 >= 0.35, f"strict-path downstream R2 too low: {r2:.4f} with {feats}"
 
 
 # ---------------------------------------------------------------------------
