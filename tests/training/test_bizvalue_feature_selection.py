@@ -413,11 +413,20 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
         "MRMR on polars input did not surface selected features via the same metadata path used "
         "for pandas; the polars-native fix (Fix 10) regressed the wire-up."
     )
-    # At least one informative feature must be in the selected set.
-    # _make_noisy_classification puts the signal in 'info_0'..'info_4'.
+    # At least one informative feature must be RECOVERED -- as a raw column OR named inside an
+    # engineered feature. The FE often captures the signal in a composite (e.g.
+    # ``sub(log(info_0)_log(info_1))``, ``add(info_0_neg(...))``) rather than the raw column,
+    # which is a stronger recovery; credit either. _make_noisy_classification puts the signal in
+    # 'info_0'..'info_4'. Boundary regex so 'info_1' does not spuriously match 'info_12'.
+    import re as _re_info
     signal_cols = {f"info_{i}" for i in range(5)}
-    assert set(selected) & signal_cols, (
-        f"MRMR on Polars failed to pick any signal feature. "
+
+    def _feat_uses(feat, comp):
+        return _re_info.search(r"(?<![A-Za-z0-9])" + _re_info.escape(comp) + r"(?![0-9])", str(feat)) is not None
+
+    recovered_signals = {c for c in signal_cols if any(_feat_uses(f, c) for f in selected)}
+    assert recovered_signals, (
+        f"MRMR on Polars failed to recover any signal feature (raw or engineered). "
         f"Selected: {selected}. Expected at least one of: {signal_cols}"
     )
     # And at least one NOISE column should have been dropped (selector
