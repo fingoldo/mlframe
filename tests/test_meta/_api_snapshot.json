@@ -510,6 +510,11 @@
     "module": "mlframe.training.evaluation",
     "signature": "(model:any:0, model_name:any:0, targets:any:0, columns:any:0, preds:any:1, probs:any:1, df:any:1, show_fi:any:1, verbose:any:1, kwargs:**kw:0)"
   },
+  "evaluate_tta_quality": {
+    "kind": "callable",
+    "module": "mlframe.training._uncertainty_eval",
+    "signature": "(predict_fn:any:0, X:any:0, y:any:0, n:kw:1, sigma_scale:kw:1, seed:kw:1)"
+  },
   "evaluation": {
     "kind": "value",
     "type": "module"

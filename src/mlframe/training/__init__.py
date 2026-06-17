@@ -414,6 +414,7 @@ from ._regression_calibration import (  # noqa: E402,F401
     smearing_predict,
 )
 from ._tta import tta_predict, tta_predict_spread  # noqa: E402,F401
+from ._uncertainty_eval import evaluate_tta_quality  # noqa: E402,F401
 from ._mc_dropout import mc_dropout_predict, predictive_entropy  # noqa: E402,F401
 from ._noise_ensemble import NoiseAugmentedEnsemble  # noqa: E402,F401
 
@@ -429,6 +430,7 @@ __all__ += [
     "smearing_predict",
     "tta_predict",
     "tta_predict_spread",
+    "evaluate_tta_quality",
     "mc_dropout_predict",
     "predictive_entropy",
     "NoiseAugmentedEnsemble",

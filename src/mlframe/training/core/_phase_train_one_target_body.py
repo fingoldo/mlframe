@@ -9,6 +9,7 @@ Re-imported at the parent's module bottom so historical
 ``from ._phase_train_one_target import _train_one_target`` resolves
 transparently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,8 +39,10 @@ from ..strategies import PipelineCache
 from ..train_eval import process_model
 from ..utils import compute_model_input_fingerprint, filter_existing
 from ._misc_helpers import (
-    _compute_neural_max_time, _elapsed_str,
-    _filter_polars_cat_features_by_dtype, _maybe_clear_shim_cache,
+    _compute_neural_max_time,
+    _elapsed_str,
+    _filter_polars_cat_features_by_dtype,
+    _maybe_clear_shim_cache,
 )
 from ._setup_helpers import (
     _build_process_model_kwargs,
@@ -104,6 +107,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         _unwrap_selector,
     )
     from ._phase_train_one_target import slugify
+
     _maybe_run_unsupervised_pre_screen(ctx, targets)
     split_config = ctx.split_config
     behavior_config = ctx.behavior_config
@@ -161,7 +165,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     pre_pipelines = _setup_out["pre_pipelines"]
     pre_pipeline_names = _setup_out["pre_pipeline_names"]
 
-
     # Custom transformers run AFTER preprocessing, so the preprocessing output is shared across
     # pre_pipelines of the same model-type bucket; one cache instance covers the whole sweep. Hoist
     # to ctx (PIPECACHE-PER-TGT) so multi-target suites share one cache across targets -- selector /
@@ -198,9 +201,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
         ):
             logger.info(
-                "[Dedup] Skipping pre_pipeline '%s' -- "
-                "identity-equivalent to ordinary (cached from "
-                "prior target/iteration); models already covered.",
+                "[Dedup] Skipping pre_pipeline '%s' -- " "identity-equivalent to ordinary (cached from " "prior target/iteration); models already covered.",
                 _pp_name_stripped,
             )
             continue
@@ -270,9 +271,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # so the three protections agree on whether to fire.
             _mlp_extreme_ar_fired = False
             _mlp_ea_lag1 = None
-            _mlp_ea_thr = float(getattr(
-                behavior_config, "mlp_extreme_ar_threshold", 0.99,
-            ))
+            _mlp_ea_thr = float(
+                getattr(
+                    behavior_config,
+                    "mlp_extreme_ar_threshold",
+                    0.99,
+                )
+            )
             # Target-level extreme-AR + group-aware signal (same for every
             # model; gate only UNBOUNDED-OUTPUT models on it).
             #
@@ -285,9 +290,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # raw target, NEVER on a composite. Gating on the raw lag1 for a
             # composite would wrongly drop the MLP from the one regime it can
             # actually win.
-            _skip_models = tuple(getattr(
-                behavior_config, "extreme_ar_group_aware_skip_models", ("mlp",),
-            ))
+            _skip_models = tuple(
+                getattr(
+                    behavior_config,
+                    "extreme_ar_group_aware_skip_models",
+                    ("mlp",),
+                )
+            )
             # Only read the (raw-target) AR signal when it could matter for
             # THIS model: a skip candidate, or the MLP (which uses the flag
             # for its weight_decay / output-activation protections even when
@@ -300,11 +309,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 _split_overrides = _td_knobs.get("split_config", {}) or {}
                 _group_aware = bool(_split_overrides.get("prefer_group_aware", False))
                 _skip, _extreme_ar_fired = extreme_ar_skip_decision(
-                    mlframe_model_name, cur_target_name,
+                    mlframe_model_name,
+                    cur_target_name,
                     skip_models=_skip_models,
-                    skip_enabled=bool(getattr(
-                        behavior_config, "mlp_extreme_ar_group_aware_skip", True,
-                    )),
+                    skip_enabled=bool(
+                        getattr(
+                            behavior_config,
+                            "mlp_extreme_ar_group_aware_skip",
+                            True,
+                        )
+                    ),
                     lag1_autocorr_per_group=_ea_lag1,
                     group_aware=_group_aware,
                     threshold=_mlp_ea_thr,
@@ -324,8 +338,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         "train there). Disable via "
                         "TrainingBehaviorConfig(mlp_extreme_ar_group_aware_skip=False) "
                         "or drop %r from extreme_ar_group_aware_skip_models.",
-                        mlframe_model_name, cur_target_name, _model_idx_in_run + 1,
-                        _total_models_in_run, float(_ea_lag1), _mlp_ea_thr,
+                        mlframe_model_name,
+                        cur_target_name,
+                        _model_idx_in_run + 1,
+                        _total_models_in_run,
+                        float(_ea_lag1),
+                        _mlp_ea_thr,
                         mlframe_model_name,
                     )
                     continue
@@ -337,16 +355,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # PSUTIL-IMPORT-HOT: ``psutil`` is now imported at module level (``_ps_module``);
                 # the prior in-loop import paid ImportError lookup costs on every iter.
                 try:
-                    _ram_gb_now = (
-                        _ps_module.Process().memory_info().rss / (1024 ** 3)
-                        if _ps_module is not None else 0.0
-                    )
+                    _ram_gb_now = _ps_module.Process().memory_info().rss / (1024**3) if _ps_module is not None else 0.0
                 except Exception:
                     _ram_gb_now = 0.0
                 logger.info(
                     "  process_model(%s) START -- model %d/%d, RAM=%.1fGB",
                     mlframe_model_name,
-                    _model_idx_in_run, _total_models_in_run,
+                    _model_idx_in_run,
+                    _total_models_in_run,
                     _ram_gb_now,
                 )
 
@@ -362,7 +378,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # signature_of(X) check then matches against the same ctx-pinned train_df pointer
             # and triggers set_label / set_weight in place rather than a fresh build.
             _restore_dataset_reuse_cache(
-                ctx, mlframe_model_name, models_params[mlframe_model_name]["model"],
+                ctx,
+                mlframe_model_name,
+                models_params[mlframe_model_name]["model"],
                 pp_name=pre_pipeline_name,
             )
 
@@ -372,10 +390,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # post-iteration release fires only on tier transitions, but same-tier siblings (e.g. XGB and
             # LGB share tier=(False,False)) would keep Polars frames alive into a lazy pandas conversion,
             # doubling peak RAM. Releasing upfront halves peak in mixed suites.
-            if (
-                not strategy.supports_polars
-                and train_df_polars is not None
-            ):
+            if not strategy.supports_polars and train_df_polars is not None:
                 # Drop locals AND ctx attributes -- ctx still pins the strong ref to the same frames
                 # assigned via ctx.*_df_polars at function entry, so a bare ``del`` of the locals would
                 # leave maybe_clean_ram_and_gpu with nothing to reclaim and turn the log line into a lie.
@@ -427,7 +442,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         "original reference. If %s is a stateful selector with "
                         "no per-call reset, downstream `pre_pipeline.fit` may "
                         "see stale state from a prior model in the suite.",
-                        _clone_e, type(_base_for_strategy).__name__,
+                        _clone_e,
+                        type(_base_for_strategy).__name__,
                     )
             pre_pipeline = strategy.build_pipeline(
                 base_pipeline=_base_for_strategy,
@@ -536,11 +552,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # the schema column-count to disambiguate; full schema hash isn't needed here because a
             # mismatch in id alone forces recompute.
             _fp_train_df_id = id(_fp_train_df_pre) if _fp_train_df_pre is not None else 0
-            _fp_train_df_ncols = (
-                len(_fp_train_df_pre.columns)
-                if _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns")
-                else 0
-            )
+            _fp_train_df_ncols = len(_fp_train_df_pre.columns) if _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns") else 0
             _fp_cache_key = (
                 id(strategy),
                 strategy.feature_tier(),
@@ -612,10 +624,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # tabular block exists; SEQUENCE_ONLY has no aux cats so the wrapper no-ops cleanly even if the kwarg is threaded. NGB shares the neural
             # strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
             _RECURRENT_MODEL_NAMES = ("lstm", "gru", "rnn", "transformer")
-            _neural_threads_cats = (
-                mlframe_model_name in ("mlp",) + _RECURRENT_MODEL_NAMES
-                and not getattr(strategy, "requires_encoding", True)
-            )
+            _neural_threads_cats = mlframe_model_name in ("mlp",) + _RECURRENT_MODEL_NAMES and not getattr(strategy, "requires_encoding", True)
             _neural_extra_fit_invariant: dict[str, Any] | None = None
             if getattr(strategy, "cache_key", None) in ("neural", "recurrent") and (text_features or embedding_features or _neural_threads_cats):
                 _neural_extra_fit_invariant = {}
@@ -634,10 +643,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
             for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
                 model_name_with_weight = common_params["model_name"]
-                model_file_name=f"{mlframe_model_name}"
+                model_file_name = f"{mlframe_model_name}"
                 if weight_name != "uniform":
                     model_name_with_weight += f" w={weight_name}"
-                    model_file_name +=f"_{weight_name}"
+                    model_file_name += f"_{weight_name}"
 
                 # Isolation copy: per-(model, weight) inner mutations (sample_weight, plot_file
                 # decoration, lazy pandas conversion, fastpath frame swap) must not bleed into
@@ -669,15 +678,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # above for the model-level skip). Drop applies to train /
                 # val / test consistently so the predict path doesn't see
                 # extra columns the network wasn't trained on.
-                if (
-                    mlframe_model_name == "mlp"
-                    and bool(getattr(behavior_config, "mlp_drop_per_group_constants", False))
-                ):
-                    _drop_pattern = str(getattr(
-                        behavior_config,
-                        "mlp_drop_per_group_constants_pattern",
-                        r"^group_.*_(mean|std|min|max)$",
-                    ))
+                if mlframe_model_name == "mlp" and bool(getattr(behavior_config, "mlp_drop_per_group_constants", False)):
+                    _drop_pattern = str(
+                        getattr(
+                            behavior_config,
+                            "mlp_drop_per_group_constants_pattern",
+                            r"^group_.*_(mean|std|min|max)$",
+                        )
+                    )
                     _train_df_now = current_common_params.get("train_df")
                     _cols_now = list(getattr(_train_df_now, "columns", []) or []) if _train_df_now is not None else []
                     _per_group_cols = _identify_per_group_columns(_cols_now, _drop_pattern)
@@ -686,19 +694,24 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             "MLP per-group-aggregate column drop fired for target='%s': "
                             "dropping %d columns matching %r (e.g. %s). Tree models "
                             "still see them; only MLP gets the trimmed feature set.",
-                            cur_target_name, len(_per_group_cols), _drop_pattern,
+                            cur_target_name,
+                            len(_per_group_cols),
+                            _drop_pattern,
                             _per_group_cols[:3],
                         )
                         current_common_params["train_df"] = _drop_columns_for_mlp(
-                            current_common_params.get("train_df"), _per_group_cols,
+                            current_common_params.get("train_df"),
+                            _per_group_cols,
                         )
                         if current_common_params.get("val_df") is not None:
                             current_common_params["val_df"] = _drop_columns_for_mlp(
-                                current_common_params.get("val_df"), _per_group_cols,
+                                current_common_params.get("val_df"),
+                                _per_group_cols,
                             )
                         if current_common_params.get("test_df") is not None:
                             current_common_params["test_df"] = _drop_columns_for_mlp(
-                                current_common_params.get("test_df"), _per_group_cols,
+                                current_common_params.get("test_df"),
+                                _per_group_cols,
                             )
                 if getattr(behavior_config, "model_file_hash_suffix", True):
                     model_file_name += f"__sch_{_schema_hash}"
@@ -741,6 +754,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # supports_native_multi_target=True + empty kwargs).
                 if target_type.is_multi_target_regression:
                     from mlframe.training.strategies import get_strategy
+
                     _mtr_strategy = get_strategy(mlframe_model_name)
                     _mtr_obj_kwargs = _mtr_strategy.get_multi_target_objective_kwargs()
                     if _mtr_obj_kwargs:
@@ -752,9 +766,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             # back to direct attribute assignment which
                             # CatBoost does honour at fit-time.
                             logger.warning(
-                                "MTR set_params(%s) on %s failed (%s); "
-                                "falling back to setattr.",
-                                _mtr_obj_kwargs, mlframe_model_name, _mtr_set_err,
+                                "MTR set_params(%s) on %s failed (%s); " "falling back to setattr.",
+                                _mtr_obj_kwargs,
+                                mlframe_model_name,
+                                _mtr_set_err,
                             )
                             for _k, _v in _mtr_obj_kwargs.items():
                                 setattr(cloned_model, _k, _v)
@@ -785,14 +800,24 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # Fix 1: bounded output activation (tanh -> hard cap).
                     _apply_mlp_extreme_ar_output_activation(cloned_model)
                     # Fix 3: L2 weight_decay bump by factor (default 100x).
-                    _wd_factor = float(getattr(
-                        behavior_config, "mlp_extreme_ar_weight_decay_factor", 100.0,
-                    ))
-                    _wd_base = float(getattr(
-                        behavior_config, "mlp_extreme_ar_weight_decay_base", 1e-4,
-                    ))
+                    _wd_factor = float(
+                        getattr(
+                            behavior_config,
+                            "mlp_extreme_ar_weight_decay_factor",
+                            100.0,
+                        )
+                    )
+                    _wd_base = float(
+                        getattr(
+                            behavior_config,
+                            "mlp_extreme_ar_weight_decay_base",
+                            1e-4,
+                        )
+                    )
                     _apply_mlp_extreme_ar_weight_decay_bump(
-                        cloned_model, factor=_wd_factor, base_weight_decay=_wd_base,
+                        cloned_model,
+                        factor=_wd_factor,
+                        base_weight_decay=_wd_base,
                     )
 
                 # Build process_model kwargs using helper
@@ -819,10 +844,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # Note: requires_encoding=True is NOT a re-run trigger (HGB declares it for pandas-fallback
                     # only; on the polars fastpath HGB consumes pl.Categorical natively). Only non-Polars
                     # strategies fall through to their own pre_pipeline run in trainer.py.
-                    polars_pipeline_applied=(
-                        (polars_pipeline_applied and strategy.supports_polars)
-                        or polars_fastpath_active
-                    ),
+                    polars_pipeline_applied=((polars_pipeline_applied and strategy.supports_polars) or polars_fastpath_active),
                     mlframe_model_name=mlframe_model_name,
                     metadata_columns=metadata.get("columns"),
                 )
@@ -844,11 +866,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             _inner.trainer_params["max_time"] = _max_time_dict
                             if verbose:
                                 logger.info(
-                                    "  [NeuralTimeout] %s max_time=%dh%02dm%02ds "
-                                    "(P95 of %d prior non-neural train times: %.0fs)",
+                                    "  [NeuralTimeout] %s max_time=%dh%02dm%02ds " "(P95 of %d prior non-neural train times: %.0fs)",
                                     mlframe_model_name,
-                                    _max_time_dict["hours"], _max_time_dict["minutes"], _max_time_dict["seconds"],
-                                    _n, _p95,
+                                    _max_time_dict["hours"],
+                                    _max_time_dict["minutes"],
+                                    _max_time_dict["seconds"],
+                                    _n,
+                                    _p95,
                                 )
 
                 t0_model = timer()
@@ -868,12 +892,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         f"continue_on_model_failure=True -> skipping and moving on.",
                         exc_info=True,
                     )
-                    metadata.setdefault("failed_models", []).append({
-                        "model": mlframe_model_name,
-                        "weighting": weight_name,
-                        "error_type": type(model_err).__name__,
-                        "error_message": str(model_err),
-                    })
+                    metadata.setdefault("failed_models", []).append(
+                        {
+                            "model": mlframe_model_name,
+                            "weighting": weight_name,
+                            "error_type": type(model_err).__name__,
+                            "error_message": str(model_err),
+                        }
+                    )
                     continue  # next weight_name in the inner loop
                 if verbose:
                     logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
@@ -889,33 +915,25 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # metrics block + watchdog on the (now wrapped) entry.
                 try:
                     from ..composite.transforms import is_composite_target_name as _is_comp
+
                     if _is_comp(cur_target_name):
-                        _specs = (
-                            (metadata.get("composite_target_specs") or {})
-                            .get(str(target_type)) or {}
-                        )
+                        _specs = (metadata.get("composite_target_specs") or {}).get(str(target_type)) or {}
                         _spec_pair = None
                         for _orig_n, _spec_list in _specs.items():
-                            for _s in (_spec_list or ()):
+                            for _s in _spec_list or ():
                                 if isinstance(_s, dict) and _s.get("name") == cur_target_name:
                                     _spec_pair = (_orig_n, _s)
                                     break
                             if _spec_pair is not None:
                                 break
-                        _entries_for_target = (
-                            (ctx.models.get(str(target_type)) or {})
-                            .get(cur_target_name) or []
-                        )
+                        _entries_for_target = (ctx.models.get(str(target_type)) or {}).get(cur_target_name) or []
                         if _spec_pair is not None and _entries_for_target:
                             _orig_n, _spec = _spec_pair
-                            _y_full = (
-                                (getattr(ctx, "target_by_type", {}) or {})
-                                .get(str(target_type), {})
-                                .get(_orig_n)
-                            )
+                            _y_full = (getattr(ctx, "target_by_type", {}) or {}).get(str(target_type), {}).get(_orig_n)
                             from ._phase_composite_wrapping import (
                                 emit_per_model_composite_y_scale_test,
                             )
+
                             emit_per_model_composite_y_scale_test(
                                 entry=_entries_for_target[-1],
                                 composite_spec=_spec,
@@ -931,9 +949,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             )
                 except Exception as _pmce:
                     logger.warning(
-                        "per-model composite y-scale emit failed for "
-                        "target=%s model=%s (non-fatal): %s",
-                        cur_target_name, mlframe_model_name, _pmce,
+                        "per-model composite y-scale emit failed for " "target=%s model=%s (non-fatal): %s",
+                        cur_target_name,
+                        mlframe_model_name,
+                        _pmce,
                     )
                 # Reclaim this model's transient bloat (float64 pre_pipeline
                 # copies, intermediate frames) before the next model so they
@@ -941,6 +960,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # Adaptive: a no-op unless RSS actually grew past the threshold.
                 try:
                     from ..utils import maybe_clean_ram_adaptive as _mclean
+
                     _mclean()
                 except Exception:
                     pass
@@ -953,9 +973,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     and _pp_name_stripped
                     and use_ordinary_models
                     and feature_selection_config.skip_identity_equivalent_pre_pipelines
-                    and getattr(
-                        pre_pipeline, "_mlframe_identity_equivalent", False
-                    )
+                    and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
                 ):
                     _skip_remaining = _total_models_in_run - 1
                     if _skip_remaining > 0:
@@ -965,9 +983,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             "all %d columns); skipping remaining "
                             "%d model(s) for this target.",
                             _pp_name_stripped,
-                            train_df_transformed.shape[1]
-                            if train_df_transformed is not None
-                            else 0,
+                            train_df_transformed.shape[1] if train_df_transformed is not None else 0,
                             _skip_remaining,
                         )
                     _break_model_loop = True
