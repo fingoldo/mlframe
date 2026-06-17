@@ -5,13 +5,22 @@ keep that file below the 1k-line monolith threshold. Behaviour preserved
 bit-for-bit; both functions are re-exported from ``_phase_helpers`` so
 existing imports continue to work.
 """
+
 from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
 from typing import (
-    TYPE_CHECKING, Any, Callable, Dict, List, NamedTuple, Optional,
-    Sequence, Tuple, Union,
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
 )
 
 import numpy as np
@@ -32,20 +41,29 @@ if TYPE_CHECKING:
     from ._training_context import TrainingContext
 
 from ._misc_helpers import (
-    _auto_detect_feature_types, _cfg_get, _df_shape_str, _drop_cols_df,
-    _elapsed_str, _validate_feature_type_exclusivity,
+    _auto_detect_feature_types,
+    _cfg_get,
+    _df_shape_str,
+    _drop_cols_df,
+    _elapsed_str,
+    _validate_feature_type_exclusivity,
 )
 from ..configs import PreprocessingExtensionsConfig, TargetTypes
 from ..preprocessing import (
-    create_split_dataframes, save_split_artifacts,
+    create_split_dataframes,
+    save_split_artifacts,
 )
 from ..utils import (
-    get_process_rss_mb, log_phase, log_ram_usage, maybe_clean_ram_and_gpu,
+    get_process_rss_mb,
+    log_phase,
+    log_ram_usage,
+    maybe_clean_ram_and_gpu,
 )
 from ..strategies import get_strategy, get_polars_cat_columns
 from ..splitting import make_train_test_split
 from ..pipeline import (
-    apply_preprocessing_extensions, fit_and_transform_pipeline,
+    apply_preprocessing_extensions,
+    fit_and_transform_pipeline,
 )
 from ._setup_helpers import _compute_fairness_subgroups
 
@@ -55,6 +73,7 @@ class TrainValTestSplitResult(NamedTuple):
     parent module's definition; required here because the split moved
     the function body but left its consumers in both modules).
     """
+
     train_idx: Any
     val_idx: Any
     test_idx: Any
@@ -78,6 +97,7 @@ class TrainValTestSplitResult(NamedTuple):
 class FitPipelineResult(NamedTuple):
     """Return shape for ``_phase_fit_pipeline`` (see comment on
     ``TrainValTestSplitResult``)."""
+
     train_df: Any
     val_df: Any
     test_df: Any
@@ -95,8 +115,36 @@ class FitPipelineResult(NamedTuple):
     preprocessing_extensions: Any
     train_df_pandas_pre_meta: Any
 
+
 logger = logging.getLogger(__name__)
 
+
+def _resolve_timeseries_timestamps(timestamps, split_config, df, *, verbose: bool = False):
+    """Return ``timestamps`` to drive a forward-walk main split when a time-series cv_strategy is requested.
+
+    When ``timestamps`` is already supplied upstream, returns it unchanged. Otherwise, when
+    ``split_config.cv_strategy`` is ``"timeseries"``/``"purged"`` and ``split_config.time_column`` is set,
+    reads that column from ``df`` and returns it as the timestamps array (``make_train_test_split`` then
+    splits chronologically). Default ``cv_strategy="random"`` -> returns ``timestamps`` (None) unchanged.
+    ("purged" currently routes the same forward-walk as "timeseries" for the main split; an embargo gap
+    between train/val/test is a follow-up -- the conformal calib carve already purges.)
+    """
+    if timestamps is not None:
+        return timestamps
+    if getattr(split_config, "cv_strategy", "random") not in ("timeseries", "purged"):
+        return timestamps
+    tcol = getattr(split_config, "time_column", None)
+    if not tcol or df is None:
+        return timestamps
+    try:
+        col = df[tcol]
+        ts = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
+        if verbose:
+            logger.info("E2: routing main split as forward-walk on time_column=%r (cv_strategy=%s).", tcol, split_config.cv_strategy)
+        return ts
+    except Exception as _ts_err:
+        logger.warning("E2: could not read time_column=%r for time-series split (%s); falling back to random split.", tcol, _ts_err)
+        return timestamps
 
 
 def _phase_train_val_test_split(
@@ -128,6 +176,10 @@ def _phase_train_val_test_split(
     t0_phase2 = timer()
     if verbose:
         logger.info(f"Making train_val_test split...")
+
+    # E2 routing: a time-series cv_strategy + time_column drives the MAIN split as a chronological forward-walk.
+    timestamps = _resolve_timeseries_timestamps(timestamps, split_config, df, verbose=verbose)
+
     # Auto-stratify by target when no timestamps are present (without stratification,
     # rare-imbalance shuffles produce all-class-0 val slices). Three regimes:
     #   (a) single classification target  -> stratify on its ndarray directly
@@ -166,6 +218,7 @@ def _phase_train_val_test_split(
                     # Prefer the proper iterative-stratification path when available.
                     try:
                         from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
+
                         _stratify_y = _ml_arr
                     except ImportError:
                         # Best-effort fallback: stratify on the first label column. Better
@@ -179,12 +232,14 @@ def _phase_train_val_test_split(
                                 "Auto-stratify: multilabel first-label fallback has %d "
                                 "unique values with min-count=%d (need >=2 + min-count>=2); "
                                 "stratification disabled. val/test slices may be class-degenerate.",
-                                len(_u), int(_c.min()) if len(_c) else 0,
+                                len(_u),
+                                int(_c.min()) if len(_c) else 0,
                             )
             except Exception as _strat_err:
                 logger.warning(
                     "Auto-stratify: multilabel build failed (%s: %s); shuffled-only splits.",
-                    type(_strat_err).__name__, _strat_err,
+                    type(_strat_err).__name__,
+                    _strat_err,
                 )
                 _stratify_y = None
         elif len(_classification_targets) == 1:
@@ -203,12 +258,14 @@ def _phase_train_val_test_split(
                             "Auto-stratify: single classification target has %d unique "
                             "classes with min-count=%d (need >=2 + min-count>=2); "
                             "stratification disabled. val/test slices may be class-degenerate.",
-                            len(_u), int(_c.min()) if len(_c) else 0,
+                            len(_u),
+                            int(_c.min()) if len(_c) else 0,
                         )
             except Exception as _strat_err:
                 logger.warning(
                     "Auto-stratify: single-target build failed (%s: %s); shuffled-only splits.",
-                    type(_strat_err).__name__, _strat_err,
+                    type(_strat_err).__name__,
+                    _strat_err,
                 )
                 _stratify_y = None
         elif len(_classification_targets) > 1:
@@ -229,7 +286,8 @@ def _phase_train_val_test_split(
                             "Auto-stratify: composite key has %d distinct row-tuples with "
                             "min-count=%d (need >=2 + min-count>=2); stratification disabled. "
                             "val/test slices may be class-degenerate.",
-                            len(_u), int(_c.min()) if len(_c) else 0,
+                            len(_u),
+                            int(_c.min()) if len(_c) else 0,
                         )
                     elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
                         # Surface the silent fallback to shuffled-only splits so operators
@@ -242,7 +300,8 @@ def _phase_train_val_test_split(
                             "shuffle splits. Rare-class imbalance may produce all-one-class "
                             "val/test slices. Reduce the number of classification heads or "
                             "pre-compute a stratify_y manually to restore stratification.",
-                            len(_u), _MAX_COMPOSITE_CARDINALITY,
+                            len(_u),
+                            _MAX_COMPOSITE_CARDINALITY,
                         )
             except Exception:
                 _stratify_y = None
@@ -271,17 +330,22 @@ def _phase_train_val_test_split(
                                 _stratify_y = _buckets
                                 logger.info(
                                     "Bucket-stratify: regression target binned into %d quantile buckets (min/median/max bucket count=%d/%d/%d). Prevents heavy-tail rows from concentrating in val or test.",
-                                    len(_u), int(_c.min()), int(np.median(_c)), int(_c.max()),
+                                    len(_u),
+                                    int(_c.min()),
+                                    int(np.median(_c)),
+                                    int(_c.max()),
                                 )
                             else:
                                 logger.info(
                                     "Bucket-stratify: regression bucket distribution too sparse for stratification (n_buckets=%d, min_count=%d); fall back to shuffled split.",
-                                    len(_u), int(_c.min()) if len(_c) else 0,
+                                    len(_u),
+                                    int(_c.min()) if len(_c) else 0,
                                 )
                 except Exception as _bucket_err:
                     logger.warning(
                         "Bucket-stratify: regression binning failed (%s: %s); shuffled-only splits.",
-                        type(_bucket_err).__name__, _bucket_err,
+                        type(_bucket_err).__name__,
+                        _bucket_err,
                     )
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and
     # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
@@ -301,6 +365,7 @@ def _phase_train_val_test_split(
                 from iterstrat.ml_stratifiers import (  # noqa: F401
                     MultilabelStratifiedGroupKFold,
                 )
+
                 _has_multilabel_iterstrat = True
             except ImportError:
                 _has_multilabel_iterstrat = False
@@ -334,12 +399,10 @@ def _phase_train_val_test_split(
         #   bucket_stratify -- selects the bucket-stratify branch
         # Signature-derived filtering catches future additions automatically.
         import inspect as _inspect
+
         _splitter_kwargs = set(_inspect.signature(make_train_test_split).parameters)
         _explicit_kwargs = {"df", "timestamps", "stratify_y", "groups", "return_calib"}
-        _cfg_dict = {
-            k: v for k, v in split_config.model_dump().items()
-            if k in _splitter_kwargs and k not in _explicit_kwargs
-        }
+        _cfg_dict = {k: v for k, v in split_config.model_dump().items() if k in _splitter_kwargs and k not in _explicit_kwargs}
         train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
@@ -490,9 +553,7 @@ def _phase_auto_detect_feature_types(
     if not was_polars_input:
         _pre_meta_dtypes = (train_df_pandas_pre_meta or {}).get("dtypes") if isinstance(train_df_pandas_pre_meta, dict) else None
         if _pre_meta_dtypes:
-            _post_flip_pandas_cats = [
-                c for c, dt in _pre_meta_dtypes.items() if "category" in str(dt).lower()
-            ]
+            _post_flip_pandas_cats = [c for c, dt in _pre_meta_dtypes.items() if "category" in str(dt).lower()]
         elif detect_df is not None and hasattr(detect_df, "select_dtypes"):
             try:
                 _post_flip_pandas_cats = detect_df.select_dtypes(include=["category"]).columns.tolist()
@@ -502,20 +563,17 @@ def _phase_auto_detect_feature_types(
     # serialised into the recipe -- ``list(set(...))`` would reorder per PYTHONHASHSEED,
     # making a fixed-random_state run non-reproducible. Keep first-seen input order.
     _seen_cat: set[str] = set()
-    raw_cat_features = [
-        c for c in ((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats)
-        if not (c in _seen_cat or _seen_cat.add(c))
-    ]
+    raw_cat_features = [c for c in ((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats) if not (c in _seen_cat or _seen_cat.add(c))]
     # Honor only strictly-user-declared pl.Categorical columns as already-assigned.
     if was_polars_input:
-        user_polars_cats = [
-            c for c, dt in zip(detect_df.columns, detect_df.dtypes)
-            if dt == pl.Categorical
-        ]
+        user_polars_cats = [c for c, dt in zip(detect_df.columns, detect_df.dtypes) if dt == pl.Categorical]
     else:
         user_polars_cats = []
     text_features, embedding_features, auto_high_card_drop = _auto_detect_feature_types(
-        detect_df, feature_types_config, user_polars_cats, verbose=verbose,
+        detect_df,
+        feature_types_config,
+        user_polars_cats,
+        verbose=verbose,
         pandas_meta=train_df_pandas_pre_meta if not was_polars_input else None,
     )
 
@@ -543,6 +601,7 @@ def _phase_auto_detect_feature_types(
                 try:
                     # Single select over ALL needed columns; Arrow split-blocks bridge.
                     from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pd_view
+
                     _per_split_views[_label] = _get_pd_view(_frame.select(_present))
                 except Exception:
                     # Fallback to bare to_pandas on the multi-col select; still 1 batch vs N.
@@ -593,8 +652,7 @@ def _phase_auto_detect_feature_types(
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
         _keep_as_string = text_emb_set
-        _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes)
-                     if dt in _string_types and c not in _keep_as_string]
+        _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if dt in _string_types and c not in _keep_as_string]
         if _str_cols:
             # Wave 72 (2026-05-21): build per-column Enum domain from train+val
             # uniques (NOT train-only). val is the early-stopping detector --
@@ -628,7 +686,9 @@ def _phase_auto_detect_feature_types(
                 _samples = ", ".join(f"{c}={vs}" for c, (_, vs) in list(_val_only_diag.items())[:3])
                 logger.info(
                     "[enum-domain] Enum domain widened to include val-only categories on %d col(s): %s. Sample val-only values: %s",
-                    len(_val_only_diag), _summary, _samples,
+                    len(_val_only_diag),
+                    _summary,
+                    _samples,
                 )
 
             def _enum_cast(df, strict: bool, split_name: str | None = None):
@@ -649,15 +709,14 @@ def _phase_auto_detect_feature_types(
                 _null_pre = {c: int(df[c].null_count()) for c in _affected_cols}
                 out = df.with_columns(_exprs)
                 if split_name is not None and not strict:
-                    _null_deltas = {
-                        c: int(out[c].null_count()) - _null_pre[c]
-                        for c in _affected_cols
-                    }
+                    _null_deltas = {c: int(out[c].null_count()) - _null_pre[c] for c in _affected_cols}
                     _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
                     if _nonzero:
                         logger.info(
                             "[enum-cast] %s split: %d col(s) had OOV nulls cast-failed (cols=%s)",
-                            split_name, len(_nonzero), _nonzero,
+                            split_name,
+                            len(_nonzero),
+                            _nonzero,
                         )
                 return out
 
@@ -673,13 +732,20 @@ def _phase_auto_detect_feature_types(
                 logger.info("  Cast Polars string columns -> Enum once (shared across model loop)")
 
     if verbose and (text_features or embedding_features):
-        logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, cat_features or '(none)')
+        logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, cat_features or "(none)")
 
     return (
-        train_df, val_df, test_df,
-        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-        text_features, embedding_features, cat_features,
-        text_emb_set, dropped_high_card_data,
+        train_df,
+        val_df,
+        test_df,
+        train_df_polars_pre,
+        val_df_polars_pre,
+        test_df_polars_pre,
+        text_features,
+        embedding_features,
+        cat_features,
+        text_emb_set,
+        dropped_high_card_data,
     )
 
 
