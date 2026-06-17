@@ -9003,4 +9003,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self._fe_escalation_y_rank_ = None
     # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.
     self._fe_prewarp_y_continuous_ = None
+
+    # MRMR_GAINS LENGTH ALIGNMENT (2026-06-17, FINAL). ``mrmr_gains_`` is the GREEDY selection log;
+    # the FINAL feature count diverges from it -- SHORTER on a degenerate-frame collapse / redundancy /
+    # cluster-aggregate exclusion / p>=n cap / UAED elbow trim, LONGER when FE / retention / pseudo-
+    # remix re-add appended features the greedy log never scored. The public contract + downstream
+    # expect ``len(mrmr_gains_) == n_features_`` (TestSupportGainsAlignment). Reconcile HERE, after every
+    # support/n_features_ mutation above is final: keep the top screening gains (descending -- what the
+    # UAED elbow already consumed) and pad any FE tail with 0.0. Byte-identical when already aligned.
+    try:
+        _g = getattr(self, "mrmr_gains_", None)
+        _nf_final = int(getattr(self, "n_features_", 0) or 0)
+        if _g is not None and _nf_final >= 0 and _g.shape[0] != _nf_final:
+            if _g.shape[0] > _nf_final:
+                self.mrmr_gains_ = _g[:_nf_final]
+            else:
+                self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
+    except Exception:
+        pass
     return self
