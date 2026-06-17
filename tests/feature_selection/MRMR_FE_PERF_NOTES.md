@@ -150,3 +150,31 @@ no joblib layer), so a single prange uses every core WITHOUT the process-pickle 
 threading. Plus: batch the orth-FE MI scoring across families (one big (n, total_cands) call), and
 float32 the candidate frame (generation-stage RAM). This is the chosen full FE re-platform (todo #3);
 design at MRMR_FE_NUMBA_REPLATFORM_DESIGN.md, plan staged for per-phase bit-parity validation.
+
+## 2026-06-17 -- FULL speed anatomy + path to the <=20s goal (15 cols)
+
+Measured at 300k x 15 cols (all recover the genuine a**2/b + log(c)*sin(d) structure):
+  exhaustive (default)            695s
+  fe_fast_search=True (200k sub)  297s
+  fe_fast_search + 25k subsample  214s   <- subsample levers give ~3.3x, QUALITY PRESERVED
+
+The existing `fe_fast_search` + `*_subsample_n` knobs (detection rank-stable; recipe replays full-n,
+so bit-safe for OUTPUT) are the cheap 3.3x. The remaining ~214s is EVENLY DISTRIBUTED across the FE
+families (no single hotspot once subsampled):
+  binned_numeric_agg per_cell_stats_bincount 38s (+50s cumtime) -- NOT subsampled
+  orth-FE MI _plugin_mi_classif_batch_njit 30s (was 233s; subsample helped)
+  joblib threading sleep-poll 22s
+  MDLP _mdlp_best_split_njit 10s + partition/sort/searchsorted ~20s
+  orth-poly _power_centered 8s + lstsq 7s + _coarse_basis 4s
+
+PATH TO <=20s (the chosen full re-platform -- needs ALL of these, no single knob suffices):
+  1. Subsample EVERY family's detection (binned_agg + orth-poly + mdlp are still full-n) -- extend the
+     fe_fast_search subsample wiring uniformly (each bit-safe via recipe-replay, like the Fourier cap).
+  2. Batch ALL candidate-MI into ONE njit-parallel / cupy call over all cores+GPU (microbench: batching
+     1-col calls -> one call = 3.4x; bit-identical since per-column MI is independent).
+  3. Pre-bin candidates ONCE -> O(n) bincount MI (drop the per-candidate argsort: partition/sort ~20s).
+  4. Replace joblib-threading (GIL + sleep-poll) with the direct parallel njit / a process pool with
+     shared-memory X (no per-worker pickle).
+  5. float32 candidate frame (bandwidth + the generation-stage RAM).
+This is a multi-family architectural rewrite of shared MI/FE infra; execute phased with per-step
+bit-parity (selection-identity) validation.
