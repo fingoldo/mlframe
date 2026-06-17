@@ -301,6 +301,18 @@ def test_materialise_extval_njit_codes_match_numpy(n, n_ext, a_dtype):
 from mlframe.feature_selection.filters.discretization import _quantile_edges_2d_njit
 
 
+def _kths_for(q: np.ndarray, n_rows: int) -> np.ndarray:
+    """Order-statistic indices the kernel reads (lo / lo+1 per quantile, n-1 clamped) -- mirrors the caller."""
+    _lo = np.floor((q / 100.0) * (n_rows - 1)).astype(np.int64)
+    s = set()
+    for _l in _lo.tolist():
+        if _l >= n_rows - 1:
+            s.add(n_rows - 1)
+        else:
+            s.add(int(_l)); s.add(int(_l) + 1)
+    return np.array(sorted(s), dtype=np.int64)
+
+
 @pytest.mark.parametrize("n,K", [(200, 7), (500, 33), (1500, 16), (300, 4), (2407, 11)])
 @pytest.mark.parametrize("nbins", [3, 4, 7, 10, 20])
 @pytest.mark.parametrize("dt", [np.float32, np.float64])
@@ -311,7 +323,7 @@ def test_quantile_edges_2d_njit_bit_identical_to_numpy(n, K, nbins, dt):
     q = np.linspace(0, 100, nbins + 1)
     ref = np.percentile(arr, q, axis=0)
     out = np.empty((q.shape[0], K), dtype=np.float64)
-    _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, out)
+    _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, _kths_for(q, n), out)
     assert np.array_equal(ref, out), (
         f"quantile edges != np.percentile: n={n} K={K} nbins={nbins} dtype={dt}; "
         f"maxabs={np.abs(ref - out).max():.3e}"
@@ -333,5 +345,5 @@ def test_quantile_edges_2d_njit_ties_constant_heavytail(dt):
         q = np.linspace(0, 100, nbins + 1)
         ref = np.percentile(arr, q, axis=0)
         out = np.empty((q.shape[0], arr.shape[1]), dtype=np.float64)
-        _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, out)
+        _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, _kths_for(q, n), out)
         assert np.array_equal(ref, out), f"nbins={nbins} dtype={dt} maxabs={np.abs(ref-out).max():.3e}"
