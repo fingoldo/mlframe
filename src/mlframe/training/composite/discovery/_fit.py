@@ -237,35 +237,11 @@ def fit(
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "resolve_base_candidates_done")
 
-    # Pre-discovery base-target leakage guard (config.detect_base_leakage). Only ACTS with a time_ordering so the
-    # lag-probe spares a genuine lag(y) base; drops same-time near-identity re-encodings (target-encoding /
-    # rolling-target) the forbidden_base regex misses. No-op on non-temporal data (cannot mistake autocorr for leak).
+    # Pre-discovery base-target leakage guard (config.detect_base_leakage); see _fit_temporal.apply_base_leakage_guard.
     if getattr(self.config, "detect_base_leakage", True) and time_ordering is not None and base_candidates:
-        from ._leakage import detect_base_target_leakage
+        from ._fit_temporal import apply_base_leakage_guard
 
-        _to_all = np.asarray(time_ordering)
-        _to_train = _to_all[train_idx] if _to_all.shape[0] >= int(np.max(train_idx)) + 1 else None
-        if _to_train is not None:
-            _kept_bases, _dropped_bases = [], []
-            for _bcand in base_candidates:
-                try:
-                    _barr = _extract_column_array(df, _bcand)[train_idx]
-                    _leak = detect_base_target_leakage(y_train, _barr, time_ordering=_to_train)
-                except Exception:
-                    _kept_bases.append(_bcand)
-                    continue
-                if _leak.get("is_leaky"):
-                    _dropped_bases.append((_bcand, _leak.get("reason", "")))
-                else:
-                    _kept_bases.append(_bcand)
-            if _dropped_bases:
-                self._leaky_bases_dropped_ = _dropped_bases
-                logger.warning(
-                    "[CompositeTargetDiscovery] dropped %d leaky base(s) (same-time near-identity of y): %s",
-                    len(_dropped_bases),
-                    _dropped_bases[:5],
-                )
-                base_candidates = _kept_bases
+        base_candidates = apply_base_leakage_guard(self, df, base_candidates, train_idx, y_train, time_ordering)
 
     if not base_candidates:
         logger.warning(
@@ -294,25 +270,9 @@ def fit(
     # non-monotone ``lag(y)`` base -> shuffled K-fold leaked future->past on
     # temporal data. Sorting once here makes every per-spec / raw-baseline /
     # stepwise tiny-CV time-correct without per-call ordering logic.
-    self._screen_time_ordered_ = False
-    if time_ordering is not None:
-        try:
-            _time_all = np.asarray(time_ordering)
-            if _time_all.shape[0] >= int(np.max(train_idx_screen)) + 1:
-                _time_screen = _time_all[train_idx_screen]
-                # NaT/NaN-safe stable sort: non-finite/unsortable keys keep
-                # their original relative order at the front.
-                _order = np.argsort(_time_screen, kind="stable")
-                train_idx_screen = train_idx_screen[_order]
-                sample_idx = sample_idx[_order]
-                self._screen_time_ordered_ = True
-        except (TypeError, ValueError, IndexError) as _to_err:
-            logger.warning(
-                "[CompositeTargetDiscovery] time_ordering supplied but could "
-                "not order the screening sample (%s); falling back to "
-                "base-monotonicity time detection.",
-                _to_err,
-            )
+    from ._fit_temporal import order_screen_by_time
+
+    train_idx_screen, sample_idx, self._screen_time_ordered_ = order_screen_by_time(train_idx_screen, sample_idx, time_ordering)
     y_screen = y_full[train_idx_screen]
 
     # Bin-MI floors every value to 0.0 when the screening sample has fewer than

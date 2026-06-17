@@ -11,7 +11,7 @@ from __future__ import annotations
 
 
 import logging
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 from sklearn.base import BaseEstimator
 from sklearn.linear_model import (
@@ -449,7 +449,7 @@ def is_tree_model(model_name: str) -> bool:
     return model_name.lower() in TREE_MODEL_TYPES
 
 
-def is_neural_model(model_name) -> bool:
+def is_neural_model(model_name: Any) -> bool:
     """Check if a model entry corresponds to a neural network model.
 
     Accepts a string tag, a ``(name, estimator)`` tuple, or an estimator instance; only string tags

@@ -52,6 +52,7 @@ def analytic_null_enabled() -> bool:
 
 
 def analytic_null_min_n() -> int:
+    """Minimum sample size at which the analytic MI-null approximation is trusted (env-overridable)."""
     raw = os.environ.get("MLFRAME_MI_ANALYTIC_NULL_MIN_N", "").strip()
     if raw:
         try:

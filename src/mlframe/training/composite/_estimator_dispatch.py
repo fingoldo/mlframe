@@ -47,7 +47,7 @@ def recommend_composite_estimator(pathologies: Sequence[str]) -> Optional[dict[s
     return None
 
 
-def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], **kwargs: Any):
+def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], **kwargs: Any) -> Optional[Any]:
     """Construct the recommended composite estimator from a ``recommend_composite_estimator`` dict (or None).
 
     Imports ``recommendation["module"].recommendation["estimator"]`` and instantiates it with ``kwargs``.
@@ -126,7 +126,15 @@ def _default_base_estimator():
         return HistGradientBoostingRegressor(max_iter=200)
 
 
-def maybe_inject_distribution_driven_estimator(ctx, metadata, mlframe_models, target_by_type, train_idx, train_df, behavior_config):
+def maybe_inject_distribution_driven_estimator(
+    ctx: Any,
+    metadata: dict,
+    mlframe_models: list,
+    target_by_type: Any,
+    train_idx: Any,
+    train_df: Any,
+    behavior_config: Any,
+) -> list:
     """E3: append the analyzer-recommended composite estimator to ``mlframe_models`` so it actually trains.
 
     Gated by ``behavior_config.distribution_driven_estimator`` (default OFF). Reads the analyzer verdict from
