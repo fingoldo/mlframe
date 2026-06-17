@@ -217,7 +217,11 @@ def pooled_permutation_null_gain_floor(
         xcounts = np.bincount(xc, minlength=nb).astype(np.float64)
         px = xcounts[xcounts > 0] * inv_n
         kx_eff = int(px.shape[0])  # occupied bins of this candidate (idea-#9)
-        scaled_codes.append(xc * nbins_y)
+        # int32 codes (not int64): the joint code ``x_code*nbins_y + y_code`` is < nbins_x*nbins_y,
+        # always within int32 -- so this is BIT-IDENTICAL but halves the (n_cand x n) ``scaled_flat``
+        # and (nperm x n) ``y_perms`` pools below, which reach GBs at n=1M and drove an OOM
+        # (_permutation_null.py:239, (n_cand*n,) int64). Used only as histogram indices downstream.
+        scaled_codes.append((xc * nbins_y).astype(np.int32))
         joint_card.append(nb * nbins_y)
         h_x.append(float(-(px * np.log(px)).sum()))
         mm_bias.append(((kx_eff - 1) * (ky_eff - 1) / (2.0 * n)) if cardinality_bias_correction else 0.0)
@@ -231,13 +235,17 @@ def pooled_permutation_null_gain_floor(
     # Pre-generate the K target shuffles in numpy (it owns the RNG draw sequence,
     # matching the legacy per-shuffle ``rng.shuffle(y_perm)`` order exactly) so the
     # fused njit MI pass below stays bit-identical to the pure-Python loop.
-    y_perm = y_codes.copy()
-    y_perms = np.empty((nperm, n), dtype=np.int64)
+    # y codes are < nbins_y -> int32 holds them; the (nperm x n) pool halves vs int64. shuffle still
+    # runs on an int32 buffer (numpy RNG draw order preserved -> floor stays bit-identical).
+    import os as _os
+    _fdr_dt = np.int64 if _os.environ.get("MLFRAME_FDR_NULL_INT32", "") == "0" else np.int32
+    y_perm = y_codes.astype(_fdr_dt)
+    y_perms = np.empty((nperm, n), dtype=_fdr_dt)
     for k in range(nperm):
         rng.shuffle(y_perm)
         y_perms[k] = y_perm
-    scaled_flat = np.concatenate(scaled_codes).astype(np.int64)
-    offsets = np.arange(n_cand + 1, dtype=np.int64) * n
+    scaled_flat = np.concatenate(scaled_codes).astype(_fdr_dt)
+    offsets = np.arange(n_cand + 1, dtype=np.int64) * n  # int64: true flat indices, can exceed 2^31
     maxes = _pooled_gain_floor_perms_njit(
         scaled_flat, offsets,
         np.asarray(joint_card, dtype=np.int64),

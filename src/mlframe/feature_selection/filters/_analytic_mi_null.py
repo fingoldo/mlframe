@@ -52,7 +52,11 @@ def analytic_null_enabled() -> bool:
 
 
 def analytic_null_min_n() -> int:
-    """Minimum sample size at which the analytic MI-null approximation is trusted (env-overridable)."""
+    """Minimum row count at/above which the analytic MI null replaces the permutation null.
+
+    Reads ``MLFRAME_MI_ANALYTIC_NULL_MIN_N`` (positive int); falls back to the calibrated default
+    when unset/invalid. Below this n the chi-square/G-test asymptotics are unreliable, so the
+    permutation null is used instead."""
     raw = os.environ.get("MLFRAME_MI_ANALYTIC_NULL_MIN_N", "").strip()
     if raw:
         try:

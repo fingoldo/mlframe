@@ -127,6 +127,7 @@ def fit_binned_numeric_agg(
     group_num_cols: Sequence[str], agg_num_cols: Sequence[str],
     stats: Sequence[str] = SUPPORTED_STATS, nbins_base: int = 10,
     n_folds: int = 5, random_state: int = 0,
+    pairs: "Optional[set]" = None,
 ) -> tuple:
     """OOF fit of per-(quantile-cell) statistics of ``agg_num_cols`` grouped by quantile-binned ``group_num_cols``.
 
@@ -155,6 +156,8 @@ def fit_binned_numeric_agg(
         for acol in agg_num_cols:
             if acol == gcol:
                 continue
+            if pairs is not None and (gcol, acol) not in pairs:
+                continue  # PRE-CAP: only compute OOF for the kept top-max_pairs (bit-identical output)
             av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
             finite = np.isfinite(av)
             globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
@@ -295,9 +298,22 @@ def binned_numeric_agg_with_recipes(
     if not gsel or not asel:
         return X.copy(), [], []
 
+    # PRE-CAP (2026-06-17 perf): the OOF fit below previously computed all gsel x asel pairs and only
+    # then capped to top-``max_pairs`` by ``pair_rank`` (group MI, then agg variance) -- both already
+    # known here, BEFORE any OOF work. Rank + cap the (group, agg) pairs up front and compute OOF for
+    # only those, so per_cell_stats_bincount runs ``max_pairs`` times instead of |gsel|*|asel| (e.g.
+    # 64 vs 256). Output is BIT-IDENTICAL: the same top pairs are emitted with the same OOF values; the
+    # post-fit cap below stays as a no-op safety net. (NaN-bearing group cols are skipped inside the fit
+    # exactly as before.)
+    _ranked_pairs = sorted(
+        ((g, a) for g in gsel for a in asel if g != a),
+        key=lambda p: (g_mi.get(p[0], 0.0), a_var.get(p[1], 0.0)), reverse=True,
+    )
+    _precap_pairs = set(_ranked_pairs[: max(1, int(max_pairs))])
     feat_df, raw = fit_binned_numeric_agg(
         X, y, group_num_cols=gsel, agg_num_cols=asel,
         stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+        pairs=_precap_pairs,
     )
     if feat_df.shape[1] == 0:
         return X.copy(), [], []

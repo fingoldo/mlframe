@@ -5,11 +5,30 @@ and determinism on real-world workloads.
 from __future__ import annotations
 
 import pickle
+import re
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
+
+
+def _component_recovered(names, comp: str) -> bool:
+    """True iff a signal component ``comp`` is recovered by the selection -- as the RAW column,
+    a ``comp``-derived basis feature, OR a synergy composite that NAMES ``comp`` as a token.
+
+    A multi-way synergy can be recovered MORE parsimoniously by a single composite that captures
+    it (e.g. the modular-residue parity feature ``pmod_sum3__x1__x2__x3`` captures ``x1^x2^x3`` in
+    ONE feature) than by surfacing the separate raw operands -- the same "stronger recovery than
+    raw" crediting ``test_polynomial_degree_3_non_monotone`` already uses. ``comp`` matches as a
+    delimiter-bounded token so ``x1`` does not spuriously match ``x12``."""
+    for nm in names:
+        s = str(nm)
+        if s == comp:
+            return True
+        if comp in re.split(r"[^A-Za-z0-9]+", s):
+            return True
+    return False
 
 
 # =============================================================================
@@ -19,11 +38,11 @@ import pytest
 
 class TestMultiwaySynergy:
     def test_three_way_xor(self):
-        """y = x1 XOR x2 XOR x3. Triple synergy. At order >= 2, the
-        2-way joints (xi, xj) still carry some signal (they reduce
-        2-way uncertainty about y by 1 bit when combined with the
-        third). With order=3 we expect 2+ of the 3 components to
-        surface.
+        """y = x1 XOR x2 XOR x3. Triple synergy. The 3-way synergy must be RECOVERED --
+        historically by surfacing 2+ of the raw components, but the modular-residue FE now
+        captures the full parity in ONE composite ``pmod_sum3__x1__x2__x3`` (a stronger, more
+        parsimonious recovery). Credit a component as recovered when any selected feature names
+        it (raw or composite); require >= 2 of the 3 recovered.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
         rng = np.random.default_rng(20)
@@ -46,10 +65,10 @@ class TestMultiwaySynergy:
             ).fit(X, y_s)
         names = list(sel.get_feature_names_out())
         signal_components = sum(
-            1 for nm in ("x1", "x2", "x3") if nm in names
+            1 for comp in ("x1", "x2", "x3") if _component_recovered(names, comp)
         )
         assert signal_components >= 2, (
-            f"3-way XOR: {signal_components}/3 components found; "
+            f"3-way XOR: {signal_components}/3 components recovered (raw or synergy composite); "
             f"support={names}"
         )
 
@@ -74,8 +93,10 @@ class TestMultiwaySynergy:
                 verbose=0, interactions_max_order=2, fe_max_steps=0,
             ).fit(X, pd.Series(y))
         names = list(sel.get_feature_names_out())
-        assert "x1" in names and "x2" in names, (
-            f"AND conjunction needs both components; support={names}"
+        # Both operands must be recovered -- raw, or named inside a conjunction composite (the
+        # synergy FE can capture ``x1 AND x2`` as one feature naming both, a stronger recovery).
+        assert _component_recovered(names, "x1") and _component_recovered(names, "x2"), (
+            f"AND conjunction needs both components (raw or composite); support={names}"
         )
 
     def test_polynomial_degree_3_non_monotone(self):
@@ -168,8 +189,17 @@ class TestRichClusterStructure:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "signal" in names, (
-            f"signal drowned among 50 noise features; support={names}"
+        # signal must not be drowned -- recovered as raw OR a signal-derived feature (e.g. the
+        # threshold-matching ``signal__relu_gt0...`` hinge that captures ``sig>0`` directly, a
+        # stronger recovery than raw signal on this step target). A pure signal-only derived
+        # feature (no noise token) counts; a signal*noise cross-mix alone does not.
+        _sig_recovered = any(
+            (s == "signal") or
+            ("signal" in re.split(r"[^A-Za-z0-9]+", s) and not any(t.startswith("noise") for t in re.split(r"[^A-Za-z0-9]+", s)))
+            for s in map(str, names)
+        )
+        assert _sig_recovered, (
+            f"signal drowned among 50 noise features (no raw or pure signal-derived feature); support={names}"
         )
 
 

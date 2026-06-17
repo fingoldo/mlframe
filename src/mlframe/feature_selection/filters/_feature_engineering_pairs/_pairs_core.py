@@ -133,6 +133,17 @@ def check_prospective_fe_pairs(
     # the MI screen + every gate keep using ``classes_y`` codes. None -> legacy
     # behaviour (ALS reconstructs against ``classes_y``).
     prewarp_y_continuous: np.ndarray | None = None,
+    # LINEAR-USABILITY GUARD TARGET (2026-06-17). The leader-equivalence tie-break and the
+    # noise-wrap |corr| guard must score against the CONTINUOUS regression target, NOT the
+    # binned ``classes_y`` codes: on a heavy-tailed target the Pearson |corr| of a magnitude-
+    # carrying form (e.g. ``a**2/b``) with the quantile-RANK codes COLLAPSES (~0.05) while a
+    # bounded monotone warp (e.g. ``a/sqrt(b)``) scores higher (~0.4) -- the EXACT INVERSE of
+    # linear usability. The prewarp path already threaded continuous y, so the exhaustive
+    # (prewarp-on) path was correct; the fast (prewarp-off) path fell back to ``classes_y`` and
+    # picked the linearly-useless leg (biz_value_mrmr_fast_search MAE 0.05 -> 37). Thread the
+    # continuous y here UNCONDITIONALLY (independent of prewarp) so both paths agree. None ->
+    # legacy ``classes_y`` fallback (correct for classification / non-numeric y).
+    usability_y_continuous: np.ndarray | None = None,
     prewarp_basis: str = "chebyshev",
     prewarp_max_degree: int = 4,
     # Minimum ratio (best-prewarp-MI / best-nonprewarp-MI) for the alternative
@@ -681,6 +692,19 @@ def check_prospective_fe_pairs(
                     _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
                     (_avail * _FE_BUFFER_RAM_BUDGET_RATIO) / 2**30 if _avail >= 0 else float("nan"),
                 )
+    # bench-attempt-rejected (2026-06-17): BLOCK-STREAMING the candidate buffer when the full
+    # per-pair buffer does not hoist (alloc a narrow N-col block buffer, flush materialise ->
+    # discretize_2d_quantile_batch -> batched-MI per block; route the 7 downstream
+    # ``final_transformed_vals[:, cfg]`` reads -- usability-corr, winner occupied-K, multi-emit,
+    # ext-val, survivor -- through a recompute helper). Implemented + VALIDATED bit-identical
+    # (block-on selection == per-column selection on the n=100k user fixture), but MEASURED SLOWER
+    # in every config: n=100k 4-core box, per-column fallback 103s vs block 119s (joblib default) /
+    # 192s (n_jobs=1). The per-block discretise+MI dispatch + the recompute of the downstream
+    # winner/leader columns outweigh the parallel-kernel gain, and the per-column fallback ALREADY
+    # RAM-bounds (one column at a time via ``_col_buf_1d``), so block-streaming adds no OOM benefit
+    # either. The genuine speed lever is the FULL single-buffer batch path (n=100k 54s when it hoists)
+    # firing more often, NOT blocking it. Do not re-attempt block-streaming for speed; if 1M-on-16GB
+    # ever needs it for RAM, gate it on n and re-bench against the per-column serial baseline first.
     # In the recompute-fallback path we need to look up the
     # ``(transformations_pair, bin_func_name)`` for any index ``i`` that
     # was assigned in the inner loop, so the validation + survivor-packing
@@ -820,7 +844,10 @@ def check_prospective_fe_pairs(
     # ``classes_y`` codes (still a usable monotone proxy) when no continuous target was threaded.
     _corr_y_cont = None
     try:
-        _cyc_src = prewarp_y_continuous if prewarp_y_continuous is not None else classes_y
+        _cyc_src = (
+            usability_y_continuous if usability_y_continuous is not None
+            else (prewarp_y_continuous if prewarp_y_continuous is not None else classes_y)
+        )
         _cyc = np.asarray(_cyc_src, dtype=np.float64).ravel()
         if _use_subsample and _cyc.shape[0] == _full_n_rows:
             _cyc = _cyc[_sample_idx]

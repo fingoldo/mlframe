@@ -140,7 +140,7 @@ from ..fleuret import (  # noqa: F401
     get_fleuret_criteria_confidence_parallel,
     parallel_fleuret,
 )
-from ..screen import postprocess_candidates, screen_predictors  # noqa: F401
+from ..screen import postprocess_candidates, screen_predictors, _preserve_global_numpy_rng_state  # noqa: F401
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -287,6 +287,21 @@ class MRMR(BaseEstimator, TransformerMixin):
             if _ss_cur is None or _fast_ss < int(_ss_cur):
                 saved["fe_check_pairs_subsample_n"] = _ss_cur
                 self.fe_check_pairs_subsample_n = _fast_ss
+        # UNIFIED detection subsample (2026-06-17): tie the per-family DETECTION caps that read env
+        # (currently the Fourier frequency detection) to the same fast-search subsample, so EVERY
+        # family's detection runs on the small sample while values/recipes still replay full-n. Saved
+        # under an ``__env__`` sentinel key; the fit's restore loop resets os.environ. Only SHRINK
+        # (never raise a user-set smaller cap). At large n this caps the Fourier z_tr (else ~200k) to
+        # the fast-search subsample -- bit-safe (detection-only; the recipe replays sin(2*pi*f*x) full-n).
+        _fast_ss2 = getattr(self, "fe_check_pairs_subsample_n", None)
+        if _fast_ss2:
+            import os as _os
+            for _envk in ("MLFRAME_FOURIER_DETECT_MAX_N",):
+                _cur_env = _os.environ.get(_envk, None)
+                _cur_val = int(_cur_env) if (_cur_env and _cur_env.strip().isdigit()) else 200_000
+                if int(_fast_ss2) < _cur_val:
+                    saved[f"__env__{_envk}"] = _cur_env
+                    _os.environ[_envk] = str(int(_fast_ss2))
         return saved
 
     def __init__(
@@ -3755,7 +3770,19 @@ class MRMR(BaseEstimator, TransformerMixin):
             except Exception:
                 _fast_search_saved = {}
         try:
-            result = self._fit_impl(X, y, groups, **fit_params)
+            # GLOBAL-RNG CONTAINMENT + SEED DETERMINISM (2026-06-17): a fit consumes process-global
+            # ``np.random`` in places no per-call Generator covers (cat-confirm permutation shuffles,
+            # the FE families' global shuffles, etc.). Two failures followed: (a) an UNSEEDED fit
+            # advanced the caller's MT19937 -> a second fit in the same process drifted (run-order
+            # flakiness under the xdist suite); (b) even a SEEDED fit (``random_seed`` set) was NON-
+            # deterministic in those global-RNG parts because nothing reseeded the process RNG, so the
+            # selection drifted run-to-run (e.g. the 5-class layer16 LogReg-macro-F1 gate flaked).
+            # Scope the WHOLE fit: when ``random_seed`` is set the block reseeds numpy/numba/cupy to it
+            # (the fit becomes reproducible) AND restores the caller's state on exit; ``None`` (no seed
+            # requested) restores only. A seeded fit is now deterministic + leak-free; an unseeded fit
+            # is leak-free with unchanged (entropy) behaviour.
+            with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
+                result = self._fit_impl(X, y, groups, **fit_params)
             try:
                 from mlframe.training.provenance import record_provenance as _record_provenance
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
@@ -3859,9 +3886,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                 pass
             # restore the fast-search profile overrides (constructor-arg stability).
             if _fast_search_saved:
+                import os as _os_restore
                 for _k, _v in _fast_search_saved.items():
                     try:
-                        setattr(self, _k, _v)
+                        if _k.startswith("__env__"):
+                            _envk = _k[len("__env__"):]
+                            if _v is None:
+                                _os_restore.environ.pop(_envk, None)
+                            else:
+                                _os_restore.environ[_envk] = _v
+                        else:
+                            setattr(self, _k, _v)
                     except Exception:
                         pass
             # restore any fe_*_enable flags fe_auto flipped ON, so the
