@@ -286,6 +286,16 @@ def cheap_row_argmax_scan(
 
     hits: list[ArgmaxHit] = []
     budget = int(max_triples)
+    # Iterate triples in a column-ORDER-INVARIANT sequence. C(p,3) far exceeds the
+    # ``max_triples`` budget for any realistic p, so the budget truncates the scan;
+    # if the triples were enumerated in raw input-column order, reversing the input
+    # columns would feed a DIFFERENT first-``budget`` set of triples into the pool,
+    # seed different argmax candidates, and change the downstream greedy selection
+    # (column-order-invariance contract break). Enumerating over the NAME-sorted
+    # column order makes the budgeted triple set identical under any input column
+    # permutation. ``hits`` is re-sorted by margin below, so per-hit output order is
+    # unaffected -- only WHICH triples survive the budget is made deterministic.
+    cols = sorted(cols, key=str)
     for tri in combinations(cols, 3):
         if budget <= 0:
             break

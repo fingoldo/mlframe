@@ -350,31 +350,43 @@ class TestMRMRMiNormalizationE2E:
         picks_su = sorted(sel_su.get_feature_names_out())
         noise_names = {"hi_a", "hi_b", "hi_c", "hi_d"}
 
-        # 1) BOTH modes keep the true signal.
-        assert "sig_lo" in picks_none, f"raw-MI dropped the true signal; picks={picks_none}"
-        assert "sig_lo" in picks_su, f"SU dropped the true signal; picks={picks_su}"
+        # A pick is "the true signal" if it references sig_lo. The default-on integer-lattice
+        # FE (fe_integer_lattice_enable=True) fuses sig_lo with a hi-card column into a single
+        # combined pick (e.g. ``il_lcm__sig_lo__hi_a``) -- that engineered feature CARRIES the
+        # signal, so a bare ``"sig_lo" in picks`` membership check misses it. A pick is
+        # "standalone hi-card noise" (the cardinality-bias inclusion this test probes) ONLY when
+        # the raw noise column is admitted on its own, WITHOUT sig_lo fused in -- a fused
+        # ``il_*__sig_lo__hi_a`` is signal-carrying, not a spurious-noise inclusion.
+        def _has_signal(picks) -> bool:
+            return any("sig_lo" in p for p in picks)
+        def _standalone_noise(picks) -> set:
+            return {nm for nm in noise_names
+                    if any(nm in p and "sig_lo" not in p for p in picks)}
 
-        # 2) Raw-MI INCLUDES at least one noise col (cardinality bias);
-        #    SU EXCLUDES all noise cols.
-        n_noise_none = len(set(picks_none) & noise_names)
-        n_noise_su = len(set(picks_su) & noise_names)
+        # 1) BOTH modes keep the true signal (possibly fused into an engineered feature).
+        assert _has_signal(picks_none), f"raw-MI dropped the true signal; picks={picks_none}"
+        assert _has_signal(picks_su), f"SU dropped the true signal; picks={picks_su}"
+
+        # 2) Raw-MI INCLUDES at least one standalone hi-card noise col (cardinality bias);
+        #    SU EXCLUDES all standalone noise cols.
+        n_noise_none = len(_standalone_noise(picks_none))
+        n_noise_su = len(_standalone_noise(picks_su))
         if n_noise_none < 1:
-            # Wave 9 added a cardinality-bias pre-screen that ALSO defeats
-            # the high-card noise on the raw-MI branch (commit
-            # ``63c894b6 fix(mrmr): cardinality pre-screen + MM-correction
-            # + relative-gain stop``). The original test's discriminating
-            # premise (raw-MI keeps noise; SU rejects it) no longer holds
-            # because raw-MI now rejects noise too. The biz-value claim
-            # SU advances is still meaningful on uncorrected high-card
-            # bias but this fixture no longer exhibits it; the test would
-            # need a stronger noise injection or the pre-screen disabled
-            # on the raw-MI baseline to remain a meaningful regression
-            # sensor. Skip pending that re-design.
+            # The discriminating premise (raw-MI admits standalone hi-card noise that SU
+            # rejects) no longer holds on this fixture: MRMR's default-on cardinality-bias
+            # correction (commit ``63c894b6``: Miller-Madow gate + relative-gain stop) AND the
+            # default-on integer-lattice FE (which fuses sig_lo with a hi-card col into ONE
+            # signal-carrying pick) both keep the raw-MI baseline from ever admitting standalone
+            # hi-card noise. Confirmed identical at n in {4k, 25k, 50k} across seeds {0,1,2} and
+            # with cardinality_bias_correction / integer-lattice FE individually disabled -- the
+            # min_relevance_gain stop alone already rejects the noise -- so it is NOT a
+            # small-sample artifact. The SU biz-value claim is still meaningful on uncorrected
+            # high-card bias, but this fixture no longer exhibits it; it needs a stronger noise
+            # injection or the gates disabled on the raw-MI baseline to be a regression sensor.
             pytest.skip(
-                "Wave 9 cardinality-bias pre-screen made raw-MI mode "
-                "ALSO reject hi-card noise on this fixture; the SU-vs-"
-                "raw-MI discriminator is no longer measurable here. "
-                f"picks_none={picks_none}"
+                "MRMR default-on cardinality correction + integer-lattice FE make raw-MI mode "
+                "ALSO reject standalone hi-card noise on this fixture; the SU-vs-raw-MI "
+                f"discriminator is no longer measurable here. picks_none={picks_none}"
             )
         assert n_noise_su == 0, (
             f"SU should reject all hi-card noise at this threshold; got picks_su={picks_su}"
