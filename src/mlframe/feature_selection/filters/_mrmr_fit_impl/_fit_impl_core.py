@@ -9119,6 +9119,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         try:
             from .._cmi_perm_stop import uaed_elbow
             gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
+            # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
+            # raw GREEDY log (one entry per confirmed greedy round) -- often SHORTER than n_features_ when
+            # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
+            # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
+            # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
+            # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
+            _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
+            if 0 < gains.size < _nf_uaed:
+                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
             if gains.size >= 3:
                 elbow = int(uaed_elbow(gains))
                 if 0 < elbow < gains.size and hasattr(self, "support_"):
