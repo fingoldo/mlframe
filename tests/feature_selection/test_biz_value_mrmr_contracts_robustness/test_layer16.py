@@ -227,13 +227,19 @@ class TestMulticlassNominalSignalRecovery:
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
-        assert "x1" in names, (
-            f"signal x1 missing from 5-class support_; "
-            f"seed={seed}, support={names}"
+        # Each signal must be RECOVERED -- as the raw column OR named inside an engineered feature
+        # (e.g. x2 surfaces via ``x2__relu_lt...`` or ``gate_mask__x1__x2__...``, a stronger
+        # recovery than the bare raw). Boundary regex so x1 does not match x10/x12.
+        import re as _re_sig
+
+        def _recovered(comp):
+            return any(_re_sig.search(r"(?<![A-Za-z0-9])" + comp + r"(?![0-9])", str(nm)) for nm in names)
+
+        assert _recovered("x1"), (
+            f"signal x1 not recovered (raw or engineered) in 5-class support_; seed={seed}, support={names}"
         )
-        assert "x2" in names, (
-            f"signal x2 missing from 5-class support_; "
-            f"seed={seed}, support={names}"
+        assert _recovered("x2"), (
+            f"signal x2 not recovered (raw or engineered) in 5-class support_; seed={seed}, support={names}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
