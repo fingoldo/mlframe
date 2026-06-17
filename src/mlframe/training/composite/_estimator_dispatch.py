@@ -50,11 +50,16 @@ def recommend_composite_estimator(pathologies: Sequence[str]) -> Optional[dict[s
 def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], **kwargs: Any):
     """Construct the recommended composite estimator from a ``recommend_composite_estimator`` dict (or None).
 
-    Imports ``recommendation["module"].recommendation["estimator"]`` and instantiates it with ``kwargs``
-    (e.g. the base regressor / transform). Returns ``None`` when ``recommendation`` is None so the caller
-    keeps its default estimator. This is the mechanical 'auto-swap'; the live wiring point is the strategy
-    layer that builds the per-model estimator -- it calls this with the verdict to opt into the specialised
-    estimator (gated by ``behavior_config.distribution_driven_estimator``).
+    Imports ``recommendation["module"].recommendation["estimator"]`` and instantiates it with ``kwargs``.
+    Returns ``None`` when ``recommendation`` is None so the caller keeps its default estimator.
+
+    IMPORTANT (proven empirically): ``TailCompositeEstimator`` and ``CompositeDistributionEstimator`` are
+    NOT generic drop-in regressors -- they wrap a ``CompositeTargetEstimator`` and REQUIRE a ``base_column``
+    (or ``base_columns``) kwarg; calling ``.fit(X, y)`` without one raises. So a live auto-swap to them is
+    inseparable from the composite-discovery base-selection flow (which picks the dominant base feature) --
+    it is a dedicated composite-integration step, not a strategy-layer estimator swap. Pass ``base_column=``
+    here when you have one. (``BaggedCompositeEstimator`` is the only base-free drop-in, but no analyzer
+    pathology currently recommends it.) The recommendation itself remains advisory until that integration.
     """
     if not recommendation:
         return None
