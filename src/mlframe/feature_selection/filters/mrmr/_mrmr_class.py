@@ -140,7 +140,7 @@ from ..fleuret import (  # noqa: F401
     get_fleuret_criteria_confidence_parallel,
     parallel_fleuret,
 )
-from ..screen import postprocess_candidates, screen_predictors  # noqa: F401
+from ..screen import postprocess_candidates, screen_predictors, _preserve_global_numpy_rng_state  # noqa: F401
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -3770,7 +3770,16 @@ class MRMR(BaseEstimator, TransformerMixin):
             except Exception:
                 _fast_search_saved = {}
         try:
-            result = self._fit_impl(X, y, groups, **fit_params)
+            # GLOBAL-RNG LEAK CONTAINMENT (2026-06-17): a fit consumes process-global ``np.random``
+            # in several places no per-call Generator covers (cat-confirm permutation shuffles, etc.),
+            # so an unseeded fit advanced the caller's global MT19937 and a second fit in the same
+            # process drifted (run-order flakiness under the xdist suite, e.g. the DCD pool-prune
+            # comparison). Scope the WHOLE fit in a snapshot/restore so the caller's global numpy RNG is
+            # byte-identical after fit() returns. ``None`` -> restore ONLY, never reseed: the fit's
+            # internal RNG behaviour is byte-unchanged (no shift of any pinned seeded-fit result); only
+            # the LEAK into the caller / the next fit is sealed.
+            with _preserve_global_numpy_rng_state(None):
+                result = self._fit_impl(X, y, groups, **fit_params)
             try:
                 from mlframe.training.provenance import record_provenance as _record_provenance
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
