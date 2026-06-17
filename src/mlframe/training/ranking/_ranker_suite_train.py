@@ -271,8 +271,11 @@ def train_mlframe_ranker_suite(
     # Also resolve the FTE's target_column for drops (the suite-level
     # ``target_name`` may be a different identifier from the dataframe column).
     fte_target_col_for_drop = getattr(features_and_targets_extractor, "target_column", None)
+    # ``_resolved_key`` is the ACTUAL relevance column name the y was read from -- the authoritative drop. FTEs that
+    # declare the target via typed lists (e.g. ``learning_to_rank_targets=[...]``) expose no ``target_column``, so
+    # without this the relevance column leaked into X and the rankers memorised it (perfect target leak).
     cols_to_drop_for_X = [
-        c for c in (group_col_name, target_name, fte_target_col_for_drop)
+        c for c in (group_col_name, target_name, fte_target_col_for_drop, _resolved_key)
         if c is not None
     ]
     if isinstance(df_features, pd.DataFrame):
@@ -368,6 +371,28 @@ def train_mlframe_ranker_suite(
             len(val_idx), len(np.unique(g_va)),
             len(test_idx), len(np.unique(g_te)),
         )
+
+    # -------------------------------------------------------------
+    # 2b. LTR-local feature selection (opt-in via LearningToRankConfig.feature_selection). Fits a standard MRMR on
+    # the TRAIN split's (features, graded relevance); every ranker then trains on the selected subset. The core MRMR
+    # procedures are NOT modified -- see ranking._ranker_fs (separate LTR-only orchestration).
+    # -------------------------------------------------------------
+    selected_features: Optional[list] = None
+    if ranking_config is not None and getattr(ranking_config, "feature_selection", False):
+        from ._ranker_fs import select_ltr_features
+
+        selected_features = select_ltr_features(
+            X_tr, y_tr, g_tr,
+            mrmr_kwargs=getattr(ranking_config, "fs_mrmr_kwargs", None),
+            group_aware_mi=bool(getattr(ranking_config, "fs_group_aware_mi", False)),
+            random_seed=random_seed, verbose=verbose,
+        )
+        if selected_features:
+            def _subset_cols(Xf):
+                return Xf.select(selected_features) if hasattr(Xf, "select") else Xf[selected_features]
+            X_tr, X_va, X_te = _subset_cols(X_tr), _subset_cols(X_va), _subset_cols(X_te)
+            if verbose:
+                logger.info("LTR feature selection: %d features selected for ranker training.", len(selected_features))
 
     # -------------------------------------------------------------
     # 3. Filter models + train each
@@ -879,6 +904,9 @@ def train_mlframe_ranker_suite(
         "cat_features": cat_features,
         "outlier_detection": None,
         "model_schemas": _model_schemas,
+        # LTR-local feature selection result (None when feature_selection was off): the raw columns the rankers
+        # were trained on. Mirrors the main suite's selected_features_ so downstream reports can see the FS subset.
+        "selected_features": selected_features,
     }
     if "ensemble" in models_dict:
         metadata["ensemble_test_metrics"] = models_dict["ensemble"]["test_metrics"]

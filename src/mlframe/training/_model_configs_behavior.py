@@ -517,6 +517,23 @@ class LearningToRankConfig(BaseConfig):
     pass user-pinned objectives through unchanged (will crash on
     mismatched format -- caller takes responsibility)."""
 
+    feature_selection: bool = False
+    """Opt-in MRMR feature selection for the LTR ranker suite. When True, an LTR-LOCAL selector
+    (``ranking._ranker_fs.select_ltr_features``) is fit on the TRAIN split's (features, graded relevance) and
+    every ranker trains on the selected subset. Default OFF -- it changes which features the rankers see, so it
+    is opt-in. The core MRMR procedures are NOT modified; this path runs a standard ``MRMR.fit`` with the
+    relevance label as the MI target (groups handled separately, see ``fs_group_aware_mi``)."""
+
+    fs_mrmr_kwargs: Optional[dict] = None
+    """Extra kwargs forwarded to the LTR feature-selection ``MRMR(...)`` constructor (e.g. ``use_simple_mode``,
+    ``quantization_nbins``, ``max_runtime_mins``). ``None`` -> a light, fast default preset."""
+
+    fs_group_aware_mi: bool = False
+    """When True, LTR feature selection ranks feature relevance with a SEPARATE group-aware mutual-information
+    estimator (per-query MI averaged across queries) instead of the pointwise relevance MI. This is an LTR-only
+    variant that does NOT touch the core (group-naive) MRMR MI; it pre-ranks features by group-aware relevance and
+    feeds the top set as a ``must_include`` shortlist to the standard MRMR pass. Default OFF (pointwise)."""
+
 
 class QuantileRegressionConfig(BaseConfig):
     """Configuration for ``QUANTILE_REGRESSION`` target dispatch.
