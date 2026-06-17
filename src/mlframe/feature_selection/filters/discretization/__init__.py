@@ -976,5 +976,6 @@ _DISCRETIZE_SPEC = kernel_tuner(
 
 from ._discretization_dataset import (  # noqa: E402,F401
     categorize_dataset,
+    clear_numeric_code_cache,
     create_redundant_continuous_factor,
 )

@@ -8,6 +8,7 @@ numeric-column kernels and missing-value handling in the parent module
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from typing import Sequence
@@ -32,6 +33,83 @@ def _discretize_input_dtype():
     if os.environ.get("MLFRAME_DISCRETIZE_FLOAT32", "").strip() in ("1", "true", "True"):
         return np.float32
     return np.float64
+
+
+# ---------------------------------------------------------------------------
+# Cross-instance per-column code cache for the UNSUPERVISED numeric path.
+# ---------------------------------------------------------------------------
+# Unsupervised binning (``nbins_strategy=None`` -> ``discretize_2d_array``) bins each numeric column
+# INDEPENDENTLY of every other column AND of the target, so a column's ordinal codes are a pure function of
+# (its values, n_bins, method, min_ncats, dtype). Across a suite that trains MANY targets on the SAME feature
+# frame, every feature column recurs byte-identically while only the (injected) target column is new, so
+# caching per-column codes lets the 2nd..Nth target reuse the feature codes and rebin only the target. The
+# cache is process-wide + LRU-bounded; keyed on a content hash so a hit is bit-identical BY CONSTRUCTION.
+# NOTE: deliberately NOT used on the supervised ``nbins_strategy`` path (mdlp/optimal_joint/...), where bins
+# depend on y -> a feature's codes differ per target and sharing would be WRONG. Disable via env if needed.
+from collections import OrderedDict as _OrderedDict  # noqa: E402
+
+_NUMERIC_CODE_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
+# Total bytes of cached column-code arrays to retain (column codes are n_rows*dtype; gate so a 100GB-frame
+# fit cannot pin unbounded RAM). Override via env. Default 512 MB.
+_NUMERIC_CODE_CACHE_MAX_BYTES = int(os.environ.get("MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES", str(512 * 1024 * 1024)))
+_NUMERIC_CODE_CACHE_BYTES = 0
+
+
+def clear_numeric_code_cache() -> int:
+    """Drop the process-wide per-column unsupervised-discretization code cache; returns the entry count cleared."""
+    global _NUMERIC_CODE_CACHE_BYTES
+    n = len(_NUMERIC_CODE_CACHE)
+    _NUMERIC_CODE_CACHE.clear()
+    _NUMERIC_CODE_CACHE_BYTES = 0
+    return n
+
+
+def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, discretize_2d_array):
+    """Per-column cached wrapper over ``discretize_2d_array`` for the unsupervised numeric path.
+
+    Bit-identical to ``discretize_2d_array(arr, ...)`` (each column is rebuilt by the SAME kernel on the
+    SAME values; only previously-seen columns are served from cache). Columns not yet cached are computed in
+    ONE batched ``discretize_2d_array`` call over the uncached sub-matrix, then memoised. Gated off when the
+    cache is disabled, the matrix is empty, or a single column's codes would exceed the byte budget.
+    """
+    global _NUMERIC_CODE_CACHE_BYTES
+    if os.environ.get("MLFRAME_DISCRETIZE_COL_CACHE", "1").strip() in ("0", "false", "False"):
+        return discretize_2d_array(arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
+    n_rows, n_cols = (arr.shape[0], arr.shape[1]) if arr.ndim == 2 else (arr.shape[0] if arr.ndim else 0, 0)
+    if n_cols == 0 or n_rows == 0:
+        return discretize_2d_array(arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
+
+    _param_tag = repr((int(n_bins), str(method), int(min_ncats), np.dtype(dtype).str)).encode()
+    keys: list = []
+    out = np.empty((n_rows, n_cols), dtype=dtype)
+    uncached_cols: list = []
+    for j in range(n_cols):
+        col = np.ascontiguousarray(arr[:, j])
+        h = hashlib.blake2b(col.tobytes(), digest_size=16)
+        h.update(_param_tag)
+        k = h.digest()
+        keys.append(k)
+        hit = _NUMERIC_CODE_CACHE.get(k)
+        if hit is not None and hit.shape[0] == n_rows:
+            out[:, j] = hit
+            _NUMERIC_CODE_CACHE.move_to_end(k)
+        else:
+            uncached_cols.append(j)
+
+    if uncached_cols:
+        sub = np.ascontiguousarray(arr[:, uncached_cols])
+        sub_codes = discretize_2d_array(arr=sub, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
+        _per_col_bytes = n_rows * np.dtype(dtype).itemsize
+        for _i, j in enumerate(uncached_cols):
+            col_codes = np.ascontiguousarray(sub_codes[:, _i])
+            out[:, j] = col_codes
+            if _per_col_bytes <= _NUMERIC_CODE_CACHE_MAX_BYTES:
+                _NUMERIC_CODE_CACHE[keys[j]] = col_codes
+                _NUMERIC_CODE_CACHE_BYTES += _per_col_bytes
+                while _NUMERIC_CODE_CACHE_BYTES > _NUMERIC_CODE_CACHE_MAX_BYTES and len(_NUMERIC_CODE_CACHE) > 1:
+                    _ek, _ev = _NUMERIC_CODE_CACHE.popitem(last=False)
+                    _NUMERIC_CODE_CACHE_BYTES -= _ev.shape[0] * _ev.dtype.itemsize
+    return out
 
 
 def create_redundant_continuous_factor(
@@ -181,9 +259,11 @@ def categorize_dataset(
                 data[:, j] = np.searchsorted(ej, arr[:, j].astype(np.float64),
                                               side="right").astype(dtype)
     else:
-        data = discretize_2d_array(
-            arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats,
-            min_values=None, max_values=None, dtype=dtype,
+        # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
+        # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.
+        data = _discretize_2d_array_col_cached(
+            arr, n_bins=n_bins, method=method, min_ncats=min_ncats, dtype=dtype,
+            discretize_2d_array=discretize_2d_array,
         )
 
     if _nan_mask is not None and _nan_mask.any():
