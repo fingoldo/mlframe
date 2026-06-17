@@ -416,31 +416,52 @@ def cheap_conditional_gate_scan(
             _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins)
         return _baseline_cache[key]
 
+    # BATCHED gate-MI (2026-06-17 perf): every (gate, operand-combo) builds a (n, n_tau) residue block
+    # and previously scored it with its OWN ``_mi_classif_batch`` call (686+ small calls -> per-call njit
+    # launch overhead + underfilled prange). The per-column MIs are INDEPENDENT, so we accumulate combos'
+    # blocks into a COLUMN-BUDGET-bounded buffer, score them in ONE batched call per chunk, then take each
+    # combo's argmax over its own slice. Bit-identical (same columns -> same MI -> same best_tau/best_mi;
+    # the per-best-j permutation null is unchanged). Column budget bounds peak memory at any n.
+    _GATE_MI_COL_BUDGET = 512
     hits: list[GateHit] = []
+    _pending: list = []   # (mode, cols_tuple, feats, taus, baseline_key)
+    _pending_cols = 0
+
+    def _flush():
+        nonlocal _pending, _pending_cols
+        if not _pending:
+            return
+        big = np.ascontiguousarray(np.concatenate([p[2] for p in _pending], axis=1))
+        all_mi = _gate_grid_mi(big, yi, nbins)
+        off = 0
+        for mode, ctup, feats, taus, bkey in _pending:
+            k = feats.shape[1]
+            grid = all_mi[off:off + k]; off += k
+            best_j = int(np.argmax(grid))
+            best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
+            baseline = _baseline(bkey)
+            null_hi = _perm_null_hi(feats[:, best_j], yi, nbins, seed=seed) if (best_mi - baseline) >= _MIN_MARGIN else float("inf")
+            hits.append(GateHit(mode, ctup, best_tau, best_mi, baseline, null_hi))
+        _pending = []; _pending_cols = 0
+
+    def _add(mode, ctup, feats, taus, bkey):
+        nonlocal _pending_cols
+        _pending.append((mode, ctup, feats, taus, bkey))
+        _pending_cols += feats.shape[1]
+        if _pending_cols >= _GATE_MI_COL_BUDGET:
+            _flush()
+
     for cgate in gate_cols:
         cv = arrs[cgate]
         taus = np.quantile(cv, _TAU_QUANTILES)
         others = [cn for cn in operand_cols if cn != cgate]
-        # bench-attempt-rejected (2026-06-13, iter53): hoisting the per-(gate, tau) threshold masks ``cv[:, None] > taus[None, :]``
-        # out of the operand loops (the comparison depends only on (cv, tau), not a / b, so the per-candidate recompute repeats it
-        # O(k_operand^2) times per gate) measured FLAT whole-call (~4069ms vs ~4070ms numpy-loop): the build is a small fraction of
-        # the MI-kernel-bound ~4s scan, so removing the redundant comparisons (+ the (n, 17) broadcast temporaries) nets no
-        # measurable win. The per-tau numpy loop stays. The scan wall is plug-in-MI-bound (already tuned), not build-bound.
         # mask: one active column a (cols = (a, c)); baseline over {a, c}.
         for a in others:
             av = arrs[a]
             feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
             for j, tau in enumerate(taus):
                 feats[:, j] = (cv > tau).astype(np.float64) * av
-            grid = _gate_grid_mi(feats, yi, nbins)
-            best_j = int(np.argmax(grid))
-            best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
-            baseline = _baseline((a, cgate))
-            if (best_mi - baseline) >= _MIN_MARGIN:
-                null_hi = _perm_null_hi(feats[:, best_j], yi, nbins, seed=seed)
-            else:
-                null_hi = float("inf")
-            hits.append(GateHit("mask", (a, cgate), best_tau, best_mi, baseline, null_hi))
+            _add("mask", (a, cgate), feats, taus, (a, cgate))
         # select: ordered (a, b), cols = (a, b, c); baseline over {a, b, c}.
         for a in others:
             for b in others:
@@ -450,15 +471,8 @@ def cheap_conditional_gate_scan(
                 feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
                 for j, tau in enumerate(taus):
                     feats[:, j] = np.where(cv > tau, av, bv)
-                grid = _gate_grid_mi(feats, yi, nbins)
-                best_j = int(np.argmax(grid))
-                best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
-                baseline = _baseline((a, b, cgate))
-                if (best_mi - baseline) >= _MIN_MARGIN:
-                    null_hi = _perm_null_hi(feats[:, best_j], yi, nbins, seed=seed)
-                else:
-                    null_hi = float("inf")
-                hits.append(GateHit("select", (a, b, cgate), best_tau, best_mi, baseline, null_hi))
+                _add("select", (a, b, cgate), feats, taus, (a, b, cgate))
+    _flush()
 
     # Canonical secondary key on (mode, operand names) so near-ties don't break by ranking/enumeration (column) order.
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
