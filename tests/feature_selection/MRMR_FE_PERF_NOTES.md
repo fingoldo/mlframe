@@ -130,3 +130,23 @@ To run 1M today: set `MLFRAME_DISCRETIZE_FLOAT32=1` (the other two are default-o
 eating 2GB commit had to be reclaimed during this work). DEEPER future cut (not needed for 1M now):
 float32 on the engineered candidate frame itself (the float64 X base), which needs the same
 binning-safety validation as the discretization lever.
+
+## 2026-06-17 -- 1M SPEED root cause (precise) + re-platform target
+
+After the analytic-null + GPU-off-switch fixes, a 300k fit is 695s (1M ~20min), dominated by:
+* orth-FE MI scoring `_plugin_mi_classif_batch_njit` 233s -- called 1171x in small per-family/per-gate
+  batches, so its `parallel=True` prange barely engages.
+* joblib internal sleep-poll 121s -- the FE pair search (`_run_fe_step` -> `parallel_run` ->
+  `compute_pairs_mis`) parallelizes over pair-CHUNKS via joblib `backend="threading"` (threading is
+  deliberate: loky would pickle the large X per worker -> memory blowup at large n). But
+  `compute_pairs_mis` runs a PYTHON per-pair loop calling `mi_direct` -> GIL-bound glue -> threading
+  does NOT parallelize it (1 core / ~12% CPU), and the main thread sleep-polls joblib (~0.01s x
+  thousands of small tasks).
+* conditional-gate-scan 51s + binned-agg 38s + binning sorts (partition/searchsorted/reduce) ~67s.
+
+RE-PLATFORM TARGET (the only path to true multi-core here): replace the Python-per-pair / per-family MI
+loops with ONE batched nogil-numba kernel over ALL pairs/candidates at once (no per-pair Python glue,
+no joblib layer), so a single prange uses every core WITHOUT the process-pickle memory cost that forced
+threading. Plus: batch the orth-FE MI scoring across families (one big (n, total_cands) call), and
+float32 the candidate frame (generation-stage RAM). This is the chosen full FE re-platform (todo #3);
+design at MRMR_FE_NUMBA_REPLATFORM_DESIGN.md, plan staged for per-phase bit-parity validation.
