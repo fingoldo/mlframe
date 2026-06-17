@@ -98,9 +98,11 @@ def test_calibration_post_final_models_dir_slugifies_all_components() -> None:
 
 def test_phase_finalize_ct_ensemble_dir_slugified() -> None:
     src = _read("training/core/_phase_finalize.py")
-    # Forbid raw _dir_name = _tname assignment in this CT-ENSEMBLE branch.
-    # The post-fix form keeps the literal prefix and slugifies the suffix.
-    assert '_dir_name = "_CT_ENSEMBLE__" + slugify(_tname[len("_CT_ENSEMBLE__"):])' in src
+    # Forbid raw _dir_name = _tname assignment in this CT-ENSEMBLE branch; the post-fix form keeps the literal
+    # prefix and slugifies the suffix. Whitespace-normalised so black's slice-colon spacing (``[len(...) :]``)
+    # does not break this security sensor.
+    _norm = src.replace(" ", "")
+    assert '_dir_name="_CT_ENSEMBLE__"+slugify(_tname[len("_CT_ENSEMBLE__"):])' in _norm
 
 
 def test_neural_base_default_root_dir_trust_contract_documented() -> None:

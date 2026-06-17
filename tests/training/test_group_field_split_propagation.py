@@ -64,9 +64,10 @@ class TestGroupFieldEndToEnd:
             df=df_out, timestamps=None, stratify_y=None,
             groups=group_ids,
             **cfg.model_dump(exclude={
-                "use_groups", "calib_size",
+                "use_groups", "calib_size", "conformal_size",
                 # config-only fields consumed in the phase-helper before the splitter
                 "composite_cardinality_cap", "bucket_stratify",
+                "time_column", "cv_strategy", "cv_purge",
             }),
         )
 
@@ -116,9 +117,10 @@ class TestGroupFieldEndToEnd:
             df=df_out, timestamps=None, stratify_y=None,
             groups=_groups,
             **cfg.model_dump(exclude={
-                "use_groups", "calib_size",
+                "use_groups", "calib_size", "conformal_size",
                 # config-only fields consumed in the phase-helper before the splitter
                 "composite_cardinality_cap", "bucket_stratify",
+                "time_column", "cv_strategy", "cv_purge",
             }),
         )
         # With use_groups=False the IID path is used; with 1000 rows

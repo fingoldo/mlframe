@@ -76,7 +76,6 @@ from ._main_train_suite_encoding import (  # noqa: F401
     _encode_string_multiclass_target,
 )
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
-from ._main_train_suite_target_distribution import _run_target_distribution_analyzer
 from ._main_train_suite_phases import (
     apply_module_global_patches,
     apply_polars_cat_fixes_and_back_write_ctx,
@@ -86,6 +85,7 @@ from ._main_train_suite_phases import (
     maybe_apply_composite_target_specs_precomputed,
     maybe_apply_dummy_baselines_precomputed,
     maybe_autoroute_autodetected_ltr,
+    run_distribution_analyzer_and_estimator_injection,
     run_recurrent_finalize_and_composite_post,
     validate_suite_inputs,
     warn_on_empty_target_by_type,
@@ -411,41 +411,13 @@ def train_mlframe_models_suite(
         "baseline_rss_mb", "calib_idx", "calib_details", "calib_df",
     ), locals())
 
-    # mini-HPT target distribution analyzer. Inspect the FIRST target of the
-    # most-prevalent type, log any detected pathologies, and merge gap-fill
-    # recommendations into hyperparams_config. The full report is stamped into
-    # metadata for downstream observability regardless of whether anything was merged.
-    hyperparams_config, train_df, val_df, test_df = _run_target_distribution_analyzer(
+    # mini-HPT target-distribution analyzer (+ optional E3 distribution-driven estimator injection).
+    hyperparams_config, train_df, val_df, test_df, mlframe_models = run_distribution_analyzer_and_estimator_injection(
         enable_target_distribution_analyzer=enable_target_distribution_analyzer,
-        target_by_type=target_by_type,
-        train_idx=train_idx,
-        group_ids=group_ids,
-        timestamps=timestamps,
-        train_df=train_df,
-        val_df=val_df,
-        test_df=test_df,
-        verbose=verbose,
-        metadata=metadata,
-        hyperparams_config=hyperparams_config,
-        behavior_config=behavior_config,
-        ctx=ctx,
+        target_by_type=target_by_type, train_idx=train_idx, group_ids=group_ids, timestamps=timestamps,
+        train_df=train_df, val_df=val_df, test_df=test_df, verbose=verbose, metadata=metadata,
+        hyperparams_config=hyperparams_config, behavior_config=behavior_config, mlframe_models=mlframe_models, ctx=ctx,
     )
-
-    # E3: when the analyzer flags a heavy-tail / skew / multi-modal regression target and the opt-in flag is set,
-    # append the recommended composite estimator (TailComposite / CompositeDistribution) to the model list so it is
-    # actually trained alongside the requested models. No-op when the flag is off or no recommendation fires.
-    from ..composite._estimator_dispatch import maybe_inject_distribution_driven_estimator
-
-    mlframe_models = maybe_inject_distribution_driven_estimator(
-        ctx=ctx,
-        metadata=metadata,
-        mlframe_models=mlframe_models,
-        target_by_type=target_by_type,
-        train_idx=ctx.train_idx,
-        train_df=train_df,
-        behavior_config=behavior_config,
-    )
-
 
     (
         train_df, val_df, test_df,

@@ -501,3 +501,31 @@ def maybe_autoroute_autodetected_ltr(
             features_and_targets_extractor=features_and_targets_extractor,
         )
     return None
+
+
+def run_distribution_analyzer_and_estimator_injection(
+    *, enable_target_distribution_analyzer, target_by_type, train_idx, group_ids, timestamps,
+    train_df, val_df, test_df, verbose, metadata, hyperparams_config, behavior_config, mlframe_models, ctx,
+):
+    """Run the target-distribution analyzer, then optionally inject the E3 distribution-driven composite estimator.
+
+    The analyzer inspects the most-prevalent target type, logs detected pathologies, and merges gap-fill
+    recommendations into ``hyperparams_config`` (full report stamped into ``metadata``). When the analyzer flags a
+    heavy-tail / skew / multi-modal regression target and ``behavior_config.distribution_driven_estimator`` is set,
+    the recommended composite estimator is appended to ``mlframe_models`` so it trains alongside the requested models.
+    Returns ``(hyperparams_config, train_df, val_df, test_df, mlframe_models)``.
+    """
+    from ._main_train_suite_target_distribution import _run_target_distribution_analyzer
+    from ..composite._estimator_dispatch import maybe_inject_distribution_driven_estimator
+
+    hyperparams_config, train_df, val_df, test_df = _run_target_distribution_analyzer(
+        enable_target_distribution_analyzer=enable_target_distribution_analyzer,
+        target_by_type=target_by_type, train_idx=train_idx, group_ids=group_ids, timestamps=timestamps,
+        train_df=train_df, val_df=val_df, test_df=test_df, verbose=verbose, metadata=metadata,
+        hyperparams_config=hyperparams_config, behavior_config=behavior_config, ctx=ctx,
+    )
+    mlframe_models = maybe_inject_distribution_driven_estimator(
+        ctx=ctx, metadata=metadata, mlframe_models=mlframe_models, target_by_type=target_by_type,
+        train_idx=ctx.train_idx, train_df=train_df, behavior_config=behavior_config,
+    )
+    return hyperparams_config, train_df, val_df, test_df, mlframe_models

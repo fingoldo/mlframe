@@ -58,10 +58,11 @@ def test_committed_doc_matches_generated():
         f"{_DOC_PATH} is missing; run "
         "`python scripts/gen_composite_config_reference.py`"
     )
-    # ``newline=""`` reads the file without translating CRLF so the comparison is
-    # exact against the explicit-CRLF content the generator emits.
-    committed = _DOC_PATH.read_text(encoding="utf-8", newline="")
-    generated = module.render_markdown()
+    # Compare CONTENT, not line endings: git may check the committed .md out as LF while the generator emits
+    # the platform EOL (CRLF on Windows). EOL is git's concern (.gitattributes), so normalise both sides -- this
+    # keeps the sensor cross-platform while still catching any real field/text drift.
+    committed = _DOC_PATH.read_text(encoding="utf-8", newline="").replace("\r\n", "\n")
+    generated = module.render_markdown().replace("\r\n", "\n")
     assert committed == generated, (
         "docs/composite_config_reference.md is out of date; run "
         "`python scripts/gen_composite_config_reference.py` and commit the result."

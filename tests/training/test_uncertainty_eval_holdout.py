@@ -93,8 +93,8 @@ def test_e2e_uncertainty_eval_stamped_in_suite(tmp_path):
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
     )
-    import json as _json
+    import orjson as _json
 
-    assert "uncertainty_eval" in metadata, "not stamped; dbg=" + _json.dumps(metadata.get("_ue_dbg", {}), default=str)
+    assert "uncertainty_eval" in metadata, "not stamped; dbg=" + _json.dumps(metadata.get("_ue_dbg", {}), default=str).decode()
     rep = next(iter(metadata["uncertainty_eval"].values()))
     assert "test" in rep and "spread_error_corr" in rep["test"] and "tta_rmse_gain" in rep["test"]
