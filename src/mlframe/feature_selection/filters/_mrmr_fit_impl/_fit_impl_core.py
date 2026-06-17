@@ -6950,6 +6950,48 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _sg_exc:
             logger.warning("MRMR fast-search standalone-gate prune skipped (%s); continuing.", type(_sg_exc).__name__)
 
+    # N-WAY SYNERGY SEEDING (2026-06-17). The greedy screen assembles features one-at-a-time by
+    # CONDITIONAL gain, which cannot climb a PURE-synergy gradient: on a 3-way XOR every operand has
+    # ~0 marginal AND ~0 conditional gain until ALL members are present, so the genuine {x0,x1,x2}
+    # interaction is never assembled (test_3way_screening, documented tracked-red whose specced fix is
+    # exactly this -- evaluate the n-way JOINT directly and surface it). When the user opted into n-way
+    # interactions (interactions_max_order>=2), evaluate candidate raw COMBOS by their MM-corrected
+    # JOINT MI vs the SUM of member marginals and SEED the members of combos showing strong synergy +
+    # clearing an absolute joint-MI floor. The Miller-Madow correction keeps a noise combo's joint MI
+    # ~0 (verified: on 3-way XOR among 5 noise vars ONLY {x0,x1,x2} fires), so noise is never seeded.
+    # Off when interactions_max_order<2 (the default) -> byte-identical there. Bounded combo
+    # enumeration (candidate + order caps) so wide-p fits stay tractable.
+    if int(getattr(self, "interactions_max_order", 1) or 1) >= 2 and len(selected_vars) >= 0:
+        try:
+            from .._fe_synergy_screen import detect_synergy_combos
+            _raw_set_syn = set(self.feature_names_in_)
+            _cand_syn = [i for i, _nm in enumerate(cols) if _nm in _raw_set_syn]
+            if 2 <= len(_cand_syn) <= 60:
+                _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
+                _code_cols_syn = {i: np.asarray(data[:, i]).astype(np.int64).ravel() for i in _cand_syn}
+                _combos_syn = detect_synergy_combos(
+                    _code_cols_syn, _yc_syn, _cand_syn,
+                    max_order=int(getattr(self, "interactions_max_order", 3) or 3),
+                    min_order=max(2, int(getattr(self, "interactions_min_order", 2) or 2)),
+                )
+                _sv_syn = set(selected_vars)
+                _seed_syn = []
+                for _combo_syn, _jmi_syn in _combos_syn:
+                    for _ci_syn in _combo_syn:
+                        if _ci_syn not in _sv_syn:
+                            _seed_syn.append(_ci_syn)
+                            _sv_syn.add(_ci_syn)
+                if _seed_syn:
+                    selected_vars = list(selected_vars) + _seed_syn
+                    if verbose:
+                        logger.info(
+                            "MRMR n-way synergy seeding: added %d raw operand(s) of synergy combo(s) the "
+                            "greedy could not assemble (joint MI >> sum of marginals): %s",
+                            len(_seed_syn), [cols[i] for i in _seed_syn],
+                        )
+        except Exception as _syn_exc:
+            logger.warning("MRMR n-way synergy seeding failed: %s; keeping support.", _syn_exc)
+
     # RAW-RETENTION (2026-06-03): re-add SCREENING-confirmed genuine raw features
     # that the post-FE re-selection dropped, UNLESS a SINGLE-PARENT engineered child
     # substitutes them (the prefer-engineered raw->transform swap, which is a

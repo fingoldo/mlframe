@@ -735,14 +735,15 @@ def _safe_div(x, y):
     wherever ``y != 0`` removes the perturbation entirely; the ``eps`` floor only
     ever substitutes for an exact-zero denominator (which the downstream
     ``nan_to_num`` scrub would otherwise map through +-inf)."""
+    # NOTE: this is njit-compiled via the binary-op registry, so it must stay numba-nopython
+    # compatible. A ``np.array(y, dtype=...)`` + ``np.putmask`` rewrite (bench-attempt-rejected
+    # 2026-06-17) was ~22% faster in PURE PYTHON but (a) numba rejects ``np.array`` on a READONLY
+    # input array and does not support ``np.putmask``, breaking compilation -> ``div`` silently
+    # unavailable in the FE sweep, and (b) the Python-level allocation saving is irrelevant once
+    # njit-compiled. ``np.asarray`` + ``np.where`` compile cleanly; keep them.
     eps = 1e-9
-    # ``np.array`` (not ``asarray``) guarantees an owned float64 copy so the in-place
-    # ``putmask`` cannot mutate a caller's float64 array; on the float32 FE buffer the
-    # upcast already copies. Bit-identical to ``np.where(y==0, eps, y)`` but skips
-    # np.where's extra output allocation -- ~22% faster per call (measured 1.92->1.50ms
-    # at n=100k), and this fires once per materialised candidate in the FE pair sweep.
-    safe_y = np.array(y, dtype=np.float64)
-    np.putmask(safe_y, safe_y == 0.0, eps)
+    y = np.asarray(y, dtype=np.float64)
+    safe_y = np.where(y == 0.0, eps, y)
     return np.asarray(x, dtype=np.float64) / safe_y
 
 
