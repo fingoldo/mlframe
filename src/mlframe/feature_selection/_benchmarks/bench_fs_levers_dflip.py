@@ -12,14 +12,15 @@ change any default by itself -- it only prints/saves the deltas. Run:
     python -m mlframe.feature_selection._benchmarks.bench_fs_levers_dflip            # full
     python -m mlframe.feature_selection._benchmarks.bench_fs_levers_dflip --quick    # 2 scenarios x 2 seeds
 
-Smoke run (--quick, 2 scenarios x 2 seeds, Ridge downstream) -- DIRECTIONAL ONLY, not a flip basis:
+Full run (--seeds 5, 3 scenarios, Ridge downstream; JSON: tests/perf/results/dflip_fs_levers.json):
   high_cardinality : all levers ~neutral (+/-0.0002).
-  synergistic_pair : jmim ALONE +0.436 R^2 (big); su ALONE +0.048; su+jmim COMBINED only +0.048
-                     -- i.e. the two interact NEGATIVELY: stacking su onto jmim forfeits jmim's win.
-This confirms the accuracy-first rule's premise: a per-lever win does NOT imply a combined-config win, so
-defaults must be chosen by the COMBINED greedy bench, never by independent per-lever deltas. No default is
-flipped on this smoke run; the full multi-seed campaign (and the combined-vs-leave-one-out comparison) is
-required before any flip, with the numbers recorded in CHANGELOG.
+  synergistic_pair : jmim ALONE +0.197 R^2; su ALONE -0.040 (HURTS); su+jmim COMBINED -0.018 (HURTS).
+  noisy_wide       : all levers ~neutral.
+VERDICT -> NO DEFAULT FLIP. su (mi_normalization) hurts on synergy and is neutral elsewhere; jmim wins only
+1/3 scenarios (never a majority, though it never hurts); su+jmim combined HURTS (su drags jmim down -- a
+real negative interaction). Per the accuracy-first rule (flip only on a COMBINED majority win) none qualify.
+The levers remain valuable OPT-INs (surfaced as first-class fields in D-surface); defaults are unchanged.
+Re-run this bench to re-validate before reconsidering any flip (REJECTED!=DELETED).
 """
 
 from __future__ import annotations
