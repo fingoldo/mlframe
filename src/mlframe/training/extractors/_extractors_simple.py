@@ -51,6 +51,9 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         Column names to use as regression targets.
     classification_targets : Iterable, optional
         Column names to use as classification targets.
+    learning_to_rank_targets : Iterable, optional
+        Column names of graded-relevance labels to use as LEARNING_TO_RANK targets. Pair with ``group_field`` (the
+        query-id column) so the suite forms per-query ranking blocks; without it ranking has no query grouping.
     classification_exact_values : dict, optional
         Dict mapping column names to exact values for binary classification.
         Example: {"status": 1} creates target "status_eq_1".
@@ -94,6 +97,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         #
         regression_targets: Optional[Iterable] = None,
         classification_targets: Optional[Iterable] = None,
+        learning_to_rank_targets: Optional[Iterable] = None,
         classification_exact_values: Optional[dict] = None,
         classification_lower_thresholds: Optional[dict] = None,
         classification_upper_thresholds: Optional[dict] = None,
@@ -123,6 +127,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
 
         self.regression_targets = regression_targets
         self.classification_targets = classification_targets
+        self.learning_to_rank_targets = learning_to_rank_targets
         # classification_thresholds is an alias for classification_lower_thresholds
         if classification_thresholds is not None and classification_lower_thresholds is None:
             classification_lower_thresholds = classification_thresholds
@@ -248,6 +253,22 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                 targets[col] = df[col]
                 self.columns_to_drop.add(col)
             target_by_type[TargetTypes.REGRESSION] = targets
+
+        if self.learning_to_rank_targets:
+            # Learning-to-rank: graded relevance labels (numeric). Query groups come from ``group_field`` (the
+            # base transform emits group_ids); without it the suite cannot form per-query ranking blocks, so warn.
+            if self.group_field is None:
+                logger.warning(
+                    "learning_to_rank_targets set but group_field is None: ranking has no query grouping, so the "
+                    "suite will treat every row as its own/one query. Pass group_field=<query-id column> for real LtR."
+                )
+            targets = {}
+            for col in self.learning_to_rank_targets:
+                if col not in df_columns:
+                    raise KeyError(f"Learning-to-rank target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
+                targets[col] = df[col]
+                self.columns_to_drop.add(col)
+            target_by_type[TargetTypes.LEARNING_TO_RANK] = targets
 
         # Apply allowed_targets filter (docstring promised feature, never implemented pre-fix).
         # When set, only keep target NAMES present in the set across every TargetTypes bucket.

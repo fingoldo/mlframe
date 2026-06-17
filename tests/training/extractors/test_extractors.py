@@ -772,3 +772,47 @@ def test_intize_targets_parametrized(series_kind):
     intize_targets(targets)
     assert isinstance(targets['t'], np.ndarray)
     assert targets['t'].dtype == np.int8
+
+
+class TestSimpleFeaturesAndTargetsExtractorLearningToRank:
+    """Tests for SimpleFeaturesAndTargetsExtractor LEARNING_TO_RANK targets (graded relevance + query groups)."""
+
+    def test_ltr_target_with_group_field(self):
+        """learning_to_rank_targets builds a LEARNING_TO_RANK target, drops the label column, and emits
+        per-query group_ids from group_field."""
+        extractor = SimpleFeaturesAndTargetsExtractor(
+            learning_to_rank_targets=['relevance'], group_field='qid',
+        )
+        df = pd.DataFrame({
+            'feature1': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            'relevance': [0, 2, 1, 3, 0, 4],
+            'qid': ['q1', 'q1', 'q1', 'q2', 'q2', 'q2'],
+        })
+
+        result = extractor.transform(df)
+        _, target_by_type, group_ids_raw, group_ids, _, _, cols_to_drop, _ = result
+
+        assert TargetTypes.LEARNING_TO_RANK in target_by_type
+        assert 'relevance' in target_by_type[TargetTypes.LEARNING_TO_RANK]
+        assert 'relevance' in cols_to_drop
+        # group_field drives query grouping (emitted as group_ids).
+        assert group_ids_raw is not None and group_ids is not None
+        assert len(np.unique(group_ids)) == 2  # q1, q2
+
+    def test_ltr_target_missing_column_raises(self):
+        """A declared LtR target column absent from the frame raises KeyError (mirrors regression/classification)."""
+        extractor = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=['relevance'], group_field='qid')
+        df = pd.DataFrame({'feature1': [1.0, 2.0], 'qid': ['a', 'b']})
+        with pytest.raises(KeyError):
+            extractor.transform(df)
+
+    def test_ltr_without_group_field_warns(self):
+        """learning_to_rank_targets without group_field warns (ranking has no query grouping) but still builds."""
+        extractor = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=['relevance'], verbose=1)
+        df = pd.DataFrame({'feature1': [1.0, 2.0, 3.0], 'relevance': [0, 1, 2]})
+        import warnings as _w
+        with _w.catch_warnings(record=True):  # warning is logged, not raised; just ensure no crash
+            result = extractor.transform(df)
+        _, target_by_type, _, group_ids, _, _, cols_to_drop, _ = result
+        assert TargetTypes.LEARNING_TO_RANK in target_by_type
+        assert group_ids is None  # no group_field -> no query grouping
