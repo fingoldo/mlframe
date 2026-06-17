@@ -99,3 +99,55 @@ def recalibration_rmse_gain(
     raw = _rmse(y_true_test, y_pred_test)
     recalibrated = _rmse(y_true_test, recal.transform(y_pred_test))
     return raw - recalibrated
+
+
+def cv2_recalibration_gain(y_pred_cal: np.ndarray, y_cal: np.ndarray, method: str = "isotonic") -> float:
+    """Honest 2-fold gain estimate WITHIN the calib slice (no extra holdout spent).
+
+    Fits ``g`` on each half and scores the other, averaging ``rmse(raw) - rmse(g(raw))`` -- so the
+    apply/skip decision never measures gain on the rows ``g`` was fit on (which would be optimistic).
+    Used as the ship-gate before applying recalibration to the model. Returns 0.0 when the slice is
+    too small to split.
+    """
+    yp = np.asarray(y_pred_cal, dtype=np.float64).reshape(-1)
+    yt = np.asarray(y_cal, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(yp) & np.isfinite(yt)
+    yp, yt = yp[finite], yt[finite]
+    n = yp.size
+    if n < 40:
+        return 0.0
+    mid = n // 2
+    g_a = PointRecalibrator(method).fit(yp[:mid], yt[:mid])
+    g_b = PointRecalibrator(method).fit(yp[mid:], yt[mid:])
+    gain_b = _rmse(yt[mid:], yp[mid:]) - _rmse(yt[mid:], g_a.transform(yp[mid:]))
+    gain_a = _rmse(yt[:mid], yp[:mid]) - _rmse(yt[:mid], g_b.transform(yp[:mid]))
+    return 0.5 * (gain_a + gain_b)
+
+
+class RecalibratedRegressor:
+    """Picklable wrapper that ships ``g(base.predict(X))`` -- the recalibrated predictor.
+
+    Holds the fitted base estimator + a fitted :class:`PointRecalibrator`; ``predict`` applies the
+    base model then the monotone map. Module-level (not a closure) so ``dill``/``pickle`` and
+    ``sklearn.clone`` round-trip. ``predict_proba`` is intentionally absent (regression only), which
+    also lets downstream code keep treating the entry as a regressor.
+    """
+
+    def __init__(self, base_model: object, recalibrator: PointRecalibrator) -> None:
+        self.base_model = base_model
+        self.recalibrator = recalibrator
+
+    def predict(self, X, *args, **kwargs) -> np.ndarray:
+        raw = np.asarray(self.base_model.predict(X, *args, **kwargs)).reshape(-1)
+        return self.recalibrator.transform(raw)
+
+    def __getattr__(self, name: str):
+        # Delegate unknown attributes (feature_names_in_, n_features_in_, ...) to the base model so the
+        # wrapper is a drop-in. Guard dunders + the pre-state-restore window during unpickling (when
+        # __dict__ has no base_model yet) so we raise AttributeError instead of recursing.
+        if name.startswith("__"):
+            raise AttributeError(name)
+        base = self.__dict__.get("base_model")
+        if base is None:
+            raise AttributeError(name)
+        return getattr(base, name)

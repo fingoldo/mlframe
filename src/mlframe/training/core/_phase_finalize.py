@@ -391,6 +391,79 @@ def _conformal_finalize_structure(ctx: "TrainingContext") -> str:
     )
 
 
+def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
+    """Apply a monotone point recalibration ``g(yhat)~=E[y|yhat]`` to regression models when it measurably helps.
+
+    Default OFF (opt-in): enabled by ``regression_calibration_config.point in {isotonic,linear}`` or the
+    ``MLFRAME_REGRESSION_RECALIBRATION`` env var. ``g`` is fit on the disjoint calib slice and applied ONLY
+    when a 2-fold-within-calib gain estimate beats ``min_gain`` (honest gate -- never apply a recalibration
+    that doesn't help). When applied, the model is wrapped (``ship = g(base.predict)``) and the cached
+    per-split predictions are re-stamped to the recalibrated values so the conformal pass (which runs after)
+    scores the SHIPPED predictor. Runs before ``_conformal_on_calib_slice``.
+    """
+    import os as _os
+
+    import numpy as _np
+
+    from .._regression_calibration import RecalibratedRegressor, cv2_recalibration_gain, fit_point_recalibrator
+
+    _cfg = getattr(ctx, "regression_calibration_config", None)
+    if _cfg is None:
+        _root = getattr(ctx, "configs", None)
+        _cfg = getattr(_root, "regression_calibration_config", None) if _root is not None else None
+    method = str(getattr(_cfg, "point", "off")) if _cfg is not None else "off"
+    _env = _os.environ.get("MLFRAME_REGRESSION_RECALIBRATION", "").strip().lower()
+    if _env in ("isotonic", "linear"):
+        method = _env
+    if method not in ("isotonic", "linear"):
+        return
+    min_gain = float(getattr(_cfg, "min_gain", 0.0)) if _cfg is not None else 0.0
+
+    def _arr(v):
+        if v is None:
+            return None
+        a = v.values if hasattr(v, "values") else v
+        a = _np.asarray(a, dtype=_np.float64).reshape(-1)
+        return a if a.size else None
+
+    applied: dict = {}
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+                if getattr(_e, "test_probs", None) is not None:  # regression only
+                    continue
+                cp = _arr(getattr(_e, "calib_preds", None))
+                ct = _arr(getattr(_e, "calib_target", None))
+                model = getattr(_e, "model", None)
+                if cp is None or ct is None or model is None or cp.size != ct.size:
+                    continue
+                gain = cv2_recalibration_gain(cp, ct, method)
+                if gain <= min_gain:
+                    continue
+                g = fit_point_recalibrator(cp, ct, method)
+                try:
+                    _e.model = RecalibratedRegressor(model, g)
+                except Exception as _wrap_err:
+                    logger.warning("[regression_recal] wrap failed for %s/%s: %s", _ttype, _tname, _wrap_err)
+                    continue
+                # Re-stamp cached preds to the SHIPPED (recalibrated) values so conformal + any later reader agree.
+                for _attr in ("test_preds", "val_preds", "train_preds", "oof_preds", "calib_preds"):
+                    _v = _arr(getattr(_e, _attr, None))
+                    if _v is not None:
+                        setattr(_e, _attr, g.transform(_v))
+                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                applied[f"{_ttype}/{_tname}/{_mn}"] = {"method": method, "cv2_gain": float(gain), "metrics_are_pre_recalibration": True}
+    if applied:
+        ctx.metadata["regression_recalibration"] = applied
+        if getattr(ctx, "verbose", 0):
+            logger.info("[regression_recal] applied monotone recalibration to %d regression model(s).", len(applied))
+
+
 def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     """Stamp regression conformal prediction intervals + achieved test coverage per per-target model.
 
@@ -648,6 +721,13 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _auto_calibrate_on_calib_slice(ctx)
     except Exception as _cal_err:
         logger.warning("[calib] auto-calibration pass failed: %s", _cal_err)
+
+    # Opt-in: apply monotone point recalibration to regression models (before conformal so it scores the
+    # recalibrated, shipped predictor). Default OFF; no-op unless explicitly enabled.
+    try:
+        _recalibrate_regression_on_calib_slice(ctx)
+    except Exception as _recal_err:
+        logger.warning("[regression_recal] finalize pass failed: %s", _recal_err)
 
     # Additive, best-effort: stamp regression conformal intervals + achieved test coverage into metadata.
     try:
