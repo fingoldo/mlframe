@@ -75,4 +75,73 @@ def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.nd
     return max(0.0, mi - mm)
 
 
-__all__ = ["joint_synergy_mi", "_renumber_joint_codes"]
+def _marginal_mm_mi(code_x: np.ndarray, target_codes: np.ndarray) -> float:
+    """MM-corrected marginal MI(code_x; target) in nats (>=0). Same estimator as the joint, on one var."""
+    cx = np.asarray(code_x).astype(np.int64).ravel()
+    yt = np.asarray(target_codes).astype(np.int64).ravel()
+    n = cx.shape[0]
+    if n == 0 or yt.shape[0] != n:
+        return 0.0
+    kx = int(cx.max()) + 1
+    ky = int(yt.max()) + 1
+    joint = np.zeros((kx, ky), dtype=np.float64)
+    np.add.at(joint, (cx, yt), 1.0)
+    joint /= n
+    px = joint.sum(axis=1)
+    py = joint.sum(axis=0)
+    nz = joint > 0
+    mi = float((joint[nz] * np.log(joint[nz] / (px[:, None] * py[None, :])[nz])).sum())
+    occ = int(nz.sum()); occx = int((px > 0).sum()); occy = int((py > 0).sum())
+    return max(0.0, mi - (occx - 1 + occy - 1 - (occ - 1)) / (2.0 * n))
+
+
+def detect_synergy_combos(
+    code_cols, target_codes: np.ndarray, candidate_idx, *,
+    max_order: int = 3, min_order: int = 2, synergy_ratio: float = 1.5,
+    min_joint_mi: float = 0.05, max_candidates: int = 24, max_combos: int = 4000,
+):
+    """Find feature COMBOS whose JOINT MI with the target greatly exceeds the SUM of their members'
+    marginal MIs -- i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
+    joint high). Returns ``[(combo_tuple, joint_mi), ...]`` sorted by joint MI desc, for combos with
+    ``joint_mi >= min_joint_mi`` AND ``joint_mi >= synergy_ratio * sum(member marginals)``.
+
+    ``code_cols`` is an indexable of per-feature integer code arrays; ``candidate_idx`` the feature
+    indices to consider. Candidates are capped to the ``max_candidates`` highest MARGINAL MI first to
+    bound the O(P^order) combo count (a pure-synergy member has ~0 marginal, so we KEEP low-marginal
+    candidates too: rank puts high-marginal first but we always include up to the cap). The MM bias
+    correction keeps a noise combo's joint MI near zero, so the synergy ratio does not fire on noise."""
+    import itertools as _it
+    idx = list(candidate_idx)
+    if len(idx) < min_order:
+        return []
+    _marg = {i: _marginal_mm_mi(code_cols[i], target_codes) for i in idx}
+    # Cap: keep the strongest-marginal candidates PLUS (synergy needs low-marginal members) fill the
+    # remaining cap slots with the lowest-marginal ones so pure-XOR operands are not excluded.
+    if len(idx) > max_candidates:
+        _by = sorted(idx, key=lambda i: -_marg[i])
+        idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2):]
+        idx = sorted(set(idx))
+    out = []
+    _seen = 0
+    for _order in range(max(2, int(min_order)), int(max_order) + 1):
+        for combo in _it.combinations(idx, _order):
+            _seen += 1
+            if _seen > max_combos:
+                break
+            _jc = code_cols[combo[0]]
+            for _c in combo[1:]:
+                _jc, _ = _renumber_joint_codes(_jc, code_cols[_c])
+            # joint MI of the renumbered combo cell-codes vs the target (MM-corrected).
+            _jmi = _marginal_mm_mi(_jc, target_codes)
+            if _jmi < min_joint_mi:
+                continue
+            _msum = sum(_marg[c] for c in combo)
+            if _jmi >= synergy_ratio * max(_msum, 1e-12):
+                out.append((combo, _jmi))
+        if _seen > max_combos:
+            break
+    out.sort(key=lambda t: -t[1])
+    return out
+
+
+__all__ = ["joint_synergy_mi", "_renumber_joint_codes", "detect_synergy_combos", "_marginal_mm_mi"]
