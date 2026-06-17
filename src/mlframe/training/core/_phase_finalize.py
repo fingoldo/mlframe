@@ -476,7 +476,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     """
     import numpy as _np
 
-    from .._conformal_finalize import conformal_regression_report
+    from .._conformal_finalize import conformal_classification_report, conformal_regression_report
 
     _cfg = getattr(ctx, "conformal_config", None)
     if _cfg is None:
@@ -486,6 +486,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
         return
     alphas = tuple(getattr(_cfg, "alphas", (0.1, 0.2))) if _cfg is not None else (0.1, 0.2)
     score = str(getattr(_cfg, "score", "normalized")) if _cfg is not None else "normalized"
+    cls_mode = str(getattr(_cfg, "classification_mode", "sets_lac")) if _cfg is not None else "sets_lac"
     structure = _conformal_finalize_structure(ctx)
 
     def _arr(v):
@@ -493,6 +494,12 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
             return None
         a = v.values if hasattr(v, "values") else v
         a = _np.asarray(a, dtype=_np.float64).reshape(-1)
+        return a if a.size else None
+
+    def _raw1d(v):
+        if v is None:
+            return None
+        a = _np.asarray(v.values if hasattr(v, "values") else v).reshape(-1)
         return a if a.size else None
 
     out: dict = {}
@@ -504,8 +511,42 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
                 continue
             for _i, _entry in enumerate(_entries):
                 _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
-                # Classification entries carry test_probs -> conformal sets / Venn-Abers are a later increment; skip here.
+                # Classification entries carry test_probs -> conformal prediction SETS (LAC/APS) from the calib probs.
                 if getattr(_e, "test_probs", None) is not None:
+                    if cls_mode == "off":
+                        continue
+                    _cp = getattr(_e, "calib_probs", None)
+                    _ct = _raw1d(getattr(_e, "calib_target", None))
+                    _tt = _raw1d(getattr(_e, "test_target", None))
+                    if _cp is None or _ct is None or _tt is None:
+                        continue
+                    _tp = _np.asarray(getattr(_e, "test_probs", None), dtype=_np.float64)
+                    _cp = _np.asarray(_cp, dtype=_np.float64)
+                    if _tp.ndim != 2 or _cp.ndim != 2 or _tp.shape[1] != _cp.shape[1]:
+                        continue
+                    _classes = getattr(getattr(_e, "model", None), "classes_", None)
+                    if _classes is None:
+                        _classes = _np.unique(_np.concatenate([_ct, _tt]))
+                    _classes = _np.asarray(_classes)
+                    if _classes.size != _tp.shape[1]:
+                        continue
+                    _cset_score = "aps" if "aps" in cls_mode else "lac"
+                    try:
+                        _rep = conformal_classification_report(
+                            test_probs=_tp,
+                            test_target=_tt,
+                            calib_probs=_cp,
+                            calib_target=_ct,
+                            classes=_classes,
+                            alphas=alphas,
+                            score=_cset_score,
+                            structure=structure,
+                        )
+                    except Exception as _cls_err:
+                        logger.warning("[conformal] classification sets failed for %s/%s: %s", _ttype, _tname, _cls_err)
+                        continue
+                    _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                    out[f"{_ttype}/{_tname}/{_mn}"] = _rep
                     continue
                 y_pred_test = _arr(getattr(_e, "test_preds", None))
                 y_true_test = _arr(getattr(_e, "test_target", None))

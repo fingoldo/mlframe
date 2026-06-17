@@ -154,6 +154,82 @@ def coverage_report(
     return rep
 
 
+def conformal_classification_report(
+    *,
+    test_probs: np.ndarray,
+    test_target: np.ndarray,
+    calib_probs: np.ndarray,
+    calib_target: np.ndarray,
+    classes: np.ndarray,
+    alphas: Sequence[float] = (0.1,),
+    score: str = "lac",
+    structure: SplitStructure = "iid",
+) -> dict[str, Any]:
+    """Split-conformal prediction SETS for classification with finite-sample marginal coverage >= 1-alpha.
+
+    ``score="lac"`` (least-ambiguous): nonconformity = ``1 - p(true|x)`` -> smallest sets. ``score="aps"``
+    (adaptive): cumulative sorted-softmax mass up to the true label -> better conditional coverage, larger
+    sets. Calibrated on the disjoint calib slice; coverage = fraction of test rows whose true label is in
+    the predicted set, plus mean set size (efficiency). Reuses the standalone ``conformal_set_threshold``.
+    """
+    from .composite.conformal_classification import conformal_set_threshold
+
+    cp = np.asarray(calib_probs, dtype=np.float64)
+    tp = np.asarray(test_probs, dtype=np.float64)
+    classes = np.asarray(classes)
+    k = classes.size
+    if cp.ndim != 2 or tp.ndim != 2 or cp.shape[1] != k or tp.shape[1] != k:
+        raise ValueError(f"probs must be (n, {k}) to match {k} classes; got calib {cp.shape}, test {tp.shape}")
+    cls_index = {c: i for i, c in enumerate(classes.tolist())}
+    cal_true = np.array([cls_index.get(c, -1) for c in np.asarray(calib_target).tolist()])
+    test_true = np.array([cls_index.get(c, -1) for c in np.asarray(test_target).tolist()])
+    valid = cal_true >= 0
+    cp, cal_true = cp[valid], cal_true[valid]
+
+    def _aps_scores(probs: np.ndarray, true_idx: np.ndarray) -> np.ndarray:
+        order = np.argsort(-probs, axis=1)
+        sorted_p = np.take_along_axis(probs, order, axis=1)
+        csum = np.cumsum(sorted_p, axis=1)
+        rank_of_true = np.argmax(order == true_idx[:, None], axis=1)
+        return csum[np.arange(probs.shape[0]), rank_of_true]
+
+    if score == "aps":
+        cal_scores = _aps_scores(cp, cal_true)
+    else:
+        cal_scores = 1.0 - cp[np.arange(cp.shape[0]), cal_true]
+
+    per_alpha: dict[float, dict[str, float]] = {}
+    for a in alphas:
+        thr = conformal_set_threshold(cal_scores, float(a))
+        if score == "aps":
+            order = np.argsort(-tp, axis=1)
+            sorted_p = np.take_along_axis(tp, order, axis=1)
+            csum = np.cumsum(sorted_p, axis=1)
+            in_set_sorted = csum <= thr
+            in_set_sorted[:, 0] = True  # always keep the top label (non-empty set)
+            in_set = np.zeros_like(in_set_sorted)
+            np.put_along_axis(in_set, order, in_set_sorted, axis=1)
+        else:
+            in_set = (1.0 - tp) <= thr
+            in_set[np.arange(tp.shape[0]), np.argmax(tp, axis=1)] = True  # non-empty fallback
+        covered = in_set[np.arange(tp.shape[0]), test_true] & (test_true >= 0)
+        per_alpha[float(a)] = {
+            "nominal_coverage": float(1.0 - a),
+            "achieved_coverage": float(np.mean(covered)),
+            "mean_set_size": float(np.mean(in_set.sum(axis=1))),
+        }
+    return {
+        "method": "conformal_set",
+        "score": score,
+        "structure": structure,
+        "guarantee": "marginal>=1-alpha",
+        "split_conformal_valid_for_structure": conformal_supports_split_guarantee(structure),
+        "alphas": [float(a) for a in alphas],
+        "n_classes": int(k),
+        "per_alpha": per_alpha,
+    }
+
+
 def conformal_regression_report(
     *,
     y_pred_test: np.ndarray,
