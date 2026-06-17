@@ -789,6 +789,18 @@ def configure_training_params(
     # Add linear models (already filtered to only needed ones)
     models_params.update(linear_model_params)
 
+    # Generic estimator-instance path. Beyond the built-in string tags (cb/lgb/xgb/hgb/mlp/ngb/linear),
+    # ``mlframe_models`` may carry sklearn-compatible estimator INSTANCES or ``(name, estimator)`` tuples
+    # (``get_strategy`` already dispatches both, MRO-based). The per-target loop keys ``models_params`` and
+    # ``strategy_by_model`` by the entry object / ``id()``, so the entry itself is the key here. Mirror the
+    # minimal linear params shape (``dict(model=...)``); the training body reads every other key via ``.get``.
+    if mlframe_models:
+        for _entry in mlframe_models:
+            if isinstance(_entry, str):
+                continue
+            _est = _entry[1] if (isinstance(_entry, tuple) and len(_entry) == 2) else _entry
+            models_params[_entry] = dict(model=metamodel_func(_est))
+
     return (
         common_params,
         models_params,

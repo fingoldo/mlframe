@@ -75,6 +75,11 @@ class TrainingBehaviorConfig(BaseConfig):
     # model-ready transformed test frame (live in the per-target body) and stamp metrics into
     # metadata["uncertainty_eval"] (TTA-vs-point RMSE, spread<->error corr). Numeric features only; default OFF.
     uncertainty_eval: bool = False
+    # Opt-in (E3): when the target-distribution analyzer flags a heavy-tail / skew / multi-modal target, train the
+    # matching composite estimator (TailComposite / CompositeDistribution) alongside the requested models so it is
+    # actually fit/evaluated, not merely advised. Regression-only; the base column is auto-picked (max |corr| to y).
+    # Default OFF -- it adds one extra model per regression target. Requires ``enable_target_distribution_analyzer``.
+    distribution_driven_estimator: bool = False
     prefer_cpu_for_lightgbm: bool = True
     prefer_cpu_for_xgboost: bool = False
     prefer_calibrated_classifiers: bool = True

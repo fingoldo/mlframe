@@ -251,7 +251,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         _total_models_in_run = len(sorted_models)
         _model_idx_in_run = 0
         _break_model_loop = False
-        for mlframe_model_name in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
+        for _model_entry in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
+            # ``_model_entry`` is the raw mlframe_models entry (string tag, estimator instance, or
+            # ``(name, estimator)`` tuple) -- it is the key into ``models_params`` / ``strategy_by_model``.
+            # ``mlframe_model_name`` is the human/string label used everywhere a string is required
+            # (model_category, file names, logging, ``== "mlp"`` gates); for string tags the two coincide.
+            if isinstance(_model_entry, tuple) and len(_model_entry) == 2 and isinstance(_model_entry[0], str):
+                mlframe_model_name = _model_entry[0]
+            elif isinstance(_model_entry, str):
+                mlframe_model_name = _model_entry
+            else:
+                mlframe_model_name = type(_model_entry).__name__
             if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config):
                 continue
             # Extreme-AR + group-aware MLP skip (mirrors the composite-
@@ -366,7 +376,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     _ram_gb_now,
                 )
 
-            if mlframe_model_name not in models_params:
+            if _model_entry not in models_params:
                 logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                 continue
 
@@ -380,11 +390,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             _restore_dataset_reuse_cache(
                 ctx,
                 mlframe_model_name,
-                models_params[mlframe_model_name]["model"],
+                models_params[_model_entry]["model"],
                 pp_name=pre_pipeline_name,
             )
 
-            strategy = strategy_by_model[id(mlframe_model_name)]
+            strategy = strategy_by_model[id(_model_entry)]
 
             # Drop pre-pipeline Polars originals as soon as we hit the first non-Polars strategy. The
             # post-iteration release fires only on tier transitions, but same-tier siblings (e.g. XGB and
@@ -725,7 +735,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # different trained model stored separately in models[type][target]; without per-iteration
                 # cloning all in-memory entries would alias to the same last-trained sklearn object and
                 # only the .dump snapshots would be correct. Do NOT move clone() outside the loop.
-                original_model = models_params[mlframe_model_name]["model"]
+                original_model = models_params[_model_entry]["model"]
                 cloned_model, _ngb_fallback_snapshot = _clone_model_with_sticky_flags(
                     original_model=original_model,
                     _cached_init_params=_cached_init_params,
@@ -755,7 +765,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 if target_type.is_multi_target_regression:
                     from mlframe.training.strategies import get_strategy
 
-                    _mtr_strategy = get_strategy(mlframe_model_name)
+                    _mtr_strategy = get_strategy(_model_entry)
                     _mtr_obj_kwargs = _mtr_strategy.get_multi_target_objective_kwargs()
                     if _mtr_obj_kwargs:
                         try:
@@ -775,7 +785,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                                 setattr(cloned_model, _k, _v)
                     cloned_model = _mtr_strategy.wrap_multi_target(cloned_model)
 
-                current_model_params = models_params[mlframe_model_name].copy()
+                current_model_params = models_params[_model_entry].copy()
                 current_model_params["model"] = cloned_model
 
                 # CatBoost is the only Polars-native consumer that accepts cat_features / text_features / embedding_features at fit time; XGB and HGB

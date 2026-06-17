@@ -431,6 +431,21 @@ def train_mlframe_models_suite(
         ctx=ctx,
     )
 
+    # E3: when the analyzer flags a heavy-tail / skew / multi-modal regression target and the opt-in flag is set,
+    # append the recommended composite estimator (TailComposite / CompositeDistribution) to the model list so it is
+    # actually trained alongside the requested models. No-op when the flag is off or no recommendation fires.
+    from ..composite._estimator_dispatch import maybe_inject_distribution_driven_estimator
+
+    mlframe_models = maybe_inject_distribution_driven_estimator(
+        ctx=ctx,
+        metadata=metadata,
+        mlframe_models=mlframe_models,
+        target_by_type=target_by_type,
+        train_idx=ctx.train_idx,
+        train_df=train_df,
+        behavior_config=behavior_config,
+    )
+
 
     (
         train_df, val_df, test_df,

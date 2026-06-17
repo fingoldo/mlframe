@@ -449,8 +449,16 @@ def is_tree_model(model_name: str) -> bool:
     return model_name.lower() in TREE_MODEL_TYPES
 
 
-def is_neural_model(model_name: str) -> bool:
-    """Check if a model name corresponds to a neural network model."""
+def is_neural_model(model_name) -> bool:
+    """Check if a model entry corresponds to a neural network model.
+
+    Accepts a string tag, a ``(name, estimator)`` tuple, or an estimator instance; only string tags
+    map to the built-in neural families, so non-string entries (generic sklearn estimators) are never neural.
+    """
+    if isinstance(model_name, tuple) and len(model_name) == 2 and isinstance(model_name[0], str):
+        model_name = model_name[0]
+    if not isinstance(model_name, str):
+        return False
     return model_name.lower() in NEURAL_MODEL_TYPES
 
 
