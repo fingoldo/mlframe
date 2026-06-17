@@ -7129,6 +7129,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 len(_dropped_redundant), _dropped_redundant,
             )
 
+
     # ADAPTIVE-FOURIER PROTECTION (2026-06-03): re-add held-out-validated
     # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
     # already confirmed the column's dominant frequency on a held-out slice;
@@ -7993,6 +7994,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # columns come from the recipes list. n_features_ counts BOTH (see assignment below).
     selected_vars = original_indices
 
+    # PSEUDO-REMIX OPERAND RE-ADD (2026-06-17). A surviving conditional-gate / binned-numeric-agg /
+    # row-argmax composite (``gate_mask__a__b`` / ``binagg_*(c|qbin(a))`` / ``argmax__a__b``) is a LOSSY
+    # threshold/binning re-mix of its raw operands: it survived because it captures the INTERACTION, but
+    # it destroys each operand's continuous value that a LINEAR downstream needs (measured: a 5-class
+    # LogReg scored macro-F1 0.62 when x2 lived ONLY inside ``gate_mask__x1__x2`` vs >0.70 with raw x2
+    # restored). The operands typically have WEAK MARGINAL MI (signal is in the joint), so the screen /
+    # marginal retention never surface them. When a CO-operand is ALREADY in the raw support (e.g. x1
+    # selected beside ``gate_mask__x1__x2``) the composite is a vouched genuine multi-source interaction,
+    # so restore the other raw operand(s). Runs here (engineered roster + raw support both final). A
+    # single-operand self-gate gets no vouch; a noise-paired gate has low joint MI and rarely survives.
     # PASSTHROUGH RE-ATTACH. Embedding/text columns excluded from the MI screen above are re-added to the selected set so transform() emits them unchanged. Their
     # indices are looked up in ``feature_names_in_`` (which includes them, in original order). Appended AFTER the screen so they never participate in MI/redundancy
     # but always survive to the estimator (the learnable-embedding network + boundary encoder consume them).
@@ -8331,20 +8342,33 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # column into a cluster ANCHORED by such a pseudo-remix BUILT FROM that raw and strips the raw as
     # a "member", a genuine private term is lost (test_private_raw_a_kept: raw ``a`` with a dominant
     # ``10*a`` term clustered under ``gate_mask__a__b`` and dropped). Mirror the redundancy gate's
-    # ``_is_pseudo_remix_child`` exclusion here: never strip a raw whose cluster anchor is a
-    # pseudo-remix of that raw. Engineered members + genuine (non-pseudo) aggregate members are
-    # untouched, so byte-identical when no pseudo-anchored raw member exists.
+    # ``_is_pseudo_remix_child`` exclusion here: never strip a RAW column that the cluster pairs with
+    # a pseudo-remix BUILT FROM that raw, in EITHER direction --
+    #   (A) pseudo-remix ANCHOR + raw-source MEMBER  (``gate_mask__a__b`` anchors raw ``a``); or
+    #   (B) raw ANCHOR + pseudo-remix MEMBER of it    (``x2`` anchors ``gate_mask__x2__x1``).
+    # The lossy gate/binagg/argmax cannot carry the raw's continuous value a LINEAR downstream needs
+    # (measured: a 5-class LogReg macro-F1 0.62 when x2 was stripped as such a cluster anchor vs >0.70
+    # protected; and the test_private_raw_a_kept ``10*a`` case for direction A). Engineered members +
+    # genuine (non-pseudo) aggregate members are untouched -> byte-identical when no such pairing exists.
     if _ca_final_excl and isinstance(_cm_final, dict):
         from .._fe_raw_redundancy_drop import _is_pseudo_remix_child, _PSEUDO_SRC_SPLIT
         _raw_names_ca = set(self.feature_names_in_)
         _protect_ca = set()
         for _anchor, _members in _cm_final.items():
-            if not _is_pseudo_remix_child(str(_anchor)):
-                continue
-            _anchor_raw_srcs = {t for t in _PSEUDO_SRC_SPLIT.split(str(_anchor)) if t in _raw_names_ca}
-            for _m in (_members or []):
-                if _m in _raw_names_ca and _m in _anchor_raw_srcs:
-                    _protect_ca.add(_m)
+            _a = str(_anchor)
+            _mlist = [str(_m) for _m in (_members or [])]
+            # (A) pseudo-remix anchor -> protect any raw member that is one of its sources.
+            if _is_pseudo_remix_child(_a):
+                _anchor_raw_srcs = {t for t in _PSEUDO_SRC_SPLIT.split(_a) if t in _raw_names_ca}
+                for _m in _mlist:
+                    if _m in _raw_names_ca and _m in _anchor_raw_srcs:
+                        _protect_ca.add(_m)
+            # (B) raw anchor -> protect it when a member is a pseudo-remix built from that raw.
+            if _a in _raw_names_ca:
+                for _m in _mlist:
+                    if _is_pseudo_remix_child(_m) and _a in set(_PSEUDO_SRC_SPLIT.split(_m)):
+                        _protect_ca.add(_a)
+                        break
         if _protect_ca:
             _ca_final_excl -= _protect_ca
     if _ca_final_excl and selected_vars:
