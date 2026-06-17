@@ -160,6 +160,7 @@
   "feature_selection/filters/_extra_fe_families.py::hybrid_rankgauss_fe",
   "feature_selection/filters/_extra_fe_families.py::hybrid_rare_category_fe",
   "feature_selection/filters/_fe_raw_redundancy_drop.py::drop_redundant_raw_operands",
+  "feature_selection/filters/_fe_synergy_screen.py::detect_synergy_combos",
   "feature_selection/filters/_feature_engineering_pairs/_pairs_core.py::check_prospective_fe_pairs",
   "feature_selection/filters/_gpu_pairs.py::mi_direct_gpu_batched_pairs",
   "feature_selection/filters/_group_distance_fe.py::build_group_distance_recipe",

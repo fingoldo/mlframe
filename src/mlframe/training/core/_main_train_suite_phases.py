@@ -504,9 +504,10 @@ def maybe_autoroute_autodetected_ltr(
 
 
 def run_distribution_analyzer_and_estimator_injection(
-    *, enable_target_distribution_analyzer, target_by_type, train_idx, group_ids, timestamps,
-    train_df, val_df, test_df, verbose, metadata, hyperparams_config, behavior_config, mlframe_models, ctx,
-):
+    *, enable_target_distribution_analyzer: bool, target_by_type: Any, train_idx: Any, group_ids: Any,
+    timestamps: Any, train_df: Any, val_df: Any, test_df: Any, verbose: Any, metadata: dict,
+    hyperparams_config: Any, behavior_config: Any, mlframe_models: list, ctx: Any,
+) -> tuple:
     """Run the target-distribution analyzer, then optionally inject the E3 distribution-driven composite estimator.
 
     The analyzer inspects the most-prevalent target type, logs detected pathologies, and merges gap-fill
