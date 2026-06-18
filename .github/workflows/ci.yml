@@ -13,13 +13,17 @@ concurrency:
 
 jobs:
   test:
-    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }}
+    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '4' }})
     runs-on: ${{ matrix.os }}
-    # 45 min was insufficient: 5 Python x 2 OS jobs with [all,dev] install
-    # (~5 GB of deps) plus 3970 tests under heavy ML libs ran for ~45 min and
-    # got cancelled. Bumped to 90 min and we now use pytest-xdist parallelism
-    # to halve the wall-clock per job.
-    timeout-minutes: 90
+    # The suite is ~21.7k tests and a GitHub-hosted runner has only 2 vCPUs, so
+    # `pytest -n auto` (= 2 workers) cannot finish it inside any sane single-job
+    # budget (measured: ~90 min and still incomplete, on Linux+macOS+Windows
+    # alike — install via uv is only ~30 s, so the wall-clock is pure test
+    # execution). We shard the suite across 4 parallel jobs via pytest-split
+    # (`--splits 4 --group N`), so each job runs ~1/4 of the tests (~22 min).
+    # timeout-minutes is generous headroom over that per-shard time, not a
+    # whole-suite budget.
+    timeout-minutes: 120
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
     # red while the ecosystem finishes catching up. The core stack (numpy /
@@ -28,36 +32,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux rows 3.9-3.13 are required (blocking). The [all] extra installs
+        # on 3.13 thanks to the tool.uv `ortools>=9.12` override (see pyproject).
+        # Each (os, python) is sharded 4 ways via pytest-split: the ~21.7k-test
+        # suite cannot finish on a single 2-vCPU runner inside the cap, so
+        # `group` fans it out into ~1/4 slices (~22 min each).
         os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        group: ["1", "2", "3", "4"]
         include:
-          # Python 3.13/3.14 are non-blocking (experimental) because the [all]
-          # extra cannot install on them yet: optbinning (latest, 0.21.0) pins
-          # ortools>=9.4,<9.12, and ortools publishes cp313/cp314 wheels only
-          # from 9.12+ — so no optbinning/ortools pair has a 3.13+ wheel. The
-          # core stack (numpy/numba/polars/sklearn/pyarrow/pydantic) ships
-          # cp313/cp314 wheels; this is purely the optbinning->ortools lag.
-          # Restore to required rows once optbinning relaxes the ortools<9.12 cap.
-          - os: ubuntu-latest
-            python-version: "3.13"
-            experimental: true
-          - os: ubuntu-latest
-            python-version: "3.14"
-            experimental: true
-          - os: windows-latest
-            python-version: "3.14"
-            experimental: true
-          # Windows coverage on representative versions only — runner-minute budget.
-          - os: windows-latest
-            python-version: "3.11"
-          - os: windows-latest
-            python-version: "3.13"
-            experimental: true
-          # macOS arm64 coverage on a single representative Python. Polars + numba JIT paths
-          # differ on Darwin (Accelerate BLAS, libomp linkage, distinct wheels); one row catches
-          # macOS-specific regressions without ballooning the runner-minute budget.
-          - os: macos-latest
-            python-version: "3.11"
+          # Representative non-Linux coverage, also sharded 4 ways. Windows
+          # drops coverage (pytest-cov .coverage lock PermissionError); macOS
+          # arm64 catches Darwin-specific polars/numba/BLAS regressions.
+          - { os: windows-latest, python-version: "3.11", group: "1" }
+          - { os: windows-latest, python-version: "3.11", group: "2" }
+          - { os: windows-latest, python-version: "3.11", group: "3" }
+          - { os: windows-latest, python-version: "3.11", group: "4" }
+          - { os: windows-latest, python-version: "3.13", group: "1" }
+          - { os: windows-latest, python-version: "3.13", group: "2" }
+          - { os: windows-latest, python-version: "3.13", group: "3" }
+          - { os: windows-latest, python-version: "3.13", group: "4" }
+          - { os: macos-latest, python-version: "3.11", group: "1" }
+          - { os: macos-latest, python-version: "3.11", group: "2" }
+          - { os: macos-latest, python-version: "3.11", group: "3" }
+          - { os: macos-latest, python-version: "3.11", group: "4" }
+          # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
+          # blocker is gone (override above), but the heavy [all] stack (torch /
+          # numba / ...) does not yet reliably ship cp314 wheels. Run it as a
+          # single unsharded full-suite smoke (splits=1) so a partial shard never
+          # masks a 3.14-specific break; flip to required + sharded once cp314
+          # wheels are universal.
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "1", group: "1" }
+          - { os: windows-latest, python-version: "3.14", experimental: true, splits: "1", group: "1" }
 
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +128,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           pytest -m "not slow and not gpu and not multigpu" \
+            --splits ${{ matrix.splits || '4' }} --group ${{ matrix.group }} \
             -n auto \
             --cov=src/mlframe \
             --cov-report=xml \
@@ -134,7 +141,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only" --no-cov -n auto -p no:randomly --timeout=300
+          pytest -m "not slow and not gpu and not multigpu and not linux_only" --splits ${{ matrix.splits || '4' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
 
       # macOS path: skip linux_only markers; no coverage to keep parity with Windows lightweight job.
       - name: Run tests (macOS, no coverage)
@@ -142,7 +149,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only and not windows_only" --no-cov -n auto -p no:randomly --timeout=300
+          pytest -m "not slow and not gpu and not multigpu and not linux_only and not windows_only" --splits ${{ matrix.splits || '4' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

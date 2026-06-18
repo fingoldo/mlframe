@@ -85,6 +85,18 @@ dependencies = [
     "pyutilz>=1.0.0",
 ]
 
+# uv-specific resolver overrides. Honored by `uv pip install` (verified with
+# uv 0.11) as well as `uv lock`/`uv sync`.
+[tool.uv]
+# optbinning 0.21.0 (latest) conservatively pins ortools>=9.4,<9.12, but ortools
+# ships cp313/cp314 wheels only from 9.12+ — so the unpatched cap makes the [all]
+# extra uninstallable on Python 3.13/3.14. optbinning is pure-Python and its
+# CP-SAT solver path was verified working against ortools 9.15 on py3.14
+# (OptimalBinning(solver="cp") -> status OPTIMAL), so the cap is purely
+# conservative. Override it to the cp313/cp314-capable line; ortools 9.12-9.15
+# all still publish cp39-cp312 wheels, so this is safe across the whole matrix.
+override-dependencies = ["ortools>=9.12"]
+
 [project.optional-dependencies]
 # Gradient-boosting backends used by the training pipeline.
 boosting = [
@@ -286,6 +298,7 @@ dev = [
     "pytest-randomly>=3.0",       # local-dev shuffle plugin. CI workflows disable it via `-p no:randomly` (see .github/workflows/*.yml) - local runs exercise random-order ordering to surface state-leak bugs, CI runs deterministic so flake triage stays clean.
     "pytest-instafail>=0.5",      # --instafail: streams tracebacks immediately on failure so worker-death INTERNALERRORs don't swallow the FAILURES section
     "pytest-progress>=1.3",       # --show-progress: prints [NN%] [N/Total] prefix on each test result line so long xdist runs surface percent-complete instead of opaque per-line PASSED chatter
+    "pytest-split>=0.8",          # --splits/--group: shard the suite across parallel CI jobs (21k+ tests overflow a single 2-core runner's 90-min cap, see .github/workflows/ci.yml)
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
