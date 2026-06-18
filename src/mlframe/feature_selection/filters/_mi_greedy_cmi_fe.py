@@ -384,6 +384,40 @@ def _cmi_from_binned(
     return max(0.0, cmi_plugin - cmi_bias)
 
 
+def precompute_marginal_y_terms(y_codes: np.ndarray) -> tuple[np.ndarray, float, int]:
+    """Hoist the y-only terms of the marginal ``_cmi_from_binned(x, y, None)`` out of a
+    loop that scores many candidate ``x`` against ONE fixed ``y``.
+
+    The marginal-MI path computes ``MI(X;Y) = H(X) + H(Y) - H(X,Y)``; ``H(Y)`` and its
+    occupied-cell count ``k_y`` are invariant across candidates, yet the plain helper
+    re-binned/re-entropied ``y`` on every call (the usability candidate-pool enumeration
+    evaluates ``|unary|^2 * |binary|`` forms per pair against the same ``y_codes``).
+
+    Returns ``(y_i, h_y, k_y)`` where ``y_i`` is the contiguous int64 view reused by
+    every :func:`marginal_mi_binned_fixed_y` call. Bit-identical to the inline path.
+    """
+    y_i = np.ascontiguousarray(y_codes, dtype=np.int64)
+    h_y, k_y = _entropy_from_classes(y_i)
+    return y_i, h_y, k_y
+
+
+def marginal_mi_binned_fixed_y(
+    x_binned: np.ndarray, y_i: np.ndarray, h_y: float, k_y: int,
+) -> float:
+    """Marginal binned MI ``MI(X;Y)`` reusing precomputed y terms from
+    :func:`precompute_marginal_y_terms`. Bit-identical to ``_cmi_from_binned(x_binned,
+    y_i, None)`` (same plug-in entropies, same Miller-Madow bias), minus the per-call
+    ``H(Y)`` recompute + the ``y`` int64 cast."""
+    x_i = np.ascontiguousarray(x_binned, dtype=np.int64)
+    n = float(max(1, x_i.size))
+    h_x, k_x = _entropy_from_classes(x_i)
+    xy, _ = _renumber_joint(x_i, y_i)
+    h_xy, k_xy = _entropy_from_classes(xy)
+    mi_plugin = h_x + h_y - h_xy
+    mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
+    return max(0.0, mi_plugin - mi_bias)
+
+
 def precompute_cmi_yz_terms(
     y: np.ndarray, z_joint: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, float, float, int, int, float]:

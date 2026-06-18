@@ -4015,3 +4015,23 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 109 RESOLVED, 36 REJECT a
 **Verdict: REJECT.** Both iter143-flagged leads measured, multi-shape, end-to-end, and written down: asizeof ~3% / sha256 ~2.4% of save wall, the rest irreducible pickle+zstd. **SAVE/LOAD surface is now EXHAUSTED at the profiled scales** — the only remaining costs are serialization primitives (pickle.dumps, zstd, Unpickler) with no bit-identical lever; revisit only if a 30MB+ fat-bundle hashing or a non-SimpleNamespace lean path surfaces in a real full-pipeline profile.
 
 Streak: RESOLVED→0, REJECT→1 (first reject after iter143's RESOLVED). **Cumulative loop wave: 109 RESOLVED, 37 REJECT across 144 iterations.**
+
+## iter145 — USABILITY-POOL marginal-MI surface: H(Y) recomputed on every candidate eval (fixed y) — RESOLVED
+
+**Surface/scale:** feature-selection FE leg, profiled on a random MRMR-FS-on regression combo (`_iter145_profile.py`, n=4000, 14 informative+redundant features, MRMR default selection). Env CUDA_VISIBLE_DEVICES="". Full-suite wall ~200s; top mlframe-own tottime frames all in the FE/usability pool (`discretize_2d_quantile_batch`, `_mi_greedy_cmi_fe._renumber_joint`/`_entropy_from_classes`/`_quantile_bin`, `_usability_aware_selection._binned_mi`).
+
+**Hotspot/bug:** `build_usability_candidate_pool` scores every raw + `|unary|^2*|binary|` engineered candidate form against ONE fixed `y_codes` via `_binned_mi -> _cmi_from_binned(x, y, None)` (17,382 calls in the profile). The marginal path computes `MI(X;Y)=H(X)+H(Y)-H(X,Y)`; `H(Y)` and `k_y` are invariant across candidates yet were re-binned/re-entropied on every call — the exact redundancy the existing `precompute_cmi_yz_terms` pattern already eliminates for the conditional-permutation path, never applied to the marginal usability path.
+
+**Fix:** added `precompute_marginal_y_terms(y_codes) -> (y_i, h_y, k_y)` + `marginal_mi_binned_fixed_y(x_binned, y_i, h_y, k_y)` in `_mi_greedy_cmi_fe.py` (mirrors the yz-hoist helpers). `build_usability_candidate_pool` hoists the y terms once and routes all 4 marginal-MI sites (raw-col pool, pair marginal-rank, pair joint-MI rank, the inner unary^2*binary loop) through it. Removes the per-call `H(Y)` recompute + the `y` int64 recast.
+
+**Measured (warm best-of, isolated per-call, vs real `_cmi_from_binned(x,y,None)`):** n=4000 16.75->14.21us (1.18x); n=20000 71.75->65.50us (1.10x); n=100000 395.11->328.73us (1.20x). Absolute saving grows with n (the saved `H(Y)` bincount is O(n)); steady ~1.1-1.2x at the usability call volume.
+
+**Identity proof:** BIT-IDENTICAL (`==`, max_abs_diff 0.0) across 8 cases — continuous / discrete / tied-binary / constant-x columns x n in {300,4000}. Same plug-in entropies + same Miller-Madow `(k_x+k_y-k_xy-1)/(2n)` bias as the inline path; only the fixed-y terms are reused.
+
+**Regression test:** `tests/feature_selection/test_marginal_mi_fixed_y.py` — pins `marginal_mi_binned_fixed_y == _cmi_from_binned(x,y,None)` across the 4 column kinds x 2 sizes + `precompute_marginal_y_terms` == inline `_entropy_from_classes`. (New helper; sensor pins the bit-identity contract so a future divergence on either path trips.)
+
+**Tests green:** 7 passed (regression + usability_aware_selection + adaptive_fe_usability_gate), then 146 passed / 2 pre-existing unrelated xfails across the full feature_selection mi_greedy/cmi/usability selection (`-k "mi_greedy or cmi or usability"`).
+
+**Verdict: RESOLVED.** Fresh surface (usability FE candidate pool) past the GPU-dispatcher + save/load exhaustion: the marginal-MI helper re-derived a fixed-y quantity per candidate. Hoisted via the codebase's own y/z-precompute pattern; ~1.1-1.2x per marginal-MI eval, absolute saving scaling with n, bit-identical, pinned.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 110 RESOLVED, 37 REJECT across 145 iterations.**

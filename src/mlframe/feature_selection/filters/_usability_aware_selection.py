@@ -57,9 +57,13 @@ class UsableCandidate:
     ops: tuple = ()             # (unary_a, unary_b, binary) names, for the recipe builder
 
 
-def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int) -> float:
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
-    return float(_cmi_from_binned(_quantile_bin(_f64(x), nbins), y_codes, None))
+def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int, y_terms: Any = None) -> float:
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, marginal_mi_binned_fixed_y
+    xb = _quantile_bin(_f64(x), nbins)
+    if y_terms is not None:
+        # y is fixed across the candidate enumeration; reuse the precomputed H(Y)/k_y. Bit-identical.
+        return float(marginal_mi_binned_fixed_y(xb, *y_terms))
+    return float(_cmi_from_binned(xb, y_codes, None))
 
 
 def build_usability_candidate_pool(
@@ -94,12 +98,14 @@ def build_usability_candidate_pool(
     import pandas as pd
     from .feature_engineering import create_unary_transformations, create_binary_transformations
     from .engineered_recipes import build_unary_binary_recipe, apply_recipe
-    from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
+    from ._mi_greedy_cmi_fe import _quantile_bin, marginal_mi_binned_fixed_y, precompute_marginal_y_terms
 
     if not isinstance(X_df, pd.DataFrame):
         X_df = pd.DataFrame(np.asarray(X_df))
     y_cont = _scrub(y_cont)
     y_codes = _quantile_bin(y_cont, quantization_nbins)
+    # y is fixed for the whole candidate enumeration -> hoist H(Y)/k_y once (reused by every marginal-MI eval).
+    y_terms = precompute_marginal_y_terms(y_codes)
 
     unary = create_unary_transformations(preset=unary_preset)
     binary = create_binary_transformations(preset=binary_preset)
@@ -111,7 +117,7 @@ def build_usability_candidate_pool(
         col = _scrub(X_df[nm].to_numpy(), feature_dtype)
         if float(np.std(col)) <= 1e-9:
             continue
-        pool.append(UsableCandidate(nm, col, _binned_mi(col, y_codes, quantization_nbins), None, (nm,), ()))
+        pool.append(UsableCandidate(nm, col, _binned_mi(col, y_codes, quantization_nbins, y_terms), None, (nm,), ()))
 
     pairs = list(itertools.combinations(base_names, 2))
     if rank_pairs_by_joint_mi:
@@ -131,14 +137,14 @@ def build_usability_candidate_pool(
         _nb = int(quantization_nbins)
 
         def _pair_joint_mi(p):
-            return float(_cmi_from_binned(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], y_codes, None))
+            return float(marginal_mi_binned_fixed_y(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], *y_terms))
 
         _pj = {p: _pair_joint_mi(p) for p in pairs}
         pairs.sort(key=lambda p: _pj[p], reverse=True)
         pairs = pairs[:max_pairs]
     else:
         # rank pairs by marginal-MI sum so a wide-p sweep keeps the most promising first.
-        marg = {nm: _binned_mi(_scrub(X_df[nm].to_numpy()), y_codes, quantization_nbins) for nm in base_names}
+        marg = {nm: _binned_mi(_scrub(X_df[nm].to_numpy()), y_codes, quantization_nbins, y_terms) for nm in base_names}
         pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
         pairs = pairs[:max_pairs]
 
@@ -169,7 +175,7 @@ def build_usability_candidate_pool(
                         continue
                     if float(np.std(val)) <= 1e-9:
                         continue
-                    m = _binned_mi(val, y_codes, quantization_nbins)
+                    m = _binned_mi(val, y_codes, quantization_nbins, y_terms)
                     if m < mi_floor:
                         continue
                     name = f"{bn}({ua}({n1}),{ub}({n2}))"
