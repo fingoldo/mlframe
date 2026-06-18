@@ -4087,3 +4087,17 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 111 RESOLVED, 38 REJECT a
 **Verdict: RESOLVED.** Two-column joints densified in one array-counting pass instead of factorize-then-combine; 1.7-2.5x isolated on the top Python-orchestration leaf, partition-identical so CMI/MI is bit-identical, gated fallback for the unsupported cases, pinned.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 112 RESOLVED, 38 REJECT across 148 iterations.**
+
+## iter149 — WIDE-FEATURE large-n profile (24 cols, n=16000): genuine-Python leaves are in the SIBLING session active 2026-06-17 FE area — REJECT
+
+**Surface/scale:** fresh wider combo (n=16000, 24 features, seed 149; `_iter145_profile.py --n-features 24 --seed 149`, harness gained --n-features/--seed). Re-profiled to find an optimizable hotspot outside iter145-148 fixes.
+
+**iter145/147/148 confirmed live:** `_renumber_joint` now at line 285 (the 2-col fast path), `marginal_mi_binned_fixed_y` carrying the marginal evals, `_corr_sq_centered` fused -- none of these re-rank as a removable Python leaf at this scale.
+
+**Top genuine-Python leaves (non-njit-attributed):** `_conditional_gate_fe.cheap_conditional_gate_scan` (1.0s self / cumtime 6.4s) and `_binned_numeric_agg_fe.binned_numeric_agg_with_recipes` (1.0s self). BOTH carry in-source `2026-06-17 perf` notes (batched gate-MI; OOF pre-cap) -- a SIBLING session is actively optimizing this exact FE area TODAY. Per the "do not touch another session in-flight WIP" rule, left untouched to avoid collision.
+
+**Remaining top frames** are njit-body cProfile attribution on already-tuned/KTC-routed kernels (`plugin_mi_classif_batch_dispatch`, `discretize_2d_quantile_batch`, `_dispatch_batch_mi_with_noise_gate`) or already-optimized leaves (`_entropy_from_classes` njit-wrapped, `_quantile_bin` documented-rejection, `_power_centered` self-time = numpy sin/cos vectorised transcendentals with a documented njit rejection).
+
+**Verdict: REJECT.** No NEW independently-optimizable Python hotspot at this scale outside the sibling session active 2026-06-17 files; the rest is njit-saturated or already-optimized this session. Next iter pivots to a NON-FE surface (no-MRMR / tree-model / predict path) to find leads outside the contested FE area.
+
+Streak: REJECT -> 1 (after iter148 RESOLVED). **Cumulative loop wave: 112 RESOLVED, 39 REJECT across 149 iterations.**
