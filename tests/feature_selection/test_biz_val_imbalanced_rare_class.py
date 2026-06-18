@@ -224,16 +224,12 @@ def test_biz_val_rfecv_class_weight_does_not_break_recovery():
 # the MAJORITY behavior is caught.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    reason="FS GAP: MRMR's screen_predictors can early-stop (max_consec_unconfirmed "
-           "patience) and return the EMPTY selection on an unlucky rare-class seed "
-           "(seed 2 @10% positive rate, recov=0/3). It is a MINORITY of seeds (4/5 "
-           "recover fully) so the majority contract above holds, but this seed loses "
-           "all signal. Documented, not asserted away.",
-    strict=False,
-)
 def test_biz_val_mrmr_degenerate_empty_on_unlucky_rare_seed():
-    """ASPIRATIONAL: MRMR should recover signal on the pathological seed too."""
+    """MRMR must recover signal even on the previously-pathological rare-class seed.
+
+    Was xfail (seed 2 @10% returned an EMPTY selection via screen_predictors early-stop). FE
+    improvements now recover >=1 signal feature deterministically (recov=1/3, verified 3x), so the
+    marker is removed and the recovery is asserted -- a regression back to empty selection now fails."""
     X, y, sig = make_imbalanced(n=3000, imbalance=0.10, p_signal=3, p_noise=8, seed=2)
     df, ys = as_df(X, y)
     sel = _fit_quiet(_make_mrmr("binary"), df, ys)
