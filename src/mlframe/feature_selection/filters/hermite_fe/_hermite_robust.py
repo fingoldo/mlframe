@@ -62,14 +62,30 @@ def _robust_axis_enabled() -> bool:
 
 
 @numba.njit(cache=True)
+def _median_sorted_njit(a: np.ndarray) -> float:
+    """Median of a 1-D array via full sort + midpoint, bit-identical to ``np.median`` (numpy's introselect partition and
+    this sort agree on the two middle order statistics, and both average them for even n). Used in nopython code INSTEAD of
+    ``np.median`` because numba's ``np.median`` support is version/environment-fragile (it raised "Use of unsupported NumPy
+    function 'numpy.median'" under numba 0.65 in CI while compiling fine elsewhere); ``np.sort`` is universally supported.
+    Mirrors the existing in-module convention of hand-rolling sort-based quantiles rather than calling numba's np.quantile."""
+    s = np.sort(a)
+    n = s.size
+    m = n // 2
+    if n & 1:
+        return s[m]
+    return 0.5 * (s[m - 1] + s[m])
+
+
+@numba.njit(cache=True)
 def _detect_heavy_tail_core_njit(xf: np.ndarray, outer_k: float, gap: float, max_frac: float) -> int:
     """Compiled core of ``_detect_heavy_tail`` for the common MAD>0 case. Returns 1 (trip) / 0 (no trip) / -1 (MAD
     collapsed -> caller must run the exact ``np.quantile`` IQR fallback). ``xf`` is the pre-filtered finite subset
-    (size>=8 guaranteed by the caller). Numerics mirror the numpy body verbatim: ``np.median`` for the centre and the
-    MAD, the same ``1.4826*MAD`` robust scale, the same threshold / count / masked-max / masked-min reductions -- so the
-    boolean verdict is bit-identical to the numpy path on every column whose MAD does not collapse to zero."""
-    med = np.median(xf)
-    mad = np.median(np.abs(xf - med))
+    (size>=8 guaranteed by the caller). Numerics mirror the numpy body verbatim: a sort-based median (bit-identical to
+    ``np.median``, see ``_median_sorted_njit``) for the centre and the MAD, the same ``1.4826*MAD`` robust scale, the same
+    threshold / count / masked-max / masked-min reductions -- so the boolean verdict is bit-identical to the numpy path on
+    every column whose MAD does not collapse to zero."""
+    med = _median_sorted_njit(xf)
+    mad = _median_sorted_njit(np.abs(xf - med))
     scale = 1.4826 * mad
     if scale <= 1e-12:
         return -1  # MAD collapsed; exact IQR fallback handled in Python (np.quantile not njit-supported)
