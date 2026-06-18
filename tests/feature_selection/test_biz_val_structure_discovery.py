@@ -164,6 +164,57 @@ def test_human_readable_str_contains_columns_and_kind():
     assert "StructureReport" in s
 
 
+def test_biz_val_max_int_cols_budget_guard_skips_above_cap():
+    """``max_int_cols`` is the budget guard on the modular + integer-lattice sweeps: when the number of integer
+    columns EXCEEDS the cap, those sweeps are skipped entirely, so a real gcd structure goes undiscovered; raising
+    the cap to admit all integer columns recovers it. Measured (seed=0, N=2000, 10 integer columns): cap=5 -> 0
+    relations (gcd skipped); cap=10 -> gcd surfaced. The DELTA between the two caps is the guard's whole behaviour."""
+    rng = _rng(0)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    cols = {"price": a, "quantity": b}
+    for j in range(8):  # 2 signal + 8 filler integer columns = 10 integer columns total
+        cols[f"i{j}"] = rng.integers(0, 30, N)
+    X = pd.DataFrame(cols)
+    y = np.gcd(a, b)
+
+    capped = discover_structure(X, y, significance_n_perm=0, max_int_cols=5)
+    assert not any(r.kind == "gcd" for r in capped.relations), (
+        f"10 integer columns > cap 5 must skip the lattice sweep -> no gcd; got {[r.kind for r in capped.relations]}"
+    )
+
+    uncapped = discover_structure(X, y, significance_n_perm=0, max_int_cols=10)
+    gcd = [r for r in uncapped.relations if r.kind == "gcd"]
+    assert gcd, "raising max_int_cols to admit all 10 integer columns must recover the gcd structure"
+    assert set(gcd[0].columns) == {"price", "quantity"}
+
+
+def test_biz_val_nbins_resolution_recovers_multivalued_structure():
+    """``nbins`` sets the resolution of the internal y-binning that drives the MI estimate. On a CONTINUOUS gcd
+    target (binned via qcut(nbins) inside discover_structure) too-coarse binning crushes the multi-valued discrete
+    structure: 2 bins collapse gcd's many distinct values into a near-binary signal, while finer bins resolve it.
+    Measured (seed=2, N=2000): gcd MI rises monotonically 0.203 (nbins=2) -> 1.050 (nbins=20), ~5x. Floors pinned
+    10-15% below the measured endpoints; assert the coarse-vs-fine MI DELTA, not just discovery."""
+    rng = _rng(2)
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    X = pd.DataFrame({"p": a, "q": b, "noise": rng.normal(size=N)})
+    yc = np.gcd(a, b).astype(float) + rng.normal(0, 0.1, N)
+
+    coarse = discover_structure(X, yc, significance_n_perm=0, nbins=2)
+    fine = discover_structure(X, yc, significance_n_perm=0, nbins=20)
+    gcd_coarse = [r for r in coarse.relations if r.kind == "gcd"]
+    gcd_fine = [r for r in fine.relations if r.kind == "gcd"]
+    assert gcd_coarse and gcd_fine, "gcd structure must be discoverable at both binning resolutions"
+    mi_coarse, mi_fine = gcd_coarse[0].mi, gcd_fine[0].mi
+    assert mi_coarse <= 0.30, f"nbins=2 must crush the multi-valued gcd MI (measured ~0.20); got {mi_coarse}"
+    assert mi_fine >= 0.90, f"nbins=20 must resolve the gcd structure (measured ~1.05); got {mi_fine}"
+    assert mi_fine >= 3.0 * mi_coarse, (
+        f"finer binning must lift the recovered gcd MI >=3x over coarse (measured ~5x); "
+        f"coarse={mi_coarse:.3f} fine={mi_fine:.3f}"
+    )
+
+
 def test_top_k_cap():
     rng = _rng(0)
     a = rng.integers(1, 40, N)
