@@ -4279,11 +4279,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # combination of integer columns -- (a+b) mod m, (a*b) mod m, n-way parity, or a
     # single column's hidden non-calendar period -- which smooth bases cannot fit.
     # Cheap-first / escalate + permutation-null gate; budget-guarded on wide frames.
-    # fe_max_steps==0 means the user disabled feature engineering entirely; the four discrete-structural
-    # families (pairwise-modular / row-argmax / conditional-gate / binned-agg) are FE too, so they must
-    # NOT fire in that case -- otherwise a fe_max_steps=0 fit silently emits gate_select__/binagg__/argmax__
-    # composites that crowd the clean raw signal out of small-n selections (the RC2 de-dup contract).
-    _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True)) and fe_max_steps > 0
+    # The four discrete-structural families (pairwise-modular / row-argmax / conditional-gate /
+    # binned-agg) are gated by their own enable flags and fire INDEPENDENTLY of fe_max_steps>0 (they are a
+    # distinct operator group, deliberately usable with fe_max_steps=0 -- the operator-lift biz_value tests
+    # rely on exactly that: fe_max_steps=0 + an explicit fe_<op>_enable=True must still build the composite).
+    # SMALL-N RELIABILITY FLOOR: their composites are high-cardinality joints (integer lattice/gcd, gated
+    # thresholds, row-argmax) whose MI is unreliable at tiny n -- on small-n pure noise a spurious composite
+    # clears the relevance gate and is admitted (RC2 pure-noise n=300), and it crowds the clean raw signal.
+    # So when FE is otherwise OFF (fe_max_steps==0) require at least ``_DISCRETE_FE_MIN_N_AT_FE0`` rows
+    # before building them; with FE enabled (fe_max_steps>=1) the normal FE pipeline competes them down so
+    # no floor is needed. Calibrated so RC2 (n=300) stays clean while the operator-lift cases (n=2000) fire.
+    _DISCRETE_FE_MIN_N_AT_FE0 = 500
+    _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True)) and (
+        fe_max_steps > 0 or (isinstance(X, pd.DataFrame) and len(X) >= _DISCRETE_FE_MIN_N_AT_FE0)
+    )
     if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
