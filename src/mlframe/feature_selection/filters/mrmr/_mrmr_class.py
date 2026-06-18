@@ -3799,7 +3799,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
         # the default ``mi_normalization='none'`` path. Restored in finally so a
         # crashing _fit_impl can't leak SU mode into subsequent fits.
-        from ..info_theory import set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow
+        from ..info_theory import (
+            set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow,
+            set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
+        )
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(
@@ -3818,6 +3821,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # noise no longer out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in estimator bit-exact. Reset in the finally.
         _mm_on = getattr(self, "mi_correction", "none") == "miller_madow"
         set_mi_miller_madow(_mm_on)
+        # Research-knob thread-locals (RelaxMRMR 3-D redundancy / PID synergy bonus / CMI permutation early-stop). All default OFF (alpha=0 / bonus=0 / stop=False) so the
+        # legacy Fleuret per-candidate score is byte-identical; reset in the finally. Read in evaluation.py and forwarded to joblib workers like the SU/JMIM/BUR toggles.
+        set_relaxmrmr_alpha(float(getattr(self, "relaxmrmr_alpha", 0.0) or 0.0))
+        set_pid_synergy_bonus(float(getattr(self, "pid_synergy_bonus", 0.0) or 0.0))
+        set_cmi_perm_stop(
+            bool(getattr(self, "cmi_perm_stop", False)),
+            float(getattr(self, "cmi_perm_alpha", 0.05)),
+            int(getattr(self, "cmi_perm_n_permutations", 100)),
+        )
         # activate DCD thread-local. The DCDState dataclass
         # is constructed inside ``_screen_predictors`` (passed via dcd_config
         # kwarg) — joblib-safe; the thread-local is only the read-only branch
@@ -3954,6 +3966,12 @@ class MRMR(BaseEstimator, TransformerMixin):
                 pass
             try:
                 set_mi_miller_madow(False)
+            except Exception:
+                pass
+            try:
+                set_relaxmrmr_alpha(0.0)
+                set_pid_synergy_bonus(0.0)
+                set_cmi_perm_stop(False, 0.05, 100)
             except Exception:
                 pass
             # reset DCD thread-local and restore

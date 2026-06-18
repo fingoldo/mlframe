@@ -35,6 +35,9 @@ from .info_theory import (
     # 2026-05-30 Wave 9.1 iter 5: setters for re-publishing the toggles into
     # joblib worker threads.
     set_su_normalization, set_jmim_aggregator, set_bur_lambda,
+    # Research-knob thread-locals (RelaxMRMR 3-D redundancy / PID synergy bonus / CMI permutation early-stop), all default OFF; forwarded to workers like SU/JMIM/BUR.
+    get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
+    set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
 )
 from .permutation import mi_direct
 
@@ -50,6 +53,17 @@ logger = logging.getLogger(__name__)
 # need no recalibration. Override via the ``MLFRAME_MRMR_NULL_SIGNIF_ALPHA`` env var.
 import os as _os
 _MRMR_NULL_SIGNIF_ALPHA = float(_os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+
+
+def _materialize_var(factors_data, var_idx, factors_nbins, dtype=np.int32):
+    """Densely-encode one variable index (or multi-index tuple/array) into a 1-D int column plus its effective cardinality K, via ``merge_vars`` (handles joints + bin
+    pruning identically to the MI kernels). Used only by the research knobs (RelaxMRMR / PID / CMI-perm) whose standalone kernels take materialized columns, not indices."""
+    idx = np.asarray(var_idx if hasattr(var_idx, "__len__") else [var_idx], dtype=np.int64)
+    classes, _freqs, nclasses = merge_vars(
+        factors_data=factors_data, vars_indices=idx, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+    )
+    return np.asarray(classes, dtype=np.int64), int(nclasses)
 
 
 def get_candidate_name(candidate_indices: list, factors_names: list) -> str:
@@ -165,6 +179,9 @@ def evaluate_candidates(
     use_su: bool = False,
     use_jmim: bool = False,
     bur_lambda: float = 0.0,
+    relaxmrmr_alpha: float = 0.0,
+    pid_synergy_bonus: float = 0.0,
+    cmi_perm: tuple = (False, 0.05, 100),
 ) -> None:
 
     # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
@@ -174,9 +191,15 @@ def evaluate_candidates(
     _prev_su = use_su_normalization()
     _prev_jmim = use_jmim_aggregator()
     _prev_bur = get_bur_lambda()
+    _prev_relax = get_relaxmrmr_alpha()
+    _prev_pid = get_pid_synergy_bonus()
+    _prev_cmi = get_cmi_perm_stop()
     set_su_normalization(bool(use_su))
     set_jmim_aggregator(bool(use_jmim))
     set_bur_lambda(float(bur_lambda))
+    set_relaxmrmr_alpha(float(relaxmrmr_alpha))
+    set_pid_synergy_bonus(float(pid_synergy_bonus))
+    set_cmi_perm_stop(bool(cmi_perm[0]), float(cmi_perm[1]), int(cmi_perm[2]))
     try:
         return _evaluate_candidates_inner(
             workload=workload, y=y, best_gain=best_gain,
@@ -200,6 +223,9 @@ def evaluate_candidates(
         set_su_normalization(_prev_su)
         set_jmim_aggregator(_prev_jmim)
         set_bur_lambda(_prev_bur)
+        set_relaxmrmr_alpha(_prev_relax)
+        set_pid_synergy_bonus(_prev_pid)
+        set_cmi_perm_stop(_prev_cmi[0], _prev_cmi[1], _prev_cmi[2])
 
 
 def _evaluate_candidates_inner(
@@ -766,6 +792,79 @@ def evaluate_candidate(
             # all-NaN slices) stay best-effort: warn and continue rather
             # than aborting the whole screen.
             logger.warning("BUR bonus computation failed silently: %r", _bur_exc)
+
+    # RelaxMRMR 3-D-redundancy score (Vinh 2016). Default alpha=0.0 -> dispatch skipped, legacy Fleuret score untouched (byte-identical). When alpha>0 the candidate's
+    # complex-mode score is REPLACED by ``relax_mrmr_score`` (relevance - mean pairwise redundancy + alpha-weighted 3-way interaction term), which down-weights redundancy
+    # detected only at the 3-feature level. Only meaningful in fleuret complex mode with a non-empty selected set (the simple-mode / first-pick path keeps direct_gain).
+    _relax_alpha = get_relaxmrmr_alpha()
+    if _relax_alpha > 0.0 and selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret":
+        try:
+            from ._relaxmrmr_3d import relax_mrmr_score
+            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+            sel_cols, sel_nbins = [], []
+            for _z in selected_vars:
+                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                sel_cols.append(_zc)
+                sel_nbins.append(_zk)
+            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha))
+            if cand_idx in partial_gains:
+                _g, _k = partial_gains[cand_idx]
+                partial_gains[cand_idx] = (current_gain, _k)
+            expected_gains[cand_idx] = current_gain
+        except Exception as _relax_exc:
+            logger.warning("RelaxMRMR score computation failed silently: %r", _relax_exc)
+
+    # PID synergy bonus (Williams-Beer / Ince I_ccs). Default bonus=0.0 -> skipped (byte-identical). When bonus>0, add ``bonus * max_j synergy(X, Z_j; Y)`` so a candidate
+    # that is synergistic with an already-selected feature (XOR-like joint information neither carries alone) is rewarded -- the standard redundancy gate would otherwise drop
+    # it. Mirrors the BUR additive-bonus shape: computed once per candidate, floored at zero, republished into the dense ranking vector.
+    _pid_bonus = get_pid_synergy_bonus()
+    if _pid_bonus > 0.0 and selected_vars:
+        try:
+            from ._pid_decomposition import pid_decomposition
+            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+            max_syn = 0.0
+            for _z in selected_vars:
+                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                syn = float(pid_decomposition(x_col, _zc, y_col, k_x, _zk, k_y)["synergistic"])
+                if syn > max_syn:
+                    max_syn = syn
+            bonus = max(0.0, max_syn) * _pid_bonus
+            current_gain = float(current_gain) + bonus
+            if cand_idx in partial_gains:
+                _g, _k = partial_gains[cand_idx]
+                partial_gains[cand_idx] = (float(_g) + bonus, _k)
+            expected_gains[cand_idx] = current_gain
+        except Exception as _pid_exc:
+            logger.warning("PID synergy bonus computation failed silently: %r", _pid_exc)
+
+    # CMI permutation early-stop (Yu & Principe 2019). Default off -> skipped (byte-identical). When active, permute the candidate (preserving its marginal) and re-estimate
+    # ``I(X; Y | selected)``; if the observed conditional MI is NOT significant at alpha (p >= alpha), the candidate carries no conditional signal given the selected set and is
+    # dropped (gain forced to 0.0). Drops a conditionally-redundant candidate the relative-gain floor alone would admit.
+    _cmi_active, _cmi_alpha, _cmi_nperm = get_cmi_perm_stop()
+    if _cmi_active and selected_vars and current_gain > 0.0:
+        try:
+            from ._cmi_perm_stop import cmi_permutation_stop
+            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+            sel_cols, sel_nbins = [], []
+            for _z in selected_vars:
+                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                sel_cols.append(_zc)
+                sel_nbins.append(_zk)
+            is_signif, _obs, _pval = cmi_permutation_stop(
+                x_col, y_col, sel_cols, k_x, k_y, sel_nbins,
+                n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=int(cand_idx),
+            )
+            if not is_signif:
+                current_gain = 0.0
+                if cand_idx in partial_gains:
+                    _g, _k = partial_gains[cand_idx]
+                    partial_gains[cand_idx] = (0.0, _k)
+                expected_gains[cand_idx] = 0.0
+        except Exception as _cmi_exc:
+            logger.warning("CMI permutation early-stop failed silently: %r", _cmi_exc)
 
     return current_gain, sink_reasons
 

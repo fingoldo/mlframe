@@ -1,16 +1,11 @@
-"""Activation pins for three MRMR research-extension constructor knobs that are currently UNWIRED: ``relaxmrmr_alpha`` (RelaxMRMR 3-D MI, Vinh 2016),
+"""Live contract for three MRMR research-extension constructor knobs now WIRED into ``fit()``: ``relaxmrmr_alpha`` (RelaxMRMR 3-D MI, Vinh 2016),
 ``pid_synergy_bonus`` (PID I_ccs synergy, Ince 2017) and ``cmi_perm_stop`` (+``cmi_perm_alpha`` / ``cmi_perm_n_permutations``; CMI-permutation stop, Yu-Principe 2019).
 
-Finding (B2 audit): each is accepted, validated and stored on the estimator (``MRMR.__init__``) and appears in the ``recommend_enabled_fe`` introspection list, but
-NONE is read anywhere in ``fit()`` -- ``grep self.relaxmrmr_alpha / self.pid_synergy_bonus / self.cmi_perm_stop`` over ``src/`` finds zero consumption sites. The
-standalone kernels (``relax_mrmr_score``, ``pid_decomposition``, ``cmi_permutation_stop``) exist and work, but are not dispatched into the greedy selection loop, so
-setting these knobs to extreme values leaves the selected support BIT-IDENTICAL to the default. This is the same dead-knob shape that ``mi_correction`` had before it
-was wired (see ``test_biz_val_filters_mrmr_mi_correction.py::test_mi_correction_knob_activates_and_resets_thread_local``).
-
-These tests do two things: (a) prove each underlying kernel is genuinely functional (not vaporware), and (b) pin the current no-op behaviour with ``xfail(strict=True)``
-so that the day any of these knobs is wired into ``fit()`` the selection-changes assertion starts PASSING -> the strict-xfail becomes an XPASS failure -> whoever wires it
-is forced to replace the pin with a real biz_value win assertion + update the disposition. The pins are the regression sensor; they must not be deleted while the knobs
-remain dead.
+Each knob is read in the per-candidate scoring step (``evaluation.evaluate_candidate``) via thread-locals set by ``MRMR.fit`` -- mirroring the ``mi_correction`` /
+BUR precedent. RelaxMRMR replaces the complex-mode Fleuret score, PID adds a max-synergy bonus, and CMI-perm-stop drops a conditionally-insignificant candidate.
+All three default to a no-op (alpha=0 / bonus=0 / stop=False) so the default selection is byte-identical; these tests assert that ACTIVATING each knob changes the
+selected support (the standalone kernel checks below additionally prove the underlying capability). RelaxMRMR and CMI-perm-stop act on the conditional-MI redundancy
+term that only exists in complex mode, so their activation tests run with ``use_simple_mode=False``.
 """
 from __future__ import annotations
 
@@ -50,7 +45,7 @@ def _synth(seed: int = 0, n: int = 700):
         np.column_stack([x0, x1, x2, a.astype(float), b.astype(float), xor, noise]),
         columns=["x0", "x1", "x2red", "a", "b", "xor", "n0", "n1", "n2"],
     )
-    y = ((x0 + x1 + (a ^ b)) > 0.0).astype(int).values
+    y = ((x0 + x1 + (a ^ b)) > 0.0).astype(int)
     return X, y
 
 
@@ -107,27 +102,22 @@ def test_pid_decomposition_kernel_finds_synergy_on_xor():
     assert syn > 0.05, f"PID must report positive synergy on a pure-XOR target; got synergy={syn:.4f}"
 
 
-# ---- (b) strict-xfail pins: the constructor knobs are currently NO-OPS at the selection level ----
-# When any knob below is wired into fit(), its selection-changes assertion starts passing -> the strict xfail becomes an XPASS failure -> replace the pin with a real
-# biz_value win test and update the audit disposition. Do NOT delete these pins while the knobs remain unconsumed in fit().
+# ---- (b) live contract: ACTIVATING each wired knob changes the selected support vs its no-op default ----
 
 
-@pytest.mark.xfail(reason="relaxmrmr_alpha is stored on MRMR but never read in fit(); extreme values do not change selection (B2 audit)", strict=True)
 def test_relaxmrmr_alpha_changes_selection():
-    base = _fit_support(relaxmrmr_alpha=0.0)
-    relaxed = _fit_support(relaxmrmr_alpha=9.0)
-    assert relaxed != base, "EXPECTED (once wired): a large relaxmrmr_alpha 3-D redundancy term should change the selected support vs alpha=0"
+    base = _fit_support(relaxmrmr_alpha=0.0, use_simple_mode=False)
+    relaxed = _fit_support(relaxmrmr_alpha=9.0, use_simple_mode=False)
+    assert relaxed != base, "a large relaxmrmr_alpha 3-D redundancy term must change the selected support vs alpha=0"
 
 
-@pytest.mark.xfail(reason="pid_synergy_bonus is stored on MRMR but never read in fit(); extreme values do not change selection (B2 audit)", strict=True)
 def test_pid_synergy_bonus_changes_selection():
-    base = _fit_support(pid_synergy_bonus=0.0)
-    bonus = _fit_support(pid_synergy_bonus=9.0)
-    assert bonus != base, "EXPECTED (once wired): a large pid_synergy_bonus should promote the synergistic (a,b) pair and change the selected support vs 0.0"
+    base = _fit_support(pid_synergy_bonus=0.0, use_simple_mode=False)
+    bonus = _fit_support(pid_synergy_bonus=9.0, use_simple_mode=False)
+    assert bonus != base, "a large pid_synergy_bonus must promote the synergistic (a,b) pair and change the selected support vs 0.0"
 
 
-@pytest.mark.xfail(reason="cmi_perm_stop/cmi_perm_alpha/cmi_perm_n_permutations are stored on MRMR but never read in fit(); enabling does not change selection (B2 audit)", strict=True)
 def test_cmi_perm_stop_changes_selection():
-    base = _fit_support(cmi_perm_stop=False)
-    stopped = _fit_support(cmi_perm_stop=True, cmi_perm_alpha=0.5, cmi_perm_n_permutations=20)
-    assert stopped != base, "EXPECTED (once wired): an aggressive CMI-permutation stop (alpha=0.5) should prune trailing redundant/noise picks vs the default stop"
+    base = _fit_support(cmi_perm_stop=False, use_simple_mode=False)
+    stopped = _fit_support(cmi_perm_stop=True, cmi_perm_alpha=0.5, cmi_perm_n_permutations=20, use_simple_mode=False)
+    assert stopped != base, "an aggressive CMI-permutation stop (alpha=0.5) must prune conditionally-insignificant picks vs the default no-stop"

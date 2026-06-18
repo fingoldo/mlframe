@@ -71,6 +71,43 @@ def set_mi_miller_madow(active: bool) -> None:
     _MM_STATE.active = bool(active)
 
 
+# Research-knob thread-locals (RelaxMRMR 3-D redundancy, PID synergy bonus, CMI permutation early-stop). All default OFF so the legacy Fleuret score is byte-identical;
+# set by MRMR.fit from the matching constructor knobs, read in evaluation.py at the per-candidate scoring site, forwarded to joblib workers like the SU/JMIM/BUR toggles.
+_RELAXMRMR_STATE = _threading.local()
+_PID_STATE = _threading.local()
+_CMI_PERM_STATE = _threading.local()
+
+
+def get_relaxmrmr_alpha() -> float:
+    """RelaxMRMR 3-D-redundancy weight (0.0 = off -> classic Fleuret score)."""
+    return float(getattr(_RELAXMRMR_STATE, "alpha", 0.0))
+
+
+def set_relaxmrmr_alpha(alpha: float) -> None:
+    _RELAXMRMR_STATE.alpha = float(alpha)
+
+
+def get_pid_synergy_bonus() -> float:
+    """PID synergy bonus weight (0.0 = off -> no synergy term added)."""
+    return float(getattr(_PID_STATE, "bonus", 0.0))
+
+
+def set_pid_synergy_bonus(bonus: float) -> None:
+    _PID_STATE.bonus = float(bonus)
+
+
+def get_cmi_perm_stop() -> tuple:
+    """CMI permutation early-stop config: ``(active, alpha, n_permutations)``; active=False = off."""
+    st = _CMI_PERM_STATE
+    return bool(getattr(st, "active", False)), float(getattr(st, "alpha", 0.05)), int(getattr(st, "n_permutations", 100))
+
+
+def set_cmi_perm_stop(active: bool, alpha: float = 0.05, n_permutations: int = 100) -> None:
+    _CMI_PERM_STATE.active = bool(active)
+    _CMI_PERM_STATE.alpha = float(alpha)
+    _CMI_PERM_STATE.n_permutations = int(n_permutations)
+
+
 def mi_or_su(factors_data, x, y, factors_nbins, verbose=False, dtype=np.int32) -> float:
     """Dispatch raw MI / SU / Miller-Madow-corrected MI based on the thread-local toggles. Cheap path
     when all are off: a one-call delegation to ``mi`` (which is njit-cached)."""
