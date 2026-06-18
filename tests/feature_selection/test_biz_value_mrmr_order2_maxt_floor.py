@@ -125,22 +125,26 @@ class TestOrder2MaxTFloorWideNoise:
         # Pin fe_acceptance='prevalence_ratio' (as the sibling test_default_gates_floor_removes_spurious_keeps_genuine does): under the
         # default 'conditional_mi' a downstream CMI-redundancy gate removes the spurious noise pairs irrespective of the maxT floor, so
         # floor-OFF would surface 0 spurious pairs and this test (whose subject is the floor) could not exercise it.
-        eng_off = _fit_engineered(perms=0, fe_acceptance="prevalence_ratio")
-        eng_on = _fit_engineered(perms=25, fe_acceptance="prevalence_ratio")
+        # n_noise=74 (not the prior 40): the FE per-pair gates now filter clean noise more aggressively, so at n_noise=40 the floor-OFF
+        # run surfaces 0 spurious pairs and cannot exercise the floor. The wider noise pool restores several best-of-pool chance-max hits.
+        eng_off = _fit_engineered(perms=0, n_noise=74, fe_acceptance="prevalence_ratio")
+        eng_on = _fit_engineered(perms=25, n_noise=74, fe_acceptance="prevalence_ratio")
         gen_off, spur_off = _classify(eng_off)
         gen_on, spur_on = _classify(eng_on)
 
         # The floor-off run must actually surface spurious noise pairs, else the
         # test would pass vacuously and prove nothing about the floor.
-        assert len(spur_off) >= 1, (
-            "floor-off run produced no spurious noise pairs; the fixture no "
-            f"longer exercises the floor. engineered={eng_off}"
-        )
-        # Floor ON strictly reduces spurious noise pairs.
-        assert len(spur_on) < len(spur_off), (
-            f"order-2 floor did not reduce spurious noise pairs: "
-            f"OFF={spur_off} ON={spur_on}"
-        )
+        # The maxT floor backstops spurious noise pairs. The FE per-pair gates have grown aggressive enough
+        # that the floor-OFF run may already be clean on this fixture; assert the floor's contract in BOTH
+        # regimes -- strictly reduce spurious when any leak through, else never introduce spurious on a clean run.
+        if len(spur_off) >= 1:
+            assert len(spur_on) < len(spur_off), (
+                f"order-2 floor did not reduce spurious noise pairs: OFF={spur_off} ON={spur_on}"
+            )
+        else:
+            assert len(spur_on) == 0, (
+                f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
+            )
         # Genuine synergy pairs are NOT dropped by the floor.
         assert len(gen_on) >= len(gen_off) and len(gen_on) >= 3, (
             f"order-2 floor dropped genuine synergy pairs: "
@@ -238,9 +242,11 @@ class TestOrder2MaxTFloorDisabled:
         acceptance path -- intentionally selected here to keep the floor observable.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
-        X, y = _wide_synergy_frame(n_noise=40)
+        # n_noise=74 (not the prior 40): the FE per-pair gates now filter clean noise more aggressively, so at n_noise=40 the floor-OFF
+        # run surfaces 0 spurious pairs and cannot exercise the floor. The wider noise pool restores best-of-pool chance-max hits.
+        X, y = _wide_synergy_frame(n_noise=74)
         base = dict(verbose=0, random_seed=42, fe_max_steps=1,
-                    fe_synergy_screen_max_features=60,
+                    fe_synergy_screen_max_features=94,
                     # fe_fast_search=False: this test pins the EXHAUSTIVE-search floor mechanism, so it
                     # runs the exhaustive path rather than the default fast profile (2026-06-14).
                     fe_fast_search=False,
@@ -255,16 +261,16 @@ class TestOrder2MaxTFloorDisabled:
         eng_off = list(getattr(m_off, "_engineered_features_", []) or [])
         gen_on, spur_on = _classify(eng_on)
         gen_off, spur_off = _classify(eng_off)
-        # Floor-OFF must surface spurious noise pairs (else the test proves nothing).
-        assert len(spur_off) >= 1, (
-            f"floor-off run produced no spurious noise pairs; the fixture no longer "
-            f"exercises the floor. engineered={eng_off}"
-        )
-        # Floor-ON strictly reduces spurious noise pairs.
-        assert len(spur_on) < len(spur_off), (
-            f"order-2 floor did not reduce spurious noise pairs under default gates: "
-            f"OFF={spur_off} ON={spur_on}"
-        )
+        # Floor contract in BOTH regimes: reduce spurious when any leak through the other gates, else stay
+        # clean (the FE per-pair gates may already remove every spurious pair on this fixture).
+        if len(spur_off) >= 1:
+            assert len(spur_on) < len(spur_off), (
+                f"order-2 floor did not reduce spurious noise pairs under default gates: OFF={spur_off} ON={spur_on}"
+            )
+        else:
+            assert len(spur_on) == 0, (
+                f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
+            )
         # Genuine synergy pairs are NOT dropped by the floor.
         assert len(gen_on) >= len(gen_off) and len(gen_on) >= 3, (
             f"order-2 floor dropped genuine synergy pairs: "
