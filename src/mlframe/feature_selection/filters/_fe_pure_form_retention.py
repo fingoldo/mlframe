@@ -40,6 +40,8 @@ def retain_usable_pure_forms(
     max_added: int = 4,
     max_base_features: int = 14,
     max_rows: int = 3000,
+    min_resid_frac: float = 0.10,
+    min_resid_corr: float = 0.08,
     verbose: int = 0,
 ):
     """Return ``[(recipe, name), ...]`` of PURE single-pair engineered forms to ADD to
@@ -216,7 +218,12 @@ def retain_usable_pure_forms(
                     np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
             return cols
 
-        def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=0.10, min_resid_corr=0.08):
+        # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected (qual-23, 2026-06-18): lowering
+        # min_resid_corr 0.08 -> 0.05 to recover weak-but-relevant joint forms is a DEAD KNOB at tractable scale -- on every synthetic tried (weak-joint
+        # additive + control + a strongly-nonlinear a**2/b + log(c)*sin(d) target with raw-linear R2=0.10) the MI greedy ALREADY selected the pure pair
+        # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in
+        # {0.08, 0.05, 0.0}). Bench: _benchmarks/fs_quality/qual23_pure_form_resid_corr.py. Not flipped; re-test on a dataset where the greedy traps a pure pair.
+        def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr):
             try:
                 xa = _f64(_scrub(X_fit[nm_a].to_numpy()))
                 xb = _f64(_scrub(X_fit[nm_b].to_numpy()))
