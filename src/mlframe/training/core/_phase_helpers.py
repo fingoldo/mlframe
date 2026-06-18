@@ -871,6 +871,8 @@ def _maybe_dispatch_to_ltr_ranker_suite(
         plot_outputs=_plot_outputs,
         ltr_panels=_ltr_panels,
         mlp_kwargs=_mlp_kwargs,
+        feature_selection_config=getattr(ctx, "feature_selection_config", None),
+        rfecv_models=getattr(ctx, "rfecv_models", None),
     )
 
 
