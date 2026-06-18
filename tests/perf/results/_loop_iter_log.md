@@ -4067,3 +4067,23 @@ Streak: REJECT -> 1 (after iter145 RESOLVED). **Cumulative loop wave: 110 RESOLV
 **Verdict: RESOLVED.** Large-n profiling (the regime the maturity note flagged for remaining wins) surfaced a leaf hidden at small-n: three numpy reductions where the 1-D BLAS dot fell off a thread-spin-up cliff. Fused into one njit pass; 3.8-54x isolated, faster everywhere, ~1e-14 parity, pinned.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 111 RESOLVED, 38 REJECT across 147 iterations.**
+
+## iter148 — LARGE-N profile: `_renumber_joint` ran factorize(col0)+combine as TWO passes; single-pass 2-col densify — RESOLVED
+
+**Surface/scale:** same large-n profile (n=20000). `_renumber_joint` is the top pure-Python-orchestration leaf (0.938s tottime / 28,382 calls). Microbench breakdown: ascontiguousarray is only 0.59us (no-op on contiguous int64); the 28us/call is genuine compute -- TWO array-counting njit passes (`_factorize_dense_njit(col0)` then `_combine_factorize_njit`).
+
+**Hotspot:** the two-column joints (marginal xy + conditional xz / yz) dominate the call volume but ran the generic per-column path: factorize col0 to dense ids, THEN combine with col1 -- two data walks. For non-negative low-cardinality pairs (the FE/MI case: x,y quantised to ~10 bins) the pair can be densified DIRECTLY in one walk via a flat seen-buffer indexed by `a[i]*(max_b+1)+b[i]` -- the same array-counting trick as factorize, applied to the pair, skipping the separate factorize-a pass.
+
+**Fix:** added `_renumber_two_dense_njit(a, b)` (njit, cache) and a 2-col fast path in `_renumber_joint` gated on `len(cols)==2 and n`; `nc == -1` sentinel (negative ids or cartesian span >= _FAC_ARRAY_CAP) falls back to the generic two-step. First-seen dense ids: induced partition + nclasses identical to the two-step (the same partition-invariance `_factorize_dense_njit` documents), so every consumer (plug-in entropy, further renumbering into xyz) is unchanged.
+
+**Measured (warm best-of-5, isolated `_renumber_joint(a,b)`):** n=5000 8.04->3.70us (2.17x); n=20000 28.69->16.52us (1.74x); n=100000 165.82->66.22us (2.50x).
+
+**Identity proof:** partition + nclasses identical to the generic factorize-then-combine across n in {1,500,20000} (canonical-relabel equality); and CMI/MI BIT-IDENTICAL (max_abs_diff 0.0) across 120 marginal + conditional evals vs a monkeypatched generic-renumber reference. The fast path changes id LABELS, never the partition the entropies count.
+
+**Regression test:** `tests/feature_selection/test_marginal_mi_fixed_y.py` -- `test_renumber_two_dense_partition_identical_to_generic` (canonical-relabel parity vs factorize+combine) + `test_renumber_two_dense_falls_back_on_negative_and_huge_span` (sentinel + generic-path correctness on negatives).
+
+**Tests green:** 4 passed (renumber/marginal sensors), then 192 passed / 7 pre-existing unrelated F2 protective-retention xfails across the full feature_selection mi_greedy/cmi/usability/renumber/marginal selection.
+
+**Verdict: RESOLVED.** Two-column joints densified in one array-counting pass instead of factorize-then-combine; 1.7-2.5x isolated on the top Python-orchestration leaf, partition-identical so CMI/MI is bit-identical, gated fallback for the unsupported cases, pinned.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 112 RESOLVED, 38 REJECT across 148 iterations.**
