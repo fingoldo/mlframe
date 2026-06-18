@@ -4127,3 +4127,23 @@ Streak: REJECT -> 3 (iter149, iter150, iter151). **Cumulative loop wave: 112 RES
 ### Session note (iters 145-151): productive surface mapped + 3 wins landed
 
 Across regression / classification / wide-feature / non-FE / RFECV combos at small AND large n, the mlframe optimizable surface resolves to: (a) FE/MI kernels optimized THIS session (iter145 fixed-y H(Y) hoist; iter147 _corr_sq_centered fused reduction 3.8-54x; iter148 _renumber_joint single-pass 2-col densify 1.7-2.5x); (b) the sibling session active 2026-06-17 FE area (cheap_conditional_gate_scan, binned_numeric_agg -- off-limits); (c) njit-bound metric kernels already fused (fast_aucs, _batch_per_class_ice_kernel); (d) external lightgbm/sklearn-bound paths. With (a) done, (b) contested, and (c)/(d) not mlframe-Python-optimizable, the independently-available surface for THIS session is exhausted -- consistent with the "mlframe perf is mature; real wins need uncontended large-n or new code" note. Loop paused at streak 3 (binding stop is 100); resume when the sibling FE work settles or new code lands.
+
+## iter152 — n=50000 profile: `_power_centered` sin/cos was the next leaf; PARALLEL fused kernel (the serial rejection never tried prange) — RESOLVED
+
+**Surface/scale:** even-larger combo (n=50000, 18 features, seed 152). After iter147 fused `_corr_sq_centered` reductions, `_power_centered` (`_orth_extra_basis_fe.py:250`) became the top self-dominated leaf (1.401s tottime ~= 1.474s cumtime, 1452 calls) -- its remaining cost is the two `np.sin`/`np.cos` passes + temporaries in the per-frequency refine scan (`_refine_peak_freq._scan`).
+
+**Hotspot/bug:** a 2026-06-13 note rejected fusing sin/cos into a SERIAL njit kernel (numba scalar sin/cos loses to numpy vectorised ufunc -- re-confirmed here: 0.80x@20k / 0.91x@50k). But that rejection never tried PARALLEL: the per-element transcendental work is large enough to amortise prange thread spawn.
+
+**Fix:** added `_power_centered_fused_par_njit` (numba njit parallel + prange, fastmath) computing sin/cos + BOTH centered-SS reductions in ONE pass with no length-n temporaries; `_power_centered` gates to it at `n >= _POWER_CENTERED_PAR_MIN_N` (4000), keeping the serial numpy path below (where spawn loses). Kept + extended the bench-rejection note (serial loses, parallel wins).
+
+**Measured (warm best-of-5, isolated `_power_centered`):** parallel n=5000 51.6->35.6us (1.45x); n=20000 195.5->79.0us (2.48x); n=50000 498.0->183.8us (2.71x); n=100000 947.0->304.4us (3.11x). Serial fused (rejected) was 0.80-0.91x at n>=20k -- parallel is the differentiator.
+
+**Identity proof:** rel_diff ~1e-15 (prange reduction-order, single-ULP) vs the independent centered `_periodogram_power` reference, across n in {1667,4000,20000,50000} (both gate sides) x multiple freqs. Far below the 0.0125 frequency-grid spacing -> cannot flip a periodogram peak selection.
+
+**Regression test:** `test_corr_sq_centered_noalloc.py::test_power_centered_parallel_path_matches_serial_reference` (parametrized n=1667/4000/20000, both gate sides, vs `_periodogram_power`, tol 1e-10).
+
+**Tests green:** 27 passed (corr_sq + power_centered parity + coarse_basis_njit + extra_basis biz_value), then 48 passed (adaptive_fourier + chirp + univariate_basis biz_value) -- detector-level frequency selection unchanged.
+
+**Verdict: RESOLVED.** Pushing the profile to n=50000 surfaced the next leaf after iter147; the serial-fusion rejection did not generalise to PARALLEL, which wins 1.45-3.1x gated at n>=4k, ~1e-15 parity, pinned. Confirms the "profile larger to find new leaves" lesson.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 113 RESOLVED, 41 REJECT across 152 iterations.**

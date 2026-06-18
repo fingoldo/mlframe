@@ -49,6 +49,29 @@ def test_corr_sq_centered_degenerate_constant_v_returns_zero():
     assert _corr_sq_centered(np.ones(4), yc, float(yc @ yc)) == 0.0
 
 
+@pytest.mark.parametrize("n", [1667, 4000, 20000])  # below + above the parallel gate
+def test_power_centered_parallel_path_matches_serial_reference(n):
+    """_power_centered routes to the parallel fused njit kernel at n>=_POWER_CENTERED_PAR_MIN_N; it must match
+    the independent centered periodogram reference (_periodogram_power) to ~1e-12 on both sides of the gate."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_extra_basis_fe import (
+        _power_centered,
+        _periodogram_power,
+    )
+
+    rng = np.random.default_rng(n)
+    z = np.sort(rng.random(n))
+    max_rel = 0.0
+    for _ in range(15):
+        f = 0.3 + 6.0 * rng.random()
+        y = np.sin(2.0 * np.pi * (0.3 + 6.0 * rng.random()) * z) + 0.3 * rng.standard_normal(n)
+        yc = y - y.mean()
+        y_ss = float(yc @ yc)
+        ref = _periodogram_power(z, y, f)
+        got = _power_centered(z, yc, y_ss, f)
+        max_rel = max(max_rel, abs(ref - got) / max(abs(ref), 1e-30))
+    assert max_rel < 1e-10, f"_power_centered diverged {max_rel:.2e} from the centered reference at n={n}"
+
+
 def test_periodogram_power_nonnegative_and_phase_invariant():
     rng = np.random.default_rng(7)
     n = 1000

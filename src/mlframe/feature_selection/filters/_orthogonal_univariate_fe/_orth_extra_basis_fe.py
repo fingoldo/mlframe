@@ -247,15 +247,48 @@ def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
     )
 
 
+# Parallel path wins from ~n>=4k (thread spawn amortised by the per-element transcendental work); below it the
+# serial numpy ufunc path is faster (see the bench-rejection note in _power_centered).
+_POWER_CENTERED_PAR_MIN_N = 4000
+
+
+@numba.njit(fastmath=True, parallel=True, cache=True)
+def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
+    """Periodogram power = corr(sin)^2 + corr(cos)^2 in ONE prange pass: sin/cos + both centered-SS
+    reductions fused, no length-n temporaries. Parallel over rows. Bit-close to ~1e-15 (reduction-order)
+    of the numpy-sin/cos + _corr_sq_centered path -- far below any frequency-rank scale."""
+    n = z.shape[0]
+    tp = 2.0 * np.pi * freq
+    sums = 0.0; ss_s = 0.0; sy = 0.0
+    sumc = 0.0; ss_c = 0.0; cy = 0.0
+    for i in prange(n):
+        a = tp * z[i]
+        s = np.sin(a); c = np.cos(a); yv = yc[i]
+        sums += s; ss_s += s * s; sy += s * yv
+        sumc += c; ss_c += c * c; cy += c * yv
+    out = 0.0
+    v_ss = ss_s - sums * sums / n
+    if v_ss >= 1e-24 and y_ss >= 1e-24:
+        out += (sy * sy) / (v_ss * y_ss)
+    v_cc = ss_c - sumc * sumc / n
+    if v_cc >= 1e-24 and y_ss >= 1e-24:
+        out += (cy * cy) / (v_cc * y_ss)
+    return out
+
+
 def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
     """Periodogram power at ``freq`` against a pre-centered ``y`` (``yc``,
     sum-of-squares ``y_ss``). Hot-loop variant that skips re-centering y."""
-    # bench-attempt-rejected (2026-06-13): a fused 2-pass njit kernel (sin/cos
-    # sums + centered SS in one walk, no temporaries) measured 1.06x@n800 /
-    # 0.89x@n1667 / 1.26x@n5000 -- LOSES at the scene train-slice size (~1667)
-    # because numba's scalar np.sin/np.cos loop is slower than numpy's vectorised
-    # transcendental ufunc here, and the ascontiguousarray wrapper adds overhead.
-    # bench: _benchmarks/bench_power_centered_njit.py.
+    # bench-attempt-rejected (2026-06-13): a SERIAL fused njit kernel measured 1.06x@n800 / 0.89x@n1667 /
+    # 1.26x@n5000 / 0.80x@n20000 -- numba scalar sin/cos loses to numpy's vectorised transcendental ufunc.
+    # The PARALLEL fused twin (prange) instead WINS from ~n>=4k (1.45x@5k / 2.48x@20k / 2.71x@50k / 3.11x@100k,
+    # rel ~1e-15) -- the per-element sin/cos work amortises thread spawn. Gated below; serial numpy path stays
+    # for small n. bench: _benchmarks/bench_power_centered_njit.py.
+    if z.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
+        return _power_centered_fused_par_njit(
+            np.ascontiguousarray(z, dtype=np.float64), np.ascontiguousarray(yc, dtype=np.float64),
+            float(y_ss), float(freq),
+        )
     ang = 2.0 * np.pi * float(freq) * z
     return (
         _corr_sq_centered(np.sin(ang), yc, y_ss)
