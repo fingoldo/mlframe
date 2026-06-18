@@ -25,7 +25,7 @@ from .info_theory import (
     # 2026-05-28: njit-callable dispatcher used inside permutation kernels;
     # branches on a bool param so the SU mode propagates without re-reading
     # the Python-level thread-local from inside @njit.
-    compute_relevance_score, use_su_normalization,
+    compute_relevance_score, use_su_normalization, use_mi_miller_madow,
 )
 
 logger = logging.getLogger(__name__)
@@ -591,6 +591,7 @@ def mi_direct(
 
     original_mi = compute_relevance_score(
         _use_su, classes_x, freqs_x, classes_y, freqs_y, dtype=dtype,
+        use_mm=(use_mi_miller_madow() and not _use_su),
     )
 
     if return_null_mean:

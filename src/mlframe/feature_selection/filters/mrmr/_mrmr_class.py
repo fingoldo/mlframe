@@ -3762,7 +3762,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
         # the default ``mi_normalization='none'`` path. Restored in finally so a
         # crashing _fit_impl can't leak SU mode into subsequent fits.
-        from ..info_theory import set_su_normalization, set_jmim_aggregator, set_bur_lambda
+        from ..info_theory import set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(
@@ -3777,6 +3777,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
         set_jmim_aggregator(_jmim_on)
         set_bur_lambda(_bur_lambda)
+        # Miller-Madow relevance-MI bias correction. Subtracts the closed-form ``(k_x-1)(k_y-1)/(2n)`` plug-in bias from the OBSERVED relevance so high-cardinality
+        # noise no longer out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in estimator bit-exact. Reset in the finally.
+        _mm_on = getattr(self, "mi_correction", "none") == "miller_madow"
+        set_mi_miller_madow(_mm_on)
         # activate DCD thread-local. The DCDState dataclass
         # is constructed inside ``_screen_predictors`` (passed via dcd_config
         # kwarg) — joblib-safe; the thread-local is only the read-only branch
@@ -3909,6 +3913,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                 pass
             try:
                 set_bur_lambda(0.0)
+            except Exception:
+                pass
+            try:
+                set_mi_miller_madow(False)
             except Exception:
                 pass
             # reset DCD thread-local and restore

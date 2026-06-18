@@ -124,6 +124,48 @@ def mi(
     return entropy_x + entropy_y - entropy_xy
 
 
+@njit(cache=True)
+def mi_miller_madow(
+    factors_data,
+    x: np.ndarray,
+    y: np.ndarray,
+    factors_nbins: np.ndarray,
+    verbose: bool = False,
+    dtype=np.int32,
+) -> float:
+    """Miller-Madow bias-corrected mutual information ``I_mm(X; Y) = I_plugin - (k_x-1)(k_y-1)/(2n)``.
+
+    The plug-in ``I(X;Y) = H(X)+H(Y)-H(X,Y)`` carries a POSITIVE finite-sample bias dominated by the over-binned joint term, scaling with the OCCUPIED bin
+    counts ``k_x``/``k_y``. This kernel computes the plug-in MI from the SAME occupied-bin frequencies and subtracts the closed-form Miller-Madow bias so a
+    high-cardinality NOISE feature no longer out-ranks a low-cardinality TRUE-relevant feature by sheer entropy at small n. ``-> I_plugin`` as ``n -> inf``.
+    """
+    x = np.asarray(x, dtype=np.int64)
+    y = np.asarray(y, dtype=np.int64)
+    factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
+
+    _, freqs_x, _ = merge_vars(
+        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    _, freqs_y, _ = merge_vars(
+        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    vars_xy = np.unique(np.concatenate((x, y)))
+    _, freqs_xy, _ = merge_vars(
+        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    entropy_x = entropy(freqs=freqs_x)
+    entropy_y = entropy(freqs=freqs_y)
+    entropy_xy = entropy(freqs=freqs_xy)
+    mi_plugin = entropy_x + entropy_y - entropy_xy
+    k_x = len(freqs_x[freqs_x > 0])
+    k_y = len(freqs_y[freqs_y > 0])
+    n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
+    return mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples)
+
+
 @njit(nogil=True, cache=True)
 def symmetric_uncertainty(
     factors_data,

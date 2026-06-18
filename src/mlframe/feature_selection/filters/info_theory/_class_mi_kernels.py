@@ -6,7 +6,42 @@ import math
 import numpy as np
 from numba import njit
 
-from ._state_and_dispatch import use_su_normalization
+from ._state_and_dispatch import use_mi_miller_madow, use_su_normalization
+
+
+@njit(cache=True)
+def _mm_bias(freqs_x: np.ndarray, freqs_y: np.ndarray, n: int) -> float:
+    """Closed-form Miller-Madow MI bias ``(k_x-1)(k_y-1)/(2n)`` from occupied-bin counts of the pre-computed marginals (freqs are probabilities, ``>0`` = occupied)."""
+    k_x = 0
+    for i in range(len(freqs_x)):
+        if freqs_x[i] > 0:
+            k_x += 1
+    k_y = 0
+    for j in range(len(freqs_y)):
+        if freqs_y[j] > 0:
+            k_y += 1
+    if k_x <= 1 or k_y <= 1 or n <= 0:
+        return 0.0
+    return (k_x - 1) * (k_y - 1) / (2.0 * n)
+
+
+@njit(cache=True)
+def compute_mi_mm_from_classes(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype=np.int32,
+) -> float:
+    """Miller-Madow bias-corrected MI from pre-computed class arrays + marginals: ``I_plugin - (k_x-1)(k_y-1)/(2n)``, floored at 0.
+
+    Subtracts the closed-form small-sample bias so a high-cardinality NOISE column no longer out-ranks a low-cardinality TRUE-relevant column by sheer entropy at
+    small n. The bias term is identical across permutations of y (k_x, k_y, n fixed), so under the significance-gated null-debias screen it cancels in
+    ``observed - null_mean``; it bites on the RAW relevance ranking (no-null / non-gated paths) and on the absolute relevance floor.
+    """
+    mi_xy = compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+    corrected = mi_xy - _mm_bias(freqs_x, freqs_y, len(classes_x))
+    return corrected if corrected > 0.0 else 0.0
 
 
 @njit(cache=True)
@@ -101,6 +136,7 @@ def compute_relevance_score(
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
     dtype=np.int32,
+    use_mm: bool = False,
 ) -> float:
     """njit-callable dispatcher between raw MI and Symmetric Uncertainty.
 
@@ -115,6 +151,8 @@ def compute_relevance_score(
     """
     if use_su:
         return compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+    if use_mm:
+        return compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
     return compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
 
 
@@ -127,4 +165,6 @@ def mi_or_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=np.int32
     """
     if use_su_normalization():
         return compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+    if use_mi_miller_madow():
+        return compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
     return compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)

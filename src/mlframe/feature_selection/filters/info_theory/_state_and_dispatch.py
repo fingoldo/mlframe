@@ -13,6 +13,7 @@ from ._entropy_kernels import (
     conditional_mi,
     conditional_symmetric_uncertainty,
     mi,
+    mi_miller_madow,
     symmetric_uncertainty,
 )
 
@@ -56,11 +57,27 @@ def set_bur_lambda(weight: float) -> None:
     _BUR_STATE.weight = float(weight)
 
 
+# Miller-Madow relevance-MI bias correction toggle. Set by MRMR.fit when ``mi_correction='miller_madow'``; read at the relevance dispatcher below. Independent of
+# SU (SU normalises by cardinality; MM subtracts the closed-form small-sample bias), so the two compose but MM is skipped when SU is active (SU's ratio is the
+# normalisation and the additive MM bias term has no clean SU analogue without re-correcting both entropies).
+_MM_STATE = _threading.local()
+
+
+def use_mi_miller_madow() -> bool:
+    return bool(getattr(_MM_STATE, "active", False))
+
+
+def set_mi_miller_madow(active: bool) -> None:
+    _MM_STATE.active = bool(active)
+
+
 def mi_or_su(factors_data, x, y, factors_nbins, verbose=False, dtype=np.int32) -> float:
-    """Dispatch raw MI or SU based on the thread-local toggle. Cheap path
-    when SU is off: a one-call delegation to ``mi`` (which is njit-cached)."""
+    """Dispatch raw MI / SU / Miller-Madow-corrected MI based on the thread-local toggles. Cheap path
+    when all are off: a one-call delegation to ``mi`` (which is njit-cached)."""
     if use_su_normalization():
         return symmetric_uncertainty(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
+    if use_mi_miller_madow():
+        return mi_miller_madow(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
     return mi(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
 
 
