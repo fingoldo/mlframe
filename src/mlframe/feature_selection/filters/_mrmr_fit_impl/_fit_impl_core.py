@@ -95,6 +95,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _fit_entry_nan_mask[_c] = _nan_mask_c
     X = self._validate_inputs(X, y)
 
+    # Large-n regression adaptive-quantization gate. The 180-cell campaign showed fixed 20-bin quantile beats MDLP 15/15 on reg n=100k
+    # (holdout +0.116 / F1 +0.242) but LOSES at reg n=20k and on classification, so it is gated to the detected (regression AND n>=threshold)
+    # regime, and only when the user left both quantization params at defaults. getattr defaults keep this replay-safe on pre-flip pickles.
+    if getattr(self, "adaptive_nbins_large_n_reg", False) and getattr(self, "nbins_strategy", None) == "mdlp" and int(getattr(self, "quantization_nbins", 10)) == 10:
+        _n_rows_gate = int(X.shape[0]) if hasattr(X, "shape") else 0
+        _thr = int(getattr(self, "adaptive_nbins_large_n_reg_threshold", 50_000))
+        if _n_rows_gate >= _thr:
+            _explicit_tt_gate = getattr(self, "target_type", None)
+            if _explicit_tt_gate is not None:
+                _tt_str_gate = str(_explicit_tt_gate).lower()
+                _is_reg_gate = not ("classif" in _tt_str_gate or _tt_str_gate in ("binary", "multiclass", "multilabel"))
+            else:
+                _y_arr_gate = np.asarray(y)
+                _n_unique_gate = len(np.unique(_y_arr_gate))
+                _ratio_gate = len(_y_arr_gate) / max(1, _n_unique_gate)
+                _is_float_gate = _y_arr_gate.dtype.kind == "f"
+                _is_classification_gate = (not _is_float_gate) and _ratio_gate > 100 and _n_unique_gate <= 64
+                _is_reg_gate = not _is_classification_gate
+            if _is_reg_gate:
+                self.nbins_strategy = None
+                self.quantization_nbins = int(getattr(self, "adaptive_nbins_large_n_reg_nbins", 20))
+                self._adaptive_nbins_large_n_reg_fired_ = True
+
     # ----------------------------------------------------------------------------------------------------------------------------
     # Compute inputs/outputs signature
     # ----------------------------------------------------------------------------------------------------------------------------

@@ -326,6 +326,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # wired into MRMR.fit().
         nbins_strategy: str = "mdlp",
         nbins_strategy_kwargs: dict = None,
+        # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
+        # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
+        # paired win for fixed 20-bin quantile over MDLP -- holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667
+        # (+0.242, std 0.0). The same fixed-20 path LOST at reg n=20k (holdout -0.143) and at classification (clf n=20k holdout
+        # -0.052; clf n=100k exact tie), so the win is regime-specific, not a blanket flip. This knob gates the campaign-winner
+        # config (nbins_strategy=None, quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
+        # threshold below, ONLY when the user left both quantization params at their constructor defaults (explicit user values
+        # are never overridden). Set to False to keep MDLP everywhere (pre-2026-06-18 behaviour); set the threshold to retune.
+        adaptive_nbins_large_n_reg: bool = True,
+        adaptive_nbins_large_n_reg_threshold: int = 50_000,
+        adaptive_nbins_large_n_reg_nbins: int = 20,
         # 10 new research-grade opt-in knobs (sibling modules):
         # F13 Chao-Shen entropy correction (Pawluszek-Filipiak 2025).
         #   'none' (default) | 'miller_madow' | 'chao_shen'
