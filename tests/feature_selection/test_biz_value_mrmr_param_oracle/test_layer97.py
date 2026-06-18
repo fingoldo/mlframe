@@ -240,10 +240,15 @@ class TestPoolShrinksUnderNewDefault:
 class TestRepresentativeLayersSmoke:
     def test_representative_layer_modules_import(self):
         import importlib
-        for layer in (21, 87, 91):
-            mod = importlib.import_module(
-                f"tests.feature_selection.test_biz_value_mrmr_layer{layer}"
-            )
+        # Representative layers, now relocated into themed subpackages (the flat
+        # test_biz_value_mrmr_layer<N>.py files were consolidated).
+        modules = (
+            "tests.feature_selection.test_biz_value_mrmr_fe_hybrid_orth.test_layer21",
+            "tests.feature_selection.test_biz_value_mrmr_grouped_cat_fe.test_composite_group_key",
+            "tests.feature_selection.test_biz_value_mrmr_param_oracle.test_layer91",
+        )
+        for name in modules:
+            mod = importlib.import_module(name)
             assert mod is not None
 
     def test_minimal_fit_under_new_defaults(self):

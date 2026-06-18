@@ -286,6 +286,11 @@ class TestPriorLayerRoster:
         for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
             for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
                 relocated.add(int(n))
+            # A consolidated submodule named ``test_layer<N>.py`` IS the relocated layer N; harvest the
+            # filename too so a relocated layer counts even when its docstring omits the ``layerN.py`` marker.
+            fm = re.match(r"test_layer(\d+)\.py$", p.name)
+            if fm:
+                relocated.add(int(fm.group(1)))
         present_all = set(present) | relocated
         assert max(present_all) >= 100, (
             f"highest layer module should be >= 100, got {max(present_all)}"

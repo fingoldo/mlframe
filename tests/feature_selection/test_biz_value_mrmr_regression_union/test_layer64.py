@@ -541,6 +541,11 @@ class TestLayerRoster:
             with open(sub, encoding="utf-8") as fh:
                 for n in re.findall(r"layer(\d+)\.py", fh.read()):
                     layer_numbers.add(int(n))
+            # A consolidated submodule named ``test_layer<N>.py`` IS the relocated layer N; harvest the
+            # filename too so a relocated layer counts even when its docstring omits the ``layerN.py`` marker.
+            fm = re.match(r"test_layer(\d+)\.py$", os.path.basename(sub))
+            if fm:
+                layer_numbers.add(int(fm.group(1)))
         # Every integer in [6, 64] must have a dedicated layerN.py.
         expected_layer_numbers = set(range(6, 65))
         missing_layers = expected_layer_numbers - layer_numbers

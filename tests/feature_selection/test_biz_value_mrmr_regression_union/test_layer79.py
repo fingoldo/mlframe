@@ -132,6 +132,11 @@ class TestPriorLayerDiscoverability:
         for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
             for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
                 relocated.add(int(n))
+            # A consolidated submodule named ``test_layer<N>.py`` IS the relocated layer N (the
+            # authoritative signal); count it even when the docstring omits the ``layerN.py`` breadcrumb.
+            fm = re.match(r"test_layer(\d+)\.py$", p.name)
+            if fm:
+                relocated.add(int(fm.group(1)))
         missing = [
             n for n in _PRIOR_LAYERS
             if not (root / f"test_biz_value_mrmr_layer{n}.py").exists() and n not in relocated
