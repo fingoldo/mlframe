@@ -57,8 +57,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+
+      # The [all,dev] extras union resolves to a ~5 GB, several-hundred-package
+      # graph (torch / mlflow / lightning / gpytorch / pysr+julia / ...). pip's
+      # backtracking resolver hits `error: resolution-too-deep` on this graph
+      # (py3.13/3.14) and, where it does resolve, the install alone burns ~25 min
+      # of the 90-min job budget so install+test overruns the cap. uv's resolver
+      # has no depth ceiling and installs in parallel (~10x faster), fixing both.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
 
       - name: Install libomp (macOS LightGBM OpenMP runtime)
         # LightGBM's macOS wheel links against ``@rpath/libomp.dylib``. The
@@ -78,7 +88,7 @@ jobs:
         # covers py3.9 for downstream consumers.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install "./pyutilz[system,pandas,polars,database]"
+          uv pip install --system "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling
         # mlframe has unguarded top-level imports of heavy libs across
@@ -87,8 +97,7 @@ jobs:
         # CI installs the union of runtime extras so test collection
         # doesn't blow up on ModuleNotFoundError.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
+          uv pip install --system -e ".[all,dev]"
 
       - name: Show installed versions
         run: |
