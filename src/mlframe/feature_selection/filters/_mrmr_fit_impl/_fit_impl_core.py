@@ -8864,6 +8864,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _rr_excl_names.update(_n for _n in _grp if _n != _keep)
                             else:
                                 _rr_excl_names.update(_grp)
+                # SUBSUMED-OPERAND EXCLUSION: a raw that is an operand of a SURVIVING engineered feature is
+                # already represented by that feature, so re-attaching it re-injects the raw-redundancy the I4b
+                # invariant forbids (subsumed raw dropped at any nesting depth). The retention's PRIMARY case --
+                # under-ranked raws with NO surviving engineered form (weak additive g/k) -- is untouched: those
+                # are not engineered operands. (Engineered survivors live in the recipes, not in selected_vars.)
+                from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT2
+                _rr_raw_set = set(self.feature_names_in_)
+                for _en in (getattr(self, "_engineered_recipes_", {}) or {}):
+                    for _tok in _RR_TOK_SPLIT2.split(str(_en)):
+                        if not _tok:
+                            continue
+                        _base = _tok if _tok in _rr_raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
+                        if _base in _rr_raw_set:
+                            _rr_excl_names.add(_base)
                 if _rr_excl_names:
                     _raw_extra = [_nm for _nm in _raw_extra if str(_nm) not in _rr_excl_names]
             if _raw_extra:
