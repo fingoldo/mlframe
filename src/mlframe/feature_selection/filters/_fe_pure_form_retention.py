@@ -245,8 +245,13 @@ def retain_usable_pure_forms(
         # gain first), so a post-greedy gate would reject the cross-pair and leave nothing -- the genuine
         # JOINT form was never selected. Filtering the pool to non-separable joint forms first makes the
         # greedy optimise CV-MAE over GENUINE interactions only, so it picks a**2/b / g/k / log(c)*sin(d).
+        # max_per_pair=3 (not 8): the pool replay-VERIFIES a recipe for every kept form (apply_recipe ~0.35s
+        # each -- the dominant retention cost), but the non-separability filter below discards most of them,
+        # so building+verifying 8/pair was wasted work. The genuine joint form is the top-joint-MI form for
+        # its pair, so top-3 reliably keeps it (verified: F2 / I5 / MS still recover). max_pairs stays high --
+        # a pure-synergy pair (c,d) has ~0 marginal and ranks LOW, so trimming pairs would drop it.
         pool = build_usability_candidate_pool(
-            X_fit, _yv, base_names, max_pairs=25, max_per_pair=8,
+            X_fit, _yv, base_names, max_pairs=25, max_per_pair=3,
         )
         filtered = []
         for cand in pool:
