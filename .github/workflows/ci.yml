@@ -29,10 +29,18 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
         include:
-          # Newest Python (3.14): exercised on Linux + Windows, non-blocking
-          # (experimental) until all [all] extras publish cp314 wheels.
+          # Python 3.13/3.14 are non-blocking (experimental) because the [all]
+          # extra cannot install on them yet: optbinning (latest, 0.21.0) pins
+          # ortools>=9.4,<9.12, and ortools publishes cp313/cp314 wheels only
+          # from 9.12+ — so no optbinning/ortools pair has a 3.13+ wheel. The
+          # core stack (numpy/numba/polars/sklearn/pyarrow/pydantic) ships
+          # cp313/cp314 wheels; this is purely the optbinning->ortools lag.
+          # Restore to required rows once optbinning relaxes the ortools<9.12 cap.
+          - os: ubuntu-latest
+            python-version: "3.13"
+            experimental: true
           - os: ubuntu-latest
             python-version: "3.14"
             experimental: true
@@ -44,6 +52,7 @@ jobs:
             python-version: "3.11"
           - os: windows-latest
             python-version: "3.13"
+            experimental: true
           # macOS arm64 coverage on a single representative Python. Polars + numba JIT paths
           # differ on Darwin (Accelerate BLAS, libomp linkage, distinct wheels); one row catches
           # macOS-specific regressions without ballooning the runner-minute budget.
