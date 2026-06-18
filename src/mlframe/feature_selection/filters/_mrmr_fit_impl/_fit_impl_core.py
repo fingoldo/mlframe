@@ -8878,6 +8878,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 for _nm in _raw_extra:
                     _idx = _name_to_in_idx.get(_nm)
                     if _idx is not None and int(_idx) not in _cur_set:
+                        # Honour the caller's pinned search space: the usability-aware retention runs AFTER the
+                        # factors_names_to_use / factors_to_use chokepoint (above), so a re-attached raw outside
+                        # the pinned pool would re-leak a forbidden column into support_.
+                        if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
+                            continue
                         selected_vars.append(int(_idx))
                         _cur_set.add(int(_idx))
                         _added_idx.append(int(_idx))
