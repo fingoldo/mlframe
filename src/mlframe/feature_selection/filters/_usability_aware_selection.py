@@ -157,38 +157,94 @@ def build_usability_candidate_pool(
         pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
         pairs = pairs[:max_pairs]
 
+    # FUSED njit PER-PAIR ENUMERATION (retention path only, 2026-06-18). On the retention path
+    # (``rank_pairs_by_joint_mi=True``) the per-pair ``|unary|^2*|binary|`` value+quantile-bin+MI triple
+    # is Python-dispatched per combo (~3.5s/pair at n=10000, ~62s of a structured fit). When every
+    # preset op is njit-coded, score ALL combos for a pair in ONE njit(parallel) kernel
+    # (``score_pair_combos``) -- bit-faithful to the Python MI (verified ~6e-15) -- then recompute the
+    # numpy value only for the (bounded) combos clearing ``mi_floor`` so the diversity filter + recipe
+    # replay are UNCHANGED. The default (marginal-rank) path stays byte-identical (Python loop below).
+    _ua_codes = _ub_codes = _bn_codes = None
+    if rank_pairs_by_joint_mi:
+        from ._usability_njit_pool import (
+            njit_unary_codes_or_none, njit_binary_codes_or_none, score_pair_combos,
+        )
+        _unary_names = list(unary.keys())
+        _binary_names = list(binary.keys())
+        _uc = njit_unary_codes_or_none(_unary_names)
+        _bc = njit_binary_codes_or_none(_binary_names)
+        if _uc is not None and _bc is not None:
+            _ua_codes, _ub_codes, _bn_codes = _uc, _uc, _bc  # ua/ub share the unary code table
+
     for n1, n2 in pairs:
         x1 = _f64(_scrub(X_df[n1].to_numpy()))
         x2 = _f64(_scrub(X_df[n2].to_numpy()))
-        # Precompute each operand's unary transforms ONCE per pair (was recomputed for every (ua,ub)
-        # combo inside the product loop -- |unary|x redundant). Byte-identical values + iteration order.
-        ta_by_ua: dict = {}
-        for _ua in unary:
-            try:
-                ta_by_ua[_ua] = unary[_ua](x1)
-            except Exception:
-                pass
-        tb_by_ub: dict = {}
-        for _ub in unary:
-            try:
-                tb_by_ub[_ub] = unary[_ub](x2)
-            except Exception:
-                pass
         cand_here: list[UsableCandidate] = []
-        for ua, ta in ta_by_ua.items():
-            for ub, tb in tb_by_ub.items():
-                for bn, bf in binary.items():
-                    try:
-                        val = _scrub(bf(ta, tb), feature_dtype)
-                    except Exception:
-                        continue
-                    if float(np.std(val)) <= 1e-9:
-                        continue
-                    m = _binned_mi(val, y_codes, quantization_nbins, y_terms)
-                    if m < mi_floor:
-                        continue
-                    name = f"{bn}({ua}({n1}),{ub}({n2}))"
-                    cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+        if _ua_codes is not None:
+            # njit-scored retention path. The kernel enumerates ``for ua: for ub: for bn`` in the SAME
+            # order as the Python loop, so the flat combo index maps 1:1 to (ua, ub, bn) below.
+            _unary_names = list(unary.keys())
+            _binary_names = list(binary.keys())
+            mis = score_pair_combos(
+                x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
+            )
+            nu = len(_unary_names)
+            nb = len(_binary_names)
+            j = 0
+            for ia in range(nu):
+                ua = _unary_names[ia]
+                ta = None  # lazily transform x1 only when a surviving combo needs the value
+                for ib in range(nu):
+                    ub = _unary_names[ib]
+                    tb = None
+                    for ibn in range(nb):
+                        bn = _binary_names[ibn]
+                        m = float(mis[j]); j += 1
+                        if m < 0.0:        # std<=1e-9 sentinel
+                            continue
+                        if m < mi_floor:
+                            continue
+                        # recompute the numpy value (bit-identical to the Python loop) only for the
+                        # bounded set of mi_floor-clearing combos -- needed for the diversity filter +
+                        # recipe replay. The unary outputs are reused across the inner loops.
+                        if ta is None:
+                            ta = unary[ua](x1)
+                        if tb is None:
+                            tb = unary[ub](x2)
+                        try:
+                            val = _scrub(binary[bn](ta, tb), feature_dtype)
+                        except Exception:
+                            continue
+                        name = f"{bn}({ua}({n1}),{ub}({n2}))"
+                        cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+        else:
+            # Default / fallback Python loop. Precompute each operand's unary transforms ONCE per pair.
+            ta_by_ua: dict = {}
+            for _ua in unary:
+                try:
+                    ta_by_ua[_ua] = unary[_ua](x1)
+                except Exception:
+                    pass
+            tb_by_ub: dict = {}
+            for _ub in unary:
+                try:
+                    tb_by_ub[_ub] = unary[_ub](x2)
+                except Exception:
+                    pass
+            for ua, ta in ta_by_ua.items():
+                for ub, tb in tb_by_ub.items():
+                    for bn, bf in binary.items():
+                        try:
+                            val = _scrub(bf(ta, tb), feature_dtype)
+                        except Exception:
+                            continue
+                        if float(np.std(val)) <= 1e-9:
+                            continue
+                        m = _binned_mi(val, y_codes, quantization_nbins, y_terms)
+                        if m < mi_floor:
+                            continue
+                        name = f"{bn}({ua}({n1}),{ub}({n2}))"
+                        cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
         # keep diverse top-MI forms for this pair.
         cand_here.sort(key=lambda c: c.mi, reverse=True)
         kept: list[UsableCandidate] = []
