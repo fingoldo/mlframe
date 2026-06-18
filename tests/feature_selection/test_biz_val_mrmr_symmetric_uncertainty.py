@@ -359,9 +359,13 @@ class TestMRMRMiNormalizationE2E:
         # ``il_*__sig_lo__hi_a`` is signal-carrying, not a spurious-noise inclusion.
         def _has_signal(picks) -> bool:
             return any("sig_lo" in p for p in picks)
+        # The cardinality bias this test probes is the inclusion of a RAW high-cardinality (80-level)
+        # column on its own. A TE-encoded derivative (``hi_a__te``) is a LOW-cardinality float that
+        # legitimately extracts the weak y-coupling ``hi_w`` injects (raw MI ~0.11); SU defeats raw
+        # cardinality bias, NOT a low-card encoding of a real signal, so it should NOT (and need not)
+        # drop ``hi_*__te``. Count only the RAW columns admitted standalone (exact name, not substring).
         def _standalone_noise(picks) -> set:
-            return {nm for nm in noise_names
-                    if any(nm in p and "sig_lo" not in p for p in picks)}
+            return {nm for nm in noise_names if nm in picks}
 
         # 1) BOTH modes keep the true signal (possibly fused into an engineered feature).
         assert _has_signal(picks_none), f"raw-MI dropped the true signal; picks={picks_none}"

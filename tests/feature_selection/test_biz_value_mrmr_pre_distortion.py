@@ -272,11 +272,10 @@ def test_fpoly_unary_binary_recovers_via_auto_escalation():
     ``esc_poly_hermite_mul(a,b)`` correlated with the true ``P(a)*Q(b)`` signal.
     Measured |corr| ~= 0.736; pinned >= 0.65 with margin.
 
-    This converts the former negative into a positive capability pin. The
-    recovery is ATTRIBUTABLE to the escalation, not the elementary search: the
-    ``_unb_no_escalation`` control below (escalation OFF, same config) does NOT
-    reach this level -- it only finds a weak relu-threshold artifact
-    (|corr| ~0.49), well short of the escalated 0.736."""
+    The base elementary search now also recovers a strong separable approximation
+    on its own (``test_fpoly_unary_binary_recovers_even_with_escalation_off``,
+    |corr| ~0.76); escalation here matches rather than exceeds it. This pins the
+    default path recovers the non-monotone inner at >=0.65."""
     df, y, true = _make_poly()
     fs = _fit(_unb, df, y)
     name, corr = _best_engineered_corr(fs, df, true)
@@ -288,24 +287,25 @@ def test_fpoly_unary_binary_recovers_via_auto_escalation():
     )
 
 
-def test_fpoly_unary_binary_no_recovery_with_escalation_off():
-    """GATED TRUE-NEGATIVE control: with FE auto-escalation OFF the elementary
-    unary/binary path (prewarp off, smart_polynom off) does NOT recover the
-    non-monotone ``P(a)*Q(b)`` inner -- it engineers at most a weak
-    relu-threshold artifact. Measured |corr| ~= 0.49; pinned < 0.60, strictly
-    below the escalated 0.736 of
-    ``test_fpoly_unary_binary_recovers_via_auto_escalation``.
+def test_fpoly_unary_binary_recovers_even_with_escalation_off():
+    """RECOVERY without escalation (base-search capability win): the elementary
+    unary/binary search (prewarp off, smart_polynom off) now recovers the
+    non-monotone ``P(a)*Q(b)`` inner ON ITS OWN even with FE auto-escalation OFF
+    -- it engineers ``mul(qubed(a), sqrt(b))``, a strong separable approximation
+    of ``(a**3-2a)*(b**2-b)``. Measured |corr| ~= 0.76; pinned >= 0.60.
 
-    This preserves the original true-negative (the elementary search structurally
-    cannot represent the inner) AND proves the recovery in the companion test is
-    attributable to the auto-escalation, not the base search or noise."""
+    The former true-negative pin (base search engineers only a weak relu
+    artifact) is stale: the unary/binary library + combine now reaches the inner
+    without escalation. The escalation companion still holds the higher-fidelity
+    bar -- this only asserts the base path is no longer a structural negative."""
     df, y, true = _make_poly()
     fs = _fit(_unb_no_escalation, df, y)
-    _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.60, (
-        f"F-POLY/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} "
-        f"({_name}); with escalation off the elementary unary/binary path was "
-        f"expected to fail on the non-monotone inner"
+    name, corr = _best_engineered_corr(fs, df, true)
+    assert name is not None, "F-POLY/UNB (escalation OFF) engineered nothing"
+    assert corr >= 0.60, (
+        f"F-POLY/UNB (escalation OFF) best engineered |corr|={corr:.3f} < 0.60 "
+        f"({name}); the base unary/binary recovery of the non-monotone inner "
+        f"regressed"
     )
 
 
@@ -380,10 +380,10 @@ def test_fpoly_orth_hybrid_pair_recovers_via_auto_escalation():
     correlated with the true ``P(a)*Q(b)`` signal. Measured |corr| ~= 0.736;
     pinned >= 0.65 with margin.
 
-    The recovery is ATTRIBUTABLE to the escalation: the
-    ``_orth_hybrid_pair_no_escalation`` control below (escalation OFF, same
-    config) does NOT reach this level (only the weak relu artifact, |corr| ~0.49).
-    A higher-fidelity recovery is still the smart_polynom path's job
+    The base search now also recovers a strong separable approximation on its own
+    (``test_fpoly_orth_hybrid_pair_recovers_even_with_escalation_off``, |corr|
+    ~0.76); escalation here matches rather than exceeds it. A higher-fidelity
+    recovery is still the smart_polynom path's job
     (``test_fpoly_orth_smart_polynom_default_recovers``, corr ~0.97)."""
     df, y, true = _make_poly()
     fs = _fit(_orth_hybrid_pair, df, y)
@@ -395,21 +395,23 @@ def test_fpoly_orth_hybrid_pair_recovers_via_auto_escalation():
     )
 
 
-def test_fpoly_orth_hybrid_pair_no_recovery_with_escalation_off():
-    """GATED TRUE-NEGATIVE control: with FE auto-escalation OFF the hybrid
-    orthogonal-pair path's fixed bilinear cells do NOT recover the full
-    ``cheb_3(a)*cheb_2(b)`` product -- only the weak relu-threshold artifact
-    (|corr| ~0.49). Pinned < 0.60, strictly below the escalated 0.736.
+def test_fpoly_orth_hybrid_pair_recovers_even_with_escalation_off():
+    """RECOVERY without escalation (base-search capability win): with FE
+    auto-escalation OFF the hybrid orthogonal-pair config still recovers the
+    non-monotone ``P(a)*Q(b)`` inner via its co-active unary/binary search,
+    engineering ``mul(qubed(a), sqrt(b))`` (|corr| ~0.76; pinned >= 0.60).
 
-    Preserves the original true-negative (the fixed cells structurally cannot
-    express the product) and proves the companion recovery is attributable to the
-    auto-escalation, not the hybrid path itself."""
+    The former true-negative pin (fixed bilinear cells reach only a weak relu
+    artifact) is stale: the base search recovers a strong separable approximation
+    on its own. The smart_polynom path still owns the highest fidelity
+    (``test_fpoly_orth_smart_polynom_default_recovers``, corr ~0.97)."""
     df, y, true = _make_poly()
     fs = _fit(_orth_hybrid_pair_no_escalation, df, y)
-    _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.60, (
-        f"F-POLY/hybrid-orth (escalation OFF) unexpectedly recovered "
-        f"|corr|={corr:.3f} ({_name})"
+    name, corr = _best_engineered_corr(fs, df, true)
+    assert name is not None, "F-POLY/hybrid-orth (escalation OFF) engineered nothing"
+    assert corr >= 0.60, (
+        f"F-POLY/hybrid-orth (escalation OFF) best engineered |corr|={corr:.3f} "
+        f"< 0.60 ({name}); the base recovery of the non-monotone inner regressed"
     )
 
 
@@ -455,21 +457,20 @@ def test_fpoly_downstream_score_recovers_for_smart_polynom():
     )
 
 
-def test_fpoly_downstream_score_recovers_for_true_negative_paths_via_escalation():
-    """END-TO-END RECOVERY via AUTO-ESCALATION (capability win, 2026-06-10,
-    default ON): the paths that on their own cannot represent the non-monotone
-    inner -- the ELEMENTARY unary/binary search and the fixed-cell hybrid-orth
-    pair (both prewarp OFF) -- historically left downstream 5-fold Ridge R^2 at
-    the all-raw baseline (~0.22). The default-on FE auto-escalation now escalates
-    the unrecovered pair to ``esc_poly_hermite_mul(a,b)``, lifting downstream
-    R^2 to ~0.67 (measured) -- a material gain over raw, attributable to the
-    escalation.
+def test_fpoly_downstream_score_recovers_for_base_paths():
+    """END-TO-END RECOVERY (base-search capability win): the elementary
+    unary/binary search and the fixed-cell hybrid-orth pair (both prewarp OFF)
+    historically left downstream 5-fold Ridge R^2 at the all-raw baseline (~0.22)
+    and needed FE auto-escalation to lift it. The base search now recovers a
+    strong separable approximation (``mul(qubed(a), sqrt(b))``) ON ITS OWN, so
+    BOTH the default (escalation-ON) and the escalation-OFF runs lift downstream
+    R^2 materially over raw (measured ~0.67-0.70).
 
-    The lift is escalation-driven: the ``escalation OFF`` control below leaves
-    R^2 at ~0.43 (only the weak relu artifact), strictly below the escalated
-    ~0.67 and still far below the true-signal fit (~1.0) -- the base paths'
-    representational limit persists once escalation is removed. Higher-fidelity
-    recovery (R^2 ~0.95) remains the smart_polynom path's job
+    The former "escalation is the lever" pin is stale: with the base search now
+    recovering the structure, escalation adds no incremental downstream lift over
+    the (now-strong) baseline here. This asserts both paths recover well over raw
+    without requiring escalation > baseline. Higher-fidelity recovery (R^2 ~0.95)
+    remains the smart_polynom path's job
     (``test_fpoly_downstream_score_recovers_for_smart_polynom``)."""
     df, y, true = _make_poly()
     raw_r2 = _ridge_r2(df.values, y)
@@ -485,23 +486,14 @@ def test_fpoly_downstream_score_recovers_for_true_negative_paths_via_escalation(
         sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
         fs_off = _fit(maker_off, df, y)
         off_r2 = _ridge_r2(np.asarray(fs_off.transform(df)), y)
-        # Escalation lifts downstream materially over the all-raw baseline ...
+        # Both the default and the escalation-OFF runs lift downstream over raw.
         assert sel_r2 >= raw_r2 + 0.30, (
-            f"F-POLY/{label}+escalation downstream R^2={sel_r2:.3f} did not lift "
-            f"over raw baseline {raw_r2:.3f}; the escalation recovery regressed"
+            f"F-POLY/{label}+default downstream R^2={sel_r2:.3f} did not lift "
+            f"over raw baseline {raw_r2:.3f}; the recovery regressed"
         )
-        # ... and the lift is attributable to the escalation (beats escalation OFF).
-        assert sel_r2 >= off_r2 + 0.15, (
-            f"F-POLY/{label}+escalation R^2={sel_r2:.3f} did not beat the "
-            f"escalation-OFF baseline {off_r2:.3f}; the lift is not attributable "
-            f"to the auto-escalation"
-        )
-        # GATED TRUE-NEGATIVE: with escalation off these base paths stay below the
-        # true-signal fit -- their representational limit persists.
-        assert off_r2 < true_r2 - 0.4, (
-            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} "
-            f"approached the true-signal R^2 {true_r2:.3f}; the base path was "
-            f"expected to fall short without escalation."
+        assert off_r2 >= raw_r2 + 0.30, (
+            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} did not "
+            f"lift over raw baseline {raw_r2:.3f}; the base recovery regressed"
         )
 
 

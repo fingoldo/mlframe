@@ -430,10 +430,12 @@ class TestConceptDrift:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(train_X, train_y)
             out = sel.transform(test_X)
-        # Must not crash; output has the same column count as
-        # fit-time support_.
+        # Must not crash; output column count matches get_feature_names_out (raw + engineered),
+        # and the raw-feature support_ mask is a subset of the emitted columns (FE adds, never drops).
         assert out.shape[0] == n
-        assert out.shape[1] == len(sel.support_)
+        assert list(out.columns) == list(sel.get_feature_names_out())
+        assert out.shape[1] >= len(sel.support_)
+        assert "signal" in out.columns
 
 
 # =============================================================================

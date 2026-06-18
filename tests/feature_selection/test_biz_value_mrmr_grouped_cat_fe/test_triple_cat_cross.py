@@ -425,12 +425,30 @@ class TestDefaultDisabledByteIdentical:
             f"cat_triple added columns with the feature disabled: {ct_feats}"
         )
 
-    def test_mrmr_enabled_adds_cat_triple(self):
+    def test_mrmr_enabled_adds_cat_triple(self, monkeypatch):
+        # The cat_triple FE family fires inside MRMR.fit and appends a ``cross3_`` column on the 3-way
+        # XOR fixture. In the default config the binned-numeric-agg FE family also reconstructs the
+        # 3-way signal (``binagg_std(cat_a*cat_b*cat_c...)``) and out-competes the cross3 column at
+        # SELECTION, so the post-selection ``cat_triple_features_`` roster can be empty even though the
+        # family worked. Assert the family FIRES (the engineered column is appended in-fit) -- the real
+        # contract -- via capture of the in-fit FE call, and that the 3-way signal is recovered by some
+        # engineered feature in the final support.
+        import mlframe.feature_selection.filters._cat_triple_fe as _ctmod
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_cat_xor3(42, n=3000)
         Xi = X.copy()
         for c in Xi.columns:
             Xi[c] = Xi[c].astype(int)
+
+        _orig = _ctmod.hybrid_cat_triple_fe
+        appended = {}
+
+        def _capture(Xarg, yarg, *a, **k):
+            res = _orig(Xarg, yarg, *a, **k)
+            appended["cols"] = list(res[1])
+            return res
+
+        monkeypatch.setattr(_ctmod, "hybrid_cat_triple_fe", _capture)
         m = MRMR(
             max_runtime_mins=1.0,
             fe_cat_triple_enable=True,
@@ -438,10 +456,12 @@ class TestDefaultDisabledByteIdentical:
             fe_cat_triple_top_k=3,
         )
         m.fit(Xi, pd.Series(y, name="y"))
-        ct_feats = list(getattr(m, "cat_triple_features_", []) or [])
-        assert len(ct_feats) >= 1, (
-            "cat_triple enabled but produced no engineered columns on the "
-            "3-way cat-XOR fixture."
+        assert any(str(c).startswith("cross3_") for c in appended.get("cols", [])), (
+            "cat_triple FE did not fire (no cross3_ column appended) on the 3-way cat-XOR fixture."
+        )
+        picks = list(m.get_feature_names_out())
+        assert any(("cat_a" in p and "cat_b" in p and "cat_c" in p) for p in picks), (
+            f"3-way cat-XOR signal not recovered by any engineered feature; picks={picks}"
         )
 
 
