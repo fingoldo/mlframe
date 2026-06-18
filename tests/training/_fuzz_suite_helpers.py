@@ -313,6 +313,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # split_config validator doesn't reject the combo.
         if (combo.test_size_cfg + 0.1 + _calib_eff) >= 1.0:
             _calib_eff = None
+    # conformal_size is a SECOND holdout; the split-config validator enforces test + val(0.1) + calib + conformal <= 1.0.
+    _conformal_eff = combo.conformal_size_cfg
+    if _conformal_eff is not None:
+        if (combo.test_size_cfg + 0.1 + (_calib_eff or 0.0) + _conformal_eff) > 1.0:
+            _conformal_eff = None
     split_config = TrainingSplitConfig(
         test_size=combo.test_size_cfg,
         val_placement=combo.val_placement_cfg,
@@ -333,6 +338,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         test_sequential_fraction=_tsf_eff,
         # 2026-05-21 iter151 P1-6: post-hoc calibration split.
         calib_size=_calib_eff,
+        # E2 time-aware split surface. cv_strategy canon collapses forward-walk strategies to 'random' on val_placement='backward';
+        # cv_purge applies only under 'purged'; conformal_size carves a second holdout (sum-guarded above).
+        cv_strategy=combo._canonical_cv_strategy(),
+        cv_purge=(combo.cv_purge_cfg if combo._canonical_cv_strategy() == "purged" else 0),
+        conformal_size=_conformal_eff,
     )
     # PreprocessingConfig is built by ``_preprocessing_for_combo`` and
     # passed explicitly at the suite call site (it owns the fix_inf_eff /

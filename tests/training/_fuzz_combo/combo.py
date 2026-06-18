@@ -749,6 +749,14 @@ class FuzzCombo:
     mrmr_fe_mi_greedy_cmi_enable_cfg: bool = False
     mrmr_fe_cat_triple_enable_cfg: bool = False
     mrmr_fe_rankgauss_enable_cfg: bool = False
+    # RFECV first-class lever fields (FeatureSelectionConfig D-surface). Defaults mirror the dataclass; gated to rfecv on in canonical_key.
+    rfecv_enable_permutation_importance_cfg: bool = False
+    rfecv_prescreen_cfg: "str | None" = None
+    rfecv_swap_top_k_cfg: "int | None" = None
+    # TrainingSplitConfig time-aware split surface. Defaults mirror the dataclass; cv_purge gated on the purged strategy.
+    cv_strategy_cfg: str = "random"
+    cv_purge_cfg: int = 0
+    conformal_size_cfg: "float | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -892,6 +900,11 @@ class FuzzCombo:
             self.val_placement_cfg,
             self.test_size_cfg,
             self.trainset_aging_limit_cfg,
+            # cv_strategy forward-walk strategies conflict with val_placement='backward' (the split-config validator rejects); collapse to 'random' there.
+            self._canonical_cv_strategy(),
+            # cv_purge is the purged-strategy embargo gap; meaningless for random/timeseries -> collapse to 0.
+            (self.cv_purge_cfg if self._canonical_cv_strategy() == "purged" else 0),
+            self.conformal_size_cfg,
             self.cat_text_card_threshold_cfg,
             self.early_stopping_rounds_cfg,
             self.use_robust_eval_metric_cfg,
@@ -1243,6 +1256,10 @@ class FuzzCombo:
             # defaults otherwise.
             (self.rfecv_votes_aggregation_cfg if self.rfecv_estimator_cfg is not None else "Borda"),
             (self.rfecv_search_method_cfg if self.rfecv_estimator_cfg is not None else "ModelBasedHeuristic"),
+            # RFECV first-class lever fields meaningful only when an RFECV selector is in the chain; collapse to dataclass defaults otherwise.
+            (self.rfecv_enable_permutation_importance_cfg if self.rfecv_estimator_cfg is not None else False),
+            (self.rfecv_prescreen_cfg if self.rfecv_estimator_cfg is not None else None),
+            (self.rfecv_swap_top_k_cfg if self.rfecv_estimator_cfg is not None else None),
             # P1-8: use_sample_weights_in_fs only meaningful when any FS is
             # enabled (MRMR / RFECV / Boruta) AND weights schema includes
             # something non-uniform (otherwise FS receives all-1s weights
@@ -2710,6 +2727,13 @@ class FuzzCombo:
         if _platform.system() != "Windows":
             return False
         return bool(self.enable_crash_reporting_cfg)
+
+    def _canonical_cv_strategy(self) -> str:
+        # Forward-walk strategies (timeseries / purged) require val_placement='forward'; the split-config validator
+        # rejects them with 'backward'. Collapse to 'random' on backward so the combo stays valid (semantic, not a prod-bug mask).
+        if self.cv_strategy_cfg in ("timeseries", "purged") and self.val_placement_cfg == "backward":
+            return "random"
+        return self.cv_strategy_cfg
 
     def _canonical_rfecv_estimator(self) -> "str | None":
         rfe = self.rfecv_estimator_cfg

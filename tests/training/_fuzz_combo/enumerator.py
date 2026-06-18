@@ -238,6 +238,12 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         # dataclass default and the axis was silently inert (never fuzzed). Wiring
         # them through makes the sampled value take effect; defaults match the
         # dataclass so default-valued combos are unchanged.
+        rfecv_enable_permutation_importance_cfg=axes.get("rfecv_enable_permutation_importance_cfg", False),
+        rfecv_prescreen_cfg=axes.get("rfecv_prescreen_cfg", None),
+        rfecv_swap_top_k_cfg=axes.get("rfecv_swap_top_k_cfg", None),
+        cv_strategy_cfg=axes.get("cv_strategy_cfg", "random"),
+        cv_purge_cfg=axes.get("cv_purge_cfg", 0),
+        conformal_size_cfg=axes.get("conformal_size_cfg", None),
         fs_pre_screen_unsupervised_cfg=axes.get("fs_pre_screen_unsupervised_cfg", True),
         fs_pre_screen_variance_threshold_cfg=axes.get("fs_pre_screen_variance_threshold_cfg", 0.0),
         ranking_ensemble_method=axes.get("ranking_ensemble_method", "rrf"),

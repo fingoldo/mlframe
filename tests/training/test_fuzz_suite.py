@@ -529,6 +529,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     # variance-floor drop branch actually exercise.
                     pre_screen_unsupervised=combo.fs_pre_screen_unsupervised_cfg,
                     pre_screen_variance_threshold=combo.fs_pre_screen_variance_threshold_cfg,
+                    # RFECV first-class lever fields (D-surface). canonical_key collapses each to the dataclass default
+                    # unless an RFECV selector is in the chain, so they never split dedup buckets when RFECV is off.
+                    rfecv_enable_permutation_importance=combo.rfecv_enable_permutation_importance_cfg,
+                    rfecv_prescreen=combo.rfecv_prescreen_cfg,
+                    rfecv_swap_top_k=combo.rfecv_swap_top_k_cfg,
                 ),
             ),
             # Chart rendering is OFF by default (the ~150-combo × ~5-fig run compounds to >2 GB and historically blew up pytest's traceback

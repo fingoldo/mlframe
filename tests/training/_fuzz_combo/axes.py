@@ -1802,4 +1802,15 @@ AXES: dict[str, tuple[Any, ...]] = {
     "mrmr_fe_mi_greedy_cmi_enable_cfg": (False, True),
     "mrmr_fe_cat_triple_enable_cfg": (False, True),
     "mrmr_fe_rankgauss_enable_cfg": (False, True),
+    # FeatureSelectionConfig RFECV first-class lever fields (D-surface, commit 55a31c6c). Gated to rfecv-on in canonical_key.
+    # enable_permutation_importance flips RFECV importance_getter to permutation; prescreen='univariate_ht' fires the in-tree
+    # FDR univariate pre-filter (no external dep, pandas-only -> auto-skips on polars); swap_top_k arms the SFFS post-convergence swap pass.
+    "rfecv_enable_permutation_importance_cfg": (False, True),
+    "rfecv_prescreen_cfg": (None, "univariate_ht"),
+    "rfecv_swap_top_k_cfg": (None, 2),
+    # TrainingSplitConfig time-aware split surface (E2, commits e3c45edb / e935a166 / 1730e5aa). cv_strategy routes the main split
+    # (random / forward-walk timeseries / purged-embargo); cv_purge sets the purged embargo gap; conformal_size carves a second holdout.
+    "cv_strategy_cfg": ("random", "timeseries", "purged"),
+    "cv_purge_cfg": (0, 5),
+    "conformal_size_cfg": (None, 0.05),
 }
