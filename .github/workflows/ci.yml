@@ -162,19 +162,23 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install linting tools
-        run: pip install ruff black bandit
+      # uvx runs each tool from uv's cache with no explicit install step;
+      # nothing to resolve into an environment.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Run ruff
-        run: ruff check src/mlframe
+        run: uvx ruff check src/mlframe
         continue-on-error: true
 
       - name: Run black --check
-        run: black --check src/mlframe
+        run: uvx black --check src/mlframe
         continue-on-error: true
 
       - name: Run bandit security scan
-        run: bandit -r src/mlframe -ll -f json -o bandit-report.json
+        run: uvx bandit -r src/mlframe -ll -f json -o bandit-report.json
         continue-on-error: true
 
       - name: Upload bandit results
@@ -195,14 +199,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install build
-        run: python -m pip install --upgrade pip build twine
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Build distributions
-        run: python -m build
+        run: uv build
 
       - name: Verify distributions with twine
-        run: twine check dist/*
+        run: uvx twine check dist/*
 
       # Install the BUILT wheel (not the editable checkout) into a clean venv
       # to confirm package layout, MANIFEST.in, py.typed, and __init__.py
