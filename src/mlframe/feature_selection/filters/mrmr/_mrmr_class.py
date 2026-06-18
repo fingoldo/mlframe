@@ -971,16 +971,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # proportional (>=1/class) draw for classification and a 10-quantile-bin proportional draw
         # for regression (preserves tails), falling back to uniform on degenerate y.
         #
-        # Tri-state knob:
-        #   * None  (DEFAULT) -> AUTO: resolved at fit. OFF (byte-identical legacy uniform draw) on
-        #     the common path, but turned ON when it matters -- classification with a small minimum
-        #     class fraction (min_class_count/n < 0.1) OR a detected heavy-tailed/skewed regression
-        #     target (|skew| high or extreme tail/IQR ratio). See ``_resolve_fe_subsample_stratify``.
-        #   * False -> always plain uniform (forces byte-identical legacy at every n / class mix).
-        #   * True  -> always stratified.
-        # Default-None keeps the common dense-class / well-behaved-target path bit-identical while
-        # auto-protecting the rare-class / heavy-tail regimes the bench flagged as at-risk.
-        fe_subsample_stratify: bool | None = None,
+        # Tri-state knob (DEFAULT True = always stratify):
+        #   * True  (DEFAULT) -> ALWAYS stratified. Stratified draws preserve rare classes (>=1, often
+        #     >=2, of each class) and the regression y-tails (proportional across 10 quantile bins),
+        #     so the FE MI / linear-usability screen always sees the structure FE is meant to recover.
+        #   * False -> always plain uniform: forces the byte-identical LEGACY draw at every n / class
+        #     mix (use only for exact replay of pre-R1 runs).
+        #   * None  -> AUTO (accepted but no longer the default): OFF on the common path, ON only when
+        #     a uniform draw would plausibly lose target structure (small min-class fraction /
+        #     heavy-tailed regression). See ``_resolve_fe_subsample_stratify``.
+        # Default ON: the rare-class / heavy-tail protection always applies; only an explicit False
+        # restores the legacy uniform path.
+        fe_subsample_stratify: bool | None = True,
         # ``fe_min_polynom_degree`` default 3->1:
         # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
         # cubic basis. Degree-1 (linear product, the XOR / multiplicative
