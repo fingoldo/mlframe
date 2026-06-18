@@ -4147,3 +4147,17 @@ Across regression / classification / wide-feature / non-FE / RFECV combos at sma
 **Verdict: RESOLVED.** Pushing the profile to n=50000 surfaced the next leaf after iter147; the serial-fusion rejection did not generalise to PARALLEL, which wins 1.45-3.1x gated at n>=4k, ~1e-15 parity, pinned. Confirms the "profile larger to find new leaves" lesson.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 113 RESOLVED, 41 REJECT across 152 iterations.**
+
+## iter153 — next non-njit leaf (`_conditional_perm_null`) was JUST sibling-optimized; FE surface coordination-blocked — BLOCKED
+
+**Surface/scale:** continued the n=50000 profile. The next genuine non-njit Python leaf outside iters 145/147/148/152 is `_fe_cmi_redundancy_gate._conditional_perm_null` (0.859s self / 13 calls). On inspection its most recent commit is `f0c16818 perf(fs): hoist y/z-invariant CMI terms out of the conditional-perm null loop` -- NOT one of this session commits, i.e. the SIBLING session just optimized this exact function (the same y/z-invariant-hoist technique). Left untouched per the no-collision rule.
+
+**Pattern across iters 149/151/153:** the sibling session is actively optimizing the FE/MI surface in real time -- `cheap_conditional_gate_scan` + `binned_numeric_agg_with_recipes` (2026-06-17 notes, iter149), the RFECV ice-metric/scorer (njit/external, iter151), and now `_conditional_perm_null` (f0c16818, iter153). This session clean wins (145/147/148/152) were in ADJACENT files the sibling had not reached (usability pool, _orth_extra_basis_fe, _mi_greedy_cmi_fe._renumber_joint); the redundancy/conditional-gate/binned-agg/perm-null cluster is THEIRS.
+
+**Verdict: BLOCKED.** No productive non-colliding target remains for this session: remaining FE leaves are the sibling active domain (collision risk), non-FE is external-lightgbm/sklearn-bound (iter150), and the metric/binning kernels are njit-saturated (iter146/151). Not a perf reject of an attempt -- a coordination block. Resume when the sibling FE work settles (re-profile then).
+
+Streak: BLOCKED (counts as non-RESOLVED) -> 1. **Cumulative loop wave: 113 RESOLVED, 41 REJECT, 1 BLOCKED across 153 iterations.**
+
+### SESSION CONCLUSION (iters 145-153): 4 RESOLVED / 4 REJECT / 1 BLOCKED
+
+Wins (all bit-identical or single-ULP, regression-pinned, FS suites green): iter145 usability-pool fixed-y H(Y) hoist (~1.1-1.2x); iter147 _corr_sq_centered 3-reduction fuse (3.8-54x, BLAS-cliff); iter148 _renumber_joint single-pass 2-col densify (1.7-2.5x); iter152 _power_centered parallel-fused sin/cos kernel gated n>=4k (1.45-3.1x). The vein: numpy multi-pass reductions / sin-cos over the FE buffer fuse into one njit pass (transcendentals need PARALLEL prange). LESSON: profile the FE path at n=20000-50000 -- every win was invisible at n=4000. Loop concluded (not the 100-reject cap): the remaining optimizable FE surface is the concurrent session active domain; re-invoke /loop when it settles.
