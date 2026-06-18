@@ -91,6 +91,13 @@ def run_polynom_pair_fe(
     # train-time precision is lost. 0 = use full data (legacy).
     subsample_n: int = 0,
     subsample_seed: int = 42,
+    # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the per-pair inner-search subsample below
+    # draws a TARGET-STRATIFIED set of rows (per-class proportional for classification, y-quantile
+    # for regression) instead of the plain uniform ``rng.choice``, so the CMA/Optuna inner MI is
+    # evaluated on a slice that retains rare classes / target tails. False (default) keeps the
+    # byte-identical legacy uniform draw. The caller resolves the MRMR ``fe_subsample_stratify``
+    # tri-state knob (None=auto) to a concrete bool via ``_resolve_fe_subsample_stratify``.
+    fe_subsample_stratify: bool = False,
     # 2026-06-02 CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
     # search only earns its cost on pairs whose signal a trivial library
     # unary/binary feature CANNOT already capture (non-monotone inners like
@@ -214,7 +221,13 @@ def run_polynom_pair_fe(
         # evaluation uses the slice.
         if subsample_n and 0 < subsample_n < len(vals_a_full):
             _ss_rng = np.random.default_rng(subsample_seed + int(raw_vars_pair[0]) * 1000 + int(raw_vars_pair[1]))
-            _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
+            if fe_subsample_stratify and hasattr(y_arr, "__getitem__"):
+                # ``classes_y`` (y_arr) is the discrete target the inner MI scores against -> classification
+                # stratification keeps the rare class in every per-pair subsample.
+                from ._fe_subsample import stratified_subsample_idx
+                _ss_idx = stratified_subsample_idx(_ss_rng, np.asarray(y_arr), int(subsample_n), is_clf=True)
+            else:
+                _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
             vals_a_sub = vals_a_full[_ss_idx]
             vals_b_sub = vals_b_full[_ss_idx]
             classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr

@@ -371,6 +371,31 @@ def usability_greedy(
         n = y_cont.shape[0]
     if n < 2:
         return []  # cannot cross-validate a usability greedy on < 2 rows
+
+    # MEM-2 RAM GOVERNOR (2026-06-18). The forward selection builds ``np.column_stack`` design
+    # matrices of up to ``K`` float64 columns (``Xsel``, ``Xs``) -- an (n, K) transient that, on a
+    # very-wide x very-large-n retention pass, can spike RAM with no psutil check. Best-effort cap:
+    # ask the SAME governor the FE buffers use (``_can_hoist_shared_buffer``) whether an (n, K)
+    # float64 design fits the LIVE budget; if not, shrink ``K`` (and the shortlist with it) to the
+    # largest width that fits (floored at 1) so the greedy still runs. This only triggers under
+    # genuine memory pressure: on a normal-RAM host the (n, K<=8) design always fits and ``K`` is
+    # unchanged, so selection is identical. Any psutil/import failure -> proceed with the full ``K``.
+    try:
+        from .feature_engineering import _can_hoist_shared_buffer, _fe_effective_buffer_budget_bytes
+
+        _k_eff = max(1, min(int(K), len(pool)))
+        _can, _need, _avail = _can_hoist_shared_buffer(n * _k_eff * 8, n_workers=1)
+        if (not _can) and _avail > 0:
+            # Cap K to the largest float64 (n, K) design that fits the SAME overhead-aware budget the
+            # gate used (not the raw available), flooring at 1 so the greedy always makes progress.
+            _budget = _fe_effective_buffer_budget_bytes(_avail, n_workers=1)
+            _k_fit = int(_budget // (n * 8)) if _budget > 0 else 1
+            if _k_fit < _k_eff:
+                K = max(1, _k_fit)
+                shortlist = min(int(shortlist), max(int(K), 1))
+    except Exception:
+        pass
+
     rng = np.random.default_rng(int(seed))
     # BALANCED PARTITION (audit fix, 2026-06-13): a random ``rng.integers(0, n_folds)`` multinomial
     # assignment can leave a fold EMPTY at small n / large n_folds -> an empty TRAIN fold crashes

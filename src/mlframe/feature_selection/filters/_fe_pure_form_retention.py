@@ -242,7 +242,14 @@ def retain_usable_pure_forms(
         n_rows = len(X)
         if n_rows > max_rows:
             _rng = np.random.default_rng(int(seed))
-            _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+            # R1: stratify the pool/CV row subsample on the target when the MRMR knob resolves ON
+            # (per-class for classification, y-quantile for regression) so a rare class / target tail
+            # is not dropped from the linear-usability recovery. Default-OFF path is byte-identical.
+            from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
+            if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=is_clf):
+                _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=is_clf)
+            else:
+                _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
             X_fit = X.iloc[_idx]
             y_fit = y_cont[_idx]
 
@@ -475,7 +482,16 @@ def retain_usable_raw_columns(
         n_rows = len(X)
         if n_rows > max_rows:
             _rng = np.random.default_rng(int(seed))
-            _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+            # R1: stratify the raw-passthrough row subsample on the target when the MRMR knob resolves
+            # ON. is_clf is detected locally (this probe otherwise treats y as continuous). Default-OFF
+            # path is byte-identical to the legacy uniform draw.
+            from ._fe_accuracy_gate import infer_classification
+            from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
+            _is_clf = bool(infer_classification(y_cont))
+            if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=_is_clf):
+                _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=_is_clf)
+            else:
+                _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
             X_fit = X.iloc[_idx]
             y_fit = y_cont[_idx]
 

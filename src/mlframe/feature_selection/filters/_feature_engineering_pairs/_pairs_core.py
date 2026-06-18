@@ -105,6 +105,13 @@ def check_prospective_fe_pairs(
     # >= 50k on synthetic 3-pair-competition data. 0 = use full data (legacy).
     subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
     subsample_seed: int = 42,
+    # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the MI-sweep row subsample below draws a
+    # TARGET-STRATIFIED set of rows (per-class proportional for classification -- guaranteeing the
+    # rare class survives; y-quantile-bin proportional for regression -- preserving the tails)
+    # instead of the plain uniform ``rng.choice``. False (default) keeps the byte-identical legacy
+    # uniform draw. The caller (``_mrmr_fe_step``) resolves the MRMR ``fe_subsample_stratify``
+    # tri-state knob (None=auto) to a concrete bool via ``_resolve_fe_subsample_stratify``.
+    fe_subsample_stratify: bool = False,
     # PER-OPERAND PRE-WARP (2026-06-02). When ``prewarp_enable`` is True the
     # unary/binary search gains, per raw operand, one extra "pseudo-unary"
     # ``prewarp(x)`` -- a learned 1-D orthogonal-polynomial warp fit JOINTLY
@@ -293,7 +300,16 @@ def check_prospective_fe_pairs(
     _use_subsample = isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows
     if _use_subsample:
         _rng_sub = np.random.default_rng(int(subsample_seed))
-        _sample_idx = np.sort(_rng_sub.choice(_full_n_rows, size=int(subsample_n), replace=False))
+        if fe_subsample_stratify:
+            # Stratify on the discretised class codes (classification: balances classes; this path's
+            # ``classes_y`` is the discrete target the MI sweep scores against). is_clf=True is correct
+            # because ``classes_y`` is always discrete codes here (a continuous y is binned upstream).
+            from .._fe_subsample import stratified_subsample_idx
+            _sample_idx = stratified_subsample_idx(
+                _rng_sub, np.asarray(classes_y), int(subsample_n), is_clf=True
+            )
+        else:
+            _sample_idx = np.sort(_rng_sub.choice(_full_n_rows, size=int(subsample_n), replace=False))
         if isinstance(_X_full, pd.DataFrame):
             X = _X_full.iloc[_sample_idx].reset_index(drop=True)
         else:

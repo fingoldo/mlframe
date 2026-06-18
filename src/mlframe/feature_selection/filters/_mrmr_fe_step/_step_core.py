@@ -88,6 +88,26 @@ def _run_fe_step(
     # Resolve to the float HERE so every downstream float use is byte-identical to the default path;
     # only the per-pair prevalence comparison below switches to the debiased observed value. An
     # explicit float (incl. the default 1.05) is honoured verbatim -> byte-identical to pre-conversion.
+    # R1 STRATIFIED SUBSAMPLE flag, resolved ONCE per FE step (UNCONDITIONALLY -- both the polynom-pair
+    # FE and the unary/binary ``check_prospective_fe_pairs`` calls below consume it, and the polynom
+    # block is gated by ``if fe_smart_polynom_iters`` so this must live at function-body level). The
+    # MRMR ``fe_subsample_stratify`` tri-state knob (None=auto / True / False) is resolved against the
+    # best available target: the continuous y (``_fe_prewarp_y_continuous_``) when present (its
+    # dtype/cardinality lets ``infer_classification`` pick clf-vs-reg and the regression heavy-tail
+    # heuristic see the real distribution), else the discrete ``classes_y`` codes (classification).
+    # Default-None auto-ON fires only on a small rare-class fraction / heavy-tailed target; otherwise
+    # OFF -> byte-identical legacy uniform draw.
+    from .._fe_subsample import _resolve_fe_subsample_stratify as _resolve_strat
+    from .._fe_accuracy_gate import infer_classification as _infer_clf
+    _strat_knob = getattr(self, "fe_subsample_stratify", None)
+    _strat_yc = getattr(self, "_fe_prewarp_y_continuous_", None)
+    if _strat_yc is not None and len(_strat_yc) == len(classes_y):
+        _fe_subsample_stratify = _resolve_strat(
+            _strat_knob, np.asarray(_strat_yc), is_clf=bool(_infer_clf(np.asarray(_strat_yc)))
+        )
+    else:
+        _fe_subsample_stratify = _resolve_strat(_strat_knob, np.asarray(classes_y), is_clf=True)
+
     _prevalence_debias_auto = (
         isinstance(fe_min_pair_mi_prevalence, str)
         and fe_min_pair_mi_prevalence.strip().lower() == "auto"
@@ -1025,6 +1045,7 @@ def _run_fe_step(
             n_jobs=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
             verbose=int(verbose),
             subsample_n=_subsample_n,
+            fe_subsample_stratify=_fe_subsample_stratify,
             # Cheap-first dispatch: skip the expensive CMA/Optuna search for pairs
             # whose trivial baseline already saturates the joint-MI ceiling. getattr
             # default keeps the knob optional (no ctor flag required); 1.0 disables.
@@ -1169,6 +1190,7 @@ def _run_fe_step(
                 verbose,
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                fe_subsample_stratify=_fe_subsample_stratify,
                 prewarp_enable=_prewarp_enable,
                 prewarp_y=classes_y if _prewarp_enable else None,
                 prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
@@ -1258,6 +1280,7 @@ def _run_fe_step(
                         verbose,
                         subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                         subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        fe_subsample_stratify=_fe_subsample_stratify,
                         prewarp_enable=_prewarp_enable,
                         prewarp_y=classes_y if _prewarp_enable else None,
                         prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,

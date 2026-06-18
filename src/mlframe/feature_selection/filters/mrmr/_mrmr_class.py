@@ -956,7 +956,31 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Bench (bench_fe_pair_subsample_accuracy.py): jaccard=1.0 vs full-n at
         # 50k+, 0.88 at 5k. Default 200_000 matches fe_smart_polynom_subsample_n
         # for cross-block consistency. 0 = use full data (legacy).
+        # R2 FAST SETTING (2026-06-18): 25_000 is a VALIDATED fast value -- survivor jaccard 1.0 /
+        # winner-match 5/5 vs the full-n screen (see FE_FAST_SUBSAMPLE_N in feature_engineering.py),
+        # ~8x smaller MI-sweep buffer. 10_000 is the marginal floor; do NOT set below 25_000. The
+        # default stays 200_000 (bit-stable); pass 25_000 for the validated fast screen.
         fe_check_pairs_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
+        # STRATIFIED FE SUBSAMPLE (R1, 2026-06-18). The FE MI-sweep / pure-form-retention /
+        # polynom-pair subsamplers above draw rows with a PLAIN uniform ``rng.choice`` -- no
+        # class balance for classification, no y-quantile coverage for regression. On a small
+        # rare-class fraction (uniform can drop ALL rows of a 1% class) or a heavy-tailed
+        # regression target (uniform under-represents the tails) the sampled MI / linear-usability
+        # screen is computed on a distribution that has lost the very structure FE is meant to
+        # recover. ``stratified_subsample_idx`` replaces the uniform draw with a per-class
+        # proportional (>=1/class) draw for classification and a 10-quantile-bin proportional draw
+        # for regression (preserves tails), falling back to uniform on degenerate y.
+        #
+        # Tri-state knob:
+        #   * None  (DEFAULT) -> AUTO: resolved at fit. OFF (byte-identical legacy uniform draw) on
+        #     the common path, but turned ON when it matters -- classification with a small minimum
+        #     class fraction (min_class_count/n < 0.1) OR a detected heavy-tailed/skewed regression
+        #     target (|skew| high or extreme tail/IQR ratio). See ``_resolve_fe_subsample_stratify``.
+        #   * False -> always plain uniform (forces byte-identical legacy at every n / class mix).
+        #   * True  -> always stratified.
+        # Default-None keeps the common dense-class / well-behaved-target path bit-identical while
+        # auto-protecting the rare-class / heavy-tail regimes the bench flagged as at-risk.
+        fe_subsample_stratify: bool | None = None,
         # ``fe_min_polynom_degree`` default 3->1:
         # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
         # cubic basis. Degree-1 (linear product, the XOR / multiplicative

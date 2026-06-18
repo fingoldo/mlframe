@@ -154,7 +154,22 @@ def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) 
 # at this n landed at jaccard=1.0 vs full -- see
 # bench_fe_pair_subsample_accuracy.py. Keep both call sites pinned to ONE knob
 # so a future re-tune lands consistently across the FE block.
+#
+# R2 FAST-SETTING GUIDANCE (2026-06-18). The FE-screen accuracy bench
+# (bench_fe_pair_subsample_accuracy.py) measured the survivor set + winner match vs the
+# FULL-n screen across n_eff: at n_eff >= 25_000 the survivor jaccard is 1.0 and the
+# winner-match is 5/5 -- i.e. 25_000 is a VALIDATED "fast" subsample that reproduces the
+# 200_000-default screen exactly while cutting the MI-sweep buffer ~8x. 10_000 is the
+# MARGINAL FLOOR (jaccard begins to slip); DO NOT set ``fe_check_pairs_subsample_n`` below
+# 25_000. The default stays 200_000 for bit-stability with prior fits; a latency-sensitive
+# caller can pass ``fe_check_pairs_subsample_n=25_000`` for the validated fast screen.
 FE_DEFAULT_SUBSAMPLE_N: int = 200_000
+
+# R2 validated "fast" FE-screen subsample (see FE_DEFAULT_SUBSAMPLE_N note above): jaccard 1.0 /
+# winner-match 5/5 vs full-n at this n_eff. Exposed as a named constant so a caller / preset can opt
+# into the fast screen without hardcoding the magic number. NOT the default (the default stays
+# 200_000 for byte-stability); 10_000 is the marginal floor -- do not go below 25_000.
+FE_FAST_SUBSAMPLE_N: int = 25_000
 
 
 def _rebuild_full_survivor_col(

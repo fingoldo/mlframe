@@ -14,27 +14,14 @@ from ._pairs_materialise import (
 )
 
 
-# CRITICAL: the hoisted shared buffer at
-# ``check_prospective_fe_pairs`` allocates ``(n, max_n_combs * len(binary))``
-# float32. With n=4M and the medium preset that's ~17.6 GiB -- production
-# MRMR crashed with numpy.core._exceptions._ArrayMemoryError on a real run.
-# The hoist landed in Wave Pack G (commit 068acdd) under small-n benchmarks
-# and never measured peak RAM on million-row data.
-#
-# Two-strategy dispatch:
-#   Fast path (current): if buffer < ``_FE_BUFFER_RAM_BUDGET_RATIO`` * available
-#     RAM, allocate the shared buffer and use the hoist (cheapest if it fits).
-#   Recompute fallback: drop the multi-column buffer, scratch into a fresh 1D
-#     ``np.empty(n, float32)`` per inner iteration, and rebuild the ~10
-#     survivor columns from their (transformations_pair, bin_func_name) metadata
-#     after the inner loop. Extra recompute cost: ~K bin_func calls per pair
-#     (K = num survivors, typically <= fe_max_pair_features + |leading|);
-#     <= 1% of the ~max_combs*|binary| calls already done in the inner loop.
-#
-# Subsample path remains a separate opt-in (``subsample_n`` parameter); this
-# memory dispatcher is the deterministic, accuracy-preserving fallback that
-# auto-engages when the shared buffer would OOM.
-_FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
+# NOTE: the authoritative ``_FE_BUFFER_RAM_BUDGET_RATIO`` (and the RAM-budget block comment
+# documenting the hoist/recompute dispatch) lives in ``feature_engineering.py`` (value 0.3). The
+# chunk module previously carried a stale duplicate (0.4) that nothing here read -- the chunk WIDTH
+# is bounded by the ``chunk_max_cols`` param passed in by the caller, which the caller derives from
+# ``_fe_effective_buffer_budget_bytes`` (the same authoritative ratio). The duplicate is removed; we
+# re-export the authoritative constant so the package ``__init__`` surface (and any historical import)
+# still resolves a single source of truth.
+from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO
 
 # CROSS-PAIR (CHUNK) BATCHING (2026-06-06). The per-pair 3-phase batch (materialise
 # -> ONE discretize_2d -> ONE batch_mi) below is bit-identical to the per-candidate
