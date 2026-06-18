@@ -8402,6 +8402,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _ca_final_excl = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
     _cm_final = getattr(self, "cluster_members_", None)
     _raw_names_cmfinal = set(self.feature_names_in_)
+    # Raw cluster representatives a DCD-aggregate-anchor swap would otherwise strip: force-kept / force-ADDED
+    # below so every collapsed cluster retains >=1 raw column. Initialised at function-body level (NOT inside
+    # the ``isinstance(_cm_final, dict)`` block) because it is referenced unconditionally further down -- a
+    # fit whose ``cluster_members_`` is not a dict (e.g. dcd_enable=False) must not hit an UnboundLocalError.
+    _ca_keep_raw: set = set()
     if isinstance(_cm_final, dict):
         # ``cluster_members_`` is populated by mechanisms with DIFFERENT final-exclusion semantics:
         #   * an ENGINEERED-anchor cluster (DCD PC1/mean_z swap whose anchor is the denoised aggregate, a
@@ -8418,7 +8423,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _nm2col_cm = {c: i for i, c in enumerate(cols)}
         _cached_cm = self.cached_MIs if hasattr(self, "cached_MIs") else {}
         _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
-
+        # Names ALREADY in selected_vars (raw, in feature_names_in_ index space). The greedy
+        # screen / retention passes have already chosen these as the cluster's surviving
+        # representative(s); the pure-raw-cluster strip below must KEEP one of them rather than
+        # silently swapping in an unselected member.
+        _sel_names_cm = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
         def _cm_mi(_nm):
             _ci = _nm2col_cm.get(_nm)
             return float(_cached_cm.get((_ci,), 0.0)) if _ci is not None else 0.0
@@ -8429,12 +8438,44 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _group = [_a] + _mlist
             if all(_nm in _raw_names_cmfinal for _nm in _group):
                 # pure raw cluster -- keep the single strongest representative, strip the rest.
+                # KEEP-ONE-SELECTED-RAW (2026-06-18): the cached-MI lookup the rep tiebreak relies
+                # on is often a miss for these members (``cached_MIs`` is keyed on the screening
+                # cols-space and a cluster member may never have been scored there), collapsing every
+                # member's relevance to 0.0 -> the rep degenerates to the LOWEST feature-index member.
+                # When that lowest-index member is NOT the one the greedy screen actually selected,
+                # the cluster's genuine selected representative (which IS in ``selected_vars``) gets
+                # stripped and the whole latent block vanishes from support_ (embedding cross-terms
+                # layer20: 12-member e1 cluster, only the high-MI anchor ``e1_17`` was selected, yet
+                # the rep collapsed to ``e1_1`` and e1 dropped entirely). PRINCIPLE: a member already
+                # chosen by the screen is the de-facto representative -- prefer it. Restrict the rep
+                # candidate pool to the cluster members present in ``selected_vars`` when any are;
+                # only fall back to the MI/index tiebreak over the whole group when none was selected.
                 if len(_group) >= 2:
-                    _rep = min(_group, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
+                    _rep_pool = [_nm for _nm in _group if _nm in _sel_names_cm] or _group
+                    _rep = min(_rep_pool, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
                     _ca_final_excl.update(_nm for _nm in _group if _nm != _rep)
             elif _a not in _raw_names_cmfinal:
-                # engineered/aggregate anchor -- strip its (raw) members; the aggregate itself survives.
-                _ca_final_excl.update(_mlist)
+                # engineered/aggregate anchor (DCD PC1/mean_z swap) -- strip its (raw) members; the
+                # aggregate itself survives.
+                #
+                # KEEP-ONE-RAW-REPRESENTATIVE (2026-06-18): a DCD denoised-aggregate swap collapses an
+                # entire raw cluster into a single engineered column and prunes every raw member. When
+                # the aggregate is the cluster's ONLY survivor, the latent block has no RAW column in
+                # ``support_`` at all -- any downstream consumer that reads the raw support names (a
+                # linear model fed the raw matrix, a feature-importance report, the layer20 embedding
+                # cross-terms contract) sees the whole block as dropped even though it was merely
+                # denoised. PRINCIPLE: the engineered aggregate is a SUPPLEMENT, not a replacement for
+                # the cluster's presence -- always leave at least one genuine raw representative of the
+                # cluster alive. Keep the strongest raw member (highest cached MI, lowest-index
+                # tiebreak) and strip the rest; the kept member is force-added to ``selected_vars``
+                # below so it survives even if no raw member reached the support chokepoint.
+                _raw_mem = [_m for _m in _mlist if _m in _raw_names_cmfinal]
+                if _raw_mem:
+                    _agg_rep = min(_raw_mem, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
+                    _ca_keep_raw.add(_agg_rep)
+                    _ca_final_excl.update(_m for _m in _mlist if _m != _agg_rep)
+                else:
+                    _ca_final_excl.update(_mlist)
             else:
                 # raw anchor + engineered/pseudo member(s) -- strip only the non-raw members (pseudo-remix
                 # protection below keeps a raw operand the cluster pairs with a pseudo-remix built from it).
@@ -8475,6 +8516,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         break
         if _protect_ca:
             _ca_final_excl -= _protect_ca
+    # KEEP-ONE-RAW-REPRESENTATIVE force-keep: the designated raw representative of each
+    # DCD-aggregate-collapsed cluster must never be stripped, even if another cluster's strip set or
+    # a redundancy pass nominated it. Remove it from the exclusion set first.
+    if _ca_keep_raw:
+        _ca_final_excl -= _ca_keep_raw
     if _ca_final_excl and selected_vars:
         _fni = self.feature_names_in_
         _pre_n = len(selected_vars)
@@ -8485,6 +8531,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 "retention/rescue pass had resurrected; only the denoised aggregate survives.",
                 _pre_n - len(selected_vars),
             )
+    # Force-ADD the kept raw representative of each aggregate-collapsed cluster when no raw member of
+    # that cluster reached the support chokepoint (the swap pruned them all). Guarantees every
+    # denoised cluster keeps >=1 genuine raw column in ``support_`` alongside its engineered aggregate.
+    if _ca_keep_raw:
+        _name2inidx_add = {c: i for i, c in enumerate(self.feature_names_in_)}
+        _sel_set = set(int(v) for v in selected_vars)
+        for _kr in _ca_keep_raw:
+            _ki = _name2inidx_add.get(_kr)
+            if _ki is not None and _ki not in _sel_set:
+                selected_vars.append(_ki)
+                _sel_set.add(_ki)
 
     # SEARCH-SPACE RESTRICTION FINAL ENFORCEMENT (2026-06-16). When the caller pins the candidate
     # pool via ``factors_names_to_use`` / ``factors_to_use``, the SCREEN honours it, but the many
@@ -8728,6 +8785,55 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
             )
+            # CLUSTER-COLLAPSE EXCLUSION (2026-06-18). ``retain_usable_raw_columns`` ranks raws by
+            # linear usability and is OBLIVIOUS to the cluster-aggregate / DCD redundancy collapse that
+            # the support chokepoint above already applied. A perfectly-collinear duplicate (``z=2a+3``)
+            # is maximally linearly-usable, so this pass happily re-attaches the very cluster member the
+            # chokepoint stripped -- re-injecting the redundancy and selecting BOTH members of a
+            # collinear pair (test_duplicate_collinear_handled_and_recorded). Mirror the same exclusion
+            # the raw-signal augmentation below applies: never re-attach a raw the cluster collapse
+            # already folded into another representative / a denoised aggregate.
+            if _raw_extra:
+                # Exclude the NON-REPRESENTATIVE members of every redundancy cluster: per cluster
+                # exactly ONE representative (the strongest member) stays eligible for re-attachment,
+                # mirroring the chokepoint's keep-one-strip-rest. ``_cluster_aggregate_removals_`` (the
+                # explicit 'replace'-mode removals) are excluded outright -- they are folded into a
+                # denoised aggregate that already represents the cluster.
+                # Exclude at most all-but-one member of every cluster, so the pass can never select
+                # BOTH members of a redundant pair, while still re-attaching ONE representative when the
+                # whole cluster was dropped. For each cluster, of the members ``retain_usable_raw_columns``
+                # surfaced, keep the first (it is the strongest by the pass's own usability ranking) and
+                # exclude the rest; if a cluster member is ALREADY in ``selected_vars`` that member is the
+                # representative, so exclude every cluster member from ``_raw_extra`` (no second copy).
+                _rr_excl_names = set(str(_n) for _n in (getattr(self, "_cluster_aggregate_removals_", None) or []))
+                _cm_rr = getattr(self, "cluster_members_", None)
+                if isinstance(_cm_rr, dict):
+                    _rr_raw = set(self.feature_names_in_)
+                    _rr_sel_names = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
+                    _rr_order = {str(_nm): _i for _i, _nm in enumerate(_raw_extra)}
+                    for _rr_anchor, _rr_members in _cm_rr.items():
+                        _a = str(_rr_anchor)
+                        _ms = [str(_m) for _m in _rr_members] if isinstance(_rr_members, (list, tuple, set)) else []
+                        if _a not in _rr_raw:
+                            # aggregate/engineered anchor: every raw member is folded into the aggregate.
+                            _rr_excl_names.update(_n for _n in _ms if _n in _rr_raw)
+                            continue
+                        _grp = [_n for _n in ([_a] + _ms) if _n in _rr_raw]
+                        if len(_grp) < 2:
+                            continue
+                        if any(_n in _rr_sel_names for _n in _grp):
+                            # a representative already survived -> drop every cluster member from re-attach.
+                            _rr_excl_names.update(_grp)
+                        else:
+                            # whole cluster dropped -> keep the single member the retention ranked highest.
+                            _cands = [_n for _n in _grp if _n in _rr_order]
+                            if _cands:
+                                _keep = min(_cands, key=lambda _n: _rr_order[_n])
+                                _rr_excl_names.update(_n for _n in _grp if _n != _keep)
+                            else:
+                                _rr_excl_names.update(_grp)
+                if _rr_excl_names:
+                    _raw_extra = [_nm for _nm in _raw_extra if str(_nm) not in _rr_excl_names]
             if _raw_extra:
                 _name_to_in_idx = {nm: i for i, nm in enumerate(getattr(self, "feature_names_in_", []) or [])}
                 # Append to the local ``selected_vars`` (the canonical raw-support list every downstream
