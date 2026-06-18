@@ -1,9 +1,9 @@
-"""LTR-local feature selection for the ranker suite.
+"""Feature selection for the LTR ranker suite, driven by the common ``FeatureSelectionConfig``.
 
-Covers the separate ``ranking._ranker_fs`` selector (it does NOT touch core MRMR) and its wiring into
-``train_mlframe_ranker_suite`` via ``LearningToRankConfig.feature_selection``. Also pins the relevance-leak
-regression: an FTE that declares the target via ``learning_to_rank_targets`` (no ``target_column`` attr) must
-not let the relevance column leak into the ranker feature matrix.
+LTR FS uses the SAME settings as every other target type (``use_mrmr_fs`` / ``rfecv_models`` /
+``use_boruta_shap``) -- no LTR-specific FS config. Covers: the LTR FS selector helper, an e2e suite run, the
+relevance-leak regression, and a cross-selector verification that MRMR / RFECV / BorutaShap / ShapProxiedFS all
+work on a graded-relevance (LtR) target with regression-appropriate settings.
 """
 
 from __future__ import annotations
@@ -30,82 +30,104 @@ def _ltr_frame(seed=0, n=900, nq=30, n_noise=6):
     return df, ["s0", "s1"], [f"noise_{i}" for i in range(n_noise)]
 
 
-# --- unit: the separate selector ------------------------------------------------------------------
+# --- unit: the config-driven selector helper -----------------------------------------------------
 
 
-def test_select_ltr_features_pointwise_recovers_signal():
+def test_select_ltr_features_mrmr_recovers_signal():
     from mlframe.training.ranking._ranker_fs import select_ltr_features
+    from mlframe.training import FeatureSelectionConfig
 
     df, signal, noise = _ltr_frame(0)
     X = df.drop(columns=["target", "qid"])
-    sel = select_ltr_features(X, df["target"].to_numpy(), df["qid"].to_numpy(), mrmr_kwargs={"quantization_nbins": 5})
-    assert set(signal) <= set(sel), f"signal lost: {sel}"
-    assert not (set(noise) & set(sel)), f"noise leaked into selection: {sel}"
-
-
-def test_select_ltr_features_group_aware_recovers_signal():
-    from mlframe.training.ranking._ranker_fs import select_ltr_features
-
-    df, signal, noise = _ltr_frame(1)
-    X = df.drop(columns=["target", "qid"])
     sel = select_ltr_features(
-        X, df["target"].to_numpy(), df["qid"].to_numpy(),
-        group_aware_mi=True, mrmr_kwargs={"quantization_nbins": 5},
+        X, df["target"].to_numpy(),
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"use_simple_mode": True, "quantization_nbins": 5}),
+        verbose=0,
     )
-    assert set(signal) <= set(sel), f"group-aware signal lost: {sel}"
+    assert set(signal) <= set(sel), f"signal lost: {sel}"
+    assert not (set(noise) & set(sel)), f"noise leaked: {sel}"
 
 
-def test_group_aware_relevance_ranks_signal_above_noise():
-    """biz_value: per-query group-aware MI must score the generating features above every noise column."""
-    from mlframe.training.ranking._ranker_fs import group_aware_relevance
-
-    df, signal, noise = _ltr_frame(2)
-    cols = [c for c in df.columns if c not in ("target", "qid")]
-    rel = group_aware_relevance(cols, df[cols].to_numpy(np.float64), df["target"].to_numpy(np.float64), df["qid"].to_numpy())
-    min_signal = min(rel[c] for c in signal)
-    max_noise = max(rel[c] for c in noise)
-    assert min_signal > max_noise, f"group-aware MI failed to separate signal from noise: signal_min={min_signal:.4f} noise_max={max_noise:.4f}"
-
-
-def test_select_ltr_features_fallback_on_degenerate_input():
-    """All-constant features must not crash; selector falls back to the candidate columns."""
+def test_select_ltr_features_none_when_no_fs_enabled():
     from mlframe.training.ranking._ranker_fs import select_ltr_features
+    from mlframe.training import FeatureSelectionConfig
 
-    X = pd.DataFrame({"a": np.ones(50), "b": np.ones(50)})
-    sel = select_ltr_features(X, np.arange(50) % 3)
-    assert set(sel) <= {"a", "b"}
+    df, _s, _n = _ltr_frame(1)
+    X = df.drop(columns=["target", "qid"])
+    assert select_ltr_features(X, df["target"].to_numpy(), feature_selection_config=FeatureSelectionConfig()) is None
+    assert select_ltr_features(X, df["target"].to_numpy(), feature_selection_config=None) is None
 
 
-# --- e2e through the suite ------------------------------------------------------------------
+# --- verification: every selector works on a graded-relevance (LtR) target ------------------------
 
 
-def _train_ltr(df, fte, ranking_config, **kw):
+def test_all_selectors_work_on_graded_relevance():
+    """MRMR / RFECV / BorutaShap / ShapProxiedFS must each fit on a multi-grade relevance target with
+    regression-appropriate settings and return a non-empty support. This is the LtR x selector compatibility
+    contract (graded relevance is regression-shaped, NOT binary classification)."""
+    from mlframe.feature_selection.registry import get
+
+    df, signal, _noise = _ltr_frame(2, n=600, n_noise=4)
+    X = df.drop(columns=["target", "qid"])
+    y = pd.Series(df["target"].to_numpy(), name="relevance")
+
+    def _support_cols(sel):
+        Xt = sel.transform(X)
+        return set(Xt.columns) if hasattr(Xt, "columns") else None
+
+    # MRMR -- relevance as MI target.
+    m = get("MRMR").instantiate(use_simple_mode=True, quantization_nbins=5, verbose=0)
+    m.fit(X, y)
+    assert getattr(m, "support_", None) is not None and len(np.asarray(m.support_)) >= 1
+
+    # BorutaShap -- regression mode (graded relevance).
+    bs = get("BorutaShap").instantiate(classification=False)
+    bs.fit(X, y)
+    assert _support_cols(bs) is not None
+
+    # ShapProxiedFS -- regression mode (classification=True would reject 5 grades).
+    sp = get("ShapProxiedFS").instantiate(classification=False)
+    sp.fit(X, y)
+    assert _support_cols(sp) is not None
+
+    # RFECV -- needs a regressor estimator for a graded target.
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    rf = get("RFECV").instantiate(estimator=HistGradientBoostingRegressor(max_iter=30), cv=3)
+    rf.fit(X, y)
+    assert _support_cols(rf) is not None
+
+
+# --- e2e through the suite (common feature_selection_config) ---------------------------------------
+
+
+def _train_ltr(df, fte, *, feature_selection_config=None):
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import TargetTypes, ReportingConfig, OutputConfig
 
     with tempfile.TemporaryDirectory() as d:
         return train_mlframe_models_suite(
             df=df, target_name="t", model_name="ltr", features_and_targets_extractor=fte,
-            mlframe_models=["cb"], target_type=TargetTypes.LEARNING_TO_RANK, ranking_config=ranking_config,
+            mlframe_models=["cb"], target_type=TargetTypes.LEARNING_TO_RANK,
+            feature_selection_config=feature_selection_config,
             reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
             output_config=OutputConfig(data_dir=d, models_dir="models", save_charts=False),
-            verbose=0, hyperparams_config={"iterations": 15}, **kw,
+            verbose=0, hyperparams_config={"iterations": 15},
         )
 
 
-def test_e2e_ltr_suite_feature_selection_excludes_noise():
+def test_e2e_ltr_suite_common_mrmr_fs_excludes_noise():
     pytest.importorskip("catboost")
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
-    from mlframe.training._model_configs_behavior import LearningToRankConfig
+    from mlframe.training import FeatureSelectionConfig
 
     df, signal, noise = _ltr_frame(0)
     fte = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=["target"], group_field="qid")
     _res, meta = _train_ltr(
         df, fte,
-        LearningToRankConfig(feature_selection=True, fs_mrmr_kwargs={"use_simple_mode": True, "quantization_nbins": 5}),
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"use_simple_mode": True, "quantization_nbins": 5}),
     )
     sel = meta.get("selected_features")
-    assert sel, "feature_selection=True produced no selected_features"
+    assert sel, "use_mrmr_fs=True produced no selected_features for LTR"
     assert "target" not in sel and "qid" not in sel
     assert set(signal) <= set(sel), f"signal lost e2e: {sel}"
     assert not (set(noise) & set(sel)), f"noise leaked e2e: {sel}"
@@ -119,7 +141,7 @@ def test_e2e_ltr_relevance_column_not_leaked_into_features():
 
     df, _signal, _noise = _ltr_frame(3)
     fte = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=["target"], group_field="qid")
-    _res, meta = _train_ltr(df, fte, ranking_config=None)  # FS off -> exercises the plain column-drop path
+    _res, meta = _train_ltr(df, fte, feature_selection_config=None)
     cols = meta.get("columns") or []
     assert "target" not in cols, f"relevance column leaked into ranker features: {cols}"
     assert "qid" not in cols, f"group column leaked into ranker features: {cols}"

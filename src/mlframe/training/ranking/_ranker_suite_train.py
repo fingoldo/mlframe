@@ -44,6 +44,8 @@ def train_mlframe_ranker_suite(
     ltr_panels: str | None = None,
     mlp_kwargs: dict[str, Any] | None = None,
     dummy_baselines_config=None,
+    feature_selection_config=None,
+    rfecv_models: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Train a suite of native rankers + (optionally) ensemble them.
 
@@ -373,19 +375,23 @@ def train_mlframe_ranker_suite(
         )
 
     # -------------------------------------------------------------
-    # 2b. LTR-local feature selection (opt-in via LearningToRankConfig.feature_selection). Fits a standard MRMR on
-    # the TRAIN split's (features, graded relevance); every ranker then trains on the selected subset. The core MRMR
-    # procedures are NOT modified -- see ranking._ranker_fs (separate LTR-only orchestration).
+    # 2b. Feature selection -- driven by the COMMON FeatureSelectionConfig (use_mrmr_fs / rfecv_models /
+    # use_boruta_shap), so LTR uses the same FS settings as every other target type. The graded relevance is the
+    # selection target; ranking._ranker_fs builds the standard selectors (target-type-aware) and fits them on the
+    # TRAIN split, then every ranker trains on the selected subset. Core selector procedures are NOT modified.
     # -------------------------------------------------------------
+    from mlframe.training.configs import TargetTypes as _TT
+
     selected_features: Optional[list] = None
-    if ranking_config is not None and getattr(ranking_config, "feature_selection", False):
+    if feature_selection_config is not None:
         from ._ranker_fs import select_ltr_features
 
         selected_features = select_ltr_features(
-            X_tr, y_tr, g_tr,
-            mrmr_kwargs=getattr(ranking_config, "fs_mrmr_kwargs", None),
-            group_aware_mi=bool(getattr(ranking_config, "fs_group_aware_mi", False)),
-            random_seed=random_seed, verbose=verbose,
+            X_tr, y_tr,
+            feature_selection_config=feature_selection_config,
+            rfecv_models=rfecv_models,
+            target_type=_TT.LEARNING_TO_RANK,
+            fs_random_seed=random_seed, verbose=verbose,
         )
         if selected_features:
             def _subset_cols(Xf):
