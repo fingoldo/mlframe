@@ -130,6 +130,35 @@ def retain_usable_pure_forms(
         if not (has_cross_mix or trap_b):
             return []
 
+        # CHEAP LINEAR-FIT GATE (2026-06-18): the trap conditions above are NECESSARY but not sufficient --
+        # ``trap_b`` (no pure pair form present) is true on almost every regression fit, including ones whose
+        # y is simply ADDITIVE-LINEAR in the raws (no interaction to recover at all). The expensive pool build
+        # (O(pairs x unary^2 x binary) MI evals -- ~88% of fit time when it fires) must therefore ALSO be
+        # gated on evidence that a nonlinear pair interaction even EXISTS: fit a plain linear model on the raw
+        # bases and skip when it already explains y well (high R^2 -> the linear downstream is already served
+        # by the raws, no pure form can help). a**2/b / log(c)*sin(d) / a*b leave large linear residual (low
+        # R^2) -> proceed; y = sum(raws) + noise fits ~0.98 -> skip. One cheap fit vs a 200s pool build.
+        try:
+            from sklearn.linear_model import LinearRegression as _LR
+            from sklearn.preprocessing import StandardScaler as _SS
+            from sklearn.pipeline import make_pipeline as _mp
+
+            _ng = len(y_cont)
+            if _ng > 2000:
+                _rg = np.random.default_rng(int(seed) + 5)
+                _gi = np.sort(_rg.choice(_ng, size=2000, replace=False))
+                _Xg = X.iloc[_gi][base_names].to_numpy(dtype=np.float64, copy=False)
+                _yg = y_cont[_gi]
+            else:
+                _Xg = X[base_names].to_numpy(dtype=np.float64, copy=False)
+                _yg = y_cont
+            _Xg = np.nan_to_num(_Xg, nan=0.0, posinf=0.0, neginf=0.0)
+            _r2 = float(_mp(_SS(), _LR()).fit(_Xg, _yg).score(_Xg, _yg))
+            if _r2 >= 0.92:
+                return []  # raws already fit y linearly -- no trapped nonlinear interaction to recover
+        except Exception:
+            pass  # gate is an optimisation; on any failure fall through to the (correct) full path
+
         # Scope wide frames: keep the highest-variance base operands so the O(pairs) pool stays bounded
         # (the usability pool itself also caps pairs, but trimming here bounds its input).
         if len(base_names) > max_base_features:
