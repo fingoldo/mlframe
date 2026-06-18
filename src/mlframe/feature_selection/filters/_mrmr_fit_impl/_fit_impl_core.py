@@ -4324,7 +4324,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # already explain y (R^2>=0.92), skip the scans. Classification keeps them (R^2 N/A there -> the gate
     # returns False), and any genuine regime/modular/interaction target leaves a large linear residual
     # (low R^2) -> the operators still fire. One ~0.1s linear fit vs ~11s of scans.
-    if _discrete_fe_master:
+    #
+    # SCOPE: AUTOMATIC PATH ONLY (fe_max_steps>0). The skip-gate is a perf optimisation for the default FE
+    # pipeline, where the operators run automatically alongside the basis/escalation passes and the gate just
+    # spares their scans when the raws already explain y. With fe_max_steps==0 the operators are the ONLY FE
+    # the user asked for (the deliberate operator-only path documented above) -- skipping them there silently
+    # suppresses an explicitly-requested, genuinely-detectable composite. A linearly-explainable target can
+    # still hold real MI/operator structure (e.g. y=1[argmax(a,b,c)==0]: raw-only in-sample logistic AUC ~0.98
+    # yet argmax__a__b__c is a clean, selectable composite); the in-sample linear/logistic score is NOT a
+    # licence to drop the operator the user explicitly enabled. So the gate is confined to fe_max_steps>0.
+    if _discrete_fe_master and fe_max_steps > 0:
         try:
             from .._fe_linear_explainability import raws_linearly_explain_y
 
