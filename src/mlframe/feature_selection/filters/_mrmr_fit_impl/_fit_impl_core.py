@@ -9060,6 +9060,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # re-injecting the very redundancy the aggregation collapsed. Mirror the same exclusion the
                 # raw-retention block, the additional-RFECV rescue pool, and the augmentation already apply.
                 _rescue_redund_dropped |= set(getattr(self, "_cluster_aggregate_removals_", None) or ())
+                # Operands of SURVIVING engineered features: in the empty-screen case the conditional-redundancy
+                # sweep never ran (0 raws selected) so it could not mark them in ``_raw_redundancy_dropped_`` --
+                # compute them directly from the surviving recipes so the rescue does not resurrect a raw a
+                # surviving engineered child already captures (the underselection redundancy-dedup invariant).
+                from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RESC_TOK_SPLIT
+                _resc_raw_set = set(self.feature_names_in_)
+                for _en in (getattr(self, "_engineered_recipes_", {}) or {}):
+                    for _tok in _RESC_TOK_SPLIT.split(str(_en)):
+                        if not _tok:
+                            continue
+                        _b = _tok if _tok in _resc_raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
+                        if _b in _resc_raw_set:
+                            _rescue_redund_dropped.add(_b)
                 _cm_rescue = getattr(self, "cluster_members_", None)
                 if isinstance(_cm_rescue, dict):
                     for _anchor, _members in _cm_rescue.items():
