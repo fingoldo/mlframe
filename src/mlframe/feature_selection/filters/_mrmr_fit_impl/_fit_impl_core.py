@@ -4293,6 +4293,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True)) and (
         fe_max_steps > 0 or (isinstance(X, pd.DataFrame) and len(X) >= _DISCRETE_FE_MIN_N_AT_FE0)
     )
+    # OPERATOR SKIP-GATE (2026-06-18, perf). The four discrete-structural operators (pairwise-modular /
+    # row-argmax / conditional-gate / binned-agg) hunt for NONLINEAR/regime structure via MI-kernel scans
+    # over many candidate combos -- ~58% of an additive-regression fit (cProfile: cheap_conditional_gate_scan
+    # 7.2s + binned_numeric_agg 4s of a 19s fit). On an additive-LINEAR regression target there is no such
+    # structure to find, so a single cheap linear fit on the raws is a necessary-condition gate: if the raws
+    # already explain y (R^2>=0.92), skip the scans. Classification keeps them (R^2 N/A there -> the gate
+    # returns False), and any genuine regime/modular/interaction target leaves a large linear residual
+    # (low R^2) -> the operators still fire. One ~0.1s linear fit vs ~11s of scans.
+    if _discrete_fe_master:
+        try:
+            from .._fe_linear_explainability import raws_linearly_explain_y
+
+            if raws_linearly_explain_y(X, y, seed=int(getattr(self, "random_seed", 0) or 0)):
+                _discrete_fe_master = False
+        except Exception:
+            pass  # gate is an optimisation; on any failure keep the operators (correct path)
     if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
