@@ -63,15 +63,59 @@ def retain_usable_pure_forms(
         if y_cont.shape[0] != len(X) or not np.isfinite(y_cont).any():
             return []
 
+        from ._fe_accuracy_gate import infer_classification
+
+        # TASK DETECTION (2026-06-18): the call-site passes ``_fe_prewarp_y_continuous_`` (any 1D numeric y
+        # cast to float64), so a CLASSIFICATION target arrives here as its float-cast integer labels.
+        # ``infer_classification`` distinguishes a low-cardinality discrete label vector from a genuine
+        # continuous regression target. For classification the LINEAR downstream is a LOGISTIC model and the
+        # gates below switch to a class-indicator (point-biserial) relevance test + a CV-logloss greedy;
+        # the regression path stays byte-identical (is_clf=False).
+        is_clf = bool(infer_classification(y_cont))
+        if is_clf:
+            _clf_classes, _y_codes = np.unique(y_cont, return_inverse=True)
+            if _clf_classes.size < 2:
+                return []  # degenerate single-class -> nothing to recover
+
         # Operand-pairs already covered by a PURE (<=2-operand) selected engineered form: those are
         # not trapped, so do not duplicate them. Cross-mix forms (>2 operands) do NOT count -- they
         # are exactly what traps the pair.
         existing = getattr(mrmr, "_engineered_recipes_", None) or []
+
+        # CLASSIFICATION lossy-form detection (2026-06-18): the bug this pass fixes for classification is
+        # that the MI greedy keeps a LOSSY pure pair form (e.g. div(invqubed(x0),invqubed(x1)) on the
+        # polynomial-interaction target) that a logistic model cannot use, while the genuinely usable form
+        # (div(abs(x0),sqrt(x1)), class-indicator corr ~0.47) is absent. A lossy existing form sets
+        # has_pure_pair / covered_pairs and would wrongly suppress recovery. So for classification a pair
+        # counts as COVERED only if its best existing pure-pair form is actually class-relevant (replayed
+        # value's |point-biserial corr with the class indicator| >= this floor); a lossy form leaves the
+        # pair recoverable. Regression keeps presence-only coverage (byte-identical).
+        _CLF_COVER_CORR = 0.20
+
+        def _clf_form_relevant(recipe) -> bool:
+            try:
+                from .engineered_recipes import apply_recipe
+                vals = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
+                if vals.shape[0] != len(X):
+                    return False
+                vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
+                pos = (_y_codes == 1).astype(np.float64) if _clf_classes.size == 2 else \
+                    (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(np.float64)
+                u = vals - vals.mean(); v = pos - pos.mean()
+                du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
+                if du <= 1e-12 or dv <= 1e-12:
+                    return False
+                return abs(float((u * v).sum()) / (du * dv)) >= _CLF_COVER_CORR
+            except Exception:
+                return False
+
         covered_pairs = set()
         for r in existing:
             src = tuple(getattr(r, "src_names", ()) or ())
             uniq = frozenset(src)
             if 1 <= len(uniq) <= 2:
+                if is_clf and not _clf_form_relevant(r):
+                    continue  # lossy existing form -> pair stays trapped/recoverable
                 covered_pairs.add(uniq)
 
         # Base operands: numeric raw columns only (the usability pool builds pair forms over these).
@@ -119,6 +163,10 @@ def retain_usable_pure_forms(
             if len(uniq) > 2:
                 has_cross_mix = True
             elif len(uniq) == 2:
+                # For classification, a LOSSY existing pure pair form does NOT count as covering the pair
+                # (it cannot serve the logistic downstream) -- the pair stays trapped and recoverable.
+                if is_clf and not _clf_form_relevant(r):
+                    continue
                 has_pure_pair = True
         # (b) NO pure (<=2-operand) pair engineered form already survives, yet >=2 raw numeric bases exist.
         # The MI greedy then either picked raw operands instead of the pure pair form (single-step
@@ -141,7 +189,6 @@ def retain_usable_pure_forms(
         # by the raws, no pure form can help). a**2/b / log(c)*sin(d) / a*b leave large linear residual (low
         # R^2) -> proceed; y = sum(raws) + noise fits ~0.98 -> skip. One cheap fit vs a 200s pool build.
         try:
-            from sklearn.linear_model import LinearRegression as _LR
             from sklearn.preprocessing import StandardScaler as _SS
             from sklearn.pipeline import make_pipeline as _mp
 
@@ -155,9 +202,29 @@ def retain_usable_pure_forms(
                 _Xg = X[base_names].to_numpy(dtype=np.float64, copy=False)
                 _yg = y_cont
             _Xg = np.nan_to_num(_Xg, nan=0.0, posinf=0.0, neginf=0.0)
-            _r2 = float(_mp(_SS(), _LR()).fit(_Xg, _yg).score(_Xg, _yg))
-            if _r2 >= 0.92:
-                return []  # raws already fit y linearly -- no trapped nonlinear interaction to recover
+            if is_clf:
+                # CLASSIFICATION analogue: fit a logistic model on the raw bases and skip when the raws
+                # already linearly SEPARATE the classes well (held-in AUC>=0.92 binary / accuracy>=0.92
+                # multiclass) -- no trapped nonlinear interaction a pure form could recover. A polynomial /
+                # interaction target leaves the raw-only logistic AUC well below 0.92 -> proceed.
+                from sklearn.linear_model import LogisticRegression as _LogR
+                from sklearn.metrics import roc_auc_score as _auc, accuracy_score as _acc
+
+                _ycodes_g = np.unique(_yg, return_inverse=True)[1]
+                if np.unique(_ycodes_g).size >= 2:
+                    _clf = _mp(_SS(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
+                    if np.unique(_ycodes_g).size == 2:
+                        _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
+                    else:
+                        _sc = float(_acc(_ycodes_g, _clf.predict(_Xg)))
+                    if _sc >= 0.92:
+                        return []  # raws already separate the classes -- nothing nonlinear to recover
+            else:
+                from sklearn.linear_model import LinearRegression as _LR
+
+                _r2 = float(_mp(_SS(), _LR()).fit(_Xg, _yg).score(_Xg, _yg))
+                if _r2 >= 0.92:
+                    return []  # raws already fit y linearly -- no trapped nonlinear interaction to recover
         except Exception:
             pass  # gate is an optimisation; on any failure fall through to the (correct) full path
 
@@ -185,6 +252,20 @@ def retain_usable_pure_forms(
 
         _yv = _scrub(np.asarray(y_fit, dtype=np.float64))
         _nrows = _yv.shape[0]
+        # RELEVANCE TARGET for the non-separability gate's part (b). For REGRESSION this is the continuous y.
+        # For CLASSIFICATION the analogue is the class-indicator (point-biserial correlation): a binary y
+        # uses the {0,1} positive-class indicator; a multiclass y uses the one-vs-rest indicator of its
+        # majority class. ``_abscorr(resid, _rel_y)`` then measures whether the form's joint nonlinearity is
+        # RELEVANT to class membership.
+        if is_clf:
+            _codes_fit = np.unique(_yv, return_inverse=True)[1]
+            if np.unique(_codes_fit).size == 2:
+                _rel_y = (_codes_fit == 1).astype(np.float64)
+            else:
+                _maj_fit = int(np.argmax(np.bincount(_codes_fit)))
+                _rel_y = (_codes_fit == _maj_fit).astype(np.float64)
+        else:
+            _rel_y = _yv
         # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found 2026-06-17):
         # it admits a linear SUM like add(x1,x2) -- a linear model ALREADY builds it from the raw operands --
         # and CROSS-PAIR / noise-operand forms that lower MAE on a fold by chance. The retention's whole
@@ -242,8 +323,19 @@ def retain_usable_pure_forms(
                 #     separable cross-pair sum-of-single-operand-nonlinearities).
                 if float(np.std(resid)) < min_resid_frac * f_std:
                     return False
+                if is_clf:
+                    # (b') CLASSIFICATION: the relevance of a usable form to the CLASS indicator can live in
+                    # the separable PART (e.g. div(abs(x0),sqrt(x1)) on the quadratic target has whole-form
+                    # point-biserial ~0.47 but a non-separable-residual corr of only ~0.05). Gating on the
+                    # residual corr (the regression discriminator) therefore starves the greedy of the
+                    # genuinely usable form. Use the WHOLE-form point-biserial corr with the class indicator
+                    # for relevance instead -- a noise-pair form is ~0 here and still rejected, while the
+                    # CV-logloss greedy is the final commit gate that rejects anything that does not
+                    # generalise. Part (a) non-separability still rejects a trivial linear sum a logistic
+                    # model already builds from the raws.
+                    return _abscorr(fv, _rel_y) >= min_resid_corr
                 # (b) that joint structure must be RELEVANT to y (rejects a non-separable but useless form).
-                return _abscorr(resid, _yv) >= min_resid_corr
+                return _abscorr(resid, _rel_y) >= min_resid_corr
             except Exception:
                 return False
 
@@ -263,8 +355,16 @@ def retain_usable_pure_forms(
         # ~0) drop out, so a SMALL max_pairs runs fast without losing a genuine pair (top-K is robust where
         # an absolute joint-MI floor mis-prunes a genuine pair whose MM-debited value is small). Measured:
         # structured n=10000 fit 193s -> ~71s, recovery intact.
+        # max_per_pair: 3 for REGRESSION (the genuine joint form is the top-joint-MI form for its pair, so
+        # top-3 reliably keeps it). For CLASSIFICATION the binned-MI ranking favours high-MI quadratic-WARP
+        # forms whose joint residual is IRRELEVANT to the class indicator, burying the genuinely usable
+        # ratio/product form (e.g. on y=sign(0.7*x0^2-0.5*x1^2+0.3*x0*x1) the relevant div(abs(x0),sqrt(x1))
+        # -- class-indicator corr ~0.47 -- only survives the per-pair cap at >=8). Widen the cap to 8 so the
+        # downstream non-separability + class-relevance filter has the genuine form to keep; the filter
+        # discards the rest, so the extra replay cost is bounded.
+        _max_per_pair = 8 if is_clf else 3
         pool = build_usability_candidate_pool(
-            X_fit, _yv, base_names, max_pairs=10, max_per_pair=3, rank_pairs_by_joint_mi=True,
+            X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True,
         )
         filtered = []
         for cand in pool:
@@ -277,7 +377,9 @@ def retain_usable_pure_forms(
                 continue
             if _adds_nonlinear_value(getattr(cand, "values", None), src[0], src[1]):
                 filtered.append(cand)
-        usable = usability_greedy(filtered, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15)
+        usable = usability_greedy(
+            filtered, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15, classification=is_clf,
+        )
 
         existing_names = set(getattr(mrmr, "_engineered_features_", []) or [])
         out = []

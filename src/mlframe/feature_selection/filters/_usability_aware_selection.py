@@ -222,6 +222,7 @@ def usability_greedy(
     n_folds: int = 4,
     mae_improve_rel: float = 0.01,
     shortlist: int = 40,
+    classification: bool = False,
 ) -> list[UsableCandidate]:
     """CROSS-VALIDATED forward selection for the LINEAR downstream: greedily add the candidate that
     most reduces the K-fold CV mean-absolute-error of a linear model on the selected set, stopping
@@ -236,23 +237,48 @@ def usability_greedy(
     A cheap usability pre-rank (``MI + |corr with the post-dominant residual|``) shortlists the pool
     to ``shortlist`` candidates so the per-step CV cost is bounded; ``w`` weights the MI vs the
     residual-corr in that pre-rank only (the COMMIT decision is always the CV-MAE improvement)."""
-    from sklearn.linear_model import LinearRegression
+    from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
 
-    # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
-    # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000
-    # IDENTICAL (0.0554 per-seed -- the design is never singular here, K<=8 features vs folds of 1000s
-    # of rows), n=500 marginally WORSE (0.0670 -> 0.0672). The singular regime needs per-fold rows <
-    # selected-feature count, which cannot happen given the shortlist + the small K, so Ridge buys
-    # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
-    def _mk():
-        return make_pipeline(StandardScaler(), LinearRegression())
+    # CLASSIFICATION mode (2026-06-18): the LINEAR downstream for a classification target is a LOGISTIC
+    # model, and the deployed objective is a CLASSIFICATION metric -- so the wrapper must score by
+    # CROSS-VALIDATED LOGLOSS of a logistic model, not CV-MAE of a linear regression. Mirrors the
+    # regression structure exactly (lower-is-better metric, majority-of-folds improvement gate); the
+    # regression path (classification=False) is byte-identical.
+    if classification:
+        y_enc = np.asarray(y_cont).ravel()
+        # encode to dense 0..C-1 class codes
+        _classes, y_enc = np.unique(y_enc, return_inverse=True)
+        n_classes = int(_classes.size)
+        if n_classes < 2:
+            return []
+
+        def _mk():
+            return make_pipeline(StandardScaler(), LogisticRegression(max_iter=200))
+
+        from sklearn.metrics import log_loss as _log_loss
+        _labels = np.arange(n_classes)
+
+        def _logloss(y_true, proba):
+            return float(_log_loss(y_true, proba, labels=_labels))
+    else:
+        # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
+        # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000
+        # IDENTICAL (0.0554 per-seed -- the design is never singular here, K<=8 features vs folds of 1000s
+        # of rows), n=500 marginally WORSE (0.0670 -> 0.0672). The singular regime needs per-fold rows <
+        # selected-feature count, which cannot happen given the shortlist + the small K, so Ridge buys
+        # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
+        def _mk():
+            return make_pipeline(StandardScaler(), LinearRegression())
 
     if not pool:
         return []
-    y_cont = _scrub(y_cont)
-    n = y_cont.shape[0]
+    if classification:
+        n = y_enc.shape[0]
+    else:
+        y_cont = _scrub(y_cont)
+        n = y_cont.shape[0]
     if n < 2:
         return []  # cannot cross-validate a usability greedy on < 2 rows
     rng = np.random.default_rng(int(seed))
@@ -273,6 +299,30 @@ def usability_greedy(
     # solves in O(k^2) instead of refitting O(n k^2). Standardisation stats are also reusable
     # (column means/stds computed once per fold). Implement once the approach is proven to help.
     def _cv_per_fold(sel_idx) -> np.ndarray:
+        if classification:
+            # CV LOGLOSS of a logistic model (lower-is-better, same gate semantics as MAE). The
+            # no-selection baseline is the constant train-fold class-PRIOR probability.
+            if not sel_idx:
+                errs = []
+                for fo in range(n_folds):
+                    trm, vam = folds != fo, folds == fo
+                    prior = np.bincount(y_enc[trm], minlength=n_classes).astype(np.float64)
+                    prior = prior / max(prior.sum(), 1.0)
+                    prior = np.clip(prior, 1e-12, 1.0)
+                    proba = np.tile(prior, (int(vam.sum()), 1))
+                    errs.append(_logloss(y_enc[vam], proba))
+                return np.asarray(errs, dtype=np.float64)
+            Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
+            errs = []
+            for fo in range(n_folds):
+                trm, vam = folds != fo, folds == fo
+                if np.unique(y_enc[trm]).size < 2:
+                    errs.append(np.inf)
+                    continue
+                m = _mk().fit(Xs[trm], y_enc[trm])
+                proba = m.predict_proba(Xs[vam])
+                errs.append(_logloss(y_enc[vam], proba))
+            return np.asarray(errs, dtype=np.float64)
         if not sel_idx:
             return np.array([
                 float(np.mean(np.abs(y_cont[folds == fo] - float(np.mean(y_cont[folds != fo])))))
@@ -293,7 +343,36 @@ def usability_greedy(
         # ALL rows (in-sample for the ~(k-1)/k training rows), which is the leakage the module's
         # "held-out residual" design explicitly avoids. The no-selection case uses the mean residual
         # over all rows (no model fit -> no leakage).
-        if sel_idx:
+        if classification:
+            # CLASSIFICATION residual: correlate each candidate with the POSITIVE-class indicator
+            # residual (point-biserial-style). For binary y the indicator is 1{y==last class}; once a
+            # logistic model is selected, the residual is indicator - P(positive). For multiclass we
+            # fall back to the one-vs-rest indicator of the majority class (a cheap pre-rank only -- the
+            # COMMIT decision is always the CV-logloss improvement).
+            if n_classes == 2:
+                pos = (y_enc == 1).astype(np.float64)
+            else:
+                _maj = int(np.argmax(np.bincount(y_enc, minlength=n_classes)))
+                pos = (y_enc == _maj).astype(np.float64)
+            if sel_idx:
+                Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
+                ho = folds == 0
+                tr = ~ho
+                if np.unique(y_enc[tr]).size >= 2:
+                    m = _mk().fit(Xs[tr], y_enc[tr])
+                    proba = m.predict_proba(Xs[ho])
+                    if n_classes == 2:
+                        phat = proba[:, 1]
+                    else:
+                        phat = proba[:, _maj]
+                    resid = pos[ho] - phat
+                else:
+                    resid = pos[ho] - float(np.mean(pos[tr]))
+                rows = ho
+            else:
+                resid = pos - float(np.mean(pos))
+                rows = slice(None)
+        elif sel_idx:
             Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
             ho = folds == 0
             tr = ~ho
@@ -344,11 +423,15 @@ def select_usability_aware_features(
     w: float = 0.7,
     K: int = 8,
     seed: int = 0,
+    classification: bool = False,
     pool_kwargs: Optional[dict] = None,
     greedy_kwargs: Optional[dict] = None,
 ) -> list[UsableCandidate]:
     """End-to-end: build the replayable candidate pool, then run the usability greedy. Returns the
     selected ``UsableCandidate`` list (each with a replayable ``recipe`` for pair forms, ``None``
-    for raw columns), in selection order."""
+    for raw columns), in selection order. ``classification=True`` routes the greedy to the logistic /
+    CV-logloss scorer (the regression CV-MAE path is the default, byte-identical)."""
     pool = build_usability_candidate_pool(X_df, y_cont, base_names, **(pool_kwargs or {}))
-    return usability_greedy(pool, y_cont, w=w, K=K, seed=seed, **(greedy_kwargs or {}))
+    return usability_greedy(
+        pool, y_cont, w=w, K=K, seed=seed, classification=classification, **(greedy_kwargs or {})
+    )

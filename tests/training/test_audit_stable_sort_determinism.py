@@ -237,11 +237,23 @@ def test_screen_expected_gains_uses_lexsort() -> None:
     # Confirm-step body moved to ``_confirm_predictor.py`` during the
     # post-1k-LOC monolith split; concat so the source-presence assertion
     # matches regardless of which sibling currently houses the literal.
+    #
+    # The tiebreak key was subsequently STRENGTHENED: the original wave-57 fix
+    # used a positional index tiebreak ``np.arange(len(expected_gains))`` which
+    # is NOT column-order invariant; the candidate-confirmation refactor
+    # replaced it with a NAME-derived ``_name_rank`` (contiguous int rank of the
+    # candidate name, invariant under column reordering). Both are stable
+    # lexsorts on descending ``expected_gains``; pin the current name-rank shape
+    # while still accepting the legacy index shape so the intent (deterministic,
+    # input-order-invariant gain ranking) is what's asserted.
     src = _read("feature_selection/filters/screen.py")
     _confirm = MLFRAME_ROOT / "feature_selection" / "filters" / "_confirm_predictor.py"
     if _confirm.exists():
         src += "\n" + _confirm.read_text(encoding="utf-8")
-    assert "np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))" in src
+    assert (
+        "np.lexsort((_name_rank, -np.asarray(expected_gains)))" in src
+        or "np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))" in src
+    )
 
 
 def test_phase_train_ensemble_flavour_uses_secondary_name() -> None:
