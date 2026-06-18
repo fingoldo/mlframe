@@ -50,6 +50,8 @@ def apply_synergy_bootstrap(
     """
     synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
     synergy_added_idx: set = set()
+    # Reset per call so the exhaustive-active flag never leaks across FE steps / fits.
+    self._fe_synergy_exhaustive_active_ = False
     synergy_min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
     n_rows_for_synergy = int(data.shape[0]) if hasattr(data, "shape") else 0
     synergy_max_sweep_cost = float(getattr(self, "fe_synergy_max_sweep_cost", 5e8) or float("inf"))
@@ -67,6 +69,26 @@ def apply_synergy_bootstrap(
         if self.factors_names_to_use is not None:
             _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
         _n_raw = len(_raw_numeric_idx)
+        # SECOND FUNNEL STAGE -- GPU-EXHAUSTIVE SYNERGY SWEEP (2026-06-19). The pre-rank below is an O(p)
+        # propensity score; it PROVABLY cannot recover a perfectly-balanced (L=0) interaction whose every
+        # univariate higher moment vs y is zero (balanced XOR / sign product). Only the EXHAUSTIVE C(p,2)
+        # joint-MI sweep recovers such a pair. When ``fe_synergy_exhaustive`` is "force"/True AND a CUDA GPU is
+        # available AND the predicted wall-time (measured CUDA pairs/s via kernel_tuning_cache, ~5e4 fallback) is
+        # under ``fe_synergy_exhaustive_max_seconds`` (default 180s), bypass the cap + pre-rank + sweep-cost gate
+        # and sweep ALL raw numeric columns. "auto" (default) keeps the pre-rank + capped behaviour below.
+        _exhaustive_on = False
+        try:
+            from ._fe_synergy_exhaustive import decide_exhaustive_sweep
+
+            _exhaustive_on, _exh_reason = decide_exhaustive_sweep(
+                self, n_samples=n_rows_for_synergy, n_raw=_n_raw, verbose=verbose,
+            )
+            if verbose:
+                logger.info("MRMR FE synergy exhaustive: %s", _exh_reason)
+        except Exception as _exh_e:
+            if verbose:
+                logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.",
+                            type(_exh_e).__name__, _exh_e)
         # WIDE-FRAME PRE-RANK (2026-06-19). Above the cap the bootstrap historically SKIPPED entirely, so a
         # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
         # pick the surviving cap columns (the operands have ~0 marginal MI by construction -- the whole reason
@@ -80,7 +102,29 @@ def apply_synergy_bootstrap(
         # restore the legacy skip-past-cap behaviour. The ranking uses the discretised ``data`` codes (a
         # monotone transform preserves the higher-moment structure; bench-confirmed code-path recall holds).
         _prerank_on = bool(getattr(self, "fe_synergy_prerank", True))
-        if _prerank_on and _n_raw > synergy_cap:
+        if _exhaustive_on:
+            # FULL exhaustive sweep selected: treat EVERY raw numeric column as in-pool. Lift the cap to _n_raw
+            # (no pre-rank trimming) and disable the n*p^2 cost gate so the all-pairs joint-MI sweep runs over all
+            # columns -- the only path that recovers a balanced (L=0) interaction. The exhaustive CUDA kernel is
+            # the dispatch target downstream (_step_core force_backend="cuda").
+            synergy_cap = _n_raw
+            synergy_max_sweep_cost = float("inf")
+            self._fe_synergy_exhaustive_active_ = True
+        elif _prerank_on and _n_raw > synergy_cap and (
+            n_rows_for_synergy * (synergy_cap ** 2) > synergy_max_sweep_cost
+        ):
+            # COST-GATE FIRST (2026-06-19, critique #4). After the pre-rank keeps exactly ``synergy_cap``
+            # columns the sweep cost is n*cap^2; if THAT already exceeds the budget the sweep below will be
+            # skipped regardless -- so do NOT pay the O(p*n) pre-rank (which also risks OOM on a very wide
+            # frame at large n). Skip straight to the legacy log path.
+            if verbose:
+                logger.info(
+                    "MRMR FE synergy bootstrap: %d raw cols > cap %d, but the post-pre-rank sweep cost "
+                    "n*cap^2=%.2g already exceeds fe_synergy_max_sweep_cost=%.2g; skipping the pre-rank AND "
+                    "the sweep (raise fe_synergy_max_sweep_cost to force it).",
+                    _n_raw, synergy_cap, float(n_rows_for_synergy * (synergy_cap ** 2)), synergy_max_sweep_cost,
+                )
+        elif _prerank_on and _n_raw > synergy_cap:
             try:
                 from ._fe_interaction_prerank import top_k_by_interaction_propensity
 

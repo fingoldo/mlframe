@@ -1519,6 +1519,25 @@ class MRMR(BaseEstimator, TransformerMixin):
         # score and still requires the full exhaustive sweep -- the pre-rank does not claim it. Default ON; set
         # False to restore the legacy skip-past-cap behaviour (engineer nothing on wide zero-marginal frames).
         fe_synergy_prerank: bool = True,
+        # SECOND FUNNEL STAGE -- GPU-EXHAUSTIVE SYNERGY SWEEP (2026-06-19). The pre-rank above is an O(p)
+        # propensity score; a PERFECTLY BALANCED (L=0) interaction (balanced XOR / sign product whose every
+        # univariate higher moment vs y is zero) is INVISIBLE to it, so neither operand enters the kept cap.
+        # Only the EXHAUSTIVE C(p,2) joint-MI sweep recovers such a pair (the measured CUDA kernel ranks a
+        # planted balanced XOR pair #0 of 50M with joint MI = ln2). ``fe_synergy_exhaustive``:
+        #   * "auto" (default): keep the pre-rank + capped sweep above (the exhaustive path does NOT fire).
+        #   * "force"/True: run the FULL exhaustive C(p,2) sweep over ALL raw numeric columns (bypassing the
+        #     ``fe_synergy_screen_max_features`` cap, the pre-rank, AND the n*p^2 cost gate) WHEN a CUDA GPU is
+        #     available AND the predicted wall-time is under ``fe_synergy_exhaustive_max_seconds``; else it LOGS
+        #     why it declined and falls back to the pre-rank path. The throughput (CUDA pairs/s) is measured-and-
+        #     cached per host + (n, p) via pyutilz.performance.kernel_tuning (NOT hardcoded; ~5e4 pairs/s is only
+        #     the cold-cache fallback). Use when correctness on the irreducible balanced-interaction case
+        #     outranks wall-time. Reuses the existing ``batch_pair_mi_cuda`` kernel (no new kernel).
+        fe_synergy_exhaustive: str = "auto",
+        # WALL-TIME BUDGET (seconds) for the force/opt-in exhaustive synergy sweep above. The exhaustive path
+        # fires only when the PREDICTED sweep time (n_pairs / measured CUDA pairs-per-second) is under this. At the
+        # bench ~5e4 pairs/s: p=400 -> ~1.6s, p=2000 -> ~38s, p=5000 -> ~241s (so p<~4400 fits the 180s default),
+        # p=10000 -> ~1004s. Raise to force wider exhaustive sweeps; lower to cap the worst-case FE wall-time.
+        fe_synergy_exhaustive_max_seconds: float = 180.0,
         # N-AWARE COST GATE on the synergy bootstrap's all-pairs joint-MI sweep (O(p^2) pairs x O(n) each). The
         # feature cap above does NOT bound wall-time -- a wide-but-not-too-wide frame at large n blows up
         # super-linearly (measured p=200: n=5k +108%, n=20k +300%, n=100k >24min). The bootstrap fires only when

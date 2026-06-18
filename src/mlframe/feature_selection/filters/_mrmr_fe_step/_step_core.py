@@ -507,9 +507,15 @@ def _run_fe_step(
         "MLFRAME_MRMR_BATCH_PAIR_MI", "1",
     ).strip().lower() not in ("0", "false", "no", "off", "")
     _batch_prefill_count = 0
+    # SECOND FUNNEL STAGE (2026-06-19): when the synergy bootstrap selected the GPU-exhaustive
+    # sweep it set ``self._fe_synergy_exhaustive_active_`` -- bypass the _MRMR_BATCH_PRECOMPUTE_MAX_K
+    # guard (which caps at 200 cols) and FORCE the cuda backend so the full C(p,2) joint-MI sweep
+    # over ALL raw numeric columns runs on the measured CUDA kernel (the only path that recovers a
+    # balanced L=0 interaction). The exhaustive decision already verified GPU availability + budget.
+    _exhaustive_active = bool(getattr(self, "_fe_synergy_exhaustive_active_", False))
     if (
         _BATCH_PRECOMPUTE_ENABLED
-        and _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K
+        and (_exhaustive_active or _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K)
         and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS
     ):
         try:
@@ -525,6 +531,7 @@ def _run_fe_step(
                 nbins=nbins,
                 classes_y=classes_y,
                 freqs_y=freqs_y,
+                force_backend="cuda" if _exhaustive_active else None,
             )
             # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).

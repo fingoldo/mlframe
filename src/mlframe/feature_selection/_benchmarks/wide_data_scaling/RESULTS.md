@@ -60,6 +60,21 @@ Two-stage funnel, not GPU-everything:
    p by `2nd_moment` and keep the top `fe_synergy_screen_max_features` for the existing O(cap^2) sweep,
    instead of skipping the bootstrap (the legacy "engineer nothing on a wide zero-marginal frame"). At
    top-250 the sweep is ~0.7 s GPU / 6 s CPU.
-2. **PLANNED** (force/opt-in GPU-exhaustive): for moderate p (<=~3000 at a 2-min budget) when correctness on
-   a balanced interaction outranks wall-time, run the full exhaustive CUDA sweep (the only path that
-   recovers the irreducible L=0 case). Dispatch via `kernel_tuning_cache` on (n, p).
+2. **SHIPPED** (`fe_synergy_exhaustive`, default `"auto"`; `_fe_synergy_exhaustive.py`): set `"force"`/`True`
+   to run the FULL exhaustive C(p,2) CUDA sweep over ALL raw numeric columns (bypassing the cap, the
+   pre-rank, and the n*p^2 cost gate) WHEN a CUDA GPU is available AND the predicted wall-time is under
+   `fe_synergy_exhaustive_max_seconds` (default 180 s); else it logs why it declined and falls back to the
+   pre-rank path. The only path that recovers the irreducible balanced L=0 case. Reuses the existing
+   `batch_pair_mi_cuda` kernel (no new kernel) via `dispatch_batch_pair_mi(force_backend="cuda")`. The CUDA
+   throughput (pairs/s) is measured-and-cached per host + (n, p) via `pyutilz.performance.kernel_tuning`
+   (cache key `batch_pair_mi_exhaustive_throughput`); the ~5e4 pairs/s figure is only the cold-cache
+   fallback, never hardcoded into the decision.
+
+   **Measured crossover** (180 s default budget @ ~5e4 pairs/s fallback): p=400 -> ~1.6 s, p=2000 -> ~38 s,
+   p=4400 -> ~180 s (the budget boundary), p=5000 -> ~241 s (declines), p=10000 -> ~1004 s (declines).
+   **Parity:** below the cap, forcing exhaustive selects the SAME raw operands as `"auto"` (the cap/pre-rank
+   are no-ops below the cap) — pinned in `tests/feature_selection/test_fe_synergy_exhaustive.py`.
+   **Balanced-case recovery proof:** on a wide perfectly-balanced (L=0) frame (n=6000, p=120 > cap 40, one
+   planted balanced sign-product pair (f7, f95)), the exhaustive sweep recovers the planted pair as the
+   engineered `add(sign(f7),sign(f95))` interaction (BOTH operands), while the `"auto"` pre-rank — blind to
+   the zero-higher-moment operands — recovers neither.
