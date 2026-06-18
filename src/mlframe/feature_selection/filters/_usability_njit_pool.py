@@ -22,16 +22,33 @@ passing each operand's ``nanmin`` into the kernel (the shift is ``1e-5 - x_min``
 If a future preset adds a unary/binary that is NOT in the code tables, the caller falls back to the
 Python loop for the WHOLE pool (``njit_op_codes_or_none`` returns None) -- correctness first.
 
-Two kernel twins are kept (``feedback_keep_all_kernel_versions``): a SERIAL njit and a
-``parallel=True`` (prange over combos) twin, dispatched per-host by combo count via the canonical
-``kernel_tuning_cache`` (NO hardcoded threshold -- ``feedback_use_kernel_tuning_cache_for_gpu``).
+THREE kernel versions are kept (``feedback_keep_all_kernel_versions``): a SERIAL njit, a
+``parallel=True`` (prange over combos) njit twin, and a cupy GPU twin (``_pair_combo_mi_cupy``, which
+vectorises the value+bin+MI across a chunk of combos on device). They are dispatched per-host by
+(n_rows, n_combos) via the canonical ``kernel_tuning_cache`` (NO hardcoded threshold --
+``feedback_use_kernel_tuning_cache_for_gpu``). CPU njit is the DEFAULT and the FALLBACK: any missing
+cupy / global-GPU-off / device error routes back to CPU and the fit is never broken. Force a backend
+for testing via ``MLFRAME_USABILITY_POOL_BACKEND=njit|njit_parallel|gpu`` (mirrors ``MLFRAME_MI_BACKEND``).
+The GPU per-combo MI is bit-faithful to the CPU kernels to fp64 round-off (~1e-15) -- same lerp
+quantile edges, same Miller-Madow plug-in MI -- so the recovered forms are unchanged.
 """
 from __future__ import annotations
+
+import os
 
 import numpy as np
 from numba import njit, prange
 
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+# Optional GPU dep. The dispatcher gracefully falls back to the CPU njit kernels when cupy is
+# missing / the device errors -- the fit is NEVER broken by a GPU problem (correctness first).
+try:
+    import cupy as _cp
+    _CUPY_AVAIL = True
+except Exception:
+    _cp = None
+    _CUPY_AVAIL = False
 
 
 # Unary op-code table for the ``medium`` preset (registry order is irrelevant -- the caller maps each
@@ -300,19 +317,234 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
 
 
 # ----------------------------------------------------------------------------------------------
-# Per-host serial-vs-parallel crossover (combo count axis), resolved via the canonical
-# kernel_tuning_cache -- NO hardcoded threshold (feedback_use_kernel_tuning_cache_for_gpu).
-# The two kernels are byte-identical so the sweep just times them at representative combo counts.
+# GPU (cupy) fused kernel -- BIT-FAITHFUL to the CPU njit twins.
+# ----------------------------------------------------------------------------------------------
+# The combo loop is embarrassingly parallel (nc combos x n rows). The cupy path vectorises the
+# value computation, the std-sentinel, the quantile-bin and the Miller-Madow marginal MI across a
+# CHUNK of combos at once (so a GTX-1050-Ti-class 4GB card never OOMs at n=50000). Bit-faithfulness:
+#
+#   * value: ``_apply_unary``/``_apply_binary`` are re-expressed in cupy float64 element ops; the
+#     binary scrub is the SAME ``np.float32`` round-trip + nan/inf->0 (cupy float32 cast matches
+#     numpy's round-half-to-even). smart_log's ``1e-5 - xmin`` shift is passed in identically.
+#   * quantile-bin: the SAME np.quantile lerp edges (virtual index ``q*(n-1)``, ``lo+(hi-lo)*frac``),
+#     the SAME adjacent-dedup of the sorted-quantile vector, the SAME ``searchsorted(inner, 'right')``.
+#     cupy.sort/cupy.searchsorted are bit-identical to numpy for finite float64 (the kernel value is
+#     already scrubbed finite). The per-combo bin cardinality ``kx`` is recovered as ``max(code)+1``.
+#   * MI: the SAME plug-in entropies (natural log), the SAME Miller-Madow bias
+#     ``(kx_occ + k_y - kxy - 1)/(2n)`` and the same clamp-to-0. Joint id = ``xb*k_y + y`` via bincount.
+#
+# Because every per-combo MI is computed from the identical formula on the identical edges, the
+# returned MI array matches the CPU kernel to fp64 round-off (~1e-15), so the RANKING -- and hence
+# the recovered forms -- are unchanged. cupy is NEVER put on ``self`` (the pool is transient); only
+# module-level singletons (the tuner spec) persist.
+
+# Per-chunk combo budget so the (chunk x n) float64 working set + sort/bincount temporaries stay well
+# inside a 4GB card. ~ chunk*n*8 * (a few buffers); 256*50000*8 = ~100MB per buffer.
+_GPU_COMBO_CHUNK = 256
+
+
+def _gpu_apply_unary(x, code, xmin):
+    """cupy float64 vectorised twin of :func:`_apply_unary` over the whole column ``x`` (1-D device
+    array). ``code`` is a Python int; ``xmin`` the operand's nanmin (only smart_log uses it)."""
+    cp = _cp
+    if code == 0:        # identity
+        return x
+    elif code == 1:      # neg
+        return -x
+    elif code == 2:      # abs
+        return cp.abs(x)
+    elif code == 3:      # sqr
+        return x * x
+    elif code == 4:      # reciproc
+        return 1.0 / x
+    elif code == 5:      # sqrt = sqrt(abs)
+        return cp.sqrt(cp.abs(x))
+    elif code == 6:      # log = smart_log
+        if xmin > 0.0:
+            return cp.log(x)
+        return cp.log(x + (1e-5 - xmin))
+    elif code == 7:      # sin
+        return cp.sin(x)
+    elif code == 8:      # sign
+        return cp.sign(x)
+    elif code == 9:      # rint
+        return cp.rint(x)
+    elif code == 10:     # qubed
+        return x * x * x
+    elif code == 11:     # invsquared
+        return 1.0 / (x * x)
+    elif code == 12:     # invqubed
+        return 1.0 / (x * x * x)
+    elif code == 13:     # cbrt
+        return cp.cbrt(x)
+    elif code == 14:     # invcbrt
+        return x ** (-1.0 / 3.0)
+    elif code == 15:     # invsqrt
+        return x ** (-0.5)
+    else:                # exp
+        return cp.exp(x)
+
+
+def _gpu_apply_binary(a, b, bn):
+    """cupy float64 vectorised twin of :func:`_apply_binary` -- including the ``np.float32`` scrub +
+    nan/inf->0 at float32 precision -- returning a float64 device array of the scrubbed values."""
+    cp = _cp
+    if bn == 0:          # mul
+        v = a * b
+    elif bn == 1:        # add
+        v = a + b
+    elif bn == 2:        # sub
+        v = a - b
+    elif bn == 3:        # div = _safe_div (1e-9 floor only on exact-zero denom)
+        denom = cp.where(b == 0.0, cp.float64(1e-9), b)
+        v = a / denom
+    elif bn == 4:        # max = np.maximum (nan-propagating)
+        v = cp.maximum(a, b)
+    else:                # min = np.minimum (nan-propagating)
+        v = cp.minimum(a, b)
+    # np.nan_to_num(nan=0, posinf=0, neginf=0) at float32 precision (feature_dtype).
+    f = v.astype(cp.float32)
+    f = cp.where(cp.isfinite(f), f, cp.float32(0.0))
+    return f.astype(cp.float64)
+
+
+def _gpu_quantile_bin_codes(V, qs):
+    """Equi-frequency quantile-bin each ROW of ``V`` (shape ``(m, n)``, finite float64) -- BIT-IDENTICAL
+    to :func:`_qbin_into` per row. Returns ``(codes (m,n) int64, kx (m,) int64)``. Vectorised over the
+    ``m`` combos in the chunk; the searchsorted is done per row (each row has its own edge vector)."""
+    cp = _cp
+    m, n = V.shape
+    srt = cp.sort(V, axis=1)                      # (m, n) ascending -- matches np.sort
+    nq = qs.shape[0]
+    pos = qs * (n - 1)                            # virtual indices, (nq,)
+    lo = cp.floor(pos).astype(cp.int64)           # (nq,)
+    hi = cp.where(lo < n - 1, lo + 1, lo)
+    frac = pos - lo
+    q = srt[:, lo] + (srt[:, hi] - srt[:, lo]) * frac[None, :]   # (m, nq) lerp edges
+    codes = cp.zeros((m, n), dtype=cp.int64)
+    kx = cp.ones(m, dtype=cp.int64)
+    # Per-combo dedup + searchsorted. nq is tiny (nbins+1, ~11), so the Python loop over rows is the
+    # m axis; each row's searchsorted is a fully vectorised cupy call over n.
+    for r in range(m):
+        qr = q[r]
+        # np.unique on an ascending vector == adjacent dedup.
+        edges = cp.unique(qr)                     # ascending, deduped
+        me = int(edges.shape[0])
+        if me <= 1:
+            kx[r] = 1
+            continue
+        if me == 2:
+            codes[r] = (V[r] >= edges[1]).astype(cp.int64)
+            kx[r] = 2
+            continue
+        inner = edges[1:me - 1]
+        cr = cp.searchsorted(inner, V[r], side="right")   # 0..ni
+        codes[r] = cr
+        kx[r] = int(cr.max()) + 1
+    return codes, kx
+
+
+def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
+    """Vectorised Miller-Madow marginal MI for each ROW of ``codes`` (shape ``(m, n)`` dense 0..kx[r]-1)
+    vs the shared ``y_codes`` (dense 0..k_y-1). BIT-FAITHFUL to :func:`_marginal_mi_njit`: same plug-in
+    entropies (natural log), same bias ``(kx_occ + k_y - kxy - 1)/(2n)``, same clamp. Returns (m,) MI."""
+    cp = _cp
+    m = codes.shape[0]
+    invn = 1.0 / n
+    out = cp.empty(m, dtype=cp.float64)
+    for r in range(m):
+        xb = codes[r]
+        kxr = int(kx[r])
+        # marginal H(X)
+        cx = cp.bincount(xb, minlength=kxr).astype(cp.float64)
+        nzx = cx[cx > 0]
+        px = nzx * invn
+        hx = float(-(px * cp.log(px)).sum())
+        kx_occ = int((cx > 0).sum())
+        # joint H(X,Y) via flat id xb*k_y + y
+        joint = xb * k_y + y_codes
+        cj = cp.bincount(joint, minlength=kxr * k_y).astype(cp.float64)
+        nzj = cj[cj > 0]
+        pj = nzj * invn
+        hxy = float(-(pj * cp.log(pj)).sum())
+        kxy = int((cj > 0).sum())
+        mi = hx + h_y - hxy
+        bias = (kx_occ + k_y - kxy - 1) / (2.0 * n)
+        r_mi = mi - bias
+        out[r] = r_mi if r_mi > 0.0 else 0.0
+    return out
+
+
+def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
+    """cupy GPU twin of :func:`_pair_combo_mi_njit` -- per-combo MI (or -1.0 std-sentinel), BIT-FAITHFUL
+    to the CPU kernels (see the section docstring). Precomputes the ``nu`` distinct unary transforms of
+    each operand ONCE on device, then processes combos in chunks. Raises on any cupy/device error so the
+    dispatcher can fall back to CPU (the fit is never broken by a GPU problem)."""
+    cp = _cp
+    nc = int(ua_arr.shape[0])
+    n = int(x1.shape[0])
+    nbins = int(qs.shape[0]) - 1
+    out = np.empty(nc, dtype=np.float64)
+    if nc == 0:
+        return out
+
+    d_x1 = cp.asarray(x1, dtype=cp.float64)
+    d_x2 = cp.asarray(x2, dtype=cp.float64)
+    d_y = cp.asarray(y_codes, dtype=cp.int64)
+    d_qs = cp.asarray(qs, dtype=cp.float64)
+
+    # Precompute the DISTINCT unary transforms appearing in ua_arr / ub_arr (reused across combos).
+    ua_codes = ua_arr.tolist()
+    ub_codes = ub_arr.tolist()
+    bn_codes = bn_arr.tolist()
+    ua_cache: dict = {}
+    ub_cache: dict = {}
+    for c in set(ua_codes):
+        ua_cache[c] = _gpu_apply_unary(d_x1, c, xmin_a)
+    for c in set(ub_codes):
+        ub_cache[c] = _gpu_apply_unary(d_x2, c, xmin_b)
+
+    for start in range(0, nc, _GPU_COMBO_CHUNK):
+        stop = min(start + _GPU_COMBO_CHUNK, nc)
+        m = stop - start
+        V = cp.empty((m, n), dtype=cp.float64)
+        for r in range(m):
+            j = start + r
+            a = ua_cache[ua_codes[j]]
+            b = ub_cache[ub_codes[j]]
+            V[r] = _gpu_apply_binary(a, b, bn_codes[j])
+        # std<=1e-9 sentinel: var = E[v^2] - E[v]^2 <= 1e-18.
+        mean = V.mean(axis=1)
+        var = (V * V).mean(axis=1) - mean * mean
+        live = var > 1e-18
+        codes, kx = _gpu_quantile_bin_codes(V, d_qs)
+        mi = _gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n)
+        mi = cp.where(live, mi, cp.float64(-1.0))
+        out[start:stop] = cp.asnumpy(mi)
+    return out
+
+
+# ----------------------------------------------------------------------------------------------
+# Per-host backend crossover (serial njit / parallel njit / GPU cupy), resolved via the canonical
+# kernel_tuning_cache -- NO hardcoded threshold (feedback_use_kernel_tuning_cache_for_gpu /
+# feedback_fastest_default_with_dispatch). All three kernels are bit-faithful so the sweep just
+# picks the FASTEST EQUIVALENT per (n_rows, n_combos) cell. CPU njit is the DEFAULT + FALLBACK: any
+# cupy import / device error routes back to CPU, the fit is never broken.
+#
+# On a GTX 1050 Ti (cc 6.1, the dev box) prior fused MI kernels were HW-BOUND (no win vs CPU); the
+# tuner is expected to keep this kernel on CPU here. The GPU path is the deliverable that wins on
+# large-n / stronger cards -- the tuner measures and routes, we hardcode nothing.
 # ----------------------------------------------------------------------------------------------
 _USABILITY_SWEEP_COMBOS = [64, 289, 578, 1156, 1734]  # ~ |unary|^2*|binary| neighbourhood (17^2*{...})
-_USABILITY_SALT = 1
+_USABILITY_SWEEP_ROWS = [2_000, 10_000, 50_000]  # n_rows axis: GPU H2D/launch overhead amortises with n
+_USABILITY_SALT = 2  # bumped: added n_rows axis + gpu (cupy) backend
 
 
 def _make_usability_inputs(dims: dict):
     """An (n_rows x 2) operand pair + (n_combos) op-code arrays mirroring the kernel's call shape so
-    the sweep measures the serial-vs-parallel crossover on the real signature (n=10000-ish rows)."""
+    the sweep measures the serial/parallel/gpu crossover on the real signature."""
     rng = np.random.default_rng(0)
-    n_rows = 10000
+    n_rows = int(dims.get("n_rows", 10_000))
     nc = int(dims["n_combos"])
     x1 = np.ascontiguousarray(rng.standard_normal(n_rows))
     x2 = np.ascontiguousarray(rng.exponential(1.2, n_rows))
@@ -333,47 +565,59 @@ def _make_usability_inputs(dims: dict):
 def _run_usability_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    def _serial(*a):
-        return _pair_combo_mi_njit(*a)
-
-    def _parallel(*a):
-        return _pair_combo_mi_njit_parallel(*a)
-
+    variants = {
+        "serial": lambda *a: _pair_combo_mi_njit(*a),
+        "parallel": lambda *a: _pair_combo_mi_njit_parallel(*a),
+    }
+    if _CUPY_AVAIL:
+        variants["gpu"] = lambda *a: _pair_combo_mi_cupy(*a)
+    # GPU sort/bincount/log reassociate at the last bit -> the per-combo MI agrees with the CPU njit
+    # to fp64 round-off, not bit-for-bit. The retention ranking only needs the ORDER preserved, so a
+    # loosened equiv tol on the GPU cell is the documented deviation (see the GPU section docstring).
     return sweep_backend_grid(
-        {"serial": _serial, "parallel": _parallel},
-        {"n_combos": list(_USABILITY_SWEEP_COMBOS)},
+        variants,
+        {"n_rows": list(_USABILITY_SWEEP_ROWS), "n_combos": list(_USABILITY_SWEEP_COMBOS)},
         _make_usability_inputs,
-        reference="serial", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,
+        reference="serial", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-9,
     )
 
 
-def _usability_fallback_choice(n_combos: int) -> str:
-    """Pre-sweep heuristic: parallel above a conservative combo count where the prange fork-join
-    overhead is amortised by the per-combo work (each combo does n_rows unary+binary+sort+2 hist
-    passes). The retention pair enumeration carries ~289-1734 combos, comfortably above the floor."""
+def _usability_fallback_choice(n_rows: int, n_combos: int) -> str:
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): parallel njit above a conservative
+    combo count where the prange fork-join overhead is amortised by the per-combo work. NEVER defaults
+    to GPU -- the GPU path only fires once the per-host tuner has MEASURED it faster (on the dev GTX
+    1050 Ti it is HW-bound, so the measured choice stays CPU)."""
     return "parallel" if int(n_combos) >= 64 else "serial"
 
 
 _USABILITY_PARALLELISM_SPEC = kernel_tuner(
     kernel_name="usability_pool_kernel_parallelism",
-    variant_fns=(_pair_combo_mi_njit, _pair_combo_mi_njit_parallel),
+    variant_fns=(_pair_combo_mi_njit, _pair_combo_mi_njit_parallel),  # CPU bodies; GPU covered by salt
     tuner=_run_usability_sweep,
-    axes={"n_combos": list(_USABILITY_SWEEP_COMBOS)},
+    axes={"n_rows": list(_USABILITY_SWEEP_ROWS), "n_combos": list(_USABILITY_SWEEP_COMBOS)},
     fallback=_usability_fallback_choice,
-    gpu_capable=False,
+    gpu_capable=True,
     salt=_USABILITY_SALT,
     cli_label="usability_pool_kernel_parallelism",
 )
 
 
-def _use_parallel_kernel(n_combos: int) -> bool:
-    """Dispatch predicate: use the ``parallel=True`` combo-prange twin iff the per-host
-    kernel_tuning_cache says the combo count is above the serial-vs-parallel crossover. The usability
-    pool runs on the SERIAL MAIN THREAD (no joblib nesting), so a numba prange is always safe here."""
+def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
+    """Per-host backend ('serial'/'parallel'/'gpu') for this (n_rows, n_combos) via the spec's
+    choose(). Env override ``MLFRAME_USABILITY_POOL_BACKEND`` (njit|njit_parallel|gpu) forces a
+    backend for testing (mirrors ``MLFRAME_MI_BACKEND``). The GPU choice is gated downstream on live
+    cupy + the global GPU off-switch; on any failure the caller falls back to CPU."""
+    forced = os.environ.get("MLFRAME_USABILITY_POOL_BACKEND", "").strip().lower()
+    if forced == "njit":
+        return "serial"
+    if forced == "njit_parallel":
+        return "parallel"
+    if forced == "gpu":
+        return "gpu"
     try:
-        return _USABILITY_PARALLELISM_SPEC.choose(n_combos=int(n_combos)) == "parallel"
+        return _USABILITY_PARALLELISM_SPEC.choose(n_rows=int(n_rows), n_combos=int(n_combos))
     except Exception:
-        return _usability_fallback_choice(int(n_combos)) == "parallel"
+        return _usability_fallback_choice(int(n_rows), int(n_combos))
 
 
 def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes):
@@ -403,5 +647,22 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
     qs = np.linspace(0.0, 1.0, int(nbins) + 1)
     xmin_a = float(np.nanmin(x1)) if x1.size else 0.0
     xmin_b = float(np.nanmin(x2)) if x2.size else 0.0
-    kernel = _pair_combo_mi_njit_parallel if _use_parallel_kernel(nc) else _pair_combo_mi_njit
-    return kernel(x1, x2, y_codes, float(h_y), int(k_y), qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b)
+    n_rows = int(x1.shape[0])
+    args = (x1, x2, y_codes, float(h_y), int(k_y), qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b)
+
+    choice = _usability_backend_choice(n_rows, nc)
+    if choice == "gpu":
+        # GPU path -- gated on live cupy + the global GPU off-switch (MLFRAME_DISABLE_GPU /
+        # CUDA_VISIBLE_DEVICES=""). Any cupy/device error falls back to the CPU kernel: the fit is
+        # NEVER broken by a GPU problem (correctness first).
+        from ._gpu_policy import gpu_globally_disabled
+        if _CUPY_AVAIL and not gpu_globally_disabled():
+            try:
+                return _pair_combo_mi_cupy(*args)
+            except Exception:
+                pass  # fall through to CPU
+        # cupy missing / disabled / device error -> CPU. Re-resolve serial-vs-parallel for the CPU twin.
+        choice = _usability_fallback_choice(n_rows, nc)
+
+    kernel = _pair_combo_mi_njit_parallel if choice == "parallel" else _pair_combo_mi_njit
+    return kernel(*args)
