@@ -143,11 +143,11 @@ def group_aware_mrmr_select(
 
 
 def select_ltr_features(
-    X,
+    X: Any,
     y: np.ndarray,
     groups: Optional[np.ndarray] = None,
     *,
-    feature_selection_config,
+    feature_selection_config: Any,
     rfecv_models: Optional[list] = None,
     target_type: Any = None,
     fs_random_seed: int = 42,
