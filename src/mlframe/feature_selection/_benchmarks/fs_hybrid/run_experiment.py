@@ -25,11 +25,13 @@ try:  # runnable both as ``python -m ...fs_hybrid.run_experiment`` and as a plai
     from .synth import make_dataset
     from . import fs_selectors as S
     from .hybrid_selector import HybridSelector
+    from .hard_synth2 import HARD_SCENARIOS
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from synth import make_dataset
     import fs_selectors as S
     from hybrid_selector import HybridSelector
+    from hard_synth2 import HARD_SCENARIOS
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
 os.makedirs(OUT, exist_ok=True)
@@ -38,6 +40,22 @@ PROGRESS = os.path.join(OUT, "progress.txt")
 
 CORE_SEEDS = [0, 1, 2]
 SHAP_SEEDS = [0]
+
+# Scenario plumbing. Default ("default") preserves the original single synth bed exactly. Selecting a hard
+# scenario set (env FS_HYBRID_SCENARIOS="all" or a comma-list of HARD_SCENARIOS keys) loops the whole roster
+# over each named hard bed, writing one results.jsonl row per (scenario, strategy, seed).
+def _resolve_scenarios():
+    """Return ordered list of (scenario_name, generator(seed)->(X,y,truth)). 'default' keeps legacy behavior."""
+    spec = os.environ.get("FS_HYBRID_SCENARIOS", "default").strip()
+    if spec in ("", "default"):
+        return [("default", lambda seed: make_dataset(n_samples=5000, seed=seed))]
+    names = list(HARD_SCENARIOS) if spec == "all" else [s.strip() for s in spec.split(",") if s.strip()]
+    out = []
+    for nm in names:
+        if nm not in HARD_SCENARIOS:
+            raise SystemExit(f"unknown scenario {nm!r}; available: default, all, {list(HARD_SCENARIOS)}")
+        out.append((nm, (lambda fn: (lambda seed: fn(seed)))(HARD_SCENARIOS[nm])))
+    return out
 
 
 def downstream_models():
@@ -109,15 +127,17 @@ def main():
     open(RESULTS, "w").close(); open(PROGRESS, "w").close()
     roster = build_roster()
     models = downstream_models()
-    total = sum(len(seeds) for _, seeds in roster.values())
-    log(f"START total_cells={total} strategies={len(roster)} seeds_core={CORE_SEEDS}")
+    scenarios = _resolve_scenarios()
+    total = sum(len(seeds) for _, seeds in roster.values()) * len(scenarios)
+    log(f"START total_cells={total} strategies={len(roster)} scenarios={[s for s, _ in scenarios]} seeds_core={CORE_SEEDS}")
     cell = 0
-    for name, (factory, seeds) in roster.items():
+    for scen_name, gen in scenarios:
+      for name, (factory, seeds) in roster.items():
         for seed in seeds:
             cell += 1
-            X, y, truth = make_dataset(n_samples=5000, seed=seed)
+            X, y, truth = gen(seed)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
-            row = {"strategy": name, "seed": seed}
+            row = {"scenario": scen_name, "strategy": name, "seed": seed}
             try:
                 sel = factory()
                 t0 = time.time()
@@ -127,6 +147,9 @@ def main():
                 row["n_features"] = int(Ztr.shape[1])
                 row["n_engineered"] = int(getattr(sel, "n_engineered_", 0))
                 row["raw_selected"] = list(getattr(sel, "raw_selected_", []))
+                ms = getattr(sel, "member_selections_", None)
+                if isinstance(ms, dict):
+                    row["member_selections"] = {k: list(v) for k, v in ms.items()}
                 row.update(recovery(getattr(sel, "raw_selected_", []), truth))
                 aucs = {}
                 for mname, mfac in models.items():
@@ -137,12 +160,12 @@ def main():
                         aucs[mname] = None; row[f"err_{mname}"] = f"{type(e).__name__}: {e}"
                 row["auc"] = aucs
                 row["auc_mean"] = round(float(np.mean([v for v in aucs.values() if v is not None])), 4) if any(aucs.values()) else None
-                log(f"[{cell}/{total}] {name} seed={seed} n={row['n_features']} eng={row['n_engineered']} "
+                log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} n={row['n_features']} eng={row['n_engineered']} "
                     f"fit={row['fit_seconds']}s rec={row.get('base_recall')} noise={row.get('n_noise_selected')} auc={aucs}")
             except Exception as e:
                 row["error"] = f"{type(e).__name__}: {e}"
                 row["traceback"] = traceback.format_exc()[-1500:]
-                log(f"[{cell}/{total}] {name} seed={seed} ERROR {type(e).__name__}: {e}")
+                log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} ERROR {type(e).__name__}: {e}")
             with open(RESULTS, "a", encoding="utf-8") as f:
                 f.write(json.dumps(row) + "\n")
     log("DONE")
