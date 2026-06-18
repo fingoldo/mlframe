@@ -165,14 +165,28 @@ def predict_exhaustive_seconds(n_samples: int, n_raw: int) -> tuple[float, float
 
 
 def _normalise_mode(raw) -> str:
-    """Map the ``fe_synergy_exhaustive`` knob to {"auto", "force"}. True -> force."""
+    """Map the ``fe_synergy_exhaustive`` knob to {"never", "auto", "force"}.
+
+    * False / "never"/"off"/"prerank" -> "never": always the O(p) pre-rank + capped sweep (guaranteed fast,
+      never pays for the GPU sweep -- the legacy behaviour).
+    * "auto" (default; also None) -> "auto": run the exhaustive C(p,2) sweep WHEN it is affordable (a CUDA GPU
+      is available AND the predicted wall-time <= fe_synergy_exhaustive_max_seconds), else fall back to the
+      pre-rank. So at small / moderate p the default gets the COMPLETE result -- including the balanced (L=0)
+      interactions the O(p) pre-rank provably cannot reach -- essentially for free, and only wide frames where
+      exhaustive would blow the budget fall back to the pre-rank.
+    * True / "force"/"1"/"yes"/"on" -> "force": run the exhaustive sweep whenever a GPU is available, IGNORING
+      the time budget (the user explicitly wants completeness and accepts the wall-time)."""
     if raw is True:
         return "force"
-    if raw is False or raw is None:
+    if raw is False:
+        return "never"
+    if raw is None:
         return "auto"
     s = str(raw).strip().lower()
     if s in ("force", "true", "1", "yes", "on"):
         return "force"
+    if s in ("never", "off", "no", "none", "prerank", "pre-rank", "0"):
+        return "never"
     return "auto"
 
 
@@ -183,23 +197,28 @@ def decide_exhaustive_sweep(
     n_raw: int,
     verbose,
 ) -> tuple[bool, str]:
-    """Decide whether the FORCE/OPT-IN GPU-exhaustive synergy sweep should run over ALL
-    ``n_raw`` raw numeric columns (bypassing the pre-rank cap).
+    """Decide whether the GPU-exhaustive synergy sweep should run over ALL ``n_raw`` raw numeric columns
+    (bypassing the pre-rank cap), recovering balanced (L=0) interactions the O(p) pre-rank cannot.
 
-    Returns ``(use_exhaustive, reason)``. ``use_exhaustive`` is True only when the mode is
-    force/True AND a CUDA GPU is available AND the predicted wall-time is under the budget.
+    Returns ``(use_exhaustive, reason)``. The decision depends on ``fe_synergy_exhaustive``:
+      * "never"  -> always False (pre-rank).
+      * "auto"   -> True iff a CUDA GPU is available AND predicted wall-time <= the budget (affordable);
+                    else False (pre-rank). This makes the DEFAULT exhaustive-when-cheap, pre-rank-when-not.
+      * "force"  -> True whenever a CUDA GPU is available, regardless of the budget.
     The reason string is logged either way.
     """
     mode = _normalise_mode(getattr(self, "fe_synergy_exhaustive", "auto"))
-    if mode != "force":
-        return False, "auto (pre-rank + capped sweep; set fe_synergy_exhaustive='force' for the full C(p,2) sweep)"
+    if mode == "never":
+        return False, "never (pre-rank + capped sweep; fe_synergy_exhaustive='auto' escalates to exhaustive when affordable)"
 
     try:
         from .batch_pair_mi_gpu import _CUDA_AVAIL
     except Exception:
         _CUDA_AVAIL = False
     if not _CUDA_AVAIL:
-        return False, "declined: fe_synergy_exhaustive='force' but no CUDA GPU available; falling back to the pre-rank path"
+        # No GPU: the exhaustive CPU sweep is far too slow to default to; the pre-rank is the right path.
+        _why = "no CUDA GPU available" if mode == "force" else "no CUDA GPU available (auto cannot afford the CPU exhaustive sweep)"
+        return False, f"declined: {_why}; using the pre-rank path"
 
     if n_raw < 2:
         return False, f"declined: only {n_raw} raw numeric column(s); nothing to sweep"
@@ -210,17 +229,24 @@ def decide_exhaustive_sweep(
     warm_exhaustive_throughput_cache()
     predicted, pps, source = predict_exhaustive_seconds(n_samples, n_raw)
     n_pairs = (n_raw * (n_raw - 1)) // 2
+    if mode == "force":
+        return True, (
+            f"running FULL exhaustive C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric columns "
+            f"(force; predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], budget ignored) -- recovers "
+            f"balanced (L=0) interactions the O(p) pre-rank cannot."
+        )
+    # AUTO: escalate to exhaustive only when it is affordable under the budget.
     if budget > 0 and predicted > budget:
         return False, (
-            f"declined: predicted exhaustive sweep wall-time {predicted:.1f}s "
+            f"auto -> pre-rank: predicted exhaustive wall-time {predicted:.1f}s "
             f"(C({n_raw},2)={n_pairs} pairs @ {pps:.0f} pairs/s [{source}]) exceeds "
-            f"fe_synergy_exhaustive_max_seconds={budget:.0f}s; falling back to the pre-rank path. "
-            f"Raise the budget to force it."
+            f"fe_synergy_exhaustive_max_seconds={budget:.0f}s; the O(p) pre-rank recovers leaky interactions "
+            f"cheaply (only a perfectly-balanced L=0 interaction is missed). Raise the budget or set 'force'."
         )
     return True, (
-        f"running FULL exhaustive C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric "
-        f"columns (predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], budget "
-        f"{budget:.0f}s) -- recovers balanced (L=0) interactions the O(p) pre-rank cannot."
+        f"auto -> exhaustive: FULL C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric columns "
+        f"is affordable (predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}] <= budget {budget:.0f}s) -- "
+        f"the complete result, recovering balanced (L=0) interactions the pre-rank cannot, at no meaningful cost."
     )
 
 

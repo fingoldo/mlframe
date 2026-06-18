@@ -1,9 +1,10 @@
 """SECOND FUNNEL STAGE -- GPU-exhaustive synergy sweep (fe_synergy_exhaustive).
 
 Three checks:
-  * decision-logic unit test (no GPU needed): "auto" never fires; "force" fires iff GPU + budget;
-    over-budget declines with a logged reason; the throughput is sourced from the kernel_tuning cache /
-    fallback (NEVER hardcoded into the decision).
+  * decision-logic unit test: "never" always pre-rank; "auto" escalates to exhaustive when affordable
+    (GPU + predicted wall-time <= budget) and falls back to pre-rank when over budget; "force" fires
+    whenever a GPU is present; the throughput is sourced from the kernel_tuning cache / fallback (NEVER
+    hardcoded into the decision).
   * PARITY (needs CUDA): on a frame with p <= cap the exhaustive path and the capped/auto path select the
     SAME features (the cap/pre-rank are a no-op below the cap, so forcing exhaustive must not change the
     result).
@@ -49,10 +50,27 @@ class _Knobs:
         self.fe_synergy_exhaustive_max_seconds = budget
 
 
-def test_auto_mode_never_fires():
-    use, reason = decide_exhaustive_sweep(_Knobs("auto"), n_samples=5000, n_raw=400, verbose=0)
+def test_never_mode_always_prerank():
+    use, reason = decide_exhaustive_sweep(_Knobs("never"), n_samples=5000, n_raw=400, verbose=0)
     assert use is False
-    assert "auto" in reason.lower()
+    assert "never" in reason.lower()
+
+
+def test_auto_declines_when_over_budget():
+    # auto with a sub-microsecond budget can never afford exhaustive -> pre-rank (whether GPU present or not).
+    use, reason = decide_exhaustive_sweep(_Knobs("auto", budget=1e-9), n_samples=2_000_000, n_raw=10_000, verbose=0)
+    assert use is False
+    # On a GPU host the reason is the auto->pre-rank budget decline; on a CPU host it declines on availability.
+    assert ("pre-rank" in reason.lower()) or ("declined" in reason.lower())
+
+
+@_skip_no_cuda
+def test_auto_escalates_to_exhaustive_when_affordable():
+    # The key fix: "auto" is NOT "never exhaustive" -- on a GPU it escalates to the full sweep when the
+    # predicted wall-time fits the budget, so the default gets the complete (balanced-case) result for free.
+    use, reason = decide_exhaustive_sweep(_Knobs("auto", budget=180.0), n_samples=5000, n_raw=400, verbose=0)
+    assert use is True, reason
+    assert "exhaustive" in reason.lower()
 
 
 def test_throughput_sourced_not_hardcoded():
@@ -65,12 +83,15 @@ def test_throughput_sourced_not_hardcoded():
     assert pps2 > 0 and source2 in ("cache", "fallback")
 
 
-def test_force_declines_over_budget():
-    # A 1-second budget is below any realistic exhaustive sweep -> declines (whether or not a GPU exists,
-    # the over-budget branch is reached only if GPU present; on a CPU-only host it declines on availability).
-    use, reason = decide_exhaustive_sweep(_Knobs("force", budget=1e-6), n_samples=2_000_000, n_raw=10_000, verbose=0)
-    assert use is False
-    assert "declined" in reason.lower()
+def test_force_ignores_budget():
+    # "force" means the user accepts the wall-time: it fires regardless of the budget WHEN a GPU is present,
+    # and declines ONLY for lack of a GPU (CPU exhaustive is never run). Contrast test_auto_declines_when_over_budget.
+    use, reason = decide_exhaustive_sweep(_Knobs("force", budget=1e-9), n_samples=200_000, n_raw=5_000, verbose=0)
+    if _HAS_CUDA:
+        assert use is True, reason                      # budget ignored under force
+        assert "force" in reason.lower()
+    else:
+        assert use is False and "no cuda" in reason.lower()
 
 
 @_skip_no_cuda
@@ -154,14 +175,16 @@ def _operands_recovered(feature_names, operands):
 def test_biz_value_exhaustive_recovers_balanced_operands_prerank_cannot():
     X, y, operands = _make_balanced_l0(0)
 
-    # Pre-rank path (auto): the O(p) propensity score is blind to the balanced operands -> recovers ~none.
-    m_prerank = MRMR(fe_synergy_exhaustive="auto", fe_synergy_prerank=True,
+    # PRE-RANK path (never): the O(p) propensity score is blind to the balanced operands -> recovers ~none.
+    # NB this is the "never" mode -- the legacy pre-rank-only behaviour. (Plain "auto" would ESCALATE to the
+    # exhaustive sweep here, since this wide-but-small frame is affordable -- see the auto assertion below.)
+    m_prerank = MRMR(fe_synergy_exhaustive="never", fe_synergy_prerank=True,
                      fe_synergy_screen_max_features=CAP_BIZ)
     m_prerank.fit(X, y)
     rec_prerank = _operands_recovered(m_prerank.get_feature_names_out(), operands)
 
-    # Exhaustive path (force): the full C(p,2) joint-MI sweep ranks the balanced pair at the top, and the
-    # per-pair search builds the interaction feature from BOTH operands.
+    # FORCE path: the full C(p,2) joint-MI sweep ranks the balanced pair at the top, and the per-pair search
+    # builds the interaction feature from BOTH operands.
     m_exh = MRMR(fe_synergy_exhaustive="force", fe_synergy_screen_max_features=CAP_BIZ,
                  fe_synergy_exhaustive_max_seconds=180.0)
     m_exh.fit(X, y)
@@ -170,9 +193,19 @@ def test_biz_value_exhaustive_recovers_balanced_operands_prerank_cannot():
     assert len(rec_exh) > len(rec_prerank), (
         f"exhaustive did not beat pre-rank on the balanced L=0 case: "
         f"exhaustive recovered {sorted(rec_exh)}, pre-rank recovered {sorted(rec_prerank)}")
-    # Both operands of the planted balanced pair are recovered (as raw cols or inside the engineered
-    # interaction feature) -- the irreducible case the O(p) pre-rank provably cannot reach.
     assert rec_exh == operands, f"exhaustive did not recover the full planted pair: {sorted(rec_exh)} != {sorted(operands)}"
+
+    # THE FIX (default "auto"): this frame (p=120, n=6000) is cheap to sweep exhaustively, so the DEFAULT auto
+    # escalates to the exhaustive path and ALSO recovers the balanced pair -- i.e. the default is NOT blind to
+    # the irreducible case when it can afford completeness. (auto only falls back to the pre-rank on frames too
+    # wide to sweep within fe_synergy_exhaustive_max_seconds.)
+    m_auto = MRMR(fe_synergy_exhaustive="auto", fe_synergy_screen_max_features=CAP_BIZ,
+                  fe_synergy_exhaustive_max_seconds=180.0)
+    m_auto.fit(X, y)
+    rec_auto = _operands_recovered(m_auto.get_feature_names_out(), operands)
+    assert rec_auto == operands, (
+        f"default 'auto' did not escalate to exhaustive on an affordable balanced frame: recovered "
+        f"{sorted(rec_auto)} != {sorted(operands)} (auto should run the full sweep when it fits the budget)")
 
 
 if __name__ == "__main__":

@@ -1524,14 +1524,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # univariate higher moment vs y is zero) is INVISIBLE to it, so neither operand enters the kept cap.
         # Only the EXHAUSTIVE C(p,2) joint-MI sweep recovers such a pair (the measured CUDA kernel ranks a
         # planted balanced XOR pair #0 of 50M with joint MI = ln2). ``fe_synergy_exhaustive``:
-        #   * "auto" (default): keep the pre-rank + capped sweep above (the exhaustive path does NOT fire).
-        #   * "force"/True: run the FULL exhaustive C(p,2) sweep over ALL raw numeric columns (bypassing the
-        #     ``fe_synergy_screen_max_features`` cap, the pre-rank, AND the n*p^2 cost gate) WHEN a CUDA GPU is
-        #     available AND the predicted wall-time is under ``fe_synergy_exhaustive_max_seconds``; else it LOGS
-        #     why it declined and falls back to the pre-rank path. The throughput (CUDA pairs/s) is measured-and-
-        #     cached per host + (n, p) via pyutilz.performance.kernel_tuning (NOT hardcoded; ~5e4 pairs/s is only
-        #     the cold-cache fallback). Use when correctness on the irreducible balanced-interaction case
-        #     outranks wall-time. Reuses the existing ``batch_pair_mi_cuda`` kernel (no new kernel).
+        #   * "auto" (default): ESCALATE to the full exhaustive C(p,2) sweep WHEN it is affordable -- a CUDA GPU
+        #     is available AND the predicted wall-time is <= ``fe_synergy_exhaustive_max_seconds`` -- otherwise
+        #     fall back to the pre-rank + capped sweep. So the DEFAULT gets the COMPLETE result (incl. the
+        #     balanced L=0 case) for free at small/moderate p, and only wide frames where exhaustive would blow
+        #     the budget use the cheap O(p) pre-rank (which still recovers any LEAKY interaction at ~0.88 recall;
+        #     only the measure-zero perfectly-balanced case is then missed). This is why "auto" is not merely a
+        #     slower pre-rank: it is exhaustive-when-cheap, pre-rank-when-not.
+        #   * "force"/True: run the exhaustive sweep whenever a CUDA GPU is available, IGNORING the budget (the
+        #     user explicitly wants completeness and accepts the wall-time).
+        #   * "never"/False: always the pre-rank + capped sweep (guaranteed fast; never pays for the GPU sweep).
+        # The exhaustive sweep bypasses the cap, the pre-rank, AND the n*p^2 cost gate, and reuses the existing
+        # ``batch_pair_mi_cuda`` kernel (no new kernel). Throughput (CUDA pairs/s) is measured-and-cached per
+        # host + (n, p) via pyutilz.performance.kernel_tuning (NOT hardcoded; ~5e4 pairs/s is only the cold-cache
+        # fallback). No CUDA GPU -> "auto"/"force" both fall back to the pre-rank (CPU exhaustive is too slow).
         fe_synergy_exhaustive: str = "auto",
         # WALL-TIME BUDGET (seconds) for the force/opt-in exhaustive synergy sweep above. The exhaustive path
         # fires only when the PREDICTED sweep time (n_pairs / measured CUDA pairs-per-second) is under this. At the
