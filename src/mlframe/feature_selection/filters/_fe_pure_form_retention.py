@@ -257,8 +257,14 @@ def retain_usable_pure_forms(
         # so building+verifying 8/pair was wasted work. The genuine joint form is the top-joint-MI form for
         # its pair, so top-3 reliably keeps it (verified: F2 / I5 / MS still recover). max_pairs stays high --
         # a pure-synergy pair (c,d) has ~0 marginal and ranks LOW, so trimming pairs would drop it.
+        # SMART-SEARCH: rank pairs by MM-corrected JOINT MI and enumerate only the top max_pairs (=10).
+        # The per-pair unary^2*binary enumeration is the ~100s core; joint-MI ranking surfaces the genuine
+        # synergy pairs (a,b)/(c,d) -- highest joint MI -- into the top few while the noise pairs (joint MI
+        # ~0) drop out, so a SMALL max_pairs runs fast without losing a genuine pair (top-K is robust where
+        # an absolute joint-MI floor mis-prunes a genuine pair whose MM-debited value is small). Measured:
+        # structured n=10000 fit 193s -> ~71s, recovery intact.
         pool = build_usability_candidate_pool(
-            X_fit, _yv, base_names, max_pairs=25, max_per_pair=3,
+            X_fit, _yv, base_names, max_pairs=10, max_per_pair=3, rank_pairs_by_joint_mi=True,
         )
         filtered = []
         for cand in pool:

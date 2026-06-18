@@ -77,16 +77,24 @@ def build_usability_candidate_pool(
     max_per_pair: int = 12,
     diversity_corr: float = 0.97,
     max_pairs: int = 60,
+    rank_pairs_by_joint_mi: bool = False,
 ) -> list[UsableCandidate]:
     """Enumerate raw + unary/binary-product candidates (continuous, replayable) for pairs among
     ``base_names``. Per pair, keep up to ``max_per_pair`` DISTINCT forms clearing ``mi_floor``
     (greedy by MI, dropping any |corr|>``diversity_corr`` near-duplicate). For wide p, restrict to
     the ``max_pairs`` highest-marginal-MI pairs. Each pair form is a replayable
-    ``EngineeredRecipe`` (so ``transform`` can reproduce it)."""
+    ``EngineeredRecipe`` (so ``transform`` can reproduce it).
+
+    ``rank_pairs_by_joint_mi`` (default False -> OFF, byte-identical marginal rank): a smart-search prune.
+    The per-pair unary x unary x binary enumeration (the ~O(pairs * |unary|^2 * |binary|) MI-kernel core,
+    ~100s on a structured fit) is wasted on a pair with NO joint signal. When True, rank pairs by ONE cheap
+    binned JOINT MI per pair and keep only the top ``max_pairs`` -- joint MI SURFACES low-marginal synergy
+    pairs (XOR/ratio) the marginal-sum rank buries, so a SMALL ``max_pairs`` recovers them while the noise
+    pairs (lower joint MI) drop out. One MI eval/pair instead of |unary|^2*|binary|."""
     import pandas as pd
     from .feature_engineering import create_unary_transformations, create_binary_transformations
     from .engineered_recipes import build_unary_binary_recipe, apply_recipe
-    from ._mi_greedy_cmi_fe import _quantile_bin
+    from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
 
     if not isinstance(X_df, pd.DataFrame):
         X_df = pd.DataFrame(np.asarray(X_df))
@@ -105,33 +113,67 @@ def build_usability_candidate_pool(
             continue
         pool.append(UsableCandidate(nm, col, _binned_mi(col, y_codes, quantization_nbins), None, (nm,), ()))
 
-    # rank pairs by marginal-MI sum so a wide-p sweep keeps the most promising first.
-    marg = {nm: _binned_mi(_scrub(X_df[nm].to_numpy()), y_codes, quantization_nbins) for nm in base_names}
     pairs = list(itertools.combinations(base_names, 2))
-    pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
-    pairs = pairs[:max_pairs]
+    if rank_pairs_by_joint_mi:
+        # SMART-SEARCH pair ranking: rank by binned JOINT MI (one eval/pair) and keep the top
+        # ``max_pairs``, so the per-pair unary^2*binary enumeration (~100s core) runs on only the few
+        # pairs with the strongest joint signal. Joint MI SURFACES low-marginal synergy pairs (XOR/ratio)
+        # that the marginal-sum rank buries. This is a relative RANKING, so the raw (un-MM-corrected,
+        # un-occupancy-floored) joint MI is the right tool: a genuine pair's real joint dependence ranks it
+        # ABOVE the roughly-uniform finite-sample inflation of the independent-noise pairs, and top-K keeps
+        # it -- whereas the MM/occupancy-floored estimator zeroes EVERY pair once rows/cell is small (the
+        # 3000-row subsample x 10x10 grid), which would prune the genuine pairs too. Default OFF -> marginal
+        # rank, byte-identical.
+        _pj_codes = {
+            nm: _quantile_bin(_f64(_scrub(X_df[nm].to_numpy())), quantization_nbins).astype(np.int64)
+            for nm in base_names
+        }
+        _nb = int(quantization_nbins)
+
+        def _pair_joint_mi(p):
+            return float(_cmi_from_binned(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], y_codes, None))
+
+        _pj = {p: _pair_joint_mi(p) for p in pairs}
+        pairs.sort(key=lambda p: _pj[p], reverse=True)
+        pairs = pairs[:max_pairs]
+    else:
+        # rank pairs by marginal-MI sum so a wide-p sweep keeps the most promising first.
+        marg = {nm: _binned_mi(_scrub(X_df[nm].to_numpy()), y_codes, quantization_nbins) for nm in base_names}
+        pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
+        pairs = pairs[:max_pairs]
 
     for n1, n2 in pairs:
         x1 = _f64(_scrub(X_df[n1].to_numpy()))
         x2 = _f64(_scrub(X_df[n2].to_numpy()))
-        cand_here: list[UsableCandidate] = []
-        for ua, ub in itertools.product(unary, unary):
+        # Precompute each operand's unary transforms ONCE per pair (was recomputed for every (ua,ub)
+        # combo inside the product loop -- |unary|x redundant). Byte-identical values + iteration order.
+        ta_by_ua: dict = {}
+        for _ua in unary:
             try:
-                ta, tb = unary[ua](x1), unary[ub](x2)
+                ta_by_ua[_ua] = unary[_ua](x1)
             except Exception:
-                continue
-            for bn, bf in binary.items():
-                try:
-                    val = _scrub(bf(ta, tb), feature_dtype)
-                except Exception:
-                    continue
-                if float(np.std(val)) <= 1e-9:
-                    continue
-                m = _binned_mi(val, y_codes, quantization_nbins)
-                if m < mi_floor:
-                    continue
-                name = f"{bn}({ua}({n1}),{ub}({n2}))"
-                cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+                pass
+        tb_by_ub: dict = {}
+        for _ub in unary:
+            try:
+                tb_by_ub[_ub] = unary[_ub](x2)
+            except Exception:
+                pass
+        cand_here: list[UsableCandidate] = []
+        for ua, ta in ta_by_ua.items():
+            for ub, tb in tb_by_ub.items():
+                for bn, bf in binary.items():
+                    try:
+                        val = _scrub(bf(ta, tb), feature_dtype)
+                    except Exception:
+                        continue
+                    if float(np.std(val)) <= 1e-9:
+                        continue
+                    m = _binned_mi(val, y_codes, quantization_nbins)
+                    if m < mi_floor:
+                        continue
+                    name = f"{bn}({ua}({n1}),{ub}({n2}))"
+                    cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
         # keep diverse top-MI forms for this pair.
         cand_here.sort(key=lambda c: c.mi, reverse=True)
         kept: list[UsableCandidate] = []

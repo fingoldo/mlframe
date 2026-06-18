@@ -9230,4 +9230,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
     except Exception:
         pass
+
+    # SUPPORT_NONLINEAR_ ALIAS RE-SYNC. ``support_nonlinear_`` is set right after the FIRST support_
+    # assignment as an alias of the pure-MI support_, but several later passes (usability-aware RAW
+    # retention, count-floor rescue, UAED elbow trim) REASSIGN self.support_ to a NEW array, leaving the
+    # alias pointing at the stale pre-mutation array. By contract support_nonlinear_ IS the final pure-MI
+    # support_, so re-point it here after every support_ mutation (the separate linear/universal lists,
+    # when present, are untouched).
+    if hasattr(self, "support_nonlinear_"):
+        self.support_nonlinear_ = self.support_
     return self
