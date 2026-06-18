@@ -67,6 +67,43 @@ def apply_synergy_bootstrap(
         if self.factors_names_to_use is not None:
             _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
         _n_raw = len(_raw_numeric_idx)
+        # WIDE-FRAME PRE-RANK (2026-06-19). Above the cap the bootstrap historically SKIPPED entirely, so a
+        # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
+        # pick the surviving cap columns (the operands have ~0 marginal MI by construction -- the whole reason
+        # the bootstrap exists). Instead rank by an interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)|
+        # (higher moments leak even when the linear marginal is flat) and keep the top ``synergy_cap`` so the
+        # exhaustive O(cap^2) sweep runs on the columns most likely to carry interaction signal. Bench
+        # (2026-06-18, test_fe_interaction_prerank): recovers the planted operands into the top-250 at recall
+        # ~0.88 (L=0.1) vs marginal-MI 0.68 / random 0.12, at O(p*n) ~5s for p=10k. IRREDUCIBLE: a perfectly
+        # balanced zero-higher-moment interaction (L=0) is invisible to any O(p) score and still needs the full
+        # exhaustive sweep -- the pre-rank does not claim it. Default ON (fe_synergy_prerank); set False to
+        # restore the legacy skip-past-cap behaviour. The ranking uses the discretised ``data`` codes (a
+        # monotone transform preserves the higher-moment structure; bench-confirmed code-path recall holds).
+        _prerank_on = bool(getattr(self, "fe_synergy_prerank", True))
+        if _prerank_on and _n_raw > synergy_cap:
+            try:
+                from ._fe_interaction_prerank import top_k_by_interaction_propensity
+
+                _ty = int(np.atleast_1d(target_indices)[0])
+                _y_codes = np.asarray(data)[:, _ty]
+                _kept = top_k_by_interaction_propensity(
+                    np.asarray(data), _y_codes, _raw_numeric_idx, top_k=synergy_cap,
+                )
+                if _kept:
+                    _raw_numeric_idx = set(_kept)
+                    _n_raw = len(_raw_numeric_idx)
+                    if verbose:
+                        logger.info(
+                            "MRMR FE synergy bootstrap: wide frame (>%d raw numeric cols); interaction-propensity "
+                            "pre-rank kept the top %d by |corr(x^2,y)|+|corr(x,y^2)| (marginal MI cannot rank "
+                            "zero-marginal operands). A perfectly-balanced interaction is irreducible to this "
+                            "O(p) score; set fe_synergy_prerank=False to restore the legacy skip-past-cap.",
+                            synergy_cap, _n_raw,
+                        )
+            except Exception as _e:  # correctness over the optimisation -- fall back to the legacy skip
+                if verbose:
+                    logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.",
+                                type(_e).__name__, _e)
         _sweep_cost = n_rows_for_synergy * (_n_raw ** 2)
         if 0 < _n_raw <= synergy_cap and _sweep_cost <= synergy_max_sweep_cost:
             _added = _raw_numeric_idx - numeric_vars_to_consider

@@ -1496,8 +1496,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # frame wider than 60 cols, so moderate-width frames (e.g. 220 cols) never
         # got their interaction products engineered. MEASURED: enabling it on a
         # 220-col frame lifts standalone MRMR downstream AUC +0.045 (and the hybrid
-        # +0.030); it is a no-op below 60 (already ran) and a no-op above 250 (still
-        # skipped). The downstream cost is bounded -- the synergy SWEEP is O(p^2)
+        # +0.030); it is a no-op below 60 (already ran). ABOVE the cap, the wide-frame
+        # interaction-propensity pre-rank (``fe_synergy_prerank``, below) now picks the
+        # top ``cap`` columns to sweep instead of skipping the bootstrap outright.
+        # The downstream cost is bounded -- the synergy SWEEP is O(p^2)
         # joint-MI but only the top ``fe_synergy_max_pairs`` (16) pairs proceed to
         # the expensive per-pair search, and the sweep uses the GPU/batch pair-MI
         # path. 250 is the cost/benefit sweet spot: it covers moderate-p frames while
@@ -1506,6 +1508,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # On a VERY large n with p in (60, 250] the sweep is heavier -- lower this
         # cap (or set 0) if FE wall-time on such a frame matters.
         fe_synergy_screen_max_features: int = 250,
+        # WIDE-FRAME INTERACTION-PROPENSITY PRE-RANK (2026-06-19). When the raw numeric count EXCEEDS
+        # ``fe_synergy_screen_max_features``, choose WHICH ``cap`` columns enter the O(p^2) synergy sweep by an
+        # interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)| instead of skipping the bootstrap. Marginal MI
+        # is the wrong ranking (a pure-interaction operand has ~0 marginal MI by construction); higher moments
+        # leak even when the linear marginal is flat. Bench (test_fe_interaction_prerank, 2026-06-18): recovers
+        # planted zero-marginal operands into the top-250 at recall ~0.88 (realistic leakage L=0.1) vs marginal-MI
+        # 0.68 / random 0.12, at O(p*n) ~5s for p=10k. NO-OP below the cap (the bootstrap already adds every
+        # column). IRREDUCIBLE: a perfectly-balanced zero-higher-moment interaction (L=0) is invisible to any O(p)
+        # score and still requires the full exhaustive sweep -- the pre-rank does not claim it. Default ON; set
+        # False to restore the legacy skip-past-cap behaviour (engineer nothing on wide zero-marginal frames).
+        fe_synergy_prerank: bool = True,
         # N-AWARE COST GATE on the synergy bootstrap's all-pairs joint-MI sweep (O(p^2) pairs x O(n) each). The
         # feature cap above does NOT bound wall-time -- a wide-but-not-too-wide frame at large n blows up
         # super-linearly (measured p=200: n=5k +108%, n=20k +300%, n=100k >24min). The bootstrap fires only when

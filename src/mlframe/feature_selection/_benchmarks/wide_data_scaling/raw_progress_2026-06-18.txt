@@ -1,0 +1,41 @@
+Fri Jun 19 00:04:54 RTZST 2026 | setup | bench dir created
+2026-06-19 00:06:14 | H1 start cuda=True cupy=True
+2026-06-19 00:06:14 | warmup done
+2026-06-19 00:08:54 | p=250 pairs=31125 cpu=6.066s cuda=0.742s cupy=45.447s codes=8.0MB
+2026-06-19 00:16:55 | H2 start dcor=True lgb=True
+2026-06-19 00:17:22 | L=0.0 seed=0 done (lastcrit 16.61s)
+2026-06-19 00:17:48 | L=0.0 seed=1 done (lastcrit 16.21s)
+2026-06-19 00:18:15 | L=0.0 seed=2 done (lastcrit 15.86s)
+2026-06-19 00:18:40 | L=0.0 seed=3 done (lastcrit 15.38s)
+2026-06-19 00:19:06 | L=0.0 seed=4 done (lastcrit 15.41s)
+2026-06-19 00:19:32 | L=0.1 seed=0 done (lastcrit 15.50s)
+2026-06-19 00:19:58 | L=0.1 seed=1 done (lastcrit 15.40s)
+2026-06-19 00:20:23 | L=0.1 seed=2 done (lastcrit 15.41s)
+2026-06-19 00:20:49 | L=0.1 seed=3 done (lastcrit 15.58s)
+2026-06-19 00:21:17 | L=0.1 seed=4 done (lastcrit 16.13s)
+2026-06-19 00:21:44 | L=0.3 seed=0 done (lastcrit 16.46s)
+2026-06-19 00:22:12 | L=0.3 seed=1 done (lastcrit 16.76s)
+2026-06-19 00:22:14 | p=500 pairs=124750 cpu=31.566s cuda=2.514s cupy=203.929s codes=16.0MB
+2026-06-19 00:22:39 | L=0.3 seed=2 done (lastcrit 17.65s)
+2026-06-19 00:23:07 | L=0.3 seed=3 done (lastcrit 17.68s)
+2026-06-19 00:23:34 | L=0.3 seed=4 done (lastcrit 17.48s)
+2026-06-19 00:23:34 | === H2 RECALL TABLE (mean over 5 seeds; random baseline m/p) ===
+2026-06-19 00:23:34 | === H2 TIMING ===
+2026-06-19 00:23:37 | p=2000 marginal_MI: 2.398s
+2026-06-19 00:23:38 | p=2000 2nd_moment: 0.911s
+2026-06-19 00:23:40 | p=2000 cond_resp_var: 2.226s
+2026-06-19 00:23:44 | p=2000 dcor: 4.073s
+2026-06-19 00:24:01 | p=2000 gbm_splits: 16.821s
+2026-06-19 00:24:15 | p=10000 marginal_MI: 12.904s
+2026-06-19 00:24:20 | p=10000 2nd_moment: 5.194s
+2026-06-19 00:24:32 | p=10000 cond_resp_var: 12.348s
+2026-06-19 00:24:53 | p=10000 dcor: 20.694s
+2026-06-19 00:26:21 | p=10000 gbm_splits: 87.734s
+2026-06-19 00:26:21 | H2 done
+2026-06-19 00:31:16 | p=1000 pairs=499500 cpu=167.292s cuda=9.614s cupy=skip codes=32.0MB
+00:48:19 | GPU-large warmup done
+00:52:25 | p=5000 pairs=12497500 CUDA=241.17s pps=5.182e+04 | codes=160MB idx=200MB out=100MB GPUfree_before=3518MB total=4295MB
+00:52:25 |   planted-pair MI(0,1)=0.6931 rank=0/12497500
+01:08:47 | p=10000 pairs=49995000 CUDA=973.19s pps=5.137e+04 | codes=320MB idx=800MB out=400MB GPUfree_before=3418MB total=4295MB
+01:08:47 |   planted-pair MI(0,1)=0.6930 rank=0/49995000
+01:08:47 | H1 GPU-large done
