@@ -43,7 +43,8 @@ def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification:
     return pd.DataFrame(cols)
 
 
-def run_once(n_rows: int, classification: bool = False, n_features: int = 14, seed: int = 145) -> None:
+def run_once(n_rows: int, classification: bool = False, n_features: int = 14, seed: int = 145,
+             no_mrmr: bool = False, ensembles: bool = False) -> None:
     df = _make_df(n_rows=n_rows, n_features=n_features, seed=seed, classification=classification)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=not classification)
     tmp_dir = tempfile.mkdtemp(prefix="mlframe_iter145_")
@@ -53,11 +54,11 @@ def run_once(n_rows: int, classification: bool = False, n_features: int = 14, se
             target_name="iter145",
             model_name="iter145",
             features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
+            mlframe_models=(["ridge", "lightgbm"] if no_mrmr else ["ridge"]),
             use_ordinary_models=True,
-            use_mlframe_ensembles=False,
+            use_mlframe_ensembles=ensembles,
             feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
+                use_mrmr_fs=not no_mrmr,
             ),
             output_config=OutputConfig(data_dir=tmp_dir, models_dir="models"),
             verbose=0,
@@ -66,13 +67,15 @@ def run_once(n_rows: int, classification: bool = False, n_features: int = 14, se
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def profile(n_rows: int, top: int, classification: bool = False, n_features: int = 14, seed: int = 145) -> None:
+def profile(n_rows: int, top: int, classification: bool = False, n_features: int = 14, seed: int = 145,
+            no_mrmr: bool = False, ensembles: bool = False) -> None:
     out = Path(__file__).parent / "results" / ("iter146.prof" if classification else "iter145.prof")
     out.parent.mkdir(parents=True, exist_ok=True)
     pr = cProfile.Profile()
     pr.enable()
     try:
-        run_once(n_rows=n_rows, classification=classification, n_features=n_features, seed=seed)
+        run_once(n_rows=n_rows, classification=classification, n_features=n_features, seed=seed,
+                 no_mrmr=no_mrmr, ensembles=ensembles)
     finally:
         pr.disable()
     pr.dump_stats(str(out))
@@ -90,8 +93,11 @@ def main() -> int:
     ap.add_argument("--classification", action="store_true")
     ap.add_argument("--n-features", type=int, default=14)
     ap.add_argument("--seed", type=int, default=145)
+    ap.add_argument("--no-mrmr", action="store_true")
+    ap.add_argument("--ensembles", action="store_true")
     args = ap.parse_args()
-    profile(n_rows=args.n_rows, top=args.top, classification=args.classification, n_features=args.n_features, seed=args.seed)
+    profile(n_rows=args.n_rows, top=args.top, classification=args.classification, n_features=args.n_features,
+            seed=args.seed, no_mrmr=args.no_mrmr, ensembles=args.ensembles)
     return 0
 
 

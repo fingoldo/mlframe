@@ -4101,3 +4101,13 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 112 RESOLVED, 38 REJECT a
 **Verdict: REJECT.** No NEW independently-optimizable Python hotspot at this scale outside the sibling session active 2026-06-17 files; the rest is njit-saturated or already-optimized this session. Next iter pivots to a NON-FE surface (no-MRMR / tree-model / predict path) to find leads outside the contested FE area.
 
 Streak: REJECT -> 1 (after iter148 RESOLVED). **Cumulative loop wave: 112 RESOLVED, 39 REJECT across 149 iterations.**
+
+## iter150 — NON-FE pivot (no-MRMR + multi-model + ensembles + classification, n=30000): mlframe-own surface is thin orchestration over external libs — REJECT
+
+**Surface/scale:** deliberately pivoted OFF the FE path (harness gained --no-mrmr/--ensembles): use_mrmr_fs=False, mlframe_models=[ridge, lightgbm], ensembles ON, classification, n=30000. Goal: find an mlframe hotspot outside the sibling session active 2026-06-17 FE files.
+
+**Result:** with the FE/MRMR machinery off, mlframe-own tottime is tiny -- the largest leaf is `_partial_fit_es_wrapper.predict_proba` (0.197s / 202 calls, cumtime 0.540 -- a thin wrapper delegating to the external estimator predict_proba), then a long tail of <0.06s metric/bootstrap/reporting frames (`fast_log_loss_binary` 0.060, `_jackknife_metric` 0.038, `fast_roc_auc_unstable` 0.030, ...). Total mlframe-own tottime <0.6s; the wall is dominated by external lightgbm/sklearn training.
+
+**Verdict: REJECT.** Confirms the non-FE pipeline is orchestration over external model libraries -- mlframe own code is thin there, no Python hotspot >0.2s, and the >0.2s frame is an external-delegating wrapper. mlframe optimizable surface lives in the FE/MI kernels, which are EITHER already optimized (iters 145/147/148 + 148 prior) OR the sibling session active area. Next iter targets a DIFFERENT mlframe-heavy selection path (RFECV / composite discovery) rather than re-profiling FE or external-bound paths.
+
+Streak: REJECT -> 2 (iter149, iter150). **Cumulative loop wave: 112 RESOLVED, 40 REJECT across 150 iterations.**
