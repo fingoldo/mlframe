@@ -47,6 +47,15 @@ def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
     return abs(float(r)) if np.isfinite(r) else 0.0
 
 
+# bench-attempt-rejected (2026-06-18): per-operand near-duplicate unary dedup (|corr|>0.999) to shrink
+# the retention pool's unary^2*binary enumeration. Measured on a structured n=10000 fit: retention
+# 68.6s -> 66.4s (~1.5% of fit), because the 'medium' unary set is genuinely DISTINCT functions (sqr /
+# log / sin / sqrt / exp / reciproc / cbrt / ...) -- almost nothing dedups, and the dedup's own pairwise
+# corr cost offsets most of the saving. The exhaustive unary^2*binary MI search is inherent to
+# synergy-safe pair recovery (pruning unaries by marginal relevance would drop low-marginal synergy
+# operands). Not worth the added complexity; reverted. Do not re-attempt without a cheaper-MI redesign.
+
+
 @dataclass
 class UsableCandidate:
     name: str
