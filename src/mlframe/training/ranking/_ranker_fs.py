@@ -1,13 +1,19 @@
-"""Feature selection for the LTR ranker suite, driven by the COMMON ``FeatureSelectionConfig``.
+"""Feature selection for the LTR ranker suite, driven by the common ``FeatureSelectionConfig``.
 
-The ranker suite is a separate dispatch path, so it does not go through the main per-target FS loop. This module
-re-wires it onto the SAME selector builder the main suite uses (``core._setup_helpers_pre_pipelines._build_pre_pipelines``)
-so ``use_mrmr_fs`` / ``rfecv_models`` / ``use_boruta_shap`` work for LEARNING_TO_RANK exactly as for every other
-target type -- no LTR-specific FS config. The graded-relevance label is the selection target; ``target_type`` is
-threaded into the builder so each selector picks regression-appropriate settings (e.g. BorutaShap regressor mode,
-RFECV regressor estimator) rather than the classification defaults that reject a multi-grade relevance label.
+The ranker suite is a separate dispatch path, so it does not go through the main per-target FS loop. ``use_mrmr_fs``
+/ ``rfecv_models`` / ``use_boruta_shap`` are honoured here so LTR uses the same FS settings as every other target
+type -- no LTR-specific FS config.
 
-Nothing here modifies the core MRMR / RFECV / selector procedures -- it only constructs + fits them.
+GROUP-AWARE relevance is the DEFAULT for the MRMR path on LTR (this is the whole point of LtR FS): relevance is a
+PER-QUERY notion, so pooled (pointwise) MI(feature, relevance) is misleading -- a feature that merely encodes the
+QUERY (constant within a query, varying across queries) gets high pooled MI yet carries ZERO within-query ranking
+signal. The group-aware MRMR ranks features by MI(feature, relevance) computed WITHIN each query and averaged
+(size-weighted), and removes redundancy via the standard feature-feature SU matrix (target-independent, so pooling
+is correct there). Falls back to the pooled registry MRMR only when no query groups are available.
+
+RFECV / BorutaShap remain available via the common config; RFECV is made query-aware by passing ``groups`` to its
+GroupKFold CV. Core MRMR / RFECV / MI procedures are NOT modified -- only constructed, fit, and (for the group-aware
+path) re-orchestrated from public helpers.
 """
 
 from __future__ import annotations
@@ -29,24 +35,117 @@ def _to_pandas_features(X) -> pd.DataFrame:
     return pd.DataFrame(np.asarray(X))
 
 
-def _build_rfecv_models_params(rfecv_models, X_df, y, *, random_seed, verbose):
-    """Build RFECV instances for the (relevance-as-regression) LTR target via the standard config path."""
-    if not rfecv_models:
-        return {}
-    from ..trainer import configure_training_params
+def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
+    """Plug-in MI between two 1-D arrays via quantile binning + a joint histogram (nats). Self-contained."""
+    n = x.shape[0]
+    if n < 4:
+        return 0.0
+    fin = np.isfinite(x) & np.isfinite(y)
+    if int(fin.sum()) < 4:
+        return 0.0
+    x, y = x[fin], y[fin]
+    if np.ptp(x) == 0.0 or np.ptp(y) == 0.0:
+        return 0.0
+    xe = np.unique(np.quantile(x, np.linspace(0, 1, bins + 1)))
+    ye = np.unique(np.quantile(y, np.linspace(0, 1, bins + 1)))
+    if xe.size < 2 or ye.size < 2:
+        return 0.0
+    xb = np.clip(np.searchsorted(xe[1:-1], x, side="right"), 0, xe.size - 2)
+    yb = np.clip(np.searchsorted(ye[1:-1], y, side="right"), 0, ye.size - 2)
+    joint = np.zeros((xe.size - 1, ye.size - 1), dtype=np.float64)
+    np.add.at(joint, (xb, yb), 1.0)
+    joint /= x.shape[0]
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    denom = px @ py
+    mask = joint > 0
+    return float(np.sum(joint[mask] * np.log(joint[mask] / denom[mask])))
 
-    _, _, cb_rfecv, lgb_rfecv, xgb_rfecv, _, _ = configure_training_params(
-        train_df=X_df, train_target=np.asarray(y), target=np.asarray(y),
-        use_regression=True,  # graded relevance -> regression estimator/scorer for the RFECV wrapper
-        mlframe_models=list(rfecv_models),
-        prefer_gpu_configs=False, verbose=bool(verbose), rfecv_model_verbose=False,
-    )
-    return {"cb_rfecv": cb_rfecv, "lgb_rfecv": lgb_rfecv, "xgb_rfecv": xgb_rfecv}
+
+def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np.ndarray, bins: int = 8) -> dict:
+    """Per-feature query-aware relevance: MI(feature, relevance) computed WITHIN each query group, averaged with
+    group-size weights. The ranking-correct relevance signal -- a feature constant within a query scores ~0 here
+    (no within-query ranking power) even if its pooled MI is high. Self-contained; does not call the core MI."""
+    out: dict = {}
+    uniq = np.unique(groups)
+    sizes = np.array([int(np.sum(groups == g)) for g in uniq], dtype=np.float64)
+    total = float(sizes.sum()) or 1.0
+    masks = [groups == g for g in uniq]
+    for j, name in enumerate(cols):
+        xj = arr[:, j]
+        acc = 0.0
+        for gi, m in enumerate(masks):
+            if sizes[gi] >= 4:
+                acc += sizes[gi] * _binned_mi(xj[m], y[m], bins=bins)
+        out[name] = acc / total
+    return out
+
+
+def group_aware_mrmr_select(
+    X_df: pd.DataFrame,
+    y: np.ndarray,
+    groups: np.ndarray,
+    *,
+    max_features: Optional[int] = None,
+    redundancy_weight: float = 1.0,
+    relevance_floor: float = 1e-6,
+    nbins: int = 10,
+    bins: int = 8,
+    verbose: int = 0,
+) -> list:
+    """Greedy mRMR (Peng 2005) with QUERY-AWARE relevance + feature-feature SU redundancy.
+
+    relevance(f) = group_aware_relevance (per-query MI of f with the relevance label); redundancy(f, S) = mean SU(f, s)
+    over the already-selected S (SU is target-independent so pooling is correct). Pick argmax(relevance - w*redundancy),
+    stop when no candidate clears the relevance floor or the marginal mRMR score turns non-positive. Returns column names.
+    """
+    cols = list(X_df.select_dtypes(include=[np.number]).columns)
+    if len(cols) <= 1:
+        return cols
+    arr = X_df[cols].to_numpy(dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+
+    rel_map = group_aware_relevance(cols, arr, y, np.asarray(groups), bins=bins)
+    rel = np.array([rel_map[c] for c in cols], dtype=np.float64)
+
+    from mlframe.feature_selection.filters.group_aware import _su_redundancy_matrix
+    red = _su_redundancy_matrix(X_df[cols], nbins=nbins)  # (n_features, n_features) SU in [0, 1]
+
+    n = len(cols)
+    cap = min(n, int(max_features)) if max_features else n
+    # Adaptive floor: finite-sample binned MI is biased upward (a pure-noise feature scores a small positive MI), so
+    # gate on a fraction of the strongest feature's relevance as well as the absolute floor -- keeps genuine signal,
+    # drops the noise pedestal. ``relevance_frac`` of the max is the discriminator that separates s_within from noise.
+    eff_floor = max(float(relevance_floor), 0.2 * float(rel.max()) if rel.size else 0.0)
+    eligible = np.where(rel > eff_floor)[0]
+    if eligible.size == 0:
+        return []  # nothing carries within-query signal -> select nothing (caller keeps all)
+
+    selected: list = [int(eligible[np.argmax(rel[eligible])])]
+    remaining = [i for i in range(n) if i != selected[0]]
+    while remaining and len(selected) < cap:
+        best_i, best_score = None, -np.inf
+        for i in remaining:
+            if rel[i] <= eff_floor:
+                continue
+            redundancy = float(np.mean([red[i, s] for s in selected]))
+            score = rel[i] - redundancy_weight * redundancy
+            if score > best_score:
+                best_score, best_i = score, i
+        if best_i is None or best_score <= 0.0:
+            break
+        selected.append(best_i)
+        remaining.remove(best_i)
+    chosen = [cols[i] for i in selected]
+    if verbose:
+        logger.info("group-aware mRMR (LTR): selected %d/%d features by per-query relevance.", len(chosen), n)
+    return chosen
 
 
 def select_ltr_features(
     X,
     y: np.ndarray,
+    groups: Optional[np.ndarray] = None,
     *,
     feature_selection_config,
     rfecv_models: Optional[list] = None,
@@ -56,10 +155,12 @@ def select_ltr_features(
 ) -> Optional[list]:
     """Select feature columns for the LTR rankers using the common ``FeatureSelectionConfig``.
 
-    Builds whichever selectors the config enables (MRMR via ``use_mrmr_fs``, RFECV via ``rfecv_models``, BorutaShap
-    via ``use_boruta_shap``) with the SAME ``_build_pre_pipelines`` the main suite uses, fits each on
-    ``(X, graded relevance)``, and returns the UNION of selected columns. Returns ``None`` when no FS is enabled
-    (caller keeps all features). Never raises -- a selector that fails is skipped with a warning.
+    MRMR (``use_mrmr_fs``) uses the GROUP-AWARE per-query relevance path by default when ``groups`` is available
+    (pooled MI is misleading for ranking); it falls back to the pooled registry MRMR only without groups. RFECV
+    (``rfecv_models``) and BorutaShap (``use_boruta_shap``) are built via the main suite's ``_build_pre_pipelines``
+    (target-type-aware) and fit on ``(X, relevance)``; RFECV receives ``groups`` for query-aware GroupKFold CV.
+    Returns the UNION of selected columns, or ``None`` when no FS is enabled. Never raises (a failing selector is
+    skipped with a warning).
     """
     fsc = feature_selection_config
     if fsc is None:
@@ -71,55 +172,90 @@ def select_ltr_features(
         return None
 
     X_df = _to_pandas_features(X)
-    y_ser = pd.Series(np.asarray(y), name="relevance")
-
-    rfecv_models_params = {}
-    if rfecv_models:
-        try:
-            rfecv_models_params = _build_rfecv_models_params(rfecv_models, X_df, y_ser, random_seed=fs_random_seed, verbose=verbose)
-        except Exception as exc:
-            logger.warning("LTR RFECV construction failed (%s: %s); skipping RFECV for ranking FS.", type(exc).__name__, exc)
-            rfecv_models = []
-
-    from ..core._setup_helpers_pre_pipelines import _build_pre_pipelines
-
-    pre_pipelines, _names = _build_pre_pipelines(
-        use_ordinary_models=False,  # no pass-through baseline; we only want the selectors
-        rfecv_models=rfecv_models,
-        rfecv_models_params=rfecv_models_params,
-        use_mrmr_fs=use_mrmr,
-        mrmr_kwargs=dict(getattr(fsc, "mrmr_kwargs", None) or {}),
-        use_boruta_shap=use_bs,
-        boruta_shap_kwargs=dict(getattr(fsc, "boruta_shap_kwargs", None) or {}),
-        use_sample_weights_in_fs=bool(getattr(fsc, "use_sample_weights_in_fs", False)),
-        target_type=target_type,
-        fs_random_seed=fs_random_seed,
-    )
-
+    y_arr = np.asarray(y)
     selected: set = set()
     ran_any = False
-    for pp in pre_pipelines:
-        if pp is None:
-            continue
+
+    if use_mrmr:
+        mrmr_kwargs = dict(getattr(fsc, "mrmr_kwargs", None) or {})
+        if groups is not None:
+            try:
+                cols = group_aware_mrmr_select(
+                    X_df, y_arr, np.asarray(groups),
+                    max_features=mrmr_kwargs.get("max_features"),
+                    nbins=int(mrmr_kwargs.get("quantization_nbins", 10)),
+                    verbose=verbose,
+                )
+                ran_any = True
+                selected.update(cols)
+            except Exception as exc:
+                logger.warning("LTR group-aware MRMR failed (%s: %s); falling back to pooled MRMR.", type(exc).__name__, exc)
+                groups = None  # fall through to pooled path below
+        if groups is None:
+            try:
+                from mlframe.feature_selection.registry import get
+                sel = get("MRMR").instantiate(**mrmr_kwargs)
+                sel.fit(X_df, pd.Series(y_arr, name="relevance"))
+                ran_any = True
+                sup = np.asarray(getattr(sel, "support_", []))
+                if sup.dtype == bool:
+                    selected.update(X_df.columns[i] for i in np.where(sup)[0])
+                else:
+                    selected.update(X_df.columns[int(i)] for i in sup.tolist() if 0 <= int(i) < X_df.shape[1])
+            except Exception as exc:
+                logger.warning("LTR pooled MRMR failed (%s: %s); skipping MRMR.", type(exc).__name__, exc)
+
+    if use_bs or rfecv_models:
         try:
-            Xt = pp.fit_transform(X_df, y_ser)
-            ran_any = True
-            cols = list(Xt.columns) if hasattr(Xt, "columns") else None
-            if cols is None:
-                support = getattr(pp, "support_", None)
-                if support is not None:
-                    sup = np.asarray(support)
-                    cols = ([X_df.columns[i] for i in np.where(sup)[0]] if sup.dtype == bool
-                            else [X_df.columns[int(i)] for i in sup.tolist() if 0 <= int(i) < X_df.shape[1]])
-            if cols:
-                selected.update(c for c in cols if c in set(X_df.columns))
+            ran_any |= _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, fs_random_seed, verbose, selected)
         except Exception as exc:
-            logger.warning("LTR feature selector %s failed (%s: %s); skipping it.", type(pp).__name__, type(exc).__name__, exc)
+            logger.warning("LTR wrapper selectors (RFECV/BorutaShap) failed (%s: %s); skipping them.", type(exc).__name__, exc)
 
     if not ran_any:
         return None
-    out = [c for c in X_df.columns if c in selected]  # preserve original column order
+    out = [c for c in X_df.columns if c in selected]
     if not out:
         logger.warning("LTR feature selection produced an empty union; keeping all features.")
         return list(X_df.columns)
     return out
+
+
+def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, fs_random_seed, verbose, selected) -> bool:
+    """Run RFECV / BorutaShap via the main suite's _build_pre_pipelines and union their selections into ``selected``."""
+    rfecv_models_params = {}
+    if rfecv_models:
+        from ..trainer import configure_training_params
+
+        _, _, cb_rfecv, lgb_rfecv, xgb_rfecv, _, _ = configure_training_params(
+            train_df=X_df, train_target=y_arr, target=y_arr, use_regression=True,
+            mlframe_models=list(rfecv_models), prefer_gpu_configs=False, verbose=bool(verbose), rfecv_model_verbose=False,
+        )
+        rfecv_models_params = {"cb_rfecv": cb_rfecv, "lgb_rfecv": lgb_rfecv, "xgb_rfecv": xgb_rfecv}
+
+    from ..core._setup_helpers_pre_pipelines import _build_pre_pipelines
+
+    pre_pipelines, _names = _build_pre_pipelines(
+        use_ordinary_models=False, rfecv_models=rfecv_models, rfecv_models_params=rfecv_models_params,
+        use_mrmr_fs=False,  # MRMR handled by the group-aware path above
+        mrmr_kwargs={}, use_boruta_shap=bool(getattr(fsc, "use_boruta_shap", False)),
+        boruta_shap_kwargs=dict(getattr(fsc, "boruta_shap_kwargs", None) or {}),
+        target_type=target_type, fs_random_seed=fs_random_seed,
+    )
+    y_ser = pd.Series(y_arr, name="relevance")
+    ran = False
+    for pp in pre_pipelines:
+        if pp is None:
+            continue
+        try:
+            # RFECV accepts groups for GroupKFold (query-aware CV); BorutaShap ignores the kwarg.
+            fit_kw = {}
+            if groups is not None and getattr(pp, "_mlframe_selector_kind_", "") == "RFECV":
+                fit_kw["groups"] = np.asarray(groups)
+            Xt = pp.fit_transform(X_df, y_ser, **fit_kw)
+            ran = True
+            cols = list(Xt.columns) if hasattr(Xt, "columns") else None
+            if cols:
+                selected.update(c for c in cols if c in set(X_df.columns))
+        except Exception as exc:
+            logger.warning("LTR selector %s failed (%s: %s); skipping it.", type(pp).__name__, type(exc).__name__, exc)
+    return ran

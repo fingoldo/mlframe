@@ -387,7 +387,7 @@ def train_mlframe_ranker_suite(
         from ._ranker_fs import select_ltr_features
 
         selected_features = select_ltr_features(
-            X_tr, y_tr,
+            X_tr, y_tr, g_tr,  # g_tr = per-query groups -> group-aware (per-query) relevance MI, the correct LtR signal
             feature_selection_config=feature_selection_config,
             rfecv_models=rfecv_models,
             target_type=_TT.LEARNING_TO_RANK,
