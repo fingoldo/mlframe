@@ -31,21 +31,21 @@ from mlframe.training._feature_selection_config import FeatureSelectionConfig  #
 from training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
 
 
-def _make_df(n_rows: int, n_features: int = 14, seed: int = 145) -> pd.DataFrame:
+def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification: bool = False) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_features))
     # a few informative + interaction structure so MRMR/FE has real work
-    y = (X[:, 0] * 1.5 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]) + 0.3 * rng.normal(size=n_rows))
+    score = X[:, 0] * 1.5 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]) + 0.3 * rng.normal(size=n_rows)
     cols = {f"f{i}": X[:, i] for i in range(n_features)}
     # add a couple of redundant + noisy columns
     cols["f_dup"] = X[:, 0] + 1e-6 * rng.normal(size=n_rows)
-    cols["target"] = y
+    cols["target"] = (score > np.median(score)).astype(np.int64) if classification else score
     return pd.DataFrame(cols)
 
 
-def run_once(n_rows: int) -> None:
-    df = _make_df(n_rows=n_rows)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+def run_once(n_rows: int, classification: bool = False) -> None:
+    df = _make_df(n_rows=n_rows, seed=146 if classification else 145, classification=classification)
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=not classification)
     tmp_dir = tempfile.mkdtemp(prefix="mlframe_iter145_")
     try:
         train_mlframe_models_suite(
@@ -66,13 +66,13 @@ def run_once(n_rows: int) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def profile(n_rows: int, top: int) -> None:
-    out = Path(__file__).parent / "results" / "iter145.prof"
+def profile(n_rows: int, top: int, classification: bool = False) -> None:
+    out = Path(__file__).parent / "results" / ("iter146.prof" if classification else "iter145.prof")
     out.parent.mkdir(parents=True, exist_ok=True)
     pr = cProfile.Profile()
     pr.enable()
     try:
-        run_once(n_rows=n_rows)
+        run_once(n_rows=n_rows, classification=classification)
     finally:
         pr.disable()
     pr.dump_stats(str(out))
@@ -87,8 +87,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-rows", type=int, default=4000)
     ap.add_argument("--top", type=int, default=35)
+    ap.add_argument("--classification", action="store_true")
     args = ap.parse_args()
-    profile(n_rows=args.n_rows, top=args.top)
+    profile(n_rows=args.n_rows, top=args.top, classification=args.classification)
     return 0
 
 

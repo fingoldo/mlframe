@@ -4035,3 +4035,17 @@ Streak: RESOLVED→0, REJECT→1 (first reject after iter143's RESOLVED). **Cumu
 **Verdict: RESOLVED.** Fresh surface (usability FE candidate pool) past the GPU-dispatcher + save/load exhaustion: the marginal-MI helper re-derived a fixed-y quantity per candidate. Hoisted via the codebase's own y/z-precompute pattern; ~1.1-1.2x per marginal-MI eval, absolute saving scaling with n, bit-identical, pinned.
 
 Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 110 RESOLVED, 37 REJECT across 145 iterations.**
+
+## iter146 — CLASSIFICATION-combo profile (fresh combo): top leaf `fast_aucs` is argsort-bound + already-fused njit; FE leaves njit-attributed — REJECT
+
+**Surface/scale:** fresh random combo (classification target + MRMR-FS-on FE, `_iter145_profile.py --classification`, n=5000). Env CUDA_VISIBLE_DEVICES="". Re-profiled to find a genuinely-optimizable hotspot rather than reuse iter145's dump.
+
+**iter145 confirmed live:** `_entropy_from_classes` call count fell 63,421 (iter145 regression profile) -> 44,549 here, and the new `marginal_mi_binned_fixed_y` appears (0.074s / 17,473 calls) -- the per-candidate H(Y) recompute is gone exactly as designed.
+
+**Top mlframe-own leaf:** `metrics/_core_auc_brier.fast_aucs` (0.800s tottime / 398 calls, cumtime 1.325s). Standalone microbench (warm best-of-5, n=5000): full 121.2us = argsort 100.1us (83%) + njit_aucs 20.4us (17%) + wrapper 0.7us. The self-time is the descending argsort (numpy introsort, already routed through the `_argsort_desc_for_metrics` unstable-sort dispatcher, iter338) plus the njit body cProfile mis-attributes to the wrapper. The njit kernel already FUSES ROC+PR(+KS) into ONE descending pass over one argsort -- no second sort to remove. At n=5000 x 398 calls (~40ms total) a GPU argsort loses to per-call host<->device transfer (the documented GPU-argsort win is n>=50k); not worth a route here.
+
+**Other top frames** (`discretize_2d_quantile_batch`, `_dispatch_batch_mi_with_noise_gate`, `_renumber_joint`, `_quantile_bin`): the same already-tuned / njit-body-attributed kernels triaged in iter145 (discretize: documented argsort-fusion + assume_finite rejections, hot callers already pass assume_finite=True; dispatch: njit batch-MI kernel attributed to caller; `_renumber_joint`/`_quantile_bin`: thin Python orchestration whose ascontiguousarray calls are no-ops on already-contiguous int64 inputs).
+
+**Verdict: REJECT.** Fresh classification combo surfaced one new candidate (`fast_aucs`); measured standalone it is 83% irreducible argsort + an already-fused njit kernel, not a Python-level lead. No new bit-identical lever at these scales. Harness kept committed (`tests/perf/_iter145_profile.py`, now `--classification`-capable); .prof outputs not committed (regenerated).
+
+Streak: REJECT -> 1 (after iter145 RESOLVED). **Cumulative loop wave: 110 RESOLVED, 38 REJECT across 146 iterations.**
