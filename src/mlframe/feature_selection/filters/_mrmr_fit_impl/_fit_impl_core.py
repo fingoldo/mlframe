@@ -8684,6 +8684,52 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 logger.info("MRMR usability-aware pure-form retention skipped (%s: %s).",
                             type(_retain_exc).__name__, _retain_exc)
 
+        # USABILITY-AWARE RAW RETENTION (2026-06-18). The companion to the pure-form retention above for the
+        # case where the genuinely useful structure is a RAW the MI greedy under-ranked, not a pair form.
+        # MRMR ranks raws by binned MI, which under-values a linearly-usable raw whose marginal-MI estimate is
+        # small -- e.g. operands g/k of a WEAK additive ratio term ``+ g/k`` in y = w*a**2/b + g/k +
+        # log(c)*sin(d): binned MI ~0.01-0.02 (below the relevance floor) yet linear corr ~0.15-0.24 and a tree
+        # recovers the ratio. Both are dropped from support_, the pure-form retention cannot rescue the pair
+        # (the clean g/k engineered form is a pool-generation lottery), and the marginal-MI re-attach skips
+        # them (MI below floor, not a recipe operand) -> the FE space loses the g/k signal and a downstream
+        # model scores BELOW raw-only (BUG3 "FE harmful"; the I5 ratio_plus_trig case). The CV-MAE linear
+        # wrapper (the same one the pure-form retention trusts) run over the RAW passthroughs surfaces these
+        # under-ranked raws and -- crucially -- rejects pure-noise raws (they do not lower the average CV-MAE).
+        # Re-attaches only raws NOT already in support_; purely additive (no engineered recipe touched).
+        try:
+            from .._fe_pure_form_retention import retain_usable_raw_columns
+
+            _raw_extra = retain_usable_raw_columns(
+                self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
+                seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+            )
+            if _raw_extra:
+                _name_to_in_idx = {nm: i for i, nm in enumerate(getattr(self, "feature_names_in_", []) or [])}
+                # Append to the local ``selected_vars`` (the canonical raw-support list every downstream
+                # step -- n_features_, the marginal-MI augmentation, the elbow trim, and the final
+                # ``self.support_ = np.array(selected_vars)`` -- reads), NOT directly to ``self.support_``:
+                # a later block re-derives ``support_`` from ``selected_vars`` and would clobber a direct
+                # ``support_`` edit. Keeps every consumer consistent.
+                _cur_set = set(int(v) for v in selected_vars)
+                _added_idx = []
+                for _nm in _raw_extra:
+                    _idx = _name_to_in_idx.get(_nm)
+                    if _idx is not None and int(_idx) not in _cur_set:
+                        selected_vars.append(int(_idx))
+                        _cur_set.add(int(_idx))
+                        _added_idx.append(int(_idx))
+                if _added_idx:
+                    self.support_ = np.array(selected_vars, dtype=np.int64)
+                    if verbose:
+                        logger.info(
+                            "MRMR usability-aware raw retention: re-attached %d linearly-usable raw(s) the "
+                            "MI greedy under-ranked: %s", len(_added_idx), _raw_extra,
+                        )
+        except Exception as _raw_retain_exc:  # never let the optional retention break a fit
+            if verbose:
+                logger.info("MRMR usability-aware raw retention skipped (%s: %s).",
+                            type(_raw_retain_exc).__name__, _raw_retain_exc)
+
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
     n_engineered_out = len(self._engineered_recipes_)

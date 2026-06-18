@@ -79,6 +79,57 @@ def retain_usable_pure_forms(
                 base_names.append(nm)
         if len(base_names) < 2:
             return []
+
+        # CHEAP TRAP PRE-CHECK (2026-06-18): the whole point of this pass is to rescue a pure single-pair
+        # form the MI greedy TRAPPED -- either inside a high-MI CROSS-MIX (>2 distinct operands) or in
+        # separate raw operands on a single-step fit that never produced the pure pair form. If NEITHER
+        # trap is plausibly present, no pure form can be trapped and the (expensive) pool build + CV greedy
+        # cannot recover anything, so return [] BEFORE paying that cost. This makes the pass zero-cost and
+        # side-effect-free on the vast majority of fits (no cross-mix and a pure pair already engineered),
+        # which is what was shifting survivor sets / adding per-fit cost on unrelated fits.
+        #   (a) a CROSS-MIX recipe exists: an engineered entry whose src_names has >2 DISTINCT names -- the
+        #       blend that traps pure pairs; OR
+        #   (b) NO pure (<=2-operand) pair engineered form already survives (with >=2 raw numeric bases) --
+        #       the greedy either picked raw operands instead of the pure pair form (MS_three_tier
+        #       ``y = 5*a*b``) or a multi-step composite subsumed and dropped it (the user's F2
+        #       ``a**2/b + log(c)*sin(d)``).
+        # Count DISTINCT RAW OPERANDS, not src_names ENTRIES: on a MULTI-step fit a recipe's ``src_names``
+        # are themselves COMPOSITE expression strings (e.g. ``mul(exp(a),sqr(c))``), so a true 4-raw
+        # cross-mix ``div(sqr(add(invcbrt(b),prewarp(d))),invsqrt(mul(exp(a),sqr(c))))`` has only TWO
+        # src_names entries and would be mis-counted as a pure PAIR. Resolve each src token down to the
+        # raw bases it references (intersect its name tokens with the input feature set) so the
+        # cross-mix-vs-pure-pair classification is over genuine raw-operand arity.
+        import re as _re_pre
+        _raw_base_set = set(base_names)
+
+        def _raw_operands(recipe) -> set:
+            toks = set()
+            for s in (getattr(recipe, "src_names", ()) or ()):
+                for t in _re_pre.split(r"[^0-9A-Za-z_]+", str(s)):
+                    if t in _raw_base_set:
+                        toks.add(t)
+            return toks
+
+        has_cross_mix = False
+        has_pure_pair = False
+        for r in existing:
+            uniq = _raw_operands(r)
+            if len(uniq) > 2:
+                has_cross_mix = True
+            elif len(uniq) == 2:
+                has_pure_pair = True
+        # (b) NO pure (<=2-operand) pair engineered form already survives, yet >=2 raw numeric bases exist.
+        # The MI greedy then either picked raw operands instead of the pure pair form (single-step
+        # ``y = 5*a*b`` MS_three_tier case) OR -- on a MULTI-step fit -- built a higher-order composite that
+        # subsumed the pure pair and dropped it (the user's F2 ``a**2/b + log(c)*sin(d)``: the 2nd FE step
+        # fuses a cross-mix and the post-FE greedy drops the pure ``a**2/b`` parent). Either way the pure
+        # pair is trapped and recoverable, so the (multi-step) restriction the earlier draft placed on
+        # fe_max_steps==1 was too narrow -- it suppressed the F2 recovery this pass exists for. Gate only on
+        # "a pure pair form is not already present", independent of step count.
+        trap_b = len(base_names) >= 2 and not has_pure_pair
+        if not (has_cross_mix or trap_b):
+            return []
+
         # Scope wide frames: keep the highest-variance base operands so the O(pairs) pool stays bounded
         # (the usability pool itself also caps pairs, but trimming here bounds its input).
         if len(base_names) > max_base_features:
@@ -206,4 +257,110 @@ def retain_usable_pure_forms(
         return []
 
 
-__all__ = ["retain_usable_pure_forms"]
+def retain_usable_raw_columns(
+    mrmr: Any,
+    X: Any,
+    y_cont: "np.ndarray | None",
+    *,
+    w: float = 0.7,
+    K: int = 8,
+    seed: int = 0,
+    max_added: int = 4,
+    max_base_features: int = 14,
+    max_rows: int = 3000,
+    verbose: int = 0,
+):
+    """Return ``[raw_name, ...]`` of RAW columns the MI greedy dropped from ``support_`` even though a
+    CROSS-VALIDATED LINEAR wrapper confirms they carry genuine linear-usable signal toward y.
+
+    WHY THIS EXISTS (companion to :func:`retain_usable_pure_forms`)
+    --------------------------------------------------------------
+    MRMR's Fleuret objective ranks raws by BINNED MI, which systematically UNDER-values a raw that is
+    linearly useful but whose marginal-MI estimate is small -- e.g. the operands ``g``/``k`` of a WEAK
+    additive ratio term ``+ g/k`` in ``y = w*a**2/b + g/k + log(c)*sin(d)``: their binned MI is ~0.01-0.02
+    (below the relevance floor) yet their linear correlation with y is ~0.15-0.24 and a tree recovers the
+    ratio from them. The MI greedy drops both, the pure-form retention cannot rescue the pair (the clean
+    ``g/k`` engineered form is a pool-generation lottery -- on some subsamples only monotone-warped variants
+    survive, whose joint residual is no longer linearly aligned with y), and the existing marginal-MI raw
+    re-attach also skips them (their MI is below the floor AND they are not operands of a surviving recipe).
+    The FE feature space then LOSES the g/k signal -> a downstream model scores BELOW raw-only (BUG3's
+    "FE harmful" mode; the I5 ratio_plus_trig case).
+
+    The discriminator is the SAME CV-MAE forward-selection wrapper :func:`usability_greedy` the module
+    already trusts, run over the RAW PASSTHROUGH candidates only: a raw with genuine linear signal lowers
+    the K-fold CV-MAE on a MAJORITY of folds, while a pure-noise raw (``e``) does not improve the average
+    CV-MAE and is rejected. Measured 2026-06-18: on the I5 case the greedy picks ``[a,c,b,g,k]`` (recovers
+    g,k, drops noise e and the interaction-only d); on the adversarial datasets it picks only the genuine
+    signal raws and rejects every noise operand (additive-linear: x3 dropped; case2: e dropped; single-pair:
+    c,d dropped). Returns ONLY raws NOT already in ``support_``; never touches engineered recipes.
+    Best-effort: any failure returns ``[]`` and never disturbs the fit.
+    """
+    if y_cont is None:
+        return []
+    try:
+        import pandas as pd
+
+        if not isinstance(X, pd.DataFrame):
+            return []
+        y_cont = np.asarray(y_cont, dtype=np.float64).ravel()
+        if y_cont.shape[0] != len(X) or not np.isfinite(y_cont).any():
+            return []
+
+        # raws already in support_ are kept anyway -- only propose ADDITIONS.
+        feat_in = list(getattr(mrmr, "feature_names_in_", []) or [])
+        _sup_raw = getattr(mrmr, "support_", None)
+        support = np.asarray(_sup_raw, dtype=np.int64).ravel() if _sup_raw is not None else np.array([], dtype=np.int64)
+        already = {feat_in[int(i)] for i in support if 0 <= int(i) < len(feat_in)}
+
+        base_names = []
+        for nm in feat_in:
+            if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype):
+                base_names.append(nm)
+        if len(base_names) < 2:
+            return []
+        if len(base_names) > max_base_features:
+            stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+            base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+
+        X_fit, y_fit = X, y_cont
+        n_rows = len(X)
+        if n_rows > max_rows:
+            _rng = np.random.default_rng(int(seed))
+            _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+            X_fit = X.iloc[_idx]
+            y_fit = y_cont[_idx]
+
+        from ._usability_aware_selection import (
+            build_usability_candidate_pool, usability_greedy, _scrub,
+        )
+
+        _yv = _scrub(np.asarray(y_fit, dtype=np.float64))
+        # max_pairs=0 -> the pool builds ONLY the raw passthrough candidates and skips the expensive
+        # unary x unary x binary pair-form enumeration entirely. This pass uses raws only (below), so
+        # building pair forms just to discard them was pure waste -- it ran the full FE pool on every
+        # continuous-y fit, blowing per-fit budgets. Raws-only keeps the linear-usability probe cheap.
+        pool = build_usability_candidate_pool(
+            X_fit, _yv, base_names, max_pairs=0, max_per_pair=8,
+        )
+        # RAW PASSTHROUGHS ONLY: the CV-MAE greedy over the raw columns is the linear-usability probe that
+        # MI is blind to. Engineered pair forms are handled by retain_usable_pure_forms; mixing them in
+        # here would let the greedy spend its budget on a composite instead of surfacing the under-ranked raw.
+        raws = [c for c in pool if getattr(c, "recipe", None) is None]
+        if len(raws) < 2:
+            return []
+        usable = usability_greedy(raws, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15)
+
+        out = []
+        for cand in usable:
+            nm = getattr(cand, "name", None)
+            if nm is None or nm in already or nm not in X.columns:
+                continue
+            out.append(nm)
+            if len(out) >= max_added:
+                break
+        return out
+    except Exception:
+        return []
+
+
+__all__ = ["retain_usable_pure_forms", "retain_usable_raw_columns"]
