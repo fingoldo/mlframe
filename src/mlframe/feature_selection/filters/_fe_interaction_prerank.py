@@ -50,12 +50,27 @@ def _abs_col_corr(M: np.ndarray, v: np.ndarray) -> np.ndarray:
     return np.abs(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0))
 
 
+_NOMINAL_MAX_CLASSES = 64  # at/below this many distinct y values, treat y as discrete (one-hot, relabel-invariant)
+
+
 def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Interaction-propensity score ``|corr(x^2, y)| + |corr(x, y^2)|`` per column of ``values`` (n, p).
+    """Interaction-propensity score per column of ``values`` (n, p): higher moments of x leak when the
+    linear marginal is flat.
 
     ``values`` may be raw floats or quantile bin-codes (a monotone transform preserves the even/odd
-    higher-moment structure the score exploits). ``y`` is encoded to a float vector first (class codes for
-    a classification target, raw values for regression). O(n*p), fully vectorised."""
+    higher-moment structure the score exploits). The treatment of ``y`` depends on its cardinality:
+
+    * DISCRETE y (<= ``_NOMINAL_MAX_CLASSES`` distinct values -- the synergy-bootstrap site always passes the
+      DISCRETISED target, so this is the live path): the score is RELABEL-INVARIANT -- one-hot y and sum
+      ``|corr(x^2, 1[y=c])| + |corr(x, 1[y=c])|`` over classes. Squaring the raw integer class CODES would be
+      meaningless for a NOMINAL multiclass target (the kept set would depend on the arbitrary label assigned
+      to each class -- a real bug found 2026-06-19); one-hotting fixes it. For a BINARY target this reduces to
+      twice the original ``|corr(x^2,y)|+|corr(x,y^2)|`` (the two class indicators are complementary), so the
+      RANKING -- all that matters for top-k -- is identical to the benched binary contract.
+    * CONTINUOUS y (> ``_NOMINAL_MAX_CLASSES`` distinct values -- a genuine regression target on raw values):
+      the moment form ``|corr(x^2, y)| + |corr(x, y^2)|``.
+
+    O(K*n*p) for discrete (K = n_classes, small) / O(n*p) for continuous; fully vectorised."""
     V = np.ascontiguousarray(values, dtype=np.float64)
     if V.ndim != 2:
         raise ValueError(f"values must be 2-D (n, p); got shape {V.shape}")
@@ -64,7 +79,16 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
         raise ValueError(f"y length {yf.shape[0]} != n_rows {V.shape[0]}")
     yf = np.nan_to_num(yf, nan=0.0, posinf=0.0, neginf=0.0)
     V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
-    return _abs_col_corr(V * V, yf) + _abs_col_corr(V, yf * yf)
+    V2 = V * V
+    classes = np.unique(yf)
+    if classes.size > _NOMINAL_MAX_CLASSES:
+        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)
+    # DISCRETE / nominal: relabel-invariant one-hot sum (correct for binary, nominal multiclass, binned y).
+    score = np.zeros(V.shape[1], dtype=np.float64)
+    for c in classes:
+        ind = (yf == c).astype(np.float64)
+        score += _abs_col_corr(V2, ind) + _abs_col_corr(V, ind)
+    return score
 
 
 def top_k_by_interaction_propensity(

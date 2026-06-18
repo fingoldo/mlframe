@@ -126,6 +126,37 @@ def test_top_k_deterministic_and_noop_when_k_exceeds_pool():
     assert top_k_by_interaction_propensity(X, y, cand, top_k=0) == []
 
 
+def test_nominal_multiclass_is_relabel_invariant():
+    """A nominal multiclass target must NOT have its arbitrary class CODES squared (that made the kept set
+    depend on the integer assigned to each class -- critique bug #2, 2026-06-19). The one-hot relabel-
+    invariant score gives the SAME ranking under any relabeling of the classes."""
+    rng = np.random.default_rng(0)
+    n, p = 6000, 400
+    X = rng.standard_normal((n, p))
+    ia, ib, ic, idd = 10, 200, 50, 300
+    a, b, c, d = X[:, ia], X[:, ib], X[:, ic], X[:, idd]
+    # 4-class NOMINAL target from two leaky interactions (sign product + a main-effect leak so the operands
+    # carry recoverable higher-moment signal -- the realistic regime, not the irreducible pure-balanced case).
+    s1 = np.sign(a) * np.sign(b) + 0.6 * (a + b)
+    s2 = np.sign(c) * np.sign(d) + 0.6 * (c + d)
+    cls = (2 * (s1 > 0) + (s2 > 0)).astype(int)  # 0..3, nominal
+    operands = {ia, ib, ic, idd}
+
+    # Recall of the operands must be STABLE across relabelings -- the bug (squaring class codes) made it swing
+    # 0.12-0.88 (std 0.25) with the arbitrary integer per class. The one-hot score uses only the PARTITION
+    # 1[y==c], never the label value, so recall is invariant (up to float summation-order noise on boundary
+    # ties). recall = fraction of the 4 operands in the top-250.
+    def _recall_top(y_):
+        top = set(np.argsort(second_moment_propensity(X, y_))[::-1][:250])
+        return len(operands & top) / len(operands)
+
+    recalls = [_recall_top(cls)]
+    for relabel in ([3, 1, 0, 2], [2, 3, 1, 0], [1, 0, 3, 2], [0, 3, 2, 1]):
+        recalls.append(_recall_top(np.array([relabel[v] for v in cls])))
+    assert np.std(recalls) <= 0.03, f"recall not relabel-invariant for nominal multiclass: {recalls}"
+    assert np.mean(recalls) >= 0.5, f"multiclass operand recovery too low: {recalls}"
+
+
 def test_constant_column_scores_zero_no_nan():
     rng = np.random.default_rng(1)
     X = rng.standard_normal((300, 5))
