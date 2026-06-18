@@ -263,19 +263,25 @@ def find_sample(self):
     Finds a sample by comparing the distributions of the anomally scores between the sample and the original
     distribution using the KS-test. Starts of a 5% howver will increase to 10% and then 15% etc. if a significant sample can not be found
     """
-    loop = True
     iteration = 0
     size = self.get_5_percent_splits(self.X.shape[0])
     element = 1
-    while loop:
+    # ``iteration`` bounds the search per sample size; on the 20th miss we grow the
+    # sample (next ``size`` element). Without incrementing it the bound never fired and a
+    # frame where no sub-sample reaches the KS p>0.95 threshold looped forever.
+    while True:
         sample_indices = choice(np.arange(self.preds.size), size=size[element], replace=False)
         sample = np.take(self.preds, sample_indices)
         if ks_2samp(self.preds, sample).pvalue > 0.95:
             break
 
+        iteration += 1
         if iteration == 20:
             element += 1
             iteration = 0
+            # Exhausted every sample size without a KS match -- return the last (largest) draw.
+            if element >= len(size):
+                break
 
     return self.X_boruta.iloc[sample_indices]
 

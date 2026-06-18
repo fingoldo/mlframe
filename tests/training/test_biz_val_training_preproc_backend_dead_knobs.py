@@ -1,57 +1,66 @@
-"""Dead-knob pins for PreprocessingBackendConfig.
+"""Live-knob pins for PreprocessingBackendConfig.fallback_to_sklearn.
 
-``fallback_to_sklearn`` is declared and documented on PreprocessingBackendConfig
-but is never READ anywhere under ``src/mlframe`` -- the only occurrences are its
-own field definition and docstring. The advertised behaviour (fall back to
-sklearn when polars-ds lacks an op) is not wired, so flipping it changes nothing.
+``fallback_to_sklearn`` is now consumed in ``fit_and_transform_pipeline``: when a
+polars input is routed to the polars-ds backend but polars-ds is unavailable (the
+pipeline builds to ``None``), an enabled flag converts the splits to pandas and
+runs the sklearn pandas backend instead of silently passing the frame through raw.
 
-The strict-xfail below pins that no-op: it asserts the (non-existent) wired
-behaviour and is expected to fail. If a future change actually consumes the
-field, the xfail flips to XPASS (strict) and fails the suite -- the signal to
-delete this pin and write a real biz_value test for the now-live knob.
+These tests pin the LIVE behaviour: the field is read at the dispatch site, and
+the True/False values diverge on a polars input when polars-ds is unavailable.
 """
 from __future__ import annotations
 
 import pathlib
+import sys
 
+import pandas as pd
+import polars as pl
 import pytest
 
 import mlframe
+from mlframe.training.configs import PreprocessingBackendConfig
+from mlframe.training.pipeline import _pipeline_fit_transform
 
 
 def _src_root() -> pathlib.Path:
     return pathlib.Path(mlframe.__file__).resolve().parent
 
 
-def test_fallback_to_sklearn_is_never_consumed():
-    """Sensor: grep every src file for ``fallback_to_sklearn`` READ sites
-    (anything other than its own definition / docstring). Zero consumers ==
-    dead knob. This passes today and starts FAILING the moment someone wires it,
-    prompting removal of the dead-knob disposition.
+def test_fallback_to_sklearn_is_consumed_at_dispatch_site():
+    """Sensor: the dispatch module reads ``config.fallback_to_sklearn``. Zero
+    consumers would mean the knob regressed back to dead -- fail loudly if so.
     """
-    root = _src_root()
-    config_file = root / "training" / "_preprocessing_configs.py"
-    consumers = []
-    for py in root.rglob("*.py"):
-        if py == config_file:
-            continue
-        try:
-            text = py.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        if "fallback_to_sklearn" in text:
-            consumers.append(str(py))
-    assert consumers == [], (
-        "fallback_to_sklearn is now consumed at %r -- it is no longer a dead knob. "
-        "Delete this pin and add a real biz_value test for the wired behaviour." % (consumers,)
+    text = pathlib.Path(_pipeline_fit_transform.__file__).read_text(encoding="utf-8", errors="ignore")
+    assert "config.fallback_to_sklearn" in text, "fallback_to_sklearn is no longer read at the dispatch site -- the knob regressed to dead."
+
+
+def _force_no_polarsds(monkeypatch):
+    """Make ``create_polarsds_pipeline`` behave as if polars-ds is unavailable."""
+    monkeypatch.setattr(
+        "mlframe.training.pipeline.create_polarsds_pipeline",
+        lambda *a, **k: None,
     )
 
 
-@pytest.mark.xfail(strict=True, reason="fallback_to_sklearn is a DEAD knob: declared but never read in src; no behaviour to assert")
-def test_biz_val_backend_fallback_to_sklearn_changes_behaviour():
-    """Expected-fail pin. There is no code path that branches on
-    ``fallback_to_sklearn``, so no synthetic can make True vs False diverge.
-    Kept as a tripwire: if the field becomes live, this XPASSes (strict) and
-    fails -- replace with a genuine biz_value test then.
-    """
-    raise AssertionError("fallback_to_sklearn has no wired effect to validate")
+def _toy_polars_frame() -> pl.DataFrame:
+    return pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [10.0, 20.0, 30.0, 40.0]})
+
+
+def test_fallback_engages_when_true_and_backend_unavailable(monkeypatch):
+    _force_no_polarsds(monkeypatch)
+    cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=True, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
+    train, _, _, _, _ = _pipeline_fit_transform.fit_and_transform_pipeline(
+        _toy_polars_frame(), None, None, cfg, ensure_float32=False, verbose=0,
+    )
+    # Fallback converted the polars input to a pandas frame via the sklearn backend.
+    assert isinstance(train, pd.DataFrame), "fallback_to_sklearn=True should route the polars input through the pandas backend"
+
+
+def test_no_fallback_when_false_keeps_polars(monkeypatch):
+    _force_no_polarsds(monkeypatch)
+    cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=False, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
+    train, _, _, _, _ = _pipeline_fit_transform.fit_and_transform_pipeline(
+        _toy_polars_frame(), None, None, cfg, ensure_float32=False, verbose=0,
+    )
+    # No fallback: the frame stays polars (current pre-wiring behaviour preserved).
+    assert isinstance(train, pl.DataFrame), "fallback_to_sklearn=False must preserve the raw polars pass-through (no sklearn fallback)"

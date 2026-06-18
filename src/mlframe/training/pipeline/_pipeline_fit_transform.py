@@ -80,6 +80,7 @@ def fit_and_transform_pipeline(
     # decomposed any datetime columns by the time we run.
 
     # Handle Polars DataFrames with polars-ds
+    _polarsds_fell_back_to_sklearn = False
     if isinstance(train_df, pl.DataFrame) and config.prefer_polarsds:
         # Detect cat_features from the ORIGINAL schema before the pipeline possibly
         # ordinal/one-hot-encodes them to numeric (which would erase their categorical dtype).
@@ -91,7 +92,21 @@ def fit_and_transform_pipeline(
             exclude_from_encoding=_exclude_from_encoding,
         )
 
-        if pipeline is not None:
+        # ``fallback_to_sklearn``: polars-ds returned no pipeline (unavailable / build failed).
+        # When enabled, convert the splits to pandas and route through the sklearn pandas branch
+        # below so scaling/encoding still happen instead of silently passing the frame through raw.
+        if pipeline is None and config.fallback_to_sklearn:
+            logger.warning("polars-ds pipeline unavailable; falling back to sklearn pandas backend (fallback_to_sklearn=True)")
+            train_df = train_df.to_pandas()
+            if val_df is not None and isinstance(val_df, pl.DataFrame):
+                val_df = val_df.to_pandas()
+            if test_df is not None and isinstance(test_df, pl.DataFrame):
+                test_df = test_df.to_pandas()
+            _polarsds_fell_back_to_sklearn = True
+
+        if _polarsds_fell_back_to_sklearn:
+            pass
+        elif pipeline is not None:
             if verbose:
                 logger.info(f"Applying Polars-ds pipeline...")
 
@@ -130,8 +145,10 @@ def fit_and_transform_pipeline(
         # This ensures cat_features is populated even if polars-ds is not available.
         # Prefer the ORIGINAL cat columns (captured before transform) -- after ordinal/onehot
         # encoding they're no longer Categorical/Utf8 in the transformed frame.
-        post_cat = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
-        cat_features = _orig_cat_features if _orig_cat_features else post_cat
+        # Skipped when we fell back to sklearn: ``train_df`` is now pandas and handled by the pandas branch below.
+        if not _polarsds_fell_back_to_sklearn:
+            post_cat = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
+            cat_features = _orig_cat_features if _orig_cat_features else post_cat
 
     # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
     elif isinstance(train_df, pl.DataFrame) and not config.prefer_polarsds:
@@ -140,8 +157,8 @@ def fit_and_transform_pipeline(
         if verbose and cat_features:
             logger.info(f"Detected {len(cat_features)} categorical features from Polars schema: {cat_features}")
 
-    # Handle pandas DataFrames with sklearn-style pipeline
-    elif isinstance(train_df, pd.DataFrame):
+    # Handle pandas DataFrames with sklearn-style pipeline (also the fallback target when polars-ds was unavailable).
+    if isinstance(train_df, pd.DataFrame) and (not isinstance(train_df, pl.DataFrame)):
         # Identify categorical features (exclude text/embedding columns).
         # Embedding columns can sneak past the dtype filter when stored as
         # pandas object-of-ndarray (an embedding vector per row). They look

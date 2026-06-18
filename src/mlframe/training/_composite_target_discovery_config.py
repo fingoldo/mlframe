@@ -7,6 +7,7 @@ CompositeTargetDiscoveryConfig`` imports continue to resolve.
 """
 from __future__ import annotations
 
+import warnings
 from typing import List, Optional, Union
 
 from pydantic import Field, field_validator, model_validator
@@ -552,5 +553,20 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
             for _t in _ts:
                 if _t not in _present:
                     self.transforms.append(_t)
+        return self
+
+    @model_validator(mode="after")
+    def _warn_on_no_win_stacked_discovery(self) -> "CompositeTargetDiscoveryConfig":
+        """Warn when a stacked-discovery flag is enabled: the committed bench
+        ``profiling/bench_stacked_discovery_default_flip.py`` measured NO holdout
+        improvement vs single-pass discovery. The flags stay functional (just warned).
+        """
+        if getattr(self, "use_stacked_discovery", False) or getattr(self, "use_stacked_discovery_residual", False):
+            warnings.warn(
+                "use_stacked_discovery / use_stacked_discovery_residual is enabled, but on benchmarks "
+                "this provides no measurable improvement over single-pass discovery "
+                "(profiling/bench_stacked_discovery_default_flip.py). Re-benchmark on your target before relying on it.",
+                stacklevel=2,
+            )
         return self
 
