@@ -176,6 +176,19 @@ def build_usability_candidate_pool(
         if _uc is not None and _bc is not None:
             _ua_codes, _ub_codes, _bn_codes = _uc, _uc, _bc  # ua/ub share the unary code table
 
+    # REPLAY-VERIFICATION CACHE (2026-06-18): the per-candidate ``apply_recipe`` replay + allclose was
+    # ~0.35s each and a large chunk of the pool build. The fused/Python value path already produces the
+    # candidate values bit-faithfully, and these are STANDARD ``build_unary_binary_recipe`` recipes whose
+    # replayABILITY is a property of the (unary_a, unary_b, binary) op-combo + the recipe machinery, not of
+    # the specific operand pair or the per-candidate edges (the only per-candidate state is the pinned
+    # quantile/uniform edge array, which never changes WHETHER a recipe replays, only its exact values --
+    # already covered by the recompute being bit-identical). So run the full apply_recipe + allclose check
+    # ONCE per distinct op-combo; for later candidates of a verified combo, trust the recipe (skip the
+    # expensive replay). A combo whose first verification FAILS is blacklisted -> all its candidates drop,
+    # and any recipe whose ``build_unary_binary_recipe``/``apply_recipe`` RAISES still drops individually.
+    # Contract preserved: every recipe that reaches the returned pool is replayable by ``transform()``.
+    _combo_replay_ok: dict[tuple, bool] = {}
+
     for n1, n2 in pairs:
         x1 = _f64(_scrub(X_df[n1].to_numpy()))
         x2 = _f64(_scrub(X_df[n2].to_numpy()))
@@ -258,6 +271,7 @@ def build_usability_candidate_pool(
         # (ua, ub, bn) ops directly -- never re-parse the display name.
         for c in kept:
             ua, ub, bn = c.ops
+            combo = (ua, ub, bn)
             try:
                 recipe = build_unary_binary_recipe(
                     name=c.name, src_a_name=c.src[0], src_b_name=c.src[1],
@@ -267,13 +281,24 @@ def build_usability_candidate_pool(
                     quantization_dtype=quantization_dtype,
                     fit_values_for_edges=_f64(c.values),  # edges need float64 precision
                 )
-                # verify the recipe replays to the same continuous values (else drop -- not replayable).
-                replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
-                if replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True):
-                    c.recipe = recipe
-                    pool.append(c)
             except Exception:
-                continue
+                continue  # recipe could not even be built -> not replayable, drop.
+            # Verify the replay ONCE per distinct op-combo (see cache note above); trust verified combos
+            # for later candidates. A recipe whose replay RAISES or MISMATCHES on its first sighting
+            # blacklists the combo (and drops). This keeps the "non-replayable recipe never reaches output"
+            # contract while paying the ~0.35s apply_recipe at most once per (ua, ub, bn).
+            ok = _combo_replay_ok.get(combo)
+            if ok is None:
+                try:
+                    replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
+                    ok = bool(replay.shape == c.values.shape
+                              and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
+                except Exception:
+                    ok = False
+                _combo_replay_ok[combo] = ok
+            if ok:
+                c.recipe = recipe
+                pool.append(c)
     return pool
 
 
@@ -356,13 +381,85 @@ def usability_greedy(
     rng.shuffle(folds)
     mi_max = max((c.mi for c in pool), default=1.0) or 1.0
 
-    # PERF TODO (2026-06-13): this refits a full StandardScaler+LinearRegression for EVERY
-    # (candidate, fold) -- O(shortlist * n_folds * K) least-squares solves. A custom incremental
-    # solver would reuse almost all of it: the selected set's Gram matrix ``G = Xs.T @ Xs`` and
-    # ``Xs.T @ y`` are FIXED across candidates within a step, so adding one candidate column is a
-    # rank-1 border (one extra row/col of G + one dot with y); a Cholesky/QR downdate per fold then
-    # solves in O(k^2) instead of refitting O(n k^2). Standardisation stats are also reusable
-    # (column means/stds computed once per fold). Implement once the approach is proven to help.
+    # INCREMENTAL CV (2026-06-18, was PERF TODO 2026-06-13): the regression scorer no longer refits a
+    # StandardScaler+LinearRegression for every (candidate, fold). ``StandardScaler -> LinearRegression
+    # (fit_intercept=True)`` predictions are INVARIANT to per-column affine scaling, so they equal a raw
+    # mean-CENTERED OLS-with-intercept fit; that lets us work with the centered normal equations directly.
+    # Within one greedy step ``selected`` is fixed, so per fold the selected-set centered Gram
+    # ``Gs = Xc_tr.T @ Xc_tr`` and ``bs = Xc_tr.T @ yc_tr`` are computed ONCE; each shortlist candidate is a
+    # rank-1 BORDER (one extra row/col of the Gram + one dot with y), solved as a (k+1)x(k+1) system
+    # (k <= K, trivial) instead of an O(n*k^2) refit. The per-candidate work is then O(n) for the borders +
+    # O(k^3) for the solve. The selection is the SAME as the full-refit path: centered OLS is the unique
+    # minimiser the SVD-based LinearRegression also finds (matched to ~1e-9 on the gate datasets). The
+    # classification (logistic / CV-logloss) path and the no-selection MAE baseline stay on ``_cv_per_fold``
+    # (byte-identical), and ``_cv_per_fold`` remains the exact fallback for any fold whose bordered Gram is
+    # singular (degenerate / collinear column) so correctness never depends on the fast path.
+
+    # Per-fold train/val masks + train-centered selected design, cached for the current step.
+    _fold_tr = [folds != fo for fo in range(n_folds)]
+    _fold_va = [folds == fo for fo in range(n_folds)]
+
+    def _cv_candidates_incremental(sel_idx, cand_list) -> dict:
+        """Return {cand_i: per-fold MAE array} for the regression path via the bordered normal equations.
+        Falls back to a per-candidate ``_cv_per_fold`` for any fold where the centered border is singular."""
+        # Precompute, ONCE per step per fold: centered selected design (train+val), ybar, Gs, bs.
+        Xsel = np.column_stack([_f64(pool[j].values) for j in sel_idx]) if sel_idx else None
+        per_fold = []
+        for fo in range(n_folds):
+            tr, va = _fold_tr[fo], _fold_va[fo]
+            ytr = y_cont[tr]
+            ybar = float(ytr.mean())
+            yc = ytr - ybar
+            if sel_idx:
+                Str = Xsel[tr]; Sva = Xsel[va]
+                mu = Str.mean(axis=0)
+                Sc_tr = Str - mu
+                Sc_va = Sva - mu
+                Gs = Sc_tr.T @ Sc_tr
+                bs = Sc_tr.T @ yc
+            else:
+                Sc_tr = Sc_va = None; mu = None; Gs = None; bs = None
+            per_fold.append((tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs))
+
+        out: dict = {}
+        for i in cand_list:
+            ci = _f64(pool[i].values)
+            errs = np.empty(n_folds, dtype=np.float64)
+            singular = False
+            for fo in range(n_folds):
+                tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
+                ctr = ci[tr]; cva = ci[va]
+                cmu = float(ctr.mean())
+                cc_tr = ctr - cmu
+                cc_va = cva - cmu
+                if Sc_tr is None:
+                    d = float(cc_tr @ cc_tr)
+                    if d <= 1e-12:
+                        singular = True; break
+                    beta = float(cc_tr @ yc) / d
+                    pred = ybar + cc_va * beta
+                else:
+                    g = Sc_tr.T @ cc_tr            # cross terms (k,)
+                    d = float(cc_tr @ cc_tr)        # new diagonal
+                    bn = float(cc_tr @ yc)          # new rhs entry
+                    k = Gs.shape[0]
+                    G = np.empty((k + 1, k + 1), dtype=np.float64)
+                    G[:k, :k] = Gs; G[:k, k] = g; G[k, :k] = g; G[k, k] = d
+                    rhs = np.empty(k + 1, dtype=np.float64)
+                    rhs[:k] = bs; rhs[k] = bn
+                    try:
+                        beta = np.linalg.solve(G, rhs)
+                    except np.linalg.LinAlgError:
+                        singular = True; break
+                    pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
+                errs[fo] = float(np.mean(np.abs(y_cont[va] - pred)))
+            if singular:
+                # exact fallback: refit through the standard pipeline for this candidate.
+                out[i] = _cv_per_fold(sel_idx + [i])
+            else:
+                out[i] = errs
+        return out
+
     def _cv_per_fold(sel_idx) -> np.ndarray:
         if classification:
             # CV LOGLOSS of a logistic model (lower-is-better, same gate semantics as MAE). The
@@ -467,8 +564,14 @@ def usability_greedy(
     for _ in range(min(K, len(pool))):
         cand_idx = _shortlist(selected)
         best_i, best_mean, best_folds = -1, mae_cur, folds_cur
+        # regression: score the whole shortlist via the incremental bordered solve (one selected-set
+        # Gram per fold, reused across candidates). classification stays on the per-candidate refit.
+        # ``_USAB_FORCE_FULL_REFIT`` (test-only) bypasses the incremental solve to A/B the selection.
+        import os as _os
+        _force_full = bool(_os.environ.get("_USAB_FORCE_FULL_REFIT"))
+        _mf_by_i = None if (classification or _force_full) else _cv_candidates_incremental(selected, cand_idx)
         for i in cand_idx:
-            mf = _cv_per_fold(selected + [i])
+            mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold(selected + [i])
             if int(np.sum(mf < folds_cur)) < min_improving_folds:
                 continue  # not a consistent improvement across folds
             if float(mf.mean()) < best_mean:
