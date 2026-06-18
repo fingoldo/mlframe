@@ -171,6 +171,13 @@ def _train_and_predict(
 # Test 1 — Calibration reduces Brier score on overconfident data
 # --------------------------------------------------------------------------------------
 
+# Heavy biz-value fit: trains a base model + CalibratedClassifierCV(cv=5) on
+# 40k x 120 features (5 calibration folds = 5 full fits). On a 2-vCPU CI runner
+# the slowest cell (lgb, seed 7) overruns the workflow's `--timeout=300`, while
+# its siblings finish just under it -- pure runtime variance, not a hang. Give
+# the cell the repo-default 600s budget (the addopts default; CI tightens to 300
+# globally) rather than shrinking the data, which would dilute the Brier claim.
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99]))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"]))
 def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlframe_model):
