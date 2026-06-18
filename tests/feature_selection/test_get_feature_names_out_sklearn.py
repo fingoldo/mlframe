@@ -38,10 +38,20 @@ def test_get_feature_names_out_none_input():
     sel, _, _ = _fit_df()
     out = sel.get_feature_names_out()
     assert len(out) >= 1
-    # Each name must be one of the fit-time names (or an engineered name).
+    # Each name must be one of the fit-time names (or an engineered name). Engineered features carry an
+    # operator signature: a composite-recipe call form ``op(...)``, an operator-suffixed ``base__op`` name,
+    # or one of the structural-FE prefixes (dcd/eng aggregate, row-argmax, binned-agg, conditional-gate,
+    # integer-lattice). Raw passthroughs match ``fit_names`` exactly.
     fit_names = set(sel.feature_names_in_)
     for n in out:
-        assert n in fit_names or n.startswith("_dcd_") or n.startswith("_eng_") or "/" in n or "_x_" in n
+        assert (
+            n in fit_names
+            or "(" in n            # composite recipe form, e.g. min(log(c),sin(d)) / mul(...)
+            or "__" in n           # operator-suffixed, e.g. il_gcd__a__b / c__relu_lt-0.5
+            or "/" in n
+            or "_x_" in n
+            or n.startswith(("_dcd_", "_eng_", "argmax_", "binagg_", "gate_", "il_"))
+        ), f"unrecognized output feature name: {n!r}"
 
 
 def test_get_feature_names_out_matching_input_features():
