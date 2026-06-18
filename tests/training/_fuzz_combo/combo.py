@@ -714,6 +714,41 @@ class FuzzCombo:
     # Learnable categorical embeddings default-on (nn.Embedding); this axis also samples the legacy CatBoostEncoder OFF path + a fixed embed dim vs the fastai heuristic (None).
     mlp_use_learnable_cat_embeddings_cfg: bool = True
     mlp_categorical_embed_dim_cfg: "int | None" = None
+    # MRMR FE-family + escalation + hybrid-orth scorer master toggles. Defaults mirror MRMR.__init__; canon collapses each to its default when MRMR is off.
+    mrmr_fe_rung_schedule_enable_cfg: bool = True
+    mrmr_fe_auto_escalation_enable_cfg: bool = True
+    mrmr_fe_escalation_underdelivery_enable_cfg: bool = True
+    mrmr_fe_synergy_prevalence_rescue_enable_cfg: bool = True
+    mrmr_fe_pair_prewarp_enable_cfg: bool = True
+    mrmr_fe_univariate_basis_enable_cfg: bool = True
+    mrmr_fe_univariate_fourier_enable_cfg: bool = True
+    mrmr_fe_hybrid_orth_triplet_enable_cfg: bool = True
+    mrmr_fe_hybrid_orth_quadruplet_enable_cfg: bool = True
+    mrmr_fe_binned_numeric_agg_enable_cfg: bool = True
+    mrmr_fe_discrete_structural_operators_enable_cfg: bool = True
+    mrmr_fe_pairwise_modular_enable_cfg: bool = True
+    mrmr_fe_integer_lattice_enable_cfg: bool = True
+    mrmr_fe_row_argmax_enable_cfg: bool = True
+    mrmr_fe_conditional_gate_enable_cfg: bool = True
+    mrmr_fe_escalation_feedforward_enable_cfg: bool = False
+    mrmr_fe_gate_med_enable_cfg: bool = False
+    mrmr_fe_pair_perm_null_admission_enable_cfg: bool = False
+    mrmr_fe_ii_routing_enable_cfg: bool = False
+    mrmr_fe_gbm_seeder_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_adaptive_degree_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_conditional_routing_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_cluster_basis_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_ksg_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_copula_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_dcor_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_hsic_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_jmim_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_tc_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_cmim_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_auto_scorer_enable_cfg: bool = False
+    mrmr_fe_mi_greedy_cmi_enable_cfg: bool = False
+    mrmr_fe_cat_triple_enable_cfg: bool = False
+    mrmr_fe_rankgauss_enable_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -2585,6 +2620,41 @@ class FuzzCombo:
             # Chart/report RENDERING toggle. Canon to False on the large n_rows tier: rendering ~5 figures per combo against 200k-row scores is
             # the memory blow-up the runner originally hardcoded show/save off to avoid; the small tier carries the rendering coverage cheaply.
             self.enable_viz_rendering_cfg if self.n_rows <= 1000 else False,
+            # MRMR FE-family + escalation + hybrid-orth scorer master toggles: collapse to source default when MRMR is off so dedup absorbs no-op variation.
+            self.mrmr_fe_rung_schedule_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_auto_escalation_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_escalation_underdelivery_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_synergy_prevalence_rescue_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_pair_prewarp_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_univariate_basis_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_univariate_fourier_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_hybrid_orth_triplet_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_hybrid_orth_quadruplet_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_binned_numeric_agg_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_discrete_structural_operators_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_pairwise_modular_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_integer_lattice_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_row_argmax_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_conditional_gate_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_escalation_feedforward_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_gate_med_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_pair_perm_null_admission_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_ii_routing_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_gbm_seeder_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_adaptive_degree_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_conditional_routing_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_cluster_basis_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_ksg_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_copula_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_dcor_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_hsic_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_jmim_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_tc_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_cmim_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_hybrid_orth_auto_scorer_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_mi_greedy_cmi_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_cat_triple_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_rankgauss_enable_cfg if self.use_mrmr_fs else False,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":

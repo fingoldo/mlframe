@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="283.122" timestamp="2026-06-18T11:09:34.914143+07:00" hostname="Oll"><testcase classname="tests.feature_selection.test_biz_val_mrmr_adversarial_medium_n" name="test_heavy_tail_recovers_signals" time="282.866"><error message="failed on setup with &quot;RuntimeError: MRMR fit worker chunk failed (rc=2); stderr tail:&#10;C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\python.exe: can't open file 'C:\\Users\\Admin\\Machine learning\\mlframe\\tests\\feature_selection\\_mrmr_adv_fit_worker.py': [Errno 2] No such file or directory&quot;">tests\feature_selection\test_biz_val_mrmr_adversarial_medium_n.py:113: in fits
+    genuine signals sig_a/sig_b should still be selected and not crowded out by the spurious column.
+                           ^^^^^^^^^^^^^^^^^
+tests\feature_selection\test_biz_val_mrmr_adversarial_medium_n.py:99: in _run_chunk
+    def _make_near_dup(seed, n=2000):
+E   RuntimeError: MRMR fit worker chunk failed (rc=2); stderr tail:
+E   C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\python.exe: can't open file 'C:\\Users\\Admin\\Machine learning\\mlframe\\tests\\feature_selection\\_mrmr_adv_fit_worker.py': [Errno 2] No such file or directory</error></testcase></testsuite></testsuites>
