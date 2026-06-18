@@ -27,7 +27,7 @@ def _ref_corr_sq(v, y_centered, y_ss):
     return (num * num) / (v_ss * y_ss)
 
 
-@pytest.mark.parametrize("n", [16, 533, 1100, 1667, 3333])
+@pytest.mark.parametrize("n", [16, 533, 1100, 1667, 3333, 20000])
 def test_corr_sq_centered_matches_centered_reference(n):
     rng = np.random.default_rng(n)
     z = np.sort(rng.random(n))

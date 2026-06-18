@@ -180,6 +180,27 @@ def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
     return sc, cc, sss, css
 
 
+@numba.njit(fastmath=True, cache=True)
+def _corr_sq_reductions_njit(v: np.ndarray, y_centered: np.ndarray) -> tuple:
+    """Fuse the three ``_corr_sq_centered`` reductions -- ``sum(v)``, ``v@v``,
+    ``v@y_centered`` -- into ONE sequential pass over ``v``/``y_centered``.
+
+    The numpy form ran three separate reductions, and the 1-D ``v @ v`` / ``v @ y``
+    dispatch to threaded BLAS whose per-call thread spin-up dominates at the periodogram
+    call volume (a ~50x cliff at n~20k). One njit walk is 3-54x faster across n=1.6k..100k,
+    bit-close to ~1e-14 (reduction-order single-ULP, far below any frequency-rank scale)."""
+    n = v.shape[0]
+    sv = 0.0
+    vv = 0.0
+    vy = 0.0
+    for i in range(n):
+        x = v[i]
+        sv += x
+        vv += x * x
+        vy += x * y_centered[i]
+    return sv, vv, vy
+
+
 def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> float:
     """Squared Pearson correlation of ``v`` with a pre-centered ``y`` whose
     sum-of-squares is ``y_ss``. Avoids ``np.corrcoef`` (2x2-matrix build + two
@@ -187,19 +208,18 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     ``v``.
 
     Computes the centered SS / numerator from RAW ``v`` dot products so no
-    length-n ``v - v.mean()`` temporary is allocated (~1.2-2.2x faster on the
-    hot periodogram path, scene train-slice sizes): ``v_ss = v@v - sum(v)^2/n``,
+    length-n ``v - v.mean()`` temporary is allocated: ``v_ss = v@v - sum(v)^2/n``,
     and ``num = v @ y_centered`` is IDENTITY-equal to the centered ``vc @ y_centered``
     because ``y_centered`` sums to zero (the ``v.mean()*sum(y_centered)`` cross
-    term vanishes). The reduction-order shift is ~1e-15 (single ULP), far below
-    any selection-altering scale."""
+    term vanishes). The three reductions are fused into one njit pass
+    (:func:`_corr_sq_reductions_njit`); the reduction-order shift is ~1e-14 (single
+    ULP), far below any selection-altering scale."""
     n = v.shape[0]
-    sv = float(v.sum())
-    v_ss = float(v @ v) - sv * sv / n
+    sv, vv, vy = _corr_sq_reductions_njit(np.ascontiguousarray(v, dtype=np.float64), y_centered)
+    v_ss = vv - sv * sv / n
     if v_ss < 1e-24 or y_ss < 1e-24:
         return 0.0
-    num = float(v @ y_centered)
-    return (num * num) / (v_ss * y_ss)
+    return (vy * vy) / (v_ss * y_ss)
 
 
 def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:

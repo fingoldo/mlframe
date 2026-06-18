@@ -4049,3 +4049,21 @@ Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 110 RESOLVED, 37 REJECT a
 **Verdict: REJECT.** Fresh classification combo surfaced one new candidate (`fast_aucs`); measured standalone it is 83% irreducible argsort + an already-fused njit kernel, not a Python-level lead. No new bit-identical lever at these scales. Harness kept committed (`tests/perf/_iter145_profile.py`, now `--classification`-capable); .prof outputs not committed (regenerated).
 
 Streak: REJECT -> 1 (after iter145 RESOLVED). **Cumulative loop wave: 110 RESOLVED, 38 REJECT across 146 iterations.**
+
+## iter147 — LARGE-N (n=20000) profile: `_corr_sq_centered` ran 3 numpy reductions (1-D `@` -> threaded-BLAS spin-up cliff); fused into one njit pass — RESOLVED
+
+**Surface/scale:** large-n random combo (n=20000, regression + MRMR-FS-on FE; `_iter145_profile.py --n-rows 20000`). Env CUDA_VISIBLE_DEVICES="". Per the "real wins need large-n" note, re-profiled at 5x the iter145 scale -- surfaced a NEW self-dominated (non-njit-attributed) leaf the small-n profiles did not rank: `_orthogonal_univariate_fe/_orth_extra_basis_fe._corr_sq_centered` (0.864s tottime ~= 0.904s cumtime, 2668 calls).
+
+**Hotspot/bug:** the periodogram helper computed squared Pearson corr via THREE separate numpy reductions over v -- `v.sum()`, `v @ v`, `v @ y_centered`. The 1-D `@` dispatches to threaded BLAS whose per-call thread spin-up dominates at the periodogram call volume: OLD timing has a ~50x cliff from n=5000 (4.48us) to n=20000 (215us) for only 4x data -- BLAS thread-pool overhead, not compute.
+
+**Fix:** added `_corr_sq_reductions_njit` (numba.njit fastmath, cache) fusing sum(v)/v@v/v@y_centered into ONE sequential pass; `_corr_sq_centered` calls it (np.ascontiguousarray float64 guard) and keeps the identical centered-SS algebra. NOT the iter338(2026-06-13)-rejected fusion -- that one moved sin/cos INTO njit (loses to numpy vectorised transcendentals); here sin/cos stay in numpy and only the 3 reductions fuse, sidestepping the transcendental issue. Helps both callers (`_periodogram_power`, `_power_centered`).
+
+**Measured (warm best-of-5, isolated):** n=1667 3.06->0.71us (4.29x); n=5000 4.48->1.17us (3.83x); n=20000 215.32->3.97us (54.2x, the BLAS-cliff case); n=100000 303.39->17.41us (17.4x). Faster at EVERY tested size -> no gate needed, fastest path is the unconditional default.
+
+**Identity proof:** rel_diff 7e-16..8.5e-14 across n=1667..100000 (reduction-order single-ULP; corr^2 is bounded [0,1] so abs==rel). Far below the ~1e-3 selection-altering scale -- a 1e-14 perturbation cannot flip a periodogram frequency rank. The existing parity sensor (`test_corr_sq_centered_noalloc.py`, vs an explicit-centered reference, tol 1e-12) passes, now extended with n=20000.
+
+**Tests green:** 24 passed (corr_sq parity incl. new n=20000 + coarse_basis_njit_parity + extra_basis biz_value), then 48 passed (adaptive_fourier + adaptive_chirp + univariate_basis biz_value) -- detector-level frequency selection unchanged.
+
+**Verdict: RESOLVED.** Large-n profiling (the regime the maturity note flagged for remaining wins) surfaced a leaf hidden at small-n: three numpy reductions where the 1-D BLAS dot fell off a thread-spin-up cliff. Fused into one njit pass; 3.8-54x isolated, faster everywhere, ~1e-14 parity, pinned.
+
+Streak: RESET to 0 (RESOLVED). **Cumulative loop wave: 111 RESOLVED, 38 REJECT across 147 iterations.**
