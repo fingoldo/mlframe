@@ -280,20 +280,24 @@ def batch_mi_with_noise_gate_cupy_v1(
     offsets = np.zeros(K + 1, dtype=np.int64)
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
-    d_offsets = cp.asarray(offsets[:K].reshape(1, K))  # (1, K) broadcastable
-    d_Ky = np.int64(K_y)
+    # PER-CELL INDEX dtype (2026-06-20, parallel to the resident kernel): v1 scores ONE y at a time, so
+    # d_base / d_idx are bounded by ``total_size - 1`` -- int32 HALVES these (n, K) buffers vs int64 when
+    # that fits (gated -> bit-identical, the bincount indices are the same values). Kept for re-bench
+    # parity with the resident kernel.
+    idx_dtype = cp.int32 if total_size <= 2_147_483_647 else cp.int64
+    d_offsets = cp.asarray(offsets[:K].reshape(1, K)).astype(idx_dtype)  # (1, K) broadcastable
 
     # Column index of each cell, broadcast (n, K).
     # global_index[r, k] = offsets[k] + disc[r,k]*K_y + y_code[r]
     # We build the per-(r,k) base ``offsets[k] + disc[r,k]*K_y`` once, then add
     # the y-code (which changes per shuffle) before each bincount.
-    d_base = d_offsets + d_disc.astype(cp.int64) * d_Ky  # (n, K) int64
+    d_base = d_offsets + d_disc.astype(idx_dtype) * cp.asarray(K_y, dtype=idx_dtype)  # (n, K) idx_dtype
 
     def _joint_counts_for(y_codes_host: np.ndarray) -> np.ndarray:
         """Return a host list of (nbins_k, K_y) int64 count matrices for all K cols
         against ``y_codes_host`` (length n)."""
-        d_y = cp.asarray(np.ascontiguousarray(y_codes_host, dtype=np.int64)).reshape(n, 1)  # (n,1)
-        d_idx = (d_base + d_y).reshape(-1)  # (n*K,) flat global indices
+        d_y = cp.asarray(np.ascontiguousarray(y_codes_host, dtype=np.int64)).reshape(n, 1).astype(idx_dtype)
+        d_idx = (d_base + d_y).reshape(-1)  # (n*K,) flat global indices (idx_dtype; <= total_size-1)
         # OPT-D: known-size bincount (skip cupy.bincount's host-sync validations);
         # byte-identical counts. ``total_size`` is exact, ``d_idx`` non-negative by construction.
         flat = _cupy_bincount_known_size(d_idx, total_size)
