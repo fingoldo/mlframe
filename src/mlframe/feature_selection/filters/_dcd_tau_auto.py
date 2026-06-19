@@ -44,88 +44,77 @@ _DCD_AUTO_TAU_FALLBACK = 0.7
 # everything (tau == 0.0 means every pair is "redundant").
 _DCD_AUTO_TAU_MIN = 0.3
 _DCD_AUTO_TAU_MAX = 0.95
+# A separated high-SU population only counts as a genuine redundant-pair mode
+# when its median SU clears this floor: SU >= 0.5 means a pair shares the
+# majority of its information (true near-duplicate), whereas small-sample /
+# quantization noise among independent features tops out well below it.
+_DCD_REDUNDANCY_FLOOR = 0.5
 
 
 def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
-    """Layer 47: bimodality detector + saddle-point picker.
+    """Decide whether the pairwise-SU distribution holds a separated high-SU
+    (redundant-pair) population on top of a dominant low-SU (independent-pair)
+    bulk, and if so return the SU value separating them.
 
-    Given an array of pairwise SU scores in [0, 1], decide whether the
-    distribution is bimodal (cluster-similar pairs vs unrelated pairs) and,
-    if so, return the SU value at the valley between the two modes.
+    A robust separation test rather than a histogram peak/valley analyser. The
+    prior peak-pair-with-deep-valley approach required the high-SU mode to form
+    a dense histogram peak (count >= 2 in a single 0.05-wide bin) with a near-
+    empty valley between two well-formed peaks. That assumption holds for a
+    textbook two-Gaussian mixture, but breaks on realistic data: when genuine
+    near-duplicate pairs are a small minority of all pairs (e.g. 5 sensor packs
+    of 3 -> 15 within-pack pairs out of 190), a uniform-random ~100-pair
+    calibration sweep draws only a handful of high-SU pairs. Those scatter
+    across several tail bins as singletons, never forming a peak, so the genuine
+    bimodal structure was misread as unimodal and tau fell back to 0.7 -- which
+    sits ABOVE the within-pack SU (~0.65), collapsing all clustering.
 
-    Strategy:
-      1. Coarse-bin the scores into 20 buckets over [0, 1] -> histogram.
-      2. Identify local maxima (bins where count exceeds both neighbours).
-      3. Require >= 2 maxima separated by >= 0.15 SU and a valley between
-         them whose count is <= 0.6 * min(peak_count_left, peak_count_right).
-         A clear valley means the two modes are well separated.
-      4. Return the SU value at the valley bin midpoint.
-      5. Return None when distribution is unimodal (no second peak meeting
-         the separation + depth criteria).
+    Strategy (sample-size robust, no dense high peak required):
+      1. Locate the bulk with a robust median + MAD (independent pairs cluster
+         near SU ~ 0, so the median tracks the bulk even with a high tail).
+      2. Build an upper fence ``max(med + 3*1.4826*MAD, med + 0.15)`` above the
+         bulk; pairs above it are the candidate high-SU (redundant) population.
+      3. Require that population to be a real, separated MINORITY of GENUINELY
+         REDUNDANT pairs: at least ``max(3, 3%)`` of pairs above the fence, the
+         bulk still >= 50% of pairs, a clear gap (>= 0.10 SU) between the bulk's
+         95th percentile and the high population's 5th percentile, AND the high
+         population's median SU >= ``_DCD_REDUNDANCY_FLOOR`` (0.5 -- a pair must
+         share the majority of its information to count as redundant). The last
+         gate rejects small-sample / quantization artefacts: among independent
+         noise features a handful of spurious pairs can land at SU ~0.3-0.45 and
+         clear the MAD fence, but they sit BELOW the redundancy floor, so they
+         no longer manufacture a false bimodal split (the pure-noise fallback).
+      4. tau = midpoint of that gap, clamped to ``[_DCD_AUTO_TAU_MIN,
+         _DCD_AUTO_TAU_MAX]``.
+      5. Return None when no separated high population meets the gate (truly
+         unimodal noise) -- the caller then falls back to the default tau.
 
-    This is deliberately a simple histogram analyser rather than a 2-component
-    Gaussian mixture: GMM requires scikit-learn at import time, adds 30+ ms
-    fit overhead, and on a 100-pair sweep the Gaussian assumption is no
-    better-grounded than a histogram. The histogram approach is dependency-
-    free, deterministic, and produces the same valley estimate as a 2-comp
-    GMM on textbook bimodal data within ~0.05 SU.
+    Dependency-free + deterministic (no GMM / scikit-learn import), and unlike
+    a variance-split (Otsu) it returns None on genuinely unimodal data instead
+    of always manufacturing a threshold.
     """
-    if scores.size < 10:
+    s = np.asarray(scores, dtype=np.float64)
+    s = s[np.isfinite(s)]
+    if s.size < 10:
         return None
-    finite = scores[np.isfinite(scores)]
-    if finite.size < 10:
+    s = np.clip(s, 0.0, 1.0)
+    total = int(s.size)
+    med = float(np.median(s))
+    mad = float(np.median(np.abs(s - med))) + 1e-9
+    fence = max(med + 3.0 * 1.4826 * mad, med + 0.15)
+    high = s[s > fence]
+    if high.size < max(3, 0.03 * total):
         return None
-    n_bins = 20
-    counts, _edges = np.histogram(
-        np.clip(finite, 0.0, 1.0), bins=n_bins, range=(0.0, 1.0),
-    )
-    if counts.sum() < 10:
+    low = s[s <= fence]
+    if low.size < 0.5 * total:
         return None
-    # Local maxima -- count must dominate BOTH neighbours, but we tolerate
-    # one-sided ties (plateau peaks) so adjacent equal-height bins still
-    # surface a single peak rather than dropping out completely. A bin is a
-    # peak iff its count is >= both neighbours AND strictly greater than at
-    # least one of them (rules out flat runs of equal values).
-    peaks: list = []
-    for i in range(n_bins):
-        left = counts[i - 1] if i > 0 else -1
-        right = counts[i + 1] if i < n_bins - 1 else -1
-        c = counts[i]
-        if c < 2:
-            continue
-        if c >= left and c >= right and (c > left or c > right):
-            peaks.append((i, int(c)))
-    # Collapse adjacent equal-height plateau peaks -- they're a single mode,
-    # pick the leftmost. Otherwise the bimodality check counts a flat-topped
-    # mode twice and the "modes >= 3 bins apart" rule rejects it.
-    if peaks:
-        deduped: list = [peaks[0]]
-        for bin_idx, c in peaks[1:]:
-            prev_bin, prev_c = deduped[-1]
-            if bin_idx == prev_bin + 1 and c == prev_c:
-                continue
-            deduped.append((bin_idx, c))
-        peaks = deduped
-    if len(peaks) < 2:
+    if float(np.median(high)) < _DCD_REDUNDANCY_FLOOR:
         return None
-    peaks_by_count = sorted(peaks, key=lambda t: -t[1])
-    p1, p2 = peaks_by_count[0], peaks_by_count[1]
-    bin_lo, bin_hi = (p1[0], p2[0]) if p1[0] < p2[0] else (p2[0], p1[0])
-    if bin_hi - bin_lo < 3:
+    low_hi = float(np.quantile(low, 0.95))
+    high_lo = float(np.quantile(high, 0.05))
+    if high_lo - low_hi < 0.10:
         return None
-    valley_slice = counts[bin_lo + 1: bin_hi]
-    if valley_slice.size == 0:
-        return None
-    valley_offset = int(np.argmin(valley_slice))
-    valley_bin = bin_lo + 1 + valley_offset
-    valley_count = int(counts[valley_bin])
-    min_peak_count = min(p1[1], p2[1])
-    if valley_count > 0.6 * min_peak_count:
-        return None
-    bin_width = 1.0 / n_bins
-    tau = float((valley_bin + 0.5) * bin_width)
-    tau = max(_DCD_AUTO_TAU_MIN, min(_DCD_AUTO_TAU_MAX, tau))
-    return tau
+    tau = 0.5 * (low_hi + high_lo)
+    return float(max(_DCD_AUTO_TAU_MIN, min(_DCD_AUTO_TAU_MAX, tau)))
 
 
 def _calibrate_tau_auto(
