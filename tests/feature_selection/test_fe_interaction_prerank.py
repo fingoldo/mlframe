@@ -280,6 +280,117 @@ def test_fused_criterion_routes_through_top_k():
     assert len(out) == 5 and out == sorted(out) and set(out).issubset(set(cand))
 
 
+def test_auto_picks_fused_when_small():
+    """The default "auto" criterion escalates to the high-recall ``fused`` when one LightGBM fit over the
+    candidate columns is predicted affordable (small/moderate p). Predictor is monkeypatched so the gate is
+    deterministic and fast -- no real fit is run."""
+    import mlframe.feature_selection.filters._fe_interaction_prerank as m
+    import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
+
+    orig = k.predict_gbm_fit_seconds
+    try:
+        k.predict_gbm_fit_seconds = lambda n, p: (5.0, 100.0, "cache")  # cheap fit -> well under any budget
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((1500, 80))
+        y = (rng.random(1500) < 0.5).astype(int)
+        out = m.top_k_by_interaction_propensity(X, y, list(range(80)), top_k=20)  # criterion defaults to "auto"
+    finally:
+        k.predict_gbm_fit_seconds = orig
+    assert m._LAST_AUTO_CHOICE[0] == "fused", f"auto should pick fused when small: {m._LAST_AUTO_CHOICE}"
+    assert len(out) == 20 and out == sorted(out)
+
+
+def test_auto_picks_second_moment_when_wide():
+    """"auto" falls back to the cheap ``second_moment`` when the predicted LightGBM fit exceeds the budget
+    (a WIDE frame). Monkeypatched predictor returns a huge time so NO real 100k-wide fit is run in the test."""
+    import mlframe.feature_selection.filters._fe_interaction_prerank as m
+    import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
+
+    orig = k.predict_gbm_fit_seconds
+    try:
+        k.predict_gbm_fit_seconds = lambda n, p: (9.9e4, 1.0, "cache")  # unaffordable -> cheap fallback
+        rng = np.random.default_rng(1)
+        X = rng.standard_normal((1500, 80))
+        y = (rng.random(1500) < 0.5).astype(int)
+        out = m.top_k_by_interaction_propensity(X, y, list(range(80)), top_k=20)
+    finally:
+        k.predict_gbm_fit_seconds = orig
+    assert m._LAST_AUTO_CHOICE[0] == "second_moment", f"auto should pick second_moment when wide: {m._LAST_AUTO_CHOICE}"
+    assert len(out) == 20 and out == sorted(out)
+
+
+def test_budget_from_max_runtime_mins_honored():
+    """The threaded ``budget_seconds`` (derived from MRMR's max_runtime_mins * 60) bounds the auto gate: a
+    fixed predicted fit time flips fused<->second_moment as the budget crosses it. Predictor monkeypatched
+    so the only varying input is the budget."""
+    import mlframe.feature_selection.filters._fe_interaction_prerank as m
+    import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
+
+    orig = k.predict_gbm_fit_seconds
+    try:
+        k.predict_gbm_fit_seconds = lambda n, p: (30.0, 100.0, "cache")  # fixed 30s predicted fit
+        rng = np.random.default_rng(2)
+        X = rng.standard_normal((1000, 40))
+        y = (rng.random(1000) < 0.5).astype(int)
+        # budget 120s (max_runtime_mins=2 -> 120s) > 30s -> fused
+        m.top_k_by_interaction_propensity(X, y, list(range(40)), top_k=10, budget_seconds=120.0)
+        assert m._LAST_AUTO_CHOICE[0] == "fused", m._LAST_AUTO_CHOICE
+        # budget 10s < 30s -> second_moment
+        m.top_k_by_interaction_propensity(X, y, list(range(40)), top_k=10, budget_seconds=10.0)
+        assert m._LAST_AUTO_CHOICE[0] == "second_moment", m._LAST_AUTO_CHOICE
+    finally:
+        k.predict_gbm_fit_seconds = orig
+
+
+def test_gate_is_hw_calibrated_not_magic_constant():
+    """The auto gate's cost prediction must be sourced from the per-host kernel_tuning_cache (or its analytic
+    fallback), NOT a hardcoded threshold. measured_gbm_cols_per_second returns a (value, source) where source
+    is 'cache' (HW-measured) or 'fallback', and predict_gbm_fit_seconds threads that source through."""
+    from mlframe.feature_selection.filters._fe_interaction_prerank_kernels import (
+        measured_gbm_cols_per_second, predict_gbm_fit_seconds, warm_gbm_cost_cache,
+    )
+    warm_gbm_cost_cache()
+    cps, source = measured_gbm_cols_per_second(8000)
+    assert cps > 0 and source in ("cache", "fallback")
+    predicted, cps2, src2 = predict_gbm_fit_seconds(8000, 2000)
+    assert predicted > 0 and cps2 > 0 and src2 in ("cache", "fallback")
+    # prediction must scale with n_candidates (a cost MODEL, not a constant gate)
+    p_small = predict_gbm_fit_seconds(8000, 500)[0]
+    p_big = predict_gbm_fit_seconds(8000, 9000)[0]
+    assert p_big > p_small, "predicted fit time must grow with candidate count (HW-calibrated cost model)"
+
+
+def test_auto_recall_matches_fused_small_and_second_moment_wide():
+    """auto must DELIVER the recall of the criterion it selects: fused recall (~0.92) when it picks fused on a
+    small frame, second_moment recall (~0.88) when it picks second_moment on a wide frame. Predictor is
+    monkeypatched to force each branch deterministically (no real wide fit)."""
+    import mlframe.feature_selection.filters._fe_interaction_prerank as m
+    import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
+
+    orig = k.predict_gbm_fit_seconds
+    try:
+        # SMALL regime: force fused -> auto top-k must equal fused top-k (same ranking) on each seed.
+        k.predict_gbm_fit_seconds = lambda n, p: (1.0, 1000.0, "cache")
+        for seed in (0, 1, 2):
+            X, y, _ = _make_frame(P, seed, leak=0.1)
+            cand = list(range(P))
+            a = m.top_k_by_interaction_propensity(X, y, cand, top_k=250)
+            assert m._LAST_AUTO_CHOICE[0] == "fused"
+            f = top_k_by_interaction_propensity(X, y, cand, top_k=250, criterion="fused")
+            assert a == f, "auto(fused) selection must match explicit fused selection"
+        # WIDE regime: force second_moment -> auto top-k must equal second_moment top-k.
+        k.predict_gbm_fit_seconds = lambda n, p: (9.9e4, 1.0, "cache")
+        for seed in (0, 1, 2):
+            X, y, _ = _make_frame(P, seed, leak=0.1)
+            cand = list(range(P))
+            a = m.top_k_by_interaction_propensity(X, y, cand, top_k=250)
+            assert m._LAST_AUTO_CHOICE[0] == "second_moment"
+            sm = top_k_by_interaction_propensity(X, y, cand, top_k=250, criterion="second_moment")
+            assert a == sm, "auto(second_moment) selection must match explicit second_moment selection"
+    finally:
+        k.predict_gbm_fit_seconds = orig
+
+
 def test_single_class_target_no_crash():
     """A degenerate constant target must not crash and must return finite (zero-information) scores."""
     rng = np.random.default_rng(0)

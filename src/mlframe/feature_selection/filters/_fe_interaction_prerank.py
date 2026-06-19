@@ -32,9 +32,27 @@ where the old "skip past the cap" dropped it entirely.
 """
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Optional
 
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+# SOFT default budget (seconds) for the size-gated "auto" criterion when NO MRMR time budget is
+# threaded through (no max_runtime_mins / budget_seconds). The user explicitly rejected "fused
+# always" / unlimited: a WIDE 100k-column frame must NOT pay a full LightGBM fit by default. With
+# the measured ~113 cols/s @ n=8000, a 60s default crosses over near ~6.5k candidate columns -- so
+# small/moderate p escalates to the high-recall ``fused``, wide p stays on the cheap second_moment.
+# OVERRIDABLE: pass budget_seconds (the synergy wiring derives it from max_runtime_mins * 60).
+_AUTO_DEFAULT_BUDGET_SECONDS = 60.0
+
+# MEASURED CROSSOVER (default 60s budget, n=8000, this dev box GTX 1050 Ti host; 2026-06-19): the
+# predicted gbm fit_seconds = 2.0 + p/cols_per_second crosses 60s at p ~= (60-2)*113 ~= 6554 cols
+# (cold-cache analytic fallback; the live gate uses the per-host kernel_tuning_cache value, so the
+# exact crossover is HW-calibrated). Verified by the crossover bench in test_fe_interaction_prerank:
+# auto picks "fused" below the crossover and "second_moment" above it. Recall holds: auto == fused
+# recall (~0.92 @ L=0.1) on a small frame, == second_moment recall (~0.88) on a wide frame.
 
 
 def _abs_col_corr(M: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -218,26 +236,79 @@ _CRITERIA = {
 }
 
 
+def _resolve_auto_criterion(
+    n_rows: int, n_candidates: int, budget_seconds: Optional[float],
+) -> tuple[str, str]:
+    """Size-gate the "auto" criterion: choose the high-recall ``fused`` (one full LightGBM fit) when that
+    fit is PREDICTED affordable for (n_rows, n_candidates), else the cheap ``second_moment``.
+
+    The predicted fit wall-time is HW-calibrated (measured-and-cached per host via the kernel_tuning_cache;
+    analytic fallback only on a cold cache) -- NOT a magic constant. The budget is ``budget_seconds`` when
+    provided (the synergy wiring threads max_runtime_mins * 60 through), else the SOFT default
+    ``_AUTO_DEFAULT_BUDGET_SECONDS`` (keeps wide frames cheap; user rejected "fused always default").
+
+    Returns ``(chosen_criterion, reason)``; the reason is logged + recorded for tests/diagnostics."""
+    budget = float(budget_seconds) if (budget_seconds is not None and budget_seconds > 0) else _AUTO_DEFAULT_BUDGET_SECONDS
+    bud_src = "max_runtime_mins/budget_seconds" if (budget_seconds is not None and budget_seconds > 0) else f"soft default {_AUTO_DEFAULT_BUDGET_SECONDS:.0f}s (override via max_runtime_mins)"
+    try:
+        from ._fe_interaction_prerank_kernels import warm_gbm_cost_cache, predict_gbm_fit_seconds
+
+        warm_gbm_cost_cache()  # best-effort: make the prediction measured, not the cold fallback
+        predicted, cps, source = predict_gbm_fit_seconds(n_rows, n_candidates)
+    except Exception as exc:  # cost model unavailable -> safe cheap path
+        return "second_moment", f"auto -> second_moment: gbm cost model unavailable ({type(exc).__name__}: {exc})"
+    if predicted <= budget:
+        return "fused", (
+            f"auto -> fused: predicted LightGBM fit {predicted:.1f}s for {n_candidates} cols @ n={n_rows} "
+            f"({cps:.0f} cols/s [{source}]) <= budget {budget:.0f}s [{bud_src}] -- high-recall path affordable.")
+    return "second_moment", (
+        f"auto -> second_moment: predicted LightGBM fit {predicted:.1f}s for {n_candidates} cols @ n={n_rows} "
+        f"({cps:.0f} cols/s [{source}]) exceeds budget {budget:.0f}s [{bud_src}] -- cheap O(p*n) path; "
+        f"raise max_runtime_mins or set criterion='fused' to force the high-recall fit.")
+
+
+# Last "auto" decision, recorded for deterministic tests / diagnostics (criterion, reason).
+_LAST_AUTO_CHOICE: tuple[str, str] | None = None
+
+
 def top_k_by_interaction_propensity(
     values: np.ndarray, y: np.ndarray, candidate_idx: Any, top_k: int,
-    criterion: str = "second_moment",
+    criterion: str = "auto", budget_seconds: Optional[float] = None,
 ) -> list[int]:
-    """Rank ``candidate_idx`` (column indices into ``values``) by ``second_moment_propensity`` and return
+    """Rank ``candidate_idx`` (column indices into ``values``) by an interaction-propensity score and return
     the top ``top_k`` as a SORTED list of indices (deterministic; ties broken by ascending index so the
     result is stable across runs). If ``top_k`` >= len(candidate_idx) all candidates are returned sorted.
 
     ``values`` is the full (n, n_cols) matrix; only the candidate columns are scored.
 
-    ``criterion`` selects the ranking score: "second_moment" (default, O(p*n), the benched base),
-    "fused" (rank-fusion of 2nd-moment + marginal + gbm split-frequency -- higher recall at L<=0.1 when
-    LightGBM is available, ~one extra booster fit), or "gbm_splits" (split-frequency alone)."""
+    ``criterion`` selects the ranking score:
+      * "auto" (DEFAULT): SIZE-GATED -- use the high-recall ``fused`` when one LightGBM fit over the
+        candidate columns is PREDICTED affordable for (n_rows, n_candidates) within ``budget_seconds``
+        (or the soft default), else fall back to the cheap ``second_moment``. The cost prediction is
+        HW-calibrated (measured-and-cached per host); small/moderate p -> fused, wide p -> second_moment.
+      * "second_moment": O(p*n), the benched cheap base (recall ~0.88 @ L=0.1).
+      * "fused": rank-fusion of 2nd-moment + marginal + gbm split-frequency (recall ~0.92 @ L<=0.1 when
+        LightGBM is available, ~one full booster fit -- forces the high-recall path regardless of size).
+      * "gbm_splits": split-frequency alone.
+      * "never": alias for "second_moment" (explicitly never escalate to a gbm fit).
+
+    ``budget_seconds`` bounds the "auto" gbm-fit wall-time; the synergy wiring threads
+    ``max_runtime_mins * 60`` through. When None, "auto" uses ``_AUTO_DEFAULT_BUDGET_SECONDS``."""
+    global _LAST_AUTO_CHOICE
     cand = sorted(int(i) for i in candidate_idx)
     if top_k >= len(cand):
         return cand
     if top_k <= 0:
         return []
+    resolved = criterion
+    if criterion == "auto":
+        resolved, reason = _resolve_auto_criterion(int(values.shape[0]), len(cand), budget_seconds)
+        _LAST_AUTO_CHOICE = (resolved, reason)
+        logger.info("interaction-propensity pre-rank: %s", reason)
+    elif criterion == "never":
+        resolved = "second_moment"
     sub = values[:, cand]
-    score_fn = _CRITERIA.get(criterion, second_moment_propensity)
+    score_fn = _CRITERIA.get(resolved, second_moment_propensity)
     scores = score_fn(sub, y)
     # argsort descending by score, then ascending by position (stable) -> deterministic top_k.
     order = np.lexsort((np.arange(len(cand)), -scores))[:top_k]

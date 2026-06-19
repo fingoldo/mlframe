@@ -35,7 +35,142 @@ the dispatcher routes to it above _DEFAULT_CUPY_WORK_THRESHOLD when a GPU is pre
 """
 from __future__ import annotations
 
+import logging
+import time
+
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+
+# ---------------------------------------------------------------------------
+# MEASURED-AND-CACHED LightGBM-fit cost predictor for the "auto" pre-rank gate.
+# ---------------------------------------------------------------------------
+# The "auto" criterion in top_k_by_interaction_propensity uses the high-recall ``fused``
+# criterion (which pays one full LightGBM fit over all p candidate columns) ONLY when that
+# fit is affordable for the (n_rows, n_candidates) at hand, else it falls back to the cheap
+# ``second_moment`` score. Affordability is a PREDICTED fit wall-time vs a budget; the
+# throughput model below mirrors _fe_synergy_exhaustive (measured_pairs_per_second /
+# warm_*_cache / predict_*_seconds): the gbm cols/sec is MEASURED on a small synthetic cell
+# and cached per host via pyutilz kernel_tuning_cache, NEVER hardcoded into the decision.
+#
+# Bench (this dev box, GTX 1050 Ti host, LightGBM CPU fit, num_boost_round=100, binary;
+# 2026-06-19, machine under concurrent load): ~16.8 s @ p=2000 / n=8000, ~87.7 s @ p=10000
+# / n=8000 -> roughly O(p) at fixed n (the per-column split search dominates). From the two
+# points: cols/sec ~ (10000-2000)/(87.7-16.8) ~= 113 cols/s with a small fixed offset. We
+# model fit_seconds ~ p / cols_per_second(n) and store cols_per_second per (n) region. The
+# ~113 cols/s figure is ONLY the cold-cache analytic FALLBACK (per feedback_use_kernel_
+# tuning_cache_for_gpu: the live path measures-and-caches per (n) below).
+_GBM_FALLBACK_COLS_PER_SEC = 113.0   # cold-cache analytic fallback (bench 2026-06-19, n=8000)
+_GBM_FALLBACK_FIXED_SEC = 2.0        # constant fit overhead (dataset build + boosting setup)
+_GBM_COST_SWEEP_N_SAMPLES = [2000, 8000, 32000]
+_GBM_COST_SALT = 1
+_GBM_BENCH_P = 256                   # small synthetic cell width (kept tiny so the warm-up bench is ~sub-second)
+_GBM_BENCH_ROUNDS = 100
+
+
+def _measure_gbm_cols_per_second(n_samples: int) -> float:
+    """Time a real LightGBM fit on a small synthetic (n_samples, _GBM_BENCH_P) binary cell and
+    return achieved cols/second (p / fit_seconds, fixed-offset corrected). Used as the
+    kernel_tuning tuner body; raises on any failure so the orchestrator records the fallback."""
+    import lightgbm as lgb
+
+    n = int(n_samples)
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((n, _GBM_BENCH_P))
+    y = (rng.random(n) < 0.5).astype(np.float64)
+    params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1,
+                  min_child_samples=20, feature_fraction=1.0)
+    ds = lgb.Dataset(X, label=y)
+    t0 = time.perf_counter()
+    lgb.train(params, ds, num_boost_round=_GBM_BENCH_ROUNDS)
+    dt = time.perf_counter() - t0
+    eff = dt - _GBM_FALLBACK_FIXED_SEC
+    if eff <= 0.0:
+        return float(_GBM_FALLBACK_COLS_PER_SEC)
+    cps = float(_GBM_BENCH_P) / eff
+    if cps <= 0.0:
+        return float(_GBM_FALLBACK_COLS_PER_SEC)
+    return cps
+
+
+def measured_gbm_cols_per_second(n_samples: int) -> tuple[float, str]:
+    """Per-host measured LightGBM-fit throughput (cols/s) for ``n_samples`` rows, looked up
+    from the kernel_tuning_cache (measured on first miss via ``warm_gbm_cost_cache``). Returns
+    ``(cols_per_second, source)`` where source is "cache" | "fallback".
+
+    NEVER hardcodes the throughput in the gate decision -- the ~113 cols/s figure is only the
+    cold-cache analytic fallback (mirrors _fe_synergy_exhaustive.measured_pairs_per_second)."""
+    try:
+        from ._kernel_tuning import get_kernel_tuning_cache
+
+        cache = get_kernel_tuning_cache()
+        if cache is not None:
+            region = cache.lookup("fe_interaction_prerank_gbm_cost", n_samples=int(n_samples))
+            if region is not None:
+                val = region.get("value", region.get("choice"))
+                if val is not None:
+                    try:
+                        cps = float(val)
+                        if cps > 0:
+                            return cps, "cache"
+                    except (TypeError, ValueError):
+                        pass
+    except Exception as exc:  # cache miss / pyutilz unavailable -> fallback
+        logger.debug("gbm-cost cache lookup failed (%s: %s); using fallback", type(exc).__name__, exc)
+    return float(_GBM_FALLBACK_COLS_PER_SEC), "fallback"
+
+
+def warm_gbm_cost_cache() -> None:
+    """Populate the per-host gbm-fit cost cache via ``get_or_tune`` (one-time, async-safe).
+    Best effort: callers may skip this and rely on ``measured_gbm_cols_per_second``'s fallback.
+    No-op if LightGBM or pyutilz is unavailable."""
+    try:
+        import lightgbm  # noqa: F401
+    except Exception:
+        return
+    try:
+        from ._kernel_tuning import get_kernel_tuning_cache
+
+        cache = get_kernel_tuning_cache()
+        if cache is None:
+            return
+
+        def _tuner() -> list:
+            regions = []
+            for n in _GBM_COST_SWEEP_N_SAMPLES:
+                try:
+                    cps = _measure_gbm_cols_per_second(n)
+                except Exception:
+                    cps = float(_GBM_FALLBACK_COLS_PER_SEC)
+                regions.append({"n_samples": n, "value": cps})
+            return regions
+
+        cache.get_or_tune(
+            "fe_interaction_prerank_gbm_cost",
+            dims={"n_samples": _GBM_COST_SWEEP_N_SAMPLES[0]},
+            tuner=_tuner,
+            axes=["n_samples"],
+            fallback=lambda n_samples: _GBM_FALLBACK_COLS_PER_SEC,
+            salt=_GBM_COST_SALT,
+            once_per_process=True,
+        )
+    except Exception as exc:
+        logger.debug("gbm-cost cache warm failed (%s: %s)", type(exc).__name__, exc)
+
+
+def predict_gbm_fit_seconds(n_samples: int, n_candidates: int) -> tuple[float, float, str]:
+    """Predicted LightGBM-fit wall-time (seconds) for one ``fused`` booster fit over
+    ``n_candidates`` columns at ``n_samples`` rows. Returns
+    ``(predicted_seconds, cols_per_second, throughput_source)``.
+
+    Model: fit_seconds ~ fixed_overhead + n_candidates / cols_per_second(n_samples), with
+    cols_per_second measured-and-cached per host (analytic fallback on a cold cache)."""
+    cps, source = measured_gbm_cols_per_second(n_samples)
+    if cps <= 0:
+        cps = float(_GBM_FALLBACK_COLS_PER_SEC)
+    predicted = float(_GBM_FALLBACK_FIXED_SEC) + float(n_candidates) / cps
+    return predicted, cps, source
 
 
 # ---------------------------------------------------------------------------
@@ -258,4 +393,7 @@ __all__ = [
     "discrete_score_numpy",
     "discrete_score_numba",
     "discrete_score_cupy",
+    "measured_gbm_cols_per_second",
+    "warm_gbm_cost_cache",
+    "predict_gbm_fit_seconds",
 ]
