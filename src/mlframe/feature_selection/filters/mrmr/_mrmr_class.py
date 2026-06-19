@@ -3605,9 +3605,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         except (TypeError, ValueError):
             k_target = None
 
-        survivors = sis_screen(Xmat, y, k_target=k_target,
-                               dedup_corr_thr=float(getattr(self, "sis_dedup_corr_thr", 0.92) or 0.0))
+        # return_scores=True is FREE (the scores are already computed for survivor selection). We STASH the
+        # survivor marginal-MI as a relevance prior so the screen's most expensive output is no longer discarded
+        # (reuse audit RU-2). NB it is NOT fed into screen_predictors' cached_MIs as a warm-start: SIS bins
+        # quantile-nbins-10 on RAW columns BEFORE categorize, whereas screen_predictors scores MI on categorize's
+        # (default MDLP) codes -- the two MI values differ, so substituting would CHANGE selection. The recompute
+        # it would save is ~3.6s at 100k (CK kernel audit) -- second-order vs the ~290s Fleuret CMI loop (CK-1) --
+        # so the cached_MIs warm-start is deferred behind CK-1 rather than destabilising the 900-line screen for
+        # ~1%. The prior is exposed for diagnostics / a future binning-aligned warm-start.
+        survivors, _sis_scores = sis_screen(
+            Xmat, y, k_target=k_target,
+            dedup_corr_thr=float(getattr(self, "sis_dedup_corr_thr", 0.92) or 0.0),
+            return_scores=True,
+        )
         survivors = np.asarray(survivors, dtype=np.int64)
+        _mi_full = _sis_scores.get("mi")
+        self.sis_relevance_prior_ = (
+            {int(s): float(_mi_full[int(s)]) for s in survivors} if _mi_full is not None else {}
+        )
         self.sis_survivors_ = survivors
         self.sis_n_input_features_ = int(Xmat.shape[1])
         logger.info(
