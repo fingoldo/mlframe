@@ -402,11 +402,20 @@ def grand_fused_pair_mi(
 ):
     """GRAND FUSION: GPU fused-generate candidates -> RESIDENT GPU discretize -> the EXISTING bit-identical
     GPU noise-gate (``batch_mi_noise_gate_gpu``). Returns the SAME noise-gated fe_mi[K] the production
-    pair-search computes, but with the ~87%-of-time CPU generation+discretization moved onto the GPU
-    (measured n=300k: CPU gen 2406ms + CPU discretize 3399ms vs the negligible 112ms disc H2D). Only the
-    small int8/int32 disc crosses to host for the existing noise-gate (which does its own resident
-    permutation counting). Bit-identical to the CPU path: GPU discretize == CPU discretize (verified
-    maxdiff 0) and the noise-gate is the same kernel. VRAM-chunked. Returns ``(names, fe_mi)``."""
+    pair-search computes, but with generation+discretization+noise-gate all on the GPU. Only the small
+    int8 disc crosses to host for the existing noise-gate (which does its own resident permutation
+    counting). Bit-identical: GPU discretize == CPU discretize (verified maxdiff 0) and the GPU noise-gate
+    is the production twin. VRAM-chunked. Returns ``(names, fe_mi)``.
+
+    MEASURED (GTX 1050 Ti, K=384, nperm=25, BIT-IDENTICAL to the production ``_dispatch_batch_mi_with_
+    noise_gate`` -- bit=True, argmax match):
+      * vs the PRODUCTION dispatch (its analytic large-n gate): n=50k 3169->717ms 4.42x; n=200k
+        13589->2948ms 4.61x. This is the honest, fair speedup.
+      * vs a forced CPU PERMUTATION gate (which production AVOIDS at large n via the analytic shortcut):
+        n=200k 53902->2753ms ~19.6x -- do NOT quote this as the production win; it is the permutation-path
+        ceiling, shown only to locate where the time goes (the noise-gate dominates at K=384).
+    The default chooser routes the gate to CPU on this host (a tuner mis-calibration: the GPU gate is
+    ~15x faster on the permutation path); grand_fused forces cupy/cuda so the gate runs on the GPU."""
     import cupy as cp
 
     from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
