@@ -139,3 +139,20 @@ the default-path perf surface is mature, so these are the genuine next levers, N
 The GPU-CMI win is realized in both worker paths; the OOM class is closed (robust in p and n); discretization
 is column-parallel. Net: no further default-path /loop win without one of the above (new code) or an
 uncontended large-n box to re-measure the kernel crossovers.
+
+## OOM-pattern sweep: codebase-complete (2026-06-19)
+
+A codebase-wide grep for `_mi_classif_batch(... .to_numpy(float64))` full-matrix materializations confirms
+ALL production FE MI-uplift scorers now route through `mi_classif_batch_chunked` (the 6 orth-FE scorers +
+the shared helper). The only remaining full-matrix `mutual_info_classif` call is in a throwaway benchmark
+script (`fs_hybrid/round4_fe_accept_bench.py`), not shipped code. The engineered-MI OOM class is closed.
+
+## Synergy-aware aggregator (2026-06-19)
+
+`redundancy_aggregator='auto'` shipped as a no-regression-gated OPT-IN (f76a4dba): a per-pair
+interaction-information-vs-permuted-null detector routes to JMIM when synergy is detected, else stays plain
+Fleuret. HARD GATE: reproduces plain-Fleuret selection EXACTLY on additive data and JMIM EXACTLY on
+synergistic data (10 tests). Opt-in not default -- JMIM's synergy recovery is real but modest (balanced XOR at
+n<=8k near the AUC~0.5 floor; recall 4W/15T/1L vs default) while it over-selects on additive data (F1 0.50 vs
+0.94), so the bit-stable Fleuret default stays; `auto` is the strictly-safe way to get JMIM's synergy gain
+without its additive over-selection. The default-path FS/FE optimization surface is now mature on this hardware.
