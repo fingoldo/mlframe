@@ -225,32 +225,25 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     y_gpu = y_gpu - y_min
     n_classes = int(cp.max(y_gpu).item()) + 1
 
-    # Per-column quantile binning: argsort -> rank -> bin lookup.
-    # bin_for_rank[r] = floor(r / (n / n_bins)) with the remainder
-    # absorbed by the first ``rem`` bins (matches njit version exactly).
-    # bench-attempt-rejected (2026-06-20): f32 SORT KEYS (argsort on X_gpu.astype(float32)) to halve the
-    # sort bandwidth on this 69%-of-MI step. Measured NO win on GTX 1050 Ti (n=200k K=384: f64 6566ms vs
-    # f32 6794ms = 0.97x) -- cupy's argsort does not radix-accelerate f32 over f64 here and the astype cast
-    # offsets any bandwidth saving; accuracy was fine (Spearman 0.999995, argmax match) but there is no
-    # speed, so the approximation is not worth it. The real sort win needs a custom radix-rank kernel
-    # (roadmap), not a dtype swap. May differ on cards with a faster f32 radix; re-bench there.
-    sort_idx = cp.argsort(X_gpu, axis=0)  # (n, k) int64
-    base = n // n_bins
-    rem = n - base * n_bins
-    sizes = cp.full(n_bins, base, dtype=cp.int64)
-    if rem > 0:
-        sizes[:rem] += 1
-    offsets = cp.empty(n_bins, dtype=cp.int64)
-    offsets[0] = 0
-    if n_bins > 1:
-        offsets[1:] = cp.cumsum(sizes[:-1])
-    ranks = cp.arange(n, dtype=cp.int64)
-    bin_for_rank = cp.searchsorted(offsets, ranks, side="right") - 1  # (n,)
-
-    # Scatter rank-to-row: X_binned[sort_idx[r, j], j] = bin_for_rank[r]
+    # Per-column quantile binning via cp.percentile EDGES + searchsorted (2026-06-20). Replaced the
+    # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster
+    # (n=200k K=384: 7781ms -> 993ms) with the SAME feature ranking (Spearman 1.0, argmax match). Per-
+    # column edges depend ONLY on that column, so the binning is chunk-INVARIANT (verified on CPU:
+    # test_percentile_binning_chunk_invariant). TRADE-OFF: edge-based equi-frequency vs the njit MI's
+    # rank-based -> not bit-identical to njit at ties, an approved trade (features unchanged; MRMR
+    # selection-equivalence tests still pass). (bench-rejected f32 sort keys: 0.97x, no win.)
+    qs = cp.linspace(0.0, 100.0, n_bins + 1)
+    if k == 1:
+        # CUPY BUG GUARD (2026-06-20): cp.percentile(X, axis=0) returns WRONG edges for a single-column
+        # (n, 1) array (verified maxdiff ~23 vs numpy; multi-column is exact). A k==1 chunk occurs in
+        # production whenever the last VRAM chunk holds one candidate, so this would silently corrupt that
+        # column's binning. Ravel to 1D, where cp.percentile is correct, then restore the (n_bins+1, 1) shape.
+        edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
+    else:
+        edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
     X_binned = cp.empty((n, k), dtype=cp.int64)
-    cols_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
-    X_binned[sort_idx, cols_idx] = bin_for_rank[:, None]
+    for _j in range(k):
+        X_binned[:, _j] = cp.searchsorted(edges[1:-1, _j], X_gpu[:, _j], side="right")
 
     # Joint hist via single bincount on flat index (col, bin, class).
     j_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
