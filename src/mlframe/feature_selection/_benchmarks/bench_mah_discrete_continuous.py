@@ -243,7 +243,7 @@ def print_summary(results_dicts):
     # Per-K.
     Ks = sorted({r["K"] for r in results_dicts})
     print(f"\nPer-K (number of y classes) mean |error|:")
-    print(f"{'estimator':<24}" + ''.join(f'{f\"K={k}\":>10}' for k in Ks))
+    print(f"{'estimator':<24}" + ''.join(f'{("K=" + str(k)):>10}' for k in Ks))
     print("-" * 110)
     for est in by_est:
         row = []
