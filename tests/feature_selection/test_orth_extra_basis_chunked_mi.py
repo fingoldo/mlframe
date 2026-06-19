@@ -51,6 +51,24 @@ def test_mi_classif_batch_chunked_helper_bit_identical():
         assert np.array_equal(got_df, ref), f"DataFrame helper != full at p={p}"
 
 
+def test_helper_bit_identical_for_any_chunk_size_and_ram_aware_default():
+    """The result is bit-identical for ANY chunk_cols (this is what makes the RAM-aware default safe), and the
+    RAM-aware default (chunk_cols=None) also matches the full call."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import mi_classif_batch_chunked
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import _mi_chunk_cols_for
+    rng = np.random.default_rng(5)
+    n, p = 2000, 500
+    X = rng.standard_normal((n, p))
+    y = (rng.random(n) < 0.5).astype(np.int64)
+    ref = _mi_classif_batch(X.astype(np.float64), y, nbins=10)
+    for cc in (1, 7, 64, 333, 10_000):                    # tiny..larger-than-p all bit-identical
+        got = mi_classif_batch_chunked(X, y, nbins=10, chunk_cols=cc)
+        assert np.array_equal(got, ref), f"chunk_cols={cc} not bit-identical"
+    assert np.array_equal(mi_classif_batch_chunked(X, y, nbins=10), ref)   # RAM-aware default
+    # RAM-aware width shrinks with n (bounds block bytes): a 50x larger n yields a <= width
+    assert _mi_chunk_cols_for(50 * n) <= _mi_chunk_cols_for(n)
+
+
 def test_pair_cross_chunked_engineered_mi_bit_identical_to_full():
     """Same chunked-MI fix on the (wider) pair-cross-basis scorer: bit-identical to the full-matrix call."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import score_pair_cross_basis_by_mi_uplift

@@ -185,17 +185,37 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
 
 
-def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = 1024) -> np.ndarray:
+def _mi_chunk_cols_for(n_rows: int) -> int:
+    """RAM-aware column-block width: bound the per-block float64 materialization (n_rows * cols * 8 B, plus a
+    ~3x factor for V, V^2 and the binning transient) to ~10% of free RAM, capped at 1024 cols, floored at 1.
+    A fixed COLUMN count alone is unsafe at large n (1024 cols x n=1M float64 = 8 GiB still OOMs); bounding the
+    block BYTES makes the chunked scorer safe in n as well as p. Conservative 2 GiB fallback if psutil missing."""
+    try:
+        import psutil
+        free = int(psutil.virtual_memory().available)
+    except Exception:
+        free = 2 * 1024 ** 3
+    budget = max(1, int(free * 0.10))
+    by_ram = budget // (max(1, int(n_rows)) * 8 * 3)
+    return int(min(1024, max(1, by_ram)))
+
+
+def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = None) -> np.ndarray:
     """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices (2026-06-19).
 
     The FE MI-uplift scorers (univariate / pair-cross / triplet / quadruplet / adaptive-arity / mi-greedy)
     each materialised the FULL engineered matrix as one float64 array to batch-score MI -- O(n * n_engineered)
     peak RAM that OOMs at scale (measured (16000, 20000) float64 = 2.38 GiB), worst for the combinatorial
     triplet/quadruplet cross-basis families. MI is PER-COLUMN, so scoring in column blocks is BIT-IDENTICAL to
-    the all-at-once call while bounding peak extra RAM to O(n * chunk_cols). Accepts a pandas DataFrame (sliced
-    via ``iloc``, so only the block is materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""
+    the all-at-once call FOR ANY chunk size while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
+    width (see ``_mi_chunk_cols_for`` -- bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
+    pass an explicit value to override. Accepts a pandas DataFrame (sliced via ``iloc``, so only the block is
+    materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""
     is_df = hasattr(X, "iloc")
+    n = int(X.shape[0])
     p = int(X.shape[1])
+    if chunk_cols is None:
+        chunk_cols = _mi_chunk_cols_for(n)
     if p <= chunk_cols:
         arr = X.to_numpy(dtype=np.float64) if is_df else np.asarray(X, dtype=np.float64)
         return _mi_classif_batch(arr, y, nbins=nbins)
