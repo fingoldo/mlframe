@@ -1126,6 +1126,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # restore the legacy "let the pipeline fail loudly" semantics. Chosen features are flagged via
         # ``self.fallback_used_``.
         min_features_fallback: int = 1,  # [ACCURACY-CAVEAT] 0 removes the never-empty floor (support_ can be empty); see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
+        # SIS FRONT GATE (Gate A of the p=100k cascade -- see tests/feature_selection/MRMR_100K_SCALING_DESIGN.md
+        # and filters/_mrmr_sis_screen.py). When the input width p reaches this threshold, a single chunked
+        # O(p*n) screen (fused marginal-MI + 2nd-moment interaction propensity) cuts the pool to a few thousand
+        # data-derived survivors BEFORE the super-linear MRMR/Fleuret/FE machinery runs. This is the
+        # fastest-default DISPATCH knob, not a user opt-in: below the threshold today's path runs unchanged;
+        # at/above it the gate makes wide frames feasible. Set to 0 / None to disable the gate entirely.
+        sis_screen_threshold: int = 20000,
         # Cat-FE (categorical feature interactions): single dataclass consolidating ~22 cat_fe_* knobs.
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
@@ -3548,6 +3555,44 @@ class MRMR(BaseEstimator, TransformerMixin):
         except Exception:
             pass
 
+    def _apply_sis_screen(self, X, y):
+        """Gate A: run the chunked SIS screen and subset ``X`` to the survivor columns.
+
+        Returns a column-subset of ``X`` (same container type: pandas / polars / numpy). Reuses the
+        standalone ``sis_screen`` (filters/_mrmr_sis_screen) -- no kernel logic here, just I/O + subsetting.
+        ``k_target`` feeds the survivor floor (the requested number of finally-selected features)."""
+        from .._mrmr_sis_screen import sis_screen
+
+        # ndarray view of X for the screen (the screen reads it in column blocks; a memmap stays on disk).
+        if isinstance(X, pd.DataFrame):
+            Xmat = X.to_numpy()
+        elif str(type(X).__module__).startswith("polars"):
+            Xmat = X.to_numpy()
+        else:
+            Xmat = np.asarray(X)
+
+        k_target = getattr(self, "n_features", None)
+        try:
+            k_target = int(k_target) if k_target is not None else None
+        except (TypeError, ValueError):
+            k_target = None
+
+        survivors = sis_screen(Xmat, y, k_target=k_target)
+        survivors = np.asarray(survivors, dtype=np.int64)
+        self.sis_survivors_ = survivors
+        self.sis_n_input_features_ = int(Xmat.shape[1])
+        logger.info(
+            "[MRMR] SIS front gate: %d -> %d survivors (k_target=%s)",
+            int(Xmat.shape[1]), int(survivors.size), k_target,
+        )
+
+        # Subset in the caller's container type so the downstream path is identical to a natively narrow frame.
+        if isinstance(X, pd.DataFrame):
+            return X.iloc[:, survivors]
+        if str(type(X).__module__).startswith("polars"):
+            return X[:, survivors.tolist()]
+        return X[:, survivors]
+
     @hygienic_fit
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
@@ -3786,6 +3831,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         # On older pandas without CoW a shallow copy could write through an existing-cell
         # mutation, so fall back to a deep copy there (~11 ms at n=20k/p=299 -- negligible vs
         # the multi-minute FE pipeline). Copy ONCE here, not per FE step.
+        # SIS FRONT GATE (Gate A) dispatch. When the frame is at/above ``sis_screen_threshold`` columns, run
+        # the chunked O(p*n) screen (filters/_mrmr_sis_screen.sis_screen) to cut the pool to a few thousand
+        # data-derived survivors BEFORE the super-linear MRMR machinery. Fastest-default dispatch, not opt-in.
+        # Subsetting X to survivor columns (pandas/polars/numpy) keeps the rest of fit unchanged; the screen
+        # is best-effort -- any failure falls through to the full path.
+        try:
+            _sis_thr = int(getattr(self, "sis_screen_threshold", 0) or 0)
+            _p_in = int(X.shape[1]) if hasattr(X, "shape") and getattr(X, "ndim", 1) > 1 else 0
+            if _sis_thr and _p_in >= _sis_thr:
+                X = self._apply_sis_screen(X, y)
+        except Exception as _sis_exc:
+            warnings.warn(
+                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; "
+                f"falling back to the full-width MRMR path.",
+                UserWarning, stacklevel=2,
+            )
+
         if isinstance(X, pd.DataFrame):
             _cow_on = True
             try:
