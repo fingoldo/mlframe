@@ -34,16 +34,23 @@ def _disable_kernel_tuning_sweep():
         import pyutilz.performance.kernel_tuning.cache as _M
 
         def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
-            return fallback() if callable(fallback) else fallback
+            if not callable(fallback):
+                return fallback
+            try:
+                return fallback()
+            except TypeError:
+                try:
+                    return fallback(**dims)
+                except TypeError:
+                    return fallback(*dims.values())
         _M.KernelTuningCache.get_or_tune = _no_sweep
         _inmem = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
         print("[kernel-tuning sweep+disk DISABLED -> in-memory fallback]", flush=True)
     except Exception as e:
         print(f"[no-sweep patch failed: {e}]", flush=True)
-
-
-_disable_kernel_tuning_sweep()
+# NOTE: do NOT call _disable_kernel_tuning_sweep() at import -- discover_tuners imports this module and an
+# import-time monkeypatch of get_or_tune breaks ``refresh-all``. It is invoked under __main__ below.
 
 
 def load_data() -> tuple[pd.DataFrame, pd.Series]:
@@ -158,6 +165,7 @@ def run_profile() -> None:
 
 
 if __name__ == "__main__":
+    _disable_kernel_tuning_sweep()
     if MODE == "baseline":
         run_baseline()
     elif MODE == "verify":
