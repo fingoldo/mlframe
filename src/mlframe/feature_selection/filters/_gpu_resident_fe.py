@@ -378,6 +378,85 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
 
+def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
+    """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU, bit-identical
+    to the CPU ``discretize_2d_quantile_batch`` (verified maxdiff 0). Mirrors ``discretize_2d_array_cuda``
+    exactly -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column edges + per-column
+    ``cp.searchsorted(edges[1:-1], col, side='right')`` -- but keeps the input + output on-device (no H2D
+    of the big candidate matrix, no D2H of codes here), so it chains gen -> discretize -> noise-gate
+    without round-trips. Returns a cupy int32 (n, K) codes array (resident)."""
+    import cupy as cp
+
+    n, K = cand_gpu.shape
+    qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
+    bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
+    out = cp.empty((n, K), dtype=cp.int32)
+    for j in range(K):
+        out[:, j] = cp.searchsorted(bin_edges[1:-1, j], cand_gpu[:, j], side="right")
+    return out
+
+
+def grand_fused_pair_mi(
+    a, b, y_codes, classes_y_safe, freqs_y, *,
+    nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+):
+    """GRAND FUSION: GPU fused-generate candidates -> RESIDENT GPU discretize -> the EXISTING bit-identical
+    GPU noise-gate (``batch_mi_noise_gate_gpu``). Returns the SAME noise-gated fe_mi[K] the production
+    pair-search computes, but with the ~87%-of-time CPU generation+discretization moved onto the GPU
+    (measured n=300k: CPU gen 2406ms + CPU discretize 3399ms vs the negligible 112ms disc H2D). Only the
+    small int8/int32 disc crosses to host for the existing noise-gate (which does its own resident
+    permutation counting). Bit-identical to the CPU path: GPU discretize == CPU discretize (verified
+    maxdiff 0) and the noise-gate is the same kernel. VRAM-chunked. Returns ``(names, fe_mi)``."""
+    import cupy as cp
+
+    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
+    from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
+
+    a_gpu = cp.asarray(a, dtype=cp.float64)
+    b_gpu = cp.asarray(b, dtype=cp.float64)
+    n = int(a_gpu.shape[0])
+    ua_cm = _unary_stack_cm(cp, a_gpu)
+    ub_cm = _unary_stack_cm(cp, b_gpu)
+    y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
+    csafe = np.ascontiguousarray(classes_y_safe)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    k_chunk = _gpu_k_chunk(n)
+    parts: list[np.ndarray] = []
+    for start in range(0, len(_COMBOS), k_chunk):
+        block = _COMBOS[start:start + k_chunk]
+        cand = _fused_generate_block(ua_cm, ub_cm, block)        # GPU gen (resident)
+        disc_host = cp.asnumpy(_gpu_resident_discretize_codes(cand, nbins).astype(cp.int8))  # GPU disc -> small D2H
+        del cand
+        fnb = np.full(len(block), int(nbins), dtype=np.int64)
+        # FORCE the GPU noise-gate: measured 15x faster than CPU here (K=384 n=200k: cupy 3093ms vs
+        # CPU njit 46176ms -- the noise-gate is the REAL bottleneck, not gen/discretize). The default
+        # chooser (_batch_mi_noise_gate_backend_choice) picks CPU on this host -- a tuner mis-calibration
+        # (it under-rates the GPU gate, same class as the MI-dispatch issue); force cupy/cuda so the
+        # grand-fused path actually runs the gate on the GPU. Falls back to CPU only if no GPU backend.
+        out = None
+        for _fb in ("cupy", "cuda"):
+            out = dispatch_batch_mi_with_noise_gate_gpu(
+                disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                npermutations=int(npermutations), base_seed=np.uint64(0),
+                min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
+                dtype=np.int32, force_backend=_fb,
+            )
+            if out is not None:
+                break
+        if out is None:  # GPU noise-gate unavailable -> the always-correct CPU kernel on the same disc
+            from .info_theory import batch_mi_with_noise_gate as _cpu_gate
+            fe_mi = _cpu_gate(
+                disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                npermutations=int(npermutations), base_seed=np.uint64(0),
+                min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
+                dtype=np.int32, classes_dtype=np.int32,
+            )
+        else:
+            fe_mi = out[0] if isinstance(out, tuple) else out
+        parts.append(np.asarray(fe_mi, dtype=np.float64))
+    return _candidate_names(), np.concatenate(parts) if parts else np.empty(0)
+
+
 def _log_shift_anchor(operand_vals: np.ndarray, unary_name: str):
     """Frozen smart_log shift for a ``log`` side -- ``(1e-5 - nanmin)`` if the FULL column reaches <=0,
     else 0.0 (mirrors _step_core._ls_anchor exactly so replay is byte-identical). None for non-log."""

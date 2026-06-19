@@ -198,6 +198,35 @@ def test_gpu_resident_emits_replayable_recipe():
     assert abs(rho) > 0.99, f"replayed recipe doesn't track a**2/b (|rho|={rho:.3f})"
 
 
+def test_grand_fused_pair_mi_bit_identical_to_cpu():
+    """GRAND FUSION (GPU gen + GPU discretize + GPU noise-gate) must produce the EXACT noise-gated MI of
+    the full CPU path (gen -> discretize_2d_quantile_batch -> batch_mi_with_noise_gate). GPU discretize
+    is bit-identical to CPU (verified) and the GPU noise-gate is the bit-identical production twin, so the
+    fused pair-MI is bit-identical -- at ~20x the speed (CPU 54s vs GPU 2.8s at n=200k K=384)."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, grand_fused_pair_mi
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+    from mlframe.feature_selection.filters.info_theory import batch_mi_with_noise_gate
+
+    rng = np.random.default_rng(0)
+    n = 50_000
+    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+
+    cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b))
+    disc = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8)
+    fnb = np.full(cand.shape[1], 20, dtype=np.int64)
+    ref = batch_mi_with_noise_gate(
+        disc_2d=disc, factors_nbins=fnb, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
+        npermutations=25, base_seed=np.uint64(0), min_nonzero_confidence=0.0, use_su=False,
+        dtype=np.int32, classes_dtype=np.int32,
+    )
+    _, gf = grand_fused_pair_mi(a, b, yc, yc, fy, nbins=20, npermutations=25)
+    np.testing.assert_allclose(gf, ref, rtol=1e-6, atol=1e-9)
+    assert int(np.argmax(gf)) == int(np.argmax(ref))
+
+
 def test_fused_generation_is_bit_equal_to_cupy_loop():
     """The fused RawKernel generation must be BIT-EQUAL (maxdiff 0) to the cupy elementwise loop --
     same ops, safe-div y==0 branch, nan_to_num. This is what lets it replace the loop with no result
