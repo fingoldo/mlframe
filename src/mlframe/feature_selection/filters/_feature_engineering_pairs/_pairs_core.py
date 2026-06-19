@@ -1675,7 +1675,21 @@ def check_prospective_fe_pairs(
                 for _lc in leading_features:
                     try:
                         _li = _lc[2]
-                        _lvals = final_transformed_vals[:, _li] if final_transformed_vals is not None else None
+                        if final_transformed_vals is not None:
+                            _lvals = final_transformed_vals[:, _li]
+                        elif _config_by_i is not None and _li in _config_by_i:
+                            # Recompute fallback (no hoisted buffer): rebuild the leader's
+                            # CONTINUOUS column from its (a_key, b_key, bin_func_name) metadata
+                            # so the linear-usability tie-break is identical to the buffered path
+                            # (the two paths MUST select the same survivor among MI-equal leaders).
+                            _a_key, _b_key, _bin_name = _config_by_i[_li]
+                            _pa = transformed_vars[:, vars_transformations[_a_key]]
+                            _pb = transformed_vars[:, vars_transformations[_b_key]]
+                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                _lvals = binary_transformations[_bin_name](_pa, _pb)
+                            _lvals = np.nan_to_num(np.asarray(_lvals, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        else:
+                            _lvals = None
                         if _lvals is not None:
                             _leader_usability[_lc] = _safe_abs_corr(_lvals)
                     except Exception:

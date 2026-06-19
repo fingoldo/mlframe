@@ -233,3 +233,17 @@ class TestFastVsFallbackEquivalence:
                     fast_lookup[nm], slow_lookup[nm],
                     err_msg=f"{k}/{nm}: fast vs fallback column differs",
                 )
+
+    @pytest.mark.fast
+    def test_recompute_path_applies_linear_usability_tiebreak(self, synthetic_pair_inputs, monkeypatch):
+        """Among MI-equal leaders the survivor is chosen by the linear-usability
+        (|corr(y)|) tie-break. The recompute fallback (no hoisted buffer) has no
+        materialised columns, so it must REBUILD each leader's continuous column to
+        apply the SAME tie-break -- otherwise it picks a different survivor than the
+        buffered path. Regression for the (0,1) divergence
+        max(a,sqrt(b)) (buffered) vs add(sqr(a),abs(b)) (recompute)."""
+        monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 1.0)
+        fast = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
+        monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
+        slow = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
+        assert sorted(fast[(0, 1)][2]) == sorted(slow[(0, 1)][2])
