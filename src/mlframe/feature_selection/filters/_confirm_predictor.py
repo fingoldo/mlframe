@@ -43,6 +43,7 @@ from .evaluation import (
     get_candidate_name,
     handle_best_candidate,
     should_skip_candidate,
+    _prefill_cond_MIs_gpu,
 )
 from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
@@ -334,6 +335,29 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             # No need to check every can out of order: let's just return next best known candidate
             best_gain, best_candidate, run_out_of_time = 1, 1, False
         else:
+            # Batched-GPU conditional-MI cache pre-fill for the SERIAL path (default ON;
+            # env kill-switch MLFRAME_MRMR_GPU_CMI=0). Same win as the parallel wiring in
+            # _evaluate_candidates_inner: pre-populate the shared python ``cached_cond_MIs``
+            # with batched I(X; Y | Z) so the @njit evaluate_gain loop hits the cache and
+            # skips the serial scalar conditional_mi. Unlike the parallel path (which writes
+            # a per-worker numba dict to avoid a concurrent "dict changed size" race), the
+            # serial loop has NO concurrent iteration, so writing the plain python dict in
+            # place BEFORE the loop is race-free. The helper reuses the exact arr2str key
+            # format and the same size/HW dispatch + SU/JMIM/order-1 gating; bit-parity
+            # kernel => selection unchanged; any failure / non-eligible regime is a silent
+            # no-op (scalar path).
+            _prefill_cond_MIs_gpu(
+                workload=feasible_candidates,
+                y=y,
+                factors_data=factors_data,
+                factors_nbins=factors_nbins,
+                selected_vars=selected_vars,
+                cached_cond_MIs=cached_cond_MIs,
+                use_simple_mode=use_simple_mode,
+                mrmr_relevance_algo=mrmr_relevance_algo,
+                max_veteranes_interactions_order=max_veteranes_interactions_order,
+            )
+
             for cand_idx, X, nexisting in feasible_candidates:
 
                 current_gain, sink_reasons = evaluate_candidate(
