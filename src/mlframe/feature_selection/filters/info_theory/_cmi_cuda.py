@@ -239,7 +239,7 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     return out
 
 
-def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:
+def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:  # noqa: C901
     """Size/HW gate. Routes to CUDA at large (n, p) where the batched launch wins; CPU otherwise.
 
     Integrates with the FS kernel_tuning_cache singleton (pyutilz). On cache hit the decision is the
@@ -249,9 +249,20 @@ def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:
     """
     if not cupy_available():
         return False
-    # VRAM guard (GTX 1050 Ti = 4 GB): keep the joint output bounded.
-    bytes_needed = p * joint_size * 4
-    if bytes_needed > 512 * 1024 * 1024:  # >512 MB output -> not worth / unsafe; CPU
+    # VRAM guard (GTX 1050 Ti = 4 GB): the dominant device buffer is the candidate matrix Xc
+    # (p * n * 4 bytes); the joint output is p * joint_size * 4. Reject if the combined working
+    # set would exceed a conservative slice of free VRAM (leave headroom for the model / other
+    # worker). Best-effort free-VRAM probe; falls back to a fixed cap.
+    bytes_needed = p * n * 4 + p * joint_size * 4
+    cap = 1536 * 1024 * 1024  # 1.5 GB conservative cap (shared 4 GB card)
+    try:
+        import cupy as cp
+
+        free_b, _total = cp.cuda.runtime.memGetInfo()
+        cap = min(cap, int(free_b * 0.5))
+    except Exception:  # noqa: BLE001
+        pass
+    if bytes_needed > cap:
         return False
     # Shared-mem guard: cc 6.x has 48 KB/block -> joint_size*4 must fit.
     if joint_size * 4 > 48 * 1024:
