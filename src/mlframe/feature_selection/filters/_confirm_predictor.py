@@ -29,7 +29,9 @@ from dataclasses import dataclass, field
 from timeit import default_timer as timer
 from typing import Sequence
 
+import numba
 import numpy as np
+from numba.core import types
 from joblib import delayed
 
 from pyutilz.parallel import split_list_into_chunks
@@ -117,7 +119,15 @@ class ScreenContext:
     cached_MIs: dict
     cached_confident_MIs: dict
     cached_cond_MIs: object
-    entropy_cache: object
+    # 2026-06-19: JMIM joint-MI cache (numba typed dict) + 1-elem int64 hit-counter
+    # array, mirroring ``cached_cond_MIs``. Lazily built in ``score_candidates`` on
+    # first use so they persist across greedy rounds (cross-round reuse of the
+    # ``{X} u Z`` multiset key). ``None`` default keeps direct ScreenContext callers
+    # backward-compatible. Both are converted to plain values at any pickling
+    # boundary (the typed dict never escapes onto an instance).
+    cached_jmim_MIs: object = None
+    jmim_hit_counter: object = None
+    entropy_cache: object = None
     # --- per-interactions-order / per-node mutable state ---
     candidates: list = None
     # 2026-05-30 Wave 9 — DCD state forwarded into ``should_skip_candidate``
@@ -179,6 +189,20 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     cached_MIs = ctx.cached_MIs
     num_possible_candidates = ctx.num_possible_candidates
     cached_cond_MIs = ctx.cached_cond_MIs
+    # 2026-06-19: JMIM joint-MI cache + hit counter (see ScreenContext). Lazily
+    # provisioned for direct ScreenContext callers that don't set them, so the
+    # serial evaluate_candidate path always gets a real numba dict (the @njit
+    # kernel types the cache ``in`` check unconditionally).
+    cached_jmim_MIs = getattr(ctx, "cached_jmim_MIs", None)
+    jmim_hit_counter = getattr(ctx, "jmim_hit_counter", None)
+    if cached_jmim_MIs is None:
+        cached_jmim_MIs = numba.typed.Dict.empty(
+            key_type=types.unicode_type, value_type=types.float64,
+        )
+        ctx.cached_jmim_MIs = cached_jmim_MIs
+    if jmim_hit_counter is None:
+        jmim_hit_counter = np.zeros(1, dtype=np.int64)
+        ctx.jmim_hit_counter = jmim_hit_counter
     entropy_cache = ctx.entropy_cache
     workers_pool = ctx.workers_pool
     y = ctx.y
@@ -384,6 +408,8 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                     cached_MIs=cached_MIs,
                     cached_confident_MIs=cached_confident_MIs,
                     cached_cond_MIs=cached_cond_MIs,
+                    cached_jmim_MIs=cached_jmim_MIs,
+                    jmim_hit_counter=jmim_hit_counter,
                     entropy_cache=entropy_cache,
                     verbose=verbose,
                     ndigits=ndigits,
@@ -410,6 +436,18 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
 
     if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
         logger.info("evaluate_candidates took %.1f sec.", timer() - eval_start)
+
+    # 2026-06-19: publish JMIM cache observability (size + cumulative hits) so tests /
+    # benches can confirm the cache engages. Only meaningful in JMIM mode; harmless else.
+    try:
+        from .info_theory import use_jmim_aggregator as _use_jmim_obs
+        if _use_jmim_obs():
+            from . import evaluation as _ev_obs
+            _ev_obs._JMIM_CACHE_STATS.append(
+                {"size": len(cached_jmim_MIs), "hits": int(jmim_hit_counter[0])}
+            )
+    except Exception:
+        pass
 
     return best_gain, best_candidate, run_out_of_time
 

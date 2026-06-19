@@ -43,6 +43,13 @@ from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
 
+# 2026-06-19: observability sink for the JMIM joint-MI cache (see _evaluate_candidates_inner).
+# Each completed JMIM-mode candidate-evaluation appends {"size", "hits"}. Bounded so a long
+# fit cannot grow it without limit. Read by tests / benches to confirm the cache engages;
+# carries no algorithmic meaning and is safe to clear() at any time.
+from collections import deque as _deque
+_JMIM_CACHE_STATS: "_deque" = _deque(maxlen=4096)
+
 # Significance level for the permutation-null debiasing of the relevance MI. A candidate whose relevance permutation p-value is BELOW this alpha is SIGNIFICANT -- it sits
 # above its own null distribution -- and keeps its FULL observed MI (no subtraction); a candidate at/above alpha is NOT significant and has the empirical null mean subtracted
 # (``max(0, observed - null_mean)``), demoting it toward zero. This replaces the earlier fixed keep-fraction clamp with the textbook discriminator the clamp was a proxy for:
@@ -261,6 +268,7 @@ def evaluate_candidates(
     cached_MIs: dict = None,
     cached_confident_MIs: dict = None,
     cached_cond_MIs: dict = None,
+    cached_jmim_MIs: dict = None,
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
@@ -314,7 +322,8 @@ def evaluate_candidates(
             classes_y=classes_y, freqs_y=freqs_y,
             freqs_y_safe=freqs_y_safe, use_gpu=use_gpu,
             cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
-            cached_cond_MIs=cached_cond_MIs, entropy_cache=entropy_cache,
+            cached_cond_MIs=cached_cond_MIs, cached_jmim_MIs=cached_jmim_MIs,
+            entropy_cache=entropy_cache,
             mrmr_relevance_algo=mrmr_relevance_algo,
             mrmr_redundancy_algo=mrmr_redundancy_algo,
             max_veteranes_interactions_order=max_veteranes_interactions_order,
@@ -337,6 +346,7 @@ def _evaluate_candidates_inner(
     partial_gains, selected_vars, baseline_npermutations,
     classes_y=None, freqs_y=None, freqs_y_safe=None, use_gpu=True,
     cached_MIs=None, cached_confident_MIs=None, cached_cond_MIs=None,
+    cached_jmim_MIs=None,
     entropy_cache=None, mrmr_relevance_algo="fleuret",
     mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
     dtype=np.int32, max_runtime_mins=None, start_time=None,
@@ -358,6 +368,19 @@ def _evaluate_candidates_inner(
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
+
+    # 2026-06-19: JMIM joint-MI cache, built the SAME way as cached_cond_MIs (numba typed
+    # dict seeded from the optional python dict the caller threads through; merged back to a
+    # plain python dict at the return boundary so nothing non-picklable escapes onto an
+    # instance). Keyed on arr2str({X} u Z); only the JMIM branch of evaluate_gain touches it.
+    cached_jmim_MIs_dict = numba.typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.float64,
+    )
+    python_dict_2_numba_dict(python_dict=cached_jmim_MIs or {}, numba_dict=cached_jmim_MIs_dict)
+    # 1-element int64 hit counter, mutated in place by the @njit evaluate_gain on every
+    # JMIM cache read-hit (an array, since @njit cannot mutate a python scalar by ref).
+    jmim_hit_counter = np.zeros(1, dtype=np.int64)
 
     # Batched-GPU conditional-MI cache pre-fill (default ON; env kill-switch MLFRAME_MRMR_GPU_CMI=0).
     # Realises the GPU win: pre-populate the LOCAL numba cond-MI dict with batched I(X; Y | Z) so the
@@ -406,6 +429,8 @@ def _evaluate_candidates_inner(
             cached_MIs=cached_MIs,
             cached_confident_MIs=cached_confident_MIs,
             cached_cond_MIs=cached_cond_MIs_dict,
+            cached_jmim_MIs=cached_jmim_MIs_dict,
+            jmim_hit_counter=jmim_hit_counter,
             entropy_cache=entropy_cache_dict,
             verbose=verbose,
             ndigits=ndigits,
@@ -431,6 +456,21 @@ def _evaluate_candidates_inner(
 
     entropy_cache = dict(entropy_cache_dict)
     cached_cond_MIs = dict(cached_cond_MIs_dict)
+    # 2026-06-19: convert the JMIM typed dict back to a plain python dict at the
+    # boundary (mirrors cached_cond_MIs) so nothing non-picklable can leak onto an
+    # instance. The cache is currently per-call (not threaded through the driver's
+    # 7-tuple return, which other modules unpack positionally), so it is discarded
+    # here -- its only effect is within-call memoisation of repeated {X} u Z keys.
+    # The final size is published to the module-level stats deque purely for
+    # observability (the parity test reads it to PROVE the cache populated/hit).
+    # bench (2026-06-19, n=4000 p=40 order-2 JMIM): cache delivers ~117k HITS over ~1.26M
+    # entries -> real cross-round reuse; selection byte-identical (test_jmim_cache_parity).
+    # At interactions_max_order==1 the (current_gain, last_checked_k) resume already evaluates
+    # each (X, Z) once across the whole fit, so the cache populates but never HITS (n=6000
+    # p=150: ~456k entries, 0 hits) -- harmless, kept for the order>=2 win.
+    cached_jmim_MIs = dict(cached_jmim_MIs_dict)
+    if use_jmim_aggregator():
+        _JMIM_CACHE_STATS.append({"size": len(cached_jmim_MIs), "hits": int(jmim_hit_counter[0])})
 
     return best_gain, best_candidate, partial_gains, expected_gains, cached_MIs, cached_cond_MIs, entropy_cache
 
@@ -487,6 +527,16 @@ def evaluate_gain(
     sink_threshold: float = -1.0,
     entropy_cache: dict = None,
     cached_cond_MIs: dict = None,
+    # 2026-06-19: JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the
+    # multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it
+    # is not part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent
+    # is applied at READ time, exactly as the plain-CMI branch does for its cache.
+    cached_jmim_MIs: dict = None,
+    # 2026-06-19: 1-element int64 array hit counter for the JMIM cache. An array
+    # (not a scalar) so the @njit kernel can mutate it in place and the caller can
+    # read the post-loop count -- proves the cache actually HITS, not just that it
+    # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
+    jmim_hit_counter: np.ndarray = None,
     can_use_x_cache=False,
     can_use_y_cache=False,
     dtype=np.int32,
@@ -578,11 +628,35 @@ def evaluate_gain(
                                 _x_int = np.asarray(X, dtype=np.int64)
                                 _z_int = np.asarray(Z, dtype=np.int64)
                                 xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
-                                additional_knowledge = mi(
-                                    factors_data=factors_data,
-                                    x=xz_combined, y=y,
-                                    factors_nbins=factors_nbins, dtype=dtype,
-                                )
+                                # 2026-06-19: JMIM joint-MI cache. The multiset {X} u Z recurs
+                                # across greedy rounds (and across (X, Z) swaps within a round),
+                                # so memoise the raw mi({X,Z}; y) keyed on arr2str(xz_combined).
+                                # Stored RAW; nexisting exponent applied below at read time, as
+                                # the plain-CMI branch does. ``y`` is fixed per fit -> not in key.
+                                # Independent of the cond-MI cache so JMIM and CMI values never
+                                # collide under the same arr2str(X)+"|"+arr2str(Z) key.
+                                # ``cached_jmim_MIs`` / ``jmim_hit_counter`` may be None when a
+                                # direct caller invokes evaluate_gain without the cache wired
+                                # (e.g. focused unit tests). Guard with ``is not None`` -- numba
+                                # narrows the Optional so the typed-dict ``in``/index ops only
+                                # type-check on the non-None branch; the uncached fallback just
+                                # recomputes mi() every time (pre-cache behaviour).
+                                _jmim_key = arr2str(xz_combined)
+                                if (not confidence_mode) and (cached_jmim_MIs is not None) and (_jmim_key in cached_jmim_MIs):
+                                    additional_knowledge = cached_jmim_MIs[_jmim_key]
+                                    if jmim_hit_counter is not None:
+                                        jmim_hit_counter[0] += 1
+                                    key_found = True
+                                else:
+                                    additional_knowledge = mi(
+                                        factors_data=factors_data,
+                                        x=xz_combined, y=y,
+                                        factors_nbins=factors_nbins, dtype=dtype,
+                                    )
+                                    if (not confidence_mode) and (cached_jmim_MIs is not None):
+                                        cached_jmim_MIs[_jmim_key] = additional_knowledge
+                                if nexisting > 0:
+                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
                             elif use_su:
                                 additional_knowledge = conditional_symmetric_uncertainty(
                                     factors_data=factors_data, x=X, y=y, z=Z,
@@ -610,10 +684,18 @@ def evaluate_gain(
                             # write. This makes the cache nexisting-
                             # independent and lets all callers share
                             # the underlying CMI compute.
-                            if not confidence_mode:
-                                cached_cond_MIs[key] = additional_knowledge
-                            if nexisting > 0:
-                                additional_knowledge = additional_knowledge ** (nexisting + 1)
+                            # 2026-06-19: JMIM manages its OWN cache + exponent above
+                            # (cached_jmim_MIs, keyed on the {X} u Z multiset). Skip the
+                            # shared cond-MI write/exponent here so JMIM values are neither
+                            # stored under the CMI key nor double-exponentiated. The SU
+                            # branch is uncached by design; the plain-CMI branch keeps the
+                            # legacy write/exponent. ``key`` is undefined when use_jmim, so
+                            # this guard also avoids a NameError under JMIM.
+                            if not use_jmim:
+                                if not confidence_mode:
+                                    cached_cond_MIs[key] = additional_knowledge
+                                if nexisting > 0:
+                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
 
                     # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
                     # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
@@ -664,6 +746,8 @@ def evaluate_candidate(
     cached_MIs: dict = None,
     cached_confident_MIs: dict = None,
     cached_cond_MIs: dict = None,
+    cached_jmim_MIs: dict = None,
+    jmim_hit_counter: np.ndarray = None,
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
@@ -822,6 +906,22 @@ def evaluate_candidate(
                 current_gain = LARGE_CONST
                 last_checked_k = -1
 
+            # 2026-06-19: the @njit evaluate_gain types the JMIM-cache ``in`` check
+            # unconditionally (even when use_jmim is off), so it needs a REAL numba
+            # typed dict + a real counter array, never None. Callers that do not
+            # thread a shared cache (e.g. the serial/parallel _confirm_predictor
+            # path) leave these None; self-provision a fresh per-call typed dict +
+            # zeroed counter here so the kernel always type-checks. A fresh local
+            # dict gives within-call memoisation only (the cross-round reuse needs
+            # the driver to thread a shared dict, mirroring cached_cond_MIs) and is
+            # purely local => never leaks onto an instance / breaks pickle.
+            if cached_jmim_MIs is None:
+                cached_jmim_MIs = numba.typed.Dict.empty(
+                    key_type=types.unicode_type, value_type=types.float64,
+                )
+            if jmim_hit_counter is None:
+                jmim_hit_counter = np.zeros(1, dtype=np.int64)
+
             stopped_early, current_gain, k, sink_reasons = evaluate_gain(
                 current_gain=current_gain,
                 last_checked_k=last_checked_k,
@@ -840,6 +940,8 @@ def evaluate_candidate(
                 sink_threshold=sink_threshold,
                 entropy_cache=entropy_cache,
                 cached_cond_MIs=cached_cond_MIs,
+                cached_jmim_MIs=cached_jmim_MIs,
+                jmim_hit_counter=jmim_hit_counter,
                 can_use_x_cache=True,
                 can_use_y_cache=True,
                 use_su=use_su_normalization(),

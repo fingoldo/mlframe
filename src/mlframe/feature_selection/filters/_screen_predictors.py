@@ -416,6 +416,15 @@ def screen_predictors(
             key_type=types.unicode_type,
             value_type=types.float64,
         )
+        # 2026-06-19: JMIM joint-MI cache, built once per fit alongside cached_cond_MIs so
+        # it persists across greedy rounds (the {X} u Z multiset key recurs as selected_vars
+        # grows). Plain int64 array counts cache HITS for observability. Both are forwarded
+        # through ScreenContext to evaluate_candidate; never pickled onto the instance.
+        cached_jmim_MIs = numba.typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=types.float64,
+        )
+        jmim_hit_counter = np.zeros(1, dtype=np.int64)
 
         # 2026-05-30 Wave 9 — Dynamic Cluster Discovery state construction.
         # Built only when ``dcd_config`` is provided AND ``enable=True``. The
@@ -600,6 +609,8 @@ def screen_predictors(
             cached_MIs=cached_MIs,
             cached_confident_MIs=cached_confident_MIs,
             cached_cond_MIs=cached_cond_MIs,
+            cached_jmim_MIs=cached_jmim_MIs,
+            jmim_hit_counter=jmim_hit_counter,
             entropy_cache=entropy_cache,
             selected_vars=selected_vars,
             selected_interactions_vars=selected_interactions_vars,
