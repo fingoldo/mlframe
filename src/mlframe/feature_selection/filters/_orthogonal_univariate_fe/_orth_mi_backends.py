@@ -211,6 +211,10 @@ def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = None) -
     width (see ``_mi_chunk_cols_for`` -- bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
     pass an explicit value to override. Accepts a pandas DataFrame (sliced via ``iloc``, so only the block is
     materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""
+    # The block loop below stays SEQUENTIAL by design: ``_mi_classif_batch`` already parallelises across the
+    # block's columns via the numba prange batch kernel, so each per-block call saturates all cores. Threading
+    # the block loop on top would OVERSUBSCRIBE the prange pool (no speedup, likely slower) -- bench-rejected
+    # (2026-06-19); the chunking is a MEMORY bound, not a missing parallelism lever.
     is_df = hasattr(X, "iloc")
     n = int(X.shape[0])
     p = int(X.shape[1])
