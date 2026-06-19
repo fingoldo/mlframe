@@ -344,7 +344,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         # A1 JMIM redundancy aggregator (Bennasar 2015). Alternative to Fleuret CMIM
         # ``min_k I(X_k; Y | Z_j)``; JMIM uses ``min_j I(X_k, X_j; Y)`` which
         # preserves synergy that CMIM rejects on multi-collinear groups.
-        #   None (legacy) | 'jmim'
+        #   None (legacy) | 'jmim' | 'auto' (data-dependent: a cheap pre-fit synergy probe routes to JMIM
+        #   only when the data is synergistic, else stays plain Fleuret -- so the additive-regime
+        #   over-selection that keeps 'jmim' opt-in is avoided. See _synergy_detector.detect_synergy.)
         redundancy_aggregator: str = None,
         # A3 MRwMR-BUR unique-relevance bonus (Gao 2022). Additive bonus on the
         # MRMR score for features whose marginal-y relevance cannot be explained
@@ -2862,7 +2864,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     )
     # opt-in validation sets.
     _VALID_MI_CORRECTIONS = ("none", "miller_madow", "chao_shen")
-    _VALID_REDUNDANCY_AGGREGATORS = (None, "jmim")
+    _VALID_REDUNDANCY_AGGREGATORS = (None, "jmim", "auto")
     _VALID_STABILITY_SELECTION_METHODS = (
         "classic", "cluster", "complementary_pairs",
     )
@@ -3958,7 +3960,32 @@ class MRMR(BaseEstimator, TransformerMixin):
         # activate JMIM aggregator + BUR weight thread-locals.
         # Both default OFF (redundancy_aggregator=None, bur_lambda=0.0) so the
         # legacy Fleuret path stays bit-stable.
-        _jmim_on = getattr(self, "redundancy_aggregator", None) == "jmim"
+        _redundancy_agg = getattr(self, "redundancy_aggregator", None)
+        if _redundancy_agg == "auto":
+            # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
+            # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain
+            # Fleuret so the additive-regime over-selection that keeps 'jmim' opt-in cannot regress. The
+            # detector threshold is a multiple of a label-permuted null scale read from kernel_tuning_cache
+            # (data-derived, no hardcoded magic). Decision recorded on a fit-only attr for explain/logging.
+            _jmim_on = False
+            try:
+                from .._synergy_detector import detect_synergy
+                _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
+                _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                _jmim_on, _syn_info = detect_synergy(
+                    _Xarr, _yarr, random_seed=int(getattr(self, "random_seed", 0) or 0)
+                )
+                self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), **_syn_info}
+                logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
+            except Exception as _exc:
+                warnings.warn(
+                    f"MRMR redundancy_aggregator='auto': synergy detector raised "
+                    f"{type(_exc).__name__}: {_exc}. Falling back to plain Fleuret.",
+                    UserWarning, stacklevel=2,
+                )
+                self._synergy_auto_decision_ = {"jmim_engaged": False, "error": str(_exc)}
+        else:
+            _jmim_on = _redundancy_agg == "jmim"
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
         set_jmim_aggregator(_jmim_on)
         set_bur_lambda(_bur_lambda)

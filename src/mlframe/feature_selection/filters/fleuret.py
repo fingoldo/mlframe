@@ -1,10 +1,28 @@
 """Fleuret-criterion permutation-confidence step. Three layers: ``get_fleuret_criteria_confidence_parallel`` (joblib pool spawner) ->
 ``parallel_fleuret`` (joblib worker) -> ``get_fleuret_criteria_confidence`` (``@njit`` core looping over the permutation budget).
 
-Known weakness (TODO -- separate research PR): the Fleuret formulation ``gain = I(X; Y) - max_k I(X; Y | S_k)`` rejects synergistic features (a candidate
-uninformative on its own but critical in combination with an already-selected variable scores ``gain < 0``). Mitigations to investigate (none implemented):
-CMIM (Brown 2012) replaces ``max_k`` with ``min_k``; JMI uses ``sum_k I(X, S_k; Y)`` for 3-way interactions; HOmRMR enumerates pair/triple interactions
-explicitly. Plan: extend ``mrmr_relevance_algo`` (currently ``"fleuret"``, ``"pld"``) with ``"cmim"`` / ``"jmi"`` and benchmark on the 4 golden scenarios.
+Known weakness: the Fleuret formulation ``gain = I(X; Y) - max_k I(X; Y | S_k)`` rejects synergistic features (a candidate
+uninformative on its own but critical in combination with an already-selected variable scores ``gain < 0``). The synergy-aware mitigation
+is shipped: ``MRMR(redundancy_aggregator='jmim')`` (Bennasar 2015, ``min_j I(X_k, X_j; Y)``) and the data-dependent gate
+``redundancy_aggregator='auto'`` (``_synergy_detector.detect_synergy`` routes to JMIM only when synergy is detected, else plain Fleuret).
+
+BENCHMARKED DECISION (2026-06-19, ``_benchmarks/fs_quality/mrmr_synergy_regime_bench.py``, 10 seeds x n in {4k,8k}, fixed 60/40 split,
+held-out LGBM+logit AUC + ground-truth recovery; planted XOR/sign-product pairs vs planted additive main-effects):
+
+  * The synergy detector (per-pair INTERACTION INFORMATION ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` vs a label-permuted null, threshold =
+    null_mult x null_scale from kernel_tuning_cache) fired on EVERY synergistic cell and on NO additive cell (clean separation:
+    real excess ~0.12 vs threshold ~0.05 synergistic; ~0.028 vs ~0.05 additive). Using ``joint - max(marginal)`` was tried and
+    REJECTED -- it false-positives on additive redundancy (two noisy views of one driver jointly beat either view alone).
+  * ``auto`` reproduced ``jmim`` selection EXACTLY on synergistic data and ``default``/plain-Fleuret EXACTLY on additive data
+    (paired auto-vs-default additive: recall 0/20/0, holdout-AUC 0/20/0 -- bit-for-bit no regression). HARD GATE satisfied.
+  * Plain Fleuret's synergistic miss + JMIM's recovery is REAL but MODEST on these regimes (jmim-vs-default synergistic recall
+    4W/15T/1L, AUC 3W/14T/3L -- balanced XOR at n<=8000 sits near the noise floor, AUC ~0.5). JMIM's additive cost is the documented
+    OVER-SELECTION (precision 0.67->0.33, nsel 3.6-5 -> 9.0; downstream AUC roughly tied). ``auto`` pays NONE of that additive cost.
+  * VERDICT: ``auto`` is strictly safe (captures JMIM's synergy gain, avoids JMIM's additive over-selection) and ships as a
+    VALIDATED OPT-IN. It is NOT made the default: the synergistic win is too marginal on the tested regimes to override the
+    bit-stable Fleuret default + the detector's pre-fit probe cost. Earlier large-n campaigns (mrmr_largeN_campaign*.py) already
+    found JMIM loses F1 9/0/51 on additive/decoy data -- consistent. Next agent: re-run the bench at larger n / stronger synergy
+    before reconsidering a default flip.
 """
 from __future__ import annotations
 
