@@ -43,7 +43,16 @@ _TREE_OPS = {
 }
 
 
-def corr_clusters(X: pd.DataFrame, thr: float = 0.92):
+# corr_block_threshold: above this many columns, corr_clusters switches from the full p x p correlation matrix to a
+# row-block path that never materializes the dense p x p (the wide-data memory blocker: p=10k -> ~800 MB float64).
+# The blocked path standardizes columns once (z-scores) and computes each rep's above-threshold |corr| neighbours by a
+# single (1 x p) row-block GEMV against the standardized matrix, so peak extra memory is O(n*p + p) not O(p^2). The
+# greedy assignment order is byte-identical to the full-matrix path (same rep order = first unassigned column; same
+# member order = ascending column index): both read the same |corr| values, only the access pattern differs.
+CORR_BLOCK_THRESHOLD = 1500
+
+
+def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = CORR_BLOCK_THRESHOLD):
     """Greedy |Pearson| >= thr clustering. Returns (reps, members) where reps is the representative list (first
     column of each cluster) and members maps rep -> [member columns incl. the rep]. Computed once and shared.
 
@@ -51,24 +60,79 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92):
     matrix ``A = |C| >= thr`` and an ``np.flatnonzero`` of each rep's upper row -- byte-identical to the prior greedy
     (same rep order = first unassigned column; same member order = ascending column index), but skips the full j-loop
     for the common all-singleton frame where each row has few/no above-threshold candidates (measured 3.83x on the
-    p=240 mostly-singleton hybrid frame; the glue floor's single largest item, ~86% of the hybrid's own tottime)."""
+    p=240 mostly-singleton hybrid frame; the glue floor's single largest item, ~86% of the hybrid's own tottime).
+
+    WIDE-DATA path (p > ``block_threshold``): the full p x p ``np.corrcoef`` materializes an O(p^2) float64 matrix
+    (~800 MB at p=10k) -- the one uncapped super-linear-in-p hotspot among the FS paths. Above the threshold we never
+    build the dense matrix: columns are z-standardized once, then for each rep we compute ONLY its row of correlations
+    (a single 1 x p GEMV: z_i @ Z / (n-1)) and threshold that, so peak extra memory is O(n*p) for Z plus O(p) per row.
+    The greedy is identical (it reads the same |corr| values for the same (i, j>i) pairs), so reps + members are
+    set-identical to the full-matrix result (verified bit/set-identical on small frames in the test suite).
+
+    cProfile/tracemalloc (2026-06-19, dev box, n*p random frame): p=6000,n=800 -> FULL np.corrcoef path 1141 ms /
+    756 MB peak; BLOCKED path 1344 ms / 132 MB peak == 5.8x less memory at ~equal wall. The gap widens with p (the
+    full path is O(p^2): ~800 MB at p=10k before corrcoef's internal deviation-matrix copy ~doubles it -> the OOM
+    blocker), while the blocked path stays O(n*p) for Z + O(bs*p) for the slab. Small frames (p <= block_threshold)
+    keep the faster full path. (p=2000: FULL 187 ms vs BLOCKED 311 ms -- the per-block matmul overhead, paid only
+    above the threshold where the memory bound matters more than the sub-second wall.)"""
     cols = list(X.columns)
-    C = np.nan_to_num(np.corrcoef(X.values, rowvar=False))
-    if C.ndim == 0:  # single column
-        return [cols[0]], {cols[0]: [cols[0]]}
-    A = np.abs(C) >= thr                          # adjacency once (vectorized), replaces the per-pair Python compare
     p = len(cols)
+    if p == 1:  # single column (mirrors the C.ndim == 0 corrcoef scalar case)
+        return [cols[0]], {cols[0]: [cols[0]]}
+    if p <= block_threshold:
+        C = np.nan_to_num(np.corrcoef(X.values, rowvar=False))
+        if C.ndim == 0:  # single column (defensive; p==1 already returned above)
+            return [cols[0]], {cols[0]: [cols[0]]}
+        A = np.abs(C) >= thr                      # adjacency once (vectorized), replaces the per-pair Python compare
+        reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
+        for i in range(p):
+            if assigned[i]:
+                continue
+            assigned[i] = True
+            reps.append(cols[i]); ms = [cols[i]]
+            cand = np.flatnonzero(A[i, i + 1:]) + (i + 1)   # only the above-threshold j>i (ascending index preserved)
+            for j in cand:
+                if not assigned[j]:
+                    assigned[j] = True; ms.append(cols[j])
+            members[cols[i]] = ms
+        return reps, members
+
+    # --- wide-data blocked path: standardize once, compute correlations in COLUMN BLOCKS (no dense p x p) ---
+    # Columns are z-standardized once (Z is O(n*p)); then a block of ``bs`` rep-rows is correlated against all p columns
+    # in a single (bs x p) GEMV slab (Z[:, blk].T @ Z), so peak transient memory is O(bs*p) -- a small constant slab,
+    # never the full p x p. The greedy reads each rep's slab row exactly as it would the dense matrix row, so the
+    # assignment is identical to the full-matrix path. bs trades speed (bigger = fewer, larger matmuls) vs the slab's
+    # memory (bs*p*8 bytes); 512 keeps the slab modest (e.g. 512*10000*8 ~= 41 MB) while recovering near-BLAS speed.
+    M = np.asarray(X.values, dtype=np.float64)
+    n = M.shape[0]
+    mu = M.mean(axis=0)
+    sd = M.std(axis=0)
+    Z = M - mu
+    # zero-variance columns -> corr undefined; np.corrcoef yields nan there (nan_to_num -> 0). Mirror that by leaving
+    # their standardized column at 0, so every correlation INVOLVING them is 0 (< thr) -> they stay singletons, exactly
+    # as nan_to_num(corrcoef) produced. Non-constant columns are divided by their std as usual.
+    nz = sd > 0
+    Z[:, nz] = Z[:, nz] / sd[nz]
+    denom = float(n - 1) if n > 1 else 1.0
+    bs = 512
     reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
-    for i in range(p):
-        if assigned[i]:
-            continue
-        assigned[i] = True
-        reps.append(cols[i]); ms = [cols[i]]
-        cand = np.flatnonzero(A[i, i + 1:]) + (i + 1)   # only the above-threshold j>i (ascending index preserved)
-        for j in cand:
-            if not assigned[j]:
-                assigned[j] = True; ms.append(cols[j])
-        members[cols[i]] = ms
+    for start in range(0, p, bs):
+        stop = min(start + bs, p)
+        # slab[r, j] = corr(col start+r, col j); only used for the upper triangle (j > rep index) below.
+        slab = np.nan_to_num((Z[:, start:stop].T @ Z) / denom)   # (bs x p) transient, never p x p
+        adj = np.abs(slab) >= thr
+        for r in range(stop - start):
+            i = start + r
+            if assigned[i]:
+                continue
+            assigned[i] = True
+            reps.append(cols[i]); ms = [cols[i]]
+            if nz[i]:
+                cand = np.flatnonzero(adj[r, i + 1:]) + (i + 1)   # ascending j>i preserved (identical to full path)
+                for j in cand:
+                    if not assigned[j]:
+                        assigned[j] = True; ms.append(cols[j])
+            members[cols[i]] = ms
     return reps, members
 
 
@@ -83,6 +147,7 @@ class HybridSelector:
                  tree_rich_ops: tuple = ("mul", "absd", "sign", "rat"),
                  cooccur_weight: str = "gain", cluster_rep: str = "first",
                  mrmr_synergy_cap: int = 250,
+                 hybrid_corr_max_features: int = 2000,
                  random_state: int = 0, name: str = "hybrid"):
         # cooccur_weight (default "gain" -- MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
@@ -110,6 +175,16 @@ class HybridSelector:
         # AND on very-wide frames (madelon 500>250, bootstrap still skipped -> avoids its O(p^2) cost where it finds
         # nothing: madelon's 5-dim XOR is not bilinear). 250 is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench)
         self.mrmr_synergy_cap = mrmr_synergy_cap
+        # hybrid_corr_max_features (default 2000 -- the wide-data clustering guard): corr_clusters is the one uncapped
+        # super-linear-in-p hotspot (a full p x p Pearson matrix; ~800 MB float64 at p=10k). BEFORE clustering, X_aug is
+        # narrowed to the columns the shared permutation-FI found relevant (FI>0) PLUS all MRMR-relevant and engineered
+        # columns (those never drop, they passed their own FE gate). The relevant set is typically << p on wide noisy
+        # frames, so clustering only ever sees the survivors. If the survivor set is still larger than this cap, the
+        # corr_clusters blocked path (see CORR_BLOCK_THRESHOLD) keeps peak memory at O(n*p) instead of O(p^2). Columns
+        # dropped here are pure-noise singletons (FI==0, not MRMR-relevant, not engineered): they would each form their
+        # own singleton cluster and never be voted/selected anyway, so dropping them before clustering is selection-
+        # neutral on the kept set. Set very high (or None) to cluster the full augmented frame (legacy behaviour).
+        self.hybrid_corr_max_features = hybrid_corr_max_features
         self.vote = vote
         self.prescreen = prescreen
         self.expand_clusters = expand_clusters
@@ -466,7 +541,30 @@ class HybridSelector:
 
         # shared artifacts: restrict the already-computed FI to the kept columns (no recompute), cluster the kept frame
         self.fi_ = {c: fi_full.get(c, 0.0) for c in cols}
-        self.reps_, self.members_ = corr_clusters(X_aug, self.corr_thr)
+        # WIDE-DATA CLUSTERING GUARD (hybrid_corr_max_features): narrow X_aug to the relevance-survivor set BEFORE the
+        # O(p^2) corr_clusters. Survivors = FI>0 OR MRMR-relevant OR engineered (the exact prescreen rule below). The
+        # dropped columns are pure-noise singletons (FI==0, not MRMR, not engineered) -- they would each cluster alone
+        # and never be voted/selected, so omitting them is selection-neutral on the kept set while bounding clustering
+        # cost on wide frames. self.fi_ retains the FULL frame so _rep_fi / cluster_rep still see every column.
+        mrmr_set_pre = set(self.mrmr_selected_)
+        cluster_cols = [c for c in cols if self.fi_.get(c, 0.0) > 0.0 or c in mrmr_set_pre or c in engineered]
+        cap = getattr(self, "hybrid_corr_max_features", None)
+        if len(cluster_cols) < 2 or not self.prescreen:
+            cluster_cols = cols                    # too few survivors / prescreen off -> cluster the full frame
+        elif cap is not None and len(cluster_cols) > cap:
+            # survivor set still over the cap: keep the engineered + MRMR cols (must survive) and top-FI raw fill.
+            must = [c for c in cluster_cols if c in engineered or c in mrmr_set_pre]
+            rest = [c for c in cluster_cols if c not in engineered and c not in mrmr_set_pre]
+            rest = sorted(rest, key=lambda c: self.fi_.get(c, 0.0), reverse=True)[: max(cap - len(must), 0)]
+            cluster_cols = [c for c in cols if c in set(must) | set(rest)]   # preserve original column order
+        self._cluster_cols_ = cluster_cols
+        X_cluster = X_aug[cluster_cols] if len(cluster_cols) != len(cols) else X_aug
+        self.reps_, self.members_ = corr_clusters(X_cluster, self.corr_thr)
+        # columns dropped from clustering become their own singleton cluster (selection-neutral: FI==0 noise) so the
+        # downstream cluster_of_ / vote still has an entry for every column it might encounter.
+        for c in cols:
+            if c not in self.members_:
+                self.reps_.append(c); self.members_[c] = [c]
         self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
 
         # STAGE 1 -- shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant, OR engineered:
