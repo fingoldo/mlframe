@@ -15,6 +15,7 @@ import pytest
 from mlframe.feature_selection.filters._fe_interaction_prerank import (
     second_moment_propensity,
     top_k_by_interaction_propensity,
+    fused_propensity,
     _discrete_score_numpy_loop,
 )
 from mlframe.feature_selection.filters import _fe_interaction_prerank_kernels as _kernels
@@ -250,6 +251,33 @@ def test_second_moment_uses_kernel_and_matches_loop_end_to_end():
     yf = y.astype(np.float64)
     ref = _discrete_score_numpy_loop(X, X * X, yf, np.unique(yf))
     assert np.allclose(got, ref, rtol=1e-8, atol=1e-10)
+
+
+def test_fused_recall_floor_at_realistic_leakage():
+    """The fused criterion (2nd-moment + marginal + gbm split-frequency rank-fusion) must recover the
+    planted pure-pair operands into the top-250 at L=0.1 at least as well as plain 2nd-moment, and clear a
+    real floor. LightGBM is required for the gbm ingredient -- skip cleanly if absent (then fusion degrades
+    to 2nd-moment+marginal and the >= comparison still holds)."""
+    sm_r, fz_r = [], []
+    for seed in (0, 1, 2):
+        X, y, ops = _make_frame(P, seed, leak=0.1)
+        sm_r.append(_recall(second_moment_propensity(X, y), ops, 250))
+        fz_r.append(_recall(fused_propensity(X, y), ops, 250))
+    sm, fz = float(np.mean(sm_r)), float(np.mean(fz_r))
+    # fusion never regresses recall vs the base (min-rank keeps anything either signal ranks high), and the
+    # base itself clears the benched bar -- a small slop guards against seed/summation-order noise.
+    assert fz >= sm - 0.02, f"fused recall {fz:.2f} regressed vs 2nd-moment {sm:.2f}"
+    assert fz >= 0.60, f"fused recall too low at L=0.1: {fz:.2f}"
+
+
+def test_fused_criterion_routes_through_top_k():
+    """top_k_by_interaction_propensity(..., criterion='fused') is accepted and returns a valid sorted top-k."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((1500, 60))
+    y = (rng.random(1500) < 0.5).astype(int)
+    cand = list(range(0, 60, 2))
+    out = top_k_by_interaction_propensity(X, y, cand, top_k=5, criterion="fused")
+    assert len(out) == 5 and out == sorted(out) and set(out).issubset(set(cand))
 
 
 def test_single_class_target_no_crash():

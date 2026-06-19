@@ -124,24 +124,125 @@ def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray,
     return score
 
 
+def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int = 100) -> np.ndarray:
+    """LightGBM split-frequency importance per column -- a COMPLEMENTARY interaction-propensity signal.
+
+    A pure-interaction operand carries ~0 marginal MI but a tree booster still SPLITS on it repeatedly
+    once a partner operand has been split (the interaction surfaces in the conditional structure), so its
+    split count is elevated even when its marginal correlation is flat. This is the criterion the H2 bench
+    found scored highest in isolation (recall ~0.92 at L=0.1) but at ~18x the cost of the 2nd-moment score
+    (one full booster fit). Used here only as one ingredient of the rank-fused criterion.
+
+    Returns a length-p float array (split count per column); zeros if LightGBM is unavailable."""
+    try:
+        import lightgbm as lgb
+    except Exception:
+        return np.zeros(values.shape[1], dtype=np.float64)
+    X = np.ascontiguousarray(values, dtype=np.float64)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+    y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
+    if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
+        _, y_arr = np.unique(y_arr, return_inverse=True)
+    yf = np.nan_to_num(np.asarray(y_arr, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    n_classes = int(np.unique(yf).size)
+    if n_classes <= 1:
+        return np.zeros(X.shape[1], dtype=np.float64)
+    if n_classes <= _NOMINAL_MAX_CLASSES:
+        codes = np.unique(yf, return_inverse=True)[1]
+        if n_classes == 2:
+            params = dict(objective="binary", num_leaves=31, learning_rate=0.1,
+                          verbose=-1, min_child_samples=20, feature_fraction=1.0)
+        else:
+            params = dict(objective="multiclass", num_class=n_classes, num_leaves=31,
+                          learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
+        label = codes.astype(np.float64)
+    else:  # continuous regression target
+        params = dict(objective="regression", num_leaves=31, learning_rate=0.1,
+                      verbose=-1, min_child_samples=20, feature_fraction=1.0)
+        label = yf
+    try:
+        ds = lgb.Dataset(X, label=label)
+        booster = lgb.train(params, ds, num_boost_round=num_boost_round)
+        return booster.feature_importance(importance_type="split").astype(np.float64)
+    except Exception:
+        return np.zeros(X.shape[1], dtype=np.float64)
+
+
+def _rank_desc(scores: np.ndarray) -> np.ndarray:
+    """Competition-free dense ranks (0 = best) for descending ``scores``; ties get the same average-free
+    ordinal rank by stable argsort. Lower rank = more interesting -- the common scale for rank fusion."""
+    order = np.argsort(-scores, kind="stable")
+    ranks = np.empty(scores.shape[0], dtype=np.float64)
+    ranks[order] = np.arange(scores.shape[0], dtype=np.float64)
+    return ranks
+
+
+def fused_propensity(values: np.ndarray, y: np.ndarray, use_gbm: bool = True) -> np.ndarray:
+    """Rank-fused interaction-propensity: combine the cheap 2nd-moment score with complementary signals so
+    operands that EITHER leak in higher moments OR split frequently in a tree get surfaced.
+
+    Fusion is by MIN-RANK (an operand kept high by ANY ingredient survives -- W3's prototype noted this
+    helped over a single criterion): score = -(min over ingredients of the descending rank). Ingredients:
+      * 2nd-moment propensity (always; the O(p*n) base),
+      * marginal MI proxy via |corr(x, indicator)| summed over classes (cheap main-effect channel),
+      * gbm split-frequency (when ``use_gbm`` and LightGBM is importable; one booster fit, the strong
+        complementary interaction signal).
+    Higher returned score = more interesting (so it plugs into the same descending-sort selection)."""
+    sm = second_moment_propensity(values, y)
+    # cheap main-effect channel: |corr(x, 1[y=c])| summed over classes (reuses the standardized machinery).
+    V = np.nan_to_num(np.ascontiguousarray(values, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
+    if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
+        _, y_arr = np.unique(y_arr, return_inverse=True)
+    yf = np.nan_to_num(np.asarray(y_arr, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    classes = np.unique(yf)
+    main = np.zeros(V.shape[1], dtype=np.float64)
+    if classes.size > 1 and classes.size <= _NOMINAL_MAX_CLASSES:
+        for c in classes:
+            main += _abs_col_corr(V, (yf == c).astype(np.float64))
+    else:
+        main = _abs_col_corr(V, yf)
+    ingredients = [_rank_desc(sm), _rank_desc(main)]
+    if use_gbm:
+        gbm = gbm_split_propensity(values, y)
+        if np.any(gbm > 0):
+            ingredients.append(_rank_desc(gbm))
+    min_rank = np.min(np.vstack(ingredients), axis=0)
+    return -min_rank
+
+
+_CRITERIA = {
+    "second_moment": second_moment_propensity,
+    "fused": fused_propensity,
+    "gbm_splits": gbm_split_propensity,
+}
+
+
 def top_k_by_interaction_propensity(
     values: np.ndarray, y: np.ndarray, candidate_idx: Any, top_k: int,
+    criterion: str = "second_moment",
 ) -> list[int]:
     """Rank ``candidate_idx`` (column indices into ``values``) by ``second_moment_propensity`` and return
     the top ``top_k`` as a SORTED list of indices (deterministic; ties broken by ascending index so the
     result is stable across runs). If ``top_k`` >= len(candidate_idx) all candidates are returned sorted.
 
-    ``values`` is the full (n, n_cols) matrix; only the candidate columns are scored."""
+    ``values`` is the full (n, n_cols) matrix; only the candidate columns are scored.
+
+    ``criterion`` selects the ranking score: "second_moment" (default, O(p*n), the benched base),
+    "fused" (rank-fusion of 2nd-moment + marginal + gbm split-frequency -- higher recall at L<=0.1 when
+    LightGBM is available, ~one extra booster fit), or "gbm_splits" (split-frequency alone)."""
     cand = sorted(int(i) for i in candidate_idx)
     if top_k >= len(cand):
         return cand
     if top_k <= 0:
         return []
     sub = values[:, cand]
-    scores = second_moment_propensity(sub, y)
+    score_fn = _CRITERIA.get(criterion, second_moment_propensity)
+    scores = score_fn(sub, y)
     # argsort descending by score, then ascending by position (stable) -> deterministic top_k.
     order = np.lexsort((np.arange(len(cand)), -scores))[:top_k]
     return sorted(cand[i] for i in order)
 
 
-__all__ = ["second_moment_propensity", "top_k_by_interaction_propensity"]
+__all__ = ["second_moment_propensity", "top_k_by_interaction_propensity",
+           "fused_propensity", "gbm_split_propensity"]
