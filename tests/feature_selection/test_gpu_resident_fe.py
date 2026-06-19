@@ -72,6 +72,22 @@ def test_gpu_resident_chunked_matches_cpu():
     np.testing.assert_allclose(gpu_mi, cpu_mi, rtol=1e-3, atol=1e-4)
 
 
+def test_fast_path_preserves_exact_winner():
+    """prescreen(sort-free)+refine(exact top-K) must return the SAME top candidate as the pure-exact
+    GPU path -- the whole point of refining is bit-exact selection despite the approximate prescreen."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import (
+        gpu_resident_pair_candidate_mi,
+        gpu_resident_pair_candidate_mi_fast,
+    )
+
+    for seed in (0, 1, 2):
+        a, b, y_codes = _ab_target(n=100_000, seed=seed)
+        names, exact = gpu_resident_pair_candidate_mi(a, b, y_codes)
+        _, fast = gpu_resident_pair_candidate_mi_fast(a, b, y_codes)
+        assert names[int(np.argmax(fast))] == names[int(np.argmax(exact))], f"winner flipped at seed {seed}"
+
+
 def test_dispatch_routes_and_recovers():
     """The size dispatcher returns the right shape/ranking on both legs (small-n CPU leg always; large-n
     GPU leg when cupy present) and recovers a**2/b."""
