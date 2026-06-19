@@ -407,10 +407,20 @@ def batch_mi_with_noise_gate_cupy(
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
 
+    # PER-CELL INDEX dtype (2026-06-20): d_base / d_idx values are bounded by ``total_size - 1`` (= the
+    # sum of ``nbins_k * K_y``), which for any realistic FE batch is << 2^31, so int32 HALVES these
+    # (n, K) / (rows, n*K) device buffers vs the old int64 -- the (100k, 4096) base is 1.5 GiB int32 vs
+    # the 3 GiB int64 that OOM'd the 4GB GPU. GATED: int64 is retained when ``total_size`` could exceed
+    # int32 (pathological nbins*K_y), so this is BIT-IDENTICAL -- the bincount indices are the same
+    # integer values, only the store width narrows. (Distinct from the rejected COUNTS-D2H narrowing
+    # below: that narrows the OUTPUT counts; this narrows the INDEX buffers.)
+    _INT32_MAX = 2_147_483_647
+    idx_dtype = cp.int32 if total_size <= _INT32_MAX else cp.int64
+
     # ---- ONE H2D: discretized frame + per-(r,k) base index (offsets[k] + disc*K_y).
     d_disc = cp.asarray(np.ascontiguousarray(disc_2d, dtype=np.int32))  # (n, K)
-    d_offsets = cp.asarray(offsets[:K].reshape(1, K))                   # (1, K)
-    d_base = d_offsets + d_disc.astype(cp.int64) * np.int64(K_y)        # (n, K) int64
+    d_offsets = cp.asarray(offsets[:K].reshape(1, K)).astype(idx_dtype)  # (1, K)
+    d_base = d_offsets + d_disc.astype(idx_dtype) * cp.asarray(K_y, dtype=idx_dtype)  # (n, K) idx_dtype
 
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
 
@@ -425,7 +435,7 @@ def batch_mi_with_noise_gate_cupy(
     else:
         y_all_host = y_orig
     P1 = y_all_host.shape[0]  # number of y-vectors = nperm + 1
-    d_y_all = cp.asarray(y_all_host)  # (P1, n) int64
+    d_y_all = cp.asarray(y_all_host).astype(idx_dtype)  # (P1, n) -- y codes < K_y, fit idx_dtype
 
     # ---- 4GB tiling over the permutation axis. Each tile of ``rows`` y-vectors
     # materialises a (rows, n) int64 index array + a (rows, total_size) int64 count
@@ -464,9 +474,12 @@ def batch_mi_with_noise_gate_cupy(
         # per-(row, r, k) global index, then offset each row into its own
         # ``total_size`` slot so a SINGLE bincount fills all rows of the tile at once:
         #   slot = row*total_size + (base[r,k] + y[row,r])
-        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K)
-        d_row_off = (cp.arange(rows, dtype=cp.int64) * np.int64(total_size)).reshape(rows, 1)
-        d_flat = (d_idx + d_row_off).reshape(-1)                         # (rows*n*K,)
+        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K) idx_dtype
+        # The row-spanning flat index reaches ``rows*total_size``; widen to int64 ONLY when that exceeds
+        # int32 (else stay int32, halving the largest buffer too). idx_dtype already covers d_idx itself.
+        flat_dtype = cp.int32 if (int(rows) * total_size) <= _INT32_MAX else cp.int64
+        d_row_off = (cp.arange(rows, dtype=flat_dtype) * total_size).reshape(rows, 1)
+        d_flat = (d_idx.astype(flat_dtype, copy=False) + d_row_off).reshape(-1)  # (rows*n*K,)
         # OPT-D: known-size bincount (skip cupy.bincount's two host-sync validations);
         # byte-identical counts (same kernel). ``rows*total_size`` is the exact size and
         # ``d_flat`` is non-negative by construction (offsets + non-negative codes).
