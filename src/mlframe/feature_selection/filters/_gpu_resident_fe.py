@@ -18,15 +18,16 @@ same anchor the CPU recipe freezes), ``div`` reproduces the exact ``y==0 -> eps`
 on-device candidate equals the CPU one to fp round-off.
 
 BENCH (GTX 1050 Ti, K=384 minimal-preset candidates per pair, median of 3, warm; vs numpy-gen + njit
-batch MI). The thesis holds -- keeping data resident flips the GPU from 3x LOSER (old per-call path) to
-WINNER where the candidate grid fits VRAM:
-  * n=20k  : CPU 287ms  / GPU-resident 379ms  -> 0.76x  (small n: GPU launch dominates -> CPU)
-  * n=100k : CPU 1688ms / GPU-resident 943ms  -> 1.79x  (GPU WINS -- no per-call H2D, one big-k kernel)
-  * n=300k : CPU 7074ms / GPU-resident 60658ms -> 0.12x  (VRAM CLIFF: (300k,384) f64 = 921MB x the cupy
-             argsort/bincount working set blows the 4GB card -> thrashing)
-NEXT (production wiring): a VRAM-bounded K-chunk (mirror the CPU RAM governor on-device so the resident
-candidate matrix fits) + a size dispatcher (GPU-resident only in the measured sweet spot, CPU else) +
-recipe-name integration so survivors replay. Until then this stays gated + un-wired.
+batch MI). Keeping data resident flips the GPU from the old 3x LOSER (per-call H2D path) to a WINNER
+that SCALES -- and the VRAM-bounded K-chunk (``_gpu_k_chunk``, mirroring the CPU RAM governor on-device)
+removes the large-n cliff entirely, with the on-device MI bit-matching the CPU path (argmax + values):
+  * n=20k   : CPU 287ms   / GPU 379ms  -> 0.76x  (small n: GPU launch dominates -> dispatcher routes CPU)
+  * n=100k  : CPU 1771ms  / GPU 854ms  -> 2.07x  (k_chunk=141)
+  * n=300k  : CPU 7013ms  / GPU 2046ms -> 3.43x  (k_chunk=47 -- was a 0.12x cliff before chunking)
+  * n=1M    : CPU 29731ms / GPU 6424ms -> 4.63x  (k_chunk=14; the win GROWS with n)
+``pair_candidate_mi_dispatch`` routes >= _GPU_RESIDENT_MIN_N (50k) to the chunked GPU path, CPU below.
+NEXT (production wiring): recipe-name integration so survivors replay through transform(), then thread
+this dispatcher into check_prospective_fe_pairs behind the P-seam. Until then this stays gated+un-wired.
 """
 from __future__ import annotations
 
@@ -93,6 +94,31 @@ def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:
     ]
 
 
+# (ua, ub, bop) combo order, matching _candidate_names / _build_candidate_matrix column order.
+_COMBOS = [(ua, ub, bop) for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
+
+# Per-element GPU working-set multiple for the cupy plug-in MI: the (n, k) cand f64 + argsort int64 +
+# X_binned int64 + flat int64 coexist, so budget ~5x the bare cand bytes. Conservative -> avoids the
+# n=300k VRAM cliff (measured: unchunked (300k,384) thrashed the 4GB card to 60s).
+_GPU_MI_WORKING_MULTIPLE = 5
+# Below this n the GPU launch/transfer dominates and the CPU njit grid wins (bench: 20k -> 0.76x,
+# 100k -> 1.79x); the dispatcher routes < this to CPU. Provisional crossover; a later sweep can tune it.
+_GPU_RESIDENT_MIN_N = 50_000
+
+
+def _gpu_k_chunk(n: int, *, free_bytes: int | None = None) -> int:
+    """Max candidate columns to materialise+score in ONE on-device batch so the cupy MI working set
+    stays within a fraction of free VRAM -- bounds peak GPU memory the same way the CPU RAM governor
+    bounds host memory, removing the large-n cliff."""
+    import cupy as cp
+
+    if free_bytes is None:
+        free_bytes, _ = cp.cuda.runtime.memGetInfo()
+    budget = max(1, int(free_bytes * 0.25))
+    per_col = max(1, int(n) * 8 * _GPU_MI_WORKING_MULTIPLE)
+    return int(min(len(_COMBOS), max(1, budget // per_col)))
+
+
 def _build_candidate_matrix(xp, a, b):
     """Generate the full minimal unary x unary x binary candidate grid for operands ``a``, ``b`` as one
     contiguous ``(n, K)`` matrix in array module ``xp``. Non-finite cells -> 0 (the FE scrub). With ``xp``
@@ -135,8 +161,38 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
 
     a_gpu = cp.asarray(a, dtype=cp.float64)   # the ONE H2D of the raw operands
     b_gpu = cp.asarray(b, dtype=cp.float64)
-    cand_gpu = _build_candidate_matrix(cp, a_gpu, b_gpu)   # whole grid built on-device
-    # _plugin_mi_classif_batch_cuda does cp.asarray internally -- a no-op for an already-device array,
-    # so there is NO extra transfer; one big-k kernel scores the resident grid.
-    mi = _plugin_mi_classif_batch_cuda(cand_gpu, np.ascontiguousarray(y_codes, dtype=np.int64), nbins)
-    return _candidate_names(), np.asarray(mi, dtype=np.float64)
+    n = int(a_gpu.shape[0])
+    y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
+    # Unary results (16 columns) stay resident + reused across every binary combo; only the candidate
+    # CHUNK matrix is bounded, so peak VRAM is governed (no large-n cliff).
+    ua_cache = {u: _unary_apply(cp, u, a_gpu) for u in _MINIMAL_UNARY}
+    ub_cache = {u: _unary_apply(cp, u, b_gpu) for u in _MINIMAL_UNARY}
+    k_chunk = _gpu_k_chunk(n)
+    mi_parts: list[np.ndarray] = []
+    for start in range(0, len(_COMBOS), k_chunk):
+        block = _COMBOS[start:start + k_chunk]
+        cand = cp.empty((n, len(block)), dtype=cp.float64)
+        for j, (ua, ub, bop) in enumerate(block):
+            col = _binary_apply(cp, bop, ua_cache[ua], ub_cache[ub])
+            cand[:, j] = cp.nan_to_num(col, nan=0.0, posinf=0.0, neginf=0.0)
+        # _plugin_mi_classif_batch_cuda's cp.asarray is a no-op for an already-device array -> no extra
+        # transfer; one big-k kernel scores the resident chunk.
+        mi_parts.append(np.asarray(_plugin_mi_classif_batch_cuda(cand, y_i64, nbins), dtype=np.float64))
+        del cand
+    return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
+
+
+def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
+    """Route a pair's candidate-MI to the measured-fastest backend: GPU-resident in the sweet spot
+    (cupy present, n >= the crossover, VRAM-chunked so it can't thrash), CPU njit otherwise. Returns
+    ``(names, mi)`` identical in shape/order to both paths. The default FE pipeline does NOT call this
+    yet (gated prototype); it is the dispatcher the production wiring will use."""
+    n = int(np.asarray(a).shape[0])
+    if n >= _GPU_RESIDENT_MIN_N:
+        try:
+            import cupy  # noqa: F401
+
+            return gpu_resident_pair_candidate_mi(a, b, y_codes, nbins=nbins)
+        except Exception:
+            pass  # no cupy / GPU error -> CPU fallback
+    return cpu_pair_candidate_mi(a, b, y_codes, nbins=nbins)

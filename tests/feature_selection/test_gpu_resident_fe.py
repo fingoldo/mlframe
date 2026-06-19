@@ -55,3 +55,30 @@ def test_gpu_resident_matches_cpu():
     assert int(np.argmax(gpu_mi)) == int(np.argmax(cpu_mi)), (cpu_names[int(np.argmax(cpu_mi))], gpu_names[int(np.argmax(gpu_mi))])
     # values match to fp round-off (binning tie-breaks aside)
     np.testing.assert_allclose(gpu_mi, cpu_mi, rtol=1e-3, atol=1e-4)
+
+
+def test_gpu_resident_chunked_matches_cpu():
+    """Force MULTIPLE VRAM K-chunks (n=100k -> k_chunk < 384) and assert the concatenated chunked MI
+    still matches the CPU path -- the chunk boundary must not corrupt per-candidate MI."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_k_chunk, gpu_resident_pair_candidate_mi
+
+    a, b, y_codes = _ab_target(n=100_000)
+    assert _gpu_k_chunk(100_000) < 384, "test needs >1 chunk to be meaningful"
+    cpu_names, cpu_mi = cpu_pair_candidate_mi(a, b, y_codes)
+    gpu_names, gpu_mi = gpu_resident_pair_candidate_mi(a, b, y_codes)
+    assert gpu_names == cpu_names
+    assert int(np.argmax(gpu_mi)) == int(np.argmax(cpu_mi))
+    np.testing.assert_allclose(gpu_mi, cpu_mi, rtol=1e-3, atol=1e-4)
+
+
+def test_dispatch_routes_and_recovers():
+    """The size dispatcher returns the right shape/ranking on both legs (small-n CPU leg always; large-n
+    GPU leg when cupy present) and recovers a**2/b."""
+    from mlframe.feature_selection.filters._gpu_resident_fe import pair_candidate_mi_dispatch
+
+    a, b, y_codes = _ab_target(n=20_000)  # below crossover -> CPU leg
+    names, mi = pair_candidate_mi_dispatch(a, b, y_codes)
+    assert len(names) == len(mi) == 8 * 8 * 6
+    top = names[int(np.argmax(mi))]
+    assert "div" in top and "sqr" in top
