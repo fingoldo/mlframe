@@ -97,3 +97,28 @@ Two-stage funnel, not GPU-everything:
    10k memmap frame (mixed main effects + pure interactions + redundant cluster + heavy-tail + categorical-like).
    Fast mode (20k x 2k): MRMR selected 13/2000, base_recall 0.667, redundant cluster deduped 5->2, peak RSS
    +406 MB, and selected-feature held-out AUC 0.925 vs equal-count random-subset 0.504 (+0.42).
+
+## Post-campaign loop iterations (2026-06-19) -- shipped wins + bench-rejected no-wins
+
+After the wide-data + critique campaign, the self-paced /loop shipped these (all bit-identical / parity-gated):
+- **MDLP per-column edges parallelized** (`per_feature_edges`, njit-nogil kernels -> ThreadPoolExecutor over
+  columns, cache-safe 3-phase): **3.15x** (p=2000 n=20k 10.10s->3.20s; p=500 3.14x), default-on (n_jobs=-1,
+  >=128 cols), narrow-frame no-regression, edges bit-identical. (9754e79e)
+- **Engineered-MI OOM class closed** across ALL 6 FE MI-uplift scorers (univariate / pair-cross / triplet /
+  quadruplet / adaptive-arity / mi-greedy) via a shared `mi_classif_batch_chunked`: per-column MI is
+  bit-identical, peak RAM O(n*chunk) not O(n*n_engineered) -- fixes the (16000,20000) float64 = 2.38 GiB
+  MemoryError. (000f2e8f, 15a1b611, 26f9f674)
+- **Chunked-MI chunk width RAM-aware** (bound block BYTES to ~10% free RAM, not a fixed col count) -> safe at
+  large n too, not just wide p; no hardcoded threshold. (64604bc6)
+
+Bench-rejected / no-win (recorded so they are not re-attempted):
+- **Threading the chunked-MI block loop**: NO-WIN -- `_mi_classif_batch` is already numba-prange-parallel
+  across the block's columns, so each per-block call saturates cores; threading blocks would oversubscribe.
+  The chunking is a MEMORY bound, not a parallelism lever. (9cd2086b)
+- A balanced-L=0 exhaustive test's strict `pre-rank recovers fewer` premise was a FINITE-n knife-edge
+  (the capped sweep can recover an approximately-balanced pair); reframed to the robust invariant
+  (exhaustive reliably recovers BOTH operands and is never worse than pre-rank). (66551bee)
+
+Net: the FS/FE perf surface is mature on this hardware -- the OOM class is closed (robust in p and n), the
+dominant Fleuret-CMI cost is on the batched CUDA path, and discretization is column-parallel. Further wins
+need genuinely new code or an uncontended large-n machine, not re-grinding the existing kernels.
