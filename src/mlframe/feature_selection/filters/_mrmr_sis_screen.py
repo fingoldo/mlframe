@@ -260,6 +260,13 @@ def sis_screen(
     mi = np.zeros(p, dtype=np.float64)
     prop = np.zeros(p, dtype=np.float64)
 
+    # REUSE-AUDIT RU-4 disposition (2026-06-19): aligning this screen's binning with categorize's content-hash
+    # cache to avoid "re-binning survivors" was evaluated and REJECTED -- there is no reusable double-work. The
+    # screen bins RAW columns with a fast fixed quantile (nbins=10) to SCORE/rank all p before selection;
+    # categorize later bins only the ~2000 survivors with the DEFAULT supervised MDLP recipe for MRMR. Different
+    # recipes, different purposes, both necessary -- the screen cannot use MDLP codes (MDLP needs the expensive
+    # supervised pass the gate exists to avoid), and categorize cannot reuse the quantile codes. The MDLP bin on
+    # survivors (~10.5s/2k cols, measured) is unavoidable for MRMR regardless of the screen.
     # Single ascending sweep over contiguous COLUMN blocks (deterministic order). Each block is materialized
     # as a small float32 buffer; the MI estimator and 2nd-moment kernel both consume it, then it is dropped.
     for j0 in range(0, p, chunk_width):

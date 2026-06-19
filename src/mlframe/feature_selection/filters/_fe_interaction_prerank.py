@@ -161,6 +161,14 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
     found scored highest in isolation (recall ~0.92 at L=0.1) but at ~18x the cost of the 2nd-moment score
     (one full booster fit). Used here only as one ingredient of the rank-fused criterion.
 
+    REUSE-AUDIT RU-3 disposition (2026-06-19): sharing this booster with the surrogate-GBM interaction seeder
+    (_mrmr_fe_step_helpers.apply_surrogate_gbm_seeder) was evaluated and NOT implemented -- the two gbm fits
+    almost never co-occur: the seeder is opt-in OFF by default (fe_gbm_seeder_enable=False) and this fused
+    booster only fires when the size-gated 'auto' criterion picks 'fused' (small/moderate p; at wide p it
+    routes to second_moment and skips the gbm entirely). So a shared fit saves ~0 in the default config and
+    one ~16s fit (n=8k,p=2k) ONLY in the narrow seeder-ON + small-p overlap, against a cross-module refactor
+    that must preserve the seeder's OOF permuted-y self-gate. Revisit only if that overlap becomes common.
+
     Returns a length-p float array (split count per column); zeros if LightGBM is unavailable."""
     try:
         import lightgbm as lgb

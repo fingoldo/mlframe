@@ -163,6 +163,13 @@ def pooled_permutation_null_gain_floor(
 ) -> float:
     """Return the maxT permutation-null gain floor for an order-1 candidate pool.
 
+    REUSE-AUDIT RU-5 disposition (2026-06-19): sharing the permuted-y draws across the order-1/2/3 null floors
+    + the seeder self-gate was evaluated and REJECTED. The only cost sharing would save is generating the K
+    shuffles -- measured 8.76ms for K=25 at n=20000 -- which is negligible against the per-shuffle histogram
+    RESCORING that dominates each floor, and the floor statistics differ per order so they must each be
+    computed anyway. Sharing the same draws across orders would also correlate the per-order null estimates
+    (they are intended independent one-sided thresholds). Not worth it.
+
     ``factors_data`` must be the ordinal-encoded (int) screening matrix;
     ``candidate_indices`` are the column indices of the single-feature candidates
     (the ``y_index`` column is skipped if present). The returned scalar is the
