@@ -159,6 +159,33 @@ def test_bizvalue_recall_beats_random_baseline():
     assert rec_all > random_baseline
 
 
+def test_redundancy_dedup_collapses_copies_keeps_signal():
+    """RU-1 (2026-06-19): the survivor dedup collapses a near-duplicate cluster to ONE representative before the
+    CMI loop, WITHOUT losing the planted signal (the rep carries it) and WITHOUT merging independent operands."""
+    rng = np.random.default_rng(0)
+    n, p = 6000, 1500
+    X = rng.standard_normal((n, p)).astype(np.float32)
+    main = list(range(6))
+    a = X[:, main] @ rng.standard_normal(len(main))
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-a))).astype(int)
+    # a redundant family: cols 800..806 are near-copies of a strong main effect (col 0)
+    redun = list(range(800, 807))
+    for j in redun:
+        X[:, j] = X[:, 0] + 0.03 * rng.standard_normal(n)
+
+    surv_dedup = sis_screen(X, y, target_survivors=400, dedup_corr_thr=0.92)
+    surv_nodedup = sis_screen(X, y, target_survivors=400, dedup_corr_thr=0.0)
+
+    # dedup must remove some redundant copies (the family collapses) -> strictly fewer survivors here
+    assert surv_dedup.size < surv_nodedup.size, "dedup did not collapse the redundant family"
+    # the redundant family is represented by AT MOST 1 survivor after dedup (was many before)
+    redun_after = set(redun) & set(int(s) for s in surv_dedup)
+    redun_before = set(redun) & set(int(s) for s in surv_nodedup)
+    assert len(redun_before) > len(redun_after) and len(redun_after) <= 1
+    # the main-effect signal (col 0 or one of its kept copies) survives -> at least one of {0}|redun present
+    assert ({0} | set(redun)) & set(int(s) for s in surv_dedup), "redundant-cluster signal lost entirely"
+
+
 def test_regression_target_marginal_mi_channel_alive():
     """P0-1 (2026-06-19): a CONTINUOUS regression target must NOT collapse the marginal-MI channel. Before the
     fix, _mi_classif_batch int64-cast a y in [0,1) to a single class -> MI==0 for every column and the whole

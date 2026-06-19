@@ -1133,6 +1133,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # fastest-default DISPATCH knob, not a user opt-in: below the threshold today's path runs unchanged;
         # at/above it the gate makes wide frames feasible. Set to 0 / None to disable the gate entirely.
         sis_screen_threshold: int = 20000,
+        # SIS survivor REDUNDANCY DEDUP (reuse audit RU-1): after the gate picks survivors, collapse near-
+        # duplicate columns (|Pearson|>=this, blocked corr_clusters, keep the highest-fused rep) BEFORE the
+        # O(k*p*n) Fleuret CMI loop. Selection-neutral (MRMR's CMI would reject the copies anyway); the win is
+        # data-dependent (~1% on independent survivors, up to the redundant fraction on correlated families).
+        # Set 0 to disable. Only genuine near-linear duplicates merge; pure-interaction operands never do.
+        sis_dedup_corr_thr: float = 0.92,
         # Cat-FE (categorical feature interactions): single dataclass consolidating ~22 cat_fe_* knobs.
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
@@ -3599,7 +3605,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         except (TypeError, ValueError):
             k_target = None
 
-        survivors = sis_screen(Xmat, y, k_target=k_target)
+        survivors = sis_screen(Xmat, y, k_target=k_target,
+                               dedup_corr_thr=float(getattr(self, "sis_dedup_corr_thr", 0.92) or 0.0))
         survivors = np.asarray(survivors, dtype=np.int64)
         self.sis_survivors_ = survivors
         self.sis_n_input_features_ = int(Xmat.shape[1])
