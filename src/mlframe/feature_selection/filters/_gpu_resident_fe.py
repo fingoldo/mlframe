@@ -20,7 +20,7 @@ on-device candidate equals the CPU one to fp round-off.
 BENCH (GTX 1050 Ti, K=384 minimal-preset candidates per pair, median of 3, warm; vs numpy-gen + njit
 batch MI). Keeping data resident flips the GPU from the old 3x LOSER (per-call H2D path) to a WINNER
 that SCALES -- and the VRAM-bounded K-chunk (``_gpu_k_chunk``, mirroring the CPU RAM governor on-device)
-removes the large-n cliff entirely, with the on-device MI bit-matching the CPU path (argmax + values):
+removes the large-n cliff entirely, with the on-device MI matching the CPU path to fp round-off (argmax + values):
   * n=20k   : CPU 287ms   / GPU 379ms  -> 0.76x  (small n: GPU launch dominates -> dispatcher routes CPU)
   * n=100k  : CPU 1771ms  / GPU 854ms  -> 2.07x  (k_chunk=141)
   * n=300k  : CPU 7013ms  / GPU 2046ms -> 3.43x  (k_chunk=47 -- was a 0.12x cliff before chunking)
@@ -49,6 +49,28 @@ from __future__ import annotations
 import os
 
 import numpy as np
+
+# REVIEW ROADMAP (2026-06-19 multi-agent critique; items dispositioned FUTURE -- captured so they are
+# not re-derived). PERF (ranked payoff/effort, all must stay bit-exact -> validate maxdiff 0 + argmax on
+# HEAVY-TAILED a**2/b candidates, not just uniform): (1) f32 sort keys for binning (~1.5-1.8x on the 69%
+# sort; exact only with row-index tie-break, else gate to prescreen); (2) radix-rank RawKernel replacing
+# cp.argsort + the uncoalesced scatter (exact, removes the (n,K) int64 sort_idx); (3) fused atomic
+# shared-mem histogram kernel (removes 3 full (n,K) int64 passes in the cupy MI); (4) multi-stream across
+# k-chunks (lowers the GPU crossover n); (5) grand fusion -- one streaming kernel, never materialise
+# (n,K). Route block size (currently threads=256) + the VRAM 0.25/5x constants + any f32 threshold
+# through pyutilz kernel_tuning_cache; keep cp.argsort as the exact fallback when adding a radix _v2.
+# ARCHITECTURE (wiring, before flipping any default): the production FE speaks STRUCTURED, preset-stamped,
+# gate-filtered, replayable EngineeredRecipe -- this path speaks flat (name, MI). Wire it as a candidate-MI
+# PROVIDER feeding the EXISTING gates (noise-gate/SU/external-validation/prevalence), emitting structured
+# (ua,ub,bop) triples + real src column names + active presets (reuse fe_tuple->get_new_feature_name->
+# EngineeredRecipe; never re-parse the string). Drive the op set from create_*_transformations(preset) +
+# the gpu_compatible_unary_names allowlist with CPU fallback for unsupported/NON-pure ops (smart_log
+# anchor must be the frozen full-column value, not the subsample min). Replace the hardcoded
+# _GPU_RESIDENT_MIN_N with a CONTENTION-AWARE kernel_tuning_cache sweep (mirror _run_sweep_mi_classif_
+# dispatch). Collapse MLFRAME_FE_MATRIX_P0 + MLFRAME_FE_GPU_RESIDENT into one backend selector (gpu=>
+# matrix). Add: pickle/clone test (no cupy/FeatureMatrix/RawKernel reachable from estimator state),
+# combo-order-vs-registry meta-test, and a 3-impl op-parity test (registry vs _unary/_binary_apply vs the
+# CUDA switch -- _safe_div is the single spec; its 2026-06-13 heavy-tail fix lives in ONE place).
 
 # Minimal-preset op NAMES (kept in sync with feature_engineering.create_*_transformations "minimal").
 _MINIMAL_UNARY = ("identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin")
@@ -160,12 +182,16 @@ def _get_fused_gen_kernel():
 def _fused_generate_block(ua_cm, ub_cm, combos_block):
     """Generate the (n, len(combos_block)) candidate matrix for ``combos_block`` in ONE kernel launch.
 
-    ``ua_cm`` / ``ub_cm`` are the (16, n) C-CONTIGUOUS post-unary caches for operands a / b (row
-    u = _UNARY_IDX[name]) -- this layout lets the kernel read ``ua[u*n + i]`` coalesced; the caller
-    builds them ONCE and reuses across chunks. Returns a row-major (n, K) cupy float64 matrix, bit-equal
-    to the cupy elementwise path (same ops, same safe-div, same nan_to_num -- validated maxdiff 0)."""
+    ``ua_cm`` / ``ub_cm`` are the (U, n) C-CONTIGUOUS post-unary caches for operands a / b, where
+    U = len(_MINIMAL_UNARY) (row u = _UNARY_IDX[name]). This layout lets the kernel address column u
+    via ``ua[u*n + i]``; the caller builds them ONCE and reuses across chunks. Returns a row-major
+    (n, K) cupy float64 matrix, bit-equal to the cupy elementwise path (same ops, same safe-div, same
+    nan_to_num -- validated maxdiff 0)."""
     import cupy as cp
 
+    # Pin the operand-plane row count to the unary set: the kernel does NO bounds check on ua_idx, so a
+    # silent row/index drift would be an out-of-bounds device read. Assert it can't.
+    assert ua_cm.shape[0] == len(_MINIMAL_UNARY) == ub_cm.shape[0], (ua_cm.shape, ub_cm.shape)
     n = int(ua_cm.shape[1])
     K = len(combos_block)
     ua_idx = cp.asarray([_UNARY_IDX[ua] for ua, _, _ in combos_block], dtype=cp.int32)
@@ -180,7 +206,7 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block):
 
 
 def _unary_stack_cm(xp, x):
-    """(16, n) C-contiguous stack of the minimal unary transforms of ``x`` (row u = _UNARY_IDX[name])."""
+    """(U, n) C-contiguous stack of the minimal unary transforms of ``x`` (U=len(_MINIMAL_UNARY), row u = _UNARY_IDX[name])."""
     return xp.ascontiguousarray(xp.stack([_unary_apply(xp, u, x) for u in _MINIMAL_UNARY], axis=0))
 
 # Per-element GPU working-set multiple for the cupy plug-in MI: the (n, k) cand f64 + argsort int64 +
@@ -251,7 +277,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
-    # (16, n) unary caches stay resident + reused across every chunk; the FUSED kernel then generates
+    # (U, n) unary caches (U=len(_MINIMAL_UNARY)) stay resident + reused across every chunk; the FUSED kernel generates
     # each candidate CHUNK in ONE launch (vs a Python loop of ~K cupy binary ops + nan_to_num + temps --
     # bit-equal, ~15x faster generation). Only the chunk matrix is bounded, so peak VRAM is governed.
     ua_cm = _unary_stack_cm(cp, a_gpu)
@@ -300,12 +326,14 @@ def _sortfree_mi_gpu(cand_gpu, y_i64, nbins, *, sub: int = 4096):
 
 
 def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refine_k: int = 48):
-    """EXACT-winner, faster GPU-resident pair MI: prescreen ALL candidates with the sort-free MI (no
-    O(n log n) sort), then re-score only the top ``refine_k`` with the EXACT argsort MI. The exact
-    winner is preserved (it sits in the high-approx-MI tie cluster of equivalent a**2/b spellings, well
-    within top-K), at a fraction of the full-grid sort cost. Returns ``(names, mi)`` where the top-K
-    entries carry EXACT MI and the tail carries the (excellent, Spearman ~0.999) approx MI -- so argmax
-    and the high-MI head are exact while the low-MI tail stays cheap."""
+    """APPROXIMATE-with-exact-head GPU pair MI (opt-in, NOT the default): prescreen ALL candidates with
+    the sort-free MI (no O(n log n) sort), then re-score only the top ``refine_k`` with the EXACT argsort
+    MI. The true winner is EMPIRICALLY preserved (validated 6/6 seeds @100k) because it sits in the
+    high-approx-MI tie cluster of equivalent a**2/b spellings, normally well within top-K -- but this is
+    NOT guaranteed: if the prescreen mis-ranks the true winner below ``refine_k`` the returned argmax is
+    wrong. So this is an approximate fast mode; the exact contract uses ``gpu_resident_pair_candidate_mi``
+    (the dispatcher's default). Returns ``(names, mi)``: top-K entries carry EXACT MI, the tail carries
+    the (Spearman ~0.999) approx MI."""
     import cupy as cp
 
     from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the _hermite_fe_mi import
@@ -361,6 +389,10 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
             import cupy  # noqa: F401
 
             return gpu_resident_pair_candidate_mi(a, b, y_codes, nbins=nbins)
-        except Exception:
-            pass  # no cupy / GPU error -> CPU fallback
+        except Exception as e:
+            # Log (don't silently swallow) -- a GPU OOM/driver error degrading to a slow CPU fallback
+            # would otherwise look like "GPU never helped". A chunk-shrink-retry before CPU fallback is
+            # a future refinement (the VRAM governor already bounds chunks, so OOM should be rare).
+            import logging
+            logging.getLogger(__name__).warning("GPU-resident pair MI failed (%s); CPU fallback.", e)
     return cpu_pair_candidate_mi(a, b, y_codes, nbins=nbins)

@@ -88,6 +88,83 @@ def test_fast_path_preserves_exact_winner():
         assert names[int(np.argmax(fast))] == names[int(np.argmax(exact))], f"winner flipped at seed {seed}"
 
 
+def _target(a, b, kind):
+    if kind == "a2b":
+        y = a**2 / np.where(b == 0, 1e-9, b)
+    elif kind == "logsin":
+        y = np.log(np.abs(a) + 1e-9) * np.sin(b)
+    else:  # noise
+        y = np.random.default_rng(7).normal(size=a.shape[0])
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    return np.searchsorted(e, y).astype(np.int64)
+
+
+def test_cpu_path_edge_cases_no_nonfinite_escapes():
+    """Operands with zeros + negatives exercise the safe-div y==0 branch, sqrt(|x|), smart-log shift
+    and reciproc-of-0 -- all dead in the uniform[1,5] tests. The scrub must leave NO NaN/inf and MI
+    finite + >= 0, at n below nbins too."""
+    rng = np.random.default_rng(3)
+    for n in (12, 2000):  # n=12 < nbins=20 (degenerate quantile binning)
+        a = rng.uniform(-3, 3, n); a[::5] = 0.0
+        b = rng.uniform(-3, 3, n); b[::4] = 0.0
+        for kind in ("a2b", "logsin", "noise"):
+            names, mi = cpu_pair_candidate_mi(a, b, _target(a, b, kind))
+            assert len(names) == len(mi) == 8 * 8 * 6
+            assert np.all(np.isfinite(mi)), (n, kind)
+            assert np.all(mi >= -1e-9), (n, kind)
+
+
+def test_gpu_cpu_agree_heavytail_and_varied_targets():
+    """Exact GPU path must match CPU on HEAVY-TAILED operands (the regime the docstring says breaks the
+    approximate path) and on NON-a**2/b targets -- the cases the original suite never covered."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import gpu_resident_pair_candidate_mi
+
+    rng = np.random.default_rng(11)
+    n = 50_000
+    a = rng.lognormal(0.0, 2.5, n)   # heavy tail
+    b = rng.lognormal(0.0, 2.5, n)
+    for kind in ("a2b", "logsin", "noise"):
+        yc = _target(a, b, kind)
+        cnames, cmi = cpu_pair_candidate_mi(a, b, yc)
+        gnames, gmi = gpu_resident_pair_candidate_mi(a, b, yc)
+        assert gnames == cnames
+        np.testing.assert_allclose(gmi, cmi, rtol=1e-3, atol=1e-4, err_msg=kind)
+        if kind != "noise":  # noise has no real winner -> argmax meaningless
+            assert int(np.argmax(gmi)) == int(np.argmax(cmi)), kind
+
+
+def test_dispatch_falls_back_to_cpu_on_gpu_error(monkeypatch):
+    """A GPU error at n>=crossover must fall back to the CPU result (same array), not propagate."""
+    import mlframe.feature_selection.filters._gpu_resident_fe as G
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated GPU failure")
+
+    monkeypatch.setattr(G, "gpu_resident_pair_candidate_mi", _boom)
+    a, b, y_codes = _ab_target(n=60_000)  # >= _GPU_RESIDENT_MIN_N
+    names, mi = G.pair_candidate_mi_dispatch(a, b, y_codes)
+    cnames, cmi = cpu_pair_candidate_mi(a, b, y_codes)
+    assert names == cnames
+    np.testing.assert_array_equal(mi, cmi)
+
+
+def test_chunk_invariance(monkeypatch):
+    """The VRAM K-chunk boundary must not change the result: forcing k_chunk in {1, 7, 384} on the same
+    data yields identical MI vectors (isolates the chunk-stitch logic from whatever VRAM the box has)."""
+    pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters._gpu_resident_fe as G
+
+    a, b, y_codes = _ab_target(n=40_000)
+    results = []
+    for kc in (1, 7, 384):
+        monkeypatch.setattr(G, "_gpu_k_chunk", lambda n, _kc=kc, **kw: _kc)
+        _, mi = G.gpu_resident_pair_candidate_mi(a, b, y_codes)
+        results.append(mi)
+    np.testing.assert_array_equal(results[0], results[1])
+    np.testing.assert_array_equal(results[1], results[2])
+
+
 def test_fused_generation_is_bit_equal_to_cupy_loop():
     """The fused RawKernel generation must be BIT-EQUAL (maxdiff 0) to the cupy elementwise loop --
     same ops, safe-div y==0 branch, nan_to_num. This is what lets it replace the loop with no result

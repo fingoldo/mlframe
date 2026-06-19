@@ -87,6 +87,18 @@ def test_high_cardinality_categorical_no_float_aliasing():
     assert list(back["id"].astype(np.int64)) == list(codes)
 
 
+def test_pandas_string_object_column_factorized_not_crashed():
+    """A plain string/object column must NOT crash astype(float32); it factorizes to categorical codes
+    and round-trips its labels (regression for the unhandled-string-column bug)."""
+    n = 600
+    vals = np.array(["red", "green", "blue"])[np.arange(n) % 3]
+    df = pd.DataFrame({"color": pd.Series(vals, dtype=object), "v": np.arange(n, dtype=float)})
+    fm = to_feature_matrix(df)
+    assert fm.col_kind[fm.columns.index("color")] == "categorical"
+    back = from_feature_matrix(fm)
+    assert list(back["color"].astype(str)) == list(vals)
+
+
 def test_numpy_roundtrip():
     rng = np.random.default_rng(3)
     arr = rng.normal(size=(300, 4))

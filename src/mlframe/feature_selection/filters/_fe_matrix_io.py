@@ -103,6 +103,10 @@ def _polars_column_to_arrays(s, dtype):
     import polars as pl
 
     null_mask = s.is_null().to_numpy()
+    # A plain string column would crash the numeric ``to_numpy().astype(float32)`` below; route it
+    # through the categorical path (cast to Categorical) so strings become codes instead of erroring.
+    if s.dtype == pl.Utf8:
+        s = s.cast(pl.Categorical)
     if s.dtype in (pl.Categorical, pl.Enum):
         # physical() gives the UInt32 codes; fill nulls with 0 (a VALID unsigned value -- a -1 sentinel
         # would overflow UInt32 and blow polars up) and then stamp -1 into the null positions via the
@@ -134,8 +138,15 @@ def _pandas_column_to_arrays(s, dtype):
     if isinstance(s.dtype, pd.CategoricalDtype):
         codes = s.cat.codes.to_numpy().astype(np.int64, copy=False)  # already -1 for NaN
         return None, codes, list(s.cat.categories), null_mask
-    vals = s.to_numpy(dtype=dtype, copy=False) if s.dtype != object else s.to_numpy().astype(dtype)
-    return vals, None, None, null_mask
+    if s.dtype == object:
+        # object column: try numeric first; on failure FACTORIZE to categorical codes (a plain string
+        # column would otherwise crash ``astype(float32)``). use_na_sentinel -> NaN becomes code -1.
+        try:
+            return s.to_numpy().astype(dtype), None, None, null_mask
+        except (ValueError, TypeError):
+            codes, cats = pd.factorize(s, use_na_sentinel=True)
+            return None, codes.astype(np.int64, copy=False), list(cats), null_mask
+    return s.to_numpy(dtype=dtype, copy=False), None, None, null_mask
 
 
 def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
@@ -244,9 +255,17 @@ def from_feature_matrix(fm: FeatureMatrix):
             out_pd[name] = col_objs[name]
         else:
             codes, labels = col_objs[name]
-            out_pd[name] = pd.Categorical.from_codes(
-                np.clip(codes, -1, len(labels) - 1), categories=labels,
-            )
+            if not labels:
+                # categories failed to materialise (e.g. a polars Categorical whose string-cache view
+                # was unavailable): clipping to len-1 == -1 would null EVERY value (silent data loss).
+                # Preserve the raw integer codes instead (-1 -> NaN), so no data is destroyed.
+                col = codes.astype(np.float64)
+                col[codes < 0] = np.nan
+                out_pd[name] = col
+            else:
+                out_pd[name] = pd.Categorical.from_codes(
+                    np.clip(codes, -1, len(labels) - 1), categories=labels,
+                )
     df = pd.DataFrame(out_pd)
     if fm.framework == "pyarrow":
         import pyarrow as pa
