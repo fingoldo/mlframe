@@ -77,7 +77,7 @@ def _dispatch_batch_mi_with_noise_gate(
                     classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=0,
                     base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
                     use_su=False, dtype=np.int32,
-                    classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 4 else np.int32,
+                    classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
                 )
                 return analytic_batch_noise_gate(
                     disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence),
@@ -113,7 +113,7 @@ def _dispatch_batch_mi_with_noise_gate(
             min_nonzero_confidence=float(min_nonzero_confidence),
             use_su=bool(use_su),
             dtype=np.int32,
-            classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 4 else np.int32,
+            classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
         )
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
@@ -183,7 +183,7 @@ def _dispatch_batch_mi_with_noise_gate(
         # dense codes live in the SAME [0, n_bins) range, so int8/int16 is value-identical and
         # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
         # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
-        classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 4 else np.int32,
+        classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
     )
 
 

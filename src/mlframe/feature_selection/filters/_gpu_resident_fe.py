@@ -458,7 +458,7 @@ def grand_fused_pair_mi(
                 disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
                 npermutations=int(npermutations), base_seed=np.uint64(0),
                 min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
-                dtype=np.int32, classes_dtype=np.int32,
+                dtype=np.int32, classes_dtype=np.int16,
             )
         else:
             fe_mi = out[0] if isinstance(out, tuple) else out
