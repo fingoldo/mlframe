@@ -1,0 +1,273 @@
+"""Sure-Independence-Screening (SIS) front gate for MRMR at very wide p (~100k).
+
+Design source: ``tests/feature_selection/MRMR_100K_SCALING_DESIGN.md`` (measured cost map + cascade).
+
+MRMR's full path (relevance MI + Fleuret conditional-MI redundancy + FE/synergy sweep) is super-linear in
+the candidate-pool width and becomes infeasible at p ~ 100k. This module is GATE A of the cascade: a single
+O(p*n) pass over ALL columns that scores each by
+
+    fused_score_j = z(marginal_MI_j)   "max-rank"   z(second_moment_propensity_j)
+
+and cuts 100k -> a few thousand survivors. Only the survivors then enter full MRMR (Gates B/C), which are
+left completely unchanged.
+
+WHY BOTH STATISTICS, FUSED
+--------------------------
+* marginal MI (``_mi_classif_batch``) catches MAIN-EFFECT features but ranks a pure-interaction operand
+  (a*b with ~0 marginal MI by construction) at the noise floor;
+* second-moment propensity (``second_moment_propensity`` = ``|corr(x^2,y)|+|corr(x,y^2)|``) catches exactly
+  those zero-marginal interaction operands via higher-moment leakage.
+Fusing = z-score each ranking and take the BEST-OF-EITHER rank, so an operand surviving on EITHER signal is
+kept. Neither class of signal is lost. (Irreducible floor: a perfectly balanced XOR with zero higher-moment
+leakage is invisible to ANY O(p) score -- out of scope for the screen, recoverable only by the O(cap^2)
+sweep itself.)
+
+MEMORY / I/O (load-bearing, measured -- see the design doc)
+-----------------------------------------------------------
+At p=100k the (n,p) frame is an 8 GB on-disk float32 memmap and is NEVER fully resident. We read it in
+COLUMN blocks of width ``chunk_width`` (the survivor count is O(p) accumulators only). The production
+``second_moment_propensity`` upcasts a block to float64 and squares it -> transiently ~3x a block's float32
+footprint, so ``chunk_width`` is chosen from FREE RAM via the kernel_tuning_cache (never hardcoded).
+
+HOTSPOT (cProfile, p=20000 n=4000, 2026-06-19)
+----------------------------------------------
+Screen wall ~6.8 s. The cost is entirely in the two REUSED sibling kernels (this module is glue):
+``second_moment_propensity`` ~3.4 s (its column-standardize + corr matmul) and ``_mi_classif_batch`` njit
+~2.5 s. Both are already numba/vectorised and one (the propensity kernel) is under active optimization by a
+sibling change -- so the screen inherits those speedups for free; there is nothing to optimize in the glue.
+
+DETERMINISM / PICKLE
+--------------------
+No global RNG; column-block order is ascending index; survivor-cut ties broken by ascending index. Identical
+survivors across runs. This module stores no live numba/cuda kernel objects -- it only CALLS module-level
+cached kernels in sibling modules -- so it is pickle-clean by construction.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------------------------------------------
+# chunk-width selection from FREE RAM (kernel_tuning_cache, mirroring batch_pair_mi_gpu's dispatch pattern)
+# ----------------------------------------------------------------------------------------------------------
+def _free_ram_bytes() -> int:
+    """Best-effort free physical RAM in bytes; conservative fallback if psutil is missing."""
+    try:
+        import psutil
+
+        return int(psutil.virtual_memory().available)
+    except Exception:
+        return 2 * 1024 ** 3  # 2 GB conservative fallback
+
+
+def _ram_bucket(free_bytes: int) -> int:
+    """Coarse log2 bucket so the cache key is stable across small RAM jitter."""
+    gb = max(1, int(free_bytes // (1024 ** 3)))
+    return int(gb.bit_length())  # 1->1, 2-3->2, 4-7->3, 8-15->4, ...
+
+
+def _fallback_chunk_width(n_rows: int, free_bytes: int) -> int:
+    """Measurement-backed default chunk width.
+
+    The second-moment kernel transiently needs ~3x a block's float64 footprint (upcast + square): a block is
+    ``n_rows * chunk_width * 8`` float64 bytes, and we budget ~3x of that plus headroom. Use at most ~1/8 of
+    free RAM for the transient so a sibling agent's large memmap is not starved. Clamp to a sane [256, 8192].
+    """
+    budget = max(1, free_bytes // 8)  # use at most 1/8 of free RAM for the transient
+    # transient ~= 3 * n_rows * w * 8 bytes  ->  w = budget / (24 * n_rows)
+    w = int(budget // (24 * max(1, n_rows)))
+    return int(np.clip(w, 256, 8192))
+
+
+def _choose_chunk_width(n_rows: int, p: int, free_bytes: int) -> int:
+    """Look the chunk width up in the kernel_tuning_cache keyed on (n-bucket, free-RAM-bucket); fall back to
+    the measured analytic default. Never hardcodes a single constant; deterministic for a given host+RAM."""
+    n_bucket = int(max(1, n_rows).bit_length())
+    ram_bucket = _ram_bucket(free_bytes)
+    fb = _fallback_chunk_width(n_rows, free_bytes)
+    fb = int(min(fb, max(1, p)))  # no point chunking wider than the frame
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+        ktc = KernelTuningCache.load_or_create()
+        hit = ktc.lookup("mrmr_sis_chunk_width", n_bucket=n_bucket, ram_bucket=ram_bucket)
+        if hit and "chunk_width" in hit:
+            w = int(hit["chunk_width"])
+            return int(np.clip(min(w, max(1, p)), 1, max(1, p)))
+        # Persist the analytic choice so a later micro-bench / retune can refine it; best-effort.
+        try:
+            ktc.update(
+                "mrmr_sis_chunk_width",
+                axes=["n_bucket", "ram_bucket"],
+                regions=[{"n_bucket": n_bucket, "ram_bucket": ram_bucket, "chunk_width": fb}],
+            )
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return fb
+
+
+# ----------------------------------------------------------------------------------------------------------
+# fusion + survivor-count rule
+# ----------------------------------------------------------------------------------------------------------
+def _zscore(a: np.ndarray) -> np.ndarray:
+    a = np.asarray(a, dtype=np.float64)
+    mu = float(a.mean()) if a.size else 0.0
+    sd = float(a.std())
+    if sd <= 0.0:
+        return np.zeros_like(a)
+    return (a - mu) / sd
+
+
+def fuse_scores(mi: np.ndarray, prop: np.ndarray) -> np.ndarray:
+    """Best-of-either fused score: per-column MAX of the z-scored MI and z-scored 2nd-moment propensity.
+
+    Max (not sum) so a feature strong on EITHER signal survives -- a pure-interaction operand (MI~0,
+    high propensity) is not diluted by its low MI, and a main effect (high MI, modest propensity) is not
+    diluted by its propensity. Both classes surface."""
+    return np.maximum(_zscore(mi), _zscore(prop))
+
+
+def survivor_count(
+    fused: np.ndarray,
+    *,
+    k_target: Optional[int] = None,
+    mad_c: float = 3.0,
+    ram_cap: Optional[int] = None,
+) -> int:
+    """DATA-DERIVED survivor count ``m`` (NOT a hardcoded constant), per the design:
+
+    m = max(
+          information-knee: count of features above ``median + mad_c * MAD`` of the fused score,
+          floor: max(20 * k_target, 1000)   so the downstream MRMR/synergy pool is never starved,
+        )
+    clamped to ``ram_cap`` (Gate-B discretized-pool RAM budget) and to ``p`` itself.
+
+    Robust (median/MAD) so it adapts to how concentrated the signal is; deterministic (no RNG)."""
+    p = int(fused.size)
+    if p == 0:
+        return 0
+    med = float(np.median(fused))
+    mad = float(np.median(np.abs(fused - med)))
+    # 1.4826 scales MAD to a normal-consistent sigma estimate.
+    thresh = med + mad_c * 1.4826 * mad
+    knee = int(np.count_nonzero(fused > thresh))
+    floor = max(20 * int(k_target or 0), 1000)
+    m = max(knee, floor)
+    if ram_cap is not None:
+        m = min(m, int(ram_cap))
+    m = int(np.clip(m, 1, p))
+    return m
+
+
+def _ram_cap_survivors(n_rows: int, free_bytes: int) -> int:
+    """Upper cap on survivors from the Gate-B discretized-pool RAM budget: an int16 (n, m) matrix is
+    ``n * m * 2`` bytes; budget at most ~1/4 of free RAM for it."""
+    budget = max(1, free_bytes // 4)
+    return max(1000, int(budget // (2 * max(1, n_rows))))
+
+
+# ----------------------------------------------------------------------------------------------------------
+# the chunked screen
+# ----------------------------------------------------------------------------------------------------------
+def sis_screen(
+    X: Any,
+    y: Any,
+    *,
+    target_survivors: Optional[int] = None,
+    k_target: Optional[int] = None,
+    chunk_width: Optional[int] = None,
+    nbins: int = 10,
+    mad_c: float = 3.0,
+    return_scores: bool = False,
+):
+    """Score every column of a wide ``(n, p)`` matrix by fused (marginal-MI + 2nd-moment) signal in COLUMN
+    BLOCKS (the matrix is never fully resident -- a memmap is read one block at a time) and return the
+    survivor column indices.
+
+    Parameters
+    ----------
+    X : np.ndarray | np.memmap, shape (n, p)
+        Numeric feature matrix. May be an on-disk memmap; only ``chunk_width`` columns are resident at once.
+    y : array-like, shape (n,)
+        Target (any type; ``second_moment_propensity`` factorises non-numeric / discrete labels).
+    target_survivors : int, optional
+        If given, exactly this many top-fused survivors are returned (clamped to p). Otherwise the
+        data-derived ``survivor_count`` rule decides.
+    k_target : int, optional
+        Requested number of finally-selected features (feeds the ``20*k_target`` survivor floor).
+    chunk_width : int, optional
+        Column block width. Default: chosen from free RAM via the kernel_tuning_cache.
+    nbins : int
+        Quantile bins for the marginal-MI estimator.
+    return_scores : bool
+        Also return the fused/MI/propensity score arrays.
+
+    Returns
+    -------
+    survivors : np.ndarray[int]  (ascending column indices)
+    (optional) dict of score arrays when ``return_scores``.
+    """
+    Xarr = X
+    if hasattr(Xarr, "to_numpy"):  # pandas / polars -> ndarray (caller normally passes ndarray/memmap)
+        Xarr = Xarr.to_numpy()
+    if Xarr.ndim != 2:
+        raise ValueError(f"sis_screen expects a 2-D (n, p) matrix; got shape {getattr(Xarr, 'shape', None)}")
+    n, p = int(Xarr.shape[0]), int(Xarr.shape[1])
+
+    y_arr = np.asarray(y.to_numpy()).ravel() if hasattr(y, "to_numpy") else np.asarray(y).ravel()
+    if y_arr.shape[0] != n:
+        raise ValueError(f"y length {y_arr.shape[0]} != n_rows {n}")
+
+    free_bytes = _free_ram_bytes()
+    if chunk_width is None:
+        chunk_width = _choose_chunk_width(n, p, free_bytes)
+    chunk_width = int(max(1, min(chunk_width, p)))
+
+    from ._fe_interaction_prerank import second_moment_propensity
+    from ._orthogonal_univariate_fe._orth_mi_backends import _mi_classif_batch
+
+    mi = np.zeros(p, dtype=np.float64)
+    prop = np.zeros(p, dtype=np.float64)
+
+    # Single ascending sweep over contiguous COLUMN blocks (deterministic order). Each block is materialized
+    # as a small float32 buffer; the MI estimator and 2nd-moment kernel both consume it, then it is dropped.
+    for j0 in range(0, p, chunk_width):
+        j1 = min(j0 + chunk_width, p)
+        block = np.ascontiguousarray(Xarr[:, j0:j1], dtype=np.float32)
+        # marginal MI (full n -- a subsample collapses recall, see design)
+        try:
+            mi[j0:j1] = _mi_classif_batch(block, y_arr, nbins=nbins)
+        except Exception as exc:  # never let one block kill the whole screen
+            logger.warning("sis_screen: MI block [%d:%d] failed (%s); scored 0", j0, j1, exc)
+        # second-moment interaction propensity (reuse the sibling kernel as-is)
+        try:
+            prop[j0:j1] = second_moment_propensity(block, y_arr)
+        except Exception as exc:
+            logger.warning("sis_screen: propensity block [%d:%d] failed (%s); scored 0", j0, j1, exc)
+        del block
+
+    fused = fuse_scores(mi, prop)
+
+    if target_survivors is not None:
+        m = int(np.clip(int(target_survivors), 1, p))
+    else:
+        ram_cap = _ram_cap_survivors(n, free_bytes)
+        m = survivor_count(fused, k_target=k_target, mad_c=mad_c, ram_cap=ram_cap)
+
+    # Top-m by fused score; ties broken by ascending index (lexsort: primary -fused, secondary +index).
+    order = np.lexsort((np.arange(p), -fused))[:m]
+    survivors = np.sort(order).astype(np.int64)
+
+    if return_scores:
+        return survivors, {"fused": fused, "mi": mi, "propensity": prop, "chunk_width": chunk_width}
+    return survivors
+
+
+__all__ = ["sis_screen", "fuse_scores", "survivor_count"]
