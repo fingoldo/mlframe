@@ -108,21 +108,44 @@ def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
         peaks = deduped
     if len(peaks) < 2:
         return None
-    peaks_by_count = sorted(peaks, key=lambda t: -t[1])
-    p1, p2 = peaks_by_count[0], peaks_by_count[1]
-    bin_lo, bin_hi = (p1[0], p2[0]) if p1[0] < p2[0] else (p2[0], p1[0])
-    if bin_hi - bin_lo < 3:
-        return None
-    valley_slice = counts[bin_lo + 1: bin_hi]
-    if valley_slice.size == 0:
-        return None
-    valley_offset = int(np.argmin(valley_slice))
-    valley_bin = bin_lo + 1 + valley_offset
-    valley_count = int(counts[valley_bin])
-    min_peak_count = min(p1[1], p2[1])
-    if valley_count > 0.6 * min_peak_count:
-        return None
+    # Pairing logic: in a redundancy-clustering SU sweep the IRRELEVANT-pair
+    # bulk sits at LOW SU and the genuine near-duplicate / redundant-cluster
+    # mode sits at HIGH SU. Picking the two TALLEST peaks (the legacy rule)
+    # systematically misses the redundancy mode whenever it is a SMALL tail
+    # peak relative to the broad low-SU bulk -- both tall peaks then fall
+    # INSIDE the bulk and the shallow valley between them fails the depth gate,
+    # so a real high-SU cluster mode is reported as unimodal (scenario-A sensor
+    # mesh: bulk peak at SU~0.05, cluster tail at SU~0.55-0.75 of only ~5 pairs,
+    # legacy rule paired the two tallest bulk-internal bins and returned None).
+    # Robust rule: anchor p1 = the tallest peak (the bulk), then among all peaks
+    # at least 3 bins away pick the one whose SEPARATING valley is deepest
+    # relative to the smaller of the pair; tie-break toward the HIGHEST-SU bin so
+    # the chosen valley sits between the bulk and the redundancy mode. This still
+    # recovers the two real modes on textbook bimodal data (the second mode IS
+    # the well-separated deep-valley peak) while catching a small high-SU tail.
     bin_width = 1.0 / n_bins
+    p1 = max(peaks, key=lambda t: (t[1], -t[0]))
+    best = None  # (valley_bin, valley_count, depth_ratio, p2_bin)
+    for p2_bin, p2_count in peaks:
+        if abs(p2_bin - p1[0]) < 3:
+            continue
+        bin_lo, bin_hi = (p1[0], p2_bin) if p1[0] < p2_bin else (p2_bin, p1[0])
+        valley_slice = counts[bin_lo + 1: bin_hi]
+        if valley_slice.size == 0:
+            continue
+        valley_offset = int(np.argmin(valley_slice))
+        valley_bin = bin_lo + 1 + valley_offset
+        valley_count = int(counts[valley_bin])
+        min_peak_count = min(p1[1], p2_count)
+        if min_peak_count <= 0 or valley_count > 0.6 * min_peak_count:
+            continue
+        depth_ratio = valley_count / min_peak_count
+        cand = (depth_ratio, -p2_bin, valley_bin)
+        if best is None or cand < best[0]:
+            best = (cand, valley_bin)
+    if best is None:
+        return None
+    valley_bin = best[1]
     tau = float((valley_bin + 0.5) * bin_width)
     tau = max(_DCD_AUTO_TAU_MIN, min(_DCD_AUTO_TAU_MAX, tau))
     return tau

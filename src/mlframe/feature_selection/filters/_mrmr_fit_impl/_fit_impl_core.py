@@ -8486,6 +8486,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _rep_pool = [_nm for _nm in _group if _nm in _sel_names_cm] or _group
                     _rep = min(_rep_pool, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
                     _ca_final_excl.update(_nm for _nm in _group if _nm != _rep)
+                    # KEEP-ONE-RAW for pure-raw PRUNED clusters (no denoised aggregate): when a
+                    # within-pack SU cluster is merely pool-pruned (size below the swap threshold, so
+                    # no aggregate column is ever built) AND its screen-selected representative was
+                    # later dropped (e.g. a second screen pass re-prunes the pack and the anchor falls
+                    # out of selected_vars), NONE of the group survives -- the latent vanishes from
+                    # support_ entirely and the RFECV rescue pool excludes every cluster member, so it
+                    # is unrecoverable (scenario-A sensor mesh: L1 pack pruned, AUC -0.08). Force-keep
+                    # the chosen representative exactly like the engineered-anchor branch below, so every
+                    # collapsed cluster retains >=1 raw column. No support growth: this re-adds the SINGLE
+                    # representative of a cluster that would otherwise contribute zero columns.
+                    if _rep not in _sel_names_cm:
+                        _ca_keep_raw.add(_rep)
             elif _a not in _raw_names_cmfinal:
                 # engineered/aggregate anchor (DCD PC1/mean_z swap) -- strip its (raw) members; the
                 # aggregate itself survives.

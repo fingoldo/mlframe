@@ -551,6 +551,30 @@ class TestLayer47_BimodalDetection:
         tau = _detect_valley_between_modes(scores)
         assert tau is None, f"unimodal data must NOT yield a valley; got {tau}"
 
+    def test_valley_detector_small_high_su_tail_over_broad_bulk(self):
+        """A SMALL high-SU redundancy mode over a BROAD decaying low-SU bulk must still be
+        detected: this is the realistic sensor-mesh shape (few within-cluster near-duplicate
+        pairs at SU~0.6-0.75, many irrelevant pairs spread 0.0-0.3 by plug-in MI bias). The
+        legacy two-tallest-peaks rule paired two bulk-internal bins and missed the tail, reporting
+        unimodal -> auto-tau fell back to 0.7 and under-clustered. The detector must instead place
+        the valley BETWEEN the bulk and the high-SU tail (tau roughly in the 0.45-0.65 gap)."""
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            _detect_valley_between_modes,
+        )
+        rng = np.random.default_rng(7)
+        # Broad decaying low-SU bulk + a thin high-SU cluster tail (small count).
+        bulk = np.abs(rng.normal(0.0, 0.12, size=190)).clip(0.0, 0.45)
+        tail = rng.normal(0.70, 0.04, size=10).clip(0.0, 1.0)
+        scores = np.concatenate([bulk, tail])
+        tau = _detect_valley_between_modes(scores)
+        assert tau is not None, "small high-SU tail over a broad bulk must be detected as bimodal"
+        # Valley lands in the empty gap between the bulk (clipped at ~0.35) and the tail (~0.70);
+        # the deepest (lowest-count) gap bin sits anywhere in that span. The contract is only that
+        # it separates the two modes -- i.e. above the bulk top and below the cluster tail.
+        assert 0.35 <= tau <= 0.68, (
+            f"valley must sit between the low-SU bulk and the high-SU cluster tail; got tau={tau}"
+        )
+
     def test_calibrate_tau_auto_on_bimodal_data(self):
         """End-to-end: ``_calibrate_tau_auto`` reports ``mode='bimodal'`` on
         synthetic bimodal cluster + noise data."""
