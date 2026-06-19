@@ -98,6 +98,25 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     if classes.size > _NOMINAL_MAX_CLASSES:
         return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)
     # DISCRETE / nominal: relabel-invariant one-hot sum (correct for binary, nominal multiclass, binned y).
+    # The per-column standardization of V / V2 is class-INDEPENDENT, so it is hoisted out of the (former)
+    # K-class loop and done ONCE; the K classes then reduce to a single (p,n)@(n,K) GEMM per matrix.
+    # compute_discrete_score dispatches that GEMM to the fastest backend (numpy/numba/cupy) by work size,
+    # with the numpy GEMM as the bit-reference fallback. See _discrete_score_numpy_loop for the original.
+    if classes.size <= 1:
+        # degenerate single-class target: every indicator is constant -> corr undefined -> zero score
+        # (matches the reference: a constant indicator has den==0 -> 0).
+        return np.zeros(V.shape[1], dtype=np.float64)
+    from mlframe.feature_selection.filters._fe_interaction_prerank_kernels import compute_discrete_score
+
+    return compute_discrete_score(V, V2, yf, classes)
+
+
+def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray,
+                               classes: np.ndarray) -> np.ndarray:
+    """Original per-class-loop reference for the discrete path (kept for parity tests / fallback).
+
+    Recomputes V/V2 column stats once per class; semantically identical to the hoisted GEMM dispatcher
+    but K x more BLAS calls. Retained as the named, dependency-free correctness baseline."""
     score = np.zeros(V.shape[1], dtype=np.float64)
     for c in classes:
         ind = (yf == c).astype(np.float64)

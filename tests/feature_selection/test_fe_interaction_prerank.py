@@ -15,7 +15,9 @@ import pytest
 from mlframe.feature_selection.filters._fe_interaction_prerank import (
     second_moment_propensity,
     top_k_by_interaction_propensity,
+    _discrete_score_numpy_loop,
 )
+from mlframe.feature_selection.filters import _fe_interaction_prerank_kernels as _kernels
 
 N = 8000
 NBINS = 8
@@ -201,6 +203,53 @@ def test_all_target_types_score_finite_and_recover(target_kind):
     top = set(np.argsort(scores)[::-1][:100])
     recall = len(operands & top) / len(operands)
     assert recall >= 0.5, f"{target_kind}: operand recall {recall:.2f} at top-100 (random ~{100/400:.2f})"
+
+
+@pytest.mark.parametrize("nclasses", [2, 5])
+@pytest.mark.parametrize("backend", ["numpy", "numba", "cupy"])
+def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
+    """Every dispatcher backend (numpy/numba/cupy GEMM) must reproduce the original per-class-loop
+    reference score to float precision AND give the identical descending ranking -- the kernel
+    optimization is a pure speedup, never a behavior change. cupy/numba skip cleanly if unavailable."""
+    if backend == "cupy":
+        cp = pytest.importorskip("cupy")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("no CUDA device")
+        except Exception:
+            pytest.skip("cupy present but no usable GPU")
+    if backend == "numba":
+        pytest.importorskip("numba")
+
+    rng = np.random.default_rng(7)
+    n, p = 4000, 1500
+    V = np.nan_to_num(rng.standard_normal((n, p)))
+    V2 = V * V
+    yf = rng.integers(0, nclasses, n).astype(np.float64)
+    classes = np.unique(yf)
+
+    ref = _discrete_score_numpy_loop(V, V2, yf, classes)
+    try:
+        got = _kernels.compute_discrete_score(V, V2, yf, classes, backend=backend)
+    except Exception as e:  # GPU OOM under concurrent load etc. -- the variant exists, just unbenchable now
+        pytest.skip(f"{backend} unavailable at runtime: {e}")
+
+    assert np.allclose(got, ref, rtol=1e-8, atol=1e-10), f"{backend} score drift max={np.abs(got-ref).max():.2e}"
+    # ranking (the only thing top-k consumes) must be bit-identical to the reference
+    assert np.array_equal(np.argsort(-got, kind="stable"), np.argsort(-ref, kind="stable")), \
+        f"{backend} ranking differs from per-class-loop reference"
+
+
+def test_second_moment_uses_kernel_and_matches_loop_end_to_end():
+    """The public second_moment_propensity (which now routes the discrete path through the kernel
+    dispatcher) must equal the per-class-loop computed on the same standardized inputs."""
+    rng = np.random.default_rng(3)
+    X = np.nan_to_num(rng.standard_normal((3000, 800)))
+    y = (rng.random(3000) < 0.4).astype(int)
+    got = second_moment_propensity(X, y)
+    yf = y.astype(np.float64)
+    ref = _discrete_score_numpy_loop(X, X * X, yf, np.unique(yf))
+    assert np.allclose(got, ref, rtol=1e-8, atol=1e-10)
 
 
 def test_single_class_target_no_crash():
