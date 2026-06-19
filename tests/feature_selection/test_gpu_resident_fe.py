@@ -165,6 +165,39 @@ def test_chunk_invariance(monkeypatch):
     np.testing.assert_array_equal(results[1], results[2])
 
 
+def test_gpu_resident_emits_replayable_recipe():
+    """The structured bridge: gpu_resident_pair_recipes must emit a real EngineeredRecipe (preset-
+    stamped, edge-pinned) whose transform() replays leak-free on RAW inputs and recovers a**2/b. This
+    is what makes the GPU output first-class for the production FE pipeline (not a flat string)."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._gpu_resident_fe import gpu_resident_pair_recipes
+    from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+    a, b, y_codes = _ab_target(n=20_000)  # below crossover -> dispatcher uses CPU leg (no cupy needed)
+    recs = gpu_resident_pair_recipes(
+        a, b, y_codes, src_a_name="a", src_b_name="b", cols_names=["a", "b"],
+        unary_preset="minimal", binary_preset="minimal", quantization_nbins=None, top_k=3,
+    )
+    assert recs, "no recipes emitted"
+    name, recipe, mi = recs[0]
+    # winner must encode a**2/b -- but the spelling can be div(sqr(a),b) OR the equivalent
+    # mul(sqr(a),reciproc(b)); assert the SIGNAL via the replay-tracks-a**2/b check below, not a literal.
+    assert "sqr" in name and ("div" in name or "reciproc" in name), f"winner not an a**2/b form: {name}"
+    # structured + preset-stamped (the whole point vs a flat name)
+    assert recipe.kind == "unary_binary"
+    assert recipe.src_names == ("a", "b")
+    assert recipe.unary_preset == "minimal" and recipe.binary_preset == "minimal"
+    assert recipe.name == name
+    # leak-free replay on RAW inputs reproduces the engineered column; it must track true a**2/b.
+    df = pd.DataFrame({"a": a, "b": b})
+    replayed = np.asarray(apply_recipe(recipe, df), dtype=np.float64).ravel()
+    assert np.all(np.isfinite(replayed))
+    true = a**2 / np.where(b == 0, 1e-9, b)
+    rho = np.corrcoef(replayed, true)[0, 1]
+    assert abs(rho) > 0.99, f"replayed recipe doesn't track a**2/b (|rho|={rho:.3f})"
+
+
 def test_fused_generation_is_bit_equal_to_cupy_loop():
     """The fused RawKernel generation must be BIT-EQUAL (maxdiff 0) to the cupy elementwise loop --
     same ops, safe-div y==0 branch, nan_to_num. This is what lets it replace the loop with no result

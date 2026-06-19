@@ -378,6 +378,78 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
 
+def _log_shift_anchor(operand_vals: np.ndarray, unary_name: str):
+    """Frozen smart_log shift for a ``log`` side -- ``(1e-5 - nanmin)`` if the FULL column reaches <=0,
+    else 0.0 (mirrors _step_core._ls_anchor exactly so replay is byte-identical). None for non-log."""
+    if unary_name != "log":
+        return None
+    mn = float(np.nanmin(np.asarray(operand_vals, dtype=np.float64)))
+    return (1e-5 - mn) if mn <= 0 else 0.0
+
+
+def gpu_resident_pair_recipes(
+    a_vals: np.ndarray,
+    b_vals: np.ndarray,
+    y_codes: np.ndarray,
+    *,
+    src_a_name: str,
+    src_b_name: str,
+    cols_names,
+    unary_preset: str = "minimal",
+    binary_preset: str = "minimal",
+    quantization_nbins=None,
+    quantization_method=None,
+    quantization_dtype=np.float32,
+    top_k: int = 1,
+    nbins: int = 20,
+):
+    """Score a pair's candidate grid on the GPU and return the top-``top_k`` as STRUCTURED, replayable
+    ``EngineeredRecipe`` objects -- the bridge from this path's flat (name, MI) to what production FE
+    consumes. For each winner it emits, via the SAME builders the CPU path uses
+    (``get_new_feature_name`` + ``build_unary_binary_recipe``): the canonical name, the structured
+    (src column names, unary names, binary name), the active presets (frozen for replay-stable semantics),
+    the quantization params with fit-time edges PINNED (``fit_values_for_edges`` -> leak-free transform),
+    and the frozen ``log_shift`` anchor for any ``log`` side. So the GPU result is a first-class recipe
+    that ``transform()`` replays bit-identically on raw inputs -- not a string to be re-parsed.
+
+    Returns a list of ``(name, EngineeredRecipe, mi)`` sorted by descending MI. The MI uses the exact
+    GPU-resident path (``gpu_resident_pair_candidate_mi``); the recipe fields are built on CPU (cheap for
+    top_k winners). Combo order is ``_COMBOS`` (kept in sync with the minimal preset)."""
+    from .engineered_recipes import build_unary_binary_recipe
+    from .feature_engineering import get_new_feature_name
+
+    # Route through the dispatcher so this works on ANY backend (GPU-resident in the sweet spot, CPU
+    # otherwise) -- recipe emission is backend-agnostic.
+    names, mi = pair_candidate_mi_dispatch(a_vals, b_vals, y_codes, nbins=nbins)
+    a64 = np.ascontiguousarray(a_vals, dtype=np.float64)
+    b64 = np.ascontiguousarray(b_vals, dtype=np.float64)
+    cols = list(cols_names)
+    idx_a = cols.index(src_a_name)
+    idx_b = cols.index(src_b_name)
+    out = []
+    for ci in np.argsort(mi)[::-1][: int(top_k)]:
+        ua, ub, bop = _COMBOS[int(ci)]
+        fe_tuple = (((idx_a, ua), (idx_b, ub)), bop, 0)
+        name = get_new_feature_name(fe_tuple, cols)
+        # Continuous fit-time engineered column (for edge pinning) -- identical op chain as the GPU path.
+        fit_vals = _binary_apply(np, bop, _unary_apply(np, ua, a64), _unary_apply(np, ub, b64))
+        fit_vals = np.nan_to_num(np.asarray(fit_vals, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        recipe = build_unary_binary_recipe(
+            name=name,
+            src_a_name=src_a_name, src_b_name=src_b_name,
+            unary_a_name=ua, unary_b_name=ub, binary_name=bop,
+            unary_preset=unary_preset, binary_preset=binary_preset,
+            quantization_nbins=quantization_nbins,
+            quantization_method=quantization_method,
+            quantization_dtype=quantization_dtype,
+            fit_values_for_edges=fit_vals,
+            log_shift_a=_log_shift_anchor(a64, ua),
+            log_shift_b=_log_shift_anchor(b64, ub),
+        )
+        out.append((name, recipe, float(mi[int(ci)])))
+    return out
+
+
 def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
     """Route a pair's candidate-MI to the measured-fastest backend: GPU-resident in the sweet spot
     (cupy present, n >= the crossover, VRAM-chunked so it can't thrash), CPU njit otherwise. Returns
