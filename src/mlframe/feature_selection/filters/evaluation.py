@@ -55,6 +55,110 @@ import os as _os
 _MRMR_NULL_SIGNIF_ALPHA = float(_os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
 
 
+def _gpu_cmi_prefill_enabled() -> bool:
+    """Env kill-switch for the batched-GPU conditional-MI cache pre-fill (default ON).
+
+    ``MLFRAME_MRMR_GPU_CMI=0`` forces the legacy scalar CPU path (no pre-fill); any other
+    value (or unset) leaves the dispatcher in charge of CPU-vs-GPU routing. Read at call time
+    (not import) so tests can toggle it per-run via the environment / monkeypatch.
+    """
+    return _os.environ.get("MLFRAME_MRMR_GPU_CMI", "1") != "0"
+
+
+def _prefill_cond_MIs_gpu(
+    workload,
+    y,
+    factors_data,
+    factors_nbins,
+    selected_vars,
+    cached_cond_MIs,
+    use_simple_mode,
+    mrmr_relevance_algo,
+    max_veteranes_interactions_order,
+    dtype=np.int32,
+    force=None,
+):
+    """Pre-populate ``cached_cond_MIs`` with batched-GPU ``I(X; Y | Z)`` so the ``@njit``
+    ``evaluate_gain`` redundancy loop hits the cache instead of running the serial scalar
+    ``conditional_mi`` (info_theory._entropy_kernels) per candidate.
+
+    SCOPE — applies ONLY to the plain-CMI Fleuret branch that ``evaluate_gain`` actually takes:
+
+      * ``mrmr_relevance_algo == 'fleuret'`` (the only branch keyed by ``arr2str(X)+'|'+arr2str(Z)``)
+      * NOT ``use_su`` and NOT ``use_jmim`` (those branches skip the cache entirely)
+      * ``max_veteranes_interactions_order == 1`` -- the batched kernel conditions on a SINGLE var
+        ``Z=[z]``; order >= 2 mixes multi-element ``Z`` the kernel does not cover, so it is left
+        on the exact scalar path (selection unchanged)
+      * ``selected_vars`` non-empty AND ``not use_simple_mode`` -- otherwise the conditional branch
+        is never reached
+      * single-var (order-1) candidates only (``len(X) == 1``)
+
+    For every selected var ``Z=[z]`` it calls the dispatch ONCE over all order-1 candidates and
+    writes the RAW CMI (the ``nexisting`` exponent is applied at READ time in ``evaluate_gain``;
+    do NOT pre-apply). Key format replicates ``evaluate_gain`` EXACTLY via the same ``@njit``
+    ``arr2str`` -- a mismatch would silently disable the cache.
+
+    Routing is delegated to ``conditional_mi_batched_dispatch`` (size/HW gate via the
+    kernel_tuning_cache; GPU only when beneficial+available). ANY failure falls back silently:
+    the cache is simply left un-prefilled and ``evaluate_gain`` runs the scalar path. Determinism
+    preserved (the kernel is bit-parity with the CPU loop; an empty pre-fill is a pure no-op)."""
+
+    # Gate: only the plain Fleuret CMI branch, single-var Z, conditional path actually taken.
+    if not _gpu_cmi_prefill_enabled():
+        return 0
+    if str(mrmr_relevance_algo) != "fleuret":
+        return 0
+    if use_simple_mode or not selected_vars:
+        return 0
+    if int(max_veteranes_interactions_order) != 1:
+        return 0
+    # SU / JMIM branches bypass the cache -> a pre-fill would be dead weight (and SU is a different
+    # quantity). Read the thread-locals the kernel respects.
+    if use_su_normalization() or use_jmim_aggregator():
+        return 0
+
+    try:
+        from .info_theory._cmi_cuda import conditional_mi_batched_dispatch
+
+        # Order-1 single-var candidates only; collect their column indices.
+        cand_indices = []
+        for _cand_idx, X, _nexisting in workload:
+            if len(X) != 1:
+                return 0  # any multi-element candidate -> abandon pre-fill, keep scalar path
+            cand_indices.append(int(X[0]))
+        if not cand_indices:
+            return 0
+
+        cand_indices_arr = np.asarray(cand_indices, dtype=np.int64)
+        y_index = int(np.asarray(y).ravel()[0])
+        factors_nbins_arr = np.asarray(factors_nbins)
+
+        n_written = 0
+        for z in selected_vars:
+            z_idx = int(z)
+            z_key_arr = np.asarray([z_idx], dtype=np.int32)
+            z_str = arr2str(z_key_arr)
+            cmi_vec = conditional_mi_batched_dispatch(
+                factors_data=factors_data,
+                cand_indices=cand_indices_arr,
+                y_index=y_index,
+                z_index=z_idx,
+                factors_nbins=factors_nbins_arr,
+                dtype=dtype,
+                force=force,
+            )
+            for ci, val in zip(cand_indices, cmi_vec):
+                key = arr2str(np.asarray([ci], dtype=np.int64)) + "|" + z_str
+                # Store RAW CMI; never overwrite a value the loop already cached.
+                if key not in cached_cond_MIs:
+                    cached_cond_MIs[key] = float(val)
+                    n_written += 1
+        return n_written
+    except Exception as _exc:  # noqa: BLE001 - correctness over speed: any failure -> scalar path
+        logger.debug("gpu cmi pre-fill skipped (%s); scalar CPU path used", _exc)
+        return 0
+
+
 def _materialize_var(factors_data, var_idx, factors_nbins, dtype=np.int32):
     """Densely-encode one variable index (or multi-index tuple/array) into a 1-D int column plus its effective cardinality K, via ``merge_vars`` (handles joints + bin
     pruning identically to the MI kernels). Used only by the research knobs (RelaxMRMR / PID / CMI-perm) whose standalone kernels take materialized columns, not indices."""
@@ -254,6 +358,25 @@ def _evaluate_candidates_inner(
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
+
+    # Batched-GPU conditional-MI cache pre-fill (default ON; env kill-switch MLFRAME_MRMR_GPU_CMI=0).
+    # Realises the GPU win: pre-populate the LOCAL numba cond-MI dict with batched I(X; Y | Z) so the
+    # @njit evaluate_gain loop hits the cache and skips the serial scalar conditional_mi. Writing into
+    # the per-call numba dict (NOT the shared python ``cached_cond_MIs``, which several threading
+    # workers alias) avoids a "dict changed size during iteration" race. Bit-parity kernel => selection
+    # unchanged; any failure / non-eligible regime is a silent no-op (scalar path).
+    _prefill_cond_MIs_gpu(
+        workload=workload,
+        y=y,
+        factors_data=factors_data,
+        factors_nbins=factors_nbins,
+        selected_vars=selected_vars,
+        cached_cond_MIs=cached_cond_MIs_dict,
+        use_simple_mode=use_simple_mode,
+        mrmr_relevance_algo=mrmr_relevance_algo,
+        max_veteranes_interactions_order=max_veteranes_interactions_order,
+        dtype=dtype,
+    )
 
     classes_y_safe = classes_y.copy()
 
