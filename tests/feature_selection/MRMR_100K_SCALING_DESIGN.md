@@ -249,7 +249,7 @@ finding below is RESOLVED or benchmark-justified -- none dropped silently.
 | CK-secondary | dispatch CUDA discretize | quantile ALREADY dispatched; MDLP-CUDA DEFERRED (bench) | quantile 2.89x; MDLP 10.5s->~52s second-order vs 290s CMI | 7df084e1 |
 | CK-1 (kernel) | no GPU path for Fleuret CMI | SHIPPED: batched CUDA 3-var CMI + dispatch | 4.6-7.7x; parity 3.55e-15; 800MB VRAM @ 100k | 62822de4 |
 | CK-1 (wiring, parallel) | kernel not called by greedy loop | SHIPPED: prefill cached_cond_MIs (n_workers>1) | selection IDENTICAL; 1803 scalar calls avoided; ~15%/4.47s on n=8k/p=300; ~290s->~65s @ 100k | a853ea04 |
-| CK-1 (wiring, serial) | serial path (n_workers=1) misses prefill | SHIPPED: same prefill before serial loop | selection-parity gated | (serial-wiring commit) |
+| CK-1 (wiring, serial) | serial path (n_workers=1) misses prefill | SHIPPED: same prefill before serial loop | selection IDENTICAL; 1869 scalar calls avoided; 35.12s->23.59s (-33%) @ n=8k/p=300/n_workers=1 | 706ac5be |
 
 CC also probed and CLEARED (not bugs): survivor-count edges, determinism across runs, NaN/inf/constant
 columns, single-class y, the K=63/64 one-hot boundary, the SIS dispatch boundary (p==threshold), and the
