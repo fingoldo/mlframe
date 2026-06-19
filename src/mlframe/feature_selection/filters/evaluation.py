@@ -465,6 +465,10 @@ def _evaluate_candidates_inner(
     # observability (the parity test reads it to PROVE the cache populated/hit).
     # bench (2026-06-19, n=4000 p=40 order-2 JMIM): cache delivers ~117k HITS over ~1.26M
     # entries -> real cross-round reuse; selection byte-identical (test_jmim_cache_parity).
+    # WALL-TIME A/B (3 seeds, distinct frames per arm to dodge the re-fit content cache, cache ON vs a
+    # forced-miss kill path): 183.2s on vs 190.0s off => ~1.04x (-6.8s, ~4%) -- a real but MODEST wall win,
+    # since the avoided mi() calls are a small slice of the full JMIM fit (discretize / relevance / FE /
+    # stability-vote dominate). Net: keep it (positive + harmless at order 1), but it is not a headline lever.
     # At interactions_max_order==1 the (current_gain, last_checked_k) resume already evaluates
     # each (X, Z) once across the whole fit, so the cache populates but never HITS (n=6000
     # p=150: ~456k entries, 0 hits) -- harmless, kept for the order>=2 win.
