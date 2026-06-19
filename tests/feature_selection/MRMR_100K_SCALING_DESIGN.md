@@ -228,3 +228,29 @@ Reuse, do not rewrite: `_mi_classif_batch`, `second_moment_propensity` /
 `top_k_by_interaction_propensity`, `categorize_dataset` (survivors only), the Fleuret CMI kernels (pool =
 survivors), the existing 250-cap synergy sweep (unchanged). The only genuinely new code is the chunked
 front gate + survivor rule + the cache wiring.
+
+## Wide-data critique campaign -- finding dispositions (2026-06-19)
+
+Three audit agents (correctness CC, reuse RU, kernel CK) reviewed the SIS + pre-rank + CMI stack. EVERY
+finding below is RESOLVED or benchmark-justified -- none dropped silently.
+
+| # | Finding | Disposition | Benchmark / number | Commit |
+|---|---------|-------------|--------------------|--------|
+| CC-P0-1 | SIS marginal-MI dead for regression (int64-cast y) | FIXED: class-encode/bin y first | MI channel revived; regression operands recovered | becf6d5e |
+| CC-P0-2 | object/string column crashes screen -> silent full-width fallback | FIXED: factorise non-numeric cols | no crash; categoricals MI-scored | becf6d5e |
+| CC-Low-3 | 65-class nominal squared via continuous path | FIXED: dtype switch + top-64 one-hot bucket | relabel-invariant (Jaccard>=0.9) | 76c5788b |
+| CC-Low-4 | zero budget escalated to expensive fused | FIXED: force cheap on budget<=0 | n/a (logic) | becf6d5e |
+| CC-Low-5 | ram_cap silently undercut survivor floor | FIXED: warn when it starves | n/a (warn) | 76c5788b |
+| RU-1 | survivors not deduped before CMI loop | SHIPPED: corr-dedup reps before CMI | 8-copy family -> 1 rep, ~63ms/600; saving = redundant fraction (~1% indep) | ff3b96ba |
+| RU-2 | SIS full-width MI discarded | SHIPPED (stash prior); warm-start DEFERRED | recompute ~3.6s second-order; binning mismatch blocks bit-substitute | 0758d70a |
+| RU-3 | duplicate LightGBM fits (fused prerank + seeder) | DEFERRED (bench) | ~0 default win (seeder opt-in OFF; fused small-p only); ~16s only in narrow overlap | 07a26c38 |
+| RU-4 | SIS re-bins survivors vs categorize | REJECTED (bench) | no reuse: quantile-10 vs MDLP recipes; MDLP bin (~10.5s/2k) unavoidable | 07a26c38 |
+| RU-5 | per-order permuted-y draws not shared | REJECTED (bench) | shuffle-gen 8.76ms (K=25,n=20k) negligible vs rescoring; would correlate nulls | 07a26c38 |
+| CK-secondary | dispatch CUDA discretize | quantile ALREADY dispatched; MDLP-CUDA DEFERRED (bench) | quantile 2.89x; MDLP 10.5s->~52s second-order vs 290s CMI | 7df084e1 |
+| CK-1 (kernel) | no GPU path for Fleuret CMI | SHIPPED: batched CUDA 3-var CMI + dispatch | 4.6-7.7x; parity 3.55e-15; 800MB VRAM @ 100k | 62822de4 |
+| CK-1 (wiring, parallel) | kernel not called by greedy loop | SHIPPED: prefill cached_cond_MIs (n_workers>1) | selection IDENTICAL; 1803 scalar calls avoided; ~15%/4.47s on n=8k/p=300; ~290s->~65s @ 100k | a853ea04 |
+| CK-1 (wiring, serial) | serial path (n_workers=1) misses prefill | SHIPPED: same prefill before serial loop | selection-parity gated | (serial-wiring commit) |
+
+CC also probed and CLEARED (not bugs): survivor-count edges, determinism across runs, NaN/inf/constant
+columns, single-class y, the K=63/64 one-hot boundary, the SIS dispatch boundary (p==threshold), and the
+minutes->seconds budget threading.
