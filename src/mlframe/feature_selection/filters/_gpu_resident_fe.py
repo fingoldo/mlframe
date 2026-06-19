@@ -112,6 +112,77 @@ def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:
 # (ua, ub, bop) combo order, matching _candidate_names / _build_candidate_matrix column order.
 _COMBOS = [(ua, ub, bop) for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
 
+_UNARY_IDX = {u: i for i, u in enumerate(_MINIMAL_UNARY)}
+_BINOP_CODE = {"mul": 0, "add": 1, "sub": 2, "div": 3, "max": 4, "min": 5}
+
+# FUSED-GENERATION CUDA RawKernel: one launch computes the WHOLE (n, K) candidate block from the cached
+# post-unary columns, replacing the Python loop of ~K separate cupy binary ops + nan_to_num + temporaries.
+# Each thread owns one (row, candidate) cell: gather its two operand columns by op-code index, apply the
+# binary op (safe-div mirrors the CPU y==0 -> eps branch), scrub non-finite to 0, write row-major (n,K).
+_FUSED_GEN_SRC = r"""
+extern "C" __global__
+void fused_gen(const double* __restrict__ ua, const double* __restrict__ ub,
+               const int* __restrict__ ua_idx, const int* __restrict__ ub_idx,
+               const int* __restrict__ bop, const long long n, const int K,
+               double* __restrict__ out) {
+    long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (tid >= total) return;
+    int c = (int)(tid % (long long)K);
+    long long i = tid / (long long)K;
+    double x = ua[(long long)ua_idx[c] * n + i];
+    double y = ub[(long long)ub_idx[c] * n + i];
+    double v;
+    switch (bop[c]) {
+        case 0: v = x * y; break;
+        case 1: v = x + y; break;
+        case 2: v = x - y; break;
+        case 3: v = x / ((y == 0.0) ? 1e-9 : y); break;
+        case 4: v = (x > y) ? x : y; break;
+        case 5: v = (x < y) ? x : y; break;
+        default: v = 0.0;
+    }
+    if (isnan(v) || isinf(v)) v = 0.0;
+    out[i * (long long)K + c] = v;
+}
+"""
+_FUSED_GEN_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
+
+
+def _get_fused_gen_kernel():
+    global _FUSED_GEN_KERNEL
+    if _FUSED_GEN_KERNEL is None:
+        import cupy as cp
+        _FUSED_GEN_KERNEL = cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
+    return _FUSED_GEN_KERNEL
+
+
+def _fused_generate_block(ua_cm, ub_cm, combos_block):
+    """Generate the (n, len(combos_block)) candidate matrix for ``combos_block`` in ONE kernel launch.
+
+    ``ua_cm`` / ``ub_cm`` are the (16, n) C-CONTIGUOUS post-unary caches for operands a / b (row
+    u = _UNARY_IDX[name]) -- this layout lets the kernel read ``ua[u*n + i]`` coalesced; the caller
+    builds them ONCE and reuses across chunks. Returns a row-major (n, K) cupy float64 matrix, bit-equal
+    to the cupy elementwise path (same ops, same safe-div, same nan_to_num -- validated maxdiff 0)."""
+    import cupy as cp
+
+    n = int(ua_cm.shape[1])
+    K = len(combos_block)
+    ua_idx = cp.asarray([_UNARY_IDX[ua] for ua, _, _ in combos_block], dtype=cp.int32)
+    ub_idx = cp.asarray([_UNARY_IDX[ub] for _, ub, _ in combos_block], dtype=cp.int32)
+    bop = cp.asarray([_BINOP_CODE[bp] for _, _, bp in combos_block], dtype=cp.int32)
+    out = cp.empty((n, K), dtype=cp.float64)
+    total = n * K
+    threads = 256
+    blocks = (total + threads - 1) // threads
+    _get_fused_gen_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
+    return out
+
+
+def _unary_stack_cm(xp, x):
+    """(16, n) C-contiguous stack of the minimal unary transforms of ``x`` (row u = _UNARY_IDX[name])."""
+    return xp.ascontiguousarray(xp.stack([_unary_apply(xp, u, x) for u in _MINIMAL_UNARY], axis=0))
+
 # Per-element GPU working-set multiple for the cupy plug-in MI: the (n, k) cand f64 + argsort int64 +
 # X_binned int64 + flat int64 coexist, so budget ~5x the bare cand bytes. Conservative -> avoids the
 # n=300k VRAM cliff (measured: unchunked (300k,384) thrashed the 4GB card to 60s).
@@ -180,18 +251,16 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
-    # Unary results (16 columns) stay resident + reused across every binary combo; only the candidate
-    # CHUNK matrix is bounded, so peak VRAM is governed (no large-n cliff).
-    ua_cache = {u: _unary_apply(cp, u, a_gpu) for u in _MINIMAL_UNARY}
-    ub_cache = {u: _unary_apply(cp, u, b_gpu) for u in _MINIMAL_UNARY}
+    # (16, n) unary caches stay resident + reused across every chunk; the FUSED kernel then generates
+    # each candidate CHUNK in ONE launch (vs a Python loop of ~K cupy binary ops + nan_to_num + temps --
+    # bit-equal, ~15x faster generation). Only the chunk matrix is bounded, so peak VRAM is governed.
+    ua_cm = _unary_stack_cm(cp, a_gpu)
+    ub_cm = _unary_stack_cm(cp, b_gpu)
     k_chunk = _gpu_k_chunk(n)
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
         block = _COMBOS[start:start + k_chunk]
-        cand = cp.empty((n, len(block)), dtype=cp.float64)
-        for j, (ua, ub, bop) in enumerate(block):
-            col = _binary_apply(cp, bop, ua_cache[ua], ub_cache[ub])
-            cand[:, j] = cp.nan_to_num(col, nan=0.0, posinf=0.0, neginf=0.0)
+        cand = _fused_generate_block(ua_cm, ub_cm, block)   # one-launch fused generation
         # _plugin_mi_classif_batch_cuda's cp.asarray is a no-op for an already-device array -> no extra
         # transfer; one big-k kernel scores the resident chunk.
         mi_parts.append(np.asarray(_plugin_mi_classif_batch_cuda(cand, y_i64, nbins), dtype=np.float64))

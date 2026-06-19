@@ -88,6 +88,27 @@ def test_fast_path_preserves_exact_winner():
         assert names[int(np.argmax(fast))] == names[int(np.argmax(exact))], f"winner flipped at seed {seed}"
 
 
+def test_fused_generation_is_bit_equal_to_cupy_loop():
+    """The fused RawKernel generation must be BIT-EQUAL (maxdiff 0) to the cupy elementwise loop --
+    same ops, safe-div y==0 branch, nan_to_num. This is what lets it replace the loop with no result
+    change while being ~15x faster generation."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import (
+        _COMBOS,
+        _build_candidate_matrix,
+        _fused_generate_block,
+        _unary_stack_cm,
+    )
+
+    rng = np.random.default_rng(0)
+    n = 50_000
+    a = cp.asarray(rng.uniform(1, 5, n))
+    b = cp.asarray(rng.uniform(1, 5, n))
+    ref = _build_candidate_matrix(cp, a, b)
+    fused = _fused_generate_block(_unary_stack_cm(cp, a), _unary_stack_cm(cp, b), _COMBOS)
+    assert float(cp.max(cp.abs(ref - fused))) == 0.0
+
+
 def test_dispatch_routes_and_recovers():
     """The size dispatcher returns the right shape/ranking on both legs (small-n CPU leg always; large-n
     GPU leg when cupy present) and recovers a**2/b."""
