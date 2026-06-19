@@ -3564,12 +3564,34 @@ class MRMR(BaseEstimator, TransformerMixin):
         from .._mrmr_sis_screen import sis_screen
 
         # ndarray view of X for the screen (the screen reads it in column blocks; a memmap stays on disk).
+        # NON-NUMERIC SAFETY (2026-06-19, critique P0-2): the screen casts each column block to float32, so any
+        # string/object/categorical column would raise and the outer try would SILENTLY fall back to full-width
+        # MRMR (defeating the gate). Factorise non-numeric columns to integer codes here so categoricals are
+        # SCORED by the marginal-MI channel (codes are valid MI input) rather than crashing. Numeric columns
+        # pass through unchanged (float). The 2nd-moment channel will score nominal codes ~uninformatively, which
+        # is acceptable -- categorical interaction is not what that channel targets.
+        def _numeric_matrix(df):
+            cols_out = []
+            for c in df.columns:
+                s = df[c]
+                if pd.api.types.is_numeric_dtype(s.dtype) and s.dtype != bool:
+                    cols_out.append(np.asarray(s.to_numpy(), dtype=np.float64))
+                else:
+                    cols_out.append(pd.factorize(s, sort=False)[0].astype(np.float64))
+            return np.column_stack(cols_out) if cols_out else np.empty((len(df), 0))
+
         if isinstance(X, pd.DataFrame):
             Xmat = X.to_numpy()
+            if Xmat.dtype.kind in "USO" or Xmat.dtype == object:   # mixed/object frame -> factorise per column
+                Xmat = _numeric_matrix(X)
         elif str(type(X).__module__).startswith("polars"):
             Xmat = X.to_numpy()
+            if Xmat.dtype.kind in "USO" or Xmat.dtype == object:
+                Xmat = _numeric_matrix(X.to_pandas())
         else:
             Xmat = np.asarray(X)
+            if Xmat.dtype.kind in "USO" or Xmat.dtype == object:   # object ndarray -> factorise per column
+                Xmat = _numeric_matrix(pd.DataFrame(Xmat))
 
         k_target = getattr(self, "n_features", None)
         try:

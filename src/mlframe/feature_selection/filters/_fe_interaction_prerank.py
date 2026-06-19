@@ -248,6 +248,10 @@ def _resolve_auto_criterion(
     ``_AUTO_DEFAULT_BUDGET_SECONDS`` (keeps wide frames cheap; user rejected "fused always default").
 
     Returns ``(chosen_criterion, reason)``; the reason is logged + recorded for tests/diagnostics."""
+    # An EXPLICIT non-positive budget (max_runtime_mins=0) means "no time" -> force the cheap path, never the
+    # expensive gbm fit (2026-06-19, critique Low-4). Only ``None`` falls back to the soft default.
+    if budget_seconds is not None and float(budget_seconds) <= 0:
+        return "second_moment", "auto -> second_moment: explicit zero/negative time budget (no gbm fit)"
     budget = float(budget_seconds) if (budget_seconds is not None and budget_seconds > 0) else _AUTO_DEFAULT_BUDGET_SECONDS
     bud_src = "max_runtime_mins/budget_seconds" if (budget_seconds is not None and budget_seconds > 0) else f"soft default {_AUTO_DEFAULT_BUDGET_SECONDS:.0f}s (override via max_runtime_mins)"
     try:

@@ -342,6 +342,29 @@ def test_budget_from_max_runtime_mins_honored():
         k.predict_gbm_fit_seconds = orig
 
 
+def test_explicit_zero_budget_forces_cheap_path():
+    """P0/Low-4 (2026-06-19): an EXPLICIT non-positive budget (max_runtime_mins=0 -> 0s) means 'no time' and
+    must force the cheap second_moment, NOT collapse to the soft default and run the expensive gbm fit. Only
+    budget_seconds=None falls back to the soft default."""
+    import mlframe.feature_selection.filters._fe_interaction_prerank as m
+    import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
+
+    orig = k.predict_gbm_fit_seconds
+    try:
+        k.predict_gbm_fit_seconds = lambda n, p: (0.001, 1e9, "cache")  # gbm would look ~free
+        rng = np.random.default_rng(3)
+        X = rng.standard_normal((800, 30))
+        y = (rng.random(800) < 0.5).astype(int)
+        for bad in (0.0, -5.0):
+            m.top_k_by_interaction_propensity(X, y, list(range(30)), top_k=8, budget_seconds=bad)
+            assert m._LAST_AUTO_CHOICE[0] == "second_moment", (bad, m._LAST_AUTO_CHOICE)
+        # None -> soft default -> with a ~free predicted fit, picks fused (contrast)
+        m.top_k_by_interaction_propensity(X, y, list(range(30)), top_k=8, budget_seconds=None)
+        assert m._LAST_AUTO_CHOICE[0] == "fused", m._LAST_AUTO_CHOICE
+    finally:
+        k.predict_gbm_fit_seconds = orig
+
+
 def test_gate_is_hw_calibrated_not_magic_constant():
     """The auto gate's cost prediction must be sourced from the per-host kernel_tuning_cache (or its analytic
     fallback), NOT a hardcoded threshold. measured_gbm_cols_per_second returns a (value, source) where source

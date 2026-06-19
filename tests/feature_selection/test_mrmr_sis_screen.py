@@ -159,6 +159,43 @@ def test_bizvalue_recall_beats_random_baseline():
     assert rec_all > random_baseline
 
 
+def test_regression_target_marginal_mi_channel_alive():
+    """P0-1 (2026-06-19): a CONTINUOUS regression target must NOT collapse the marginal-MI channel. Before the
+    fix, _mi_classif_batch int64-cast a y in [0,1) to a single class -> MI==0 for every column and the whole
+    main-effect half of the gate went dead. After binning y, the MI channel recovers the linear main effects."""
+    rng = np.random.default_rng(0)
+    n, p = 4000, 300
+    X = rng.standard_normal((n, p)).astype(np.float32)
+    main = [3, 17, 42, 88]
+    y = (X[:, main] @ rng.standard_normal(len(main)) + 0.1 * rng.standard_normal(n)).astype(np.float64)  # continuous
+    surv, sc = sis_screen(X, y, target_survivors=50, return_scores=True)
+    assert sc["mi"].max() > 0.0, "regression-y marginal MI channel is dead (P0-1 regression)"
+    top_mi = set(np.argsort(sc["mi"])[::-1][:50].tolist())
+    assert len(set(main) & top_mi) >= 3, f"MI channel recovered too few main effects for regression y: {set(main) & top_mi}"
+
+
+def test_non_numeric_column_does_not_crash_screen():
+    """P0-2 (2026-06-19): a string/object column must not crash the screen (which would silently fall back to
+    full-width MRMR). _apply_sis_screen factorises non-numeric columns to codes so categoricals are scored."""
+    import pandas as pd
+    from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
+
+    rng = np.random.default_rng(1)
+    n, p = 2000, 60
+    X = rng.standard_normal((n, p))
+    main = [2, 11]
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(X[:, main] @ rng.standard_normal(2))))).astype(int)
+    df = pd.DataFrame(X, columns=[f"f{i}" for i in range(p)])
+    # inject a genuine string categorical that actually carries signal
+    df["cat"] = np.where(y == 1, "hi", "lo")
+    df["cat"] = df["cat"].astype(object)
+
+    m = MRMR()
+    sub = m._apply_sis_screen(df, pd.Series(y))   # must not raise (was: ValueError could not convert str to float)
+    assert sub.shape[1] >= 1 and sub.shape[0] == n
+    assert hasattr(m, "sis_survivors_") and m.sis_n_input_features_ == p + 1
+
+
 # ----------------------------------------------------------------------------------------------------------
 # real-scale liveness: memmap, wall budget, survivors << p, planted signal present
 # ----------------------------------------------------------------------------------------------------------

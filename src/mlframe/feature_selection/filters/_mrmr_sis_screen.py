@@ -233,6 +233,21 @@ def sis_screen(
     from ._fe_interaction_prerank import second_moment_propensity
     from ._orthogonal_univariate_fe._orth_mi_backends import _mi_classif_batch
 
+    # MARGINAL-MI TARGET ENCODING (2026-06-19, critique P0-1). ``_mi_classif_batch`` int64-casts y, so a
+    # CONTINUOUS regression target collapses to a single class -> MI==0 for EVERY column and the whole
+    # marginal/main-effect half of the gate goes dead. Encode y to discrete classes first: factorise a
+    # non-numeric target, and quantile-bin a continuous one (> nbins distinct numeric values) into nbins
+    # codes -- mirroring second_moment_propensity's discrete/continuous switch. (second_moment_propensity
+    # does its OWN y-encoding internally, so it keeps the raw y_arr.)
+    y_mi = np.asarray(y_arr)
+    if y_mi.dtype.kind in "USO" or y_mi.dtype == bool:
+        _, y_mi = np.unique(y_mi, return_inverse=True)             # nominal labels -> codes
+    elif y_mi.dtype.kind in "fc" or np.unique(y_mi).size > max(nbins, 2):
+        yf = np.nan_to_num(y_mi.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        edges = np.quantile(yf, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+        y_mi = np.searchsorted(edges, yf).astype(np.int64)         # continuous/high-card -> quantile bins
+    y_mi = np.ascontiguousarray(y_mi)
+
     mi = np.zeros(p, dtype=np.float64)
     prop = np.zeros(p, dtype=np.float64)
 
@@ -241,9 +256,9 @@ def sis_screen(
     for j0 in range(0, p, chunk_width):
         j1 = min(j0 + chunk_width, p)
         block = np.ascontiguousarray(Xarr[:, j0:j1], dtype=np.float32)
-        # marginal MI (full n -- a subsample collapses recall, see design)
+        # marginal MI (full n -- a subsample collapses recall, see design). y_mi is class-encoded above.
         try:
-            mi[j0:j1] = _mi_classif_batch(block, y_arr, nbins=nbins)
+            mi[j0:j1] = _mi_classif_batch(block, y_mi, nbins=nbins)
         except Exception as exc:  # never let one block kill the whole screen
             logger.warning("sis_screen: MI block [%d:%d] failed (%s); scored 0", j0, j1, exc)
         # second-moment interaction propensity (reuse the sibling kernel as-is)
