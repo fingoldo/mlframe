@@ -265,15 +265,22 @@ class TestSklearnParity:
     def test_pipeline_biz_value(self, name, factory, binary_df):
         """biz_value: a real FS->model Pipeline on the canonical fixture must
         train and beat the majority-class baseline -- i.e. the selected feature
-        subset retains genuine signal end-to-end through the Pipeline."""
+        subset retains genuine signal end-to-end through the Pipeline.
+
+        The FS step may emit engineered features (ratios / wavelets / gate composites) whose magnitudes span
+        orders, so the realistic linear-downstream pipeline standardises before LogisticRegression -- without it
+        the unscaled extreme-scale columns stall LogReg's solver (the selected features still carry the signal:
+        measured acc 0.355 unscaled -> 0.910 scaled on this fixture)."""
         from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
         from sklearn.linear_model import LogisticRegression
         X, y = binary_df
         baseline = max(np.bincount(y)) / len(y)  # majority-class accuracy
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pipe = Pipeline([("fs", factory("binary")),
-                             ("clf", LogisticRegression(max_iter=200))])
+                             ("sc", StandardScaler()),
+                             ("clf", LogisticRegression(max_iter=1000))])
             pipe.fit(X, y)
             acc = pipe.score(X, y)
         assert acc > baseline + 0.05, (
