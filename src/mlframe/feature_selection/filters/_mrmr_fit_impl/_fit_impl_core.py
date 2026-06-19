@@ -7817,6 +7817,36 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     pass
                 _pcr_eng_cont = _eng_continuous_snapshot
                 from .._fe_raw_redundancy_drop import _TOKEN_SPLIT as _pcr_gtok
+                # PERMUTATION-SIGNIFICANCE GATE on the masked-raw rescue (2026-06-19, I4 noise
+                # admission). The keep-rule conditions on the GENUINE children only; when a raw's
+                # ONLY consumer is a pseudo binagg/gate/argmax re-mix the conditioning set is empty
+                # and the keep-rule returns True by construction (it cannot prove subsumption). A
+                # PURE-NOISE raw (``e``, not in y, consumed only by ``binagg_std(e|qbin(a))``) thus
+                # sails through and is re-added -- the I4 noise true-negative violation. Gate the
+                # rescue on the SAME within-data marginal permutation-significance test the
+                # raw-retention re-add uses: a raw must sit ABOVE its own permutation null against y
+                # to be a genuine masked signal. ``e`` sits WITHIN its null (p>=alpha) -> NOT rescued;
+                # a genuinely masked raw (``a`` carrying ``3*a``) clears it. Best-effort: a kernel
+                # failure falls through to the permissive rescue (never drop on an estimator error).
+                try:
+                    from ..permutation import mi_direct as _pcr_mi_direct
+                except Exception:
+                    _pcr_mi_direct = None
+                _pcr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+                _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
+
+                def _pcr_raw_is_significant(_idx):
+                    if _pcr_mi_direct is None:
+                        return True
+                    try:
+                        _sig = _pcr_mi_direct(
+                            data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,
+                            factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                            return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
+                        )
+                        return float(_sig[3]) < _pcr_signif_alpha
+                    except Exception:
+                        return True
                 _pcr_readd = []
                 for _rn, _pchildren in _pcr_consumed.items():
                     if _rn in _pcr_sel_names:
@@ -7845,7 +7875,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
                     _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
                     if _pcr_keep(raw_bin=_rb, y_bin=_pcr_y, genuine_child_bins=_child_bins,
-                                 seed=int(getattr(self, "random_seed", 0) or 0)):
+                                 seed=int(getattr(self, "random_seed", 0) or 0)) \
+                            and _pcr_raw_is_significant(_ridx):
                         _pcr_readd.append(_ridx)
                 if _pcr_readd:
                     selected_vars = list(selected_vars) + [i for i in _pcr_readd if i not in _pcr_sel_set]
@@ -8923,6 +8954,116 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if verbose:
                 logger.info("MRMR usability-aware raw retention skipped (%s: %s).",
                             type(_raw_retain_exc).__name__, _raw_retain_exc)
+
+    # POST-RETENTION RAW-REDUNDANCY DROP (BUG1, 2026-06-19). The main raw-vs-engineered
+    # redundancy sweep (above, ~line 7915) runs on the screen-stage ``selected_vars`` BEFORE
+    # the usability-aware pure-form retention re-attaches an engineered survivor. When that
+    # retention adds a MULTI-OPERAND composite (e.g. ``div(qubed(a),sin(b))``) AFTER the
+    # sweep, the raw operands it subsumes (``a``, ``b``) are still in ``selected_vars`` and no
+    # later pass conditions them on the freshly-attached child -- so a fully-subsumed raw rides
+    # into ``support_`` beside the composite that captures it (the I4b end-to-end violation).
+    # Re-run the SAME n-invariant conditional-redundancy verdict on the FINAL selection, with
+    # the now-complete engineered survivor set (incl. the retained pure forms) as the anchor.
+    # Only DROPS raws fully subsumed by a surviving MULTI-SOURCE child; a genuine private raw
+    # (large independent residual) and a raw consumed by no surviving engineered feature are
+    # KEPT (the DPI-trap filter + self-retention leg inside the helper enforce this). Off when
+    # the drop sweep is disabled (shares ``fe_drop_redundant_raw_operands``).
+    if (getattr(self, "fe_drop_redundant_raw_operands", True)
+            and selected_vars and getattr(self, "_engineered_recipes_", None)):
+        try:
+            from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _post_drop
+            from ..engineered_recipes._recipe_dispatch import apply_recipe as _post_apply
+            from .._mi_greedy_cmi_fe import _quantile_bin as _post_qbin
+
+            _post_raw_set = set(self.feature_names_in_)
+            # Final engineered survivor recipes (name -> EngineeredRecipe); these are the
+            # columns that actually reach transform() output.
+            _post_recipes: dict = {}
+            for _r in (self._engineered_recipes_ or []):
+                _nm = getattr(_r, "name", None)
+                if _nm is not None and _nm not in _post_raw_set:
+                    _post_recipes[str(_nm)] = _r
+            # Selected raw operand cols-indices (selected_vars is in feature_names_in_ space here;
+            # map each surviving raw back to its cols-space index by name).
+            _post_sel_raw_names = [
+                self.feature_names_in_[int(v)] for v in selected_vars
+                if 0 <= int(v) < len(self.feature_names_in_)
+            ]
+            if _post_recipes and _post_sel_raw_names:
+                _post_cols = list(cols)
+                _post_data = data
+                _post_eng_cont = dict(_eng_continuous_snapshot or {})
+                _post_extra_cols: list = []
+                # Ensure each engineered survivor has a cols-space column + continuous snapshot;
+                # replay any retained pure form that the FE-step matrix does not already carry.
+                _n_rows_post = int(data.shape[0])
+                for _enm, _erec in _post_recipes.items():
+                    if _enm not in _post_eng_cont:
+                        try:
+                            _vals = np.asarray(_post_apply(_erec, X), dtype=np.float64).ravel()
+                            _vals = np.nan_to_num(_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                            if _vals.shape[0] == _n_rows_post:
+                                _post_eng_cont[_enm] = _vals
+                        except Exception:
+                            continue
+                    if _enm not in _post_cols and _enm in _post_eng_cont:
+                        _post_extra_cols.append(
+                            _post_qbin(np.asarray(_post_eng_cont[_enm], dtype=np.float64), nbins=10)
+                        )
+                        _post_cols.append(_enm)
+                if _post_extra_cols:
+                    _post_data = np.column_stack([data] + [np.asarray(c).reshape(-1, 1) for c in _post_extra_cols])
+                _post_name_to_idx = {nm: i for i, nm in enumerate(_post_cols)}
+                _post_sel_idx = []
+                for _rn in _post_sel_raw_names:
+                    _ci = _post_name_to_idx.get(_rn)
+                    if _ci is not None:
+                        _post_sel_idx.append(_ci)
+                for _enm in _post_recipes:
+                    _ci = _post_name_to_idx.get(_enm)
+                    if _ci is not None and _ci not in _post_sel_idx:
+                        _post_sel_idx.append(_ci)
+                _has_eng_post = any(_post_cols[i] not in _post_raw_set for i in _post_sel_idx)
+                _has_raw_post = any(_post_cols[i] in _post_raw_set for i in _post_sel_idx)
+                if _has_eng_post and _has_raw_post:
+                    _y_cont_post = None
+                    try:
+                        _yv = y.values if hasattr(y, "values") else np.asarray(y)
+                        _yv = np.asarray(_yv).reshape(-1)
+                        if _yv.shape[0] == _n_rows_post and np.issubdtype(np.asarray(_yv).dtype, np.number):
+                            _y_cont_post = _yv
+                    except Exception:
+                        _y_cont_post = None
+                    _, _post_dropped = _post_drop(
+                        data=_post_data, cols=_post_cols, selected_cols_idx=_post_sel_idx,
+                        raw_name_set=_post_raw_set, y_binned=classes_y, y_continuous=_y_cont_post,
+                        engineered_continuous=_post_eng_cont,
+                        replayable_eng_names=set(_post_recipes.keys()), recipes=_post_recipes,
+                        raw_X=X, floor_margin_mult=1.5,
+                        seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+                    )
+                    if _post_dropped:
+                        _post_drop_set = set(_post_dropped)
+                        self._raw_redundancy_dropped_ = set(
+                            getattr(self, "_raw_redundancy_dropped_", None) or set()
+                        ) | _post_drop_set
+                        selected_vars = [
+                            v for v in selected_vars
+                            if not (0 <= int(v) < len(self.feature_names_in_)
+                                    and self.feature_names_in_[int(v)] in _post_drop_set)
+                        ]
+                        self.support_ = np.array(selected_vars, dtype=np.int64)
+                        if verbose:
+                            logger.info(
+                                "MRMR post-retention raw-redundancy drop: removed %d raw operand(s) "
+                                "subsumed by an engineered survivor re-attached AFTER the main sweep: %s",
+                                len(_post_dropped), sorted(_post_drop_set),
+                            )
+        except Exception as _post_exc:
+            logger.warning(
+                "MRMR post-retention raw-redundancy drop failed: %s; keeping the support.",
+                _post_exc,
+            )
 
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).

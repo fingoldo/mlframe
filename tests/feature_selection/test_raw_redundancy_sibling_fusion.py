@@ -107,3 +107,37 @@ def test_s909_genuine_private_linear_raw_kept_under_sibling_conditioning():
         f"OVER-DROP: 'a' has a genuine private linear term (3*a) yet was dropped: {dropped}"
     )
     assert "a" in {cfg["cols"][i] for i in kept}
+
+
+def test_floor_margin_mult_default_is_byte_identical():
+    """``floor_margin_mult`` defaults to 1.0 = the historical bare ``cmi > floor`` significance
+    leg, so every existing caller is byte-identical. Pin it on the s909 fixtures (both legs)."""
+    for _private in (False, True):
+        cfg = _s909_fixture(private=_private)
+        kept_a, dropped_a = drop_redundant_raw_operands(**cfg)
+        kept_b, dropped_b = drop_redundant_raw_operands(**dict(cfg), floor_margin_mult=1.0)
+        assert dropped_a == dropped_b and kept_a == kept_b
+
+
+def test_floor_margin_mult_monotone_tightens_significance():
+    """The I4b post-retention lever: a higher ``floor_margin_mult`` makes the significance leg
+    STRICTER, so it can only ever drop MORE raws (a grazing-the-floor operand fails the tighter
+    bar), never fewer. Pin the monotonicity so a future change cannot invert the lever."""
+    cfg = _s909_fixture(private=False)
+    _k1, d1 = drop_redundant_raw_operands(**dict(cfg), floor_margin_mult=1.0)
+    _k2, d2 = drop_redundant_raw_operands(**dict(cfg), floor_margin_mult=1.5)
+    _k3, d3 = drop_redundant_raw_operands(**dict(cfg), floor_margin_mult=3.0)
+    assert set(d1) <= set(d2) <= set(d3)
+
+
+def test_floor_margin_mult_keeps_strong_private_raw():
+    """OVER-DROP CONTROL: a raw with a genuine independent linear term clears the permutation
+    floor by a WIDE margin, so even the stricter ``floor_margin_mult=1.5`` the post-retention
+    sweep uses must KEEP it (the lever drops grazing artifacts, never robust private signal)."""
+    cfg = _s909_fixture(private=True)
+    _kept, dropped = drop_redundant_raw_operands(**dict(cfg), floor_margin_mult=1.5)
+    assert "a" not in dropped, (
+        f"OVER-DROP: 'a' carries a genuine private 3*a term yet dropped under "
+        f"floor_margin_mult=1.5: {dropped}"
+    )
+    assert "a" in {cfg["cols"][i] for i in _kept}

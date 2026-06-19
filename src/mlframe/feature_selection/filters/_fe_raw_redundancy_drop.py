@@ -273,6 +273,7 @@ def drop_redundant_raw_operands(
     recipes: Optional[dict] = None,
     raw_X=None,
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
+    floor_margin_mult: float = 1.0,
     seed: int = 0,
     verbose: int = 0,
 ) -> tuple[list, list]:
@@ -755,7 +756,16 @@ def drop_redundant_raw_operands(
         # retention). That is the BUG1 spurious-raw-kept regression. Dropping leg B lets a
         # conditionally-subsumed dominant operand drop while leg A + the DPI guard keep
         # every genuine private-term raw.
-        passes_floor = cmi > floor
+        # ``floor_margin_mult`` (>1.0) tightens the significance leg: the conditional CMI must
+        # clear the within-stratum permutation floor by that multiple, not merely exceed it. The
+        # default 1.0 is the historical bare ``cmi > floor`` (byte-identical for every existing
+        # caller). A caller running the sweep on the FINAL selection (post-retention) passes a
+        # margin > 1.0 to separate a genuine private residual (clears the floor robustly, ratio
+        # >> 1) from a WEAK operand whose tiny conditional excess merely grazes the floor -- the
+        # latter is a finite-sample / non-invertible-unary-binning artifact, not private signal,
+        # and is the operand a multi-operand survivor structurally subsumes (I4b: ``b`` inside
+        # ``sin(b)`` of ``div(qubed(a),sin(b))``, cmi 0.0023 vs floor 0.0018 -> ratio 1.28).
+        passes_floor = cmi > floor * float(floor_margin_mult)
         keep = passes_floor and (excess >= RAW_SELF_RETAIN_FRAC * max(0.0, raw_marg_excess))
         if keep:
             if verbose:
