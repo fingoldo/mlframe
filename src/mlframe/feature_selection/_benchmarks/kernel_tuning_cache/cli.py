@@ -216,6 +216,17 @@ def _cmd_refresh_discretize_2d_array(args) -> int:
     )
 
 
+def _cmd_refresh_batch_mi_noise_gate(args) -> int:
+    # The FE pair-search noise-gate CPU-vs-GPU sweep. Previously absent from the CLI (+ refresh-all),
+    # so it only ever tuned ASYNC during the first fit (a multi-minute GPU-thrashing sweep mid-MRMR).
+    from mlframe.feature_selection.filters.batch_mi_noise_gate_gpu import (
+        ensure_batch_mi_noise_gate_tuning,
+    )
+    return _refresh_generic(
+        "batch_mi_noise_gate", ensure_batch_mi_noise_gate_tuning,
+    )
+
+
 def _cmd_refresh_all(args) -> int:
     """Re-tune every registered kernel sweep. Saves ~10-30s per kernel.
 
@@ -236,6 +247,7 @@ def _cmd_refresh_all(args) -> int:
         _cmd_refresh_rff_matmul(args),
         _cmd_refresh_knn_hnsw_crossover(args),
         _cmd_refresh_discretize_2d_array(args),
+        _cmd_refresh_batch_mi_noise_gate(args),
     ]
     return 0 if all(rc == 0 for rc in rcs) else 1
 
@@ -300,6 +312,10 @@ def main(argv=None) -> int:
         help="force-rerun the discretize_2d_array crossover sweep",
     )
     sub.add_parser(
+        "refresh-batch-mi-noise-gate",
+        help="force-rerun the batch_mi_noise_gate (FE pair-search noise-gate) CPU-vs-GPU sweep",
+    )
+    sub.add_parser(
         "refresh-all",
         help="force-rerun every registered kernel sweep",
     )
@@ -321,6 +337,7 @@ def main(argv=None) -> int:
         "refresh-rff-matmul": _cmd_refresh_rff_matmul,
         "refresh-knn-hnsw-crossover": _cmd_refresh_knn_hnsw_crossover,
         "refresh-discretize-2d-array": _cmd_refresh_discretize_2d_array,
+        "refresh-batch-mi-noise-gate": _cmd_refresh_batch_mi_noise_gate,
         "refresh-all": _cmd_refresh_all,
     }[args.cmd](args)
 
