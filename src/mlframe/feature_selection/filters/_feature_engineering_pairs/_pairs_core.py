@@ -272,6 +272,19 @@ def check_prospective_fe_pairs(
     # 2026-06-05: batched FE-candidate MI + permutation noise-gate (bit-identical to the
     # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
+    # P-SEAM (matrix-native FE replatform): the SINGLE integration point for the framework-agnostic
+    # matrix path. GATED behind MLFRAME_FE_MATRIX_P0 -- default OFF, so this is a pure no-op and X is
+    # byte-untouched (the legacy pandas path runs unchanged). When enabled, X is routed through the
+    # single-copy float32 matrix adapter (a round-trip here today; on-device kernels in later phases),
+    # so the SAME numba/cupy path can serve pandas and polars. The float32 cast is the intended P0
+    # behaviour change. Wrapped so the experimental path can never break the production FE pipeline.
+    from .._fe_matrix_io import fe_matrix_p0_enabled
+    if fe_matrix_p0_enabled():
+        try:
+            from .._fe_matrix_io import from_feature_matrix, to_feature_matrix
+            X = from_feature_matrix(to_feature_matrix(X))
+        except Exception:
+            logger.warning("FE matrix P-seam round-trip failed; using X unchanged.", exc_info=True)
     res = {}
     # REJECTION-LEDGER local accumulator (additive, 2026-06-11): per-pair acceptance-gate
     # drops collect here, then are exported via BOTH the ``rejection_ledger_out`` side channel
