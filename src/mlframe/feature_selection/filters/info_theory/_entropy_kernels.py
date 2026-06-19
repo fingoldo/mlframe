@@ -390,3 +390,42 @@ def conditional_mi(
     if res < 0.0:
         res = 0.0
     return res
+
+
+def conditional_mi_redundancy_batched(
+    factors_data,
+    cand_indices,
+    y_index,
+    z_index,
+    factors_nbins,
+    dtype=np.int32,
+    force=None,
+):
+    """Batched ``I(X_j; Y | Z)`` over all candidate columns for the greedy Fleuret redundancy round.
+
+    DISPATCH POINT for the MRMR redundancy loop's dominant cost: instead of calling the serial njit
+    ``conditional_mi`` once per candidate (``Z`` = the just-selected feature, ``Y`` = target), this
+    routes the whole candidate sweep through the batched CUDA kernel when ``(n, p)`` is large enough
+    to win (size/HW gate via ``kernel_tuning_cache``), and to the exact CPU ``conditional_mi`` loop
+    otherwise / when no GPU. Bit-parity (<1e-9) with the per-candidate CPU path -- see
+    ``tests/feature_selection/test_cmi_cuda_kernel.py``.
+
+    NOTE on the integration site: the actual redundancy loop (``filters/evaluation.py``) runs inside
+    an ``@njit`` function with per-Z early-exit + entropy caching, so it cannot itself call cupy.
+    This module-level wrapper is the single Python-reachable dispatch hook; a Python-level caller
+    that materialises the candidate set per greedy round can swap its per-candidate ``conditional_mi``
+    loop for this one call. Lazy import keeps cupy off the njit import path.
+
+    Returns a ``(p,)`` float64 array of raw CMI (clamped at 0), aligned with ``cand_indices``.
+    """
+    from ._cmi_cuda import conditional_mi_batched_dispatch
+
+    return conditional_mi_batched_dispatch(
+        factors_data=factors_data,
+        cand_indices=cand_indices,
+        y_index=y_index,
+        z_index=z_index,
+        factors_nbins=factors_nbins,
+        dtype=dtype,
+        force=force,
+    )
