@@ -70,13 +70,27 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     * CONTINUOUS y (> ``_NOMINAL_MAX_CLASSES`` distinct values -- a genuine regression target on raw values):
       the moment form ``|corr(x^2, y)| + |corr(x, y^2)|``.
 
+    Works for EVERY target type: binary, nominal/ordinal multiclass, continuous regression, boolean, and
+    NON-NUMERIC (string / object / pandas Categorical) class labels.
+
+    NB on the MRMR synergy-bootstrap path the target arrives ALREADY ordinal-encoded -- ``categorize_dataset``
+    (filters/discretization) factorises every column, target included, before the FE step -- so the wiring
+    always passes integer codes and the non-numeric branch below is a NO-OP there. The defensive factorise is
+    for DIRECT callers that score raw ``y`` before categorisation (e.g. the planned SIS front gate, which must
+    rank raw columns before discretising a 100k-wide frame); it is not a re-implementation of categorize.
+
     O(K*n*p) for discrete (K = n_classes, small) / O(n*p) for continuous; fully vectorised."""
     V = np.ascontiguousarray(values, dtype=np.float64)
     if V.ndim != 2:
         raise ValueError(f"values must be 2-D (n, p); got shape {V.shape}")
-    yf = np.asarray(y, dtype=np.float64).ravel()
-    if yf.shape[0] != V.shape[0]:
-        raise ValueError(f"y length {yf.shape[0]} != n_rows {V.shape[0]}")
+    y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
+    if y_arr.shape[0] != V.shape[0]:
+        raise ValueError(f"y length {y_arr.shape[0]} != n_rows {V.shape[0]}")
+    # Non-numeric labels (str / object / bool / Categorical) -> classification: factorise to codes (the discrete
+    # one-hot path below is relabel-invariant, so the integer assignment is irrelevant). Numeric y passes through.
+    if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
+        _, y_arr = np.unique(y_arr, return_inverse=True)
+    yf = np.asarray(y_arr, dtype=np.float64)
     yf = np.nan_to_num(yf, nan=0.0, posinf=0.0, neginf=0.0)
     V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
     V2 = V * V

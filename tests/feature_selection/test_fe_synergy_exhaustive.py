@@ -45,9 +45,10 @@ _skip_no_cuda = pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA GPU (numba.cud
 
 
 class _Knobs:
-    def __init__(self, mode, budget=180.0):
+    def __init__(self, mode, budget=None, max_runtime_mins=None):
         self.fe_synergy_exhaustive = mode
-        self.fe_synergy_exhaustive_max_seconds = budget
+        self.fe_synergy_exhaustive_max_seconds = budget   # explicit override (None => defer to max_runtime_mins)
+        self.max_runtime_mins = max_runtime_mins          # MRMR's own fit-wide budget
 
 
 def test_never_mode_always_prerank():
@@ -71,6 +72,24 @@ def test_auto_escalates_to_exhaustive_when_affordable():
     use, reason = decide_exhaustive_sweep(_Knobs("auto", budget=180.0), n_samples=5000, n_raw=400, verbose=0)
     assert use is True, reason
     assert "exhaustive" in reason.lower()
+
+
+@_skip_no_cuda
+def test_auto_budget_unlimited_when_no_mrmr_budget_set():
+    # No explicit override AND no max_runtime_mins -> budget is UNLIMITED: auto escalates regardless of p
+    # (the user did not ask to bound wall-time), so even a very wide frame fires under auto.
+    use, reason = decide_exhaustive_sweep(_Knobs("auto"), n_samples=5000, n_raw=8000, verbose=0)
+    assert use is True, reason
+    assert "unlimited" in reason.lower()
+
+
+def test_auto_budget_derives_from_max_runtime_mins():
+    # The budget comes from MRMR's OWN max_runtime_mins (minutes -> seconds), not a hardcoded constant: a tiny
+    # max_runtime_mins makes a large sweep over-budget -> auto falls back to the pre-rank (GPU or not).
+    use, reason = decide_exhaustive_sweep(
+        _Knobs("auto", max_runtime_mins=1e-6), n_samples=2_000_000, n_raw=10_000, verbose=0)
+    assert use is False
+    assert ("pre-rank" in reason.lower()) or ("no cuda" in reason.lower())
 
 
 def test_throughput_sourced_not_hardcoded():

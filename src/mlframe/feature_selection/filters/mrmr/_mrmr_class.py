@@ -1539,11 +1539,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # host + (n, p) via pyutilz.performance.kernel_tuning (NOT hardcoded; ~5e4 pairs/s is only the cold-cache
         # fallback). No CUDA GPU -> "auto"/"force" both fall back to the pre-rank (CPU exhaustive is too slow).
         fe_synergy_exhaustive: str = "auto",
-        # WALL-TIME BUDGET (seconds) for the force/opt-in exhaustive synergy sweep above. The exhaustive path
-        # fires only when the PREDICTED sweep time (n_pairs / measured CUDA pairs-per-second) is under this. At the
-        # bench ~5e4 pairs/s: p=400 -> ~1.6s, p=2000 -> ~38s, p=5000 -> ~241s (so p<~4400 fits the 180s default),
-        # p=10000 -> ~1004s. Raise to force wider exhaustive sweeps; lower to cap the worst-case FE wall-time.
-        fe_synergy_exhaustive_max_seconds: float = 180.0,
+        # OPTIONAL override (seconds) for the "auto" exhaustive-escalation budget. By DEFAULT (None) the budget
+        # is MRMR's own ``max_runtime_mins`` * 60; if max_runtime_mins is ALSO unset, the budget is UNLIMITED --
+        # "auto" then escalates to the exhaustive sweep regardless of p (the user did not ask to bound wall-time).
+        # Set this (or max_runtime_mins) to bound the worst-case FE wall-time: at the bench ~5e4 CUDA pairs/s,
+        # p=2000 -> ~38s, p=5000 -> ~241s, p=10000 -> ~1004s. "force" ignores the budget entirely.
+        fe_synergy_exhaustive_max_seconds: float = None,
         # N-AWARE COST GATE on the synergy bootstrap's all-pairs joint-MI sweep (O(p^2) pairs x O(n) each). The
         # feature cap above does NOT bound wall-time -- a wide-but-not-too-wide frame at large n blows up
         # super-linearly (measured p=200: n=5k +108%, n=20k +300%, n=100k >24min). The bootstrap fires only when

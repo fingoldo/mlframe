@@ -190,6 +190,31 @@ def _normalise_mode(raw) -> str:
     return "auto"
 
 
+def _resolve_exhaustive_budget_seconds(self):
+    """Resolve the wall-time budget (seconds) for the auto-escalation, from MRMR's OWN time budget.
+
+    Priority: an explicit ``fe_synergy_exhaustive_max_seconds`` override (if set) wins; otherwise
+    ``max_runtime_mins`` * 60 (MRMR's fit-wide budget). When NEITHER is set the budget is ``None`` =
+    UNLIMITED -- auto runs the exhaustive sweep regardless of p (the user did not ask to bound wall-time)."""
+    override = getattr(self, "fe_synergy_exhaustive_max_seconds", None)
+    if override is not None:
+        try:
+            ov = float(override)
+            if ov > 0:
+                return ov
+        except (TypeError, ValueError):
+            pass
+    mins = getattr(self, "max_runtime_mins", None)
+    if mins is not None:
+        try:
+            m = float(mins)
+            if m > 0:
+                return m * 60.0
+        except (TypeError, ValueError):
+            pass
+    return None  # no budget set anywhere -> do not bound p
+
+
 def decide_exhaustive_sweep(
     self,
     *,
@@ -223,7 +248,7 @@ def decide_exhaustive_sweep(
     if n_raw < 2:
         return False, f"declined: only {n_raw} raw numeric column(s); nothing to sweep"
 
-    budget = float(getattr(self, "fe_synergy_exhaustive_max_seconds", 180.0) or 0.0)
+    budget = _resolve_exhaustive_budget_seconds(self)   # MRMR's own max_runtime_mins; None => unlimited
     # Opportunistically warm the per-host throughput cache so the prediction is measured, not
     # the cold fallback (no-op if already warm / no GPU).
     warm_exhaustive_throughput_cache()
@@ -235,18 +260,21 @@ def decide_exhaustive_sweep(
             f"(force; predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], budget ignored) -- recovers "
             f"balanced (L=0) interactions the O(p) pre-rank cannot."
         )
-    # AUTO: escalate to exhaustive only when it is affordable under the budget.
-    if budget > 0 and predicted > budget:
+    # AUTO: escalate to exhaustive unless a budget is set AND the predicted sweep would exceed it. With NO
+    # budget set (max_runtime_mins is None and no explicit override) p is NOT limited -- auto always sweeps.
+    if budget is not None and predicted > budget:
         return False, (
             f"auto -> pre-rank: predicted exhaustive wall-time {predicted:.1f}s "
-            f"(C({n_raw},2)={n_pairs} pairs @ {pps:.0f} pairs/s [{source}]) exceeds "
-            f"fe_synergy_exhaustive_max_seconds={budget:.0f}s; the O(p) pre-rank recovers leaky interactions "
-            f"cheaply (only a perfectly-balanced L=0 interaction is missed). Raise the budget or set 'force'."
+            f"(C({n_raw},2)={n_pairs} pairs @ {pps:.0f} pairs/s [{source}]) exceeds the MRMR time budget "
+            f"{budget:.0f}s (from max_runtime_mins / fe_synergy_exhaustive_max_seconds); the O(p) pre-rank "
+            f"recovers leaky interactions cheaply (only a perfectly-balanced L=0 interaction is missed). "
+            f"Raise max_runtime_mins or set fe_synergy_exhaustive='force'."
         )
+    _bud = "unlimited (no MRMR time budget set)" if budget is None else f"<= budget {budget:.0f}s"
     return True, (
         f"auto -> exhaustive: FULL C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric columns "
-        f"is affordable (predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}] <= budget {budget:.0f}s) -- "
-        f"the complete result, recovering balanced (L=0) interactions the pre-rank cannot, at no meaningful cost."
+        f"(predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], {_bud}) -- the complete result, "
+        f"recovering balanced (L=0) interactions the pre-rank cannot."
     )
 
 

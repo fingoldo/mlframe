@@ -157,6 +157,60 @@ def test_nominal_multiclass_is_relabel_invariant():
     assert np.mean(recalls) >= 0.5, f"multiclass operand recovery too low: {recalls}"
 
 
+def _planted_interaction_X(p=400, seed=0, leak=0.2):
+    """X with two leaky pure-pair interactions; returns X, the continuous driver s, and the operand set."""
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((4000, p))
+    ia, ib, ic, idd = 7, 150, 33, 290
+    a, b, c, d = X[:, ia], X[:, ib], X[:, ic], X[:, idd]
+    s = np.sign(a) * np.sign(b) + np.sign(c) * np.sign(d) + leak * (a + b + c + d)
+    return X, s, {ia, ib, ic, idd}
+
+
+@pytest.mark.parametrize("target_kind", ["binary", "nominal_multiclass", "ordinal_multiclass",
+                                         "regression_continuous", "regression_binned",
+                                         "boolean", "string_labels"])
+def test_all_target_types_score_finite_and_recover(target_kind):
+    """second_moment_propensity must work for EVERY target type: produce finite scores AND recover the planted
+    leaky-interaction operands above the random baseline, for binary / nominal / ordinal multiclass / continuous
+    regression / binned regression / boolean / non-numeric string labels."""
+    X, s, operands = _planted_interaction_X(p=400, seed=0, leak=0.2)
+    n = X.shape[0]
+    rng = np.random.default_rng(1)
+
+    if target_kind == "binary":
+        y = (rng.random(n) < 1.0 / (1.0 + np.exp(-s))).astype(int)
+    elif target_kind == "nominal_multiclass":
+        s2 = np.sign(X[:, 33]) * np.sign(X[:, 290])
+        y = (2 * (s > 0) + (s2 > 0)).astype(int)            # 0..3, treated as nominal
+    elif target_kind == "ordinal_multiclass":
+        y = np.digitize(s, np.quantile(s, [0.25, 0.5, 0.75])).astype(int)   # 0..3 ordered
+    elif target_kind == "regression_continuous":
+        y = (s + 0.1 * rng.standard_normal(n)).astype(float)               # >64 unique -> moment path
+    elif target_kind == "regression_binned":
+        y = np.digitize(s, np.quantile(s, np.linspace(0, 1, 9)[1:-1]))      # 8 bins (the synergy-site form)
+    elif target_kind == "boolean":
+        y = (s > 0)                                                         # bool dtype
+    else:  # string_labels (non-numeric nominal)
+        lab = np.array(["lo", "mid", "hi"])
+        y = lab[np.digitize(s, np.quantile(s, [0.33, 0.66]))]              # object/str array
+
+    scores = second_moment_propensity(X, y)
+    assert scores.shape == (X.shape[1],)
+    assert np.isfinite(scores).all(), f"{target_kind}: non-finite scores"
+    top = set(np.argsort(scores)[::-1][:100])
+    recall = len(operands & top) / len(operands)
+    assert recall >= 0.5, f"{target_kind}: operand recall {recall:.2f} at top-100 (random ~{100/400:.2f})"
+
+
+def test_single_class_target_no_crash():
+    """A degenerate constant target must not crash and must return finite (zero-information) scores."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((300, 20))
+    s = second_moment_propensity(X, np.zeros(300, dtype=int))
+    assert np.isfinite(s).all()
+
+
 def test_constant_column_scores_zero_no_nan():
     rng = np.random.default_rng(1)
     X = rng.standard_normal((300, 5))
