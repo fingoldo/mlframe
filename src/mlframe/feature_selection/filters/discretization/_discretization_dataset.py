@@ -223,6 +223,15 @@ def categorize_dataset(
     # When ``nbins_strategy`` is provided, compute per-column edges via the
     # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
     # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
+    #
+    # PERF NOTE (2026-06-19, wide-data reuse audit CK-secondary): the unsupervised path below
+    # (nbins_strategy is None -> _discretize_2d_array_col_cached -> discretize_2d_array) ALREADY routes to the
+    # CUDA quantile kernel where it wins (measured 2.89x: 1276ms->442ms on the (20000,2000) discretize op;
+    # size-gated via _DISCRETIZE_SPEC). The SUPERVISED path here (mdlp/optimal_joint/...) has NO GPU kernel --
+    # measured ~10.5s at (20000,2000) (~52s extrapolated to 100k) vs ~3.4s for the CUDA-eligible quantile path.
+    # A CUDA MDLP would be a large NEW recursive-supervised kernel; it is DEFERRED behind the dominant Fleuret
+    # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
+    # lever (column-parallelising per_feature_edges) is a candidate if MDLP discretization becomes the wall.
     if nbins_strategy is not None:
         from .._adaptive_nbins import per_feature_edges
         _strategy_kwargs = dict(nbins_strategy_kwargs or {})
