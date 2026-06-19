@@ -26,8 +26,23 @@ removes the large-n cliff entirely, with the on-device MI bit-matching the CPU p
   * n=300k  : CPU 7013ms  / GPU 2046ms -> 3.43x  (k_chunk=47 -- was a 0.12x cliff before chunking)
   * n=1M    : CPU 29731ms / GPU 6424ms -> 4.63x  (k_chunk=14; the win GROWS with n)
 ``pair_candidate_mi_dispatch`` routes >= _GPU_RESIDENT_MIN_N (50k) to the chunked GPU path, CPU below.
-NEXT (production wiring): recipe-name integration so survivors replay through transform(), then thread
-this dispatcher into check_prospective_fe_pairs behind the P-seam. Until then this stays gated+un-wired.
+
+KERNEL-TUNING INVESTIGATION (2026-06-19, GTX 1050 Ti, the on-device MI = cupy, not numba.cuda). The
+on-device MI breaks down (n=1M, k=14) as: ``cp.argsort`` quantile-binning = 161ms (69%), histogram+MI
+math = 73ms (31%). So the FULL O(n log n) sort cupy uses for equi-frequency binning is the dominant
+cost and the obvious tuning target. Two sort-free replacements were prototyped + measured:
+  * equi-WIDTH sub-histogram -> CDF -> quantile edges (no sort): 4.36x faster binning (43 vs 189ms) BUT
+    BREAKS on heavy-tailed FE candidates (a**2/b's outliers stretch the range so ~all mass collapses to
+    bin 0): bin-code agreement 98.6%, but candidate-MI Spearman only 0.88, MI maxdiff ~1.9, argmax flips
+    -> REJECTED (would change selection).
+  * monotone tail-compressed (``sign(x)*log1p|x|``, rank-preserving so quantiles are invariant) THEN
+    equi-width sub-hist: Spearman 0.9993, MI maxdiff 0.029 -- statistically excellent and still 4.36x
+    faster binning. But the TOP candidate is a near-tie among EQUIVALENT a**2/b spellings, and a 0.03 MI
+    perturbation reorders that tie -> argmax flips -> NOT bit-exact -> unsafe as a drop-in for the
+    exact-result contract. Good as an opt-in APPROXIMATE fast mode only.
+The exact+fast path (NEXT): prescreen all candidates with the sort-free MI, then re-score only the
+top-K (margin-guarded) with the exact ``cp.argsort`` MI -- exact winner at a fraction of the sort cost.
+Numbers recorded so this is not re-derived blind; the exact ``cp.argsort`` path stays the default.
 """
 from __future__ import annotations
 
