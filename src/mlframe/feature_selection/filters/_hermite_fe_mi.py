@@ -228,6 +228,12 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     # Per-column quantile binning: argsort -> rank -> bin lookup.
     # bin_for_rank[r] = floor(r / (n / n_bins)) with the remainder
     # absorbed by the first ``rem`` bins (matches njit version exactly).
+    # bench-attempt-rejected (2026-06-20): f32 SORT KEYS (argsort on X_gpu.astype(float32)) to halve the
+    # sort bandwidth on this 69%-of-MI step. Measured NO win on GTX 1050 Ti (n=200k K=384: f64 6566ms vs
+    # f32 6794ms = 0.97x) -- cupy's argsort does not radix-accelerate f32 over f64 here and the astype cast
+    # offsets any bandwidth saving; accuracy was fine (Spearman 0.999995, argmax match) but there is no
+    # speed, so the approximation is not worth it. The real sort win needs a custom radix-rank kernel
+    # (roadmap), not a dtype swap. May differ on cards with a faster f32 radix; re-bench there.
     sort_idx = cp.argsort(X_gpu, axis=0)  # (n, k) int64
     base = n // n_bins
     rem = n - base * n_bins
