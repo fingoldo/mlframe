@@ -130,8 +130,16 @@ def apply_synergy_bootstrap(
 
                 _ty = int(np.atleast_1d(target_indices)[0])
                 _y_codes = np.asarray(data)[:, _ty]
+                # Thread MRMR's own time budget so the "auto" criterion can size-gate the high-recall
+                # gbm-fused pre-rank (max_runtime_mins * 60); None => the pre-rank's soft default budget.
+                _mins = getattr(self, "max_runtime_mins", None)
+                try:
+                    _budget_s = float(_mins) * 60.0 if (_mins is not None and float(_mins) > 0) else None
+                except (TypeError, ValueError):
+                    _budget_s = None
                 _kept = top_k_by_interaction_propensity(
                     np.asarray(data), _y_codes, _raw_numeric_idx, top_k=synergy_cap,
+                    budget_seconds=_budget_s,
                 )
                 if _kept:
                     _raw_numeric_idx = set(_kept)
