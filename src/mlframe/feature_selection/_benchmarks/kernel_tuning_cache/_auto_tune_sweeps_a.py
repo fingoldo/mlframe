@@ -13,7 +13,6 @@ from __future__ import annotations
 import itertools
 import logging
 import os
-import threading
 import time
 from typing import Optional
 
@@ -38,38 +37,23 @@ def _physical_concurrency() -> int:
     return max(1, min(8, int(c)))
 
 
-def _median_per_call(fn, args, *, concurrency: int, n_iters: int) -> float:
-    """Median per-call wall time (ms) for ``fn(*args)`` under ``concurrency`` concurrent threads.
+def _median_per_call(fn, args=None, *, concurrency: int, n_iters: int, make_inputs=None, fresh: bool = False) -> float:
+    """Median per-call wall time (ms) under ``concurrency`` concurrent threads, via the shared
+    realistic timer ``pyutilz.performance.kernel_tuning.time_backend``.
 
-    Models the production reality the solo microbenchmark misses: when ``concurrency`` joblib
-    worker threads each hammer the SAME GPU, every cupy call serialises behind the others'
-    memcpy + kernel launches + GPU syncs, so the realised per-call wall is far above the
-    GPU-to-itself time (measured 20-70x on a GTX 1050 Ti: solo cuda ~36ms vs contended ~746ms
-    at n=100k k=20). njit (CPU, GIL-released prange) is measured under the same thread count so
-    both backends are judged on the SAME contended footing. ``concurrency=1`` is the legacy solo
-    path. Each thread reuses its ``args`` across iters (the array already exists in the real
-    pipeline); the cuda func still pays H2D/D2H per call inside the timed region."""
-    if concurrency <= 1:
-        ts = []
-        for _ in range(n_iters):
-            t0 = time.perf_counter(); fn(*args); ts.append(time.perf_counter() - t0)
-        return float(np.median(ts) * 1000.0)
-    samples: list = []
-    lock = threading.Lock()
-
-    def worker():
-        local = []
-        for _ in range(n_iters):
-            t0 = time.perf_counter(); fn(*args); local.append(time.perf_counter() - t0)
-        with lock:
-            samples.extend(local)
-
-    threads = [threading.Thread(target=worker) for _ in range(concurrency)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    return float(np.median(samples) * 1000.0) if samples else float("inf")
+    Pass either fixed ``args`` (reused across calls -- the legacy warm-buffer path) OR a
+    ``make_inputs`` factory with ``fresh=True`` to mint NEW inputs every call. Fresh inputs capture
+    the per-call alloc / H2D-upload cost a warm reused buffer hides for GPU backends -- the realism
+    gap that made the solo sweep over-rate cuda 20-70x (solo ~36ms vs production ~746ms at n=100k
+    k=20). njit is measured under the same thread count so both backends are judged on the same
+    contended footing. The single-source timing logic now lives in pyutilz so every sweep shares it."""
+    from pyutilz.performance.kernel_tuning import time_backend
+    factory = make_inputs if make_inputs is not None else (lambda: args)
+    return time_backend(
+        fn, factory,
+        concurrency=max(1, int(concurrency)), n_iters=n_iters, warmup=0,
+        fresh_inputs_per_call=bool(fresh and make_inputs is not None),
+    )
 
 
 # Sweep axes (_N_SAMPLES_AXIS, _NBINS_AXIS, _BLOCK_SIZE_AXIS) are
@@ -258,7 +242,11 @@ def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
     # (n=1500-200k, k=1-20) plus a couple of large-n points to verify
     # the cuda asymptote.
     n_axis = (5_000, 20_000, 50_000, 100_000, 200_000, 500_000, 1_000_000)
-    k_axis = (1, 5, 20)
+    # k extends to 100: the conditional-gate _flush / orth-FE scans batch MANY candidate columns into
+    # one call (k = tens-to-hundreds), and cupy argsort over (n, large-k) is exactly where the real
+    # per-call GPU cost lives -- a regime the old k<=20 grid never measured, leaving the dispatch blind
+    # to the production batch width.
+    k_axis = (1, 5, 20, 100)
     best_per_combo: dict[tuple[int, int], dict] = {}
 
     # Warmup both backends with a tiny case so the JIT + cupy compile
@@ -280,33 +268,41 @@ def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
     # multi-thread memcpy/launch/sync serialisation that makes the real per-call wall 20-70x the
     # GPU-to-itself time). concurrency=1 reproduces the legacy solo sweep.
     concurrency = _physical_concurrency()
+    _PREBUILD_BUDGET = 1_500_000_000  # ~1.5 GB cap on the fresh-input arrays pre-built per cell
     for n, k in itertools.product(n_axis, k_axis):
         try:
             y = rng.integers(0, 3, size=n).astype(np.int64)
             if k == 1:
-                x = rng.normal(size=n)
-                njit_fn, cuda_fn, args = _plugin_mi_classif_njit, _plugin_mi_classif_cuda, (x, y, 20)
+                base = rng.normal(size=n)
+                bytes_per = n * 8
+                njit_fn, cuda_fn = _plugin_mi_classif_njit, _plugin_mi_classif_cuda
             else:
-                X = rng.normal(size=(n, k))
-                njit_fn, cuda_fn, args = _plugin_mi_classif_batch_njit, _plugin_mi_classif_batch_cuda, (X, y, 20)
-            # njit under contention (CPU prange, GIL released -> genuine multi-core); cuda under the
-            # same thread count (GPU serialises -> the real production penalty surfaces here).
-            m_njit = _median_per_call(njit_fn, args, concurrency=concurrency, n_iters=n_iters)
-            m_cuda = _median_per_call(cuda_fn, args, concurrency=concurrency, n_iters=n_iters)
-            # Solo cuda kept for transparency / regression triage (the gap vs m_cuda quantifies the
-            # contention penalty the dispatch must respect).
-            m_cuda_solo = _median_per_call(cuda_fn, args, concurrency=1, n_iters=n_iters)
+                base = rng.normal(size=(n, k))
+                bytes_per = n * k * 8
+                njit_fn, cuda_fn = _plugin_mi_classif_batch_njit, _plugin_mi_classif_batch_cuda
+            # FRESH input per call (a NEW copy each time) so the cupy memory pool can't serve a hot,
+            # already-resident block -- this exposes the per-call alloc / H2D upload the production
+            # pipeline pays for every freshly-engineered candidate but a warm reused buffer hides.
+            # Cap effective concurrency so the pre-built fresh arrays (eff_c * n_iters copies) stay
+            # within ~1.5 GB per cell at the large-n grid points.
+            eff_c = max(1, min(concurrency, _PREBUILD_BUDGET // max(1, bytes_per * n_iters)))
+            make_inputs = lambda base=base, y=y: (base.copy(), y, 20)  # noqa: E731
+            # njit + cuda judged on the SAME fresh-input, contended footing; solo cuda kept for
+            # transparency (the gap vs m_cuda quantifies the contention penalty).
+            m_njit = _median_per_call(njit_fn, concurrency=eff_c, n_iters=n_iters, make_inputs=make_inputs, fresh=True)
+            m_cuda = _median_per_call(cuda_fn, concurrency=eff_c, n_iters=n_iters, make_inputs=make_inputs, fresh=True)
+            m_cuda_solo = _median_per_call(cuda_fn, concurrency=1, n_iters=n_iters, make_inputs=make_inputs, fresh=True)
             backend = "cuda" if m_cuda < m_njit else "njit"
             best_per_combo[(n, k)] = {
                 "backend_choice": backend,
                 "njit_ms": round(m_njit, 4),
                 "cuda_ms": round(m_cuda, 4),
                 "cuda_ms_solo": round(m_cuda_solo, 4),
-                "concurrency": concurrency,
+                "concurrency": int(eff_c),
             }
             logger.info(
-                "auto_tune mi_classif n=%d k=%d c=%d -> %s (njit=%.2fms cuda=%.2fms cuda_solo=%.2fms)",
-                n, k, concurrency, backend, m_njit, m_cuda, m_cuda_solo,
+                "auto_tune mi_classif n=%d k=%d c=%d -> %s (njit=%.2fms cuda=%.2fms cuda_solo=%.2fms, fresh-inputs)",
+                n, k, eff_c, backend, m_njit, m_cuda, m_cuda_solo,
             )
         except Exception as exc:
             logger.debug("mi_classif sweep skipped n=%d k=%d: %s", n, k, exc)
