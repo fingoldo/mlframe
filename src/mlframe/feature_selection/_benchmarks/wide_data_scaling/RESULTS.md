@@ -122,3 +122,20 @@ Bench-rejected / no-win (recorded so they are not re-attempted):
 Net: the FS/FE perf surface is mature on this hardware -- the OOM class is closed (robust in p and n), the
 dominant Fleuret-CMI cost is on the batched CUDA path, and discretization is column-parallel. Further wins
 need genuinely new code or an uncontended large-n machine, not re-grinding the existing kernels.
+
+## Remaining FS/FE backlog (2026-06-19 scan) -- for a fresh-context session / large-n machine
+
+A grep for explicit deferred markers (TODO/future-work) found only research-scale or narrow-opt-in items --
+the default-path perf surface is mature, so these are the genuine next levers, NOT a re-grind:
+- **JMIM joint-MI cache** (`evaluation.py` ~562): the JMIM aggregator (`use_jmim`, opt-in) recomputes
+  `I({X,Z};Y)` per (candidate, Z-combo) with NO cache, while the plain Fleuret-CMI path has `cached_cond_MIs`.
+  A multiset-{X,Z}-keyed cache would speed JMIM mode. Risk: it lives inside the hot `@njit evaluate_gain`;
+  needs a numba-typed-dict cache mirroring the arr2str CMI cache. Bounded but careful work.
+- **Fleuret synergy rejection** (`fleuret.py:4`): `gain = I(X;Y) - max_k I(X;Y|S_k)` rejects synergistic
+  features; a JMIM/CMIM-style aggregator addresses it. Flagged as a separate RESEARCH PR (quality, not perf).
+- **k-way target encoding** (`_cat_interactions_step.py:705`): TE is pair-only; k-way is deferred feature work.
+- **Weighted MRMR screening / RFECV** (`_cat_target_encoding_and_weighted.py:155`): needs a weighted
+  `merge_vars` (500+ callers) -- project-level future work.
+The GPU-CMI win is realized in both worker paths; the OOM class is closed (robust in p and n); discretization
+is column-parallel. Net: no further default-path /loop win without one of the above (new code) or an
+uncontended large-n box to re-measure the kernel crossovers.
