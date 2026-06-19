@@ -35,6 +35,22 @@ def test_chunked_engineered_mi_bit_identical_to_full():
         assert got_map[name] == ref_mi, f"chunked MI != full MI for {name}: {got_map[name]} vs {ref_mi}"
 
 
+def test_mi_classif_batch_chunked_helper_bit_identical():
+    """The shared helper (used by all 6 FE MI-uplift scorers) is bit-identical to the full _mi_classif_batch,
+    for a DataFrame and an ndarray, both below and above the chunk boundary."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import mi_classif_batch_chunked
+    rng = np.random.default_rng(2)
+    n = 2500
+    y = (rng.random(n) < 0.5).astype(np.int64)
+    for p in (300, 1200, 2500):                       # spans the 1024 chunk boundary
+        X = rng.standard_normal((n, p))
+        ref = _mi_classif_batch(X.astype(np.float64), y, nbins=10)
+        got_arr = mi_classif_batch_chunked(X, y, nbins=10)            # ndarray path
+        got_df = mi_classif_batch_chunked(pd.DataFrame(X), y, nbins=10)  # DataFrame path
+        assert np.array_equal(got_arr, ref), f"ndarray helper != full at p={p}"
+        assert np.array_equal(got_df, ref), f"DataFrame helper != full at p={p}"
+
+
 def test_pair_cross_chunked_engineered_mi_bit_identical_to_full():
     """Same chunked-MI fix on the (wider) pair-cross-basis scorer: bit-identical to the full-matrix call."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import score_pair_cross_basis_by_mi_uplift

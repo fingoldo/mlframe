@@ -50,7 +50,7 @@ import pandas as pd
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
-    _mi_classif_batch,
+    _mi_classif_batch, mi_classif_batch_chunked,
     _BASIS_CODE,
     hybrid_orth_mi_fe,
 )
@@ -236,7 +236,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     if engineered_X.empty:
         return pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
-    eng_mi = _mi_classif_batch(engineered_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # parse "{col_i}*{col_j}*{col_k}__..."

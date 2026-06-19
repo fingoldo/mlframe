@@ -420,7 +420,7 @@ def _greedy_score_and_select(
     it only RECORDS the already-computed ``engineered_mi`` vs ``abs_floor``; it
     changes NO selection decision. See the FE rejection ledger (W6).
     """
-    from ._orthogonal_univariate_fe import _mi_classif_batch
+    from ._orthogonal_univariate_fe import _mi_classif_batch, mi_classif_batch_chunked
     if engineered.empty:
         return [], pd.DataFrame(columns=[
             "engineered_col", "transform", "source_cols",
@@ -434,7 +434,7 @@ def _greedy_score_and_select(
     )
     raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
-    eng_mi = _mi_classif_batch(engineered.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+    eng_mi = mi_classif_batch_chunked(engineered, y_arr, nbins=nbins)
 
     rows = []
     parsed_per_eng: list[tuple[tuple[str, ...], str]] = []

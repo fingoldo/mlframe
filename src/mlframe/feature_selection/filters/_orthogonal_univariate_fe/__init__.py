@@ -55,6 +55,7 @@ from ..hermite_fe import (
 from ._orth_mi_backends import (  # noqa: F401
     _MI_BACKEND,
     _mi_classif_batch,
+    mi_classif_batch_chunked,
     _mi_classif_batch_numba,
     _mi_classif_batch_sklearn,
     _select_mi_backend,
@@ -552,21 +553,8 @@ def score_features_by_mi_uplift(
     raw_cols = list(raw_X.columns)
     raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
-    # CHUNKED MI SCORING (2026-06-19, loop iter): materialising the FULL engineered matrix as one float64 array
-    # OOMs at scale -- measured (16000, 20000) float64 = 2.38 GiB on a wide hybrid-orth frame, which raised
-    # MemoryError under the campaign profile. MI is per-column, so scoring in column BLOCKS is BIT-IDENTICAL to
-    # the all-at-once call while bounding peak extra RAM to O(n * chunk) instead of O(n * n_engineered).
-    _n_eng = int(engineered_X.shape[1])
-    _MI_CHUNK_COLS = 1024
-    if _n_eng <= _MI_CHUNK_COLS:
-        eng_mi = _mi_classif_batch(engineered_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
-    else:
-        _parts = []
-        for _j0 in range(0, _n_eng, _MI_CHUNK_COLS):
-            _blk = engineered_X.iloc[:, _j0:_j0 + _MI_CHUNK_COLS].to_numpy(dtype=np.float64)
-            _parts.append(_mi_classif_batch(_blk, y_arr, nbins=nbins))
-            del _blk
-        eng_mi = np.concatenate(_parts)
+    # Column-chunked MI scoring -> bit-identical, bounds peak RAM at scale (see mi_classif_batch_chunked).
+    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name

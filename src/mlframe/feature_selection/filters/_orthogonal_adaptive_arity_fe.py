@@ -66,7 +66,7 @@ import pandas as pd
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
-    _mi_classif_batch,
+    _mi_classif_batch, mi_classif_batch_chunked,
     _BASIS_CODE,
     hybrid_orth_mi_fe,
 )
@@ -362,7 +362,7 @@ def score_adaptive_arity_cross_basis(
     raw_cols = list(raw_X.columns)
     raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
-    eng_mi = _mi_classif_batch(engineered_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name

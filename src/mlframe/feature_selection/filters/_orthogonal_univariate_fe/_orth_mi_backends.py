@@ -185,6 +185,31 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
 
 
+def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = 1024) -> np.ndarray:
+    """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices (2026-06-19).
+
+    The FE MI-uplift scorers (univariate / pair-cross / triplet / quadruplet / adaptive-arity / mi-greedy)
+    each materialised the FULL engineered matrix as one float64 array to batch-score MI -- O(n * n_engineered)
+    peak RAM that OOMs at scale (measured (16000, 20000) float64 = 2.38 GiB), worst for the combinatorial
+    triplet/quadruplet cross-basis families. MI is PER-COLUMN, so scoring in column blocks is BIT-IDENTICAL to
+    the all-at-once call while bounding peak extra RAM to O(n * chunk_cols). Accepts a pandas DataFrame (sliced
+    via ``iloc``, so only the block is materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""
+    is_df = hasattr(X, "iloc")
+    p = int(X.shape[1])
+    if p <= chunk_cols:
+        arr = X.to_numpy(dtype=np.float64) if is_df else np.asarray(X, dtype=np.float64)
+        return _mi_classif_batch(arr, y, nbins=nbins)
+    parts = []
+    for j0 in range(0, p, chunk_cols):
+        if is_df:
+            blk = X.iloc[:, j0:j0 + chunk_cols].to_numpy(dtype=np.float64)
+        else:
+            blk = np.asarray(X[:, j0:j0 + chunk_cols], dtype=np.float64)
+        parts.append(_mi_classif_batch(blk, y, nbins=nbins))
+        del blk
+    return np.concatenate(parts)
+
+
 def _maybe_class_weights(y: np.ndarray):
     """Auto-detect imbalance and return inverse-prior class weights, or ``None``.
 
