@@ -414,6 +414,32 @@ def test_auto_recall_matches_fused_small_and_second_moment_wide():
         k.predict_gbm_fit_seconds = orig
 
 
+def test_high_card_nominal_target_not_squared_relabel_invariant():
+    """Low-3 (2026-06-19): a >64-class NOMINAL (integer-coded) target must NOT take the continuous moment path
+    (which squares arbitrary codes); it is one-hot-bucketed to the top-64 classes and stays relabel-invariant.
+    Only a genuine FLOAT regression target takes the moment path."""
+    rng = np.random.default_rng(0)
+    n, p = 6000, 300
+    X = rng.standard_normal((n, p))
+    ia, ib = 10, 200
+    s = np.sign(X[:, ia]) * np.sign(X[:, ib]) + 0.6 * (X[:, ia] + X[:, ib])
+    base = (s > 0).astype(int)
+    # spread the signal across 90 nominal classes: class = base*45 + bucket(noise) -> 90 distinct integer labels
+    cls = (base * 45 + np.digitize(rng.random(n), np.linspace(0, 1, 46)[1:-1])).astype(int)
+    assert np.unique(cls).size > 64
+
+    def _top(y_):
+        return set(np.argsort(second_moment_propensity(X, y_))[::-1][:100])
+    base_top = _top(cls)
+    perm = rng.permutation(cls.max() + 1)               # relabel the nominal classes arbitrarily
+    re_top = _top(perm[cls])
+    # relabel-invariant up to float-summation/tie noise (NOT the wild 0.12-0.88 swing of the squared-codes bug)
+    jacc = len(base_top & re_top) / len(base_top | re_top)
+    assert jacc >= 0.9, f"high-card nominal not relabel-invariant (Jaccard {jacc:.2f}) -- squared-codes path?"
+    # operands still recovered
+    assert len({ia, ib} & base_top) >= 1
+
+
 def test_single_class_target_no_crash():
     """A degenerate constant target must not crash and must return finite (zero-information) scores."""
     rng = np.random.default_rng(0)

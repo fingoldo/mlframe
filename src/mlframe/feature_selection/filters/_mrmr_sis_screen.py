@@ -161,6 +161,14 @@ def survivor_count(
     floor = max(20 * int(k_target or 0), 1000)
     m = max(knee, floor)
     if ram_cap is not None:
+        # RAM cap SUPERSEDES the floor (a hard memory budget wins over the "never starve downstream" intent).
+        # Warn when it does so the under-starved survivor set is not silent (2026-06-19, critique Low-5).
+        if int(ram_cap) < floor and int(ram_cap) < min(knee if knee else floor, p):
+            logger.warning(
+                "sis_screen: RAM cap (%d) is below the survivor floor (%d); returning %d survivors -- the "
+                "downstream MRMR pool may be starved. Free RAM or lower k_target to raise the cap.",
+                int(ram_cap), floor, min(m, int(ram_cap)),
+            )
         m = min(m, int(ram_cap))
     m = int(np.clip(m, 1, p))
     return m

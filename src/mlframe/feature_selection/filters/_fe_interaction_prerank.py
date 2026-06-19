@@ -104,6 +104,11 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
     if y_arr.shape[0] != V.shape[0]:
         raise ValueError(f"y length {y_arr.shape[0]} != n_rows {V.shape[0]}")
+    # Continuous-vs-discrete is decided by DTYPE, not just cardinality (2026-06-19, critique Low-3): only a
+    # genuine FLOAT (regression) target takes the moment path ``|corr(x^2,y)|+|corr(x,y^2)|``. A high-cardinality
+    # NOMINAL / integer target must NOT be squared (its codes are arbitrary) -- it takes the relabel-invariant
+    # one-hot path, bucketed to its most frequent classes to bound the K-loop cost.
+    _y_is_float = y_arr.dtype.kind in "fc"
     # Non-numeric labels (str / object / bool / Categorical) -> classification: factorise to codes (the discrete
     # one-hot path below is relabel-invariant, so the integer assignment is irrelevant). Numeric y passes through.
     if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
@@ -113,8 +118,13 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
     V2 = V * V
     classes = np.unique(yf)
+    if classes.size > _NOMINAL_MAX_CLASSES and _y_is_float:
+        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)   # genuine regression target
     if classes.size > _NOMINAL_MAX_CLASSES:
-        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)
+        # high-cardinality NOMINAL/integer target: one-hot the _NOMINAL_MAX_CLASSES most FREQUENT classes
+        # (covers the mass; relabel-invariant; O(K) bounded) instead of squaring arbitrary codes.
+        vals, counts = np.unique(yf, return_counts=True)
+        classes = np.sort(vals[np.argsort(counts)[::-1][:_NOMINAL_MAX_CLASSES]])
     # DISCRETE / nominal: relabel-invariant one-hot sum (correct for binary, nominal multiclass, binned y).
     # The per-column standardization of V / V2 is class-INDEPENDENT, so it is hoisted out of the (former)
     # K-class loop and done ONCE; the K classes then reduce to a single (p,n)@(n,K) GEMM per matrix.
