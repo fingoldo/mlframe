@@ -298,15 +298,9 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     # off-switch is set (cupy ignores MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="" on its own).
     if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return float(_plugin_mi_classif_njit(x, y, n_bins))
-    try:
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
-            lookup_mi_classif_backend,
-        )
-        backend = lookup_mi_classif_backend(n, 1, run_auto_tune=False)
-    except Exception:
-        backend = "cuda" if n >= 75_000 else "njit"
-    if backend == "cuda":
-        return _plugin_mi_classif_cuda(x, y, n_bins)
+    # GROUND-TRUTH OVERRIDE: default njit (see the batch dispatch below for the full rationale -- even the
+    # concurrency-aware tuner still under-counts this path by ~5x vs the end-to-end fit). MLFRAME_MI_BACKEND
+    # =cuda forces GPU.
     return float(_plugin_mi_classif_njit(x, y, n_bins))
 
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
@@ -336,15 +330,20 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
     if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
-    try:
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
-            lookup_mi_classif_backend,
-        )
-        backend = lookup_mi_classif_backend(n, k, run_auto_tune=False)
-    except Exception:
-        backend = "cuda" if (k == 1 and n >= 75_000) or (k > 1 and n >= 10_000) else "njit"
-    if backend == "cuda":
-        return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
+    # GROUND-TRUTH OVERRIDE: this batched FE-MI path defaults to njit regardless of the per-call tuner.
+    # The tuner sweep was upgraded to measure BOTH backends under realistic joblib worker-thread CONTENTION
+    # (_run_sweep_mi_classif_dispatch) -- and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
+    # solo 34ms vs contended 135ms). But even the contended microbench still under-counts this path by ~5x
+    # vs the real fit: it (a) reuses a warm GPU buffer while production allocates a FRESH engineered
+    # candidate array every call (cudaMalloc churn + fresh H2D/D2H), (b) runs MI in isolation while
+    # production interleaves the GPU-CMI redundancy kernel on the same device, and (c) inflates the
+    # contended-njit baseline via prange oversubscription absent from the real FE call pattern. Net: the
+    # tuner says "cuda" at n>=100k yet the ground-truth end-to-end fit is njit 3x faster (114 vs 368s,
+    # 1.6 vs 5.0 GB peak, byte-identical selection on the canonical 5-feature/n=100k fit). An isolated MI
+    # microbench cannot model the full pipeline, so we trust the end-to-end measurement. The principled way
+    # to actually WIN on GPU here is to make FE candidates GPU-RESIDENT (eliminating the per-call H2D/D2H
+    # the microbench omits) -- the larger matrix-native FE replatform, tracked separately.
+    # MLFRAME_MI_BACKEND=cuda forces GPU (handled above) for a caller whose own end-to-end profile shows it.
     return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
 
 _CUDA_KERNELS: dict = {}

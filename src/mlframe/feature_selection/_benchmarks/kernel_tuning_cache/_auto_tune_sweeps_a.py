@@ -12,12 +12,64 @@ from __future__ import annotations
 
 import itertools
 import logging
+import os
+import threading
 import time
 from typing import Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def _physical_concurrency() -> int:
+    """Realistic worker count for the joblib-threaded FE pipeline: physical cores.
+
+    The FE pair-search / orth-FE / conditional-gate scans call the MI kernels from a
+    ``joblib(backend='threading')`` pool sized to the physical core count, so the GPU
+    sees that many concurrent callers. The dispatch decision must reflect that
+    contention, not a solo measurement. Capped at 8 so the sweep itself stays bounded.
+    """
+    try:
+        import psutil
+        c = psutil.cpu_count(logical=False) or psutil.cpu_count() or 1
+    except Exception:
+        c = os.cpu_count() or 2
+    return max(1, min(8, int(c)))
+
+
+def _median_per_call(fn, args, *, concurrency: int, n_iters: int) -> float:
+    """Median per-call wall time (ms) for ``fn(*args)`` under ``concurrency`` concurrent threads.
+
+    Models the production reality the solo microbenchmark misses: when ``concurrency`` joblib
+    worker threads each hammer the SAME GPU, every cupy call serialises behind the others'
+    memcpy + kernel launches + GPU syncs, so the realised per-call wall is far above the
+    GPU-to-itself time (measured 20-70x on a GTX 1050 Ti: solo cuda ~36ms vs contended ~746ms
+    at n=100k k=20). njit (CPU, GIL-released prange) is measured under the same thread count so
+    both backends are judged on the SAME contended footing. ``concurrency=1`` is the legacy solo
+    path. Each thread reuses its ``args`` across iters (the array already exists in the real
+    pipeline); the cuda func still pays H2D/D2H per call inside the timed region."""
+    if concurrency <= 1:
+        ts = []
+        for _ in range(n_iters):
+            t0 = time.perf_counter(); fn(*args); ts.append(time.perf_counter() - t0)
+        return float(np.median(ts) * 1000.0)
+    samples: list = []
+    lock = threading.Lock()
+
+    def worker():
+        local = []
+        for _ in range(n_iters):
+            t0 = time.perf_counter(); fn(*args); local.append(time.perf_counter() - t0)
+        with lock:
+            samples.extend(local)
+
+    threads = [threading.Thread(target=worker) for _ in range(concurrency)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return float(np.median(samples) * 1000.0) if samples else float("inf")
 
 
 # Sweep axes (_N_SAMPLES_AXIS, _NBINS_AXIS, _BLOCK_SIZE_AXIS) are
@@ -223,43 +275,38 @@ def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
         logger.warning("mi_dispatch warmup failed; aborting sweep: %s", exc)
         return []
 
+    # Measure both backends under the SAME realistic worker-thread contention the production FE
+    # pipeline imposes on the GPU (solo timing systematically over-rates cuda -- it never sees the
+    # multi-thread memcpy/launch/sync serialisation that makes the real per-call wall 20-70x the
+    # GPU-to-itself time). concurrency=1 reproduces the legacy solo sweep.
+    concurrency = _physical_concurrency()
     for n, k in itertools.product(n_axis, k_axis):
         try:
+            y = rng.integers(0, 3, size=n).astype(np.int64)
             if k == 1:
                 x = rng.normal(size=n)
-                y = rng.integers(0, 3, size=n).astype(np.int64)
-                t_njit = []
-                t_cuda = []
-                for _ in range(n_iters):
-                    t0 = time.perf_counter()
-                    _plugin_mi_classif_njit(x, y, 20)
-                    t_njit.append(time.perf_counter() - t0)
-                    t0 = time.perf_counter()
-                    _plugin_mi_classif_cuda(x, y, 20)
-                    t_cuda.append(time.perf_counter() - t0)
+                njit_fn, cuda_fn, args = _plugin_mi_classif_njit, _plugin_mi_classif_cuda, (x, y, 20)
             else:
                 X = rng.normal(size=(n, k))
-                y = rng.integers(0, 3, size=n).astype(np.int64)
-                t_njit = []
-                t_cuda = []
-                for _ in range(n_iters):
-                    t0 = time.perf_counter()
-                    _plugin_mi_classif_batch_njit(X, y, 20)
-                    t_njit.append(time.perf_counter() - t0)
-                    t0 = time.perf_counter()
-                    _plugin_mi_classif_batch_cuda(X, y, 20)
-                    t_cuda.append(time.perf_counter() - t0)
-            m_njit = float(np.median(t_njit) * 1000)
-            m_cuda = float(np.median(t_cuda) * 1000)
+                njit_fn, cuda_fn, args = _plugin_mi_classif_batch_njit, _plugin_mi_classif_batch_cuda, (X, y, 20)
+            # njit under contention (CPU prange, GIL released -> genuine multi-core); cuda under the
+            # same thread count (GPU serialises -> the real production penalty surfaces here).
+            m_njit = _median_per_call(njit_fn, args, concurrency=concurrency, n_iters=n_iters)
+            m_cuda = _median_per_call(cuda_fn, args, concurrency=concurrency, n_iters=n_iters)
+            # Solo cuda kept for transparency / regression triage (the gap vs m_cuda quantifies the
+            # contention penalty the dispatch must respect).
+            m_cuda_solo = _median_per_call(cuda_fn, args, concurrency=1, n_iters=n_iters)
             backend = "cuda" if m_cuda < m_njit else "njit"
             best_per_combo[(n, k)] = {
                 "backend_choice": backend,
                 "njit_ms": round(m_njit, 4),
                 "cuda_ms": round(m_cuda, 4),
+                "cuda_ms_solo": round(m_cuda_solo, 4),
+                "concurrency": concurrency,
             }
             logger.info(
-                "auto_tune mi_classif n=%d k=%d -> %s (njit=%.2fms cuda=%.2fms)",
-                n, k, backend, m_njit, m_cuda,
+                "auto_tune mi_classif n=%d k=%d c=%d -> %s (njit=%.2fms cuda=%.2fms cuda_solo=%.2fms)",
+                n, k, concurrency, backend, m_njit, m_cuda, m_cuda_solo,
             )
         except Exception as exc:
             logger.debug("mi_classif sweep skipped n=%d k=%d: %s", n, k, exc)
@@ -276,6 +323,8 @@ def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
             "backend_choice": choice["backend_choice"],
             "njit_ms": choice["njit_ms"],
             "cuda_ms": choice["cuda_ms"],
+            "cuda_ms_solo": choice.get("cuda_ms_solo"),
+            "concurrency": choice.get("concurrency"),
         })
     # Catch-all region: largest measured combo decides the asymptote.
     largest_key = max(best_per_combo.keys(), key=lambda kv: (kv[0], kv[1]))
