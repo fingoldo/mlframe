@@ -237,11 +237,24 @@ def _conditional_perm_null(
     # so the H(Y,Z) / H(Z) block of the conditional CMI is invariant -- hoist it
     # out of the loop and recompute only the x-dependent xz / xyz terms per perm.
     y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
+    # VECTORISED within-stratum permutation (perf, 2026-06-19). The previous per-stratum Python loop
+    # ``for g in groups: x_perm[g] = x[g[rng.permutation(g.size)]]`` issued ONE rng.permutation PER
+    # stratum PER perm; at n=100k with a high-cardinality conditioning support that is hundreds of
+    # thousands of calls -- measured 697k calls / 14.4s, the single largest steady-state FE hotspot.
+    # A uniform within-group shuffle is a single lexsort: draw one random key per row and sort by
+    # (stratum, key); since ``sorted_z`` is already sorted, each contiguous stratum block is reordered
+    # by its keys alone -> an independent uniform permutation within every stratum in one vectorised
+    # pass (size-1 strata are fixed points, exactly as the old ``g.size > 1`` guard left them). This is
+    # the SAME conditional permutation null (Berrett et al. 2020) -- only the RNG draw sequence changes,
+    # so the floor/mean are unchanged in expectation (verified: identical feature selection on the
+    # canonical recovery fit). ``order``/``sorted_z`` were computed once above.
+    x_sorted = x[order]
     nulls = np.empty(int(n_permutations), dtype=np.float64)
     for i in range(int(n_permutations)):
-        x_perm = x.copy()
-        for g in groups:
-            x_perm[g] = x[g[rng.permutation(g.size)]]
+        keys = rng.random(x.size)
+        within = np.lexsort((keys, sorted_z))  # within each (already-sorted) stratum block: random order
+        x_perm = np.empty_like(x)
+        x_perm[order] = x_sorted[within]
         nulls[i] = float(cmi_from_binned_fixed_yz(x_perm, y_i, z_i, h_yz, h_z, k_yz, k_z, n_f))
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
