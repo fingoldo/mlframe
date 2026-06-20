@@ -446,3 +446,24 @@ def test_gpu_pairs_fe_mi_returns_none_for_nonanalytic():
     assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False) is None      # small n
     assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 0, 0.0, False) is None      # npermutations<=0
     assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, True) is None       # SU-normalised
+
+
+def test_fused_bin_codes_bit_identical_to_per_column_searchsorted():
+    """The fused bin-codes RawKernel (_searchsorted_codes) must equal the per-column
+    cp.searchsorted(edges, col, side='right') it replaces -- BIT-IDENTICAL codes (maxdiff 0) at f32 AND
+    f64, on the SAME f64 edges. Guards the nvprof-driven fusion that removed the K int64->int32 cast-copies
+    + K searchsorted launches (the value is promoted to f64 for the compare, matching cp.searchsorted)."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _searchsorted_codes
+
+    rng = np.random.default_rng(0)
+    for n, K, dt in [(50_000, 128, cp.float32), (50_000, 128, cp.float64), (80_000, 257, cp.float32), (40_000, 1, cp.float32)]:
+        cand = cp.asarray(rng.uniform(1, 5, (n, K)).astype(np.float32 if dt == cp.float32 else np.float64))
+        edges = cp.percentile(cand.ravel(), cp.linspace(0, 100, 21)).reshape(-1, 1) if K == 1 \
+            else cp.percentile(cand, cp.linspace(0, 100, 21), axis=0)
+        interior = cp.ascontiguousarray(edges[1:-1])  # (nbins-1, K), f64
+        fused = cp.asnumpy(_searchsorted_codes(cand, interior))
+        ref = cp.empty((n, K), dtype=cp.int32)
+        for j in range(K):
+            ref[:, j] = cp.searchsorted(interior[:, j], cand[:, j], side="right")
+        np.testing.assert_array_equal(fused, cp.asnumpy(ref))

@@ -717,6 +717,85 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     return edges                          # (nbins-1, K) float64
 
 
+# FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
+# cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
+# int32 cast-copies (searchsorted returns int64, ``out`` is int32). nvprof on the n=100k/300k binning path:
+# cupy_copy__int64_int32 = 19.2% of GPU time (2304 calls) + cupy_searchsorted_kernel = 11.7% (2304 calls)
+# -- ~31% of GPU time in launch overhead + a needless dtype cast. This ONE kernel bins the whole (n,K)
+# matrix: each thread takes one element, binary-searches its column's nbins-1 interior edges (upper_bound
+# = count of edges <= value = EXACTLY cp.searchsorted(.., side='right')), and writes the int32 code
+# directly -- coalesced cand/out (row-major) + coalesced strided edge reads (consecutive threads = adjacent
+# columns). BIT-IDENTICAL to the per-column searchsorted; one launch, no int64 intermediate.
+# Edges are ALWAYS float64 (cp.percentile and the radix-select both produce f64 edges). The value is
+# promoted to double for the compare -- EXACTLY what cp.searchsorted(f64_edges, f32_value) does (it
+# upcasts the value to the edges' dtype). Comparing in the value's f32 instead would 1-off at boundaries
+# (a downcast of the f64 edge loses precision) -- the bug that broke bit-identity on the first cut.
+_BIN_CODES_SRC = r"""
+extern "C" __global__
+void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict__ edges,
+                        const long long n, const int K, const int ne, int* __restrict__ out) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (idx >= total) return;
+    int col = (int)(idx % (long long)K);
+    double v = (double)cand[idx];
+    int lo = 0, hi = ne;                       // upper_bound over this column's interior edges
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (edges[(long long)mid * K + col] <= v) lo = mid + 1; else hi = mid;
+    }
+    out[idx] = lo;                             // = #(edges <= v) = searchsorted(.., 'right')
+}
+"""
+
+_BIN_CODES_KERNELS: dict = {}
+
+
+def _get_bin_codes_kernel(dtype):
+    """Lazy-compiled (pickle-safe, module-level cache) fused binning RawKernel for f32 / f64."""
+    import cupy as cp
+
+    key = "f64" if dtype == cp.float64 else "f32"
+    k = _BIN_CODES_KERNELS.get(key)
+    if k is None:
+        ctype = "double" if key == "f64" else "float"
+        src = _BIN_CODES_SRC.replace("TYPENAME", key).replace("TYPE", ctype)
+        k = cp.RawKernel(src, "bin_codes_" + key)
+        _BIN_CODES_KERNELS[key] = k
+    return k
+
+
+def _searchsorted_codes(cand_gpu, interior_edges):
+    """Bin (n,K) ``cand_gpu`` against per-column ascending ``interior_edges`` (ne,K) -> int32 (n,K) codes,
+    code = #(interior edges <= value) (== per-column cp.searchsorted side='right'). One fused kernel
+    launch (no K searchsorted launches, no int64->int32 cast). Falls back to the per-column loop on any
+    kernel failure -- bit-identical either way."""
+    import cupy as cp
+
+    n, K = cand_gpu.shape
+    try:
+        cand_c = cp.ascontiguousarray(cand_gpu)
+        edges_c = cp.ascontiguousarray(interior_edges, dtype=cp.float64)  # edges f64 (match cp.searchsorted promotion)
+        ne = int(edges_c.shape[0])
+        out = cp.empty((n, K), dtype=cp.int32)
+        total = n * K
+        threads = 256
+        blocks = (total + threads - 1) // threads
+        _get_bin_codes_kernel(cand_c.dtype)(
+            (blocks,), (threads,),
+            (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),
+        )
+        return out
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
+        out = cp.empty((n, K), dtype=cp.int32)
+        ec = cp.ascontiguousarray(interior_edges)
+        for j in range(K):
+            out[:, j] = cp.searchsorted(ec[:, j], cand_gpu[:, j], side="right")
+        return out
+
+
 def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
     """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
     ``discretize_2d_array_cuda`` -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
@@ -758,10 +837,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
             logging.getLogger(__name__).debug("radix-select edges failed; cp.percentile fallback", exc_info=True)
             interior = None
         if interior is not None:
-            out = cp.empty((n, K), dtype=cp.int32)
-            for j in range(K):
-                out[:, j] = cp.searchsorted(interior[:, j], cand_gpu[:, j], side="right")
-            return out
+            return _searchsorted_codes(cand_gpu, interior)
 
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
     if K == 1:
@@ -772,10 +848,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
         bin_edges = cp.percentile(cand_gpu.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
     else:
         bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
-    out = cp.empty((n, K), dtype=cp.int32)
-    for j in range(K):
-        out[:, j] = cp.searchsorted(bin_edges[1:-1, j], cand_gpu[:, j], side="right")
-    return out
+    return _searchsorted_codes(cand_gpu, bin_edges[1:-1])
 
 
 # CHUNK-MATERIALISE CUDA RawKernel (2026-06-20). The FE chunk path's #1 CPU hotspot is
