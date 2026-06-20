@@ -38,7 +38,31 @@ DIAG_MAX_FEATURES: int = 200
 
 
 
-from .diagnostics_dispatch import _record, _record_path, _save_figure, _save_spec  # noqa: E402 (cycle-safe: defined before parent's bottom re-export)
+# The four record/save helpers live in the parent ``diagnostics_dispatch``, which re-exports THIS module's
+# render_* + _entry_score at its own bottom -- a mutual cycle. A top-level ``from .diagnostics_dispatch
+# import ...`` was "cycle-safe" only when the parent imported FIRST; when a sibling (e.g. discover_tuners
+# during ``refresh-all``) imports THIS module first, the top-level import re-enters the half-initialised
+# parent, whose bottom then fails to find ``_entry_score`` (defined further down here). Delegate lazily
+# instead: importing this module no longer triggers the parent at import time, so either load order works
+# and the helpers resolve (from the module cache) on first actual call.
+def _record(*args, **kwargs):
+    from .diagnostics_dispatch import _record as _f
+    return _f(*args, **kwargs)
+
+
+def _record_path(*args, **kwargs):
+    from .diagnostics_dispatch import _record_path as _f
+    return _f(*args, **kwargs)
+
+
+def _save_figure(*args, **kwargs):
+    from .diagnostics_dispatch import _save_figure as _f
+    return _f(*args, **kwargs)
+
+
+def _save_spec(*args, **kwargs):
+    from .diagnostics_dispatch import _save_spec as _f
+    return _f(*args, **kwargs)
 
 
 def render_model_comparison_diagnostic(
