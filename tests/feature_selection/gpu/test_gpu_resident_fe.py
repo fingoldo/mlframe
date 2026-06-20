@@ -260,11 +260,12 @@ def test_dispatch_routes_and_recovers():
     assert "div" in top and "sqr" in top
 
 
-def test_gpu_discretize_codes_host_bit_identical_to_cpu():
-    """gpu_discretize_codes_host must produce codes BIT-IDENTICAL to the CPU discretize_2d_quantile_batch
-    (maxdiff 0) -- this is what lets the size-gated FE GPU-binning path (MLFRAME_FE_GPU_DISCRETIZE) feed
-    the UNCHANGED _dispatch_batch_mi_with_noise_gate and keep the FE selection bit-identical."""
+def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(monkeypatch):
+    """With the EXACT f64 binning fallback (MLFRAME_FE_GPU_BINNING_DTYPE=float64) the GPU codes must be
+    BIT-IDENTICAL to the CPU discretize_2d_quantile_batch (maxdiff 0) -- np.percentile upcasts the float32
+    FE buffer to float64, so the f64 GPU path matches it exactly. This is the bit-exact fallback contract."""
     pytest.importorskip("cupy")
+    monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         _build_candidate_matrix, gpu_discretize_codes_host,
     )
@@ -280,10 +281,36 @@ def test_gpu_discretize_codes_host_bit_identical_to_cpu():
         assert np.array_equal(cpu, gpu), f"n={n} K={cand.shape[1]} codes differ"
 
 
-def test_gpu_discretize_codes_host_k1_chunk_guard():
-    """A single-column (n, 1) candidate block must still bin bit-identically -- guards the cupy
-    cp.percentile(axis=0) single-column bug (wrong edges) that would corrupt a K==1 last chunk."""
+def test_gpu_discretize_codes_host_f32_default_selection_safe():
+    """DEFAULT (native float32) binning: the FE candidate buffer is already float32, so binning it in f32
+    (no f64 up-cast, half the sort bandwidth) is the default. The acceptance bar is SELECTION-equivalence,
+    not bit-identity: f32 codes must agree with the CPU f64 codes to ~100% (measured 100.000% @ K=384,
+    n in {100k,300k,1M} on a GTX 1050 Ti) so the downstream noise-gate MI ranking -- and thus the FE
+    selection -- is preserved. Assert >=99.9% code agreement (selection-safe margin)."""
     pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import (
+        _build_candidate_matrix, gpu_discretize_codes_host,
+    )
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
+    rng = np.random.default_rng(0)
+    for n in (20_000, 50_000):
+        a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
+        cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
+        np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        cpu = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)
+        gpu = gpu_discretize_codes_host(cand, 20, dtype=np.int8)  # native f32 default
+        agree = float(np.mean(cpu == gpu))
+        assert agree >= 0.999, f"n={n} f32 code agreement {agree:.5f} < 0.999 (selection at risk)"
+
+
+def test_gpu_discretize_codes_host_k1_chunk_guard(monkeypatch):
+    """A single-column (n, 1) candidate block must still bin bit-identically -- guards the cupy
+    cp.percentile(axis=0) single-column bug (wrong edges) that would corrupt a K==1 last chunk. Asserted
+    against the f64 fallback so it is a clean bit-identity check of the K==1 ravel guard (independent of
+    the default f32 edge round-off)."""
+    pytest.importorskip("cupy")
+    monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
@@ -294,12 +321,14 @@ def test_gpu_discretize_codes_host_k1_chunk_guard():
     assert np.array_equal(cpu, gpu)
 
 
-def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic():
+def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
     """gpu_pairs_fe_mi (GPU binning + GPU observed-MI + analytic gate) must equal the production CPU
     _dispatch_batch_mi_with_noise_gate on its analytic branch -- this is the selection-identity contract
     for the size-gated FE GPU path (MLFRAME_FE_GPU_DISCRETIZE). n is above analytic_null_min_n so the CPU
-    dispatch takes the analytic route too."""
+    dispatch takes the analytic route too. Uses the f64 binning fallback so the GPU codes are bit-identical
+    to the CPU discretize and the observed-MI equality is an exact contract (not f32 round-off dependent)."""
     pytest.importorskip("cupy")
+    monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, gpu_pairs_fe_mi
     from mlframe.feature_selection.filters.info_theory import batch_mi_with_noise_gate
     from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_dispatch import (

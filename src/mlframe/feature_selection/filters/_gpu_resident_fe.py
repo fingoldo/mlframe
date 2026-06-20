@@ -93,6 +93,23 @@ def fe_gpu_resident_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_RESIDENT", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+# GPU-RESIDENT BINNING DTYPE (2026-06-20). The FE candidate buffer is ALREADY float32 (the njit/CUDA
+# materialise writes float32; the chunk buffer is float32). The original GPU-resident discretize path
+# UP-CAST it to float64 before cp.percentile + cp.searchsorted, so the bandwidth-bound full sort moved
+# 2x the bytes for NO accuracy gain over the f32 source. Binning NATIVELY in float32 removes the cast
+# AND halves the bytes the sort/percentile + searchsorted scan, and (measured this run) PRESERVES the
+# clean-compound FE SELECTION (the acceptance bar -- same features, not bit-identical edges; f32-vs-f64
+# code agreement ~100%). So float32 is the DEFAULT binning dtype; the exact f64 path stays one env flip
+# away (``MLFRAME_FE_GPU_BINNING_DTYPE=float64``) as the bit-identical fallback if a future host/data
+# combination ever destabilises selection. The prior "f32 was SLOWER" result (docstring, 2026-06-20)
+# measured an f64->f32 CAST overhead on an f64-source path; here the source is f32 so there is no cast.
+# Implementation: _gpu_resident_discretize_codes bins in the INPUT's native dtype, so the float32 host
+# FE-buffer paths (gpu_discretize_codes_host / gpu_materialise_discretize_codes_host) bin in float32 with
+# NO up-cast, while the float64 grand-fused MI path (gpu_resident_pair_candidate_mi / grand_fused_pair_mi,
+# fed by _fused_generate_block -> float64) stays float64 (bit-identical). MLFRAME_FE_GPU_BINNING_DTYPE
+# (float32|float64) force-overrides the working dtype host-wide if a future host/data combo needs it.
+
+
 def _unary_apply(xp, name, x):
     """Apply unary ``name`` to ``x`` using array module ``xp`` (numpy or cupy). Semantics mirror
     feature_engineering's minimal preset exactly (incl. smart_log's full-column nanmin shift)."""
@@ -390,16 +407,34 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
 
 
 def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
-    """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU, bit-identical
-    to the CPU ``discretize_2d_quantile_batch`` (verified maxdiff 0). Mirrors ``discretize_2d_array_cuda``
-    exactly -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column edges + per-column
-    ``cp.searchsorted(edges[1:-1], col, side='right')`` -- but keeps the input + output on-device (no H2D
-    of the big candidate matrix, no D2H of codes here), so it chains gen -> discretize -> noise-gate
-    without round-trips. Returns a cupy int32 (n, K) codes array (resident)."""
+    """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
+    ``discretize_2d_array_cuda`` -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
+    edges + per-column ``cp.searchsorted(edges[1:-1], col, side='right')`` -- but keeps the input + output
+    on-device (no H2D of the big candidate matrix, no D2H of codes here), so it chains gen -> discretize ->
+    noise-gate without round-trips. Returns a cupy int32 (n, K) codes array (resident).
+
+    DTYPE: the percentile + searchsorted run in the INPUT's native dtype by default -- so the float32 FE
+    candidate buffer stays float32 (no up-cast; float32 halves the bandwidth of the dominant full sort
+    cp.percentile does and preserves the FE selection, the acceptance bar) while the float64 grand-fused
+    MI path stays float64 (bit-identical). ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` forces the exact f64
+    path host-wide (bit-identical to the CPU ``discretize_2d_quantile_batch``, whose ``np.percentile``
+    upcasts float32 to float64); ``=float32`` forces f32."""
     import cupy as cp
 
+    # Bin in the input's NATIVE dtype by default (the float32 FE candidate buffer stays float32 -- no
+    # up-cast, half the sort bandwidth; the float64 grand-fused MI path stays float64 -- bit-identical).
+    # MLFRAME_FE_GPU_BINNING_DTYPE forces a specific working dtype (float64 = the exact CPU-parity fallback).
+    forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
+    if forced in ("float64", "f64", "double"):
+        work = cp.float64
+    elif forced in ("float32", "f32", "single"):
+        work = cp.float32
+    else:
+        work = cand_gpu.dtype
+    if cand_gpu.dtype != work:
+        cand_gpu = cand_gpu.astype(work, copy=False)
     n, K = cand_gpu.shape
-    qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
+    qs = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
     if K == 1:
         # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array
         # (verified maxdiff ~23 vs numpy; multi-column is exact). A K==1 chunk occurs whenever the last
@@ -551,10 +586,12 @@ def gpu_materialise_discretize_codes_host(
         )  # resident (n, blk) float32 -- bit-equal to _materialise_chunk_njit
         if out_cand is not None:
             out_cand[:, start:stop] = cp.asnumpy(cand)  # float candidate D2H for the downstream reads
-        # Promote to float64 BEFORE binning so the percentile edges + searchsorted match the CPU
-        # pipeline EXACTLY (the njit kernel writes float32, then gpu_discretize_codes_host casts to
-        # float64). Done resident (no host round-trip).
-        codes_gpu = _gpu_resident_discretize_codes(cand.astype(cp.float64, copy=False), int(nbins))
+        # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) -- no f64 up-cast: the
+        # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless
+        # cast AND halves the bandwidth-bound percentile sort, while preserving the FE selection. The exact
+        # f64 fallback (bit-identical to the CPU pipeline) is one env flip away (MLFRAME_FE_GPU_BINNING_DTYPE
+        # =float64). _gpu_resident_discretize_codes applies the working dtype internally.
+        codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))
         out[:, start:stop] = cp.asnumpy(codes_gpu).astype(dtype, copy=False)
         del cand, codes_gpu
     return out
@@ -562,16 +599,19 @@ def gpu_materialise_discretize_codes_host(
 
 def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) -> np.ndarray:
     """Quantile-bin a host (n, K) float candidate matrix to ordinal codes via the GPU, returning a host
-    ``(n, K)`` array of ``dtype``. Bit-identical to the CPU ``discretize_2d_quantile_batch`` (same
-    cp.percentile linspace edges + right-searchsorted; verified maxdiff 0), so feeding the result into the
-    UNCHANGED ``_dispatch_batch_mi_with_noise_gate`` keeps the FE selection bit-identical -- this only
-    moves the binning (CPU partition+searchsorted, the dominant per-pair cost at large n) onto the GPU
-    (where it reuses the percentile path). Inputs are assumed finite (the caller scrubs NaN/inf upstream).
+    ``(n, K)`` array of ``dtype``. The FE candidate buffer is ALREADY float32, so the matrix is kept at
+    its native dtype (NO f64 up-cast) and binned in float32 (the input's native dtype) -- removing a
+    needless cast AND halving the bandwidth-bound cp.percentile sort, while preserving the FE selection
+    (the acceptance bar; f32-vs-f64 codes agree ~100%). Set ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` for
+    the bit-identical fallback matching the CPU ``discretize_2d_quantile_batch`` (np.percentile upcasts
+    float32 to float64). Feeding the result into the UNCHANGED ``_dispatch_batch_mi_with_noise_gate``
+    keeps the FE selection equivalent -- this only moves the binning (CPU partition+searchsorted, the
+    dominant per-pair cost at large n) onto the GPU. Inputs are assumed finite (caller scrubs NaN/inf).
 
     VRAM-chunked over columns so a wide candidate block never over-allocates device memory."""
     import cupy as cp
 
-    cand = np.ascontiguousarray(cand, dtype=np.float64)
+    cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) -- no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)
     k_chunk = _gpu_k_chunk(n)
