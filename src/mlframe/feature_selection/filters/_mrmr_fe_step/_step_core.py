@@ -1321,6 +1321,19 @@ def _run_fe_step(
                         # per-call RAM budget by the worker count so N threads don't collectively
                         # blow past 0.4*available and OOM a worker.
                         concurrent_workers=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
+                        # OPT-A n_jobs=1 EXTENSION (2026-06-20). This ``else`` branch is the joblib
+                        # path, but joblib ``Parallel(n_jobs=1)`` runs every ``delayed`` chunk
+                        # SEQUENTIALLY in the CALLING thread (joblib's SequentialBackend short-circuit
+                        # -- no worker thread is spawned, regardless of the requested backend), so
+                        # there is NO Python-threading nest a numba prange could deadlock. Mark the
+                        # call serial-main-thread when n_jobs<=1 so the FE materialise / searchsorted /
+                        # discretise kernels may dispatch to their BYTE-IDENTICAL ``parallel=True``
+                        # column-prange twins (gated further by the per-host kernel_tuning crossover) --
+                        # the canonical n=100k/n_jobs=1 fit (>=2 pairs -> this branch, but 1 joblib
+                        # worker) otherwise ran the serial nogil kernels with every other core idle.
+                        # Selection is unchanged (the twins are verified maxdiff 0). For n_jobs>1 the
+                        # backend genuinely spawns threads -> stays False (serial nogil, no nesting).
+                        serial_main_thread=(n_jobs is None or int(n_jobs) <= 1),
                     )
                     for chunk in jobs_list
                 ],
