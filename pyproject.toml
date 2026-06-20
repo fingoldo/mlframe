@@ -470,6 +470,7 @@ ignore = [
     "E401",   # multiple imports on one line: explicit ``import a, b`` is project-idiomatic in a few helpers; not worth churn
     "E402",   # module-level import not at top: legitimate for try/except optional-dep gates (cupy, polars, torch)
     "E701",   # multiple statements on one line (colon): used in compact one-liners like ``if x: continue``
+    "E702",   # multiple statements on one line (semicolon): used in compact one-liners like ``a = 1; b = 2``
     "I001",   # unsorted imports: isort runs separately; ruff's isort variant collides with our black + manual section order
     "N802",   # function name should be lowercase: legitimately mixed-case in math identifiers (e.g. ``computeFFT`` interop)
     "N803",   # arg name should be lowercase: sklearn-API surface uses X / Y / Xt convention required by check_estimator
