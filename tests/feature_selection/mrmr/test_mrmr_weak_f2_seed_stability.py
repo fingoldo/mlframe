@@ -86,7 +86,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
-from tests.feature_selection.test_mrmr_create_keep_drop import _artifact_path
+from tests.feature_selection.mrmr.test_mrmr_create_keep_drop import _artifact_path
 
 # Operand groupings for the two genuine interactions.
 _AB = {"a", "b"}

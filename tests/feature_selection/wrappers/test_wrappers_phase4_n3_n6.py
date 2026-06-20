@@ -23,7 +23,7 @@ from mlframe.feature_selection.wrappers import (
     get_feature_importances,
 )
 from tests.training.synthetic import make_sklearn_classification_df
-from .conftest import COVERAGE_ACTIVE
+from tests.feature_selection.conftest import COVERAGE_ACTIVE
 from mlframe.feature_selection.wrappers._helpers import (
     _detect_multithreaded,
     _pin_threads_to_one,

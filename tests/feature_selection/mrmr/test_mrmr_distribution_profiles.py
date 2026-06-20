@@ -40,7 +40,7 @@ import pytest
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection import _synthetic_distributions as sd
 # Reuse the battle-tested tolerant matcher from the uniform suite (no duplication).
-from tests.feature_selection.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
+from tests.feature_selection.mrmr.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
 
 SEED = 42
 FIT_TIMEOUT = 360

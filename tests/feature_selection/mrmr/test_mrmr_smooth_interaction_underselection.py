@@ -35,7 +35,7 @@ os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
 _TD = os.path.dirname(os.path.abspath(__file__))
 if _TD not in sys.path:
     sys.path.insert(0, _TD)
-from _mrmr_realistic_data import make_realistic_case  # noqa: E402
+from tests.feature_selection._mrmr_realistic_data import make_realistic_case  # noqa: E402
 
 from mlframe.feature_selection.filters.mrmr import MRMR  # noqa: E402
 

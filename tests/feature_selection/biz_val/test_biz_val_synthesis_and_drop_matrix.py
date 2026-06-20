@@ -57,7 +57,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 sys.path.insert(0, os.path.dirname(__file__))
 from tests.feature_selection.conftest import fast_subset  # noqa: E402
-from _selector_factories import _make_rfecv, selected_names  # noqa: E402
+from tests.feature_selection._selector_factories import _make_rfecv, selected_names  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

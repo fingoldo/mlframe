@@ -47,7 +47,7 @@ import textwrap
 import numpy as np
 import pytest
 
-from ._mrmr_realistic_data import default_fuzz_grid
+from tests.feature_selection._mrmr_realistic_data import default_fuzz_grid
 
 
 # These are heavy integration fits at realistic n (see _DEFAULT_CASE_N): a single
@@ -130,7 +130,7 @@ case = _payload["case"]
 fe_kwargs = _payload["fe_kwargs"]
 test_dir = _payload["test_dir"]
 sys.path.insert(0, test_dir)
-from _mrmr_realistic_data import make_realistic_case
+from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 
 df, y, meta = make_realistic_case(
     seed=case["seed"], n=case.get("n", 8000),
@@ -289,7 +289,9 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
     Retries once on an OOM / paging-file style transient (the Windows
     concurrent-load failure mode) per the repo's retry policy.
     """
-    test_dir = os.path.dirname(os.path.abspath(__file__))
+    # repo root (parent of ``tests/``) so the worker can resolve absolute
+    # ``tests.feature_selection.*`` imports after the mrmr/ subpackage move.
+    test_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     src_dir = os.environ.get("MRMR_SRC_DIR")
     pyutilz = os.environ.get("MRMR_PYUTILZ_DIR")
     env = dict(os.environ)

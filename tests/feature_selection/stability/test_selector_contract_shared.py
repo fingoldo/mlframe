@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 from sklearn.exceptions import NotFittedError
 
-from ._selector_factories import (
+from tests.feature_selection._selector_factories import (
     SELECTOR_SPECS,
     selected_mask,
     selected_names,

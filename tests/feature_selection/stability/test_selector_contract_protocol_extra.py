@@ -42,7 +42,7 @@ import pytest
 from sklearn.base import clone
 from sklearn.datasets import make_classification, make_regression
 
-from ._selector_factories import (
+from tests.feature_selection._selector_factories import (
     SELECTOR_SPECS,
     selected_mask,
     selected_names,
