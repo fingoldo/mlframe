@@ -403,6 +403,152 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
     return out
 
 
+# CHUNK-MATERIALISE CUDA RawKernel (2026-06-20). The FE chunk path's #1 CPU hotspot is
+# ``_materialise_chunk_njit`` -- it builds the (n, K) float32 candidate matrix by gathering strided
+# operand columns ``tv[r, ai]`` / ``tv[r, bi]`` out of a row-major operand table and applying the
+# binary op-code table (mlframe.feature_selection.filters._feature_engineering_pairs._pairs_materialise
+# ._NJIT_BINARY_OP_CODES). It is MEMORY-BANDWIDTH bound on those gathers, not compute. This kernel does
+# the IDENTICAL work on the GPU: each thread owns one (row, candidate) cell, gathers its two operand
+# columns by op-code index, applies the binary op, scrubs non-finite -> 0, and writes float32 row-major.
+#
+# BIT-IDENTICAL to ``_materialise_chunk_njit``: operands are read as float32 (the ``tv`` dtype); mul/add/
+# sub/abs_diff are plain float32 ops; max/min/signed propagate NaN exactly (``a+b`` when either is NaN);
+# div (op 3) and ratio_abs (op 8) are FLOAT64-PROMOTED then cast back to float32 (matching the njit
+# kernel's ``np.float32(np.float64(a)/...)`` -- numba/numpy promote the float64 ``1e-9`` / ``1.0``
+# literals); the final nan_to_num(nan=0, +-inf=0) is the same predicate. The op-code numbering is the
+# njit table: 0=mul 1=add 2=sub 3=div 4=max 5=min 6=abs_diff 7=signed 8=ratio_abs. ``tv`` is the
+# (n, n_operands) row-major float32 operand table; the kernel addresses operand column ``c`` of row
+# ``i`` via ``tv[i*n_operands + c]`` (so NO transpose is needed -- it mirrors the njit ``tv[r, ai]``).
+_FE_MATERIALISE_SRC = r"""
+extern "C" __global__
+void fe_materialise(const float* __restrict__ tv,
+                    const long long* __restrict__ a_cols,
+                    const long long* __restrict__ b_cols,
+                    const signed char* __restrict__ ops,
+                    const long long n, const long long n_operands, const int K,
+                    float* __restrict__ out) {
+    long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (tid >= total) return;
+    int k = (int)(tid % (long long)K);
+    long long i = tid / (long long)K;
+    long long ai = a_cols[k];
+    long long bi = b_cols[k];
+    float a = tv[i * n_operands + ai];
+    float b = tv[i * n_operands + bi];
+    int op = (int)ops[k];
+    float v;
+    if (op == 0) {            // mul
+        v = a * b;
+    } else if (op == 1) {     // add
+        v = a + b;
+    } else if (op == 2) {     // sub
+        v = a - b;
+    } else if (op == 3) {     // div = float64-promoted x/(y + sign(y)*eps + eps)
+        double sgn = (b == 0.0f) ? 0.0 : ((b > 0.0f) ? 1.0 : -1.0);
+        v = (float)((double)a / ((double)b + sgn * 1e-9 + 1e-9));
+    } else if (op == 4) {     // max = np.maximum (nan-propagating)
+        if (a != a || b != b) v = a + b; else v = (a > b) ? a : b;
+    } else if (op == 5) {     // min = np.minimum (nan-propagating)
+        if (a != a || b != b) v = a + b; else v = (a < b) ? a : b;
+    } else if (op == 6) {     // abs_diff = |a - b|
+        v = fabsf(a - b);
+    } else if (op == 7) {     // signed = sign(a)*|b| (nan-propagating)
+        if (a != a || b != b) {
+            v = a + b;
+        } else {
+            float sgn = (a == 0.0f) ? 0.0f : ((a > 0.0f) ? 1.0f : -1.0f);
+            v = sgn * fabsf(b);
+        }
+    } else {                  // op == 8: ratio_abs = float64-promoted a/(|b|+1)
+        v = (float)((double)a / ((double)fabsf(b) + 1.0));
+    }
+    // np.nan_to_num(nan=0, posinf=0, neginf=0)
+    if (isnan(v) || isinf(v)) v = 0.0f;
+    out[i * (long long)K + k] = v;
+}
+"""
+_FE_MATERIALISE_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
+
+
+def _get_fe_materialise_kernel():
+    global _FE_MATERIALISE_KERNEL
+    if _FE_MATERIALISE_KERNEL is None:
+        import cupy as cp
+        _FE_MATERIALISE_KERNEL = cp.RawKernel(_FE_MATERIALISE_SRC, "fe_materialise")
+    return _FE_MATERIALISE_KERNEL
+
+
+def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
+    """Generate the (n, len(ops_block)) float32 candidate matrix for the given column blocks in ONE kernel
+    launch, RESIDENT on the GPU. ``tv_gpu`` is the (n, n_operands) row-major float32 operand table already
+    on the device. ``a_cols_block`` / ``b_cols_block`` (int64) / ``ops_block`` (int8) are host or device
+    arrays of length K. Returns a row-major (n, K) cupy float32 matrix, BIT-EQUAL to
+    ``_materialise_chunk_njit`` (same float32 ops, same float64-promoted div/ratio_abs, same nan_to_num)."""
+    import cupy as cp
+
+    n = int(tv_gpu.shape[0])
+    n_operands = int(tv_gpu.shape[1])
+    K = int(len(ops_block))
+    a_g = cp.asarray(a_cols_block, dtype=cp.int64)
+    b_g = cp.asarray(b_cols_block, dtype=cp.int64)
+    ops_g = cp.asarray(ops_block, dtype=cp.int8)
+    out = cp.empty((n, K), dtype=cp.float32)
+    total = n * K
+    threads = 256
+    blocks = (total + threads - 1) // threads
+    _get_fe_materialise_kernel()(
+        (blocks,), (threads,),
+        (tv_gpu, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), out),
+    )
+    return out
+
+
+def gpu_materialise_discretize_codes_host(
+    transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
+    nbins: int, *, dtype=np.int8, out_cand: np.ndarray | None = None,
+) -> np.ndarray:
+    """GPU fast path for the FE chunk's MATERIALISE + BINNING. Uploads the operand table
+    ``transformed_vars`` (n, n_operands) float32 ONCE, then for each VRAM-bounded column block: generates
+    the float32 candidate matrix on the GPU (``_fe_materialise_block_gpu`` -- bit-equal to
+    ``_materialise_chunk_njit``) and quantile-bins it RESIDENT (``_gpu_resident_discretize_codes``,
+    bit-equal to ``discretize_2d_quantile_batch``). Returns the (n, K) ``dtype`` codes (BIT-IDENTICAL to
+    the CPU njit-materialise -> ``gpu_discretize_codes_host`` pipeline, verified maxdiff 0).
+
+    The candidate matrix is generated + binned RESIDENT (the int codes are the only mandatory D2H). But the
+    downstream FE survivor / usability / ext-val stages read the CONTINUOUS candidate columns out of the
+    chunk buffer, so the caller passes ``out_cand`` (the ``chunk_buffer[:, :K]`` float32 view) to receive
+    the materialised float candidate matrix as well -- this replaces the CPU njit materialise with the GPU
+    one (the bandwidth-bound strided-gather op the GPU is good at) while keeping the buffer the rest of the
+    pipeline expects. Pass ``out_cand=None`` to skip the float D2H (codes-only, when no downstream
+    continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
+    import cupy as cp
+
+    tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
+    a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
+    b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
+    op_codes = np.ascontiguousarray(op_codes, dtype=np.int8)
+    n = int(tv.shape[0])
+    K = int(a_cols.shape[0])
+    tv_gpu = cp.asarray(tv)  # the ONE H2D of the operand table (n, n_operands)
+    out = np.empty((n, K), dtype=dtype)
+    k_chunk = _gpu_k_chunk(n)
+    for start in range(0, K, k_chunk):
+        stop = min(start + k_chunk, K)
+        cand = _fe_materialise_block_gpu(
+            tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop]
+        )  # resident (n, blk) float32 -- bit-equal to _materialise_chunk_njit
+        if out_cand is not None:
+            out_cand[:, start:stop] = cp.asnumpy(cand)  # float candidate D2H for the downstream reads
+        # Promote to float64 BEFORE binning so the percentile edges + searchsorted match the CPU
+        # pipeline EXACTLY (the njit kernel writes float32, then gpu_discretize_codes_host casts to
+        # float64). Done resident (no host round-trip).
+        codes_gpu = _gpu_resident_discretize_codes(cand.astype(cp.float64, copy=False), int(nbins))
+        out[:, start:stop] = cp.asnumpy(codes_gpu).astype(dtype, copy=False)
+        del cand, codes_gpu
+    return out
+
+
 def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) -> np.ndarray:
     """Quantile-bin a host (n, K) float candidate matrix to ordinal codes via the GPU, returning a host
     ``(n, K)`` array of ``dtype``. Bit-identical to the CPU ``discretize_2d_quantile_batch`` (same

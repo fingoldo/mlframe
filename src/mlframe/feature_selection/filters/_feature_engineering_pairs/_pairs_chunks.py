@@ -150,6 +150,7 @@ def _compute_one_fe_chunk(
     col = 0
     chunk_records: dict = {}  # raw_vars_pair -> (candidates, local_times)
     _op_codes_by_name = _njit_binary_op_codes(binary_transformations)  # None if ANY op is not njit-coded
+    _gpu_disc_2d = None  # GPU fused materialise+binning codes (njit-op path only); None -> CPU below
 
     if _op_codes_by_name is not None:
         # NJIT PARALLEL PATH: record the candidate specs (NO per-candidate Python materialise), then fill the
@@ -178,7 +179,66 @@ def _compute_one_fe_chunk(
                     col += 1
             _cands_by_pair[raw_vars_pair] = cands
         _t0 = timer()
-        if col > 0:
+        # GPU FUSED MATERIALISE+BINNING (2026-06-20). The candidate MATERIALISE
+        # (``_materialise_chunk_njit``) is the #1 CPU FE hotspot at the canonical fit -- it is
+        # MEMORY-BANDWIDTH bound on the strided operand gathers ``tv[r, ai]`` / ``tv[r, bi]``, not
+        # compute (a CPU branch-hoist gave 0.95x and was reverted). The GPU has the bandwidth, and the
+        # chunk-binning step right after this ALREADY runs on the GPU under the SAME size+HW gate
+        # (``_fe_gpu_discretize_enabled``). So when that gate fires we generate the (n, K) candidate
+        # matrix on the GPU and keep it RESIDENT to feed the resident discretize -- only the operand
+        # columns go up and the small int codes come down; the float candidate matrix never crosses
+        # the bus, removing both the CPU materialise AND the separate float H2D upload. BIT-IDENTICAL:
+        # ``gpu_materialise_discretize_codes_host`` mirrors ``_materialise_chunk_njit``'s op semantics
+        # EXACTLY (float32 ops, float64-promoted div/ratio_abs, nan_to_num) and bins via the same
+        # resident cp.percentile path (verified maxdiff 0). Any GPU failure falls back to the CPU njit
+        # materialise below (never a regression). ``_gpu_disc_2d`` carries the resident-path codes so
+        # the discretize block below skips re-binning.
+        #
+        # NOTE the float candidate matrix is STILL brought to host (``out_cand=chunk_buffer``): the
+        # downstream survivor / usability-corr / ext-val / multi-emit stages read the CONTINUOUS
+        # candidate columns out of the chunk buffer, so a codes-ONLY resident path is not a drop-in
+        # (it would leave the buffer uninitialised -> garbage survivor columns). So the GPU replaces the
+        # bandwidth-bound CPU strided-gather materialise (and folds in the resident binning) but the
+        # (n,K) float still D2Hs once for the buffer the rest of the pipeline expects.
+        # BENCH (GTX 1050 Ti, n=100k, K=3600, median of 5, warm; this step in isolation):
+        #   * vs CPU njit materialise + CPU binning : 30.3s -> 6.9s  = 4.40x
+        #   * vs CPU njit materialise + GPU binning : 13.7s -> 6.7s  = 2.03x  (fair A/B, binning held on GPU)
+        # End-to-end the FE materialise is one of several stages, so the fit-level delta is smaller and
+        # contention-dependent; selection is BIT-IDENTICAL with the path on vs off (verified).
+        _gpu_disc_2d = None
+        _gpu_materialise_done = False
+        # Escape hatch / A/B knob: MLFRAME_FE_GPU_MATERIALISE=0 disables ONLY the fused GPU materialise
+        # (falls through to the CPU njit materialise + the existing GPU binning below). Default on -- the
+        # path is gated by the SAME size+HW predicate as the GPU binning (_fe_gpu_discretize_enabled).
+        import os as _os
+        _gpu_mat_enabled = _os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in (
+            "0", "false", "no", "off",
+        )
+        if col > 0 and _gpu_mat_enabled:
+            try:
+                from ._pairs_core import _fe_gpu_discretize_enabled
+                if _fe_gpu_discretize_enabled(transformed_vars.shape[0], col):
+                    from .._gpu_resident_fe import gpu_materialise_discretize_codes_host
+                    _code_dtype_gpu = _narrow_code_dtype(quantization_nbins, quantization_dtype)
+                    _gpu_disc_2d = gpu_materialise_discretize_codes_host(
+                        transformed_vars,
+                        np.asarray(_a_cols, dtype=np.int64),
+                        np.asarray(_b_cols, dtype=np.int64),
+                        np.asarray(_ops, dtype=np.int8),
+                        int(quantization_nbins),
+                        dtype=_code_dtype_gpu,
+                        # The downstream survivor / usability / ext-val stages read the CONTINUOUS
+                        # candidate columns from the chunk buffer, so fill it with the GPU-materialised
+                        # float matrix (this is the bandwidth-bound op the GPU replaces). The buffer is
+                        # then exactly what the CPU njit path would have produced (bit-identical).
+                        out_cand=chunk_buffer[:, :col],
+                    )
+                    _gpu_materialise_done = True
+            except Exception:
+                logger.debug("FE chunk GPU materialise+binning failed; CPU materialise", exc_info=True)
+                _gpu_disc_2d = None
+                _gpu_materialise_done = False
+        if col > 0 and not _gpu_materialise_done:
             # OPT-A: on the serial-main-thread path (no joblib nest) use the byte-identical
             # column-prange twin above the per-host crossover; else the serial nogil kernel.
             _mat_args = (
@@ -241,7 +301,11 @@ def _compute_one_fe_chunk(
         np.nan_to_num(chunk_buffer[:, :col], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
     _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
-    disc_2d = None
+    disc_2d = _gpu_disc_2d  # GPU fused materialise+binning already produced the codes (njit-op path)
+    if disc_2d is not None:
+        # The fused GPU path generated the candidate matrix AND binned it RESIDENT (no CPU materialise,
+        # no float H2D); ``disc_2d`` is the bit-identical int codes. Skip the CPU/GPU re-binning below.
+        pass
     # GPU-binning decoupled from the analytic gate (2026-06-20): the cross-pair chunk binning
     # (_quantile_edges_2d_njit + _searchsorted_2d_right_njit_parallel) is the dominant CPU FE
     # hotspot at the default 30k screen-subsample (~4.4s of the warm canonical fit, on a single
@@ -253,14 +317,15 @@ def _compute_one_fe_chunk(
     # and feed the identical codes to the UNCHANGED CPU MI dispatcher below -- preserving selection
     # bit-for-bit. Same size+HW gate as the pair path (``_fe_gpu_discretize_enabled``); any GPU
     # failure falls back to the CPU discretise (never a regression).
-    try:
-        from ._pairs_core import _fe_gpu_discretize_enabled
-        if _fe_gpu_discretize_enabled(chunk_buffer.shape[0], col):
-            from .._gpu_resident_fe import gpu_discretize_codes_host
-            disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
-    except Exception:
-        logger.debug("FE chunk GPU binning failed; CPU discretise", exc_info=True)
-        disc_2d = None
+    if disc_2d is None:
+        try:
+            from ._pairs_core import _fe_gpu_discretize_enabled
+            if _fe_gpu_discretize_enabled(chunk_buffer.shape[0], col):
+                from .._gpu_resident_fe import gpu_discretize_codes_host
+                disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
+        except Exception:
+            logger.debug("FE chunk GPU binning failed; CPU discretise", exc_info=True)
+            disc_2d = None
     if disc_2d is None:
         disc_2d = discretize_2d_quantile_batch(
             chunk_buffer[:, :col], n_bins=quantization_nbins,
