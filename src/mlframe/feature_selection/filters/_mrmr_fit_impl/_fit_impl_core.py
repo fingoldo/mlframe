@@ -8824,6 +8824,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # represented by a pure (<=2-operand) selected feature. Purely ADDITIVE (nothing MI-selected is
     # removed; support_ untouched) and no-op when the pure form adds no linear value -> byte-identical
     # there. Only when FE is enabled (fe_max_steps>0); skipped on the fe-disabled raw-only path.
+    # Names of engineered survivors RE-ATTACHED by the retention passes below (AFTER the main raw-vs-
+    # engineered redundancy sweep). The post-retention drop only re-litigates raws against THESE -- the
+    # main sweep already vetted raws against survivors it could see (so a genuine pair-interaction operand
+    # the main sweep kept is not re-dropped by the stricter post-retention margin).
+    _retention_added_eng_names: set = set()
     if fe_max_steps > 0:
         try:
             from .._fe_pure_form_retention import retain_usable_pure_forms
@@ -8835,6 +8840,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _r_recipe, _r_name in _retain_extra:
                 self._engineered_recipes_.append(_r_recipe)
                 self._engineered_features_.append(_r_name)
+                _retention_added_eng_names.add(str(_r_name))
             if _retain_extra and verbose:
                 logger.info(
                     "MRMR usability-aware retention: re-attached %d linearly-usable pure pair form(s) "
@@ -9038,10 +9044,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _post_raw_set = set(self.feature_names_in_)
             # Final engineered survivor recipes (name -> EngineeredRecipe); these are the
             # columns that actually reach transform() output.
+            # Anchor ONLY on engineered survivors RE-ATTACHED by the retention passes (after the main
+            # sweep). The main raw-vs-engineered sweep already vetted every raw against the survivors it
+            # could see, so re-litigating those raws here -- with the stricter post-retention margin --
+            # wrongly drops a genuine pair-interaction operand the main sweep KEPT (TestPairInteraction:
+            # x_a/x_b in y=x_a+x_b+2*x_a*x_b, main-sweep cmi 1.21x floor -> KEEP, post 1.5x -> DROP). The
+            # post-retention sweep exists ONLY for composites retention attached after the sweep ran.
             _post_recipes: dict = {}
             for _r in (self._engineered_recipes_ or []):
                 _nm = getattr(_r, "name", None)
-                if _nm is not None and _nm not in _post_raw_set:
+                if _nm is not None and _nm not in _post_raw_set and str(_nm) in _retention_added_eng_names:
                     _post_recipes[str(_nm)] = _r
             # Selected raw operand cols-indices (selected_vars is in feature_names_in_ space here;
             # map each surviving raw back to its cols-space index by name).
