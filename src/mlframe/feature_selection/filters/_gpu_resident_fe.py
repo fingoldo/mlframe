@@ -125,6 +125,20 @@ _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 # MEASURED CONSTRAINT: forcing the pure recompute path (no buffer, no chunk-batch) is 3x SLOWER
 # (217s vs 69s) -- chunk-batch is essential, so the replatform must COMBINE chunk-batch + deferred-float
 # + per-read recompute, NOT replace chunk-batch with recompute. Implement gated + pin-validated.
+# TURNKEY IMPLEMENTATION (exact sites in _pairs_core.check_prospective_fe_pairs):
+#   1. Gate ``MLFRAME_FE_GPU_DEFER_FLOAT`` (default off). Active only when the chunk used the GPU FUSED
+#      codes path (_gpu_disc_2d produced) -- else the CPU binning still needs the float buffer.
+#   2. When deferred: pass ``out_cand=None`` to gpu_materialise_discretize_codes_host (skip the float D2H),
+#      and after the chunk set ``final_transformed_vals = None`` for the read phase + populate
+#      ``_config_by_i`` from the chunk's _batch_candidates (the (a_key,b_key,bin_name) per buffer column).
+#   3. Add the SAME ``elif _config_by_i is not None`` recompute fallback that _config_corr (~1500-1506)
+#      already has to the THREE direct buffer reads that lack it: best-config (~1625), winner-vals (~1749),
+#      multi-emit (~2126/2137). The recompute is binary_transformations[bn](pa,pb)+nan_to_num -- bit-
+#      identical to the buffer value. (1499 already has the fallback.) Survivor packing (~2218) already
+#      recomputes via _rebuild_full_survivor_col on the subsample path, so it needs no change.
+#   4. Validate: the 3 clean-compound pins + _compound_gate at n=10k/100k with the flag ON must match OFF.
+# NOT done yet: selection-critical multi-site edit, deferred to a focused pin-validated pass (rushing it
+# at end-of-session risks the FE-recovery contract -- the one bar that must never regress).
 
 
 def fe_gpu_resident_enabled() -> bool:
