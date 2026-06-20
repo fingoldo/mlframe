@@ -43,6 +43,17 @@ cost and the obvious tuning target. Two sort-free replacements were prototyped +
 The exact+fast path (NEXT): prescreen all candidates with the sort-free MI, then re-score only the
 top-K (margin-guarded) with the exact ``cp.argsort`` MI -- exact winner at a fraction of the sort cost.
 Numbers recorded so this is not re-derived blind; the exact ``cp.argsort`` path stays the default.
+
+bench-attempt-rejected (2026-06-20, re-test under the RELAXED selection-equivalence bar -- user: same
+features selected is enough, bit-identity not required): the tail-compressed sort-free binning IS faster
+(K=48 heavy-tail: 100k 1.47x, 1M 2.04x; 99.5% code-agree, Spearman 0.99992) BUT FLIPS the END-TO-END FE
+selection at n=100k -- the ~0.5% of codes differing at quantile edges perturb the noise-gate/MI ranking
+past the compound-recovery threshold, yielding 9 fragmented features instead of the single fused
+``add(sqr(a)/b, log(c)*sin(d))`` compound (the clean-compound gate goes RED). f32 sort keys preserve the
+selection (100% code-agree) but are NOT faster here (f64->f32 cast overhead: 0.77x@100k, 1.12x@1M). So
+there is NO selection-safe binning speedup on this GPU (GTX 1050 Ti) even with bit-identity waived -- the
+exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXACT sort-free kernel
+(radix-rank, roadmap #2), not an approximate quantile. cp.percentile stays the default.
 """
 from __future__ import annotations
 
