@@ -252,6 +252,36 @@ def test_biz_val_mrmr_accepts_2d_y_shape():
         assert len(_selected(sel)) >= 1
 
 
+def test_biz_val_mrmr_multioutput_union_aggregates_per_column():
+    """Default ``multioutput_strategy='union'`` fits one single-target MRMR per output column and unions the selected raw columns, recovering
+    BOTH generating features on a 2D target where each column is driven by a different feature (the merged-target greedy drops the 2nd)."""
+    df, y = make_target(0, "multioutput")
+    sel = _make_mrmr(0)
+    assert sel.multioutput_strategy == "union"
+    sel.fit(df, y)
+    assert SIGNAL.issubset(_selected(sel)), f"union must recover {SIGNAL}; got {sorted(_selected(sel))}"
+    assert set(sel.multioutput_supports_) == {"o0", "o1"}
+    assert sel.multioutput_strategy_ == "union"
+
+
+def test_biz_val_mrmr_multioutput_strategy_none_uses_legacy_merged_target():
+    """Opt-out: ``multioutput_strategy=None`` keeps the legacy merged-target path -- no per-column union attributes are set."""
+    df, y = make_target(0, "multioutput")
+    sel = _make_mrmr(0)
+    sel.multioutput_strategy = None
+    sel.fit(df, y)
+    assert not hasattr(sel, "multioutput_supports_")
+
+
+def test_biz_val_mrmr_multioutput_strategy_validation():
+    """An invalid ``multioutput_strategy`` is rejected at fit with a clear error naming the param."""
+    df, y = make_target(0, "multioutput")
+    sel = _make_mrmr(0)
+    sel.multioutput_strategy = "bogus"
+    with pytest.raises(ValueError, match="multioutput_strategy"):
+        sel.fit(df, y)
+
+
 # ===========================================================================
 # RFECV -- SINGLE-target target types it DOES handle.
 # ===========================================================================

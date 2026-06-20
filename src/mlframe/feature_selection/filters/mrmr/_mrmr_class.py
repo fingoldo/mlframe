@@ -35,7 +35,7 @@ from numba import njit, jit
 from numba.core import types
 from joblib import Parallel, delayed
 
-from sklearn.base import BaseEstimator, TransformerMixin, is_classifier, is_regressor
+from sklearn.base import BaseEstimator, TransformerMixin, clone, is_classifier, is_regressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold
@@ -144,6 +144,33 @@ from ..screen import postprocess_candidates, screen_predictors, _preserve_global
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
+
+def _mrmr_y_is_multioutput(y) -> bool:
+    """True when y carries >=2 target columns (2D DataFrame / 2D ndarray); a Series / 1D array / single-column frame is single-target."""
+    if isinstance(y, pd.DataFrame):
+        return y.shape[1] >= 2
+    if str(type(y).__module__).startswith("polars") and type(y).__name__ == "DataFrame":
+        return y.shape[1] >= 2
+    try:
+        arr = np.asarray(y)
+    except Exception:
+        return False
+    return arr.ndim >= 2 and arr.shape[-1] >= 2
+
+
+def _mrmr_y_columns(y):
+    """Yield (label, y_column_1d) for each output column of a 2D y (pandas / polars DataFrame, or 2D ndarray)."""
+    if isinstance(y, pd.DataFrame):
+        for col in y.columns:
+            yield str(col), y[col].to_numpy()
+        return
+    if str(type(y).__module__).startswith("polars") and type(y).__name__ == "DataFrame":
+        for col in y.columns:
+            yield str(col), y[col].to_numpy()
+        return
+    arr = np.asarray(y)
+    for k in range(arr.shape[1]):
+        yield f"y{k}", arr[:, k]
 
 
 class MRMR(BaseEstimator, TransformerMixin):
@@ -2859,6 +2886,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         usability_max_base_features: int = 16,
         usability_pool_kwargs: dict = None,
         usability_greedy_kwargs: dict = None,
+        # Multi-output (2D y: multilabel / multi-target regression). MRMR's greedy partial-gain machinery merges the target columns into one
+        # joint target, and that merged target makes the lazy confirmation step drop the 2nd genuine feature even when the per-column MI is high.
+        # 'union' (default): fit one single-target selector per output column (the 1D path, which is correct) and UNION the selected raw columns.
+        # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to pre-2026-06-20).
+        multioutput_strategy: Optional[str] = "union",
     ):
 
         # checks
@@ -3856,6 +3888,14 @@ class MRMR(BaseEstimator, TransformerMixin):
                     f"before fitting."
                 )
 
+        # Multi-output (2D y) opt-in. MRMR's merged-target greedy under-selects the 2nd genuine feature on a 2D y (the lazy confirmation step
+        # drops it even though per-column MI is high), so fit one single-target selector per output column (the correct 1D path) and aggregate.
+        _mo_strategy = getattr(self, "multioutput_strategy", "union")
+        if _mo_strategy not in (None, "joint", "union", "intersect"):
+            raise ValueError(f"multioutput_strategy must be None, 'joint', 'union', or 'intersect'; got {_mo_strategy!r}.")
+        if _mo_strategy in ("union", "intersect") and _mrmr_y_is_multioutput(y):
+            return self._fit_multioutput(X, y, groups, sample_weight, _mo_strategy, fit_params)
+
         # DEGENERATE-COLUMN DIAGNOSTIC SURFACE. Cheap O(p) scan of the INPUT frame
         # for pathological columns (all-NaN / constant / exact-duplicate / perfectly-
         # collinear) recorded into ``degenerate_columns_`` (column -> reason). PURELY
@@ -4494,6 +4534,45 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._feature_names_in_synthesized_ = not hasattr(X, "columns")
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
         self.signature = f"_mrmr_identity_shortcut_n{n_cols}"
+
+    def _fit_multioutput(self, X, y, groups, sample_weight, strategy: str, fit_params):
+        """Fit one single-target MRMR per output column of a 2D ``y`` and aggregate the selected RAW columns via ``strategy`` ('union'/'intersect').
+
+        Sets the standard fitted attributes (``support_`` as integer column indices, ``feature_names_in_``, ``n_features_in_``, ``n_features_``)
+        plus ``multioutput_supports_`` (per-column selected raw-feature-name lists) and ``multioutput_strategy_``. Engineered features are not
+        unioned -- their per-column recipes differ; this path recovers the RAW genuine features that the merged-target greedy under-selected.
+        Memory: each sub-fit receives the SAME X (no copy) with a single 1D target column, mirroring RFECV's multioutput union.
+        """
+        feature_names = list(X.columns) if hasattr(X, "columns") else [f"feature_{i}" for i in range(X.shape[1])]
+        name_to_idx = {str(n): i for i, n in enumerate(feature_names)}
+        n_features = len(feature_names)
+
+        per_column_selected: dict[str, list] = {}
+        for label, y_col in _mrmr_y_columns(y):
+            sub = clone(self)
+            sub.multioutput_strategy = None  # the per-column sub-fit is single-target; force the legacy path so it does not recurse.
+            sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
+            sub_names = [str(feature_names[i]) for i in np.asarray(sub.support_, dtype=np.intp)]
+            per_column_selected[label] = sub_names
+
+        if not per_column_selected:
+            raise ValueError("MRMR multioutput: y has no output columns to fit.")
+
+        sets = [set(v) for v in per_column_selected.values()]
+        aggregated = set().union(*sets) if strategy == "union" else set.intersection(*sets)
+        selected_in_order = [str(n) for n in feature_names if str(n) in aggregated]
+
+        self.support_ = np.asarray([name_to_idx[n] for n in selected_in_order], dtype=np.int64)
+        self.feature_names_in_ = np.asarray([str(n) for n in feature_names], dtype=object)
+        self.n_features_in_ = n_features
+        self.n_features_ = int(self.support_.size)
+        self._engineered_features_ = []
+        self._engineered_recipes_ = []
+        self.multioutput_supports_ = per_column_selected
+        self.multioutput_strategy_ = strategy
+        self.signature = f"_mrmr_multioutput_{strategy}_n{n_features}"
+        self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
+        return self
 
     # ``_fit_impl`` is implemented in ``_mrmr_fit_impl.py`` and bound onto
     # this class at the bottom of this module.
