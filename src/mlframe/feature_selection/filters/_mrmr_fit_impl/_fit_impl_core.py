@@ -7905,7 +7905,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
     # independent signal (a private additive term keeps a large excess and is KEPT). On by
     # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
-    if getattr(self, "fe_drop_redundant_raw_operands", True) and len(selected_vars) >= 2:
+    if (getattr(self, "fe_drop_redundant_raw_operands", True)
+            and getattr(self, "redundancy_policy", "emit_both") == "drop"
+            and len(selected_vars) >= 2):
         try:
             from .._fe_raw_redundancy_drop import drop_redundant_raw_operands
             _raw_names_for_redund = set(self.feature_names_in_)
@@ -8369,6 +8371,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # engineered-only -- the recipe IS the complete feature set.
             _subsumed_operand_names: set = set()
             try:
+                # emit_both keeps engineered operands; skip the subsumption restriction so the never-empty re-attach is not narrowed.
+                if getattr(self, "redundancy_policy", "emit_both") != "drop":
+                    raise RuntimeError("redundancy_policy=emit_both: skip subsumption restriction")
                 from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _ne_drop
                 _recipe_names = [_ne_recipe_name(r) for r in self._engineered_recipes_]
                 _eng_survivor_cols = [
@@ -8678,6 +8683,62 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR p>=n FP-control: capped raw support to top-%d by relevance (p=%d >= n=%d, ceiling=%d, engineered=%d).",
                     _pgn_raw_budget, _pgn_p, _pgn_n, _pgn_ceiling, _pgn_eng,
                 )
+
+    # EMIT-BOTH OPERAND RE-ATTACH. A feature selector must not destroy linearly-usable raw signal: for every SELECTED engineered feature, surface its raw operand
+    # columns (parsed from the recipe ``src_names`` or name tokens). Re-attach only operands that themselves carry MARGINAL signal toward y (a within-data
+    # permutation-significance test, p<alpha): a SIGNAL operand of a selected engineered feature is kept (the linear-usability win), but a NOISE operand fused into a
+    # composite (e.g. ``noise_3`` inside ``sub(...,prewarp(noise_3))``) does NOT clear its null and is NOT re-attached -> FS still rejects noise. Bounded to operands
+    # of SELECTED engineered features, in feature_names_in_, not already selected, inside the pinned search space (``_allowed_raw_idx``).
+    if getattr(self, "redundancy_policy", "emit_both") != "drop" and selected_vars:
+        try:
+            from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _EB_TOK_SPLIT
+            from ..permutation import mi_direct as _eb_mi_direct
+            _eb_raw_names = set(self.feature_names_in_)
+            _eb_sel_set = set(int(v) for v in selected_vars)
+            _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}
+            _eb_cols_idx = {nm: i for i, nm in enumerate(cols)}
+            _eb_recipes = {getattr(_r, "name", None): _r for _r in (getattr(self, "_engineered_recipes_", None) or [])}
+            _eb_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+            _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
+            _eb_operands: list[str] = []
+            for _enm, _erec in _eb_recipes.items():
+                if _enm is None or _enm in _eb_raw_names or _enm not in cols:
+                    continue
+                if cols.index(_enm) not in _eb_sel_set:
+                    continue  # only SELECTED engineered features
+                _src = getattr(_erec, "src_names", None)
+                _toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
+                for _t in _toks:
+                    _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
+                    if _base in _eb_raw_names and _base not in _eb_operands:
+                        _eb_operands.append(_base)
+
+            def _eb_operand_is_signal(_cols_i):
+                try:
+                    _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,
+                                       factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                                       return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
+                    return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
+                except Exception:
+                    return True  # estimator error -> do not silently drop a possibly-genuine operand
+            _eb_added = []
+            for _op in _eb_operands:
+                _idx = _eb_name_to_in.get(_op)
+                if _idx is None or int(_idx) in _eb_sel_set:
+                    continue
+                if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
+                    continue
+                _ci = _eb_cols_idx.get(_op)
+                if _ci is None or not _eb_operand_is_signal(_ci):
+                    continue  # noise operand of a composite -> FS keeps rejecting it
+                selected_vars.append(int(_idx))
+                _eb_sel_set.add(int(_idx))
+                _eb_added.append(_op)
+            if _eb_added and verbose:
+                logger.info("MRMR emit_both operand re-attach: added %d signal raw operand(s) of selected engineered features: %s", len(_eb_added), _eb_added)
+        except Exception as _eb_exc:
+            if verbose:
+                logger.info("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
 
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
@@ -9095,6 +9156,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # KEPT (the DPI-trap filter + self-retention leg inside the helper enforce this). Off when
     # the drop sweep is disabled (shares ``fe_drop_redundant_raw_operands``).
     if (getattr(self, "fe_drop_redundant_raw_operands", True)
+            and getattr(self, "redundancy_policy", "emit_both") == "drop"
             and selected_vars and getattr(self, "_engineered_recipes_", None)):
         try:
             from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _post_drop

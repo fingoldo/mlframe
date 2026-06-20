@@ -342,7 +342,12 @@ def _fe_config_for(idx: int) -> dict:
     time/RAM budget while still exercising the full FE -> recipe -> transform
     contract path the bugs lived on.
     """
-    lean = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False)
+    # These invariants (notably I4b) assert the minimal-support DROP behaviour, so opt into the
+    # drop policy explicitly (the constructor default is "emit_both", which keeps subsumed raws).
+    lean = dict(
+        dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False,
+        redundancy_policy="drop",
+    )
     cfg = dict(lean)
     cfg["fe_max_steps"] = 2 if (idx % 2 == 0) else 1
     # rotate a couple of FE flags so the layer isn't pinned to one FE shape.

@@ -849,7 +849,12 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
     # tracked the MRMR default; the default flipped 1->2 on 2026-06-10, so omitting it
     # would have run these step-1 cases at step-2 and changed their selections). These
     # registry cases pin per-case fe_max_steps, so the kwarg is always threaded.
-    kwargs = dict(verbose=0, random_seed=SEED, fe_max_steps=fe_max_steps if fe_max_steps else 1)
+    # The per-formula ``drop`` sets assert subsumed raw operands are pruned, so opt into the
+    # drop policy (the constructor default is "emit_both", which keeps subsumed raws).
+    kwargs = dict(
+        verbose=0, random_seed=SEED, fe_max_steps=fe_max_steps if fe_max_steps else 1,
+        redundancy_policy="drop",
+    )
     fs = MRMR(**kwargs)
     fs.fit(df, y)
     selected = list(fs.get_feature_names_out())

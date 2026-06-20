@@ -47,11 +47,7 @@ def _s909_fixture(*, private: bool):
     ``div(sqr(a),exp(b))`` ratio (no private term) -> must DROP. When ``private`` is True an
     independent ``3*a`` linear term is fused into the (re-binned) target so ``a`` carries a
     residual the composite+sibling cannot span -> must be KEPT (over-drop control)."""
-    import sys, os
-    _td = os.path.join(os.path.dirname(os.path.abspath(__file__)))
-    if _td not in sys.path:
-        sys.path.insert(0, _td)
-    from _mrmr_realistic_data import make_realistic_case
+    from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 
     df, y, _meta = make_realistic_case(
         seed=909, n=25000, distribution="uniform",

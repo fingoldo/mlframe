@@ -658,6 +658,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # carries genuine independent signal. ON by default; set False to restore the
         # pre-fix behaviour (the small-n protective retention re-adds subsumed operands).
         fe_drop_redundant_raw_operands: bool = True,
+        # Raw-vs-engineered redundancy POLICY. "drop" (default): minimal-set behaviour -- prune raw
+        # operands a surviving engineered feature subsumes (the I4b invariant; right for tree downstreams
+        # and minimal-redundancy selection). "emit_both": ALSO keep the SIGNAL-bearing raw operands of a
+        # selected engineered feature (a linear downstream needs the raw even when a nonlinear child
+        # info-subsumes it; noise operands are gated out by a marginal-significance test so FS still
+        # rejects noise). The keep-vs-drop verdict is model-class-dependent and statistically
+        # indistinguishable per-raw, so it is a caller policy, not an inferred discriminator.
+        redundancy_policy: str = "drop",
         # TAU for the redundancy drop: a raw operand must retain >= this scale-free
         # fraction of the weakest consuming engineered survivor's own debiased excess CMI
         # to be judged a genuine independent term (else it is dropped as redundant). 0.15

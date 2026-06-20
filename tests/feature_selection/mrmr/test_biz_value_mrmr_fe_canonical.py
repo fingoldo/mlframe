@@ -285,7 +285,7 @@ def test_user_case_drops_redundant_raw_operands_at_large_n():
     (``test_genuine_independent_raw_kept_alongside_engineered``) confirms a raw carrying
     an independent term is still KEPT."""
     df, y = _make_user_fixture()
-    fs = MRMR(verbose=0)
+    fs = MRMR(verbose=0, redundancy_policy="drop")
     fs.fit(df, y)
 
     out = list(fs.get_feature_names_out())
@@ -359,7 +359,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         "y=a**2/b+f/5.0+np.log(c)*np.sin(d)\n"
         f"{'y=y+%r*a' % _BUG1_PRIVATE_COEF if private else ''}\n"
         "df=pd.DataFrame({'a':a,'b':b,'c':c,'d':d,'e':e})\n"
-        "fs=MRMR(verbose=0); fs.fit(df,pd.Series(y,name='y'))\n"
+        "fs=MRMR(verbose=0, redundancy_policy='drop'); fs.fit(df,pd.Series(y,name='y'))\n"
         "import json; print('RESULT_JSON='+json.dumps(list(fs.get_feature_names_out())))\n"
     )
     env = dict(os.environ)
@@ -606,7 +606,7 @@ def test_subsumed_ratio_operands_drop_at_small_n(n):
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a ** 2) / b + 0.01 * e
     df = pd.DataFrame({"a": a, "b": b, "e": e})
-    fs = MRMR(verbose=0, random_seed=42)
+    fs = MRMR(verbose=0, random_seed=42, redundancy_policy="drop")
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     # Load-bearing redundancy-drop contract: the SUBSUMED ratio operands a, b MUST
@@ -631,7 +631,7 @@ def test_subsumed_operand_drop_opt_out_restores_legacy(n):
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a ** 2) / b + 0.01 * e
     df = pd.DataFrame({"a": a, "b": b, "e": e})
-    fs = MRMR(verbose=0, random_seed=42, fe_drop_redundant_raw_operands=False)
+    fs = MRMR(verbose=0, random_seed=42, redundancy_policy="drop", fe_drop_redundant_raw_operands=False)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     # With the sweep OFF, at least one subsumed raw operand survives (the legacy

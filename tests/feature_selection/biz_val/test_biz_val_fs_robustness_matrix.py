@@ -53,7 +53,10 @@ def _make(kind, n, seed, *, nan_frac=0.0, with_cat=False):
 def _mrmr_support(df, y, seed):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    sel = MRMR(verbose=0, use_simple_mode=True, max_runtime_mins=1, n_workers=1, quantization_nbins=8, random_seed=seed)
+    # This suite asserts the selector RECOVERS the signal raws -- emit_both keeps signal-bearing raw
+    # operands of selected engineered features (noise operands gated out), so a fundamentally linear
+    # signal folded into nonlinear engineered children is still surfaced as raw support.
+    sel = MRMR(verbose=0, use_simple_mode=True, max_runtime_mins=1, n_workers=1, quantization_nbins=8, random_seed=seed, redundancy_policy="emit_both")
     sel.fit(df, pd.Series(y))
     sup = np.asarray(sel.support_)
     cols = list(df.columns)

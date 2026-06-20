@@ -260,7 +260,10 @@ class TestScreeningKeepsBorderlineSignificantFeature:
         y = (y_cont > np.median(y_cont)).astype(np.int64)
         df, ys = _to_df(X, y)
 
-        sel = MRMR(verbose=0, random_seed=42)
+        # Both real features survive only if their linearly-usable raw form is kept even when FE folds
+        # them into a nonlinear engineered feature -- the emit_both redundancy policy (signal operands
+        # of selected engineered features are re-attached; noise operands are gated out).
+        sel = MRMR(verbose=0, random_seed=42, redundancy_policy="emit_both")
         sel.fit(df, ys)
 
         names = set(int(i) for i in sel.support_)
