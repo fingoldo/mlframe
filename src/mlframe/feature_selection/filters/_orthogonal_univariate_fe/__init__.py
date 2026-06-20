@@ -460,7 +460,12 @@ def generate_univariate_basis_features(
     _aux_pool = _get_unlabeled_pool()
     code = _BASIS_CODE
     out_cols: dict = {}
+    from .._fe_deadline import fe_deadline_passed
     for col in cols:
+        # Optional-enrichment wall-clock budget: stop the per-column basis scan once MRMR.fit's deadline passes and return
+        # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
+        if fe_deadline_passed():
+            break
         x = np.asarray(X[col].to_numpy(), dtype=np.float64)
         # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
         # arbitrary label code (region 0..9) is spurious -- it fits the label->target mapping, floods the candidate pool, and

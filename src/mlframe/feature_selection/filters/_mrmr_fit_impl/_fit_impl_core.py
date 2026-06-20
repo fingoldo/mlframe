@@ -215,6 +215,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     start_time = timer()
     ran_out_of_time = False
 
+    # Carry an absolute deadline to the OPTIONAL enrichment FE generators (orth / extra-basis / pair-cross) so a single
+    # wide-frame enrichment pass that starts before the budget is spent still aborts its per-column / per-pair loop at the
+    # deadline instead of running tens of seconds past a tiny max_runtime_mins. Enrichment-only: the core screen / greedy
+    # MI is never gated, so an aborted pass still leaves a usable partial selection. Cleared in the finally below.
+    from .._fe_deadline import set_fe_deadline as _set_fe_deadline
+    _set_fe_deadline((start_time + self.max_runtime_mins * 60.0) if self.max_runtime_mins is not None else None)
+
+    def _fe_budget_ok() -> bool:
+        # Pre-FE univariate generators (extra-basis, wavelet, dispersion, ...) run once before the FE loop and the
+        # between-step guard below cannot bound a single long stage; gate each heavy default-ON stage on the remaining
+        # wall-clock so an oversized fit handed a small max_runtime_mins aborts within a small multiple of the budget.
+        if self.max_runtime_mins is None:
+            return True
+        return (timer() - start_time) / 60.0 < self.max_runtime_mins
+
     dtype = self.dtype
 
     parallel_kwargs = self.parallel_kwargs
@@ -384,7 +399,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``test_biz_value_mrmr_univariate_basis_fe.py``.
     _hybrid_on = bool(getattr(self, "fe_hybrid_orth_enable", False))
     _univ_basis_on = bool(getattr(self, "fe_univariate_basis_enable", True))
-    if _hybrid_on or _univ_basis_on:
+    if (_hybrid_on or _univ_basis_on) and _fe_budget_ok():
         # Polars frames: skip with a warning -- hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
         # not in Layer 23 MVP scope.
@@ -702,7 +717,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # pure function ``np.maximum(x-tau,0)``, leak-free. On a monotone target a
     # hinge can be near-collinear with raw x -> the downstream cross-stage
     # Spearman dedup drops it (no duplicate columns survive).
-    if bool(getattr(self, "fe_hinge_enable", False)):
+    if bool(getattr(self, "fe_hinge_enable", False)) and _fe_budget_ok():
         _is_pandas_for_hinge = isinstance(X, pd.DataFrame)
         if not _is_pandas_for_hinge:
             warnings.warn(
@@ -4315,7 +4330,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _DISCRETE_FE_MIN_N_AT_FE0 = 500
     _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True)) and (
         fe_max_steps > 0 or (isinstance(X, pd.DataFrame) and len(X) >= _DISCRETE_FE_MIN_N_AT_FE0)
-    )
+    ) and _fe_budget_ok()
     # OPERATOR SKIP-GATE (2026-06-18, perf). The four discrete-structural operators (pairwise-modular /
     # row-argmax / conditional-gate / binned-agg) hunt for NONLINEAR/regime structure via MI-kernel scans
     # over many candidate combos -- ~58% of an additive-regression fit (cProfile: cheap_conditional_gate_scan
@@ -4944,7 +4959,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
     # dyadic (j, k); replay is the closed-form indicator -- no y, leak-safe.
     # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
-    if bool(getattr(self, "fe_wavelet_enable", False)):
+    if bool(getattr(self, "fe_wavelet_enable", False)) and _fe_budget_ok():
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Haar wavelet FE enabled but X is not a pandas DataFrame; "

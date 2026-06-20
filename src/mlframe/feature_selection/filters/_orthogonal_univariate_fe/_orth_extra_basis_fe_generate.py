@@ -172,7 +172,12 @@ def generate_extra_basis_features(
     # sweeps a WIDER grid (0.5 .. 24.0). Phase-0: fast chirps land at u-space
     # peaks up to ~12 and the multitone deflation needs headroom above them.
     _chirp_f_grid = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0
+    from .._fe_deadline import fe_deadline_passed
     for col in cols:
+        # Optional-enrichment wall-clock budget: stop the per-column extra-basis scan (spline / fourier / adaptive /
+        # chirp + their pair-MI scoring) once MRMR.fit's deadline passes; return the partial output. No-op without a budget.
+        if fe_deadline_passed():
+            break
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
         x = np.asarray(X[col].to_numpy(), dtype=np.float64)

@@ -1160,6 +1160,13 @@ def fe_gpu_pairs_mi_backend_choice(n_rows: int, n_cols: int) -> str:
     (per-host cache, code-version checked, background sweep, measurement-backed fallback). Never blocks
     the fit: async_sweep tunes off the hot path; the conservative fallback routes meanwhile."""
     try:
+        # Under an explicit max_runtime_mins budget, skip the (blocking-on-first-use, CUDA-detected-regardless-of-
+        # CUDA_VISIBLE_DEVICES) CPU-vs-GPU crossover sweep -- it runs the CPU+GPU variants at n up to 300k (tens of
+        # seconds) and would blow a tiny budget. Route via the measurement-backed fallback instead; the sweep still runs
+        # on a normal no-budget fit, so per-host tuning is unaffected.
+        from ._fe_deadline import fe_budget_active
+        if fe_budget_active():
+            return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         res = KernelTuningCache.load_or_create().get_or_tune(
             "fe_gpu_pairs_mi",

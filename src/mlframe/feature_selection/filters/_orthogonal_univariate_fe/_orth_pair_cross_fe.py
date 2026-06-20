@@ -105,7 +105,12 @@ def generate_pair_cross_basis_features(
     out_cols: dict = {}
     max_d = int(max_degree)
     min_d = max(0, int(min_degree))
+    from .._fe_deadline import fe_deadline_passed
     for col_i, col_j in pairs:
+        # Optional-enrichment wall-clock budget: stop materialising pair-cross basis candidates once MRMR.fit's deadline
+        # passes and return the partial set (downstream scoring then runs on fewer candidates). No-op without a budget.
+        if fe_deadline_passed():
+            break
         if col_i == col_j:
             continue
         if col_i not in X.columns or col_j not in X.columns:

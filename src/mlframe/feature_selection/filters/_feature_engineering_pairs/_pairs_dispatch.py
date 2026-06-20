@@ -119,33 +119,50 @@ def _dispatch_batch_mi_with_noise_gate(
             dtype=np.int32,
             classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
         )
+    # Under an explicit max_runtime_mins budget, skip the CPU-vs-GPU crossover sweep (blocking on first use, tens of
+    # seconds at large n) and use the measurement-backed fallback; the sweep still runs on a normal no-budget fit so
+    # per-host tuning is unaffected. Checked BEFORE the get_or_tune so the budgeted fit never pays the sweep.
+    _budget_active = False
     try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        from .._fe_deadline import fe_budget_active
+        _budget_active = fe_budget_active()
+    except Exception:
+        _budget_active = False
+    if _budget_active:
+        try:
+            from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_fallback_choice
+            _fb = _batch_mi_noise_gate_fallback_choice(int(n), int(K))
+            backend = str(_fb.get("backend_choice", "cpu")) if isinstance(_fb, dict) else "cpu"
+        except Exception:
+            backend = "cpu"
+    else:
+        try:
+            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        from ..batch_mi_noise_gate_gpu import (
-            _run_batch_mi_noise_gate_sweep,
-            _batch_mi_noise_gate_fallback_choice,
-        )
+            from ..batch_mi_noise_gate_gpu import (
+                _run_batch_mi_noise_gate_sweep,
+                _batch_mi_noise_gate_fallback_choice,
+            )
 
-        # load_or_create() returns the MEMOIZED per-host cache singleton (~0ms/call); a bare
-        # KernelTuningCache() ctor re-loads cache state from disk EVERY call (~0.75ms), which
-        # on a wide near-saturated frame (thousands of FE raw-pairs, one dispatch each) added
-        # seconds of pure overhead. This dispatcher is on the per-raw-pair hot path -> singleton.
-        _res = KernelTuningCache.load_or_create().get_or_tune(
-            "batch_mi_noise_gate",
-            dims={"n_rows": int(n), "n_cols": int(K)},
-            tuner=_run_batch_mi_noise_gate_sweep,  # real CPU-vs-GPU sweep (bit-identical GPU)
-            axes=["n_rows", "n_cols"],
-            fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(int(n), int(K))},
-            code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
-            async_sweep=True,  # FIT-TIME: never block the FE pair-search on the sweep; measure in the background
-        )
-        if isinstance(_res, str):
-            backend = _res
-        elif _res:
-            backend = str(_res.get("backend_choice", "cpu"))
-    except Exception:  # pyutilz missing / cache error -> CPU (always correct)
-        backend = "cpu"
+            # load_or_create() returns the MEMOIZED per-host cache singleton (~0ms/call); a bare
+            # KernelTuningCache() ctor re-loads cache state from disk EVERY call (~0.75ms), which
+            # on a wide near-saturated frame (thousands of FE raw-pairs, one dispatch each) added
+            # seconds of pure overhead. This dispatcher is on the per-raw-pair hot path -> singleton.
+            _res = KernelTuningCache.load_or_create().get_or_tune(
+                "batch_mi_noise_gate",
+                dims={"n_rows": int(n), "n_cols": int(K)},
+                tuner=_run_batch_mi_noise_gate_sweep,  # real CPU-vs-GPU sweep (bit-identical GPU)
+                axes=["n_rows", "n_cols"],
+                fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(int(n), int(K))},
+                code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
+                async_sweep=True,  # FIT-TIME: never block the FE pair-search on the sweep; measure in the background
+            )
+            if isinstance(_res, str):
+                backend = _res
+            elif _res:
+                backend = str(_res.get("backend_choice", "cpu"))
+        except Exception:  # pyutilz missing / cache error -> CPU (always correct)
+            backend = "cpu"
 
     # GPU region: route to the bit-identical GPU twin. Any failure (cupy/cuda
     # unavailable, OOM, shape edge) returns None / raises and falls through to the
