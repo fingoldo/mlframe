@@ -389,10 +389,40 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
 
     n, K = cand_gpu.shape
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
-    bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
+    if K == 1:
+        # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array
+        # (verified maxdiff ~23 vs numpy; multi-column is exact). A K==1 chunk occurs whenever the last
+        # candidate block holds one column, which would silently corrupt that column's codes (breaking the
+        # discretize bit-identity). Ravel to 1D where cp.percentile is correct, then restore the shape.
+        bin_edges = cp.percentile(cand_gpu.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+    else:
+        bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
     out = cp.empty((n, K), dtype=cp.int32)
     for j in range(K):
         out[:, j] = cp.searchsorted(bin_edges[1:-1, j], cand_gpu[:, j], side="right")
+    return out
+
+
+def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) -> np.ndarray:
+    """Quantile-bin a host (n, K) float candidate matrix to ordinal codes via the GPU, returning a host
+    ``(n, K)`` array of ``dtype``. Bit-identical to the CPU ``discretize_2d_quantile_batch`` (same
+    cp.percentile linspace edges + right-searchsorted; verified maxdiff 0), so feeding the result into the
+    UNCHANGED ``_dispatch_batch_mi_with_noise_gate`` keeps the FE selection bit-identical -- this only
+    moves the binning (CPU partition+searchsorted, the dominant per-pair cost at large n) onto the GPU
+    (where it reuses the percentile path). Inputs are assumed finite (the caller scrubs NaN/inf upstream).
+
+    VRAM-chunked over columns so a wide candidate block never over-allocates device memory."""
+    import cupy as cp
+
+    cand = np.ascontiguousarray(cand, dtype=np.float64)
+    n, K = cand.shape
+    out = np.empty((n, K), dtype=dtype)
+    k_chunk = _gpu_k_chunk(n)
+    for start in range(0, K, k_chunk):
+        block = cand[:, start:start + k_chunk]
+        codes_gpu = _gpu_resident_discretize_codes(cp.asarray(block), int(nbins))
+        out[:, start:start + block.shape[1]] = cp.asnumpy(codes_gpu).astype(dtype, copy=False)
+        del codes_gpu
     return out
 
 

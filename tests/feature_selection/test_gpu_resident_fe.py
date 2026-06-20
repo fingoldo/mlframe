@@ -258,3 +258,37 @@ def test_dispatch_routes_and_recovers():
     assert len(names) == len(mi) == 8 * 8 * 6
     top = names[int(np.argmax(mi))]
     assert "div" in top and "sqr" in top
+
+
+def test_gpu_discretize_codes_host_bit_identical_to_cpu():
+    """gpu_discretize_codes_host must produce codes BIT-IDENTICAL to the CPU discretize_2d_quantile_batch
+    (maxdiff 0) -- this is what lets the size-gated FE GPU-binning path (MLFRAME_FE_GPU_DISCRETIZE) feed
+    the UNCHANGED _dispatch_batch_mi_with_noise_gate and keep the FE selection bit-identical."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import (
+        _build_candidate_matrix, gpu_discretize_codes_host,
+    )
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
+    rng = np.random.default_rng(0)
+    for n in (20_000, 50_000):
+        a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
+        cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
+        np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        cpu = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)
+        gpu = gpu_discretize_codes_host(cand, 20, dtype=np.int8)
+        assert np.array_equal(cpu, gpu), f"n={n} K={cand.shape[1]} codes differ"
+
+
+def test_gpu_discretize_codes_host_k1_chunk_guard():
+    """A single-column (n, 1) candidate block must still bin bit-identically -- guards the cupy
+    cp.percentile(axis=0) single-column bug (wrong edges) that would corrupt a K==1 last chunk."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
+    rng = np.random.default_rng(1)
+    one = np.ascontiguousarray((rng.uniform(1, 5, 40_000) * rng.uniform(1, 5, 40_000)).reshape(-1, 1)).astype(np.float32)
+    cpu = discretize_2d_quantile_batch(one, n_bins=20, dtype=np.int8, assume_finite=True)
+    gpu = gpu_discretize_codes_host(one, 20, dtype=np.int8)
+    assert np.array_equal(cpu, gpu)

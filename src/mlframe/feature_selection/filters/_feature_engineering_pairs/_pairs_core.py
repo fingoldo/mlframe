@@ -8,6 +8,8 @@ and are re-exported from the package ``__init__``.
 """
 from __future__ import annotations
 
+import logging
+import os
 from itertools import combinations
 from timeit import default_timer as timer
 
@@ -68,6 +70,27 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
 # bench_fe_pair_subsample_accuracy.py. Keep both call sites pinned to ONE knob
 # so a future re-tune lands consistently across the FE block.
 FE_DEFAULT_SUBSAMPLE_N: int = 200_000
+
+logger = logging.getLogger(__name__)
+
+
+def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
+    """Whether to run the per-pair quantile binning on the GPU (bit-identical to the CPU
+    ``discretize_2d_quantile_batch``, so the FE selection is unchanged -- this only moves the binning
+    work). Gated by ``MLFRAME_FE_GPU_DISCRETIZE`` (default OFF while the size crossover is validated +
+    moved into kernel_tuning_cache), requires CUDA, and only fires above a work-size crossover
+    ``n_rows * n_cands >= MLFRAME_FE_GPU_DISCRETIZE_MIN_NK`` (default 2_000_000 ~= n=100k x K=20) where
+    the GPU binning beats the CPU partition+searchsorted plus the H2D/D2H overhead. Any failure in the
+    GPU path falls back to the CPU discretiser at the call site."""
+    if os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "0").strip() in ("", "0", "false", "False"):
+        return False
+    if int(n_rows) * int(n_cands) < int(os.environ.get("MLFRAME_FE_GPU_DISCRETIZE_MIN_NK", "2000000")):
+        return False
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        return bool(is_cuda_available())
+    except Exception:
+        return False
 
 
 def check_prospective_fe_pairs(
@@ -1215,18 +1238,35 @@ def check_prospective_fe_pairs(
                 if _batch_candidates:
                     # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
                     # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
-                    _disc_2d = discretize_2d_quantile_batch(
-                        final_transformed_vals[:, :i], n_bins=quantization_nbins,
-                        dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
-                        # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
-                        # gate as the chunk + marginal-uplift discretise -- byte-identical
-                        # column-prange twin when serial_main_thread (no joblib nest).
-                        parallel=_fe_use_parallel_kernels(i, serial_main_thread),
-                        # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
-                        # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
-                        # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
-                        assume_finite=True,
-                    )
+                    _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
+                    _disc_2d = None
+                    # GPU-resident binning (size+HW gated, default OFF via MLFRAME_FE_GPU_DISCRETIZE). At large
+                    # n*K the per-pair quantile binning (CPU partition+searchsorted) is the dominant FE-scan
+                    # cost; the GPU percentile path is bit-identical to discretize_2d_quantile_batch (verified
+                    # maxdiff 0), so the codes -- and hence the UNCHANGED _dispatch_batch_mi_with_noise_gate
+                    # result + the whole FE selection -- are identical. Falls back to CPU on any failure.
+                    if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):
+                        try:
+                            from .._gpu_resident_fe import gpu_discretize_codes_host
+                            _disc_2d = gpu_discretize_codes_host(
+                                final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype,
+                            )
+                        except Exception:
+                            logger.debug("FE GPU discretize failed; falling back to CPU", exc_info=True)
+                            _disc_2d = None
+                    if _disc_2d is None:
+                        _disc_2d = discretize_2d_quantile_batch(
+                            final_transformed_vals[:, :i], n_bins=quantization_nbins,
+                            dtype=_code_dtype,
+                            # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
+                            # gate as the chunk + marginal-uplift discretise -- byte-identical
+                            # column-prange twin when serial_main_thread (no joblib nest).
+                            parallel=_fe_use_parallel_kernels(i, serial_main_thread),
+                            # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
+                            # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
+                            # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
+                            assume_finite=True,
+                        )
 
                     # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
                     # columns in ONE kernel call. Bit-identical to the per-candidate
