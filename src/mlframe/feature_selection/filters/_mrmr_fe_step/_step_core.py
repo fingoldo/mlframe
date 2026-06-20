@@ -1177,7 +1177,25 @@ def _run_fe_step(
         # subsumes the old fixed ``len(X) < 50000`` row gate -- a tall narrow frame now
         # takes the all-cores path it always should have.
         _fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
-        if len(prospective_pairs) < _fe_serial_min_pairs_per_worker:
+        # GPU-FE SERIALIZE (2026-06-20): when the per-pair candidate materialise/binning runs on the
+        # GPU, the single device is the bottleneck resource -- spreading the pair-chunks across joblib
+        # ``backend="threading"`` workers does NOT parallelize the GPU work, it just makes every worker
+        # CONTEND for the one device while the joblib parent burns the wait in its ``_retrieve`` sleep-
+        # poll. Measured (canonical n=100k FE fit): default multi-worker = 105s of which ~84s is
+        # ``time.sleep`` in joblib ``_retrieve``; the serial-main-thread path (no joblib, prange kernels,
+        # GPU work issued from one thread) = 63s. So route to the serial path whenever the GPU discretize
+        # path is active, exactly as we already do when there are fewer pairs than workers. The threading
+        # win the ``else`` branch was tuned for is the CPU-njit-MI regime (small n, GPU gate OFF), which
+        # this predicate leaves untouched. Selection is unchanged (same check_prospective_fe_pairs over
+        # the same pairs; only the kernel parallelism + chunk-merge differ, both byte-identical).
+        try:
+            from .._feature_engineering_pairs._pairs_core import _fe_gpu_discretize_enabled as _fe_gpu_disc_gate
+            # Representative candidate-count for the gate's n*K crossover (a pair generates dozens-to-
+            # hundreds of unary/binary candidates); the auto gate is CUDA-presence-gated internally.
+            _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
+        except Exception:
+            _gpu_fe_active = False
+        if _gpu_fe_active or len(prospective_pairs) < _fe_serial_min_pairs_per_worker:
             prospective_additions = check_prospective_fe_pairs(
                 prospective_pairs,
                 X,
