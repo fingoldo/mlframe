@@ -74,7 +74,20 @@ import numpy as np
 # argmax match) -> selection EXACT; measured GTX 1050 Ti K=384 nperm=25: 100k 2.16x +3.0x less peak GPU
 # mem, 300k 2.15x +2.75x, 1M 3.39x +2.26x. ``grand_fused_pair_mi_fused`` (default ON via
 # MLFRAME_FE_GPU_GRAND_FUSION); the non-fused body is the exact fallback when the shared hist overflows
-# the per-block limit. (4) multi-stream across k-chunks (lowers the GPU crossover n) stays FUTURE. Route
+# the per-block limit.
+#   PROTOTYPE-ONLY (2026-06-20, measured): grand-fusion CANNOT be wired into the PRODUCTION canonical fit.
+#   Production candidate-MI runs through _pairs_chunks._compute_one_fe_chunk -> gpu_materialise_discretize_
+#   codes_host -> _dispatch_batch_mi_with_noise_gate (NOT gpu_pairs_fe_mi, which returns None on the
+#   canonical fixture). That path REQUIRES the (n,K) float candidate matrix on host -- the downstream
+#   survivor / usability-corr / ext-val / multi-emit stages read the CONTINUOUS columns out of the chunk
+#   buffer -- so a recompute-not-store fused kernel that skips materialisation would leave the buffer
+#   uninitialised (garbage survivors). Grand-fusion's whole payoff (never materialise (n,K)) is thus
+#   incompatible with production. AND the production e2e bottleneck is NOT the MI counting the fused kernel
+#   collapses -- profiled n=100k/79s: cp.percentile's SORT in _gpu_resident_discretize_codes = 12.9s
+#   (binning), MI counting already on GPU + cheap. So the only production lever is roadmap #2 (rank-EXACT
+#   sort-free edges, e.g. radix-SELECT of the nbins-1 order statistics + cp.percentile's linear interp ->
+#   exact edges without a full O(n log n) sort), which must still EMIT the float out_cand for downstream.
+# (4) multi-stream across k-chunks (lowers the GPU crossover n) stays FUTURE. Route
 # block size (currently threads=256) + the VRAM 0.25/5x constants + any f32 threshold
 # through pyutilz kernel_tuning_cache; keep cp.argsort as the exact fallback when adding a radix _v2.
 # ARCHITECTURE (wiring, before flipping any default): the production FE speaks STRUCTURED, preset-stamped,
