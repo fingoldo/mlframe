@@ -212,7 +212,7 @@ def batch_mi_with_noise_gate(
     min_nonzero_confidence: float,
     use_su: bool,
     dtype: type = np.int32,
-    classes_dtype: type = np.int32,
+    classes_dtype: type = np.int16,
 ) -> np.ndarray:
     """Batched FE-candidate MI + permutation noise-gate, BIT-IDENTICAL to a per-column
     ``mi_direct`` loop on the default FE path (``parallelism='outer'``, ``n_workers=1``,
@@ -269,8 +269,10 @@ def batch_mi_with_noise_gate(
     # per permutation in ``_relevance_from_dense``. BIT-IDENTICAL: the codes are non-negative
     # ordinals only ever READ as histogram indices (``joint_counts[classes_dense[r,k], ...]``), so
     # the narrower storage width does not change a single count; ``joint_counts`` itself stays at
-    # the wide ``dtype`` (the actual counter). Default ``classes_dtype=int32`` preserves the legacy
-    # width for any caller that does not opt in.
+    # the wide ``dtype`` (the actual counter). Default ``classes_dtype=int16`` (2026-06-20): the dense
+    # codes are in ``[0, n_dense) <= n_bins``, so int16 holds any realistic nbins (<32768) and HALVES
+    # this (n, K) buffer vs the old int32 default for EVERY caller (not just those that opted into int8),
+    # value-identical. Callers with a known-narrower disc dtype (int8) still pass it and win further.
     classes_dense = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
     kx = np.zeros(K, dtype=np.int64)

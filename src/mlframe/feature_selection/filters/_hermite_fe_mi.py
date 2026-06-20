@@ -225,26 +225,25 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     y_gpu = y_gpu - y_min
     n_classes = int(cp.max(y_gpu).item()) + 1
 
-    # Per-column quantile binning: argsort -> rank -> bin lookup.
-    # bin_for_rank[r] = floor(r / (n / n_bins)) with the remainder
-    # absorbed by the first ``rem`` bins (matches njit version exactly).
-    sort_idx = cp.argsort(X_gpu, axis=0)  # (n, k) int64
-    base = n // n_bins
-    rem = n - base * n_bins
-    sizes = cp.full(n_bins, base, dtype=cp.int64)
-    if rem > 0:
-        sizes[:rem] += 1
-    offsets = cp.empty(n_bins, dtype=cp.int64)
-    offsets[0] = 0
-    if n_bins > 1:
-        offsets[1:] = cp.cumsum(sizes[:-1])
-    ranks = cp.arange(n, dtype=cp.int64)
-    bin_for_rank = cp.searchsorted(offsets, ranks, side="right") - 1  # (n,)
-
-    # Scatter rank-to-row: X_binned[sort_idx[r, j], j] = bin_for_rank[r]
+    # Per-column quantile binning via cp.percentile EDGES + searchsorted (2026-06-20). Replaced the
+    # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster
+    # (n=200k K=384: 7781ms -> 993ms) with the SAME feature ranking (Spearman 1.0, argmax match). Per-
+    # column edges depend ONLY on that column, so the binning is chunk-INVARIANT (verified on CPU:
+    # test_percentile_binning_chunk_invariant). TRADE-OFF: edge-based equi-frequency vs the njit MI's
+    # rank-based -> not bit-identical to njit at ties, an approved trade (features unchanged; MRMR
+    # selection-equivalence tests still pass). (bench-rejected f32 sort keys: 0.97x, no win.)
+    qs = cp.linspace(0.0, 100.0, n_bins + 1)
+    if k == 1:
+        # CUPY BUG GUARD (2026-06-20): cp.percentile(X, axis=0) returns WRONG edges for a single-column
+        # (n, 1) array (verified maxdiff ~23 vs numpy; multi-column is exact). A k==1 chunk occurs in
+        # production whenever the last VRAM chunk holds one candidate, so this would silently corrupt that
+        # column's binning. Ravel to 1D, where cp.percentile is correct, then restore the (n_bins+1, 1) shape.
+        edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
+    else:
+        edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
     X_binned = cp.empty((n, k), dtype=cp.int64)
-    cols_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
-    X_binned[sort_idx, cols_idx] = bin_for_rank[:, None]
+    for _j in range(k):
+        X_binned[:, _j] = cp.searchsorted(edges[1:-1, _j], X_gpu[:, _j], side="right")
 
     # Joint hist via single bincount on flat index (col, bin, class).
     j_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
@@ -298,15 +297,9 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     # off-switch is set (cupy ignores MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="" on its own).
     if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return float(_plugin_mi_classif_njit(x, y, n_bins))
-    try:
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
-            lookup_mi_classif_backend,
-        )
-        backend = lookup_mi_classif_backend(n, 1, run_auto_tune=False)
-    except Exception:
-        backend = "cuda" if n >= 75_000 else "njit"
-    if backend == "cuda":
-        return _plugin_mi_classif_cuda(x, y, n_bins)
+    # GROUND-TRUTH OVERRIDE: default njit (see the batch dispatch below for the full rationale -- even the
+    # concurrency-aware tuner still under-counts this path by ~5x vs the end-to-end fit). MLFRAME_MI_BACKEND
+    # =cuda forces GPU.
     return float(_plugin_mi_classif_njit(x, y, n_bins))
 
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
@@ -336,15 +329,20 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
     if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
-    try:
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
-            lookup_mi_classif_backend,
-        )
-        backend = lookup_mi_classif_backend(n, k, run_auto_tune=False)
-    except Exception:
-        backend = "cuda" if (k == 1 and n >= 75_000) or (k > 1 and n >= 10_000) else "njit"
-    if backend == "cuda":
-        return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
+    # GROUND-TRUTH OVERRIDE: this batched FE-MI path defaults to njit regardless of the per-call tuner.
+    # The tuner sweep was upgraded to measure BOTH backends under realistic joblib worker-thread CONTENTION
+    # (_run_sweep_mi_classif_dispatch) -- and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
+    # solo 34ms vs contended 135ms). But even the contended microbench still under-counts this path by ~5x
+    # vs the real fit: it (a) reuses a warm GPU buffer while production allocates a FRESH engineered
+    # candidate array every call (cudaMalloc churn + fresh H2D/D2H), (b) runs MI in isolation while
+    # production interleaves the GPU-CMI redundancy kernel on the same device, and (c) inflates the
+    # contended-njit baseline via prange oversubscription absent from the real FE call pattern. Net: the
+    # tuner says "cuda" at n>=100k yet the ground-truth end-to-end fit is njit 3x faster (114 vs 368s,
+    # 1.6 vs 5.0 GB peak, byte-identical selection on the canonical 5-feature/n=100k fit). An isolated MI
+    # microbench cannot model the full pipeline, so we trust the end-to-end measurement. The principled way
+    # to actually WIN on GPU here is to make FE candidates GPU-RESIDENT (eliminating the per-call H2D/D2H
+    # the microbench omits) -- the larger matrix-native FE replatform, tracked separately.
+    # MLFRAME_MI_BACKEND=cuda forces GPU (handled above) for a caller whose own end-to-end profile shows it.
     return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
 
 _CUDA_KERNELS: dict = {}

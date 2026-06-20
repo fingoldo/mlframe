@@ -33,6 +33,7 @@ reproduces ``_relevance_from_dense`` exactly given the integer counts.
 from __future__ import annotations
 
 import math
+import time
 from typing import Any
 
 import numpy as np
@@ -279,20 +280,24 @@ def batch_mi_with_noise_gate_cupy_v1(
     offsets = np.zeros(K + 1, dtype=np.int64)
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
-    d_offsets = cp.asarray(offsets[:K].reshape(1, K))  # (1, K) broadcastable
-    d_Ky = np.int64(K_y)
+    # PER-CELL INDEX dtype (2026-06-20, parallel to the resident kernel): v1 scores ONE y at a time, so
+    # d_base / d_idx are bounded by ``total_size - 1`` -- int32 HALVES these (n, K) buffers vs int64 when
+    # that fits (gated -> bit-identical, the bincount indices are the same values). Kept for re-bench
+    # parity with the resident kernel.
+    idx_dtype = cp.int32 if total_size <= 2_147_483_647 else cp.int64
+    d_offsets = cp.asarray(offsets[:K].reshape(1, K)).astype(idx_dtype)  # (1, K) broadcastable
 
     # Column index of each cell, broadcast (n, K).
     # global_index[r, k] = offsets[k] + disc[r,k]*K_y + y_code[r]
     # We build the per-(r,k) base ``offsets[k] + disc[r,k]*K_y`` once, then add
     # the y-code (which changes per shuffle) before each bincount.
-    d_base = d_offsets + d_disc.astype(cp.int64) * d_Ky  # (n, K) int64
+    d_base = d_offsets + d_disc.astype(idx_dtype) * cp.asarray(K_y, dtype=idx_dtype)  # (n, K) idx_dtype
 
     def _joint_counts_for(y_codes_host: np.ndarray) -> np.ndarray:
         """Return a host list of (nbins_k, K_y) int64 count matrices for all K cols
         against ``y_codes_host`` (length n)."""
-        d_y = cp.asarray(np.ascontiguousarray(y_codes_host, dtype=np.int64)).reshape(n, 1)  # (n,1)
-        d_idx = (d_base + d_y).reshape(-1)  # (n*K,) flat global indices
+        d_y = cp.asarray(np.ascontiguousarray(y_codes_host, dtype=np.int64)).reshape(n, 1).astype(idx_dtype)
+        d_idx = (d_base + d_y).reshape(-1)  # (n*K,) flat global indices (idx_dtype; <= total_size-1)
         # OPT-D: known-size bincount (skip cupy.bincount's host-sync validations);
         # byte-identical counts. ``total_size`` is exact, ``d_idx`` non-negative by construction.
         flat = _cupy_bincount_known_size(d_idx, total_size)
@@ -406,10 +411,20 @@ def batch_mi_with_noise_gate_cupy(
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
 
+    # PER-CELL INDEX dtype (2026-06-20): d_base / d_idx values are bounded by ``total_size - 1`` (= the
+    # sum of ``nbins_k * K_y``), which for any realistic FE batch is << 2^31, so int32 HALVES these
+    # (n, K) / (rows, n*K) device buffers vs the old int64 -- the (100k, 4096) base is 1.5 GiB int32 vs
+    # the 3 GiB int64 that OOM'd the 4GB GPU. GATED: int64 is retained when ``total_size`` could exceed
+    # int32 (pathological nbins*K_y), so this is BIT-IDENTICAL -- the bincount indices are the same
+    # integer values, only the store width narrows. (Distinct from the rejected COUNTS-D2H narrowing
+    # below: that narrows the OUTPUT counts; this narrows the INDEX buffers.)
+    _INT32_MAX = 2_147_483_647
+    idx_dtype = cp.int32 if total_size <= _INT32_MAX else cp.int64
+
     # ---- ONE H2D: discretized frame + per-(r,k) base index (offsets[k] + disc*K_y).
     d_disc = cp.asarray(np.ascontiguousarray(disc_2d, dtype=np.int32))  # (n, K)
-    d_offsets = cp.asarray(offsets[:K].reshape(1, K))                   # (1, K)
-    d_base = d_offsets + d_disc.astype(cp.int64) * np.int64(K_y)        # (n, K) int64
+    d_offsets = cp.asarray(offsets[:K].reshape(1, K)).astype(idx_dtype)  # (1, K)
+    d_base = d_offsets + d_disc.astype(idx_dtype) * cp.asarray(K_y, dtype=idx_dtype)  # (n, K) idx_dtype
 
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
 
@@ -424,7 +439,7 @@ def batch_mi_with_noise_gate_cupy(
     else:
         y_all_host = y_orig
     P1 = y_all_host.shape[0]  # number of y-vectors = nperm + 1
-    d_y_all = cp.asarray(y_all_host)  # (P1, n) int64
+    d_y_all = cp.asarray(y_all_host).astype(idx_dtype)  # (P1, n) -- y codes < K_y, fit idx_dtype
 
     # ---- 4GB tiling over the permutation axis. Each tile of ``rows`` y-vectors
     # materialises a (rows, n) int64 index array + a (rows, total_size) int64 count
@@ -463,9 +478,12 @@ def batch_mi_with_noise_gate_cupy(
         # per-(row, r, k) global index, then offset each row into its own
         # ``total_size`` slot so a SINGLE bincount fills all rows of the tile at once:
         #   slot = row*total_size + (base[r,k] + y[row,r])
-        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K)
-        d_row_off = (cp.arange(rows, dtype=cp.int64) * np.int64(total_size)).reshape(rows, 1)
-        d_flat = (d_idx + d_row_off).reshape(-1)                         # (rows*n*K,)
+        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K) idx_dtype
+        # The row-spanning flat index reaches ``rows*total_size``; widen to int64 ONLY when that exceeds
+        # int32 (else stay int32, halving the largest buffer too). idx_dtype already covers d_idx itself.
+        flat_dtype = cp.int32 if (int(rows) * total_size) <= _INT32_MAX else cp.int64
+        d_row_off = (cp.arange(rows, dtype=flat_dtype) * total_size).reshape(rows, 1)
+        d_flat = (d_idx.astype(flat_dtype, copy=False) + d_row_off).reshape(-1)  # (rows*n*K,)
         # OPT-D: known-size bincount (skip cupy.bincount's two host-sync validations);
         # byte-identical counts (same kernel). ``rows*total_size`` is the exact size and
         # ``d_flat`` is non-negative by construction (offsets + non-negative codes).
@@ -740,9 +758,28 @@ def _run_batch_mi_noise_gate_sweep() -> list:
         variants["cuda"] = lambda *a: batch_mi_with_noise_gate_cuda(*a)
     if _CUPY_AVAIL:
         variants["cupy"] = lambda *a: batch_mi_with_noise_gate_cupy(*a)
+    # MEMORY-AWARE grid filter. The CPU reference kernel allocates ~int64 (n, K) intermediates, so the
+    # top cell (100k x 4096 ~ 3 GiB) OOMs the HOST on RAM-tight boxes and -- because the per-cell guard
+    # does not cover the shared input-gen + reference allocation -- kills the WHOLE sweep, leaving 0
+    # regions (so the dispatch is stuck on the fallback heuristic forever). Drop the n_cols that would
+    # exceed a fraction of free host RAM at the largest n_row, so the sweep COMPLETES with the runnable
+    # cells (partial per-host tuning beats no tuning). The cartesian grid only lets us filter whole
+    # columns; that is acceptable -- the dropped large-K-at-large-n cells are exactly the OOM ones, and
+    # the fallback (cupy at K>=256) already routes them correctly.
+    n_rows = list(_BMING_SWEEP_N_ROWS)
+    n_cols = list(_BMING_SWEEP_N_COLS)
+    try:
+        import psutil
+        free = int(psutil.virtual_memory().available)
+    except Exception:
+        free = 4 * 1024 ** 3
+    budget = int(free * 0.4)
+    max_n = max(n_rows) if n_rows else 1
+    fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]
+    n_cols = fitting or [min(n_cols)]  # always keep at least the smallest column
     return sweep_backend_grid(
         variants,
-        {"n_rows": _BMING_SWEEP_N_ROWS, "n_cols": _BMING_SWEEP_N_COLS},
+        {"n_rows": n_rows, "n_cols": n_cols},
         _make_batch_mi_noise_gate_inputs,
         reference="cpu",
         repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
@@ -764,6 +801,47 @@ def _batch_mi_noise_gate_code_version():
         return compute_code_version(*fns, salt=_BMING_SALT)
     except Exception:
         return None
+
+
+def ensure_batch_mi_noise_gate_tuning(force: bool = False):
+    """Force-run the ``batch_mi_noise_gate`` CPU-vs-GPU sweep and persist it per-host.
+
+    This is the CLI / ``refresh-all`` entry point that was MISSING -- without it the noise-gate sweep
+    only ever fired ASYNC during the first real fit (a multi-minute grid sweep that thrashes the GPU
+    mid-MRMR). Pre-running it via the CLI avoids that first-fit cost. Persists with the SAME
+    ``code_version`` + ``axes`` the live dispatch's ``get_or_tune`` uses (see
+    ``_batch_mi_noise_gate_backend_choice``), so the tuned regions are a HIT for production. Returns the
+    region list (``[]``/``None`` if cupy/CUDA absent or the sweep fails -> caller reports a skip)."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+    except Exception:
+        return None
+    cache = KernelTuningCache.load_or_create()
+    if cache is None:
+        return None
+    if not force:
+        regions = cache.get_regions("batch_mi_noise_gate")
+        if regions:
+            return regions
+    import logging
+    log = logging.getLogger(__name__)
+    log.info("kernel_tuning_cache: batch_mi_noise_gate sweep starting")
+    t0 = time.perf_counter()
+    try:
+        regions = _run_batch_mi_noise_gate_sweep()
+    except Exception as e:
+        log.warning("kernel_tuning_cache: batch_mi_noise_gate sweep failed: %s", e)
+        return None
+    log.info("kernel_tuning_cache: batch_mi_noise_gate sweep done in %.2fs", time.perf_counter() - t0)
+    if regions:
+        try:
+            cache.update(
+                "batch_mi_noise_gate", axes=["n_rows", "n_cols"], regions=regions,
+                code_version=_batch_mi_noise_gate_code_version(),
+            )
+        except OSError as e:
+            log.warning("kernel_tuning_cache: batch_mi_noise_gate save failed: %s", e)
+    return regions
 
 
 def _batch_mi_noise_gate_fallback_choice(n_rows: int, n_cols: int) -> str:
@@ -889,6 +967,7 @@ __all__ = [
     "_batch_mi_noise_gate_code_version",
     "_batch_mi_noise_gate_backend_choice",
     "_run_batch_mi_noise_gate_sweep",
+    "ensure_batch_mi_noise_gate_tuning",
     "_CUDA_AVAIL",
     "_CUPY_AVAIL",
 ]

@@ -200,3 +200,28 @@ class TestTargetDistOverlay:
         )
         assert ok is False
         assert not list(tmp_path.glob("x*"))
+
+
+class TestNoCircularImport:
+    """Regression: importing the CHILD module (_diagnostics_dispatch_extra) FIRST must not raise a
+    circular ImportError. Previously its top-level ``from .diagnostics_dispatch import _record, ...``
+    re-entered the half-initialised parent, whose bottom re-export then failed to find ``_entry_score``
+    (defined further down the child). discover_tuners (refresh-all) imports the child first, so this
+    crashed the kernel-tuning CLI. The four parent helpers are now lazy-delegated. Verified in a FRESH
+    subprocess so module-cache order from earlier tests cannot mask the cycle."""
+
+    def test_child_first_import_in_subprocess(self):
+        import subprocess, sys
+        for first in ("mlframe.reporting._diagnostics_dispatch_extra",
+                      "mlframe.reporting.diagnostics_dispatch"):
+            code = (
+                f"import {first} as m;"
+                "import mlframe.reporting._diagnostics_dispatch_extra as e;"
+                "assert hasattr(e, '_entry_score');"
+                "import mlframe.reporting.diagnostics_dispatch as d;"
+                "assert hasattr(d, '_entry_score');"
+                "print('OK')"
+            )
+            r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+            assert r.returncode == 0, f"first={first} stderr=\n{r.stderr}"
+            assert "OK" in r.stdout

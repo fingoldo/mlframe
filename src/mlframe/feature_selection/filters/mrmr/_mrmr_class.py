@@ -252,6 +252,76 @@ class MRMR(BaseEstimator, TransformerMixin):
             pass
         return _fallback
 
+    # DEFAULT screen-subsample for the MI/FE candidate search, resolved (HW/size-aware) via the
+    # kernel_tuning_cache. This is the FEATURE-RECOVERY default (distinct from the bit-stability
+    # ``_fast_search_default_subsample_n`` 90k fallback): the FE MI-sweep / polynom-pair / conditional-gate
+    # DETECTION are all rank-stable under row subsampling and the FINAL survivor columns are replayed at
+    # FULL n (the recipe), so subsampling only the SCREEN cannot lose train-time precision -- it can only
+    # move a borderline MI tie. The FE-screen accuracy bench (bench_fe_pair_subsample_accuracy.py) measured
+    # survivor jaccard 1.0 / winner-match 5/5 vs the full-n screen at n_eff>=25_000, i.e. the 25k screen
+    # reproduces the 200k-default survivor set EXACTLY while cutting the MI-sweep buffer ~8x. The canonical
+    # n=100k additive-regression fit drops 168.8s -> ~75s and still recovers the a**2/b and log(c)*sin(d)
+    # compounds. NEVER hardcode a per-HW threshold (mlframe is shared infra): a quiet/large-RAM box can
+    # record a larger ``subsample_n`` under the ``mrmr_default_screen_n`` cache key and override the floor.
+    _DEFAULT_SCREEN_SUBSAMPLE_N = 30_000  # >25k validated floor, headroom for the gate-detection MI band
+
+    @classmethod
+    def _default_screen_subsample_n(cls) -> int:
+        """Feature-recovery default screen-subsample size, kernel_tuning_cache-resolved when a tuned entry
+        exists for this host, else the HW-agnostic ``_DEFAULT_SCREEN_SUBSAMPLE_N`` floor. See the class
+        attribute docstring for the rank-stability rationale + measured wins."""
+        _fallback = int(cls._DEFAULT_SCREEN_SUBSAMPLE_N)
+        try:
+            from .._kernel_tuning import get_kernel_tuning_cache
+
+            _cache = get_kernel_tuning_cache()
+            if _cache is not None:
+                tuned = _cache.lookup("mrmr_default_screen_n")
+                if tuned:
+                    _v = int(tuned.get("subsample_n", 0) or 0)
+                    if _v > 0:
+                        return _v
+        except Exception:
+            pass
+        return _fallback
+
+    def _apply_default_screen_subsample(self, n_rows: int) -> dict:
+        """Shrink the FE/MI screen subsamplers to the feature-recovery default for large n, returning
+        {attr: pre_fit_value} to restore in ``finally``. Applies UNCONDITIONALLY (not gated on
+        ``fe_fast_search``) so the default ``MRMR()`` fit subsamples the SCREEN at large n. Honours user
+        intent: a knob is only touched when it is still at its package default, and only SHRUNK (never
+        raised). No-op when ``n_rows`` is below the resolved screen size (small-n behaviour is unchanged --
+        the subsamplers treat subsample_n>=n as full-n). The selected columns are replayed at full n."""
+        import inspect
+
+        saved: dict = {}
+        try:
+            _defaults = {
+                p.name: p.default
+                for p in inspect.signature(type(self).__init__).parameters.values()
+                if p.default is not inspect._empty
+            }
+        except Exception:
+            return saved
+        _screen_n = self._default_screen_subsample_n()
+        # Below the screen size there is nothing to subsample -- leave the knobs at their (full-n) default
+        # so small-n fits are byte-identical to legacy.
+        if not (isinstance(n_rows, int) and n_rows > _screen_n):
+            return saved
+        for _attr in ("fe_check_pairs_subsample_n", "fe_smart_polynom_subsample_n"):
+            if _attr not in _defaults:
+                continue
+            _cur = getattr(self, _attr, None)
+            # Only when the user left it at the package default (explicit user value always wins).
+            if _cur != _defaults[_attr]:
+                continue
+            # Only SHRINK: a default of 0/None means "full-n"; treat that as +inf so we still shrink it.
+            _cur_eff = int(_cur) if (isinstance(_cur, int) and _cur > 0) else n_rows
+            if _screen_n < _cur_eff:
+                saved[_attr] = _cur
+                setattr(self, _attr, _screen_n)
+        return saved
+
     def _apply_fast_search_profile(self) -> dict:
         """Override the fast-search sub-knobs for this fit, returning {attr: pre_fit_value} to restore in
         ``finally``. Only knobs still at their package default are touched (explicit user value wins). See
@@ -4026,6 +4096,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # semantics (clone / pickle / repeated-fit stability). Only knobs the user left at their
         # package default are overridden -- an explicit user value always wins. See the
         # ``fe_fast_search`` docstring in __init__ for the rationale + measured wins.
+        # DEFAULT SCREEN SUBSAMPLE (2026-06-20). Apply the feature-recovery screen-subsample for large n on
+        # EVERY fit (not just fe_fast_search): the FE MI-sweep / polynom-pair / conditional-gate DETECTION
+        # are rank-stable under subsampling and the survivors replay at full n, so the default MRMR() fit
+        # can screen on ~30k rows at n=100k (168.8s -> ~75s, both compounds still recovered). Only knobs at
+        # their package default are shrunk; restored in ``finally``. n below the screen size is a no-op.
+        _default_screen_saved: dict = {}
+        try:
+            _n_rows_for_screen = int(X.shape[0]) if hasattr(X, "shape") else None
+            if _n_rows_for_screen is not None:
+                _default_screen_saved = self._apply_default_screen_subsample(_n_rows_for_screen)
+        except Exception:
+            _default_screen_saved = {}
         _fast_search_saved: dict = {}
         if bool(getattr(self, "fe_fast_search", False)):
             try:
@@ -4158,6 +4240,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             except Exception:
                 pass
             # restore the fast-search profile overrides (constructor-arg stability).
+            # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
+            # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
+            if _default_screen_saved:
+                for _k, _v in _default_screen_saved.items():
+                    try:
+                        setattr(self, _k, _v)
+                    except Exception:
+                        pass
             if _fast_search_saved:
                 import os as _os_restore
                 for _k, _v in _fast_search_saved.items():

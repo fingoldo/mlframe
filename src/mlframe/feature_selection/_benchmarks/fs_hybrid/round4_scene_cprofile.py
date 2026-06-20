@@ -26,7 +26,17 @@ def _disable_kernel_tuning_sweep():
         import pyutilz.performance.kernel_tuning.cache as _M
 
         def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
-            return fallback() if callable(fallback) else fallback
+            if not callable(fallback):
+                return fallback
+            # Some specs pass a fallback needing the dims (e.g. _batch_pair_mi_fallback_choice(n, k));
+            # try zero-arg, then dim-keyword / positional, so this never raises a TypeError.
+            try:
+                return fallback()
+            except TypeError:
+                try:
+                    return fallback(**dims)
+                except TypeError:
+                    return fallback(*dims.values())
         _M.KernelTuningCache.get_or_tune = _no_sweep
         # The postgres-loaded disk makes the per-host cache load_or_create() block for MINUTES (disk + filelock).
         # Use a throwaway in-memory cache so profiling the FE hotspot is not gated on disk I/O (we already force the
@@ -36,9 +46,6 @@ def _disable_kernel_tuning_sweep():
         print("[kernel-tuning sweep+disk DISABLED for profiling -> in-memory fallback]", flush=True)
     except Exception as e:
         print(f"[no-sweep patch failed: {e}]", flush=True)
-
-
-_disable_kernel_tuning_sweep()
 
 
 def load_scene(n_rows):
@@ -55,6 +62,10 @@ def load_scene(n_rows):
 
 
 def main():
+    # Disable the kernel-tuning sweep HERE (not at import) -- ``discover_tuners`` imports this module to
+    # find @kernel_tuner registrations, and an import-time monkeypatch of get_or_tune broke ``refresh-all``
+    # (the _no_sweep stub raised on arg-requiring fallbacks). Profiling still gets the no-sweep behaviour.
+    _disable_kernel_tuning_sweep()
     X, y = load_scene(N_ROWS)
     print(f"scene subsample: shape={X.shape} pos={float(y.mean()):.3f}", flush=True)
     from mlframe.feature_selection.filters import MRMR

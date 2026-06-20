@@ -217,7 +217,12 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     n = v.shape[0]
     sv, vv, vy = _corr_sq_reductions_njit(np.ascontiguousarray(v, dtype=np.float64), y_centered)
     v_ss = vv - sv * sv / n
-    if v_ss < 1e-24 or y_ss < 1e-24:
+    # RELATIVE degeneracy guard (P1-4): the raw-moment form ``vv - sv^2/n`` catastrophically cancels for a
+    # near-constant ``v`` -- it can land at a tiny positive residual (e.g. 1e-23) that clears an absolute
+    # 1e-24 floor yet makes ``(vy^2)/(v_ss*y_ss)`` explode past 1.0, letting a degenerate column win the
+    # periodogram. A genuinely varying v has ``v_ss`` an O(1) fraction of ``vv``; cancellation gives
+    # ``v_ss << vv``. Reject when the centered SS is a negligible fraction of the raw SS.
+    if v_ss <= 1e-12 * vv or v_ss < 1e-24 or y_ss < 1e-24:
         return 0.0
     return (vy * vy) / (v_ss * y_ss)
 
@@ -267,11 +272,14 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
         sums += s; ss_s += s * s; sy += s * yv
         sumc += c; ss_c += c * c; cy += c * yv
     out = 0.0
+    # RELATIVE degeneracy guard (P1-4): reject when the centered SS is a negligible fraction of the raw
+    # SS (catastrophic-cancellation residual for a near-constant sin/cos projection) -- an absolute 1e-24
+    # floor lets a ~1e-23 residual through and explodes the ratio, letting a degenerate frequency win.
     v_ss = ss_s - sums * sums / n
-    if v_ss >= 1e-24 and y_ss >= 1e-24:
+    if v_ss > 1e-12 * ss_s and v_ss >= 1e-24 and y_ss >= 1e-24:
         out += (sy * sy) / (v_ss * y_ss)
     v_cc = ss_c - sumc * sumc / n
-    if v_cc >= 1e-24 and y_ss >= 1e-24:
+    if v_cc > 1e-12 * ss_c and v_cc >= 1e-24 and y_ss >= 1e-24:
         out += (cy * cy) / (v_cc * y_ss)
     return out
 
@@ -394,8 +402,12 @@ def _detect_fourier_freqs_for_col(
     grid = [float(f) for f in f_grid if float(f) > 0.0]
     if not grid:
         return []
-    idx = np.arange(n)
-    val_mask = (idx % 3) == 0
+    # SEEDED held-out split (P1-5): a plain ``idx % 3`` stride leaks under sorted / periodic row order
+    # (every 3rd row is then highly correlated with its train neighbours -> the "held-out" gate is not
+    # honest and a chance frequency clears the floor). A fixed-seed permutation picks a row-order-
+    # INDEPENDENT 1/3, so the split is robust however the caller ordered the rows; deterministic (seed 0).
+    val_mask = np.zeros(n, dtype=bool)
+    val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
     train_mask = ~val_mask
     z_tr, z_va = z01[train_mask], z01[val_mask]
     y_tr = y[train_mask].copy()
@@ -563,8 +575,10 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
         return 0.0
     if float(np.std(x)) < 1e-12 or float(np.std(y)) < 1e-12:
         return 0.0
-    idx = np.arange(n)
-    va = (idx % 3) == 0
+    # SEEDED held-out split (P1-5): row-order-independent 1/3, robust to sorted/periodic input (see the
+    # detector above). Deterministic (seed 0).
+    va = np.zeros(n, dtype=bool)
+    va[np.random.default_rng(0).permutation(n)[: n // 3]] = True
     tr = ~va
     if int(tr.sum()) < 16 or int(va.sum()) < 8:
         return 0.0

@@ -1154,6 +1154,14 @@ def _run_fe_step(
         # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
         # workers, each running the SERIAL (no-prange) FE kernels (a numba prange would
         # nest inside the threading layer and deadlock -- see ``_fe_use_parallel_kernels``).
+        #
+        # BACKEND BENCH (2026-06-19, n=8000 p=150 FE pair-search, 3-rep medians, peak RSS incl children):
+        #   joblib-threading 8.98s/1599MB  <  serial 10.75s/1321MB  <  cf-ThreadPool 10.22s/1898MB
+        #   joblib-loky 39.1s/2948MB (3.9x slower, +1.7GB frame copies); multiprocessing/ProcessPool OOM-cascade.
+        # => the current joblib backend="threading" is the MEASURED-FASTEST option (~16% over serial, the njit MI
+        # kernels release the GIL enough to win despite the Python orchestration); process backends are a
+        # non-starter (frame deep-copy memory + Windows spawn cascade). Do NOT serial-ize or switch to processes.
+        # (A single-run measurement misleadingly showed serial ahead; the 3-rep median is authoritative.)
         # That is the right lever ONLY when there are enough pairs to actually fill the
         # worker pool. In the NARROW+TALL regime (few features -> 1-2 prospective pairs,
         # but n large) the joblib path span only 1-2 jobs over 16 threads (14 idle) AND

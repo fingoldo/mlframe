@@ -8,6 +8,8 @@ and are re-exported from the package ``__init__``.
 """
 from __future__ import annotations
 
+import logging
+import os
 from itertools import combinations
 from timeit import default_timer as timer
 
@@ -68,6 +70,35 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
 # bench_fe_pair_subsample_accuracy.py. Keep both call sites pinned to ONE knob
 # so a future re-tune lands consistently across the FE block.
 FE_DEFAULT_SUBSAMPLE_N: int = 200_000
+
+logger = logging.getLogger(__name__)
+
+
+def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
+    """Whether to run the per-pair candidate MI (binning + observed-MI) on the GPU. The GPU path is
+    BIT-IDENTICAL to the CPU analytic dispatch (verified maxdiff 0 on binning + observed MI), so the FE
+    selection is unchanged either way -- this only chooses the faster backend for the size.
+
+    ``MLFRAME_FE_GPU_DISCRETIZE`` tri-state: ``0/false`` forces CPU; ``1/true`` forces GPU when CUDA is
+    present; unset/``auto`` (the default) routes per-host via kernel_tuning_cache -- GPU only above the
+    measured n*K crossover, CPU below -- so a small fit is never regressed and a slow-H2D host that loses
+    on GPU is routed to CPU. Requires CUDA; any GPU failure falls back to the CPU dispatcher downstream."""
+    _env = os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "auto").strip().lower()
+    if _env in ("0", "false", "no", "off"):
+        return False
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        if not is_cuda_available():
+            return False
+    except Exception:
+        return False
+    if _env in ("1", "true", "yes", "on"):
+        return True
+    try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
+        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
+        return fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu"
+    except Exception:
+        return False
 
 
 def check_prospective_fe_pairs(
@@ -272,6 +303,19 @@ def check_prospective_fe_pairs(
     # 2026-06-05: batched FE-candidate MI + permutation noise-gate (bit-identical to the
     # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
+    # P-SEAM (matrix-native FE replatform): the SINGLE integration point for the framework-agnostic
+    # matrix path. GATED behind MLFRAME_FE_MATRIX_P0 -- default OFF, so this is a pure no-op and X is
+    # byte-untouched (the legacy pandas path runs unchanged). When enabled, X is routed through the
+    # single-copy float32 matrix adapter (a round-trip here today; on-device kernels in later phases),
+    # so the SAME numba/cupy path can serve pandas and polars. The float32 cast is the intended P0
+    # behaviour change. Wrapped so the experimental path can never break the production FE pipeline.
+    from .._fe_matrix_io import fe_matrix_p0_enabled
+    if fe_matrix_p0_enabled():
+        try:
+            from .._fe_matrix_io import from_feature_matrix, to_feature_matrix
+            X = from_feature_matrix(to_feature_matrix(X))
+        except Exception:
+            logger.warning("FE matrix P-seam round-trip failed; using X unchanged.", exc_info=True)
     res = {}
     # REJECTION-LEDGER local accumulator (additive, 2026-06-11): per-pair acceptance-gate
     # drops collect here, then are exported via BOTH the ``rejection_ledger_out`` side channel
@@ -1202,18 +1246,38 @@ def check_prospective_fe_pairs(
                 if _batch_candidates:
                     # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
                     # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
-                    _disc_2d = discretize_2d_quantile_batch(
-                        final_transformed_vals[:, :i], n_bins=quantization_nbins,
-                        dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
-                        # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
-                        # gate as the chunk + marginal-uplift discretise -- byte-identical
-                        # column-prange twin when serial_main_thread (no joblib nest).
-                        parallel=_fe_use_parallel_kernels(i, serial_main_thread),
-                        # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
-                        # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
-                        # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
-                        assume_finite=True,
-                    )
+                    _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
+                    _fe_mi_arr = None
+                    # GPU-resident FE candidate MI (size+HW gated, default OFF via MLFRAME_FE_GPU_DISCRETIZE).
+                    # At large n*K the per-pair binning + observed-MI counting is the dominant FE-scan cost;
+                    # the GPU path runs BOTH on-device and returns fe_mi BIT-IDENTICAL to the production
+                    # analytic dispatch (GPU binning == CPU discretize, maxdiff 0; GPU observed-MI == CPU,
+                    # maxdiff 0; same analytic chi2 gate), so the FE selection is identical. Returns None for
+                    # the non-analytic branch (SU / sparse / small-n) -> falls through to the CPU dispatch.
+                    if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):
+                        try:
+                            from .._gpu_resident_fe import gpu_pairs_fe_mi
+                            _fe_mi_arr = gpu_pairs_fe_mi(
+                                final_transformed_vals[:, :i], int(quantization_nbins),
+                                classes_y, classes_y_safe, freqs_y,
+                                fe_npermutations, fe_min_nonzero_confidence, use_su_normalization(),
+                            )
+                        except Exception:
+                            logger.debug("FE GPU pair-MI failed; falling back to CPU", exc_info=True)
+                            _fe_mi_arr = None
+                    if _fe_mi_arr is None:
+                        _disc_2d = discretize_2d_quantile_batch(
+                            final_transformed_vals[:, :i], n_bins=quantization_nbins,
+                            dtype=_code_dtype,
+                            # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
+                            # gate as the chunk + marginal-uplift discretise -- byte-identical
+                            # column-prange twin when serial_main_thread (no joblib nest).
+                            parallel=_fe_use_parallel_kernels(i, serial_main_thread),
+                            # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
+                            # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
+                            # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
+                            assume_finite=True,
+                        )
 
                     # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
                     # columns in ONE kernel call. Bit-identical to the per-candidate
@@ -1225,17 +1289,19 @@ def check_prospective_fe_pairs(
                     # against it -- amortising both the MI compute and the shuffle across K.
                     # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
                     # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
-                    _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
-                        disc_2d=_disc_2d,
-                        quantization_nbins=quantization_nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        npermutations=fe_npermutations,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        use_su=use_su_normalization(),
-                        batch_mi_kernel=batch_mi_with_noise_gate,
-                    )
+                    # Skipped when the GPU pair-MI path above already produced ``_fe_mi_arr``.
+                    if _fe_mi_arr is None:
+                        _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
+                            disc_2d=_disc_2d,
+                            quantization_nbins=quantization_nbins,
+                            classes_y=classes_y,
+                            classes_y_safe=classes_y_safe,
+                            freqs_y=freqs_y,
+                            npermutations=fe_npermutations,
+                            min_nonzero_confidence=fe_min_nonzero_confidence,
+                            use_su=use_su_normalization(),
+                            batch_mi_kernel=batch_mi_with_noise_gate,
+                        )
 
             # Replay best/prewarp/config tracking in the SAME order candidates were
             # produced -> identical tie-break behaviour. ``_fe_mi_arr`` is indexed by the

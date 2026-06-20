@@ -276,16 +276,20 @@ def lookup_mi_classif_backend(n_samples: int, k: int,
 
 
 def _fallback_mi_backend(n_samples: int, k: int) -> str:
-    """Hard-coded fallback used when the cache is absent. Crossovers
-    measured 2026-05-20 on GTX 1050 Ti cc 6.1:
-    - Single-column (k=1): cuda wins from n>=75k
-    - Batch (k>=5):        cuda wins from n>=10k
+    """Conservative fallback when the per-host cache has no measured verdict.
 
-    Values pad ~30% above raw crossover to absorb run-to-run noise.
+    Always ``njit``. The earlier GPU-favoring constants (cuda from n>=75k single /
+    n>=10k batch, "measured 2026-05-20 on GTX 1050 Ti") came from a SOLO microbenchmark
+    that gave the GPU the card to itself. The production FE pipeline instead fires these
+    MI calls from many joblib worker threads contending on one GPU, where each call pays
+    H2D/D2H + serialised launch/sync -- a ~700ms fixed per-call penalty the solo bench
+    never saw, making the real per-call cuda wall 20-70x the solo time (end-to-end A/B on
+    the canonical 5-feature/n=100k fit: GPU 318-368s/5.0GB vs njit 115s/1.6GB, identical
+    selection). So with no contention-aware measurement on hand, njit is the safe default;
+    the concurrency-aware sweep (``_run_sweep_mi_classif_dispatch``) overrides this per host
+    where cuda genuinely wins UNDER contention, and ``MLFRAME_MI_BACKEND=cuda`` forces GPU.
     """
-    if k == 1:
-        return "cuda" if n_samples >= 75_000 else "njit"
-    return "cuda" if n_samples >= 10_000 else "njit"
+    return "njit"
 
 
 def reset_cache() -> None:
