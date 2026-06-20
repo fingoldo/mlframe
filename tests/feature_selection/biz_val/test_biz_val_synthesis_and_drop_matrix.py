@@ -302,15 +302,17 @@ def test_mrmr_dropping_matrix(family, decoy, kind, gap):
     fs.fit(df, y)
     sel = list(fs.get_feature_names_out())
     print(f"DROP  {family:18s} sel={sel}")
-    assert "x_real" in sel, (
-        f"{family}: real signal column was DROPPED, selection={sel}")
     if kind == "twin":
-        assert not ("decoy" in sel and "x_real" in sel and sel.count("decoy") and sel.count("x_real")), \
-            f"{family}: redundant twin NOT collapsed -- both kept: {sel}"
-        # stricter: with only one real column present, decoy must not survive.
-        assert "decoy" not in sel, (
-            f"{family}: redundant twin admitted alongside x_real: {sel}")
+        # x_real and the decoy are MI-identical (exact dup, sign flip, scale, monotone warp all bin to the
+        # same quantile codes), so WHICH twin survives is name-determined by the order-invariant tie-break,
+        # not index-determined -- asserting "x_real specifically" would contradict column-order-invariance.
+        # The genuine contract is: the redundant pair COLLAPSES to exactly one survivor.
+        twin_kept = {"x_real", "decoy"} & set(sel)
+        assert len(twin_kept) == 1, (
+            f"{family}: redundant twin pair must collapse to exactly ONE survivor; kept={sorted(twin_kept)} sel={sel}")
     else:  # pure decoy
+        assert "x_real" in sel, (
+            f"{family}: real signal column was DROPPED, selection={sel}")
         assert "decoy" not in sel, (
             f"{family}: pure decoy admitted into selection: {sel}")
 
