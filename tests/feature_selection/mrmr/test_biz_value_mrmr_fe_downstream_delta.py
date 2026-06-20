@@ -39,8 +39,6 @@ value -- fix prod, not the assertion.
 """
 from __future__ import annotations
 
-import sys
-import os
 
 import numpy as np
 import pandas as pd
