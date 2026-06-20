@@ -227,6 +227,56 @@ def test_grand_fused_pair_mi_bit_identical_to_cpu():
     assert int(np.argmax(gf)) == int(np.argmax(ref))
 
 
+def test_grand_fusion_fused_bit_identical_to_nonfused():
+    """GRAND FUSION (never materialise (n,K)): the fully-fused histogram path must produce the EXACT same
+    noise-gated MI as the non-fused grand_fused_pair_mi (same percentile edges -> same codes -> same
+    counts -> bit-identical MI), so the FE selection is preserved while the (n,K) float/codes/disc/d_base
+    are eliminated. maxdiff 0 + argmax match is the acceptance bar."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import (
+        grand_fused_pair_mi, grand_fused_pair_mi_fused,
+    )
+
+    rng = np.random.default_rng(1)
+    n = 40_000
+    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+
+    # Force the NON-fused leg by disabling grand fusion, then compare to the explicit fused call.
+    import os as _os
+    prev = _os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION")
+    _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = "0"
+    try:
+        _, nonfused = grand_fused_pair_mi(a, b, yc, yc, fy, nbins=20, npermutations=25)
+    finally:
+        if prev is None:
+            _os.environ.pop("MLFRAME_FE_GPU_GRAND_FUSION", None)
+        else:
+            _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = prev
+    _, fused = grand_fused_pair_mi_fused(a, b, yc, yc, fy, nbins=20, npermutations=25)
+
+    assert np.array_equal(fused, nonfused) or float(np.max(np.abs(fused - nonfused))) == 0.0
+    assert int(np.argmax(fused)) == int(np.argmax(nonfused))
+
+
+def test_grand_fusion_falls_back_when_shared_hist_too_big():
+    """When the shared-mem histogram (P1*nbins*K_y int32) exceeds the device per-block limit, the fused
+    path must RAISE (so grand_fused_pair_mi catches it and uses the exact non-fused fallback) rather than
+    launch an oversized kernel. A huge nperm forces the overflow."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import grand_fused_pair_mi_fused
+
+    rng = np.random.default_rng(2)
+    n = 5_000
+    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+    # P1 = 4001, nbins=20, K_y~20 -> ~6.4MB >> 48KB shared -> must raise.
+    with pytest.raises(RuntimeError):
+        grand_fused_pair_mi_fused(a, b, yc, yc, fy, nbins=20, npermutations=4000)
+
+
 def test_fused_generation_is_bit_equal_to_cupy_loop():
     """The fused RawKernel generation must be BIT-EQUAL (maxdiff 0) to the cupy elementwise loop --
     same ops, safe-div y==0 branch, nan_to_num. This is what lets it replace the loop with no result

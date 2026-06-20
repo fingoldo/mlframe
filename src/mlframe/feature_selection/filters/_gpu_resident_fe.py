@@ -65,10 +65,17 @@ import numpy as np
 # not re-derived). PERF (ranked payoff/effort, all must stay bit-exact -> validate maxdiff 0 + argmax on
 # HEAVY-TAILED a**2/b candidates, not just uniform): (1) f32 sort keys for binning (~1.5-1.8x on the 69%
 # sort; exact only with row-index tie-break, else gate to prescreen); (2) radix-rank RawKernel replacing
-# cp.argsort + the uncoalesced scatter (exact, removes the (n,K) int64 sort_idx); (3) fused atomic
-# shared-mem histogram kernel (removes 3 full (n,K) int64 passes in the cupy MI); (4) multi-stream across
-# k-chunks (lowers the GPU crossover n); (5) grand fusion -- one streaming kernel, never materialise
-# (n,K). Route block size (currently threads=256) + the VRAM 0.25/5x constants + any f32 threshold
+# cp.argsort + the uncoalesced scatter (exact, removes the (n,K) int64 sort_idx); (3 + 5) DONE 2026-06-20:
+# fused SHARED-MEM atomic histogram + grand fusion -- ``fused_gen_bin_hist`` (one block per candidate)
+# re-generates each candidate value, bins it against the EXACT cp.percentile edges, and accumulates the
+# (P1, nbins, K_y) joint histogram in shared-mem atomics in ONE kernel per chunk, so the (n,K) float
+# matrix, the (n,K) int codes, the (n,K) D2H disc AND the noise-gate's (n,K) d_base / (rows*n*K) flat
+# index are NEVER materialised (Option F1 recompute-not-store + #3 atomic hist). BIT-IDENTICAL (maxdiff 0,
+# argmax match) -> selection EXACT; measured GTX 1050 Ti K=384 nperm=25: 100k 2.16x +3.0x less peak GPU
+# mem, 300k 2.15x +2.75x, 1M 3.39x +2.26x. ``grand_fused_pair_mi_fused`` (default ON via
+# MLFRAME_FE_GPU_GRAND_FUSION); the non-fused body is the exact fallback when the shared hist overflows
+# the per-block limit. (4) multi-stream across k-chunks (lowers the GPU crossover n) stays FUTURE. Route
+# block size (currently threads=256) + the VRAM 0.25/5x constants + any f32 threshold
 # through pyutilz kernel_tuning_cache; keep cp.argsort as the exact fallback when adding a radix _v2.
 # ARCHITECTURE (wiring, before flipping any default): the production FE speaks STRUCTURED, preset-stamped,
 # gate-filtered, replayable EngineeredRecipe -- this path speaks flat (name, MI). Wire it as a candidate-MI
@@ -205,6 +212,106 @@ def _get_fused_gen_kernel():
         import cupy as cp
         _FUSED_GEN_KERNEL = cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
     return _FUSED_GEN_KERNEL
+
+
+# GRAND-FUSION kernel (roadmap #5 + #3, 2026-06-20). One launch computes the joint histograms for ALL
+# candidate columns against the original-y AND every shuffled-y, WITHOUT ever materialising the (n,K)
+# float candidate matrix, the (n,K) int codes, the (n,K) ``d_base`` index, or the (rows*n*K) flat index
+# the cupy noise-gate builds. Each thread owns one (row, candidate) cell: it RE-generates the candidate
+# value from the resident post-unary caches (the cheap elementwise gen -- recomputed instead of stored,
+# Option F1), bins it ONCE via an upper-bound binary search over that candidate's PRE-COMPUTED exact
+# ``cp.percentile`` interior edges (so the binning math is IDENTICAL to ``_gpu_resident_discretize_codes``
+# -> selection stays EXACT), then atomic-adds 1 into the joint-histogram slot of EVERY y-vector (original
+# + permutations) at ``[p, off_k + code*K_y + y_p[row]]`` (Option F3 atomic histogram). Recomputing gen
+# + the bin code ONCE per cell and reusing it across all P1 y-vectors is the key: the per-cell work is
+# paid once, only the P1 atomic adds scale with the permutation count.
+#
+# Edges layout: ``edges`` is (K, nbins-1) row-major -- the INTERIOR percentile edges ``bin_edges[1:-1]``
+# for candidate c, exactly what ``cp.searchsorted(edges, val, side='right')`` consumes. The in-kernel
+# search reproduces ``side='right'`` (strictly-greater upper bound) so the code equals the cupy path.
+# y-vectors layout: ``y_all`` is (P1, n) int32 (row 0 = original y, rows 1.. = the Fisher-Yates shuffles
+# built by the SAME host LCG the noise-gate uses) -> the output ``counts`` is (P1, total_size) int64,
+# byte-identical to what ``batch_mi_with_noise_gate_cupy`` produces, so it feeds the SAME bit-exact
+# ``_mi_from_counts_cpu`` + ``_gate_from_mi`` reduction unchanged.
+_FUSED_GEN_BIN_HIST_SRC = r"""
+extern "C" __global__
+void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict__ ub,
+                        const int* __restrict__ ua_idx, const int* __restrict__ ub_idx,
+                        const int* __restrict__ bop,
+                        const double* __restrict__ edges,   // (K, nbins-1) interior edges
+                        const long long* __restrict__ col_off,  // (K,) histogram offset of column c
+                        const int* __restrict__ y_all,      // (P1, n) int32 y-vectors
+                        const long long n, const int K, const int nbins, const int K_y,
+                        const int P1, const long long total_size,
+                        long long* __restrict__ counts) {   // (P1, total_size) int64, host-zeroed
+    // ONE BLOCK PER CANDIDATE COLUMN (roadmap #3 fused SHARED-MEM atomic histogram). The whole column's
+    // (P1, nbins, K_y) joint histogram lives in shared memory as int32 (counts <= n < 2^31). Each thread
+    // strides over rows: regenerates the candidate value ONCE, bins it ONCE, then does P1 SHARED-MEM
+    // atomics (orders of magnitude cheaper than the global-mem atomics the naive version paid) -- the
+    // recompute-instead-of-store of Option F1 fused with the shared-atomic histogram of #3. The shared
+    // tile is flushed to global counts once at the end. ``hist_size = P1 * nbins * K_y`` int32 elements
+    // must fit shared memory; the host launches this path only when it does (else the global-atomic
+    // fallback kernel). col_off[c] = c * nbins * K_y, so the column's global slot is contiguous.
+    extern __shared__ int sh[];   // (P1, nbins, K_y) int32, dynamic shared
+    int c = blockIdx.x;
+    if (c >= K) return;
+    int hist_size = P1 * nbins * K_y;
+    int tid = threadIdx.x;
+    int nthreads = blockDim.x;
+    for (int s = tid; s < hist_size; s += nthreads) sh[s] = 0;
+    __syncthreads();
+    int ne = nbins - 1;
+    const double* ec = edges + (long long)c * ne;
+    int ua_c = ua_idx[c], ub_c = ub_idx[c], bop_c = bop[c];
+    int nbky = nbins * K_y;
+    for (long long i = tid; i < n; i += nthreads) {
+        double x = ua[(long long)ua_c * n + i];
+        double y = ub[(long long)ub_c * n + i];
+        double v;
+        switch (bop_c) {
+            case 0: v = x * y; break;
+            case 1: v = x + y; break;
+            case 2: v = x - y; break;
+            case 3: v = x / ((y == 0.0) ? 1e-9 : y); break;
+            case 4: v = (x > y) ? x : y; break;
+            case 5: v = (x < y) ? x : y; break;
+            default: v = 0.0;
+        }
+        if (isnan(v) || isinf(v)) v = 0.0;
+        // bin: searchsorted(edges[c], v, side='right')
+        int lo = 0, hi = ne;
+        while (lo < hi) { int mid = (lo + hi) >> 1; if (ec[mid] > v) hi = mid; else lo = mid + 1; }
+        int slot = lo * K_y;
+        for (int p = 0; p < P1; ++p) {
+            int yp = y_all[(long long)p * n + i];
+            atomicAdd(&sh[p * nbky + slot + yp], 1);
+        }
+    }
+    __syncthreads();
+    // flush shared int32 histogram to the global int64 counts (one column block per y-vector).
+    for (int s = tid; s < hist_size; s += nthreads) {
+        int p = s / nbky;
+        int rem = s - p * nbky;
+        counts[(long long)p * total_size + col_off[c] + rem] = (long long)sh[s];
+    }
+}
+"""
+_FUSED_GEN_BIN_HIST_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
+
+
+def _get_fused_gen_bin_hist_kernel():
+    global _FUSED_GEN_BIN_HIST_KERNEL
+    if _FUSED_GEN_BIN_HIST_KERNEL is None:
+        import cupy as cp
+        _FUSED_GEN_BIN_HIST_KERNEL = cp.RawKernel(_FUSED_GEN_BIN_HIST_SRC, "fused_gen_bin_hist")
+    return _FUSED_GEN_BIN_HIST_KERNEL
+
+
+def fe_gpu_grand_fusion_enabled() -> bool:
+    """Whether the grand-fusion histogram path (never materialise (n,K)) is active. ON unless
+    ``MLFRAME_FE_GPU_GRAND_FUSION`` is explicitly falsy (it is the selection-safe data-movement win;
+    the non-fused ``grand_fused_pair_mi`` path stays one env flip away as the exact fallback)."""
+    return os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
 def _fused_generate_block(ua_cm, ub_cm, combos_block):
@@ -813,7 +920,27 @@ def grand_fused_pair_mi(
         n=200k 53902->2753ms ~19.6x -- do NOT quote this as the production win; it is the permutation-path
         ceiling, shown only to locate where the time goes (the noise-gate dominates at K=384).
     The default chooser routes the gate to CPU on this host (a tuner mis-calibration: the GPU gate is
-    ~15x faster on the permutation path); grand_fused forces cupy/cuda so the gate runs on the GPU."""
+    ~15x faster on the permutation path); grand_fused forces cupy/cuda so the gate runs on the GPU.
+
+    GRAND FUSION (2026-06-20, default ON via ``MLFRAME_FE_GPU_GRAND_FUSION``): when enabled this delegates
+    to :func:`grand_fused_pair_mi_fused`, which NEVER materialises the (n,K) float candidate matrix, the
+    (n,K) int codes, the (n,K) D2H disc, nor the noise-gate's (n,K) ``d_base`` / (rows*n*K) flat index --
+    it fuses gen+bin+joint-histogram into ONE shared-mem-atomic RawKernel per chunk (recompute-not-store,
+    Option F1 + roadmap #3). MEASURED (GTX 1050 Ti, K=384, nperm=25, BIT-IDENTICAL -- maxdiff 0, argmax
+    match, vs this non-fused path): n=100k 2.16x + 3.0x less peak GPU mem; n=300k 2.15x + 2.75x; n=1M
+    3.39x + 2.26x. Selection is EXACT (same percentile edges; only the data movement changes). Falls back
+    to this exact non-fused body if the shared histogram (P1*nbins*K_y int32) exceeds the device's per-block
+    shared-mem limit or any GPU error occurs."""
+    if fe_gpu_grand_fusion_enabled():
+        try:
+            return grand_fused_pair_mi_fused(
+                a, b, y_codes, classes_y_safe, freqs_y, nbins=nbins, npermutations=npermutations,
+                min_nonzero_confidence=min_nonzero_confidence, use_su=use_su,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).info("grand-fusion fused path unavailable (%s); non-fused fallback", e)
+
     import cupy as cp
 
     from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
@@ -862,6 +989,148 @@ def grand_fused_pair_mi(
             fe_mi = out[0] if isinstance(out, tuple) else out
         parts.append(np.asarray(fe_mi, dtype=np.float64))
     return _candidate_names(), np.concatenate(parts) if parts else np.empty(0)
+
+
+def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins, K_y, total_size):
+    """Run the fused gen+bin+histogram kernel for one candidate ``block``, returning the (P1, total_size)
+    int64 joint-count matrix on HOST. ``edges_int`` is the (blk, nbins-1) interior-edge matrix (the exact
+    ``cp.percentile`` edges for this block), ``y_all_dev`` is the (P1, n) int32 device y-vectors. The
+    candidate float matrix is NEVER stored: each cell is regenerated + binned + atomic-histogrammed inline.
+
+    ``col_off[c] = c * nbins * K_y`` (uniform nbins per FE candidate); ``total_size = blk * nbins * K_y``."""
+    import cupy as cp
+
+    n = int(ua_cm.shape[1])
+    K = int(len(block))
+    ua_idx = cp.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=cp.int32)
+    ub_idx = cp.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=cp.int32)
+    bop = cp.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=cp.int32)
+    col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
+    P1 = int(y_all_dev.shape[0])
+    counts = cp.zeros((P1, int(total_size)), dtype=cp.int64)
+    # ONE BLOCK PER CANDIDATE: shared-mem histogram is (P1, nbins, K_y) int32. Check it fits this device's
+    # per-block shared-memory limit; if not, the caller must fall back (the host gates on this).
+    hist_bytes = P1 * int(nbins) * int(K_y) * 4
+    threads = 256
+    _get_fused_gen_bin_hist_kernel()(
+        (K,), (threads,),
+        (ua_cm, ub_cm, ua_idx, ub_idx, bop, edges_int, col_off, y_all_dev,
+         np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(int(K_y)),
+         np.int32(P1), np.int64(int(total_size)), counts),
+        shared_mem=hist_bytes,
+    )
+    out = cp.asnumpy(counts)
+    del counts, ua_idx, ub_idx, bop, col_off
+    return out
+
+
+def grand_fused_pair_mi_fused(
+    a, b, y_codes, classes_y_safe, freqs_y, *,
+    nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+):
+    """GRAND-FUSION (never materialise (n,K)): the fully-fused twin of :func:`grand_fused_pair_mi`.
+
+    Collapses gen -> discretize -> noise-gate-counting into ONE histogram kernel per chunk. Pass 1 (per
+    chunk, VRAM-governed) generates the (n, blk) candidate floats ONLY long enough to take the EXACT
+    ``cp.percentile`` interior edges, then DISCARDS them (the edges -- (blk, nbins-1) -- are the only
+    survivor). Pass 2 launches :func:`_grand_fusion_block_counts`: each (row, candidate) thread RE-generates
+    its value, bins it against those exact edges (identical math -> identical codes -> SAME selection), and
+    atomic-adds into the (P1, total_size) joint histogram for the original-y + every shuffled-y at once.
+    The MI/SU + the noise-gate rejection are reduced from those integer counts on the bit-exact CPU path
+    (``_mi_from_counts_cpu`` + ``_gate_from_mi``) -- so the returned fe_mi is BIT-IDENTICAL to
+    ``grand_fused_pair_mi`` / the production gate, while the (n,K) float matrix, the (n,K) int codes, the
+    (n,K) D2H disc, and the noise-gate's (n,K) ``d_base`` + (rows*n*K) flat index are ALL eliminated.
+    Returns ``(names, fe_mi)``. Raises if cupy is unavailable (caller gates)."""
+    import cupy as cp
+
+    from .batch_mi_noise_gate_gpu import (
+        _build_shuffle_matrix, _gate_from_mi, _mi_from_counts_cpu,
+    )
+
+    a_gpu = cp.asarray(a, dtype=cp.float64)
+    b_gpu = cp.asarray(b, dtype=cp.float64)
+    n = int(a_gpu.shape[0])
+    ua_cm = _unary_stack_cm(cp, a_gpu)
+    ub_cm = _unary_stack_cm(cp, b_gpu)
+
+    # y-vectors: row 0 = original y, rows 1.. = the Fisher-Yates shuffles (SAME host LCG the noise-gate
+    # uses -> bit-identical permutation stream). Uploaded ONCE as (P1, n) int32 and shared by every chunk.
+    y_orig = np.ascontiguousarray(y_codes, dtype=np.int64).reshape(1, n)
+    K_y = int(np.asarray(freqs_y).shape[0])
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    nperm = int(npermutations) if npermutations and npermutations > 0 else 0
+    if nperm > 0:
+        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(0), nperm)
+        y_all_host = np.empty((nperm + 1, n), dtype=np.int64)
+        y_all_host[0, :] = y_orig[0, :]
+        y_all_host[1:, :] = shuf.astype(np.int64)
+    else:
+        y_all_host = y_orig
+    P1 = int(y_all_host.shape[0])
+    y_all_dev = cp.asarray(np.ascontiguousarray(y_all_host, dtype=np.int32))
+
+    # The shared-mem histogram is (P1, nbins, K_y) int32 per block; it must fit this device's per-block
+    # shared-memory limit. If not (very high nperm / many y-classes / large nbins), raise so the caller
+    # falls back to the non-fused exact path -- correctness over fusion. Reserve a little headroom.
+    hist_bytes = P1 * int(nbins) * K_y * 4
+    try:
+        sm_limit = int(cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)["sharedMemPerBlock"])
+    except Exception:
+        sm_limit = 48 * 1024
+    if hist_bytes > sm_limit - 256:
+        raise RuntimeError(
+            f"grand-fusion shared histogram {hist_bytes}B exceeds device limit {sm_limit}B "
+            f"(P1={P1}, nbins={nbins}, K_y={K_y}); caller falls back to the non-fused path"
+        )
+
+    # Binning working dtype: mirror _gpu_resident_discretize_codes (native f64 here -> bit-identical edges
+    # to the non-fused grand-fusion path; MLFRAME_FE_GPU_BINNING_DTYPE=float32 forces f32 percentile).
+    forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
+    work = cp.float32 if forced in ("float32", "f32", "single") else cp.float64
+    qs = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
+
+    k_chunk = _gpu_k_chunk(n)
+    original_mi_parts: list[np.ndarray] = []
+    perm_mi_parts: list[list[np.ndarray]] = [[] for _ in range(nperm)]
+    for start in range(0, len(_COMBOS), k_chunk):
+        block = _COMBOS[start:start + k_chunk]
+        blk = len(block)
+        # PASS 1: transient generate -> exact percentile edges -> discard the float matrix.
+        cand = _fused_generate_block(ua_cm, ub_cm, block)            # (n, blk) f64, transient
+        if cand.dtype != work:
+            cand = cand.astype(work, copy=False)
+        if blk == 1:
+            # cupy single-column percentile bug guard (mirror _gpu_resident_discretize_codes).
+            bin_edges = cp.percentile(cand.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+        else:
+            bin_edges = cp.percentile(cand, qs, axis=0)             # (nbins+1, blk)
+        del cand                                                    # (n,blk) float GONE before the hist pass
+        # interior edges, transposed to (blk, nbins-1) row-major f64 for the kernel's per-candidate scan.
+        edges_int = cp.ascontiguousarray(bin_edges[1:-1, :].T.astype(cp.float64))
+        del bin_edges
+        total_size = blk * int(nbins) * K_y
+        counts = _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins, K_y, total_size)
+        del edges_int
+        # CPU bit-exact reduction (identical to batch_mi_with_noise_gate_cupy): per-column block reshape.
+        nb_ky = int(nbins) * K_y
+        om = np.zeros(blk, dtype=np.float64)
+        for k in range(blk):
+            blk_counts = counts[0, k * nb_ky:(k + 1) * nb_ky].reshape(int(nbins), K_y)
+            om[k] = _mi_from_counts_cpu(blk_counts, int(nbins), fy, n, bool(use_su))
+        original_mi_parts.append(om)
+        for p in range(nperm):
+            mp = np.zeros(blk, dtype=np.float64)
+            for k in range(blk):
+                if om[k] <= 0.0:
+                    continue
+                blk_counts = counts[p + 1, k * nb_ky:(k + 1) * nb_ky].reshape(int(nbins), K_y)
+                mp[k] = _mi_from_counts_cpu(blk_counts, int(nbins), fy, n, bool(use_su))
+            perm_mi_parts[p].append(mp)
+        del counts
+    original_mi = np.concatenate(original_mi_parts) if original_mi_parts else np.empty(0)
+    perm_mis = [np.concatenate(perm_mi_parts[p]) for p in range(nperm)] if original_mi_parts else []
+    fe_mi = _gate_from_mi(original_mi, perm_mis, nperm, float(min_nonzero_confidence))
+    return _candidate_names(), fe_mi
 
 
 def _log_shift_anchor(operand_vals: np.ndarray, unary_name: str):
