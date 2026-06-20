@@ -295,7 +295,7 @@ def cheap_row_argmax_scan(
     # column order makes the budgeted triple set identical under any input column
     # permutation. ``hits`` is re-sorted by margin below, so per-hit output order is
     # unaffected -- only WHICH triples survive the budget is made deterministic.
-    cols = sorted(cols, key=str)
+    # (``cols`` was already name-sorted above; no re-sort needed here.)
     for tri in combinations(cols, 3):
         if budget <= 0:
             break

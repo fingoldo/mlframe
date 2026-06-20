@@ -96,6 +96,16 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
                                     n_bins: int = 20) -> np.ndarray:
     """Plug-in MI of each column of X_cols (continuous) with discrete y. Parallel over columns; for k~3 (one per binary func)
     parallelism is shallow but still saves ~2x over sequential."""
+    # The per-column ``.copy()`` materialises a CONTIGUOUS column before numba's argsort (inside
+    # ``_plugin_mi_classif_njit`` -> ``_quantile_bin_njit``). It looks like a hoistable per-thread alloc, but it is the
+    # fast layout: numba's ``np.argsort`` on a contiguous buffer beats argsort on a strided ``X_cols[:, j]`` view.
+    # bench-attempt-rejected (2026-06-20): two bit-identical reshapes both LOSE at the canonical 30k screen scale --
+    #   (a) one-shot ``np.ascontiguousarray(X_cols.T)`` + contiguous-row argsort: 0.84-0.89x (the serial full-matrix
+    #       transpose costs more than the k strided copies it removes);
+    #   (b) drop the copy, pass ``X_cols[:, j]`` strided into argsort: 0.71-0.89x (strided argsort slower).
+    #   Both reach ~1.02-1.06x only at n=100k, below the noise floor. The numpy-argsort split
+    #   (``plugin_mi_classif_batch_fast``) is faster at tiny k but is NOT bit-identical here (numpy quicksort vs numba
+    #   argsort break ties differently -> ~1e-5 MI drift -> selection-risky), so it is ruled out for the canonical fit.
     k = X_cols.shape[1]
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
@@ -859,7 +869,13 @@ class HermiteResult:
 
 def _safe_div(a, b):
     """Element-wise division that is EXACT for every nonzero denominator and finite (never x_a/0 blowup) at exact zero,
-    so polynomials can capture ratio targets without distorting them."""
+    so polynomials can capture ratio targets without distorting them.
+
+    SAFE-DIV CANONICAL RECIPE (y==0 -> eps, else exact divide). Mirrored bit-for-bit in two GPU spellings that must stay
+    in lock-step with this one: ``_gpu_resident_fe._binary_apply`` (cupy ``xp.where(y==0.0, 1e-9, y)``) and the fused CUDA
+    RawKernel ``_FUSED_GEN_SRC`` (``case 3: x / ((y==0.0) ? 1e-9 : y)``). Not DRY-unified because the three live in
+    different runtimes (numpy host fn / xp-generic / CUDA-C source string); any change to the eps/branch here MUST be
+    applied to both GPU sites or the CPU<->GPU op-parity test (equiv_rtol=1e-9) breaks."""
     eps = 1e-9
     # HEAVY-TAIL FIX (2026-06-13): substitute ``eps`` ONLY for an exactly-zero denominator; every nonzero ``b`` divides
     # exactly. The prior ``np.where(b >= 0, b + eps, b - eps)`` guaranteed ``|denom| >= eps`` but perturbed EVERY
