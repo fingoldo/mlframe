@@ -137,8 +137,14 @@ _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 #      identical to the buffer value. (1499 already has the fallback.) Survivor packing (~2218) already
 #      recomputes via _rebuild_full_survivor_col on the subsample path, so it needs no change.
 #   4. Validate: the 3 clean-compound pins + _compound_gate at n=10k/100k with the flag ON must match OFF.
-# NOT done yet: selection-critical multi-site edit, deferred to a focused pin-validated pass (rushing it
-# at end-of-session risks the FE-recovery contract -- the one bar that must never regress).
+# BENCH-REJECTED (2026-06-21): the float-D2H deferral was IMPLEMENTED (gated scaffold) and measured --
+# clean paired A/B (6 cold fits, quiet box) = OFF 160.0s vs ON 162.6s = 0.98x, a WASH. The 6.7 GB float
+# D2H OVERLAPS the GPU/CPU compute (async), so skipping it does not cut wall -- cProfile's cupy.get time
+# is overlapped WAIT, not serial transfer. This is the THIRD GPU-data-movement wash after radix coalescing
+# (7x kernel, 0x wall) and noise-gate launch-batching (1.00x): the canonical FE fit is COMPUTE-bound, not
+# transfer/residency-bound. So residency/round-trip reduction is a dead lever here; reverted (commit after
+# 72d1c364). Real wall levers are COMPUTE reduction (subsample scale-down -- 64s@30k -> 36s@8k but plateaus
+# at a ~30s FE-component floor; selection holds on the canonical formula) or cutting FE work, NOT transfers.
 
 
 def fe_gpu_resident_enabled() -> bool:
