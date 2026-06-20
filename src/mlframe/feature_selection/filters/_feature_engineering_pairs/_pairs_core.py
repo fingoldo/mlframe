@@ -1057,6 +1057,17 @@ def check_prospective_fe_pairs(
         and (_fe_chunk_max_cols > max_n_combs * _n_binary)  # chunk holds > 1 pair's worth
         and (len(prospective_pairs) > 1)
     )
+    # RESIDENCY DEFERRAL gate (default OFF -- WIP, NOT selection-safe yet; default path is byte-identical
+    # and pin-validated). When on, the chunk's GPU FUSED codes path skips the (n,K) float D2H and the few
+    # buffer reads below recompute via _resolve_col. KNOWN GAP (2026-06-21): _resolve_col recomputes on the
+    # CPU (numpy binary_transformations), but the deferred buffer WOULD have held the GPU-fused (cupy)
+    # floats -- and cupy vs numpy transcendentals (log/sin) differ at ULP, which flips the strict
+    # clean-form usability-corr demotion (test_feature_engineering_example_single_compound FAILS with the
+    # flag on). FIX BEFORE ENABLING: recompute the read columns ON THE GPU (cupy, the same path that filled
+    # the buffer) so the values are bit-equal -- few columns, cheap. Until then keep the gate OFF.
+    _fe_defer_float = os.environ.get("MLFRAME_FE_GPU_DEFER_FLOAT", "").strip().lower() in ("1", "true", "on", "yes")
+    _chunk_float_deferred = False  # set per-chunk from the chunk's __float_deferred__ signal
+    _chunk_config_by_i: dict = {}  # chunk-wide buf_col -> (a_key, b_key, bin_name), rebuilt per loaded chunk
     _chunk_mi_cache: dict = {}
     _chunk_buffer = None
     _pair_to_chunk: dict = {}   # raw_vars_pair -> chunk index
@@ -1171,17 +1182,54 @@ def check_prospective_fe_pairs(
                         logger=logger,
                         discretize_2d_quantile_batch=discretize_2d_quantile_batch,
                         serial_main_thread=serial_main_thread,  # OPT-A
+                        defer_float=_fe_defer_float,
                     )
                     _loaded_chunk_idx = _my_chunk
+                    _chunk_float_deferred = bool(_chunk_mi_cache.get("__float_deferred__", False))
+                    # When the chunk deferred its float D2H, build the chunk-WIDE (buf_col -> (a,b,bin))
+                    # map ONCE: reads here (best/winner/multi-emit/ext-val) reference chunk-buffer columns
+                    # of ANY pair in the loaded chunk, not just the current pair's, so a per-pair map would
+                    # KeyError on a sibling pair's column.
+                    if _chunk_float_deferred:
+                        _chunk_config_by_i = {}
+                        for _ck, _cv in _chunk_mi_cache.items():
+                            if not isinstance(_ck, tuple):
+                                continue  # skip the "__float_deferred__" sentinel
+                            for _tp, _bf, _cci, _pw in _cv[0]:
+                                _chunk_config_by_i[_cci] = (_tp[0], _tp[1], _bf)
                 _chunk_entry = _chunk_mi_cache.get(raw_vars_pair)
+        # When the chunk DEFERRED the float D2H, its buffer is unfilled -- point the reads at None so they
+        # take the _config_by_i recompute branch (bit-identical: recomputes binary_transformations[bn] over
+        # the same operands). Else use the filled chunk buffer / shared buffer as before.
+        _this_chunk_deferred = (_chunk_entry is not None) and _chunk_float_deferred
         if _chunk_entry is not None:
-            final_transformed_vals = _chunk_buffer
+            final_transformed_vals = None if _this_chunk_deferred else _chunk_buffer
         else:
             final_transformed_vals = final_transformed_vals_shared
+        _recompute_active = _need_recompute_map or _this_chunk_deferred
         _col_buf_1d: np.ndarray | None = (
-            np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
+            np.empty(len(X), dtype=np.float32) if _recompute_active else None
         )
-        _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
+        # Deferred chunk: reuse the chunk-WIDE config map (covers sibling pairs' columns the reads below
+        # may reference). Non-deferred recompute path keeps its per-pair map (built during materialise).
+        _config_by_i: dict[int, tuple] = (
+            _chunk_config_by_i if _this_chunk_deferred else ({} if _recompute_active else None)
+        )
+
+        def _resolve_col(_ci, _ftv=None):
+            """Continuous candidate column ``_ci``: read the filled buffer when present, else recompute
+            it from metadata (deferred-float / recompute path). Bit-equal to the buffer value -- the same
+            ``binary_transformations[bin](a,b)`` + nan_to_num the materialise produced (mirrors the
+            _config_corr fallback). ``_ftv`` defaults to the current pair's ``final_transformed_vals``."""
+            _buf = final_transformed_vals if _ftv is None else _ftv
+            if _buf is not None:
+                return _buf[:, _ci]
+            _ak, _bk, _bn = _config_by_i[_ci]
+            _pa = transformed_vars[:, vars_transformations[_ak]]
+            _pb = transformed_vars[:, vars_transformations[_bk]]
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                _v = binary_transformations[_bn](_pa, _pb)
+            return np.nan_to_num(np.asarray(_v, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         i = 0
         # Per-pair thread-local timing accumulator; merged into the shared
@@ -1622,7 +1670,7 @@ def check_prospective_fe_pairs(
             _k_eng = quantization_nbins
             try:
                 _win_codes = discretize_array(
-                    arr=np.nan_to_num(final_transformed_vals[:, best_config[2]]),
+                    arr=np.nan_to_num(_resolve_col(best_config[2])),
                     n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype,
                 )
                 _k_eng = _occupied_k(_win_codes)
@@ -1746,7 +1794,7 @@ def check_prospective_fe_pairs(
             and best_config is not None
         ):
             try:
-                _win_vals = final_transformed_vals[:, best_config[2]] if final_transformed_vals is not None else None
+                _win_vals = _resolve_col(best_config[2]) if (final_transformed_vals is not None or _this_chunk_deferred) else None
                 _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
                 # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
                 # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` -- raw ``a`` is ~0 corr
@@ -2123,7 +2171,7 @@ def check_prospective_fe_pairs(
                 _emitted_cols = []
                 for _c in _already:
                     try:
-                        _emitted_cols.append(np.asarray(final_transformed_vals[:, _c[2]], dtype=np.float64))
+                        _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
                     except Exception:
                         pass
                 for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
@@ -2134,7 +2182,7 @@ def check_prospective_fe_pairs(
                     if _cfg in _already:
                         continue
                     try:
-                        _col = np.asarray(final_transformed_vals[:, _cfg[2]], dtype=np.float64)
+                        _col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
                     except Exception:
                         continue
                     _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)

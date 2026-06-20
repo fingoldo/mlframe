@@ -128,6 +128,7 @@ def _compute_one_fe_chunk(
     logger,
     discretize_2d_quantile_batch,
     serial_main_thread: bool = False,
+    defer_float: bool = False,
 ):
     """Fill ``chunk_buffer[:, :K]`` with EVERY candidate column of EVERY pair in
     ``chunk_pairs``, then run ONE ``discretize_2d_quantile_batch`` + ONE
@@ -231,7 +232,11 @@ def _compute_one_fe_chunk(
                         # candidate columns from the chunk buffer, so fill it with the GPU-materialised
                         # float matrix (this is the bandwidth-bound op the GPU replaces). The buffer is
                         # then exactly what the CPU njit path would have produced (bit-identical).
-                        out_cand=chunk_buffer[:, :col],
+                        # RESIDENCY DEFERRAL (gated): when ``defer_float`` the fused path produces the int
+                        # codes RESIDENT and skips the (n,K) float D2H entirely; the caller recomputes the
+                        # few columns it actually reads (best/winner/multi-emit) from metadata. See the
+                        # residency map in _gpu_resident_fe.py.
+                        out_cand=None if defer_float else chunk_buffer[:, :col],
                     )
                     _gpu_materialise_done = True
             except Exception:
@@ -351,4 +356,8 @@ def _compute_one_fe_chunk(
     for raw_vars_pair in chunk_pairs:
         candidates, local_times = chunk_records[raw_vars_pair]
         out[raw_vars_pair] = (candidates, fe_mi_full, local_times)
+    # Residency deferral signal: True iff the GPU FUSED codes path produced disc_2d AND we skipped the
+    # float D2H (out_cand=None) -- the caller must then recompute the few buffer columns it reads. False
+    # whenever the float buffer WAS filled (CPU materialise / numpy fallback / fused disabled).
+    out["__float_deferred__"] = bool(defer_float and (_gpu_disc_2d is not None))
     return out
