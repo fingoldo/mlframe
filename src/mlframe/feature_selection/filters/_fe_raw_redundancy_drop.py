@@ -160,6 +160,7 @@ def raw_retains_signal_given_genuine_children(
     y_bin: np.ndarray,
     genuine_child_bins: Sequence[np.ndarray],
     self_retain_frac: float = RAW_SELF_RETAIN_FRAC,
+    allow_linear_usability: bool = False,
     seed: int = 0,
 ) -> bool:
     """KEEP-rule probe reused by the PSEUDO-CHILD MASKED-RAW RESCUE (2026-06-13).
@@ -186,7 +187,15 @@ def raw_retains_signal_given_genuine_children(
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
     z_support, _ = _renumber_joint(*_gc)
     cmi, floor, excess = _excess_and_floor(rb, yb, z_support, seed=seed)
-    return (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess))
+    if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
+        return True
+    # LINEAR-USABILITY leg (variant-3): a linearly-usable raw whose conditional CMI collapsed
+    # under an excellent NONLINEAR child is still wanted in SIMPLE mode (robust raw set). Gated
+    # off in full FE mode where a subsumed monotone operand -- statistically indistinguishable
+    # from a genuine linear term -- must still drop (I4b). See the drop-sweep twin leg.
+    if not allow_linear_usability:
+        return False
+    return raw_retains_linear_signal_given_children(rb, yb, _gc, seed=seed)
 
 
 def _recipe_subexprs(recipe) -> dict:
@@ -260,6 +269,110 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
     return cmi, floor, max(0.0, cmi - null_mean)
 
 
+# Minimum absolute partial linear correlation for the linear-usability keep-leg: a
+# safety floor below the permutation null so a vanishing real residual (a truly
+# subsumed operand / pure noise) is never kept even when the perm floor shrinks at
+# large n. Tuned so a dominant linear term (s0 in ``y=2*s0-1.3*s1+0.8*s2``) clears it
+# with wide margin while an ``a**2/b`` ratio operand (≈0 linear residual) does not.
+_LINEAR_RESIDUAL_MIN_PCORR = 0.02
+
+
+def _rank_transform(a: np.ndarray) -> np.ndarray:
+    """Average-rank transform (ties averaged) -> Spearman building block. Maps any
+    MONOTONE relationship (linear / exp / log / ordinal) to a linear one, so the
+    partial-correlation usability test handles a log-linked count target or an ordinal
+    target the same as a plain linear one, while a non-monotone subsumed operand
+    (``a`` in even ``a**2/b``) stays ~uncorrelated."""
+    a = np.asarray(a, dtype=np.float64).ravel()
+    order = np.argsort(a, kind="mergesort")
+    ranks = np.empty(a.shape[0], dtype=np.float64)
+    ranks[order] = np.arange(1, a.shape[0] + 1, dtype=np.float64)
+    # average tied ranks so duplicate bin codes do not bias the correlation.
+    _, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
+    csum = np.cumsum(counts)
+    start = csum - counts
+    avg = (start + csum + 1) / 2.0  # mean rank within each tie group (1-based)
+    return avg[inv]
+
+
+def _residualize(target: np.ndarray, design: np.ndarray) -> Optional[np.ndarray]:
+    """Return ``target`` minus its OLS projection onto ``[1|design]`` (the linear
+    residual), or ``None`` on a degenerate / non-finite fit."""
+    try:
+        n = target.shape[0]
+        X = np.column_stack([np.ones(n, dtype=np.float64), design]) if design.size else np.ones((n, 1))
+        coef, *_ = np.linalg.lstsq(X, target, rcond=None)
+        resid = target - X @ coef
+        if not np.all(np.isfinite(resid)):
+            return None
+        return resid
+    except Exception:
+        return None
+
+
+def raw_retains_linear_signal_given_children(
+    raw_vals: np.ndarray,
+    y_vals: np.ndarray,
+    child_vals_list: Sequence[np.ndarray],
+    *,
+    seed: int = 0,
+    nperm: int = 32,
+    min_pcorr: float = _LINEAR_RESIDUAL_MIN_PCORR,
+) -> bool:
+    """LINEAR-USABILITY keep-leg (variant-3, 2026-06-20).
+
+    KEEP a raw whose conditional CMI given its engineered children has collapsed but
+    which still carries SIGNIFICANT PRIVATE LINEAR signal toward ``y`` the children do
+    not LINEARLY reproduce. An MI-only verdict cannot tell a dominant linear term
+    info-subsumed by an excellent NONLINEAR predictor (``s0`` captured by
+    ``sub(log(s1),cbrt(add(s0,log(s2))))``) from a genuinely subsumed ratio operand
+    (``a`` in ``a**2/b``): both have ~0 conditional excess. Linear usability separates
+    them -- a nonlinear child is not a linear equivalent of the raw, so ``s0`` retains
+    a large partial linear correlation with ``y`` after the children are regressed out,
+    while ``a``'s linear residual is ~0 (the ratio child IS ``y`` linearly).
+
+    Returns True iff the partial linear correlation ``corr(raw_resid, y_resid)`` (raw &
+    y each residualized on the child design) exceeds BOTH a permutation null floor
+    (n-invariant: shuffling the raw residual reproduces the spurious-correlation scale)
+    AND ``min_pcorr`` (a finite-sample safety floor). No children -> not applicable
+    (the caller's no-subsumer path handles that) -> returns False."""
+    _cv = [np.asarray(c, dtype=np.float64).ravel() for c in child_vals_list if c is not None]
+    if not _cv:
+        return False
+    rv = np.asarray(raw_vals, dtype=np.float64).ravel()
+    yv = np.asarray(y_vals, dtype=np.float64).ravel()
+    n = rv.shape[0]
+    if n < _MIN_ROWS or any(c.shape[0] != n for c in _cv) or yv.shape[0] != n:
+        return False
+    rv = np.nan_to_num(rv, nan=0.0, posinf=0.0, neginf=0.0)
+    yv = np.nan_to_num(yv, nan=0.0, posinf=0.0, neginf=0.0)
+    # Rank-transform every series -> the partial correlation becomes a partial SPEARMAN,
+    # so a monotone-nonlinear target (log-linked count, ordinal) is recovered like a
+    # linear one while a non-monotone subsumed operand stays uncorrelated.
+    rv = _rank_transform(rv)
+    yv = _rank_transform(yv)
+    design = np.column_stack([_rank_transform(np.nan_to_num(c, nan=0.0, posinf=0.0, neginf=0.0)) for c in _cv])
+    ry = _residualize(yv, design)
+    rx = _residualize(rv, design)
+    if ry is None or rx is None:
+        return False
+    sx, sy = float(np.std(rx)), float(np.std(ry))
+    if sx < 1e-12 or sy < 1e-12:
+        return False
+    pcorr = float(np.corrcoef(rx, ry)[0, 1])
+    if not np.isfinite(pcorr) or abs(pcorr) < min_pcorr:
+        return False
+    # Permutation null: shuffle the raw residual; the 95th-percentile |corr| is the
+    # n-invariant spurious-correlation floor the real partial corr must clear.
+    rng = np.random.default_rng(seed)
+    null = np.empty(int(nperm), dtype=np.float64)
+    for k in range(int(nperm)):
+        perm = rng.permutation(rx)
+        null[k] = abs(float(np.corrcoef(perm, ry)[0, 1]))
+    floor_p95 = float(np.percentile(null[np.isfinite(null)], 95)) if np.any(np.isfinite(null)) else 1.0
+    return abs(pcorr) > floor_p95
+
+
 def drop_redundant_raw_operands(
     *,
     data: np.ndarray,
@@ -274,6 +387,7 @@ def drop_redundant_raw_operands(
     raw_X=None,
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
     floor_margin_mult: float = 1.0,
+    linear_usability_keep: bool = False,
     seed: int = 0,
     verbose: int = 0,
 ) -> tuple[list, list]:
@@ -767,6 +881,44 @@ def drop_redundant_raw_operands(
         # ``sin(b)`` of ``div(qubed(a),sin(b))``, cmi 0.0023 vs floor 0.0018 -> ratio 1.28).
         passes_floor = cmi > floor * float(floor_margin_mult)
         keep = passes_floor and (excess >= RAW_SELF_RETAIN_FRAC * max(0.0, raw_marg_excess))
+        # LINEAR-USABILITY KEEP-LEG (variant-3, 2026-06-20). The CMI legs above DROP a raw whose
+        # conditional excess collapses given the engineered children -- correct in FULL FE mode
+        # (the caller opted into replacing subsumed raws with engineered survivors: I4b drops
+        # ``a`` in ``a**2/b``), but WRONG in SIMPLE mode where the user wants a robust raw set and
+        # the engineered children are spurious nonlinear nestings of a fundamentally linear signal
+        # (``s0`` in ``y=2*s0-1.3*s1+0.8*s2`` is info-subsumed by a complex child yet still the
+        # right feature for a downstream model). Statistically the two cases are indistinguishable
+        # per-raw (a subsumed monotone operand is as linearly usable as a genuine linear term), so
+        # the override is gated on the mode: keep a linearly-usable raw ONLY in simple mode. Uses a
+        # permutation-floored partial rank-correlation given the children (n-invariant); a pure
+        # noise raw has ~0 residual -> stays dropped even in simple mode.
+        if not keep and linear_usability_keep:
+            try:
+                _lin_raw = None
+                if raw_X is not None and rname in getattr(raw_X, "columns", []):
+                    _lin_raw = np.asarray(raw_X[rname], dtype=np.float64).ravel()
+                if _lin_raw is None:
+                    _lin_raw = np.asarray(data[:, ri], dtype=np.float64).ravel()
+                _lin_y = (np.asarray(y_continuous, dtype=np.float64).ravel()
+                          if y_continuous is not None else np.asarray(y_arr, dtype=np.float64).ravel())
+                _lin_children = []
+                for _ei in consumers:
+                    _enm = cols[_ei]
+                    if engineered_continuous and _enm in engineered_continuous:
+                        _lin_children.append(np.asarray(engineered_continuous[_enm], dtype=np.float64).ravel())
+                    else:
+                        _lin_children.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
+                if raw_retains_linear_signal_given_children(_lin_raw, _lin_y, _lin_children, seed=seed):
+                    keep = True
+                    if verbose:
+                        logger.info(
+                            "raw-redundancy: KEEP %s via LINEAR-USABILITY leg (CMI collapsed "
+                            "cond_excess=%.5f but raw retains significant private linear signal "
+                            "given %s -- nonlinear child is not a linear equivalent)",
+                            rname, excess, [cols[e] for e in consumers],
+                        )
+            except Exception:
+                pass
         if keep:
             if verbose:
                 logger.info(

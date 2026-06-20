@@ -7875,6 +7875,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
                     _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
                     if _pcr_keep(raw_bin=_rb, y_bin=_pcr_y, genuine_child_bins=_child_bins,
+                                 allow_linear_usability=bool(getattr(self, "use_simple_mode", False)),
                                  seed=int(getattr(self, "random_seed", 0) or 0)) \
                             and _pcr_raw_is_significant(_ridx):
                         _pcr_readd.append(_ridx)
@@ -7955,6 +7956,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     recipes=engineered_recipes,
                     raw_X=X,
                     retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
+                    linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     verbose=verbose,
                 )
@@ -8387,6 +8389,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         replayable_eng_names=set(_recipe_names),
                         recipes=_ne_recipes,
                         raw_X=X,
+                        linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
                     )
                     _subsumed_operand_names = set(_ne_dropped or ())
@@ -8907,20 +8910,75 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _rr_excl_names.update(_n for _n in _grp if _n != _keep)
                             else:
                                 _rr_excl_names.update(_grp)
-                # SUBSUMED-OPERAND EXCLUSION: a raw that is an operand of a SURVIVING engineered feature is
-                # already represented by that feature, so re-attaching it re-injects the raw-redundancy the I4b
-                # invariant forbids (subsumed raw dropped at any nesting depth). The retention's PRIMARY case --
-                # under-ranked raws with NO surviving engineered form (weak additive g/k) -- is untouched: those
-                # are not engineered operands. (Engineered survivors live in the recipes, not in selected_vars.)
+                # SUBSUMED-OPERAND EXCLUSION (signal-aware, variant-3). A raw that is an operand of a
+                # SURVIVING engineered feature MAY be fully represented by that feature (re-attaching it then
+                # re-injects the raw-redundancy I4b forbids) -- but it may instead carry a large PRIVATE signal
+                # the engineered child only partially tracks (e.g. a dominant linear term ``y += 2*a`` that a
+                # nonlinear nesting ``sub(log(a),...)`` cannot capture). A blanket name-token exclusion drops
+                # BOTH cases and silently destroys genuine raw signal (fs_robustness: a linear ``y`` whose raws
+                # are all folded into nonlinear engineered survivors loses every raw -> empty support). Decide
+                # PER RAW with the same conditional-redundancy discriminator the rescue/drop passes use: exclude
+                # ONLY raws truly subsumed by the engineered survivors consuming them (no private signal given
+                # those children); KEEP raws that retain >= RAW_SELF_RETAIN_FRAC of their marginal excess.
                 from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT2
                 _rr_raw_set = set(self.feature_names_in_)
+                # raw name -> surviving engineered recipe names that consume it as an operand.
+                _rr_consumers: dict = {}
                 for _en in (getattr(self, "_engineered_recipes_", {}) or {}):
-                    for _tok in _RR_TOK_SPLIT2.split(str(_en)):
+                    _en_name = getattr(_en, "name", _en)
+                    for _tok in _RR_TOK_SPLIT2.split(str(_en_name)):
                         if not _tok:
                             continue
                         _base = _tok if _tok in _rr_raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
                         if _base in _rr_raw_set:
-                            _rr_excl_names.add(_base)
+                            _rr_consumers.setdefault(_base, set()).add(str(_en_name))
+                # Only the raws actually up for re-attachment need a verdict.
+                _rr_cand_subsumed = {str(_n) for _n in _raw_extra if str(_n) in _rr_consumers}
+                if _rr_cand_subsumed and not bool(getattr(self, "use_simple_mode", False)):
+                    # FULL FE mode: the caller opted into replacing subsumed raws with engineered
+                    # survivors, so exclude EVERY engineered operand from re-attachment unconditionally
+                    # (the I4b subsumed-raw contract). The signal-aware verdict below is only for SIMPLE
+                    # mode, where a linearly-usable raw must survive even when an engineered child encodes
+                    # it nonlinearly.
+                    _rr_excl_names.update(_rr_cand_subsumed)
+                elif _rr_cand_subsumed:
+                    try:
+                        from .._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children as _rr_keep
+                        from .._mi_greedy_cmi_fe import _quantile_bin as _rr_qbin
+                        _rr_cols_idx = {nm: i for i, nm in enumerate(cols)}
+                        _rr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
+                        _rr_eng_cont = _eng_continuous_snapshot or {}
+                        _rr_seed = int(getattr(self, "random_seed", 0) or 0)
+                        for _base in _rr_cand_subsumed:
+                            _ci = _rr_cols_idx.get(_base)
+                            if _ci is None:
+                                _rr_excl_names.add(_base)  # cannot test -> keep the conservative exclusion
+                                continue
+                            _raw_b = np.asarray(data[:, _ci]).astype(np.int64).ravel()
+                            _child_bins = []
+                            for _en_name in _rr_consumers.get(_base, ()):  # genuine engineered survivors
+                                _cci = _rr_cols_idx.get(_en_name)
+                                if _cci is not None:
+                                    _child_bins.append(np.asarray(data[:, _cci]).astype(np.int64).ravel())
+                                elif _en_name in _rr_eng_cont:
+                                    _child_bins.append(
+                                        np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=np.float64),
+                                                            nbins=10)).astype(np.int64).ravel()
+                                    )
+                            if not _child_bins:
+                                continue  # no usable child to condition on -> not provably subsumed -> KEEP
+                            try:
+                                _retains = _rr_keep(raw_bin=_raw_b, y_bin=_rr_y,
+                                                    genuine_child_bins=_child_bins,
+                                                    allow_linear_usability=bool(getattr(self, "use_simple_mode", False)),
+                                                    seed=_rr_seed)
+                            except Exception:
+                                _retains = True  # estimator error -> never drop genuine signal
+                            if not _retains:
+                                _rr_excl_names.add(_base)  # truly subsumed -> exclude from re-attach
+                    except Exception:
+                        # discriminator unavailable -> fall back to the conservative blanket exclusion.
+                        _rr_excl_names.update(_rr_cand_subsumed)
                 if _rr_excl_names:
                     _raw_extra = [_nm for _nm in _raw_extra if str(_nm) not in _rr_excl_names]
             if _raw_extra:
@@ -9040,6 +9098,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         engineered_continuous=_post_eng_cont,
                         replayable_eng_names=set(_post_recipes.keys()), recipes=_post_recipes,
                         raw_X=X, floor_margin_mult=1.5,
+                        linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
                     )
                     if _post_dropped:
