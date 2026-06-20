@@ -477,6 +477,114 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
         return None
 
 
+def _fe_gpu_pairs_mi_fallback_choice(n_rows: int, n_cols: int) -> str:
+    """Pre-sweep crossover for the FE pair-MI GPU path: GPU only when the work size ``n_rows * n_cols``
+    is large enough to amortise the per-pair H2D of the candidate matrix; CPU otherwise. Conservative so
+    a small/mid fit stays on the CPU (never a regression) until the per-host sweep refines it. Env
+    override ``MLFRAME_FE_GPU_DISCRETIZE_MIN_NK`` (default 2e6 ~= n=100k x K=20)."""
+    try:
+        min_nk = int(os.environ.get("MLFRAME_FE_GPU_DISCRETIZE_MIN_NK", "2000000"))
+    except ValueError:
+        min_nk = 2_000_000
+    return "gpu" if int(n_rows) * int(n_cols) >= min_nk else "cpu"
+
+
+def _make_fe_gpu_pairs_inputs(dims: dict) -> tuple:
+    """Synthetic (cand_matrix, nbins, classes_y, freqs_y) for the crossover sweep -- an a**2/b pair so
+    the analytic branch engages (n >= analytic_null_min_n)."""
+    n = int(dims["n_rows"])
+    rng = np.random.default_rng(0)
+    a = rng.uniform(1.0, 5.0, n); b = rng.uniform(1.0, 5.0, n)
+    cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
+    np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    y = a ** 2 / b
+    edges = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(edges, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+    return (cand, 20, yc, fy)
+
+
+def _run_fe_gpu_pairs_mi_sweep() -> list:
+    """Per-host CPU-vs-GPU crossover sweep for the FE pair-MI path -> backend_choice regions keyed on
+    n_rows. Both variants take the SAME (cand, nbins, yc, fy) and pay their own discretize (+ the GPU
+    H2D), so the timing is realistic; the GPU variant is bit-identical (verified) so equivalence holds at
+    a tight tol. Skips silently (-> []) when CUDA is unavailable."""
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        if not is_cuda_available():
+            return []
+    except Exception:
+        return []
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+    from .discretization import discretize_2d_quantile_batch
+    from .info_theory import batch_mi_with_noise_gate
+    from ._feature_engineering_pairs._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
+
+    def _cpu(cand, nbins, yc, fy):
+        disc = discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
+        return _dispatch_batch_mi_with_noise_gate(
+            disc_2d=disc, quantization_nbins=nbins, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
+            npermutations=3, min_nonzero_confidence=0.0, use_su=False, batch_mi_kernel=batch_mi_with_noise_gate,
+        )
+
+    def _gpu(cand, nbins, yc, fy):
+        return gpu_pairs_fe_mi(cand, nbins, yc, yc, fy, 3, 0.0, False)
+
+    return sweep_backend_grid(
+        {"cpu": _cpu, "gpu": _gpu},
+        {"n_rows": [50_000, 100_000, 300_000]},  # GPU path engages only at n >= analytic_null_min_n
+        _make_fe_gpu_pairs_inputs,
+        reference="cpu", repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
+    )
+
+
+def _fe_gpu_pairs_mi_code_version():
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        return compute_code_version(gpu_pairs_fe_mi, gpu_discretize_codes_host, _gpu_resident_discretize_codes)
+    except Exception:
+        return None
+
+
+def fe_gpu_pairs_mi_backend_choice(n_rows: int, n_cols: int) -> str:
+    """Per-host 'gpu' or 'cpu' for the FE pair-MI path via the shared get_or_tune orchestrator
+    (per-host cache, code-version checked, background sweep, measurement-backed fallback). Never blocks
+    the fit: async_sweep tunes off the hot path; the conservative fallback routes meanwhile."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        res = KernelTuningCache.load_or_create().get_or_tune(
+            "fe_gpu_pairs_mi",
+            dims={"n_rows": int(n_rows)},
+            tuner=_run_fe_gpu_pairs_mi_sweep,
+            axes=["n_rows"],
+            fallback={"backend_choice": _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)},
+            code_version=_fe_gpu_pairs_mi_code_version(),
+            async_sweep=True,
+        )
+        bc = res if isinstance(res, str) else str((res or {}).get("backend_choice", "cpu"))
+        return bc if bc in ("cpu", "gpu") else "cpu"
+    except Exception:
+        return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
+
+
+def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
+    """Force-run + persist the FE pair-MI CPU-vs-GPU crossover sweep for this host (CLI refresh hook)."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        cache = KernelTuningCache.load_or_create()
+        if not force:
+            existing = cache.get_regions("fe_gpu_pairs_mi")
+            if existing:
+                return existing
+        regions = _run_fe_gpu_pairs_mi_sweep()
+        if regions:
+            cache.update("fe_gpu_pairs_mi", axes=["n_rows"], regions=regions,
+                         code_version=_fe_gpu_pairs_mi_code_version())
+        return regions
+    except Exception:
+        return None
+
+
 def grand_fused_pair_mi(
     a, b, y_codes, classes_y_safe, freqs_y, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,

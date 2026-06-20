@@ -239,6 +239,11 @@ def _cmd_refresh_batch_mi_noise_gate(args) -> int:
     )
 
 
+def _cmd_refresh_fe_gpu_pairs_mi(args) -> int:
+    from mlframe.feature_selection.filters._gpu_resident_fe import ensure_fe_gpu_pairs_mi_tuning
+    return _refresh_generic("fe_gpu_pairs_mi", ensure_fe_gpu_pairs_mi_tuning, force=args.force)
+
+
 def _cmd_refresh_all(args) -> int:
     """Re-tune every registered kernel sweep. Saves ~10-30s per kernel.
 
@@ -260,6 +265,7 @@ def _cmd_refresh_all(args) -> int:
         _cmd_refresh_knn_hnsw_crossover(args),
         _cmd_refresh_discretize_2d_array(args),
         _cmd_refresh_batch_mi_noise_gate(args),
+        _cmd_refresh_fe_gpu_pairs_mi(args),
     ]
     return 0 if all(rc == 0 for rc in rcs) else 1
 
@@ -336,6 +342,10 @@ def main(argv=None) -> int:
         help="tune the batch_mi_noise_gate (FE pair-search noise-gate) CPU-vs-GPU sweep",
     )
     sub.add_parser(
+        "refresh-fe-gpu-pairs-mi", parents=[_force],
+        help="tune the FE pair-MI CPU-vs-GPU crossover (skip if cached)",
+    )
+    sub.add_parser(
         "refresh-all", parents=[_force],
         help="tune every registered kernel sweep (skip those already cached; --force to re-run)",
     )
@@ -358,6 +368,7 @@ def main(argv=None) -> int:
         "refresh-knn-hnsw-crossover": _cmd_refresh_knn_hnsw_crossover,
         "refresh-discretize-2d-array": _cmd_refresh_discretize_2d_array,
         "refresh-batch-mi-noise-gate": _cmd_refresh_batch_mi_noise_gate,
+        "refresh-fe-gpu-pairs-mi": _cmd_refresh_fe_gpu_pairs_mi,
         "refresh-all": _cmd_refresh_all,
     }[args.cmd](args)
 

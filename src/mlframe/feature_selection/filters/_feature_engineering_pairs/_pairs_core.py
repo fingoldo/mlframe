@@ -75,20 +75,28 @@ logger = logging.getLogger(__name__)
 
 
 def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
-    """Whether to run the per-pair quantile binning on the GPU (bit-identical to the CPU
-    ``discretize_2d_quantile_batch``, so the FE selection is unchanged -- this only moves the binning
-    work). Gated by ``MLFRAME_FE_GPU_DISCRETIZE`` (default OFF while the size crossover is validated +
-    moved into kernel_tuning_cache), requires CUDA, and only fires above a work-size crossover
-    ``n_rows * n_cands >= MLFRAME_FE_GPU_DISCRETIZE_MIN_NK`` (default 2_000_000 ~= n=100k x K=20) where
-    the GPU binning beats the CPU partition+searchsorted plus the H2D/D2H overhead. Any failure in the
-    GPU path falls back to the CPU discretiser at the call site."""
-    if os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "0").strip() in ("", "0", "false", "False"):
-        return False
-    if int(n_rows) * int(n_cands) < int(os.environ.get("MLFRAME_FE_GPU_DISCRETIZE_MIN_NK", "2000000")):
+    """Whether to run the per-pair candidate MI (binning + observed-MI) on the GPU. The GPU path is
+    BIT-IDENTICAL to the CPU analytic dispatch (verified maxdiff 0 on binning + observed MI), so the FE
+    selection is unchanged either way -- this only chooses the faster backend for the size.
+
+    ``MLFRAME_FE_GPU_DISCRETIZE`` tri-state: ``0/false`` forces CPU; ``1/true`` forces GPU when CUDA is
+    present; unset/``auto`` (the default) routes per-host via kernel_tuning_cache -- GPU only above the
+    measured n*K crossover, CPU below -- so a small fit is never regressed and a slow-H2D host that loses
+    on GPU is routed to CPU. Requires CUDA; any GPU failure falls back to the CPU dispatcher downstream."""
+    _env = os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "auto").strip().lower()
+    if _env in ("0", "false", "no", "off"):
         return False
     try:
         from pyutilz.core.pythonlib import is_cuda_available
-        return bool(is_cuda_available())
+        if not is_cuda_available():
+            return False
+    except Exception:
+        return False
+    if _env in ("1", "true", "yes", "on"):
+        return True
+    try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
+        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
+        return fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu"
     except Exception:
         return False
 
