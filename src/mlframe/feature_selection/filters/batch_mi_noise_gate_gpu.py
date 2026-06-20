@@ -170,6 +170,36 @@ def _mi_from_counts_cpu(
 
 
 @njit(nogil=True, cache=True)
+def _mi_columns_from_counts_cpu(
+    counts_flat: np.ndarray,    # (total_size,) int64 -- flat per-column joint histograms
+    col_offsets: np.ndarray,    # (K,) int64 -- start offset of column k
+    nbins_arr: np.ndarray,      # (K,) int64
+    K_y: int,
+    freqs_y: np.ndarray,        # (K_y,) float64
+    n: int,
+    use_su: bool,
+    ref_mi: np.ndarray,         # (K,) float64 -- compute column k only when ref_mi[k] > 0
+) -> np.ndarray:
+    """Reduce MI for ALL K columns in ONE njit call instead of K separate Python->njit
+    dispatches. Calls the SAME ``_mi_from_counts_cpu`` body per column (a compiled, not
+    Python, call here), so the result is BIT-IDENTICAL to the per-column loop. The
+    ``ref_mi`` mask reproduces the original loop's ``if original_mi[k] <= 0: continue``
+    perm-skip (pass an all-positive array to compute every column, e.g. the original-y
+    pass). Kills the ~1.9s the per-column ``_mi_from_counts_cpu`` dispatch cost across
+    K*(npermutations+1) calls (224k calls at the canonical FE size)."""
+    K = nbins_arr.shape[0]
+    out = np.zeros(K, dtype=np.float64)
+    for k in range(K):
+        if ref_mi[k] <= 0.0:
+            continue
+        nb_k = nbins_arr[k]
+        off = col_offsets[k]
+        block = counts_flat[off: off + nb_k * K_y].reshape(nb_k, K_y)
+        out[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+    return out
+
+
+@njit(nogil=True, cache=True)
 def _fisher_yates_shuffle(classes_y_safe: np.ndarray, base_seed: np.uint64, perm_index: int) -> np.ndarray:
     """Bit-identical copy of the CPU kernel's per-permutation Fisher-Yates shuffle
     (LCG seed ``base_seed*2654435761 + (i+1)`` then the PCG step). Returns a fresh
@@ -303,13 +333,11 @@ def batch_mi_with_noise_gate_cupy_v1(
         flat = _cupy_bincount_known_size(d_idx, total_size)
         return cp.asnumpy(flat)  # (total_size,) int64 on host
 
-    # Original MI.
+    # Original MI. Per-column MI reduction batched into one njit call (bit-identical).
+    _col_off = offsets[:K]
+    _all_pos = np.ones(K, dtype=np.float64)
     counts_orig = _joint_counts_for(np.asarray(classes_y, dtype=np.int64))
-    original_mi = np.zeros(K, dtype=np.float64)
-    for k in range(K):
-        nb_k = int(nbins_arr[k])
-        block = counts_orig[offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
-        original_mi[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+    original_mi = _mi_columns_from_counts_cpu(counts_orig, _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos)
 
     if npermutations <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
@@ -321,13 +349,7 @@ def batch_mi_with_noise_gate_cupy_v1(
     for i in range(npermutations):
         shuffled = _fisher_yates_shuffle(cy_safe, np.uint64(base_seed), i)
         counts_p = _joint_counts_for(np.asarray(shuffled, dtype=np.int64))
-        mp = np.zeros(K, dtype=np.float64)
-        for k in range(K):
-            if original_mi[k] <= 0.0:
-                continue
-            nb_k = int(nbins_arr[k])
-            block = counts_p[offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
-            mp[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+        mp = _mi_columns_from_counts_cpu(counts_p, _col_off, nbins_arr, K_y, freqs_y, n, use_su, original_mi)
         perm_mis.append(mp)
 
     return _gate_from_mi(original_mi, perm_mis, npermutations, min_nonzero_confidence)
@@ -503,12 +525,13 @@ def batch_mi_with_noise_gate_cupy(
         start = stop
     del d_base, d_base_3d, d_disc, d_offsets, d_y_all
 
-    # ---- Bit-exact CPU MI reduction from the integer counts (same as v1).
-    original_mi = np.zeros(K, dtype=np.float64)
-    for k in range(K):
-        nb_k = int(nbins_arr[k])
-        block = counts_all[0, offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
-        original_mi[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+    # ---- Bit-exact CPU MI reduction from the integer counts (same as v1). Per-column
+    # reduction batched into one njit call per row (bit-identical, kills dispatch overhead).
+    _col_off = offsets[:K]
+    _all_pos = np.ones(K, dtype=np.float64)
+    original_mi = _mi_columns_from_counts_cpu(
+        np.ascontiguousarray(counts_all[0]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos
+    )
 
     if nperm <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
@@ -521,14 +544,9 @@ def batch_mi_with_noise_gate_cupy(
     # full-reduction + _gate_from_mi. Re-evaluate only under high-npermutations workloads.
     perm_mis = []
     for i in range(nperm):
-        cp_row = counts_all[i + 1]
-        mp = np.zeros(K, dtype=np.float64)
-        for k in range(K):
-            if original_mi[k] <= 0.0:
-                continue
-            nb_k = int(nbins_arr[k])
-            block = cp_row[offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
-            mp[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+        mp = _mi_columns_from_counts_cpu(
+            np.ascontiguousarray(counts_all[i + 1]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, original_mi
+        )
         perm_mis.append(mp)
 
     return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
@@ -641,12 +659,10 @@ def batch_mi_with_noise_gate_cuda(
             _CUDA_HIST_KERNEL[K, threads_per_block](d_disc, d_off, d_nb, d_y, d_counts, n, K_y)
         return d_counts.copy_to_host()
 
+    _col_off = offsets[:K]
+    _all_pos = np.ones(K, dtype=np.float64)  # original-y pass: compute every column
     counts_orig = _counts_for(np.asarray(classes_y, dtype=np.int32))
-    original_mi = np.zeros(K, dtype=np.float64)
-    for k in range(K):
-        nb_k = int(nbins_arr[k])
-        block = counts_orig[offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
-        original_mi[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+    original_mi = _mi_columns_from_counts_cpu(counts_orig, _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos)
 
     if npermutations <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
@@ -654,17 +670,14 @@ def batch_mi_with_noise_gate_cuda(
     cy_safe = np.asarray(classes_y_safe)
     # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) --
     # BYTE-IDENTICAL but no scene wall win; keep full reduction + _gate_from_mi.
+    # The per-column MI reduction is batched into one njit call per permutation
+    # (_mi_columns_from_counts_cpu) -- skips columns where original_mi<=0 exactly as the
+    # old inner loop did; bit-identical, kills the 224k per-call dispatch overhead.
     perm_mis = []
     for i in range(npermutations):
         shuffled = _fisher_yates_shuffle(cy_safe, np.uint64(base_seed), i)
         counts_p = _counts_for(np.asarray(shuffled, dtype=np.int32))
-        mp = np.zeros(K, dtype=np.float64)
-        for k in range(K):
-            if original_mi[k] <= 0.0:
-                continue
-            nb_k = int(nbins_arr[k])
-            block = counts_p[offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
-            mp[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+        mp = _mi_columns_from_counts_cpu(counts_p, _col_off, nbins_arr, K_y, freqs_y, n, use_su, original_mi)
         perm_mis.append(mp)
 
     return _gate_from_mi(original_mi, perm_mis, npermutations, min_nonzero_confidence)
