@@ -474,6 +474,10 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
         return analytic_batch_noise_gate(codes, np.asarray(observed, dtype=np.float64), yc, n,
                                          float(min_nonzero_confidence))
     except Exception:
+        # Surface the cause (don't silently degrade to CPU forever): a real logic/shape/numeric bug in
+        # the GPU path would otherwise be invisible -- the exact "GPU never helped" failure mode.
+        import logging
+        logging.getLogger(__name__).debug("gpu_pairs_fe_mi failed; CPU fallback", exc_info=True)
         return None
 
 
