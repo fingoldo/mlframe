@@ -371,6 +371,32 @@ def test_gpu_discretize_codes_host_k1_chunk_guard(monkeypatch):
     assert np.array_equal(cpu, gpu)
 
 
+def test_radix_select_edges_codes_bit_identical_to_percentile(monkeypatch):
+    """ROADMAP #2: the rank-EXACT sort-free radix-select quantile-edge path (MLFRAME_FE_GPU_RADIX_EDGES=1,
+    the default) must produce codes BIT-IDENTICAL (maxdiff 0) to the cp.percentile full-sort fallback
+    (=0), for BOTH binning dtypes and on heavy-tailed candidates -- it only replaces HOW the nbins-1
+    interior edges are computed (radix-select of the bracketing order statistics + cupy's exact 'linear'
+    interpolation), not the emit contract. This locks the exactness the production gate depends on."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_resident_discretize_codes
+
+    rng = np.random.default_rng(3)
+    for dt in (cp.float32, cp.float64):
+        for n, K in ((10_000, 384), (50_000, 257), (40_000, 1)):
+            base = rng.standard_normal((n, K)).astype(np.dtype(dt.__name__))
+            # heavy-tailed a**2/b-style stress in a third of the columns (outlier-stretched ranges)
+            if K >= 3:
+                hk = base[:, ::3].shape[1]
+                base[:, ::3] = (base[:, ::3] ** 2) / (rng.standard_normal((n, hk)).astype(base.dtype) + 3.0)
+            cand = cp.ascontiguousarray(cp.asarray(base))
+            monkeypatch.setenv("MLFRAME_FE_GPU_RADIX_EDGES", "1")
+            codes_radix = _gpu_resident_discretize_codes(cand, 20)
+            monkeypatch.setenv("MLFRAME_FE_GPU_RADIX_EDGES", "0")
+            codes_sort = _gpu_resident_discretize_codes(cand, 20)
+            maxdiff = int(cp.abs(codes_radix.astype(cp.int64) - codes_sort.astype(cp.int64)).max())
+            assert maxdiff == 0, f"dt={dt.__name__} n={n} K={K} radix vs percentile code maxdiff={maxdiff}"
+
+
 def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
     """gpu_pairs_fe_mi (GPU binning + GPU observed-MI + analytic gate) must equal the production CPU
     _dispatch_batch_mi_with_noise_gate on its analytic branch -- this is the selection-identity contract

@@ -534,6 +534,189 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
 
+# RANK-EXACT SORT-FREE QUANTILE EDGES via RADIX-SELECT (roadmap #2, 2026-06-20). cp.percentile bins each
+# column with a FULL O(n log n) sort (profiled n=100k/79s: the cp.percentile SORT in this function = 12.9s,
+# the #1 production GPU cost) but it only needs the nbins-1 INTERIOR quantile EDGES -- i.e. the ~2*(nbins-1)
+# bracketing ORDER STATISTICS per column, not a full ordering. This kernel extracts exactly those order
+# statistics with a byte-digit RADIX-SELECT: one block per column, R<=2*(nbins-1) target ranks resolved
+# TOGETHER in 8 (float64) / 4 (float32) histogram passes over the column. Each pass reads the column once,
+# bins each row's current byte-digit into its rank-window's 256-bucket SHARED-MEM histogram (a row maps to
+# exactly ONE active window, found by matching its fixed high-byte prefix), then advances every rank's
+# prefix to the bucket holding its target rank. After all passes each rank's exact order-statistic VALUE
+# is recovered from the converged key. The float key is the standard order-preserving IEEE transform
+# (flip sign bit for positives, all bits for negatives) so the byte order == the float order EXACTLY ->
+# the recovered values are BIT-IDENTICAL to the sorted column at those ranks (verified maxdiff 0 on the
+# order stats; the codes through cp.searchsorted match cp.percentile maxdiff 0 across all columns).
+#
+# WHY THIS WINS (the prior estimate said ~8-11 passes ~= sort bandwidth so it may NOT win -- DISPROVEN for
+# THIS cupy: cp.percentile uses a comparison MERGE-sort over (value,index) zip-iterators, NOT a radix sort;
+# nvprof n=300k K=384: DeviceMergeSort{Merge,BlockSort,Partition} = 65.6% of binning, far above the linear
+# bandwidth floor. The 8-pass radix-select read floor measured 16-17x faster than that sort.) MEASURED
+# GTX 1050 Ti, R=38, heavy-tailed a**2/b candidates, CUDA-event A/B vs cp.percentile, BIT-IDENTICAL codes
+# (maxdiff 0 all columns): f64  100k 1.17x / 300k 1.19x / 1M 2.06x;  f32  100k 2.38x / 300k 2.30x / 1M
+# 3.67x. The win GROWS with n (O(n) select vs O(n log n) sort) -- exactly the large-n*K regime the GPU
+# binning engages (the auto-router keeps small n on the CPU). The per-row inner window-match loop (R<=40)
+# keeps the real time above the bare bandwidth floor; a sorted-prefix binary search is the obvious next
+# lever (FUTURE) but the current kernel already beats the sort at every measured size.
+#
+# EXACTNESS / fallback: the order statistics are exact; the cupy 'linear' interpolation is reproduced in
+# float64 EXACTLY (idx=q*(N-1); w=idx-floor(idx); w<0.5 ? below+diff*w : above-diff*(1-w); diff in f64 over
+# the (f32-promoted-to-f64 or native-f64) order stats) so the edges -> codes equal cp.percentile bit-for-
+# bit. cp.percentile stays the gated exact fallback: MLFRAME_FE_GPU_RADIX_EDGES=0 forces it, and ANY kernel
+# failure (compile / launch / shared-mem overflow) falls back to cp.percentile inside this function. The
+# shared histogram is R*256 uint32 (R<=40 -> <=40KB < the 48KB default) plus a few small per-rank arrays;
+# the host gates the radix path off (-> cp.percentile) if that ever exceeds the device limit.
+_RADIX_SELECT_F64_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f64(const double* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, double* __restrict__ out){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];          // W*256 histogram (counts <= n < 2^31 -> uint32 ok)
+    __shared__ unsigned long long prefix[MAXR];   // per-rank running key prefix (high bytes fixed)
+    __shared__ unsigned long long below[MAXR];    // count strictly below each rank's window
+    __shared__ unsigned long long wpref[MAXR];    // distinct active window prefixes (masked)
+    __shared__ int rank2w[MAXR];                  // rank -> window index
+    __shared__ int W;
+    if(tid<R){prefix[tid]=0ULL;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=7;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned long long hmask=(byte==7)?0ULL:(0xFFFFFFFFFFFFFFFFULL<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned long long p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            double d=data[i*K+col];unsigned long long u;memcpy(&u,&d,8);
+            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            unsigned long long pm=u&hmask;int win=-1;
+            for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
+            if(win>=0){int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        if(tid==0){for(int r=0;r<R;++r){int w=rank2w[r];unsigned long long acc=below[r];int chosen=0;long long want=ranks[r];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[r]=acc;prefix[r]=(prefix[r]&hmask)|((unsigned long long)chosen<<shift);}}
+        __syncthreads();
+    }
+    if(tid<R){unsigned long long u=prefix[tid];u=(u&0x8000000000000000ULL)?(u&0x7FFFFFFFFFFFFFFFULL):~u;
+        double d;memcpy(&d,&u,8);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F32_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f32(const float* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, float* __restrict__ out){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned int prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned int wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ int W;
+    if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=3;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            float d=data[i*K+col];unsigned int u;memcpy(&u,&d,4);
+            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            unsigned int pm=u&hmask;int win=-1;
+            for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
+            if(win>=0){int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        if(tid==0){for(int r=0;r<R;++r){int w=rank2w[r];unsigned long long acc=below[r];int chosen=0;long long want=ranks[r];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[r]=acc;prefix[r]=(prefix[r]&hmask)|((unsigned int)chosen<<shift);}}
+        __syncthreads();
+    }
+    if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)
+_RADIX_SELECT_F32_KERNEL = None
+_RADIX_SELECT_THREADS = 512  # measured sweet spot on GTX 1050 Ti (256/512/1024); FUTURE: kernel_tuning_cache
+_RADIX_SELECT_MAXR = 64      # must match MAXR in the kernel sources
+
+
+def _get_radix_select_kernel(is_f32: bool):
+    global _RADIX_SELECT_F64_KERNEL, _RADIX_SELECT_F32_KERNEL
+    import cupy as cp
+    if is_f32:
+        if _RADIX_SELECT_F32_KERNEL is None:
+            _RADIX_SELECT_F32_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_SRC, "radix_select_f32")
+        return _RADIX_SELECT_F32_KERNEL
+    if _RADIX_SELECT_F64_KERNEL is None:
+        _RADIX_SELECT_F64_KERNEL = cp.RawKernel(_RADIX_SELECT_F64_SRC, "radix_select_f64")
+    return _RADIX_SELECT_F64_KERNEL
+
+
+def fe_gpu_radix_edges_enabled() -> bool:
+    """Whether the rank-EXACT sort-free radix-select quantile edges replace cp.percentile's full sort.
+    ON unless ``MLFRAME_FE_GPU_RADIX_EDGES`` is explicitly falsy (it is bit-identical to cp.percentile in
+    the produced codes -- verified maxdiff 0 -- and faster, the win growing with n; cp.percentile stays
+    the gated exact fallback one env flip away and the automatic fallback on any kernel failure)."""
+    return os.environ.get("MLFRAME_FE_GPU_RADIX_EDGES", "1").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _radix_select_interior_edges(cand_gpu, nbins: int):
+    """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
+    sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
+    are BIT-IDENTICAL (in the resulting codes) to ``cp.percentile(cand, linspace(0,100,nbins+1))[1:-1]``.
+    Returns ``None`` if the radix path is inapplicable (R over the kernel cap, shared-mem over the device
+    limit) so the caller uses the cp.percentile fallback. ``cand_gpu`` must be C-contiguous (n, K)."""
+    import cupy as cp
+
+    n, K = cand_gpu.shape
+    is_f32 = cand_gpu.dtype == cp.float32
+    # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
+    qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0   # (nbins-1,) fractions
+    idx = qfr * (n - 1)
+    bel = np.floor(idx).astype(np.int64)
+    abv = np.minimum(bel + 1, n - 1)
+    uniq = np.unique(np.concatenate([bel, abv]))                   # the order-statistic ranks to extract
+    R = int(uniq.size)
+    if R > _RADIX_SELECT_MAXR:
+        return None
+    # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit).
+    shmem = R * 256 * 4
+    try:
+        dev = cp.cuda.Device()
+        sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+    except Exception:
+        sh_limit = 48 * 1024
+    if shmem > sh_limit:
+        return None
+    ranks_g = cp.asarray(uniq, dtype=cp.int64)
+    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
+    ker = _get_radix_select_kernel(is_f32)
+    ker((K,), (_RADIX_SELECT_THREADS,),
+        (cand_gpu, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
+    # the cupy_percentile_weightnening elementwise kernel (U=float64; below/above promoted; w in float64).
+    pos = {int(r): i for i, r in enumerate(uniq)}
+    bi = cp.asarray([pos[int(b)] for b in bel], dtype=cp.int64)
+    ai = cp.asarray([pos[int(a)] for a in abv], dtype=cp.int64)
+    ab = osv[bi, :].astype(cp.float64)
+    aa = osv[ai, :].astype(cp.float64)
+    w = cp.asarray(idx - bel)            # float64 weight_above = idx - floor(idx)
+    diff = aa - ab
+    edges = cp.where(w[:, None] < 0.5, ab + diff * w[:, None], aa - diff * (1.0 - w)[:, None])
+    return edges                          # (nbins-1, K) float64
+
+
 def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
     """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
     ``discretize_2d_array_cuda`` -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
@@ -562,6 +745,24 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
     if cand_gpu.dtype != work:
         cand_gpu = cand_gpu.astype(work, copy=False)
     n, K = cand_gpu.shape
+
+    # RANK-EXACT SORT-FREE EDGES (roadmap #2): extract just the nbins-1 interior quantile edges via the
+    # radix-select kernel instead of cp.percentile's full sort. Bit-identical codes (verified maxdiff 0),
+    # faster (win grows with n). Returns None -> cp.percentile fallback (R over cap / shared-mem over the
+    # device limit); any kernel exception also falls back. cp.percentile's interior edges are bin_edges[1:-1].
+    if fe_gpu_radix_edges_enabled() and n > 0:
+        try:
+            interior = _radix_select_interior_edges(cp.ascontiguousarray(cand_gpu), int(nbins))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("radix-select edges failed; cp.percentile fallback", exc_info=True)
+            interior = None
+        if interior is not None:
+            out = cp.empty((n, K), dtype=cp.int32)
+            for j in range(K):
+                out[:, j] = cp.searchsorted(interior[:, j], cand_gpu[:, j], side="right")
+            return out
+
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
     if K == 1:
         # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array
