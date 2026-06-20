@@ -246,7 +246,7 @@ def _conditional_perm_null(
     # the null distribution of the plug-in CMI under conditional independence X _||_ Y | Z. That
     # null has a known asymptotic form: the likelihood-ratio (G) statistic ``2N * CMI`` is
     # chi-square with df = ``sum_z (Bx_z - 1)(By_z - 1)``, summed over the conditioning strata.
-    # Using OCCUPIED-cell counts this df equals exactly ``k_xz + k_yz - k_z - k_xyz`` -- the SAME
+    # Using OCCUPIED-cell counts this df equals exactly ``k_xyz + k_z - k_xz - k_yz`` -- the SAME
     # quantity the Miller-Madow bias term in ``_cmi_from_binned`` already computes (the plug-in CMI
     # bias is ``-df/(2N)``). So the null is distributed as ``chi2(df)/(2N)``:
     #   * null_mean = E[chi2(df)/(2N)] = df/(2N)  -- IDENTICAL to what the permutation mean estimates
@@ -283,7 +283,14 @@ def _conditional_perm_null(
                 _, k_xz = _entropy_from_classes(xz)
                 _, k_yz = _entropy_from_classes(yz)
                 _, k_xyz = _entropy_from_classes(xyz)
-                _df = int(k_xz) + int(k_yz) - int(k_z) - int(k_xyz)
+                # df = sum_z (Bx_z - 1)(By_z - 1) over OCCUPIED strata = k_xyz - k_xz - k_yz + k_z
+                # (occupied-cell expansion). This is EXACTLY the Miller-Madow CMI bias numerator
+                # ``_cmi_from_binned`` uses (``cmi_bias = (k_xyz + k_z - k_xz - k_yz)/(2n)``), so
+                # ``null_mean = df/(2N)`` matches the plug-in CMI's bias term sign-for-sign and is
+                # always >= 0 for nested supports. (Prior form ``k_xz+k_yz-k_z-k_xyz`` was the NEGATED
+                # quantity -> df<0 for every sparse high-cardinality joint, so the >0 guard below sent
+                # ALL conditional calls to the permutation null and the analytic path never engaged.)
+                _df = int(k_xyz) + int(k_z) - int(k_xz) - int(k_yz)
                 _cells = max(1, int(k_xyz))
             # Sparse-cell safe-condition (chi-square "expected >= 5" rule): avg expected count over
             # the joint cells must clear the floor, else the asymptotic is unreliable -> permute.
