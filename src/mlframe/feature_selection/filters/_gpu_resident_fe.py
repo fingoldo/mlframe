@@ -301,6 +301,14 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     # ``_hermite_fe_mi`` import below can't trip the _ensure_cuda_kernels back-import cycle.
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda
 
+    # bench-attempt-rejected (2026-06-20, "eliminate ALL f64 in the GPU FE MI path" on the GTX 1050 Ti):
+    # generating + scoring this whole chain in float32 (operands/fused-gen/binning/MI all f32) gave only
+    # 1.09x @100k / 1.14x @300k AND FLIPPED the winner at n=300k (div(identity(a),sqrt(b)) ->
+    # mul(sqr(a),reciproc(b)) -- both spell a**2/b, a near-tie cluster the f32 round-off reorders), i.e.
+    # selection instability for a small win. The f64 1/32 penalty does NOT live in the MI math (math-only
+    # f32 = 1.00x; see _hermite_fe_mi._plugin_mi_classif_batch_cuda note) but in the BINNING sort, which is
+    # captured separately via MLFRAME_FE_GPU_BINNING_DTYPE. So this path stays f64. (proto
+    # D:/Temp/_bench_resident_f32.py)
     a_gpu = cp.asarray(a, dtype=cp.float64)   # the ONE H2D of the raw operands
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])

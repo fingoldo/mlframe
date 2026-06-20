@@ -258,6 +258,16 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
 
     # MI sum vectorised across cells. Cells with zero count contribute 0
     # (same as the njit ``if n_xy == 0: continue`` short-circuit).
+    # bench-attempt-rejected (2026-06-20, GTX 1050 Ti, "eliminate ALL f64 in the GPU MI math"): the
+    # histogram freqs/log/entropy-sum here were cast to float32 to chase the consumer-GPU f64 1/32-rate
+    # penalty. Measured NO win: math-only f64->f32 = 1.00-1.01x at n=100k-300k K=384 (the math runs on the
+    # tiny (k,nbins,nclasses) integer-derived hist -- it is NOT where the f64 penalty bites). The penalty
+    # is entirely in the BINNING sort (cp.asarray(...f64) + cp.percentile + cp.searchsorted): bin f64->f32
+    # alone = 1.33-1.51x, and math f32 on top of that adds 0.00x more. So the MI MATH stays f64 (free
+    # bit-fidelity to the njit reference); the binning-dtype lever is the real win and is owned by the
+    # MLFRAME_FE_GPU_BINNING_DTYPE path. Full-chain f32 also FLIPPED the argmax at n=300k among the
+    # equivalent a**2/b spellings (div(id,sqrt) -> mul(sqr,reciproc), a tie-cluster reorder) -- selection
+    # instability for no math speedup. (proto D:/Temp/_bench_mi_dtype*.py)
     log_n = math.log(n)
     mask = hist_xyc > 0
     safe_xyc = cp.where(mask, hist_xyc, 1.0)
