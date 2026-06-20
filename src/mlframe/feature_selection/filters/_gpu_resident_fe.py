@@ -108,6 +108,25 @@ _MINIMAL_UNARY = ("identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "s
 _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 
 
+# RESIDENCY REPLATFORM MAP (2026-06-21, measured -- the production chunk path, NOT this prototype).
+# Goal: kill the FE chunk's bulk float-buffer D2H. ``gpu_materialise_discretize_codes_host`` D2Hs the
+# full (n,K) float candidate buffer via ``out_cand`` -- measured 6.7 GB total across the canonical
+# n=100k fit (15 calls), a large slice of the ~10.5s ``cupy.get`` wall. The codes (for MI) are produced
+# RESIDENT and don't need that buffer; only a HANDFUL of host reads do.
+#   * Final survivors ALREADY recompute from raw via ``_rebuild_full_survivor_col`` (the subsample path,
+#     _pairs_core.py:2218) -- they do NOT read the float buffer.
+#   * The bulk float buffer feeds only the INTERMEDIATE subsample scoring reads in check_prospective_fe_pairs:
+#     best-config (~1625/1749), multi-emit (~2126/2137), MI-replay (~1499). A few columns per pair.
+# So the win = KEEP the chunk-batch GPU-codes path, pass ``out_cand=None`` (skip the 6.7 GB D2H), and
+# route those few intermediate reads through the SAME validated recompute helper (``_config_by_i`` /
+# ``_rebuild_full_survivor_col``, already bit-identical). Gate it on the GPU-fused path actually running
+# (else the CPU binning still needs the buffer) and report ``float_deferred`` back from the chunk so the
+# caller knows to recompute vs read the buffer.
+# MEASURED CONSTRAINT: forcing the pure recompute path (no buffer, no chunk-batch) is 3x SLOWER
+# (217s vs 69s) -- chunk-batch is essential, so the replatform must COMBINE chunk-batch + deferred-float
+# + per-read recompute, NOT replace chunk-batch with recompute. Implement gated + pin-validated.
+
+
 def fe_gpu_resident_enabled() -> bool:
     """Whether the GPU-resident FE prototype is active. OFF unless ``MLFRAME_FE_GPU_RESIDENT`` truthy."""
     return os.environ.get("MLFRAME_FE_GPU_RESIDENT", "").strip().lower() in ("1", "true", "on", "yes")
