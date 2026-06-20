@@ -29,15 +29,15 @@ def raws_linearly_explain_y(
     ``y`` well -- i.e. there is no nonlinear/interaction structure left for a downstream nonlinear-FE pass
     to recover, so it can be skipped. Row-subsamples to ``max_rows`` so the probe stays ~O(0.1s).
 
-    REGRESSION (default): in-sample R^2 >= ``thresh`` (LinearRegression). Behaviour unchanged from the
-    original regression-only contract.
+    REGRESSION (default): in-sample R^2 >= ``thresh`` (LinearRegression) -- a low residual variance means a
+    nonlinear pass cannot add much, so it is skipped.
 
-    CLASSIFICATION (2026-06-18): a logistic model (StandardScaler+LogisticRegression) is fitted on the raw
-    numeric columns and the gate fires on a held-in CLASSIFICATION metric instead of R^2 -- binary AUC (or
-    multiclass accuracy) >= ``clf_thresh``. A polynomial / interaction classification target (the recovered
-    pure form lifts AUC) leaves the raw-only logistic AUC well below ``clf_thresh`` -> the passes still
-    fire; an already-linearly-separable target clears it -> they are skipped. Returns ``False`` on any
-    error (run the passes -- correctness over the optimisation)."""
+    CLASSIFICATION: always returns ``False`` (keep the passes). A high raw-only logistic AUC/accuracy does
+    NOT imply the absence of exploitable nonlinear/discrete structure -- a linearly-SEPARABLE target can
+    still hold a clean composite the operators recover (canonical: y=argmax(a,b,c) is high-accuracy from the
+    raws yet argmax__a__b__c is a genuine selectable composite), so an in-sample classification score is not
+    a licence to skip an enabled discrete-structural operator. ``clf_thresh`` is retained for back-compat
+    only. Returns ``False`` on any error (run the passes -- correctness over the optimisation)."""
     try:
         import pandas as pd
         from ._fe_accuracy_gate import infer_classification
@@ -53,7 +53,15 @@ def raws_linearly_explain_y(
             return False
 
         is_clf = infer_classification(yraw)
-        if not is_clf:
+        if is_clf:
+            # CLASSIFICATION: always keep the operators (return False). A high raw-only logistic
+            # AUC/accuracy does NOT mean there is no exploitable nonlinear/discrete structure -- a
+            # linearly-SEPARABLE target can still hold a clean composite the operators recover
+            # (canonical: y=argmax(a,b,c) -- raw-only logistic accuracy is high, yet argmax__a__b__c
+            # is a genuine selectable composite). The in-sample classification score is NOT a licence
+            # to skip an enabled discrete-structural operator, so the R^2-style shortcut is regression-only.
+            return False
+        else:
             # REGRESSION path -- byte-identical to the original contract.
             if yraw.dtype.kind not in "fiu":
                 return False  # non-numeric target -> classification-like; keep the passes
@@ -75,33 +83,6 @@ def raws_linearly_explain_y(
 
             r2 = float(make_pipeline(StandardScaler(), LinearRegression()).fit(Xn, yy).score(Xn, yy))
             return r2 >= thresh
-
-        # CLASSIFICATION path -- a logistic model + a classification metric gate.
-        classes, y_enc = np.unique(yraw, return_inverse=True)
-        if classes.size < 2:
-            return False  # degenerate single-class -> keep the passes
-        if n > max_rows:
-            rg = np.random.default_rng(int(seed) + 11)
-            idx = np.sort(rg.choice(n, size=max_rows, replace=False))
-            Xn = X.iloc[idx][num_cols].to_numpy(dtype=np.float64, copy=False)
-            yy = y_enc[idx]
-        else:
-            Xn = X[num_cols].to_numpy(dtype=np.float64, copy=False)
-            yy = y_enc
-        if np.unique(yy).size < 2:
-            return False
-        Xn = np.nan_to_num(Xn, nan=0.0, posinf=0.0, neginf=0.0)
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.pipeline import make_pipeline
-        from sklearn.metrics import roc_auc_score, accuracy_score
-
-        clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=200)).fit(Xn, yy)
-        if classes.size == 2:
-            score = float(roc_auc_score(yy, clf.predict_proba(Xn)[:, 1]))
-        else:
-            score = float(accuracy_score(yy, clf.predict(Xn)))
-        return score >= clf_thresh
     except Exception:
         return False
 
