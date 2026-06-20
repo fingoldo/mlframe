@@ -306,9 +306,18 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
     Returns -1 when the name is not in the log (e.g. raw column carried
     via the empty-support fallback). Tests treat -1 as "no greedy rank".
     """
+    # Compare on the SIMPLIFIED name on BOTH sides: ``name`` arrives already simplified
+    # (it is a ``_final_feature_order`` entry, which mirrors get_feature_names_out's
+    # value-preserving DISPLAY canonicalisation), but the predictor log stores the RAW
+    # op-name, so a raw-vs-simplified compare would miss the rank of any column whose
+    # name canonicalises (e.g. a dead ``neg(b)`` under an ``abs``). ``simplify_fe_name``
+    # is idempotent, so simplifying an already-simplified ``name`` is a no-op.
+    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+    _target = simplify_fe_name(str(name)) if name is not None else name
     for idx, entry in enumerate(predictors or ()):
         try:
-            if entry.get("name") == name:
+            _en = entry.get("name")
+            if _en is not None and simplify_fe_name(str(_en)) == _target:
                 return idx
         except Exception:
             continue
@@ -344,9 +353,19 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
                     _append(feature_names_in[int(idx)])
         except Exception:
             pass
+    # NAME-SYNC with get_feature_names_out (2026-06-20). ``get_feature_names_out`` advertises
+    # engineered columns through ``simplified_recipe_names`` (value-preserving DISPLAY canonicalisation,
+    # e.g. ``abs(div(sqr(a),neg(b)))`` -> ``abs(div(sqr(a),b))``), so the support_/output label of an
+    # engineered feature is its SIMPLIFIED name. The provenance table documents ``feature_name`` as
+    # "the column name in support_/engineered output", so it MUST use the same simplified form -- else a
+    # lookup ``prov[prov.feature_name == out_name]`` misses (observed for the clean additive composite
+    # whose ``neg(b)`` inside an ``abs`` canonicalises away in the output but not here). Apply the SAME
+    # per-name simplifier; it is idempotent + safe on raw column names (returns them unchanged).
+    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
     engineered_recipes = getattr(mrmr_self, "_engineered_recipes_", None) or ()
     for recipe in engineered_recipes:
-        _append(getattr(recipe, "name", None))
+        _nm = getattr(recipe, "name", None)
+        _append(simplify_fe_name(_nm) if _nm is not None else None)
     # Drain every survivor roster the transform path replays so each surviving mechanism shows up even when no recipe object was emitted by the FE step (the L34/L37/L38 stages store their outputs as
     # roster names + replay logic, not as EngineeredRecipe instances). Rosters are post-reconciliation (survivor-only), so this never adds a screened-out name.
     for attr, _label in _ROSTER_ATTR_TO_ORIGIN:
@@ -362,7 +381,8 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     # ledger reflects the full set of mechanisms that fired, not just the survivors.
     produced = getattr(mrmr_self, "_produced_recipes_", None) or ()
     for recipe in produced:
-        _append(getattr(recipe, "name", None))
+        _nm = getattr(recipe, "name", None)
+        _append(simplify_fe_name(_nm) if _nm is not None else None)
     return names
 
 
@@ -385,13 +405,19 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     # Index BOTH the survivor recipes and the full produced-recipes ledger by name so every engineered column -- survivor or screened-out -- resolves to its true origin via its recipe.kind rather than
     # falling through to "engineered_unknown". Survivor recipes take precedence (same object when both contain a name); the produced ledger only ADDS the dropped names.
     produced_recipes = list(getattr(mrmr_self, "_produced_recipes_", []) or [])
+    # Key by the SIMPLIFIED recipe name (the same value-preserving DISPLAY canonicalisation
+    # ``get_feature_names_out`` and ``_collect_*_names`` advertise) so the origin/details lookup
+    # below resolves on the simplified ``final_names`` -- keying by the RAW recipe name would miss
+    # every simplified column (e.g. ``abs(div(sqr(a),neg(b)))`` -> ``abs(div(sqr(a),b))``) and
+    # mis-tag it ``engineered_unknown``. ``simplify_fe_name`` is idempotent + safe on raw names.
+    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
     recipe_by_name = {
-        str(getattr(r, "name", "")): r
+        simplify_fe_name(str(getattr(r, "name", ""))): r
         for r in produced_recipes
         if getattr(r, "name", None) is not None
     }
     recipe_by_name.update({
-        str(getattr(r, "name", "")): r
+        simplify_fe_name(str(getattr(r, "name", ""))): r
         for r in engineered_recipes
         if getattr(r, "name", None) is not None
     })

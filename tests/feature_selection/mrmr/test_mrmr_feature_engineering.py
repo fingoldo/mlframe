@@ -154,18 +154,25 @@ class TestMRMRFeatureEngineering:
                 f"names={list(mrmr.get_feature_names_out())}"
             )
 
-    def test_feature_engineering_example_single_compound(self, feature_engineering_example_data):
-        """STRENGTHENED canonical gate: y = a**2/b + log(c)*sin(d) must be recovered as essentially ONE
-        fused compound feature that carries BOTH structural halves (an a/b term AND a c/d term), and the
-        redundancy gate must NOT also keep standalone sub-fragments of it.
+    def test_feature_engineering_example_single_compound(self):
+        """STRENGTHENED canonical gate on the user's EXACT ticket formula INCLUDING the f/5 noise term:
 
-        The ideal selection is a single engineered feature like
-        ``add(mul(sqr(a),reciproc(b)), mul(log(c),sin(d)))``. A bare ``mul(log(c),sin(d))`` (only c,d) or a
-        bare ``div(sqr(a),...)`` (only a,b) surviving ALONGSIDE that full compound is REDUNDANT -- given
-        the full compound it carries no extra information about y, so the conditional-MI redundancy gate
-        should drop it. This test catches the fragmentation regression (3-4 sibling features instead of 1).
+            y = a**2/b + f/5 + log(c)*sin(d)     ('f' is NOT a feature -> f/5 is irreducible noise)
+
+        (NB: the shared ``feature_engineering_example_data`` fixture intentionally drops f/5, testing the
+        easier noiseless target; this test uses the real noisy one so the redundancy gate is exercised
+        under realistic conditions.) The signal must be recovered as essentially ONE fused compound that
+        carries BOTH structural halves (an a/b term AND a c/d term), with the redundancy gate dropping any
+        standalone sub-fragment -- including raw operands like 'c' whose marginal signal toward y is ~0
+        (E[log(c)*sin(d)] over d~U(0,2pi) is ~0). Catches the fragmentation regression (full compound PLUS
+        redundant siblings such as raw 'c' / mul(log(c),sin(d)) / div(sqr(a),...)).
         """
-        df, y, _ = feature_engineering_example_data
+        rng = np.random.default_rng(42)
+        n = 10_000
+        a = rng.random(n) + 0.1; b = rng.random(n) + 0.1; c = rng.random(n) + 0.1
+        d = rng.random(n) * 2 * np.pi; e = rng.random(n); f = rng.random(n)
+        df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
+        y = a**2 / b + f / 5 + np.log(c) * np.sin(d)
 
         mrmr = MRMR(
             full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
@@ -204,6 +211,78 @@ class TestMRMRFeatureEngineering:
         assert not frag_ab, f"redundant a/b-only sub-term(s) survived alongside the full compound: {frag_ab} in {names}"
         # (3) exactly one fused compound (no duplicate near-identical compounds).
         assert len(full) == 1, f"expected exactly ONE fused compound, got {len(full)}: {full}"
+
+        # (4) the compound must be the CLEAN ADDITIVE form add(div(sqr(a),b), mul(log(c),sin(d))) -- NOT a
+        #     monotone-distorted variant. MI is monotone-invariant, so the search can pick a warped form
+        #     (log(a**2/b), double-prewarp, sub instead of add) that is MI-equivalent but ugly + less
+        #     linearly usable. The target is ADDITIVE (a**2/b + log(c)*sin(d)), so the recovered compound
+        #     must be additive with each half left CLEAN. Enforce:
+        compound = full[0]
+        #   (4a) no learned prewarp warp anywhere -- the inner log(c)*sin(d) is library-expressible, so a
+        #        prewarp form is only monotone-equivalent and must lose to the clean library form.
+        assert "prewarp" not in compound, f"compound uses a monotone-distorting prewarp warp: {compound}"
+        #   (4b) additive top-level combination (a**2/b + log(c)*sin(d)), not a subtraction/quotient of halves.
+        assert compound.startswith("add("), f"compound is not an additive (add) combination: {compound}"
+        #   (4c) the c/d half is the CLEAN log(c)*sin(d) (no warp), and (4d) the a/b half is NOT log-wrapped
+        #        (the a**2/b term must stay magnitude-carrying, not collapsed to log(a**2/b)).
+        assert "log(c)" in compound and "sin(d)" in compound, f"c/d half is not the clean log(c)*sin(d): {compound}"
+        assert "sqr(a)" in compound, f"a/b half is not the clean a**2 term: {compound}"
+        for _bad in ("log(div", "log(mul", "log(neg", "log(sub", "log(add"):
+            assert _bad not in compound, f"a/b half is log-distorted ({_bad}...): {compound}"
+
+    # ----------------------------------------------------------------------------------------------
+    # PREWARP vs CLEAN-LIBRARY-FORM enforcement pins (2026-06-20).
+    # MI is monotone-invariant, so on a target whose structure the elementary library ALREADY expresses
+    # (e.g. log(c)*sin(d)), a learned per-operand prewarp warp is only MONOTONE-equivalent and must LOSE
+    # to the clean library form (the magnitude-carrying a**2/b is more LINEARLY usable for an additive
+    # target than log(a**2/b)). But prewarp must STILL win where it is genuinely needed -- a NON-monotone
+    # inner the library cannot express. These two pins lock both sides so the enforcement can never
+    # silently regress into either "prewarp distorts a clean recovery" or "prewarp disabled".
+    # ----------------------------------------------------------------------------------------------
+
+    def test_clean_library_form_preferred_over_monotone_prewarp(self):
+        """ENFORCEMENT PIN: on a target the library already expresses (y = a**2/b + f/5 + log(c)*sin(d)),
+        NO selected feature may use a learned ``prewarp`` warp -- the clean library compound
+        ``add(div(sqr(a),b), mul(log(c),sin(d)))`` is more linearly usable and must win over the
+        monotone-MI-equivalent prewarp distortion (``sub(log(div(sqr(a),neg(b))),prewarp(mul(prewarp(c),
+        sin(d))))``). Guards the exact regression the user flagged."""
+        rng = np.random.default_rng(42)
+        n = 10_000
+        a = rng.random(n) + 0.1; b = rng.random(n) + 0.1; c = rng.random(n) + 0.1
+        d = rng.random(n) * 2 * np.pi; e = rng.random(n); f = rng.random(n)
+        df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
+        y = a**2 / b + f / 5 + np.log(c) * np.sin(d)
+        mrmr = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
+                    fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(X=df, y=y)
+        names = [str(nm) for nm in mrmr.get_feature_names_out()]
+        offenders = [nm for nm in names if "prewarp" in nm]
+        assert not offenders, (
+            f"prewarp warp used on a library-expressible target -- a monotone-equivalent distortion that "
+            f"should lose to the clean library form: {offenders} in {names}"
+        )
+
+    def test_prewarp_retained_on_genuine_nonmonotone_inner(self):
+        """NON-REGRESSION PIN (other side of the enforcement): on a GENUINELY non-monotone inner the
+        elementary library CANNOT express -- y = (a**3 - 2a)*(b**2 - b) -- a learned prewarp form
+        (``mul(prewarp(a),prewarp(b))``) MUST still be selected. This guards the linear-usability
+        enforcement from over-correcting into "prewarp disabled"."""
+        rng = np.random.default_rng(7)
+        n = 20_000
+        a = rng.uniform(-2, 2, n); b = rng.uniform(-2, 2, n); e = rng.uniform(-2, 2, n)
+        df = pd.DataFrame({"a": a, "b": b, "e": e})
+        y = (a**3 - 2 * a) * (b**2 - b)  # non-monotone inner in a (and b) -> library is blind, prewarp wins
+        mrmr = MRMR(fe_max_steps=1, verbose=0, n_jobs=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(X=df, y=y)
+        names = [str(nm) for nm in mrmr.get_feature_names_out()]
+        assert any("prewarp" in nm for nm in names), (
+            f"prewarp recovery LOST on a genuinely non-monotone inner the library cannot express -- the "
+            f"linear-usability enforcement over-corrected and disabled prewarp's intended case: {names}"
+        )
 
     def test_multiplicative_synergy(self, multiplicative_synergy_data):
         """Test that MRMR detects multiplicative synergy: y = a * b."""

@@ -1437,6 +1437,99 @@ def check_prospective_fe_pairs(
         if verbose > 2:
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
 
+        # CLEAN-FORM DEMOTION over the per-pair MI winner (2026-06-20). The ``prewarp``
+        # pseudo-unary fits a learned 1-D orthogonal-poly warp per operand; on a target whose
+        # inner function is already LIBRARY-expressible up to a MONOTONE distortion (e.g.
+        # ``log(c)*sin(d)`` -- ``mul(log(c),sin(d))`` is the clean form, while the warp learns a
+        # monotone re-expression ``mul(prewarp(c),sin(d))``) the prewarp form has IDENTICAL
+        # ordering -> bit-equal binned MI, but MI is RANK-only so it cannot prefer the clean leg.
+        # The warp then wins ``best_config`` by an MI tie/epsilon and propagates a DISTORTED form
+        # (``log(div(sqr(a),neg(b)))`` for the a/b half, double-``prewarp(c)`` for the c/d half)
+        # that the step-k>1 composite chains, displacing the clean additive compound AND dragging
+        # in a redundant raw operand. Demote: when the global winner USES a prewarp operand but a
+        # clean elementary-library (non-prewarp) form scores essentially the SAME target MI, keep
+        # the prewarp winner ONLY if it has a real LINEAR-USABILITY uplift (|corr(continuous y)|)
+        # over the best clean form. This preserves prewarp's INTENDED case -- a genuinely
+        # non-monotone inner (``a**3-2a``) where the warp's reconstruction is MORE linearly usable
+        # than any library form, so the uplift is real and the prewarp form is kept -- while making
+        # the monotone-equivalent case (no |corr| uplift) fall back to the clean library compound.
+        if (
+            best_config is not None
+            and best_nonprewarp_config is not None
+            and best_config is not best_nonprewarp_config
+            and best_nonprewarp_mi > 0.0
+            and _corr_y_cont is not None
+        ):
+            _bc_uses_pw = (
+                isinstance(best_config[0], (tuple, list))
+                and len(best_config[0]) == 2
+                and (best_config[0][0][1] == _PREWARP_UNARY or best_config[0][1][1] == _PREWARP_UNARY)
+            )
+            # Only act when the winner is a prewarp form AND the clean form is MI-equivalent
+            # (within the same 0.85 leaders band already used as the equivalence notion). A
+            # strictly-higher-MI prewarp winner is left untouched -- the prewarp/marginal gates
+            # below decide it on its own merits; demotion is for the MI-tie monotone case only.
+            if _bc_uses_pw and best_nonprewarp_mi >= best_mi * fe_good_to_best_feature_mi_threshold:
+
+                def _config_corr(_cfg):
+                    """|corr(continuous y)| of a config's materialised continuous column; -1.0 when
+                    it cannot be rebuilt (so an unrecoverable form never wins the comparison)."""
+                    try:
+                        _ci = _cfg[2]
+                        if final_transformed_vals is not None:
+                            _v = final_transformed_vals[:, _ci]
+                        elif _config_by_i is not None and _ci in _config_by_i:
+                            _ak, _bk, _bn = _config_by_i[_ci]
+                            _pa = transformed_vars[:, vars_transformations[_ak]]
+                            _pb = transformed_vars[:, vars_transformations[_bk]]
+                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                _v = binary_transformations[_bn](_pa, _pb)
+                            _v = np.nan_to_num(np.asarray(_v, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        else:
+                            return -1.0
+                        return _safe_abs_corr(_v)
+                    except Exception:
+                        return -1.0
+
+                _pw_corr = _config_corr(best_config)
+                _clean_corr = _config_corr(best_nonprewarp_config)
+                # Demote to the clean form unless the prewarp form is MEANINGFULLY more linearly
+                # usable. ``1.05`` = the prewarp must beat the clean |corr| by >= 5% to justify the
+                # distorted re-expression; a genuinely non-monotone inner clears this comfortably
+                # (its warp reconstruction is the ONLY linearly-aligned form), while a
+                # monotone-equivalent warp scores <= the clean form and is demoted.
+                if _clean_corr >= 0.0 and _pw_corr < _clean_corr * 1.05:
+                    best_config, best_mi = best_nonprewarp_config, best_nonprewarp_mi
+                    # The single-best emission path (below) does NOT read ``best_config``
+                    # directly -- it rebuilds the leaders band from ``var_pairs_perf`` and
+                    # re-picks via ``_select_single_best`` whose PRIMARY key is exact target
+                    # MI, so a prewarp form that beats the clean form by an MI EPSILON would be
+                    # re-selected and the usability tie-break (gated on EQUAL MI) would never
+                    # engage. So CAP every prewarp-using config's recorded MI at just-below the
+                    # best clean-form MI: it stays in the leaders band (so its column can still
+                    # be emitted if the model wants a tree-friendly twin via multi-emit) but can
+                    # no longer OUT-RANK the clean library form on the primary key, and the
+                    # already-wired ``_leader_usability`` tie-break then picks the clean leg. A
+                    # prewarp form with genuine |corr| uplift (the non-monotone intended case)
+                    # never reaches here (the ``_pw_corr < _clean_corr*1.05`` guard above fails),
+                    # so its MI rank is untouched and it keeps winning.
+                    _pw_cap = best_nonprewarp_mi * 0.999
+                    for _cfg in list(var_pairs_perf.keys()):
+                        _ctp = _cfg[0]
+                        if (
+                            isinstance(_ctp, (tuple, list)) and len(_ctp) == 2
+                            and (_ctp[0][1] == _PREWARP_UNARY or _ctp[1][1] == _PREWARP_UNARY)
+                            and var_pairs_perf[_cfg] > _pw_cap
+                        ):
+                            var_pairs_perf[_cfg] = _pw_cap
+                    if verbose:
+                        messages.append(
+                            f"clean-form demotion: prewarp winner |corr(y)|={_pw_corr:.3f} did not beat "
+                            f"the best clean library form |corr(y)|={_clean_corr:.3f} by >= 5% (MI-equivalent "
+                            f"monotone re-expression); demoting to the clean form and capping prewarp-form "
+                            f"MI at the clean form's so it cannot out-rank it on the primary key."
+                        )
+
         # experiment-rejected (2026-06-03): a held-out-CV firewall here (score
         # per-combo MI on a TRAIN stride slice for honest selection, then keep the
         # winner only if its held-out VAL-slice MI retains >= ratio of train MI) was
