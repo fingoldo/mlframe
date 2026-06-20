@@ -397,12 +397,16 @@ def cheap_conditional_gate_scan(
     yi = np.asarray(y).astype(np.int64)
 
     # FAST-SEARCH SUBSAMPLE (2026-06-14). The gate DETECTION -- raw-relevance ranking, the ~17-point
-    # quantile tau-scan, and the per-tau residue-MI band -- is rank-stable under row subsampling (the
+    # quantile tau-scan, and the per-tau residue-MI band -- is RANK-stable under row subsampling (the
     # tau is a quantile of the gate column; the MI ranking is monotone-preserving on a representative
-    # subset). The returned GateHit carries only the frozen tau, and the recipe replays the gate from
-    # the FULL X at materialisation time, so the emitted column is full-n regardless. When subsample_n
-    # is in (0, n) we draw a seeded subset ONCE for the whole scan -> the O(n) MI kernels run on the
-    # smaller set. subsample_n <= 0 / >= n keeps the legacy full-n path.
+    # subset). NOTE (P1-7): rank-stable is NOT threshold-stable -- the absolute accept thresholds
+    # (_MIN_NULL_MARGIN / _MIN_MARGIN and the permutation null) are computed on the subsample, where MI
+    # has larger O(1/n) bias+variance, so a candidate sitting right at a margin can flip accept/reject
+    # vs the full-n scan. This only moves BORDERLINE gate candidates and the path ships default-OFF;
+    # treat subsample_n as a speed/accuracy knob, not a no-op. The returned GateHit carries only the
+    # frozen tau, and the recipe replays the gate from the FULL X at materialisation time, so the emitted
+    # column is full-n regardless. When subsample_n is in (0, n) we draw a seeded subset ONCE for the
+    # whole scan -> the O(n) MI kernels run on the smaller set. subsample_n <= 0 / >= n keeps full-n.
     _n_rows = len(yi)
     if isinstance(subsample_n, int) and 0 < subsample_n < _n_rows:
         _sub_rng = np.random.default_rng(int(seed))

@@ -64,6 +64,10 @@ def _dispatch_batch_mi_with_noise_gate(
             # Candidates are quantised to ``quantization_nbins`` (low, fixed cardinality); each column's
             # OCCUPIED bins are <= that, so checking applicability with the declared count + occupied y
             # bins is conservative (worst-case sparsest table) -- if it passes here it passes per column.
+            # NOTE (P1-6): this APPLICABILITY check uses the DECLARED nbins (worst-case densest df ->
+            # smallest n/cells -> hardest to pass, i.e. safe direction), while ``analytic_batch_noise_gate``
+            # later uses each column's OCCUPIED bx for the actual chi2 df. The two intentionally differ:
+            # the gate-on check is the conservative bound, the per-column df is the exact one.
             _by_occ = int(np.unique(np.asarray(classes_y)).size)
             _an_ok = analytic_null_enabled() and analytic_null_applicable(
                 int(n), int(quantization_nbins), _by_occ,

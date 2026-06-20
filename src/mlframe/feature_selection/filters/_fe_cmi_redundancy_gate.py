@@ -97,6 +97,7 @@ pure (no live framework state captured), so a fitted MRMR remains picklable.
 from __future__ import annotations
 
 import logging
+import zlib
 from typing import Optional
 
 import numpy as np
@@ -173,8 +174,14 @@ def _conditional_perm_null(
     n_permutations: int = _CMI_FLOOR_PERMUTATIONS,
     quantile: float = _CMI_FLOOR_QUANTILE,
     seed: int = 0,
+    salt: int = 0,
 ) -> tuple[float, float]:
     """Conditional-permutation null for ``CMI(cand; y | z_support)``.
+
+    ``salt`` mixes a per-candidate value into the RNG (via ``SeedSequence([seed, salt])``) so each
+    candidate's null is drawn from an INDEPENDENT stream. Without it every candidate in a greedy round
+    reused the identical permutation key sequence, correlating their floors/null-means and making the
+    per-candidate significance test (leg 1) not independent. Callers pass a stable per-candidate salt.
 
     Reuses the production within-stratum permutation infrastructure
     (``conditional_permutation_test``): the candidate column is permuted WITHIN
@@ -210,7 +217,7 @@ def _conditional_perm_null(
 
     x = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
-    rng = np.random.default_rng(int(seed))
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF]))
 
     if z_support is None or z_support.size == 0:
         # Marginal-permutation null (seed step): free shuffle of the candidate
@@ -453,6 +460,7 @@ def apply_cmi_redundancy_gate(
     seed_floor, seed_null_mean = _conditional_perm_null(
         cand_bins[seed_name], y_dense, None,
         n_permutations=n_permutations, quantile=quantile, seed=seed,
+        salt=zlib.crc32(seed_name.encode("utf-8")),
     )
     seed_excess = max(0.0, marg[seed_name] - seed_null_mean)
     accepted.append(seed_name)
@@ -480,6 +488,7 @@ def apply_cmi_redundancy_gate(
             floor, null_mean = _conditional_perm_null(
                 cand_bins[nm], y_dense, z_support,
                 n_permutations=n_permutations, quantile=quantile, seed=seed,
+                salt=zlib.crc32(nm.encode("utf-8")),
             )
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
