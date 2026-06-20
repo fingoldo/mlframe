@@ -1239,22 +1239,25 @@ def check_prospective_fe_pairs(
                     # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
                     # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
                     _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
-                    _disc_2d = None
-                    # GPU-resident binning (size+HW gated, default OFF via MLFRAME_FE_GPU_DISCRETIZE). At large
-                    # n*K the per-pair quantile binning (CPU partition+searchsorted) is the dominant FE-scan
-                    # cost; the GPU percentile path is bit-identical to discretize_2d_quantile_batch (verified
-                    # maxdiff 0), so the codes -- and hence the UNCHANGED _dispatch_batch_mi_with_noise_gate
-                    # result + the whole FE selection -- are identical. Falls back to CPU on any failure.
+                    _fe_mi_arr = None
+                    # GPU-resident FE candidate MI (size+HW gated, default OFF via MLFRAME_FE_GPU_DISCRETIZE).
+                    # At large n*K the per-pair binning + observed-MI counting is the dominant FE-scan cost;
+                    # the GPU path runs BOTH on-device and returns fe_mi BIT-IDENTICAL to the production
+                    # analytic dispatch (GPU binning == CPU discretize, maxdiff 0; GPU observed-MI == CPU,
+                    # maxdiff 0; same analytic chi2 gate), so the FE selection is identical. Returns None for
+                    # the non-analytic branch (SU / sparse / small-n) -> falls through to the CPU dispatch.
                     if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):
                         try:
-                            from .._gpu_resident_fe import gpu_discretize_codes_host
-                            _disc_2d = gpu_discretize_codes_host(
-                                final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype,
+                            from .._gpu_resident_fe import gpu_pairs_fe_mi
+                            _fe_mi_arr = gpu_pairs_fe_mi(
+                                final_transformed_vals[:, :i], int(quantization_nbins),
+                                classes_y, classes_y_safe, freqs_y,
+                                fe_npermutations, fe_min_nonzero_confidence, use_su_normalization(),
                             )
                         except Exception:
-                            logger.debug("FE GPU discretize failed; falling back to CPU", exc_info=True)
-                            _disc_2d = None
-                    if _disc_2d is None:
+                            logger.debug("FE GPU pair-MI failed; falling back to CPU", exc_info=True)
+                            _fe_mi_arr = None
+                    if _fe_mi_arr is None:
                         _disc_2d = discretize_2d_quantile_batch(
                             final_transformed_vals[:, :i], n_bins=quantization_nbins,
                             dtype=_code_dtype,
@@ -1278,17 +1281,19 @@ def check_prospective_fe_pairs(
                     # against it -- amortising both the MI compute and the shuffle across K.
                     # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
                     # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
-                    _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
-                        disc_2d=_disc_2d,
-                        quantization_nbins=quantization_nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        npermutations=fe_npermutations,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        use_su=use_su_normalization(),
-                        batch_mi_kernel=batch_mi_with_noise_gate,
-                    )
+                    # Skipped when the GPU pair-MI path above already produced ``_fe_mi_arr``.
+                    if _fe_mi_arr is None:
+                        _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
+                            disc_2d=_disc_2d,
+                            quantization_nbins=quantization_nbins,
+                            classes_y=classes_y,
+                            classes_y_safe=classes_y_safe,
+                            freqs_y=freqs_y,
+                            npermutations=fe_npermutations,
+                            min_nonzero_confidence=fe_min_nonzero_confidence,
+                            use_su=use_su_normalization(),
+                            batch_mi_kernel=batch_mi_with_noise_gate,
+                        )
 
             # Replay best/prewarp/config tracking in the SAME order candidates were
             # produced -> identical tie-break behaviour. ``_fe_mi_arr`` is indexed by the

@@ -426,6 +426,57 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
     return out
 
 
+def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.ndarray,
+                    classes_y_safe: np.ndarray, freqs_y: np.ndarray, npermutations: int,
+                    min_nonzero_confidence: float, use_su: bool):
+    """Full GPU path for the FE pair-search candidate MI, for the ANALYTIC large-n branch only.
+
+    Returns ``fe_mi[K]`` BIT-IDENTICAL to the production ``_dispatch_batch_mi_with_noise_gate`` analytic
+    path, or ``None`` when that branch does not apply (SU-normalised, npermutations<=0, analytic
+    disabled / inapplicable) so the caller falls back to the CPU dispatcher. Selection is preserved by
+    construction:
+      * GPU quantile binning == CPU ``discretize_2d_quantile_batch`` (verified maxdiff 0), and
+      * the GPU observed-MI (npermutations=0) == the CPU kernel's observed MI (verified maxdiff 0;
+        the GPU twin does only integer counting, entropy stays on the bit-exact CPU path),
+    so feeding them through the SAME ``analytic_batch_noise_gate`` (chi2 keep/reject on the observed MI
+    + per-column occupied-bin df) yields identical gated MI. Moves BOTH the binning and the observed-MI
+    counting -- the dominant large-n per-pair cost -- onto the GPU. Any failure returns None (-> CPU)."""
+    n, K = int(cand.shape[0]), int(cand.shape[1])
+    if bool(use_su) or int(npermutations) <= 0:
+        return None  # SU has no chi2 analytic form; npermutations<=0 is already the cheap CPU path
+    try:
+        from ._analytic_mi_null import (
+            analytic_batch_noise_gate, analytic_null_applicable, analytic_null_enabled,
+        )
+        by = int(np.unique(np.asarray(classes_y)).size)
+        if not (analytic_null_enabled() and analytic_null_applicable(n, int(quantization_nbins), by)):
+            return None  # sparse / small-n -> the asymptotic is unreliable; CPU permutation path
+        from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
+
+        codes = gpu_discretize_codes_host(cand, int(quantization_nbins), dtype=np.int8)  # bit-identical binning
+        fnb = np.full(K, int(quantization_nbins), dtype=np.int64)
+        yc = np.ascontiguousarray(classes_y, dtype=np.int64)
+        observed = None
+        for _fb in ("cupy", "cuda"):
+            observed = dispatch_batch_mi_with_noise_gate_gpu(
+                disc_2d=codes, factors_nbins=fnb, classes_y=yc,
+                classes_y_safe=np.ascontiguousarray(classes_y_safe), freqs_y=np.ascontiguousarray(freqs_y, dtype=np.float64),
+                npermutations=0, base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
+                use_su=False, dtype=np.int32, force_backend=_fb,
+            )
+            if observed is not None:
+                break
+        if observed is None:
+            return None  # no GPU backend -> CPU dispatcher
+        observed = observed[0] if isinstance(observed, tuple) else observed
+        # The analytic keep/reject is cheap CPU post-processing on the K-length observed MI (+ per-column
+        # occupied-bin df from the codes), identical to what _dispatch_batch_mi_with_noise_gate runs.
+        return analytic_batch_noise_gate(codes, np.asarray(observed, dtype=np.float64), yc, n,
+                                         float(min_nonzero_confidence))
+    except Exception:
+        return None
+
+
 def grand_fused_pair_mi(
     a, b, y_codes, classes_y_safe, freqs_y, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,

@@ -292,3 +292,52 @@ def test_gpu_discretize_codes_host_k1_chunk_guard():
     cpu = discretize_2d_quantile_batch(one, n_bins=20, dtype=np.int8, assume_finite=True)
     gpu = gpu_discretize_codes_host(one, 20, dtype=np.int8)
     assert np.array_equal(cpu, gpu)
+
+
+def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic():
+    """gpu_pairs_fe_mi (GPU binning + GPU observed-MI + analytic gate) must equal the production CPU
+    _dispatch_batch_mi_with_noise_gate on its analytic branch -- this is the selection-identity contract
+    for the size-gated FE GPU path (MLFRAME_FE_GPU_DISCRETIZE). n is above analytic_null_min_n so the CPU
+    dispatch takes the analytic route too."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, gpu_pairs_fe_mi
+    from mlframe.feature_selection.filters.info_theory import batch_mi_with_noise_gate
+    from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_dispatch import (
+        _dispatch_batch_mi_with_noise_gate,
+    )
+
+    rng = np.random.default_rng(0)
+    n = 60_000  # >= analytic_null_min_n default (50k) so both take the analytic branch
+    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+    cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
+    np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+    disc = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)
+    cpu = _dispatch_batch_mi_with_noise_gate(
+        disc_2d=disc, quantization_nbins=20, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
+        npermutations=3, min_nonzero_confidence=0.0, use_su=False,
+        batch_mi_kernel=batch_mi_with_noise_gate,
+    )
+    gpu = gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False)
+    assert gpu is not None, "expected the analytic GPU branch to engage at n>=50k"
+    np.testing.assert_array_equal(np.asarray(gpu, dtype=np.float64), np.asarray(cpu, dtype=np.float64))
+    assert int(np.argmax(gpu)) == int(np.argmax(cpu))
+
+
+def test_gpu_pairs_fe_mi_returns_none_for_nonanalytic():
+    """gpu_pairs_fe_mi must DEFER (None) when the analytic branch doesn't apply -- SU-normalised,
+    npermutations<=0, or small n -- so the caller uses the CPU dispatch (no silent wrong path)."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, gpu_pairs_fe_mi
+    rng = np.random.default_rng(0)
+    n = 4_000  # below analytic_null_min_n -> must defer
+    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+    cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False) is None      # small n
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 0, 0.0, False) is None      # npermutations<=0
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, True) is None       # SU-normalised
