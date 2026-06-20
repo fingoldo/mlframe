@@ -809,6 +809,27 @@ def drop_redundant_raw_operands(
         # only while the realised joint cell count stays within the fragmentation budget
         # (avg rows/cell >= _SUPPORT_FRAG_DIVISOR), strongest-marginal first. Byte-identical
         # when a raw has no signal-bearing sibling operand (the candidate set is empty).
+        # FULL-COMPOSITE FALLBACK CONDITIONING (2026-06-20). The clean nested sub-expression anchor
+        # (BUG1) REPLACES the whole-composite bin in ``_cond_bins`` to isolate the raw's capture from a
+        # fused composite's second additive term. But that replacement can be the WRONG direction: when
+        # the WHOLE composite already cleanly subsumes the raw (its high-resolution fused codes leave the
+        # raw ZERO residual) while the coarser clean SUB-expression leaves a spurious finite-sample
+        # residual, conditioning ONLY on the sub-expression KEEPS a genuinely subsumed operand (the
+        # canonical ``c`` in ``add(a**2/b, log(c)*sin(d))``: excess GIVEN the full compound 0.000, GIVEN
+        # the clean ``mul(log(c),sin(d))`` sub-expr 0.0092 -> wrongly KEPT). The clean sub-expr must
+        # AUGMENT the verdict, not REPLACE it: also measure the residual GIVEN the whole consuming
+        # composite and take the SMALLEST debiased excess across {clean-subexpr, full-composite}. Like the
+        # sibling-conditioning MIN below, taking the strongest subsumption evidence never over-drops a
+        # GENUINE private term (its residual is high under EVERY conditioning) but collapses an operand the
+        # full composite already captures. Byte-identical when no clean sub-expr was substituted (the
+        # full-composite bin IS ``_cond_bins`` then).
+        for ei in consumers:
+            _clean = _clean_subexpr_bin.get((rname, ei))
+            if _clean is not None:
+                _z_full, _ = _renumber_joint(eng_bin[ei])
+                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb, y_arr, _z_full, seed=seed)
+                if _excess_f < excess:
+                    cmi, floor, excess = _cmi_f, _floor_f, _excess_f
         _sibling_names: list = []
         for ei in consumers:
             for _sp in (_eng_signal_parents.get(ei, set()) - {rname}):

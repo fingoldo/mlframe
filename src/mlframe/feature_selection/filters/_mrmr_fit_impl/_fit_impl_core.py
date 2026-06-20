@@ -8837,6 +8837,66 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
             )
+            # ENGINEERED-SUBSUMPTION GUARD (2026-06-20). The pure-form retention runs AFTER the post-FE
+            # engineered-vs-engineered CMI redundancy gate, so a re-attached pure form is never tested
+            # against the engineered survivors admitted BEFORE retention. When an incumbent survivor is a
+            # FUSED compound that already carries BOTH additive halves of the target (the canonical
+            # ``add(neg(mul(sqr(a),reciproc(b))),neg(mul(log(c),sin(d))))`` for y=a**2/b+log(c)*sin(d)),
+            # a re-attached pure half (``mul(log(c),sin(d))`` / ``div(sqr(a),sin(b))``) is FULLY redundant
+            # given it -- the fragmentation regression (one compound PLUS several sub-fragments). Re-run
+            # the SAME n-invariant debiased-excess CMI subsumption check the S5 gate validated, conditioning
+            # each retention candidate on the INCUMBENT (pre-retention) engineered survivors, and skip any
+            # whose information collapses given them. A genuinely COMPLEMENTARY pure form (one the incumbents
+            # do not span -- the case this retention pass exists to rescue) keeps a large conditional excess
+            # and is admitted; only sub-fragments of an incumbent compound are dropped. No-op (byte-identical)
+            # when there is no incumbent engineered survivor to condition on.
+            if _retain_extra:
+                try:
+                    from .._fe_retention_subsumption import retention_form_is_subsumed
+                    from ..engineered_recipes._recipe_dispatch import apply_recipe as _ret_apply
+                    _inc_names = [str(_n) for _n in (self._engineered_features_ or [])]
+                    _inc_cont = []
+                    for _in in _inc_names:
+                        _iv = _eng_continuous_snapshot.get(_in)
+                        if _iv is not None and np.asarray(_iv).shape[0] == int(data.shape[0]):
+                            _inc_cont.append(np.asarray(_iv, dtype=np.float64).ravel())
+                    if _inc_cont:
+                        _ret_y = np.ascontiguousarray(np.asarray(classes_y)).ravel()
+                        _ret_y_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
+                        if _ret_y_cont is None:
+                            try:
+                                _yv = y.values if hasattr(y, "values") else np.asarray(y)
+                                _yv = np.asarray(_yv).reshape(-1)
+                                if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
+                                    _ret_y_cont = _yv
+                            except Exception:
+                                _ret_y_cont = None
+                        _ret_seed = int(getattr(self, "random_seed", 0) or 0)
+                        _kept_extra = []
+                        for _r_recipe, _r_name in _retain_extra:
+                            try:
+                                _cv = np.asarray(_ret_apply(_r_recipe, X), dtype=np.float64).ravel()
+                                _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                            except Exception:
+                                _kept_extra.append((_r_recipe, _r_name))  # cannot replay -> retain (conservative)
+                                continue
+                            if _cv.shape[0] == int(data.shape[0]) and retention_form_is_subsumed(
+                                cand_continuous=_cv, incumbent_continuous=_inc_cont,
+                                y_binned=_ret_y, y_continuous=_ret_y_cont, seed=_ret_seed,
+                            ):
+                                if verbose:
+                                    logger.info(
+                                        "MRMR usability-aware retention: SKIP re-attaching pure form %r -- "
+                                        "fully subsumed by an incumbent engineered compound (conditional CMI "
+                                        "collapses given the pre-retention survivors).", _r_name,
+                                    )
+                                continue
+                            _kept_extra.append((_r_recipe, _r_name))
+                        _retain_extra = _kept_extra
+                except Exception as _subsume_exc:
+                    if verbose:
+                        logger.info("MRMR retention engineered-subsumption guard skipped (%s: %s).",
+                                    type(_subsume_exc).__name__, _subsume_exc)
             for _r_recipe, _r_name in _retain_extra:
                 self._engineered_recipes_.append(_r_recipe)
                 self._engineered_features_.append(_r_name)

@@ -519,7 +519,12 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     So the cross-mix is the RATIONAL MAX-MI pick, not a spurious cross-signal. This
     locks the load-bearing, deterministic properties of that honest behaviour
     (byte-identical in isolation AND in-suite, both n):
-      (1) a GENUINE (a,b) form (a**2/b) is recovered as a PURE a,b feature;
+      (1) the (a,b) a**2/b signal IS recovered -- either as a PURE a,b form OR folded into a
+          cross-mix that ALSO carries the (c,d) operands (the engineered-subsumption reframe,
+          2026-06-20: the strengthened ONE-fused-compound contract -- see the canonical
+          ``test_feature_engineering_example_single_compound`` -- drops a pure (a,b) sub-fragment
+          when an admitted fused compound already carries BOTH additive halves, so the (a,b)
+          signal is recovered INSIDE that compound, not necessarily as a standalone pure form);
       (2) the (c,d) signal IS recovered -- either as a pure (c,d) form OR folded into a
           cross-mix that ALSO carries the (a,b) operands and is STRICTLY MORE
           informative than the pure (c,d) form would be (the subsumption that justifies
@@ -536,9 +541,19 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
         want, excl = {va, vb}, set(exclude)
         return [nm for nm in support if want <= _bare_vars(nm) and not (_bare_vars(nm) & excl)]
 
-    # (1) GENUINE (a,b) a**2/b form -- pure a,b operands.
-    ab = _covers("a", "b", exclude=("c", "d"))
-    assert ab, f"[F2 n={n}] no genuine (a,b) a**2/b form recovered: support={support}"
+    # (1) The (a,b) a**2/b signal must be recovered. The strengthened ONE-fused-compound contract
+    # (2026-06-20) drops a pure (a,b) sub-fragment when an admitted fused compound already carries
+    # BOTH additive halves, so -- mirroring leg (2) for (c,d) -- accept EITHER a pure (a,b) form OR
+    # a cross-mix that ALSO carries the (c,d) operands (the (a,b) signal folded into the compound).
+    ab_pure = _covers("a", "b", exclude=("c", "d"))
+    ab_cross_mix = [
+        nm for nm in support
+        if {"a", "b"} <= _bare_vars(nm) and {"c", "d"} <= _bare_vars(nm)
+    ]
+    assert ab_pure or ab_cross_mix, (
+        f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (no pure (a,b) feature and "
+        f"no (a,b)+(c,d) cross-mix): support={support}"
+    )
 
     # (2) The (c,d) signal must be recovered. The hardened pipeline folds it into a
     # cross-mix that ALSO carries the (a,b) operands (the max-MI subsumption), so accept
