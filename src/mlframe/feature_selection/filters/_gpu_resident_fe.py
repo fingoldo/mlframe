@@ -590,7 +590,7 @@ void radix_select_f64(const double* __restrict__ data, const long long n, const 
         for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
-            double d=data[i*K+col];unsigned long long u;memcpy(&u,&d,8);
+            double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);  // COLUMN-MAJOR: coalesced
             u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
             unsigned long long pm=u&hmask;int win=-1;
             for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
@@ -630,7 +630,7 @@ void radix_select_f32(const float* __restrict__ data, const long long n, const i
         for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
-            float d=data[i*K+col];unsigned int u;memcpy(&u,&d,4);
+            float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
             u=(u&0x80000000u)?~u:(u|0x80000000u);
             unsigned int pm=u&hmask;int win=-1;
             for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
@@ -702,8 +702,14 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
     ker = _get_radix_select_kernel(is_f32)
+    # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
+    # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
+    # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
+    # (data[col*n+i]) -- one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
+    # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
+    data_cm = cp.ascontiguousarray(cand_gpu.T)   # (K, n) C-order = column-major
     ker((K,), (_RADIX_SELECT_THREADS,),
-        (cand_gpu, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
     # the cupy_percentile_weightnening elementwise kernel (U=float64; below/above promoted; w in float64).
     pos = {int(r): i for i, r in enumerate(uniq)}
