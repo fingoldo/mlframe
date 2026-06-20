@@ -2,6 +2,8 @@
 one-batched-pass materialise -> discretize_2d -> batch_mi over a whole chunk."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
@@ -22,6 +24,8 @@ from ._pairs_materialise import (
 # re-export the authoritative constant so the package ``__init__`` surface (and any historical import)
 # still resolves a single source of truth.
 from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO
+
+logger = logging.getLogger(__name__)
 
 # CROSS-PAIR (CHUNK) BATCHING (2026-06-06). The per-pair 3-phase batch (materialise
 # -> ONE discretize_2d -> ONE batch_mi) below is bit-identical to the per-candidate
@@ -236,15 +240,37 @@ def _compute_one_fe_chunk(
     if _op_codes_by_name is None:
         np.nan_to_num(chunk_buffer[:, :col], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-    disc_2d = discretize_2d_quantile_batch(
-        chunk_buffer[:, :col], n_bins=quantization_nbins,
-        dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
-        parallel=_fe_use_parallel_kernels(col, serial_main_thread),  # OPT-A
-        # ``chunk_buffer[:, :col]`` is NaN-free here on BOTH branches: the njit materialise kernel
-        # scrubs inline, and the numpy-fallback path ran the vectorised nan_to_num just above. So the
-        # discretiser's per-call ``np.isnan().any()`` scan is guaranteed-False wasted work; skip it.
-        assume_finite=True,
-    )
+    _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
+    disc_2d = None
+    # GPU-binning decoupled from the analytic gate (2026-06-20): the cross-pair chunk binning
+    # (_quantile_edges_2d_njit + _searchsorted_2d_right_njit_parallel) is the dominant CPU FE
+    # hotspot at the default 30k screen-subsample (~4.4s of the warm canonical fit, on a single
+    # (30000, ~3888) batch). The full GPU pair-MI path (``gpu_pairs_fe_mi``) DECLINES at n<50k
+    # because its analytic chi2 noise-gate needs n >= analytic_null_min_n -- but the BINNING does
+    # NOT depend on that gate. ``gpu_discretize_codes_host`` is bit-identical to the CPU
+    # ``discretize_2d_quantile_batch`` (verified maxdiff 0; same cp.percentile linspace edges +
+    # right-searchsorted) and ~1.7x faster at these screen sizes, so run ONLY the binning on the GPU
+    # and feed the identical codes to the UNCHANGED CPU MI dispatcher below -- preserving selection
+    # bit-for-bit. Same size+HW gate as the pair path (``_fe_gpu_discretize_enabled``); any GPU
+    # failure falls back to the CPU discretise (never a regression).
+    try:
+        from ._pairs_core import _fe_gpu_discretize_enabled
+        if _fe_gpu_discretize_enabled(chunk_buffer.shape[0], col):
+            from .._gpu_resident_fe import gpu_discretize_codes_host
+            disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
+    except Exception:
+        logger.debug("FE chunk GPU binning failed; CPU discretise", exc_info=True)
+        disc_2d = None
+    if disc_2d is None:
+        disc_2d = discretize_2d_quantile_batch(
+            chunk_buffer[:, :col], n_bins=quantization_nbins,
+            dtype=_code_dtype,
+            parallel=_fe_use_parallel_kernels(col, serial_main_thread),  # OPT-A
+            # ``chunk_buffer[:, :col]`` is NaN-free here on BOTH branches: the njit materialise kernel
+            # scrubs inline, and the numpy-fallback path ran the vectorised nan_to_num just above. So the
+            # discretiser's per-call ``np.isnan().any()`` scan is guaranteed-False wasted work; skip it.
+            assume_finite=True,
+        )
     fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
         disc_2d=disc_2d,
         quantization_nbins=quantization_nbins,
