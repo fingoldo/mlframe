@@ -186,15 +186,60 @@ def group_key_strings(col) -> np.ndarray:
     return col.astype(object).map(canonical_group_token).to_numpy()
 
 
+# Process-global cache of already-njit-compiled dispatchers, keyed by the SOURCE
+# IDENTITY of the original Python callable. ``create_unary_transformations`` /
+# ``create_binary_transformations`` are rebuilt many times per fit (FE step, recipe
+# replay, fingerprinting), and each prior call wrapped every registry entry in a FRESH
+# ``njit(func)`` -- a brand-new dispatcher with an empty compile cache -- so the SAME
+# signature (e.g. ``_safe_div(ndarray, ndarray)``) was re-LLVM-compiled on every rebuild.
+# On the canonical n=100k fit that redundant recompilation cost ~13s of pure llvmlite time.
+# Keying by ``__code__`` (not ``id(func)``) keeps the cache effective for the registries'
+# lambdas too: those lambda OBJECTS are recreated each call, but their underlying code
+# object is interned per source location, so structurally identical lambdas share a single
+# compiled dispatcher. Closure-bound lambdas (e.g. ``_order=order`` in the maximal preset)
+# carry distinct closure cells; we include ``__defaults__``/``__closure__`` cell ids in the
+# key so two captures with different bound constants never collide.
+_NJIT_DISPATCHER_CACHE: dict = {}
+
+
+def _njit_cache_key(func):
+    code = getattr(func, "__code__", None)
+    if code is None:
+        return None  # builtins / ufuncs have no __code__ -> not cacheable, compile fresh
+    closure = getattr(func, "__closure__", None)
+    cell_ids = tuple(id(c) for c in closure) if closure else ()
+    key = (code, func.__defaults__, cell_ids)
+    # ``__defaults__`` carries default-arg VALUES; if one is unhashable (e.g. a numpy array bound as a
+    # default), the key can't index the dict. Return None so the caller still njit-compiles the function
+    # fresh (correct, just uncached) instead of letting a hash error drop it back to pure-Python.
+    try:
+        hash(key)
+    except TypeError:
+        return None
+    return key
+
+
 def njit_functions_dict(
     dict_: dict,
     exceptions: Sequence = ("grad1", "grad2", "sinc", "log", "logn", "greater", "less", "equal"),
 ) -> None:
-    """Replace functions in ``dict_`` with ``@njit`` equivalents, skipping ``exceptions`` (known to fail compilation or that Numba inlines worse than CPython)."""
+    """Replace functions in ``dict_`` with ``@njit`` equivalents, skipping ``exceptions`` (known to fail compilation or that Numba inlines worse than CPython).
+
+    Compiled dispatchers are memoised process-wide (see ``_NJIT_DISPATCHER_CACHE``) so the
+    registry rebuilds within a single fit reuse one dispatcher per distinct source callable
+    instead of recompiling the same signature repeatedly."""
     for key, func in dict_.items():
         if key not in exceptions:
             try:
-                dict_[key] = njit(func)
+                ck = _njit_cache_key(func)
+                if ck is not None:
+                    cached = _NJIT_DISPATCHER_CACHE.get(ck)
+                    if cached is None:
+                        cached = njit(func)
+                        _NJIT_DISPATCHER_CACHE[ck] = cached
+                    dict_[key] = cached
+                else:
+                    dict_[key] = njit(func)
             except Exception:
                 pass
 
