@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Literal, Sequence
 
@@ -46,8 +47,11 @@ logger = logging.getLogger(__name__)
 
 _SliceSource = Literal["random", "temporal", "fairness", "both"]
 
+# dataclass slots= keyword is 3.10+; keep the slots optimisation where available, fall back to a plain dataclass on 3.9.
+_DC_SLOTS = {"slots": True} if sys.version_info >= (3, 10) else {}
 
-@dataclass(slots=True)
+
+@dataclass(**_DC_SLOTS)
 class SliceEvalSet:
     """A single per-shard eval-set ready to register with a booster.
 

@@ -95,7 +95,17 @@ dependencies = [
 # (OptimalBinning(solver="cp") -> status OPTIMAL), so the cap is purely
 # conservative. Override it to the cp313/cp314-capable line; ortools 9.12-9.15
 # all still publish cp39-cp312 wheels, so this is safe across the whole matrix.
-override-dependencies = ["ortools>=9.12"]
+#
+# numpy<2 on Python 3.9: the only 3.9-compatible astropy (5.x, pulled by [signal]/[all])
+# is built against the numpy 1.x ABI, and no numpy-2-ready astropy supports 3.9 (6.1+ needs
+# 3.10+). With numpy 2.x resolved on 3.9 every astropy C-extension import raises
+# "ValueError: numpy.dtype size changed ... binary incompatibility", cascading into thousands
+# of collection failures. Pinning numpy<2 on 3.9 only (3.10+ keep numpy 2.x) restores the
+# numpy-1 ABI world the whole 3.9 C-extension stack (astropy/numba 0.60/pyarrow) was built for.
+override-dependencies = [
+    "ortools>=9.12",
+    "numpy<2.0; python_version < '3.10'",
+]
 
 [project.optional-dependencies]
 # Gradient-boosting backends used by the training pipeline.
