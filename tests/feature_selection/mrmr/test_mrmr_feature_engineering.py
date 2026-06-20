@@ -154,6 +154,57 @@ class TestMRMRFeatureEngineering:
                 f"names={list(mrmr.get_feature_names_out())}"
             )
 
+    def test_feature_engineering_example_single_compound(self, feature_engineering_example_data):
+        """STRENGTHENED canonical gate: y = a**2/b + log(c)*sin(d) must be recovered as essentially ONE
+        fused compound feature that carries BOTH structural halves (an a/b term AND a c/d term), and the
+        redundancy gate must NOT also keep standalone sub-fragments of it.
+
+        The ideal selection is a single engineered feature like
+        ``add(mul(sqr(a),reciproc(b)), mul(log(c),sin(d)))``. A bare ``mul(log(c),sin(d))`` (only c,d) or a
+        bare ``div(sqr(a),...)`` (only a,b) surviving ALONGSIDE that full compound is REDUNDANT -- given
+        the full compound it carries no extra information about y, so the conditional-MI redundancy gate
+        should drop it. This test catches the fragmentation regression (3-4 sibling features instead of 1).
+        """
+        df, y, _ = feature_engineering_example_data
+
+        mrmr = MRMR(
+            full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
+            fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(X=df, y=y)
+
+        names = [str(n) for n in mrmr.get_feature_names_out()]
+        assert names, "selector returned no features"
+
+        # Classify each selected feature by which signal half(s) it references. The two structural halves
+        # are {a,b} (the a**2/b term) and {c,d} (the log(c)*sin(d) term); 'e' is pure noise.
+        def _cols(nm):
+            return set(_IDENT.findall(nm)) & {"a", "b", "c", "d", "e"}
+
+        assert all("e" not in _cols(nm) for nm in names), f"noise 'e' referenced: {names}"
+
+        full, frag_ab, frag_cd = [], [], []
+        for nm in names:
+            cs = _cols(nm)
+            has_ab, has_cd = bool(cs & {"a", "b"}), bool(cs & {"c", "d"})
+            if has_ab and has_cd:
+                full.append(nm)
+            elif has_ab:
+                frag_ab.append(nm)
+            elif has_cd:
+                frag_cd.append(nm)
+
+        # (1) the full compound (both halves fused into ONE feature) must be recovered.
+        assert len(full) >= 1, f"no single feature fuses both a/b and c/d halves: {names}"
+        # (2) it must be THE selection, not one of several: no standalone half-fragment may co-survive
+        #     with the full compound (those are redundant given it). This is the "only 1 compound" property.
+        assert not frag_cd, f"redundant c/d-only sub-term(s) survived alongside the full compound: {frag_cd} in {names}"
+        assert not frag_ab, f"redundant a/b-only sub-term(s) survived alongside the full compound: {frag_ab} in {names}"
+        # (3) exactly one fused compound (no duplicate near-identical compounds).
+        assert len(full) == 1, f"expected exactly ONE fused compound, got {len(full)}: {full}"
+
     def test_multiplicative_synergy(self, multiplicative_synergy_data):
         """Test that MRMR detects multiplicative synergy: y = a * b."""
         df, y, expected_features = multiplicative_synergy_data
