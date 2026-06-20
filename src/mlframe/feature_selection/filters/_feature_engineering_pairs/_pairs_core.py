@@ -571,6 +571,25 @@ def check_prospective_fe_pairs(
             except Exception:
                 return True  # validation failure -> fall back to accepting the warp
 
+        # bench-attempt-rejected (2026-06-20): "skip the ALS prewarp fit when the clean-form
+        # demotion (commit 3e62742e) would discard it anyway" was investigated and NOT shipped.
+        # (1) A per-pair MEMO / cross-chunk shared cache to drop "wasted" refits was a NO-OP:
+        # instrumentation showed every distinct (var_a, var_b) index pair is already fit EXACTLY
+        # ONCE per FE step (memo never hit a duplicate). The apparent "32 full fits / 8 distinct
+        # pairs" signal was a measurement artifact -- distinct var-index pairs collided under a
+        # first-2-operand-values signature; there is no redundant fitting to eliminate, so the
+        # batched/shared-factorisation lever (B) has no target.
+        # (2) A PRE-SCREEN (A) -- skip the fit when the prewarp cannot clear the +5% demotion bar
+        # -- needs the clean-form's continuous-y |corr|, but that is the best NON-prewarp ENGINEERED
+        # config (unary x unary x binary), i.e. the very search being timed; it is not cheaply
+        # computable before the fit. The cheap proxy max(best_single_unary|corr(a)|,|corr(b)|) does
+        # NOT separate cleanly: measured prewarp_recon/best_single_unary ratio on the canonical
+        # demoted pairs ranged 1.00-1.12 while the genuinely-non-monotone RETAINED case
+        # (y=(a**3-2a)*(b**2-b)) ranged 1.05-1.47 -- overlapping bands, so any skip threshold safe
+        # for the prewarp_retained pin (>=1.36) would leave most demoted pairs unskipped, and a
+        # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
+        # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
+        # bounded, selection-risky win does not clear the bar. Left as the exact per-pair fit.
         for (raw_vars_pair, _), _ in prospective_pairs.items():
             _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
             if _va in _prewarp_spec_by_var and _vb in _prewarp_spec_by_var:
