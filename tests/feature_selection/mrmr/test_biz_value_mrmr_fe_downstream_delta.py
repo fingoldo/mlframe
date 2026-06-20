@@ -53,9 +53,7 @@ from sklearn.metrics import r2_score, roc_auc_score
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-# Reusable synthetic generators live beside this file.
-sys.path.insert(0, os.path.dirname(__file__))
-from _biz_val_synth import (  # noqa: E402
+from tests.feature_selection._biz_val_synth import (  # noqa: E402
     make_polynomial_target, make_heavy_tail_skewed, make_signal_plus_noise, as_df,
 )
 
