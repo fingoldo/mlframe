@@ -147,6 +147,30 @@ _SUPPORT_FRAG_DIVISOR = 5
 # admitting every candidate on its marginal significance.
 _MIN_ROWS_FOR_CMI = 500
 
+# Minimum n at which the ANALYTIC chi-square CMI null replaces the within-stratum permutation null
+# (see ``_conditional_perm_null``). Distinct from the pair-MI path's ``analytic_null_min_n`` (50k):
+# the conditional path's real safe-condition is the per-table cell-occupancy floor (avg expected
+# count >= ``_min_expected_cell``, checked at the call site), so the n-only floor only needs to keep
+# the chi-square asymptotic itself reliable. 20k sits well above ``_MIN_ROWS_FOR_CMI`` and matches the
+# size the default screen subsample (30k) feeds the gate, so the canonical large-n fit engages the
+# analytic null where the cells are dense and falls back to permutation where they are sparse. Env-
+# tunable (``MLFRAME_CMI_ANALYTIC_NULL_MIN_N``); a future kernel_tuning_cache sweep can refine per host.
+import os as _os
+
+_CMI_ANALYTIC_NULL_MIN_N_DEFAULT = 20_000
+
+
+def _cmi_analytic_null_min_n() -> int:
+    raw = _os.environ.get("MLFRAME_CMI_ANALYTIC_NULL_MIN_N", "").strip()
+    if raw:
+        try:
+            v = int(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return _CMI_ANALYTIC_NULL_MIN_N_DEFAULT
+
 # COST GUARD (2026-06-11): the greedy gate is O(K^2) in the candidate count K --
 # every still-remaining candidate is re-scored against the admitted support in
 # EACH greedy round, and each scoring runs a within-stratum permutation null (25
@@ -213,10 +237,66 @@ def _conditional_perm_null(
     # point estimate are directly comparable, and the memory stays bounded by n
     # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
     # joint cardinality climbs into the thousands).
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
 
     x = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
+
+    # ANALYTIC CMI NULL (2026-06-20). The 25 within-stratum permutations exist only to estimate
+    # the null distribution of the plug-in CMI under conditional independence X _||_ Y | Z. That
+    # null has a known asymptotic form: the likelihood-ratio (G) statistic ``2N * CMI`` is
+    # chi-square with df = ``sum_z (Bx_z - 1)(By_z - 1)``, summed over the conditioning strata.
+    # Using OCCUPIED-cell counts this df equals exactly ``k_xz + k_yz - k_z - k_xyz`` -- the SAME
+    # quantity the Miller-Madow bias term in ``_cmi_from_binned`` already computes (the plug-in CMI
+    # bias is ``-df/(2N)``). So the null is distributed as ``chi2(df)/(2N)``:
+    #   * null_mean = E[chi2(df)/(2N)] = df/(2N)  -- IDENTICAL to what the permutation mean estimates
+    #     (the candidate's finite-sample bias), so the debiased excess ``cmi - null_mean`` (leg 2) is
+    #     selection-EQUIVALENT to the permutation path by construction (matched bias estimator).
+    #   * floor    = chi2.ppf(quantile, df)/(2N)  -- the analytic ``quantile`` of the same null, the
+    #     significance bar (leg 1), replacing the empirical 95th percentile of 25 draws.
+    # Bias-consistent with the observed CMI's Miller-Madow correction and free of the 25-permutation
+    # cost (the single largest steady-state redundancy-gate hotspot at large n). Gated on the same
+    # safe-conditions as the pair-path analytic MI null: n >= the analytic-null threshold AND the
+    # contingency cells are not sparse (avg expected count >= the min-cell floor). Below either, or
+    # when scipy.chi2 is unavailable, falls back to the exact permutation null. Env off-switch:
+    # MLFRAME_MI_ANALYTIC_NULL=0 routes everything to the permutation path.
+    try:
+        from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
+    except Exception:
+        _HAVE_CHI2 = False
+    if _HAVE_CHI2 and analytic_null_enabled() and x.size >= _cmi_analytic_null_min_n():
+        try:
+            _n = float(max(1, x.size))
+            if z_support is None or z_support.size == 0:
+                xy, _ = _renumber_joint(x, y)
+                _, k_x = _entropy_from_classes(x)
+                _, k_y = _entropy_from_classes(y)
+                _, k_xy = _entropy_from_classes(xy)
+                _df = (int(k_x) - 1) * (int(k_y) - 1)
+                _cells = max(1, int(k_x) * int(k_y))
+            else:
+                _z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
+                xz, _ = _renumber_joint(x, _z)
+                yz, _ = _renumber_joint(y, _z)
+                xyz, _ = _renumber_joint(x, y, _z)
+                _, k_z = _entropy_from_classes(_z)
+                _, k_xz = _entropy_from_classes(xz)
+                _, k_yz = _entropy_from_classes(yz)
+                _, k_xyz = _entropy_from_classes(xyz)
+                _df = int(k_xz) + int(k_yz) - int(k_z) - int(k_xyz)
+                _cells = max(1, int(k_xyz))
+            # Sparse-cell safe-condition (chi-square "expected >= 5" rule): avg expected count over
+            # the joint cells must clear the floor, else the asymptotic is unreliable -> permute.
+            if _df > 0 and (_n / float(_cells)) >= _min_expected_cell():
+                _null_mean = _df / (2.0 * _n)
+                _floor = float(_chi2.ppf(float(quantile), _df)) / (2.0 * _n)
+                if _floor < 0.0:
+                    _floor = 0.0
+                return float(_floor), float(_null_mean)
+            # else: fall through to the permutation null (sparse cells / degenerate df).
+        except Exception:
+            logger.debug("analytic CMI null failed; using permutation null", exc_info=True)
+
     rng = np.random.default_rng(np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF]))
 
     if z_support is None or z_support.size == 0:

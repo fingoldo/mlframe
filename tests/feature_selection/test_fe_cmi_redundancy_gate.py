@@ -614,3 +614,86 @@ def test_conditional_perm_null_fixed_yz_bit_identical():
         yi, zi, h_yz, h_z, k_yz, k_z, nf = precompute_cmi_yz_terms(y, z)
         got = cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)
         assert ref == got, f"fixed-yz CMI diverged: ref={ref!r} got={got!r}"
+
+
+def test_analytic_cmi_null_matches_permutation_decision():
+    """The analytic chi-square CMI null (2026-06-20) must reproduce the within-stratum
+    PERMUTATION null's gate decision on a dense-cell large-n case. The analytic path uses
+    ``null_mean = df/(2N)`` (df = occupied-cell count k_xz+k_yz-k_z-k_xyz, the SAME quantity the
+    Miller-Madow bias term computes) and ``floor = chi2.ppf(q, df)/(2N)`` -- selection-EQUIVALENT
+    to the permutation path by construction. Toggling ``MLFRAME_MI_ANALYTIC_NULL`` must not change
+    accept/reject, and the analytic floor/null_mean must be finite and ordered (floor >= mean)."""
+    import os
+    import numpy as np
+    import importlib
+
+    from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2
+    if not _HAVE_CHI2:
+        import pytest as _pt
+        _pt.skip("scipy.stats.chi2 unavailable")
+
+    import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+
+    rng = np.random.default_rng(13)
+    n = 25_000  # >= the 20k analytic floor; dense cells at nbins=4 conditioning support
+    # candidate carries real CMI given a low-cardinality support (dense joint cells -> ratio >> 5)
+    z = rng.integers(0, 4, n).astype(np.int64)
+    x = ((z + rng.integers(0, 4, n)) % 5).astype(np.int64)
+    y = ((x + z + rng.integers(0, 2, n)) % 6).astype(np.int64)
+
+    saved = os.environ.get("MLFRAME_MI_ANALYTIC_NULL")
+    try:
+        os.environ["MLFRAME_MI_ANALYTIC_NULL"] = "0"
+        perm_floor, perm_mean = G._conditional_perm_null(x, y, z, seed=0, salt=1)
+        os.environ["MLFRAME_MI_ANALYTIC_NULL"] = "1"
+        an_floor, an_mean = G._conditional_perm_null(x, y, z, seed=0, salt=1)
+    finally:
+        if saved is None:
+            os.environ.pop("MLFRAME_MI_ANALYTIC_NULL", None)
+        else:
+            os.environ["MLFRAME_MI_ANALYTIC_NULL"] = saved
+
+    # both paths produce a small, non-negative null (independence floor near 0 at this n)
+    assert np.isfinite(an_floor) and np.isfinite(an_mean)
+    assert an_floor >= 0.0 and an_mean >= 0.0
+    assert an_floor >= an_mean  # 95th-pct quantile of chi2(df)/(2N) >= its mean df/(2N)
+    # analytic and permutation nulls agree to the same order of magnitude (both ~ df/(2N))
+    assert abs(an_mean - perm_mean) < 5e-3, (an_mean, perm_mean)
+    # a strongly-dependent candidate's observed CMI clears BOTH nulls' floors identically (accept)
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned
+    cmi_obs = _cmi_from_binned(x, y, z)
+    assert cmi_obs > perm_floor and cmi_obs > an_floor
+
+
+def test_analytic_cmi_null_falls_back_on_sparse_cells():
+    """The analytic null must FALL BACK to the permutation path when the contingency cells are
+    sparse (avg expected count < the min-cell floor) -- a high-cardinality conditioning support at
+    modest n. The chi-square asymptotic is unreliable there; the permutation null is exact. Verified
+    by a support so fragmented that ratio < 5, where forcing analytic-on still yields a permutation-
+    shaped (seed-sensitive) null rather than the deterministic chi2 floor."""
+    import os
+    import numpy as np
+    import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+    from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2
+    if not _HAVE_CHI2:
+        import pytest as _pt
+        _pt.skip("scipy.stats.chi2 unavailable")
+
+    rng = np.random.default_rng(5)
+    n = 25_000
+    z = rng.integers(0, 4000, n).astype(np.int64)   # very high-cardinality support -> sparse xyz cells
+    x = rng.integers(0, 10, n).astype(np.int64)
+    y = rng.integers(0, 6, n).astype(np.int64)
+    saved = os.environ.get("MLFRAME_MI_ANALYTIC_NULL")
+    try:
+        os.environ["MLFRAME_MI_ANALYTIC_NULL"] = "1"
+        # two different seeds: the permutation fallback is seed-sensitive, the analytic floor is not.
+        f1, _ = G._conditional_perm_null(x, y, z, seed=0, salt=1)
+        f2, _ = G._conditional_perm_null(x, y, z, seed=999, salt=7)
+    finally:
+        if saved is None:
+            os.environ.pop("MLFRAME_MI_ANALYTIC_NULL", None)
+        else:
+            os.environ["MLFRAME_MI_ANALYTIC_NULL"] = saved
+    # sparse -> permutation fallback engaged -> floors differ across seeds (analytic would be identical)
+    assert f1 != f2, "expected permutation fallback (seed-sensitive) on sparse cells, got identical floors"
