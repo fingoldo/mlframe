@@ -626,6 +626,112 @@ def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
     return clen(cp, z, coef)
 
 
+# --- BATCHED device basis build (matrix-native Piece 3b, 2026-06-21) ---------------------------------
+# Vectorized port of the per-column _gpu_evaluate_basis_column: process ALL columns of a (basis, robust)
+# group in ONE preprocess + ONE Clenshaw call per degree (axis=0 stats over the (n, g) submatrix),
+# killing the per-column cupy launch overhead that made the per-column loop perf-lose at high feature
+# count (p200). Bit-equivalent to the per-column path (same math, just vectorised); guarded by
+# test_gpu_basis_column_parity's batched leg.
+
+def _gpu_robust_scale_batched(cp, M, med):
+    """Per-column (axis=0) robust scale over finite (n, g) M: 1.4826*MAD, IQR/1.349 fallback, 0 degenerate."""
+    mad = cp.median(cp.abs(M - med), axis=0)
+    scale = 1.4826 * mad
+    q = cp.percentile(M, cp.asarray([25.0, 75.0]), axis=0)  # (2, g)
+    iqr = (q[1] - q[0]) / 1.349
+    return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
+
+
+def _gpu_robust_lo_hi_batched(cp, M, med, scale):
+    deg = scale <= 1e-12
+    lo = cp.where(deg, M.min(axis=0), med - _GPU_ROBUST_AXIS_K * scale)
+    hi = cp.where(deg, M.max(axis=0), med + _GPU_ROBUST_AXIS_K * scale)
+    return lo, hi
+
+
+def _gpu_detect_heavy_tail_batched(cp, M):
+    """Vectorized per-column heavy-tail over a FINITE (n, K) matrix (caller skips non-finite cols).
+    Returns (K,) cupy bool, matching _gpu_detect_heavy_tail per column."""
+    n = M.shape[0]
+    med = cp.median(M, axis=0)
+    scale = _gpu_robust_scale_batched(cp, M, med)
+    dev = cp.abs(M - med)
+    outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
+    n_outer = outer.sum(axis=0)
+    bulk_edge = cp.where(outer, -cp.inf, dev).max(axis=0)
+    outer_min = cp.where(outer, dev, cp.inf).min(axis=0)
+    gap_ok = (outer_min / cp.maximum(bulk_edge, 1e-12)) >= _GPU_ROBUST_AXIS_GAP
+    return (
+        (scale > 1e-12) & (n_outer > 0)
+        & (n_outer <= _GPU_ROBUST_AXIS_MAX_FRAC * n) & gap_ok
+    )
+
+
+def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
+    """Vectorized per-basis preprocess over (n, g) M (all g columns share basis + robust). Returns Z (n, g)."""
+    if basis == "hermite":  # z-score
+        if robust:
+            center = cp.median(M, axis=0)
+            scale = _gpu_robust_scale_batched(cp, M, center)
+            lo, hi = _gpu_robust_lo_hi_batched(cp, M, center, scale)
+            std = (hi - lo) / 6.0
+            std = cp.where(std > 1e-12, std, M.std(axis=0) + 1e-12)
+            return cp.clip((M - center) / std, -6.0, 6.0)
+        mean = M.mean(axis=0); std = M.std(axis=0) + 1e-12
+        return (M - mean) / std
+    if basis in ("legendre", "chebyshev"):  # min-max -> [-1, 1]
+        if robust:
+            med = cp.median(M, axis=0)
+            scale = _gpu_robust_scale_batched(cp, M, med)
+            lo, hi = _gpu_robust_lo_hi_batched(cp, M, med, scale)
+            span = hi - lo + 1e-12
+            return cp.clip(2.0 * (M - lo) / span - 1.0, -1.0, 1.0)
+        lo = M.min(axis=0); hi = M.max(axis=0); span = hi - lo + 1e-12
+        return 2.0 * (M - lo) / span - 1.0
+    if basis == "laguerre":  # shift -> >= 0
+        if robust:
+            med = cp.median(M, axis=0)
+            scale = _gpu_robust_scale_batched(cp, M, med)
+            lo, hi = _gpu_robust_lo_hi_batched(cp, M, med, scale)
+            upper = hi - lo
+            return cp.clip(M - lo + 1e-9, 0.0, upper + 1e-9)
+        lo = M.min(axis=0)
+        return M - lo + 1e-9
+    raise ValueError(f"basis {basis!r} not GPU-ported")
+
+
+def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis):
+    """BATCHED device build. ``M`` is a finite (n, K) cupy operand matrix; ``bases`` a per-column basis
+    list; ``degrees`` the degree sequence. Groups columns by (basis, robust-decision) and runs the
+    preprocess + one-hot Clenshaw VECTORISED per group/degree. Returns ``(cand_matrix (n, total), meta)``
+    where ``meta`` is a list of ``(col_idx, basis, degree)`` aligned with the candidate columns (any column
+    whose basis is not GPU-ported is dropped -- the caller host-fallbacks those). ``(None, [])`` if empty."""
+    n, K = M.shape
+    if robust_axis:
+        heavy_host = cp.asnumpy(_gpu_detect_heavy_tail_batched(cp, M))
+    else:
+        heavy_host = np.zeros(K, dtype=bool)
+    groups: dict = {}
+    for ci in range(K):
+        groups.setdefault((bases[ci], bool(heavy_host[ci])), []).append(ci)
+    cand_blocks: list = []
+    meta: list = []
+    for (basis, robust), idx in groups.items():
+        clen = _PREWARP_CLENSHAW_GPU.get(basis)
+        if clen is None:
+            continue
+        Mg = M[:, idx]
+        Zg = _gpu_basis_preprocess_batched(cp, Mg, basis, robust=robust)
+        for d in degrees:
+            coef = [0.0] * (int(d) + 1)
+            coef[int(d)] = 1.0
+            cand_blocks.append(clen(cp, Zg, coef))   # (n, len(idx))
+            meta.extend((ci, basis, int(d)) for ci in idx)
+    if not cand_blocks:
+        return None, []
+    return cp.ascontiguousarray(cp.concatenate(cand_blocks, axis=1)), meta
+
+
 def _gpu_apply_prewarp(cp, x, spec):
     """Device port of ``hermite_fe.apply_operand_prewarp``. ``x`` is a device array (native float dtype);
     returns a device float64 column. Raises for any basis/path not ported so the caller falls back to the

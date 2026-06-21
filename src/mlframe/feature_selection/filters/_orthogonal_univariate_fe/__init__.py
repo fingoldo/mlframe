@@ -591,8 +591,11 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins)
         raw_mi_map = dict(zip(raw_cols, [float(v) for v in raw_mi]))
     code = _BASIS_CODE
-    eng_list: list = []
-    names: list = []
+    # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
+    # only the heavy per-(col,basis,degree) eval + the MI move to the GPU -- and the eval is BATCHED.
+    used_x: list = []
+    used_bases: list = []
+    used_src: list = []
     for col in cols:
         if fe_deadline_passed():
             break
@@ -607,20 +610,19 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
             chosen = basis
         if chosen not in _POLY_BASES:
             continue
-        x_dev = cp.asarray(x)
-        for d in degrees:
-            try:
-                v = _gpu_evaluate_basis_column(cp, x_dev, chosen, int(d), robust_axis=ra)
-            except Exception:
-                # Basis/path not GPU-ported (extra bases / aux) -> host eval for this column-degree.
-                v = cp.asarray(np.ascontiguousarray(
-                    _evaluate_basis_column(x, chosen, int(d)), dtype=np.float64,
-                ))
-            eng_list.append(v.astype(cp.float64))
-            names.append(f"{col}__{code.get(chosen, chosen)}{d}")
-    if not names:
+        used_x.append(np.ascontiguousarray(x))
+        used_bases.append(chosen)
+        used_src.append(col)
+    if not used_x:
         return None, [], _empty
-    eng_mat = cp.ascontiguousarray(cp.stack(eng_list, axis=1))
+    from .._gpu_resident_fe import _gpu_evaluate_basis_matrix
+    # ONE H2D of the (n, n_used) operand matrix, then ONE vectorised preprocess+Clenshaw per
+    # (basis, robust) group/degree -- no per-column launch overhead (the high-K perf fix).
+    M = cp.asarray(np.ascontiguousarray(np.column_stack(used_x), dtype=np.float64))
+    eng_mat, meta = _gpu_evaluate_basis_matrix(cp, M, used_bases, list(degrees), robust_axis=ra)
+    if eng_mat is None:
+        return None, [], _empty
+    names = [f"{used_src[_ci]}__{code.get(_b, _b)}{_d}" for (_ci, _b, _d) in meta]
     eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins)
     rows = []
     for j, nm in enumerate(names):
