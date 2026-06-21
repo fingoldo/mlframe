@@ -584,6 +584,33 @@ def run_fe_auto_escalation(
     seed = int(getattr(self, "random_seed", 0) or 0)
     nbins = int(self.quantization_nbins)
 
+    # SUBSAMPLED DECISION (2026-06-21). The escalation proposers (orth-poly ALS warp fit +
+    # adaptive Fourier/chirp periodogram DETECTION) are the dominant active orth-FE CPU cost
+    # and ran on the FULL frame. Decide on the SAME row-subsample the rest of FE uses
+    # (fe_check_pairs_subsample_n + random_seed), then rebuild each ADMITTED candidate's
+    # ``values`` at full n via its closed-form recipe before returning (output-safe). Operands,
+    # target, residualisation captures and the admitted-support pool are all subsampled in
+    # lockstep so the gates decide on a consistent slice. Default off -> full-data decision.
+    _X_full = X
+    _esc_ss_n = int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0)
+    _esc_do_sub = isinstance(_esc_ss_n, int) and 0 < _esc_ss_n < n_rows
+    _y_rank_eff = getattr(self, "_fe_escalation_y_rank_", None)
+    if _esc_do_sub:
+        _esc_idx = np.sort(
+            np.random.default_rng(seed).choice(n_rows, size=int(_esc_ss_n), replace=False)
+        )
+        X = X.iloc[_esc_idx].reset_index(drop=True) if hasattr(X, "iloc") else np.asarray(X)[_esc_idx]
+        classes_y = np.asarray(classes_y)[_esc_idx]
+        if capture_vals:
+            capture_vals = {k: np.asarray(v)[_esc_idx] for k, v in capture_vals.items()}
+        if admitted_pool:
+            admitted_pool = {
+                k: (np.asarray(v)[_esc_idx], m) for k, (v, m) in (admitted_pool or {}).items()
+            }
+        if _y_rank_eff is not None and np.asarray(_y_rank_eff).shape[0] == n_rows:
+            _y_rank_eff = np.asarray(_y_rank_eff)[_esc_idx]
+        n_rows = int(_esc_ss_n)
+
     # Target for the supervised warp fits. PREFER the rank-transformed raw y stashed
     # by ``_fit_impl`` (``_fe_escalation_y_rank_``): the FE step's ``classes_y`` are
     # LABEL codes from the internal target quantisation -- NOT guaranteed ordinal /
@@ -592,7 +619,7 @@ def run_fe_auto_escalation(
     # corr 0.42 on the genuine (c,d) term with rank-y vs ~0 with the label codes).
     # The rank is monotone-equivalent to y and heavy-tail-robust; fall back to the
     # codes when the stash is unavailable (multi-output / non-numeric y).
-    _y_rank = getattr(self, "_fe_escalation_y_rank_", None)
+    _y_rank = _y_rank_eff
     if _y_rank is not None and np.asarray(_y_rank).shape[0] == n_rows:
         y_f = np.ascontiguousarray(_y_rank, dtype=np.float64)
     else:
@@ -778,6 +805,24 @@ def run_fe_auto_escalation(
         c["recipe"] = recipe
         admitted.append(c)
         info["admitted"].append(c["name"])
+    # FULL-n OUTPUT: when the DECISION ran on a subsample, the candidate ``values`` are
+    # subsample-length -- rebuild each admitted candidate's column on the full X via its
+    # closed-form recipe so the caller materialises the full-n column (output equals a
+    # full-data fit given the same admitted set). A candidate whose full replay fails is
+    # dropped (it would otherwise inject a wrong-length column).
+    if _esc_do_sub and admitted:
+        from .engineered_recipes import apply_recipe
+        _rebuilt: list[dict] = []
+        for c in admitted:
+            try:
+                c["values"] = np.asarray(apply_recipe(c["recipe"], _X_full), dtype=np.float64)
+                _rebuilt.append(c)
+            except Exception:
+                logger.warning(
+                    "MRMR FE auto-escalation: full-n replay failed for %r; dropping.",
+                    c.get("name"),
+                )
+        admitted = _rebuilt
     if verbose and (admitted or info["proposed"]):
         logger.info(
             "MRMR FE auto-escalation: %d pair(s) had 0 admitted engineered features after the "
