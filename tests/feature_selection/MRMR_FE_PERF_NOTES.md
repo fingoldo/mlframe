@@ -178,3 +178,50 @@ PATH TO <=20s (the chosen full re-platform -- needs ALL of these, no single knob
   5. float32 candidate frame (bandwidth + the generation-stage RAM).
 This is a multi-family architectural rewrite of shared MI/FE infra; execute phased with per-step
 bit-parity (selection-identity) validation.
+
+## 2026-06-21 -- cProfile @ canonical 100k + the GPU-RESIDENCY verdict (why piecemeal ports backfire)
+
+Driven by the "100% GPU / one transfer" goal (CPU touched once = the initial data copy). Two findings.
+
+### (A) H2D residency floor is ~5 MB and mostly NECESSARY -- do NOT chase it with kernel ports
+Instrumented H2D (cp.asarray/array/set byte counting) on the warm canonical 100k fit
+(y = a**2/b + f/5 + log(c)*sin(d)): total **14 MB** =
+  8.0 MB  input discretization (the legitimate one-time data upload)
+  3.36 MB raw operands (14 distinct n-subsample float64, uploaded ONCE each)
+  1.68 MB non-plain operand cols (prewarp / gate_med / poly -- host-FIT coefficients)
+  ~1 MB   (a_col,b_col,op_code) chunk metadata
+Phase-1's resident operand table already replaced the full ~5 MB table re-upload-per-chunk (14x) with
+one pass. The whole operand table is only ~5 MB (n_subsample=30k x ~42 operands x 4B), so the residual
+is at the architectural floor. Eliminating it needs prewarp/gate_med/poly APPLIED on-GPU (host-fit
+coeffs uploaded, tiny) + raw operands sourced from a resident input slice -- both ZERO wall, ULP-risky
+against the single_compound pin. See the rejected residency-override note in
+_feature_engineering_pairs/_pairs_chunks.py (forcing fused-on-sub-crossover chunks was a no-op / latent
+H2D loss).
+
+### (B) cProfile @ 100k (warm; total 56s), mlframe-side tottime
+| tottime | cum | calls | function |
+|--------:|----:|------:|----------|
+| 5.57s | -- | 1252 | cupy._core.core.array (GPU alloc/H2D) |
+| 4.42s | -- | 1382 | numba cuda safe_cuda_api_call (launch/sync) |
+| 4.07s | -- | 23574 | llvmlite ffi (njit exec/compile) |
+| 3.91s | -- | 167 | hermite_fe `_plugin_mi_classif_batch_njit` |
+| 1.84s | -- | 42 | orth-FE `_coarse_basis_njit` |
+| 1.70s | 7.38s | 160 | `_radix_select_interior_edges` (GPU; tot=per-call Py orchestration) |
+| 1.67s | -- | 924 | orth-FE `_power_centered_fused_par_njit` |
+| 1.42s+1.15s+0.98s | | | numpy partition / sort / argsort (per-candidate quantile) |
+| -- | 17.76s | 2 | `check_prospective_fe_pairs` (whole FE pair search) |
+| -- | 5.19s | 42 | `_detect_fourier_freqs_for_col` (prewarp escalation; REJECTED at canonical) |
+
+### VERDICT: piecemeal kernel->GPU ports are COUNTERPRODUCTIVE for residency
+The remaining CPU compute (njit FE kernels) runs on HOST-generated feature columns. Moving any one to
+GPU re-uploads its operands, so it ADDS H2D and fights "one transfer". Worked example: routing
+`fe_baselines.score_pair_baselines` batch-MI (the 167-call / 3.9s `_plugin_mi_classif_batch_njit`) to
+the existing `_plugin_mi_classif_batch_cuda` would upload ~480 MB (167 x 30k x 12 x 8B) AND is NOT
+bit-identical (equi-frequency-edge vs rank binning at ties -> selection-risky for the trivial-feature
+winner). Net: wrong direction on BOTH H2D and bit-parity.
+
+Therefore literal "100% GPU" == the FULL matrix-native RESIDENT FE pipeline (generate candidate columns
+ON the GPU from the resident input -> bin on GPU -> MI on GPU -> selection reads device), so nothing
+round-trips. That is the multi-family rewrite already scoped in the 2026-06-17 "path to <=20s" entry
+above + MRMR_FE_NUMBA_REPLATFORM_DESIGN.md / the breezy-wishing-gem plan. Wall is compute-bound (~45-56s,
+no single dominant lever), so the rewrite is justified by the residency PRINCIPLE, not a wall win.
