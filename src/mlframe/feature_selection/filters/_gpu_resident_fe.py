@@ -199,18 +199,21 @@ def fe_gpu_resident_codes_enabled() -> bool:
 def fe_gpu_resident_basis_mi_enabled() -> bool:
     """Whether the matrix-native RESIDENT orth-FE basis-MI path is active (Piece 3). DEFAULT OFF.
 
-    When ON (``MLFRAME_FE_GPU_RESIDENT_BASIS_MI=1`` + CUDA), ``hybrid_orth_mi_fe`` builds the univariate
-    orth-basis candidate matrix ON the device (``_gpu_evaluate_basis_column``) and scores its plug-in MI
-    with ``_plugin_mi_classif_batch_cuda_resident`` -- removing the host basis-preprocess np.median AND the
-    plug-in-MI argsort/reduce of the CPU tail, with NO per-call H2D (the dispatcher's 2x trap). DEFAULT OFF
-    because this swaps the njit RANK binning for the GPU equi-frequency-edge binning in the orth-FE basis
-    SELECTION (which basis/degree wins rides on that ranking) -- selection-equivalent on the FE pair-search
-    (approved trade) but the basis choice must be re-validated against the orth-basis recovery pins
-    (test_layer2x) + canonical + the biz-value hybrid_orth suite before flipping default-on. Any GPU failure
-    falls back to the host path (never a correctness regression)."""
+    When ON, ``hybrid_orth_mi_fe`` builds the univariate orth-basis candidate matrix ON the device
+    (BATCHED ``_gpu_evaluate_basis_matrix``) and scores its plug-in MI with
+    ``_plugin_mi_classif_batch_cuda_resident`` -- with NO per-call H2D (the dispatcher's 2x trap).
+
+    DEFAULT ON when CUDA is present (2026-06-21). Validated: selection-EQUIVALENT (it swaps the njit RANK
+    binning for the GPU equi-frequency-edge binning in the basis ranking -- the orth-basis recovery pins
+    test_layer21/22, the canonical single_compound, and the full biz-value hybrid_orth suite all pass with
+    it on: 385 passed) AND FASTER (clean canonical 100k wall 34.8s -> 30.7s, ~12%; the batched build also
+    clears the p200 high-feature perf budget). Opt out with ``MLFRAME_FE_GPU_RESIDENT_BASIS_MI=0``. Any GPU
+    failure / unported basis falls back to the host path per-call (never a correctness regression)."""
     _v = os.environ.get("MLFRAME_FE_GPU_RESIDENT_BASIS_MI", "").strip().lower()
-    if _v not in ("1", "true", "on", "yes"):
+    if _v in ("0", "false", "off", "no"):
         return False
+    if _v in ("1", "true", "on", "yes"):
+        return True
     _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
     if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
         return False
