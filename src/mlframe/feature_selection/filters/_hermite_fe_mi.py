@@ -261,9 +261,14 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20):
         edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
     else:
         edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
-    X_binned = cp.empty((n, k), dtype=cp.int64)
-    for _j in range(k):
-        X_binned[:, _j] = cp.searchsorted(edges[1:-1, _j], X_gpu[:, _j], side="right")
+    # Fused single-launch binning: the per-column cp.searchsorted(side='right') loop fired k-1 extra kernel
+    # launches + k int64 temporaries. _searchsorted_codes is the already-validated drop-in (bit-identical:
+    # code = #(interior edges <= value), edges f64-promoted exactly as cp.searchsorted does, with its own
+    # per-column fallback on kernel failure). Lazy import keeps the module-import graph acyclic (cupy-resident
+    # _gpu_resident_fe never top-level-imports this module). astype(int64) only widens the int32 codes
+    # (range [0, n_bins]) for the flat-index math below -- value-preserving, no truncation.
+    from ._gpu_resident_fe import _searchsorted_codes
+    X_binned = _searchsorted_codes(X_gpu, edges[1:-1]).astype(cp.int64, copy=False)
 
     # Joint hist via single bincount on flat index (col, bin, class).
     j_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))

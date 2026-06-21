@@ -1438,8 +1438,12 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
         _RADIX_INTERP_CACHE[_ik] = (bi, ai, w)
     else:
         bi, ai, w = _ic
-    ab = osv[bi, :].astype(cp.float64)
-    aa = osv[ai, :].astype(cp.float64)
+    # Fancy-indexed gathers are already fresh allocations (never aliased to osv); only cast when osv is f32.
+    # On the f64 binning path .astype(f64) was a no-op copy (alloc + cast launch x2 per chunk) -- skip it.
+    _ab = osv[bi, :]
+    _aa = osv[ai, :]
+    ab = _ab if _ab.dtype == cp.float64 else _ab.astype(cp.float64)
+    aa = _aa if _aa.dtype == cp.float64 else _aa.astype(cp.float64)
     diff = aa - ab
     edges = cp.where(w[:, None] < 0.5, ab + diff * w[:, None], aa - diff * (1.0 - w)[:, None])
     return edges                          # (nbins-1, K) float64
