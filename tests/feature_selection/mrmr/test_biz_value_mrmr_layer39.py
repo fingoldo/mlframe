@@ -320,17 +320,21 @@ def _discover_prior_layer_modules():
     relocated themed consolidation subpackages (``test_biz_value_mrmr_<theme>/test_*.py``).
     """
     here = Path(__file__).parent
+    # Derive the dotted package prefix from THIS module so the roster survives the test-tree restructure
+    # (these layer modules now live under ``tests.feature_selection.mrmr`` -- a hard-coded
+    # ``tests.feature_selection`` prefix dropped the ``.mrmr`` segment and every prior-layer import 404'd).
+    pkg = __package__ or "tests.feature_selection.mrmr"
     out = []
     for p in sorted(here.glob("test_biz_value_mrmr_layer*.py")):
         # Skip Layer 39 itself.
         if p.name == Path(__file__).name:
             continue
-        mod_name = f"tests.feature_selection.{p.stem}"
+        mod_name = f"{pkg}.{p.stem}"
         out.append((mod_name, p, mod_name))
     # Layers consolidated into themed subpackages are imported once per ORIGINAL layer number so the
     # import-smoke keeps per-layer granularity (the submodule docstrings record "...layerNN.py").
     for p in sorted(here.glob("test_biz_value_mrmr_*/test_*.py")):
-        mod_name = f"tests.feature_selection.{p.parent.name}.{p.stem}"
+        mod_name = f"{pkg}.{p.parent.name}.{p.stem}"
         layers = sorted(set(re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8"))), key=int)
         if layers:
             for n in layers:

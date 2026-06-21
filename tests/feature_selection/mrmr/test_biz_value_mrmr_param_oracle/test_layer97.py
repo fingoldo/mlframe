@@ -243,9 +243,9 @@ class TestRepresentativeLayersSmoke:
         # Representative layers, now relocated into themed subpackages (the flat
         # test_biz_value_mrmr_layer<N>.py files were consolidated).
         modules = (
-            "tests.feature_selection.test_biz_value_mrmr_fe_hybrid_orth.test_layer21",
-            "tests.feature_selection.test_biz_value_mrmr_grouped_cat_fe.test_composite_group_key",
-            "tests.feature_selection.test_biz_value_mrmr_param_oracle.test_layer91",
+            "tests.feature_selection.mrmr.test_biz_value_mrmr_fe_hybrid_orth.test_layer21",
+            "tests.feature_selection.mrmr.test_biz_value_mrmr_grouped_cat_fe.test_composite_group_key",
+            "tests.feature_selection.mrmr.test_biz_value_mrmr_param_oracle.test_layer91",
         )
         for name in modules:
             mod = importlib.import_module(name)

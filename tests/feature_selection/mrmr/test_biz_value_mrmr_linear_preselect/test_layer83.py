@@ -515,7 +515,9 @@ class TestLinearDatasetMechanismTieBand:
 class TestRosterAtLeast82PriorLayers:
 
     def test_roster_holds_at_least_82_layer_modules(self):
-        root = next(p for p in Path(__file__).parents if p.name == "feature_selection")
+        # The layer modules + themed subpackages live under tests/feature_selection/mrmr/ after the
+        # test-tree restructure; anchor on that dir (not the old flat feature_selection root).
+        root = next(p for p in Path(__file__).parents if p.name == "mrmr")
         present_set = {
             int(p.stem.replace("test_biz_value_mrmr_layer", ""))
             for p in root.glob("test_biz_value_mrmr_layer*.py")
@@ -539,7 +541,9 @@ class TestRosterAtLeast82PriorLayers:
         )
 
     def test_layer29_module_present_for_baseline_reference(self):
-        root = next(p for p in Path(__file__).parents if p.name == "feature_selection")
+        # The layer modules + themed subpackages live under tests/feature_selection/mrmr/ after the
+        # test-tree restructure; anchor on that dir (not the old flat feature_selection root).
+        root = next(p for p in Path(__file__).parents if p.name == "mrmr")
         flat = root / "test_biz_value_mrmr_layer29.py"
         relocated = any(
             "layer29.py" in p.read_text(encoding="utf-8")
