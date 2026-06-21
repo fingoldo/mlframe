@@ -748,6 +748,34 @@ _CUDA_HIST_KERNEL: Any = None
 _CUDA_HIST_KERNEL_BATCHED_SHARED: Any = None
 _CUDA_HIST_KERNEL_BATCHED: Any = None
 
+# Device shuffled-y matrix cache (2026-06-21): y_all = [classes_y; nperm Fisher-Yates shuffles] is
+# DETERMINISTIC from (classes_y, classes_y_safe, base_seed, nperm) -- and the target is identical across
+# ALL ~30 noise-gate dispatches of a fit, so this (P, n) int32 matrix was rebuilt (njit) AND re-uploaded
+# (H2D, ~14MB total) every dispatch. Cache the device matrix by WEAKREF IDENTITY of classes_y + the
+# scalar key: built+uploaded once per fit, reused thereafter. Bit-identical (same shuffle stream).
+_DY_DEVICE_CACHE: dict = {"ref": None, "key": None, "d_y": None}
+
+
+def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
+    """Device (P, n) int32 [orig y; nperm shuffles], cached by weakref(classes_y)+(base_seed,nperm,n).
+    Built + uploaded once per fit (the target is constant across noise-gate dispatches)."""
+    import weakref
+    c = _DY_DEVICE_CACHE
+    key = (int(base_seed), int(nperm), int(n), int(P))
+    ref = c["ref"]
+    if ref is not None and ref() is classes_y and c["key"] == key and c["d_y"] is not None:
+        return c["d_y"]
+    y_all = np.empty((P, n), dtype=np.int32)
+    y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
+    if nperm > 0:
+        y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
+    d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
+    try:
+        c["ref"] = weakref.ref(classes_y); c["key"] = key; c["d_y"] = d_y
+    except TypeError:
+        c["ref"] = None; c["d_y"] = None
+    return d_y
+
 
 def batch_mi_with_noise_gate_cuda_resident(
     disc_2d: np.ndarray,
@@ -807,11 +835,8 @@ def batch_mi_with_noise_gate_cuda_resident(
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     P = nperm + 1
 
-    y_all = np.empty((P, n), dtype=np.int32)
-    y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
-    if nperm > 0:
-        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm)
-        y_all[1:, :] = shuf.astype(np.int32)
+    # d_y (P, n) device shuffle matrix -- cached once per fit (target constant across dispatches).
+    d_y = _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
     # H2D the codes in their NATIVE narrow dtype (int8/int16 -- the bins are < 256/65536) instead of
     # up-casting to int32: nvprof showed the resident gate's wall is dominated by this (n, K) codes H2D,
@@ -835,7 +860,6 @@ def batch_mi_with_noise_gate_cuda_resident(
         d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=_disc_dt))
     d_off = _nb_cuda.to_device(np.ascontiguousarray(offsets[:K], dtype=np.int64))
     d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins_arr, dtype=np.int32))
-    d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
     d_freq = _nb_cuda.to_device(np.ascontiguousarray(freqs_y, dtype=np.float64))
     d_counts = _nb_cuda.device_array(P * total_size, dtype=np.int64)
     d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))  # compute every (k,p); host applies the gate
