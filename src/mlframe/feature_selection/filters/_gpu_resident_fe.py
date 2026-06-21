@@ -152,8 +152,24 @@ def fe_gpu_resident_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_RESIDENT", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def _cuda_present() -> bool:
+    """Best-effort CUDA-availability probe for the resident-codes default. Mirrors
+    ``batch_mi_noise_gate_gpu._CUDA_AVAIL`` (pyutilz ``is_cuda_available`` -> numba.cuda fallback) without
+    importing the GPU twin at module-import time. Any failure -> False (CPU path, never a regression)."""
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        return bool(is_cuda_available())
+    except Exception:
+        try:
+            from numba import cuda as _c
+            return bool(getattr(_c, "is_available", lambda: False)())
+        except Exception:
+            return False
+
+
 def fe_gpu_resident_codes_enabled() -> bool:
-    """Whether the GPU-RESIDENT-CODES handoff is active (default OFF until proven on a quiet box).
+    """Whether the GPU-RESIDENT-CODES handoff is active. DEFAULT ON when CUDA is present (env opt-out
+    ``MLFRAME_FE_GPU_RESIDENT_CODES=0``); explicit truthy forces it on even without a detected device.
 
     When ON, ``gpu_materialise_discretize_codes_host`` keeps the on-device int codes RESIDENT (a single
     (n, K) cupy array in the narrow code dtype) and stashes them in a module-level handoff (keyed on the
@@ -162,9 +178,22 @@ def fe_gpu_resident_codes_enabled() -> bool:
     resident gate would otherwise pay (the codes were just produced on the GPU, D2H'd, and re-H2D'd: a
     pointless GPU->host->GPU round-trip of the (n, K) int codes). The host codes are STILL produced, so the
     CPU dispatch / analytic gate / GPU-opt-out / SU / any-failure branches are byte-for-byte unchanged and
-    the round-trip is skipped ONLY when the resident CUDA gate is the chosen consumer. Gate:
-    ``MLFRAME_FE_GPU_RESIDENT_CODES`` (truthy)."""
-    return os.environ.get("MLFRAME_FE_GPU_RESIDENT_CODES", "").strip().lower() in ("1", "true", "on", "yes")
+    the round-trip is skipped ONLY when the resident CUDA gate is the chosen consumer (so this is
+    selection-equivalent -- the device codes are the EXACT bytes the host ``out`` carries). Gate:
+    ``MLFRAME_FE_GPU_RESIDENT_CODES`` (0/false/off -> off; 1/true/on/yes -> on; UNSET -> on iff CUDA
+    present). Honours the CUDA opt-out conventions (``CUDA_VISIBLE_DEVICES=""`` / ``MLFRAME_DISABLE_GPU=1``)
+    by short-circuiting to OFF -- the resident gate is skipped on those runs anyway, so never stash."""
+    _v = os.environ.get("MLFRAME_FE_GPU_RESIDENT_CODES", "").strip().lower()
+    if _v in ("0", "false", "off", "no"):
+        return False
+    if _v in ("1", "true", "on", "yes"):
+        return True
+    # UNSET: default ON when a CUDA device is usable. Respect the documented GPU opt-outs so a no-GPU run
+    # never pays the resident-copy alloc / stash (the dispatch routes to CPU there regardless).
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+        return False
+    return _cuda_present()
 
 
 # RESIDENT-CODES HANDOFF (2026-06-21, gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
@@ -1295,16 +1324,34 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
     cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) -- no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)
+    # RESIDENT-CODES HANDOFF (gated, default ON when CUDA present): this is the SECOND codes leg -- the
+    # binning-only path the canonical FE chunk takes when the candidate buffer is materialised on the CPU
+    # (the default minimal preset's numpy-fallback materialise) then binned on the GPU. It produces the
+    # SAME on-device int codes as the fused materialise path, so keep them RESIDENT (one (n, K) cupy array
+    # in the narrow code dtype) and stash them by the returned host array's identity -- the noise-gate
+    # dispatch then consumes the device codes IN PLACE, skipping the codes' GPU->host (here) ->GPU (the
+    # gate's H2D) round-trip. The host ``out`` is STILL filled (the CPU / analytic / opt-out / any-failure
+    # branches read it, and it is the safe fallback), so this only ADDS a resident copy when the gate is on;
+    # the round-trip is skipped only when the resident CUDA gate is the actual consumer (it matches ``out``
+    # by identity). Bit-identical to the host codes -> selection unchanged.
+    _resident_codes_on = fe_gpu_resident_codes_enabled()
+    dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
     k_chunk = _gpu_k_chunk(n)
     for start in range(0, K, k_chunk):
         block = cand[:, start:start + k_chunk]
+        stop = start + block.shape[1]
         codes_gpu = _gpu_resident_discretize_codes(cp.asarray(block), int(nbins))
         # Narrow int32->dtype ON the GPU before D2H (1/4 the bytes for int8, no host astype copy) --
         # same 6.7x codes-export win as gpu_materialise_discretize_codes_host, BIT-IDENTICAL.
         _cd = np.dtype(dtype)
         codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
-        out[:, start:start + block.shape[1]] = cp.asnumpy(codes_out)
+        if dev_codes is not None:
+            # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below) for the gate consumer.
+            dev_codes[:, start:stop] = codes_out
+        out[:, start:stop] = cp.asnumpy(codes_out)
         del codes_gpu, codes_out
+    if dev_codes is not None:
+        _stash_resident_codes(out, dev_codes)
     return out
 
 
