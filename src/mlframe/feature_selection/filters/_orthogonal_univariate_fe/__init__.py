@@ -562,6 +562,79 @@ def generate_univariate_basis_features(
     return pd.DataFrame(out_cols, index=X.index)
 
 
+def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
+    """MATRIX-NATIVE (Piece 3, gated): build the univariate orth-basis candidate matrix ON the device
+    (_gpu_evaluate_basis_column) and score its plug-in MI RESIDENT (_plugin_mi_classif_batch_cuda_resident,
+    no H2D) -- mirroring generate_univariate_basis_features + score_features_by_mi_uplift. Routing/dedup/
+    skip rules match the host builder exactly (only the per-(col,basis,degree) eval + the MI move to the
+    GPU). Returns ``(eng_matrix_cupy, names, scores_df)`` or ``(None, [], empty_scores)`` when no candidate.
+    Raises on GPU failure so the caller falls back to the host path (never a correctness regression)."""
+    import cupy as cp
+    from .._gpu_resident_fe import _gpu_evaluate_basis_column
+    from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
+    from ..hermite_fe._hermite_robust import _robust_axis_enabled
+    from .._fe_deadline import fe_deadline_passed
+    _cols_auto = cols is None
+    if cols is None:
+        cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    cols = _dedup_collinear_source_cols(X, list(cols), corr_threshold=0.999)
+    _empty = pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
+    ra = _robust_axis_enabled()
+    _ya = np.asarray(y)
+    y_arr = np.asarray(_ya, dtype=np.int64) if np.issubdtype(_ya.dtype, np.integer) else _ya.astype(np.int64)
+    y_gpu = cp.asarray(y_arr)
+    # Baseline RAW-column MI (resident), for the uplift denominator.
+    raw_cols = [c for c in cols if pd.api.types.is_numeric_dtype(X[c])]
+    raw_mi_map: dict = {}
+    if raw_cols:
+        raw_mat = cp.asarray(np.ascontiguousarray(X[raw_cols].to_numpy(dtype=np.float64)))
+        raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins)
+        raw_mi_map = dict(zip(raw_cols, [float(v) for v in raw_mi]))
+    code = _BASIS_CODE
+    eng_list: list = []
+    names: list = []
+    for col in cols:
+        if fe_deadline_passed():
+            break
+        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        if _cols_auto and _is_int_as_cat_axis(x):
+            continue
+        if not np.isfinite(x).all():
+            continue
+        if basis == "auto":
+            chosen = basis_route_by_signal(x, _ya, degrees=degrees) if y is not None else basis_route_by_moments(x)
+        else:
+            chosen = basis
+        if chosen not in _POLY_BASES:
+            continue
+        x_dev = cp.asarray(x)
+        for d in degrees:
+            try:
+                v = _gpu_evaluate_basis_column(cp, x_dev, chosen, int(d), robust_axis=ra)
+            except Exception:
+                # Basis/path not GPU-ported (extra bases / aux) -> host eval for this column-degree.
+                v = cp.asarray(np.ascontiguousarray(
+                    _evaluate_basis_column(x, chosen, int(d)), dtype=np.float64,
+                ))
+            eng_list.append(v.astype(cp.float64))
+            names.append(f"{col}__{code.get(chosen, chosen)}{d}")
+    if not names:
+        return None, [], _empty
+    eng_mat = cp.ascontiguousarray(cp.stack(eng_list, axis=1))
+    eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins)
+    rows = []
+    for j, nm in enumerate(names):
+        src = nm.split("__", 1)[0] if "__" in nm else nm
+        base = float(raw_mi_map.get(src, 0.0))
+        emi = float(eng_mi[j])
+        rows.append({
+            "engineered_col": nm, "source_col": src,
+            "baseline_mi": base, "engineered_mi": emi, "uplift": emi / (base + 1e-12),
+        })
+    scores = pd.DataFrame(rows).sort_values("uplift", ascending=False).reset_index(drop=True)
+    return eng_mat, names, scores
+
+
 def score_features_by_mi_uplift(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -653,11 +726,25 @@ def hybrid_orth_mi_fe(
     >>> X_aug, scores = hybrid_orth_mi_fe(X, y, degrees=(2, 3))
     >>> # X_aug now has x1__He2 and x2__L3 appended (assuming uplift > 1.05)
     """
-    engineered = generate_univariate_basis_features(X, cols=cols, degrees=degrees, basis=basis, y=y)
-    if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
-    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
-    scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
+    # MATRIX-NATIVE resident path (Piece 3, gated default-off): build the candidate matrix ON the device +
+    # score plug-in MI resident (no H2D). Falls back to the host build/scoring on any failure or when off.
+    _gpu_eng = None  # (eng_matrix_cupy, names) when the GPU path produced candidates
+    try:
+        from .._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, _cuda_present
+        if fe_gpu_resident_basis_mi_enabled() and _cuda_present():
+            _g_mat, _g_names, scores = _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins)
+            if _g_mat is None:
+                return X.copy(), scores
+            _gpu_eng = (_g_mat, _g_names)
+    except Exception:
+        logger.debug("hybrid_orth_mi_fe: GPU resident basis-MI path failed; host fallback", exc_info=True)
+        _gpu_eng = None
+    if _gpu_eng is None:
+        engineered = generate_univariate_basis_features(X, cols=cols, degrees=degrees, basis=basis, y=y)
+        if engineered.empty:
+            return X.copy(), pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
+        raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
+        scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
     # Two-gate selection:
     # 1. relative: uplift >= min_uplift (default 1.05 = require 5% MI gain vs raw source)
     # 2. absolute: engineered_mi >= max(
@@ -722,7 +809,16 @@ def hybrid_orth_mi_fe(
     ]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    if _gpu_eng is None:
+        X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    else:
+        # GPU resident path: D2H ONLY the winning columns from the device candidate matrix.
+        import cupy as cp
+        _g_mat, _g_names = _gpu_eng
+        _idx = {nm: i for i, nm in enumerate(_g_names)}
+        _cols_host = {k: cp.asnumpy(_g_mat[:, _idx[k]]) for k in keep if k in _idx}
+        X_aug = (pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1)
+                 if _cols_host else X.copy())
     return X_aug, scores
 
 

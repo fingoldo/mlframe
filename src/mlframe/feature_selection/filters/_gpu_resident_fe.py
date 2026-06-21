@@ -196,6 +196,27 @@ def fe_gpu_resident_codes_enabled() -> bool:
     return _cuda_present()
 
 
+def fe_gpu_resident_basis_mi_enabled() -> bool:
+    """Whether the matrix-native RESIDENT orth-FE basis-MI path is active (Piece 3). DEFAULT OFF.
+
+    When ON (``MLFRAME_FE_GPU_RESIDENT_BASIS_MI=1`` + CUDA), ``hybrid_orth_mi_fe`` builds the univariate
+    orth-basis candidate matrix ON the device (``_gpu_evaluate_basis_column``) and scores its plug-in MI
+    with ``_plugin_mi_classif_batch_cuda_resident`` -- removing the host basis-preprocess np.median AND the
+    plug-in-MI argsort/reduce of the CPU tail, with NO per-call H2D (the dispatcher's 2x trap). DEFAULT OFF
+    because this swaps the njit RANK binning for the GPU equi-frequency-edge binning in the orth-FE basis
+    SELECTION (which basis/degree wins rides on that ranking) -- selection-equivalent on the FE pair-search
+    (approved trade) but the basis choice must be re-validated against the orth-basis recovery pins
+    (test_layer2x) + canonical + the biz-value hybrid_orth suite before flipping default-on. Any GPU failure
+    falls back to the host path (never a correctness regression)."""
+    _v = os.environ.get("MLFRAME_FE_GPU_RESIDENT_BASIS_MI", "").strip().lower()
+    if _v not in ("1", "true", "on", "yes"):
+        return False
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+        return False
+    return _cuda_present()
+
+
 def fe_gpu_defer_host_codes_enabled() -> bool:
     """Whether the DEFERRED host-codes D2H is active. DEFAULT ON whenever the resident-codes handoff is on
     (the device codes already exist resident, so skipping the eager host D2H of those SAME codes is free
