@@ -465,3 +465,42 @@ DUAL-PROFILER VERDICT (canonical 100k, default-on):
 NET: matrix-native orth-FE MI is on the device, default-on, ~12% faster, selection-equivalent; the GPU
 kernels profile near-optimal. Remaining CPU tail is the non-orth-FE paths (routing/escalation/pair-search)
 -- a separate, larger residency effort, not a kernel-tuning win.
+
+## 2026-06-22 -- CPU-orchestration / GPU-idle reduction (waves 3-5, all bit-identical)
+
+Attacked the GPU-IDLE CPU cost the dual-profiler verdict left on the table: GPU busy ~40% / idle ~60% of
+wall, the idle dominated by CPU-side launch orchestration -- cupy._core.core.array (array creation/H2D,
+~5.8s) + numba-cuda safe_cuda_api_call (launch/sync, ~3.6s). Levers are redundant-work removal, NOT
+kernel tuning (kernels already profile near-peak, see prior entry). All bit-identical; validated against
+the 11 FE selection-equivalence pins + 16 GPU bit-identity parity + resident-MI maxdiff-0.
+
+Wave 3 (d303710f) -- FE pair-search CPU critical path (check_prospective_fe_pairs):
+  * cache np.isfinite(_corr_y_cont) once (it never mutates) instead of an O(n=subsample) rescan on every
+    _safe_abs_corr call (~5-10/accepted pair: clean-form demotion, noise-wrap veto, leader tie-break).
+  * hoist sorted(set(numeric_vars) - set(raw_vars_pair)) out of the per-tied-leader _ev_configs loop
+    (raw_vars_pair-invariant); the _rng_extval.choice draw stays per-config so RNG state -- and every
+    later pair's tie-break -- is bit-identical.
+
+Wave 4 (8433bce2) -- fit-invariant device-vector caches + resident-MI sync batching:
+  * _radix_select_interior_edges: the (nbins-1,) gather-indices bi/ai + interp weight w depend only on
+    (n, nbins) (derived from np.linspace, not candidate data) -> cache keyed on (n,nbins); was a list-comp
+    + 3 tiny H2D every chunk/pair. (n,nbins) take <=2-3 values per fit.
+  * _fused_generate_block: the int32 (ua_idx,ub_idx,bop) trio is a pure function of the combo block (a
+    slice of the module constant _COMBOS) -> cache on the block tuple; drops 3 list-comps + 3 H2D/chunk/pair.
+  * _plugin_mi_classif_batch_cuda_resident: fuse the two blocking .item() syncs (cp.min/cp.max) into one
+    cp.stack + single D2H (2 host stalls -> 1); n_classes reproduced exactly (max_orig - y_min + 1).
+  * reframed 3 STALE dispatch tests (test_plugin_mi_classif_dispatch): the host-input
+    plugin_mi_classif_(batch_)dispatch now defaults to njit via the ground-truth override (end-to-end fit
+    njit 3x faster under contention; GPU win lives on the resident path) and no longer consults the KTC
+    lookup; _fallback_mi_backend is njit-unconditional, a persisted per-host region the only cuda route.
+
+Wave 5 (43d5befe) -- extend the same caches to the remaining default-on sites:
+  * _grand_fusion_block_counts reuses the shared _COMBO_IDX_CACHE for its identical index trio.
+  * _quantile_levels_dev caches cp.linspace(0,100,nbins+1,dtype=work) keyed on (nbins,work) at both
+    percentile sites (discretize fallback + unconditional grand-fusion edges pass); read-only -> shared.
+
+All caches are MODULE-LEVEL (not on the MRMR instance) so the pickle contract is untouched, mirroring the
+other resident-kernel singletons in _gpu_resident_fe. Net effect: the per-chunk-per-pair tiny-H2D + Python
+list-comp churn that fed the cupy._core.core.array bucket is now done once-per-fit-invariant-key (<=2-3
+H2D total for the radix/linspace vectors; one per distinct block for the combo trio) instead of once per
+chunk per pair. Targets the documented top CPU bucket without touching the near-peak kernels.
