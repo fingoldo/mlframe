@@ -1417,31 +1417,52 @@ def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unarie
     # one column at a time. Columns with no spec (the unused tail, if any) are zero-filled -- they are never
     # read by the materialise (operand indices are always < the used width), so their content is irrelevant.
     g = cp.zeros((n, n_operands), dtype=cp.float32)
-    _raw_dev_cache: dict = {}  # id(raw_vals) -> device float64 copy (each distinct raw operand H2D'd once)
+    # ONE-TRANSFER (phase R0, 2026-06-21): batch the DISTINCT raw operands referenced by the GPU-buildable
+    # specs into per-dtype host matrices and upload each in ONE H2D, instead of one cp.asarray per distinct
+    # raw. Each raw keeps its NATIVE float dtype (we group BY dtype) so the unary still applies in the exact
+    # dtype the CPU ``tr_func`` saw -> the GPU column matches the host column to fp round-off (the invariant
+    # the per-operand path enforced). Values are byte-identical; only the H2D packaging changes. Per-dtype
+    # grouping means uniform-dtype fits (the common case: all-pandas f64 -> 14 distinct raws) collapse to ONE
+    # upload. The device column is a strided VIEW into the group matrix -- _unary_apply is elementwise, so the
+    # result equals the contiguous-input result bit-for-bit. Any group/build failure falls that column back to
+    # the host copy below (never a correctness regression).
+    _raw_slot: dict = {}   # id(raw_vals) -> (dtype_key, slot_in_group)
+    _groups: dict = {}     # dtype_key -> list[host column in native float dtype]
+    for col_idx, raw_vals, unary_name in col_specs:
+        if raw_vals is not None and unary_name not in fb:
+            _rk = id(raw_vals)
+            if _rk not in _raw_slot:
+                _rv = np.ascontiguousarray(raw_vals)
+                if not np.issubdtype(_rv.dtype, np.floating):
+                    _rv = _rv.astype(np.float64)  # CPU tr_func on a non-float would also promote
+                _dk = _rv.dtype.str
+                grp = _groups.setdefault(_dk, [])
+                _raw_slot[_rk] = (_dk, len(grp))
+                grp.append(_rv)
+    _dev_groups: dict = {}  # dtype_key -> device (n, m) array (ONE H2D per dtype group)
+    for _dk, cols in _groups.items():
+        try:
+            _host = (np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1
+                     else np.ascontiguousarray(cols[0]).reshape(-1, 1))
+            _dev_groups[_dk] = cp.asarray(_host)
+        except Exception:
+            _dev_groups[_dk] = None
     n_gpu = 0
     n_cpu = 0
     for col_idx, raw_vals, unary_name in col_specs:
         gpu_built = False
         if raw_vals is not None and unary_name not in fb:
             try:
-                # Apply the unary in the RAW INPUT's NATIVE dtype (the exact dtype the CPU ``tr_func`` saw)
-                # then cast to f32 (the operand-table store dtype), mirroring the CPU's compute-then-downcast
-                # -- so the GPU column matches the host column to fp round-off regardless of whether the raw
-                # operand is f64 (pandas) or f32 (some polars columns). _unary_apply raises for non-plain.
-                _rk = id(raw_vals)
-                x = _raw_dev_cache.get(_rk)
-                if x is None:
-                    _rv = np.ascontiguousarray(raw_vals)
-                    if not np.issubdtype(_rv.dtype, np.floating):
-                        _rv = _rv.astype(np.float64)  # CPU tr_func on a non-float would also promote
-                    x = cp.asarray(_rv)
-                    _raw_dev_cache[_rk] = x
-                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                    col = _unary_apply(cp, unary_name, x)
-                # nan_to_num is NOT applied here: the CPU operand table stores the raw unary output
-                # (un-scrubbed) too -- the materialise kernel scrubs NaN/inf inline -> bit-equal.
-                g[:, col_idx] = col.astype(cp.float32)
-                gpu_built = True
+                _dk, _slot = _raw_slot[id(raw_vals)]
+                _dev = _dev_groups.get(_dk)
+                if _dev is not None:
+                    x = _dev[:, _slot]   # native-dtype device view of this raw operand (no per-operand H2D)
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        col = _unary_apply(cp, unary_name, x)
+                    # nan_to_num is NOT applied here: the CPU operand table stores the raw unary output
+                    # (un-scrubbed) too -- the materialise kernel scrubs NaN/inf inline -> bit-equal.
+                    g[:, col_idx] = col.astype(cp.float32)
+                    gpu_built = True
             except Exception:
                 gpu_built = False
         if not gpu_built:
