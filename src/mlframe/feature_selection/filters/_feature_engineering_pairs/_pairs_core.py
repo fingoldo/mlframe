@@ -1057,6 +1057,18 @@ def check_prospective_fe_pairs(
         and (_fe_chunk_max_cols > max_n_combs * _n_binary)  # chunk holds > 1 pair's worth
         and (len(prospective_pairs) > 1)
     )
+    # RESIDENCY DEFERRAL gate (default OFF). When ON, the chunk's GPU FUSED codes path skips the (n,K)
+    # float D2H (out_cand=None) and the few intermediate buffer reads below RE-MATERIALISE their column on
+    # the GPU via ``_fe_materialise_block_gpu`` -- the SAME kernel that filled the buffer, so the bytes are
+    # BIT-IDENTICAL (no cupy-vs-numpy ULP shift; the prior numpy-recompute scaffold flipped the clean-form
+    # demotion). The operand table ``transformed_vars`` is uploaded ONCE per deferred chunk and cached;
+    # per-buf_col columns are cached too (a column may be read several times). Only the GPU-fused path is
+    # eligible (else the CPU binning still needs the host buffer); CPU/no-CUDA path is unchanged.
+    _fe_defer_float = os.environ.get("MLFRAME_FE_GPU_DEFER_FLOAT", "1").strip().lower() in ("1", "true", "on", "yes")
+    _chunk_float_deferred = False          # set per loaded chunk from its __float_deferred__ signal
+    _chunk_defer_meta = None               # (a_cols, b_cols, ops) int arrays, indexed by buf_col
+    _chunk_tv_gpu = None                   # cupy upload of transformed_vars (the operand table), per chunk
+    _chunk_resolved_cols: dict = {}        # buf_col -> host float32 column (re-materialised), per chunk
     _chunk_mi_cache: dict = {}
     _chunk_buffer = None
     _pair_to_chunk: dict = {}   # raw_vars_pair -> chunk index
@@ -1171,17 +1183,54 @@ def check_prospective_fe_pairs(
                         logger=logger,
                         discretize_2d_quantile_batch=discretize_2d_quantile_batch,
                         serial_main_thread=serial_main_thread,  # OPT-A
+                        defer_float=_fe_defer_float,
                     )
                     _loaded_chunk_idx = _my_chunk
+                    # Reset the per-chunk re-materialise caches + capture the deferral signal/metadata.
+                    _chunk_float_deferred = bool(_chunk_mi_cache.get("__float_deferred__", False))
+                    _chunk_defer_meta = _chunk_mi_cache.get("__defer_meta__")
+                    _chunk_tv_gpu = None
+                    _chunk_resolved_cols = {}
                 _chunk_entry = _chunk_mi_cache.get(raw_vars_pair)
+        # When the chunk DEFERRED its float D2H the buffer is unfilled -- point the reads at None so they
+        # take the GPU re-materialise branch in ``_resolve_col`` (bit-identical to the buffer value).
+        _this_chunk_deferred = (_chunk_entry is not None) and _chunk_float_deferred
         if _chunk_entry is not None:
-            final_transformed_vals = _chunk_buffer
+            final_transformed_vals = None if _this_chunk_deferred else _chunk_buffer
         else:
             final_transformed_vals = final_transformed_vals_shared
         _col_buf_1d: np.ndarray | None = (
             np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
         )
         _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
+
+        def _resolve_col(_buf_col):
+            """Continuous candidate column ``_buf_col`` for the intermediate (subsample) scoring reads.
+            Reads the filled chunk buffer when present; on the DEFERRED-float GPU path the buffer is
+            unfilled, so RE-MATERIALISE the column on the GPU via ``_fe_materialise_block_gpu`` -- the SAME
+            kernel that filled the bulk buffer, so the bytes are BIT-IDENTICAL (no cupy-vs-numpy ULP shift).
+            The operand table is uploaded ONCE per chunk and cached; resolved columns are cached per
+            buf_col (a column may be read several times). Returns a host float32 (n,) array, nan_to_num'd
+            exactly as the bulk materialise (the kernel scrubs inline + we nan_to_num the D2H copy)."""
+            nonlocal _chunk_tv_gpu
+            if final_transformed_vals is not None:
+                return final_transformed_vals[:, _buf_col]
+            _cached = _chunk_resolved_cols.get(_buf_col)
+            if _cached is not None:
+                return _cached
+            import cupy as cp
+            from .._gpu_resident_fe import _fe_materialise_block_gpu
+            if _chunk_tv_gpu is None:
+                _chunk_tv_gpu = cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32))
+            _a, _b, _ops = _chunk_defer_meta
+            _cand = _fe_materialise_block_gpu(
+                _chunk_tv_gpu, _a[_buf_col:_buf_col + 1], _b[_buf_col:_buf_col + 1], _ops[_buf_col:_buf_col + 1],
+            )
+            _col = np.ascontiguousarray(cp.asnumpy(_cand)[:, 0])
+            np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            _chunk_resolved_cols[_buf_col] = _col
+            del _cand
+            return _col
 
         i = 0
         # Per-pair thread-local timing accumulator; merged into the shared
@@ -1200,7 +1249,12 @@ def check_prospective_fe_pairs(
         # MI stays per-candidate (mi_direct's permutation confidence is NOT batched). The
         # recompute-fallback (no buffer) and the uniform method keep the original
         # per-candidate path verbatim -- only the hoist+quantile case is batched.
-        _use_batch_disc = (final_transformed_vals is not None) and (quantization_method == "quantile")
+        # A deferred chunk has final_transformed_vals=None (buffer not filled) but still drives the
+        # cross-pair replay path (its MI is precomputed, its columns re-materialise on demand via
+        # _resolve_col) -- so treat a present _chunk_entry as batch-disc-eligible even when deferred.
+        _use_batch_disc = (
+            (final_transformed_vals is not None) or (_chunk_entry is not None and _this_chunk_deferred)
+        ) and (quantization_method == "quantile")
 
         if _use_batch_disc:
             # CROSS-PAIR fast path: this pair was batched together with the rest of its
@@ -1497,6 +1551,11 @@ def check_prospective_fe_pairs(
                         _ci = _cfg[2]
                         if final_transformed_vals is not None:
                             _v = final_transformed_vals[:, _ci]
+                        elif _this_chunk_deferred:
+                            # DEFERRED-float GPU path: re-materialise this column on the GPU (bit-identical
+                            # to the bulk buffer -> the clean-form demotion uses the EXACT same |corr| it
+                            # would have under the host buffer; a numpy recompute here flips it at ULP).
+                            _v = _resolve_col(_ci)
                         elif _config_by_i is not None and _ci in _config_by_i:
                             _ak, _bk, _bn = _config_by_i[_ci]
                             _pa = transformed_vars[:, vars_transformations[_ak]]
@@ -1622,7 +1681,7 @@ def check_prospective_fe_pairs(
             _k_eng = quantization_nbins
             try:
                 _win_codes = discretize_array(
-                    arr=np.nan_to_num(final_transformed_vals[:, best_config[2]]),
+                    arr=np.nan_to_num(_resolve_col(best_config[2])),
                     n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype,
                 )
                 _k_eng = _occupied_k(_win_codes)
@@ -1746,7 +1805,7 @@ def check_prospective_fe_pairs(
             and best_config is not None
         ):
             try:
-                _win_vals = final_transformed_vals[:, best_config[2]] if final_transformed_vals is not None else None
+                _win_vals = _resolve_col(best_config[2]) if (final_transformed_vals is not None or _this_chunk_deferred) else None
                 _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
                 # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
                 # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` -- raw ``a`` is ~0 corr
@@ -1855,6 +1914,10 @@ def check_prospective_fe_pairs(
                         _li = _lc[2]
                         if final_transformed_vals is not None:
                             _lvals = final_transformed_vals[:, _li]
+                        elif _this_chunk_deferred:
+                            # DEFERRED-float GPU path: re-materialise the leader column on the GPU
+                            # (bit-identical to the buffer -> same linear-usability tie-break).
+                            _lvals = _resolve_col(_li)
                         elif _config_by_i is not None and _li in _config_by_i:
                             # Recompute fallback (no hoisted buffer): rebuild the leader's
                             # CONTINUOUS column from its (a_key, b_key, bin_func_name) metadata
@@ -1895,6 +1958,10 @@ def check_prospective_fe_pairs(
                     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
                         if final_transformed_vals is not None:
                             param_a = final_transformed_vals[:, i]
+                        elif _this_chunk_deferred:
+                            # DEFERRED-float GPU path: re-materialise the survivor column on the GPU
+                            # (bit-identical to the buffer -> the external-validation MI is unchanged).
+                            param_a = _resolve_col(i)
                         else:
                             # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
                             # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
@@ -2113,7 +2180,7 @@ def check_prospective_fe_pairs(
             # than the single-best path, byte-identical when max_per_pair == 1.
             if (
                 int(fe_multi_emit_max_per_pair) > 1
-                and final_transformed_vals is not None
+                and (final_transformed_vals is not None or _this_chunk_deferred)
                 and this_pair_features
                 and best_mi > 0
             ):
@@ -2123,7 +2190,7 @@ def check_prospective_fe_pairs(
                 _emitted_cols = []
                 for _c in _already:
                     try:
-                        _emitted_cols.append(np.asarray(final_transformed_vals[:, _c[2]], dtype=np.float64))
+                        _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
                     except Exception:
                         pass
                 for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
@@ -2134,7 +2201,7 @@ def check_prospective_fe_pairs(
                     if _cfg in _already:
                         continue
                     try:
-                        _col = np.asarray(final_transformed_vals[:, _cfg[2]], dtype=np.float64)
+                        _col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
                     except Exception:
                         continue
                     _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)
@@ -2225,6 +2292,12 @@ def check_prospective_fe_pairs(
                             )
                         elif final_transformed_vals is not None:
                             _col_full = final_transformed_vals[:, i]
+                        elif _this_chunk_deferred:
+                            # DEFERRED-float GPU path, NON-subsample (transformed_vars is at full n here):
+                            # re-materialise the survivor column on the GPU (bit-identical to the buffer,
+                            # full-n directly). The subsample case took the _rebuild_full_survivor_col
+                            # branch above (full-n rebuild from raw), so this only handles full-n fits.
+                            _col_full = _resolve_col(i)
                         else:
                             # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
                             # the survivor column from its (a_key, b_key, bin_func_name)

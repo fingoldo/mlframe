@@ -128,6 +128,7 @@ def _compute_one_fe_chunk(
     logger,
     discretize_2d_quantile_batch,
     serial_main_thread: bool = False,
+    defer_float: bool = False,
 ):
     """Fill ``chunk_buffer[:, :K]`` with EVERY candidate column of EVERY pair in
     ``chunk_pairs``, then run ONE ``discretize_2d_quantile_batch`` + ONE
@@ -151,6 +152,15 @@ def _compute_one_fe_chunk(
     chunk_records: dict = {}  # raw_vars_pair -> (candidates, local_times)
     _op_codes_by_name = _njit_binary_op_codes(binary_transformations)  # None if ANY op is not njit-coded
     _gpu_disc_2d = None  # GPU fused materialise+binning codes (njit-op path only); None -> CPU below
+    # RESIDENCY DEFERRAL metadata (gated, ``defer_float``): when the GPU fused materialise SKIPPED the
+    # (n,K) float D2H (out_cand=None), the chunk-buffer is unfilled and the caller must RE-MATERIALISE the
+    # few columns it reads on the GPU. These chunk-wide arrays (indexed by buf_col, in the SAME order
+    # ``col`` increments) carry the exact (a_col, b_col, op_code) ``_fe_materialise_block_gpu`` needs to
+    # reproduce the EXACT bytes the bulk materialise would have written. None unless deferral fired.
+    _deferred_float = False
+    _defer_a_cols = None
+    _defer_b_cols = None
+    _defer_ops = None
 
     if _op_codes_by_name is not None:
         # NJIT PARALLEL PATH: record the candidate specs (NO per-candidate Python materialise), then fill the
@@ -231,9 +241,21 @@ def _compute_one_fe_chunk(
                         # candidate columns from the chunk buffer, so fill it with the GPU-materialised
                         # float matrix (this is the bandwidth-bound op the GPU replaces). The buffer is
                         # then exactly what the CPU njit path would have produced (bit-identical).
-                        out_cand=chunk_buffer[:, :col],
+                        # RESIDENCY DEFERRAL (gated, ``defer_float``): skip this (n,K) float D2H entirely;
+                        # the caller RE-MATERIALISES on the GPU (``_fe_materialise_block_gpu``) only the few
+                        # buffer columns it actually reads, from the (a_col,b_col,op_code) metadata returned
+                        # below -- BIT-IDENTICAL bytes (same kernel) so selection is unchanged. See the
+                        # residency map in _gpu_resident_fe.py.
+                        out_cand=None if defer_float else chunk_buffer[:, :col],
                     )
                     _gpu_materialise_done = True
+                    if defer_float:
+                        # The float buffer was NOT filled -> mark deferred + hand the caller the chunk-wide
+                        # (a_col,b_col,op_code) arrays (same buf_col order as ``col``) for GPU re-materialise.
+                        _deferred_float = True
+                        _defer_a_cols = np.asarray(_a_cols, dtype=np.int64)
+                        _defer_b_cols = np.asarray(_b_cols, dtype=np.int64)
+                        _defer_ops = np.asarray(_ops, dtype=np.int8)
             except Exception:
                 logger.debug("FE chunk GPU materialise+binning failed; CPU materialise", exc_info=True)
                 _gpu_disc_2d = None
@@ -351,4 +373,10 @@ def _compute_one_fe_chunk(
     for raw_vars_pair in chunk_pairs:
         candidates, local_times = chunk_records[raw_vars_pair]
         out[raw_vars_pair] = (candidates, fe_mi_full, local_times)
+    # Residency deferral signal: True iff the GPU FUSED codes path produced disc_2d AND we skipped the
+    # float D2H (out_cand=None). The caller then GPU-re-materialises the few buffer columns it reads via
+    # the chunk-wide (a_col,b_col,op_code) arrays. False whenever the float buffer WAS filled (CPU
+    # materialise / numpy fallback / fused disabled) -> the caller reads the buffer as before.
+    out["__float_deferred__"] = bool(_deferred_float and (_gpu_disc_2d is not None))
+    out["__defer_meta__"] = (_defer_a_cols, _defer_b_cols, _defer_ops) if out["__float_deferred__"] else None
     return out
