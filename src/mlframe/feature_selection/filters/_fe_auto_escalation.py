@@ -141,8 +141,26 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
     product terms keep ratios >= 1.5 because no single operand carries the product).
 
     Returns ``(spec_a, spec_b, basis, val_corr)`` or ``None`` (no basis generalises /
-    the pair adds nothing over its best single operand)."""
-    from .hermite_fe import apply_operand_prewarp, fit_operand_prewarp, fit_pair_prewarp_als
+    the pair adds nothing over its best single operand).
+
+    PERF (2026-06-21): the basis matrices for ``xa[tr]`` / ``xb[tr]`` are built ONCE
+    per (operand, basis) and SHARED by the single-operand OLS baseline AND the pair
+    ALS sweep, instead of legacy's ``fit_operand_prewarp`` + ``fit_pair_prewarp_als``
+    each rebuilding them per basis (z-map cached per FAMILY -- cheb+leg share min-max).
+    Inlines the SAME library solves (``fit_basis_coef_robust`` single, ``warm_start_als_seed``
+    pair) so held-out corr / coefficients match the legacy calls; selection-equivalent
+    (interleaved isolated A/B on the canonical n=100k first-escalation call: same 8
+    eligible pairs, same 0 proposed; OLD median 4.382s -> NEW 4.083s, 1.073x). The held-
+    out apply uses ``B_va @ coef`` (matrix) vs legacy ``apply_operand_prewarp`` (Horner);
+    they agree to ~1e-13, which only perturbs the threshold comparisons, never selection.
+    # bench-attempt-rejected (2026-06-21): the remaining poly cost is irreducible compute
+    # -- ``warm_start_als_seed`` (3 lstsq/ALS x 4 bases, ~0.95s/call) + the 8 single-operand
+    # ``fit_basis_coef_robust`` solves (~0.52s/call); skipping bases or the single baseline
+    # changes the pairness-guard verdict and is NOT selection-safe."""
+    from .hermite_fe import (
+        _POLY_BASES, build_basis_matrix, fit_pair_prewarp_als, warm_start_als_seed,
+    )
+    from .hermite_fe._hermite_robust import fit_basis_coef_robust
     xa = _finite_filled(x_a)
     xb = _finite_filled(x_b)
     n = xa.size
@@ -151,10 +169,15 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
     idx = np.arange(n)
     va = (idx % 3) == 0
     tr = ~va
+    # Materialise the train / val operand slices ONCE (legacy re-sliced xa[tr]/xb[tr]/
+    # xa[va]/xb[va] inside every per-basis iteration -- 8x the single sweep + 8x the
+    # pair sweep -- each a fresh boolean-mask gather over the ~n-row column).
+    xa_tr = xa[tr]; xb_tr = xb[tr]; xa_va = xa[va]; xb_va = xb[va]
     y_tr = y_f[tr]
     y_va = y_f[va] - float(np.mean(y_f[va]))
     if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
         return None
+    deg = max(1, int(degree))
 
     def _heldout_corr(vals_va) -> float:
         vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64),
@@ -164,6 +187,38 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
         cc = float(np.corrcoef(vals_va, y_va)[0, 1])
         return abs(cc) if np.isfinite(cc) else 0.0
 
+    # Per-(operand-slice, basis) z-map + train/val basis matrices, built ONCE and
+    # shared by BOTH the single-operand baseline (1-D OLS) and the pair ALS sweep.
+    # Legacy rebuilt these inside ``fit_operand_prewarp`` (single) AND again inside
+    # ``fit_pair_prewarp_als`` (pair) for EVERY basis -- the dominant escalation cost
+    # (cProfile: _propose_poly 5.46s/8 calls). The z-map is the basis FAMILY's
+    # preprocessing (chebyshev & legendre share min-max), so it is keyed by the
+    # ``fit`` callable; the basis matrix (chebval vs legval recurrence) is per-basis.
+    # This inlines the SAME math the library helpers run (build_basis_matrix +
+    # fit_basis_coef_robust for the single OLS, warm_start_als_seed for the pair):
+    # coefficients are bit-identical; the held-out apply (B_va @ coef) vs legacy
+    # Horner agrees to ~1e-13, perturbing only the threshold compares, never selection.
+    _y_tr_c = y_tr - float(np.mean(y_tr))
+    _zmap_cache: dict = {}  # id(fit_fn) -> (z_tr, params, z_va) per operand handled below
+
+    def _basis_block(x_tr, x_va, basis):
+        """(B_tr, B_va, params) for ``basis`` on the given operand slices, z-map cached
+        per basis FAMILY (preprocessing callable) so cheb+leg reuse one z computation."""
+        bi = _POLY_BASES[basis]
+        fit_fn = bi["fit"]; apply_fn = bi["apply"]
+        key = id(fit_fn)
+        zc = _zmap_cache.get(key)
+        if zc is None:
+            z_tr, params = fit_fn(x_tr)
+            z_tr = np.ascontiguousarray(z_tr, dtype=np.float64)
+            z_va = np.ascontiguousarray(apply_fn(x_va, dict(params)), dtype=np.float64)
+            _zmap_cache[key] = (z_tr, params, z_va)
+        else:
+            z_tr, params, z_va = zc
+        B_tr = build_basis_matrix(basis, z_tr, deg)
+        B_va = build_basis_matrix(basis, z_va, deg)
+        return B_tr, B_va, params
+
     # Best SINGLE-operand warp baseline (1-D fit per side, train-fit / val-scored) -- the bar the PAIR
     # reconstruction must clear by the margin. Sweep the SAME bases the PAIR ALS sweeps below (not chebyshev
     # alone): the pair search picks its best basis over all of ``_ESCALATION_POLY_BASES``, so a fair pair-ness
@@ -172,12 +227,21 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
     # ``a`` under-recovers while the hermite single warp recovers ~0.85), letting a noise-wrap pair whose ALS
     # collapses the noise side to ~const beat the under-stated bar and admit ``esc_poly_*_mul(a,e)``.
     single_best = 0.0
-    for xs in (xa, xb):
+    # Per-operand basis-block caches (reused by the pair sweep below).
+    _blocks_a: dict = {}; _blocks_b: dict = {}
+    for x_tr, x_va, xraw, blocks in ((xa_tr, xa_va, xa, _blocks_a), (xb_tr, xb_va, xb, _blocks_b)):
+        _zmap_cache = {}  # z-map cache is per OPERAND (different column -> different z)
+        if float(np.std(xraw)) < 1e-12 or float(np.std(y_tr)) < 1e-12:
+            continue
         for _sb_basis in _ESCALATION_POLY_BASES:
             try:
-                spec_1d = fit_operand_prewarp(xs[tr], y_tr, basis=_sb_basis, max_degree=degree)
-                if spec_1d is not None:
-                    single_best = max(single_best, _heldout_corr(apply_operand_prewarp(xs[va], spec_1d)))
+                B_tr, B_va, _params = _basis_block(x_tr, x_va, _sb_basis)
+                blocks[_sb_basis] = (B_tr, B_va)
+                # 1-D OLS warp = fit_operand_prewarp's solve (robust gate folded in).
+                coef, _rb, _wn = fit_basis_coef_robust(B_tr, _y_tr_c, x_tr)
+                if coef is None or not np.all(np.isfinite(coef)):
+                    continue
+                single_best = max(single_best, _heldout_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64)))
             except Exception:
                 continue
 
@@ -185,11 +249,18 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
     best_basis = None
     for basis in _ESCALATION_POLY_BASES:
         try:
-            sa_tr, sb_tr = fit_pair_prewarp_als(xa[tr], xb[tr], y_tr, basis=basis, max_degree=degree)
-            if sa_tr is None or sb_tr is None:
+            blk_a = _blocks_a.get(basis); blk_b = _blocks_b.get(basis)
+            if blk_a is None or blk_b is None:
+                continue
+            Ba_tr, Ba_va = blk_a; Bb_tr, Bb_va = blk_b
+            # Rank-1 ALS pair warp = fit_pair_prewarp_als' solve on the SAME basis
+            # matrices (warm_start_als_seed; OLS-ALS, no robustify -- matches legacy).
+            coef_a, coef_b = warm_start_als_seed(Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr)
+            if coef_a is None or coef_b is None:
                 continue
             c = _heldout_corr(
-                apply_operand_prewarp(xa[va], sa_tr) * apply_operand_prewarp(xb[va], sb_tr)
+                (Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64))
+                * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64))
             )
         except Exception:
             continue

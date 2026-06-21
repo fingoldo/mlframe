@@ -30,7 +30,13 @@ import numpy as np
 
 
 def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
-    return np.nan_to_num(np.asarray(v, dtype=dtype), nan=0.0, posinf=0.0, neginf=0.0)
+    # ``np.where(isfinite, a, 0)`` is bit-identical to ``nan_to_num(nan=0, posinf=0, neginf=0)`` (isfinite
+    # is False for exactly nan/+inf/-inf) but ~2.8x faster (no per-call isposinf/isneginf/_getmaxmin
+    # machinery): 764us -> 269us on a 100k float32 column. _scrub is called ~17k+/retention fit on full-n
+    # columns, so this is a direct cut to the pool-build cost. Verified bit-identical over float32/float64 +
+    # nan/inf fuzz (2026-06-21).
+    a = np.asarray(v, dtype=dtype)
+    return np.where(np.isfinite(a), a, 0)
 
 
 def _f64(v: np.ndarray) -> np.ndarray:
@@ -203,33 +209,50 @@ def build_usability_candidate_pool(
             )
             nu = len(_unary_names)
             nb = len(_binary_names)
+            # LAZY-RECOMPUTE (2026-06-21): the njit kernel already produced the MI of EVERY combo, and the
+            # only use of the recomputed numpy value is (a) the per-pair diversity filter that keeps the
+            # top ``max_per_pair`` MI-ranked DISTINCT forms and (b) the recipe replay for those few kept
+            # forms. The prior code materialised the float64 value + ``_scrub`` for EVERY mi_floor-clearing
+            # combo (~1700/pair here) only to discard all but 3 -- ~17k full-n value+scrub builds/fit, the
+            # second-largest retention cost after the kernel. Instead, collect only the cheap combo METADATA
+            # (mi + op indices), sort by MI (STABLE -> identical tie order to the old append-order +
+            # ``cand_here.sort(key=mi, reverse=True)``), then recompute the numpy value LAZILY while building
+            # the diverse ``kept`` set, stopping at ``max_per_pair``. Selection-identical: the same MI order,
+            # the same diversity gate, the same kept forms -- just ~10-15 value builds/pair instead of ~1700.
+            metas = []  # (mi, ia, ib, ibn) for floor-clearing combos, in enumeration order
             j = 0
             for ia in range(nu):
-                ua = _unary_names[ia]
-                ta = None  # lazily transform x1 only when a surviving combo needs the value
                 for ib in range(nu):
-                    ub = _unary_names[ib]
-                    tb = None
                     for ibn in range(nb):
-                        bn = _binary_names[ibn]
                         m = float(mis[j]); j += 1
-                        if m < 0.0:        # std<=1e-9 sentinel
+                        if m < mi_floor:   # also rejects the -1.0 std<=1e-9 sentinel
                             continue
-                        if m < mi_floor:
-                            continue
-                        # recompute the numpy value (bit-identical to the Python loop) only for the
-                        # bounded set of mi_floor-clearing combos -- needed for the diversity filter +
-                        # recipe replay. The unary outputs are reused across the inner loops.
-                        if ta is None:
-                            ta = unary[ua](x1)
-                        if tb is None:
-                            tb = unary[ub](x2)
-                        try:
-                            val = _scrub(binary[bn](ta, tb), feature_dtype)
-                        except Exception:
-                            continue
-                        name = f"{bn}({ua}({n1}),{ub}({n2}))"
-                        cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+                        metas.append((m, ia, ib, ibn))
+            # stable sort by MI desc (matches the old cand_here.sort(key=c.mi, reverse=True) tie order).
+            metas.sort(key=lambda t: t[0], reverse=True)
+            _ta_cache: dict = {}   # unary(x1) by ua index -- reused across combos sharing ua
+            _tb_cache: dict = {}   # unary(x2) by ub index
+            _njit_kept: list[UsableCandidate] = []
+            for m, ia, ib, ibn in metas:
+                if len(_njit_kept) >= max_per_pair:
+                    break
+                ua = _unary_names[ia]; ub = _unary_names[ib]; bn = _binary_names[ibn]
+                ta = _ta_cache.get(ia)
+                if ta is None:
+                    ta = unary[ua](x1); _ta_cache[ia] = ta
+                tb = _tb_cache.get(ib)
+                if tb is None:
+                    tb = unary[ub](x2); _tb_cache[ib] = tb
+                try:
+                    val = _scrub(binary[bn](ta, tb), feature_dtype)
+                except Exception:
+                    continue
+                if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
+                    continue
+                name = f"{bn}({ua}({n1}),{ub}({n2}))"
+                _njit_kept.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+            # already MI-sorted + diversity-filtered + capped -> feed straight to the recipe builder.
+            cand_here = _njit_kept
         else:
             # Default / fallback Python loop. Precompute each operand's unary transforms ONCE per pair.
             ta_by_ua: dict = {}

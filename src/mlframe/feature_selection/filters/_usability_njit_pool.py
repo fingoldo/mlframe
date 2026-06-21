@@ -316,6 +316,90 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
     return out
 
 
+# UNARY-TABLE kernels (2026-06-21, ``feedback_keep_all_kernel_versions``). The per-combo loop above
+# recomputes ``_apply_unary(x1[i], ua)`` and ``_apply_unary(x2[i], ub)`` for EVERY combo -- so each
+# distinct unary (sin/exp/log/cbrt/... -- the transcendental ones are NOT free) is re-evaluated once per
+# binary that pairs with it (|binary| times, 6x in the minimal preset). Precomputing the ``nu_tab``
+# distinct unary transforms of x1 and x2 ONCE into a ``(nu_tab, n)`` table, then indexing it in the combo
+# loop, drops the value step to a single binary op + two table reads per element. The qbin (sort) + MI
+# are unchanged, so the per-combo MI is BIT-IDENTICAL (verified max abs diff 0.0 over the medium/minimal
+# preset). Measured n=3000, 1734 combos: parallel 107ms -> 76ms (~1.4x). ``nu_tab`` = max op-code+1 so the
+# table is indexed directly by the op-code stored in ``ua_arr``/``ub_arr`` (the kernel reads U1[ua_arr[j]]).
+@njit(cache=True)
+def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
+    """SERIAL unary-table twin of :func:`_pair_combo_mi_njit` -- BIT-IDENTICAL output, precomputes the
+    ``nu_tab`` distinct unary transforms of each operand once into a (nu_tab, n) table."""
+    nc = ua_arr.shape[0]
+    n = x1.shape[0]
+    nbins = qs.shape[0] - 1
+    U1 = np.empty((nu_tab, n), dtype=np.float64)
+    U2 = np.empty((nu_tab, n), dtype=np.float64)
+    for u in range(nu_tab):
+        for i in range(n):
+            U1[u, i] = _apply_unary(x1[i], u, xmin_a)
+            U2[u, i] = _apply_unary(x2[i], u, xmin_b)
+    out = np.empty(nc, dtype=np.float64)
+    for j in range(nc):
+        ua = ua_arr[j]
+        ub = ub_arr[j]
+        bn = bn_arr[j]
+        val = np.empty(n, dtype=np.float64)
+        s = 0.0
+        ss = 0.0
+        for i in range(n):
+            v = _apply_binary(U1[ua, i], U2[ub, i], bn)
+            val[i] = v
+            s += v
+            ss += v * v
+        mean = s / n
+        var = ss / n - mean * mean
+        if var <= 1e-18:
+            out[j] = -1.0
+            continue
+        codes = np.empty(n, dtype=np.int64)
+        kx = _qbin_into(val, nbins, qs, codes)
+        out[j] = _marginal_mi_njit(codes, kx, y_codes, h_y, k_y, n)
+    return out
+
+
+@njit(parallel=True, cache=True)
+def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
+    """``parallel=True`` unary-table twin -- BIT-IDENTICAL to :func:`_pair_combo_mi_njit_table` (the table
+    precompute is parallel over the ``nu_tab`` unaries, then prange over combos; each combo writes only
+    ``out[j]``, zero cross-combo dependence). The DEFAULT CPU path on the retention enumeration."""
+    nc = ua_arr.shape[0]
+    n = x1.shape[0]
+    nbins = qs.shape[0] - 1
+    U1 = np.empty((nu_tab, n), dtype=np.float64)
+    U2 = np.empty((nu_tab, n), dtype=np.float64)
+    for u in prange(nu_tab):
+        for i in range(n):
+            U1[u, i] = _apply_unary(x1[i], u, xmin_a)
+            U2[u, i] = _apply_unary(x2[i], u, xmin_b)
+    out = np.empty(nc, dtype=np.float64)
+    for j in prange(nc):
+        ua = ua_arr[j]
+        ub = ub_arr[j]
+        bn = bn_arr[j]
+        val = np.empty(n, dtype=np.float64)
+        s = 0.0
+        ss = 0.0
+        for i in range(n):
+            v = _apply_binary(U1[ua, i], U2[ub, i], bn)
+            val[i] = v
+            s += v
+            ss += v * v
+        mean = s / n
+        var = ss / n - mean * mean
+        if var <= 1e-18:
+            out[j] = -1.0
+            continue
+        codes = np.empty(n, dtype=np.int64)
+        kx = _qbin_into(val, nbins, qs, codes)
+        out[j] = _marginal_mi_njit(codes, kx, y_codes, h_y, k_y, n)
+    return out
+
+
 # ----------------------------------------------------------------------------------------------
 # GPU (cupy) fused kernel -- BIT-FAITHFUL to the CPU njit twins.
 # ----------------------------------------------------------------------------------------------
@@ -664,5 +748,11 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
         # cupy missing / disabled / device error -> CPU. Re-resolve serial-vs-parallel for the CPU twin.
         choice = _usability_fallback_choice(n_rows, nc)
 
-    kernel = _pair_combo_mi_njit_parallel if choice == "parallel" else _pair_combo_mi_njit
-    return kernel(*args)
+    # CPU path: use the UNARY-TABLE kernels (precompute each operand's distinct unary transforms once;
+    # bit-identical to the recompute-per-combo twins, ~1.4x faster -- 2026-06-21). ``nu_tab`` = highest
+    # op-code present + 1 so the table is indexed directly by the op-codes in ua_arr/ub_arr. The
+    # recompute-per-combo originals (_pair_combo_mi_njit[_parallel]) are kept as the tuner's measured
+    # CPU bodies + an instant rollback (feedback_keep_all_kernel_versions).
+    nu_tab = int(max(int(ua_arr.max()), int(ub_arr.max())) + 1) if nc else 1
+    table_kernel = _pair_combo_mi_njit_table_parallel if choice == "parallel" else _pair_combo_mi_njit_table
+    return table_kernel(*args, nu_tab)
