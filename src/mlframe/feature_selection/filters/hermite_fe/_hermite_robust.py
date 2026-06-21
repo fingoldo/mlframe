@@ -141,6 +141,32 @@ def _detect_heavy_tail_njit(x: np.ndarray) -> bool:
 # box (bench_detect_heavy_tail_njit.py: 1.31x@2407 / 1.20x@1000 win; 0.86-0.90x loss at n>=4000). Env-overridable per HW.
 _DETECT_HEAVY_TAIL_NJIT_MAX_N = int(os.environ.get("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", "3000"))
 
+# Fit-scoped memo for ``_detect_heavy_tail``: its verdict is a pure deterministic function of x's VALUES, but the
+# orth-FE driver probes the SAME operand column up to ~5x per fit (4 routing bases each call fit_fn(x)->detect, +
+# the chosen-basis build), each redoing the sort-based median+MAD (the dominant np.median caller in the post-
+# subsample CPU tail). The memo is OFF by default (cache is None) so EVERY call outside an explicit scope is
+# byte-identical to the legacy path; ``heavy_tail_memo_scope()`` turns it on for one column sweep and clears it.
+# Keyed on id(x) WITH an identity-verify on hit (cache stores the array ref) -> collision-proof: a hit returns the
+# cached verdict ONLY when it is the exact same live array object (the routing+build pass the one column array, kept
+# alive for the scope body), else it recomputes. threading.local -> no cross-worker contamination.
+import threading as _threading  # noqa: E402
+import contextlib as _contextlib  # noqa: E402
+_HEAVY_TAIL_MEMO = _threading.local()
+
+
+@_contextlib.contextmanager
+def heavy_tail_memo_scope():
+    """Enable the fit-scoped ``_detect_heavy_tail`` memo for one orth-FE column sweep, then clear it. Nesting-safe:
+    an inner scope reuses the outer cache and the outer owner clears it."""
+    if getattr(_HEAVY_TAIL_MEMO, "cache", None) is not None:
+        yield  # reuse outer scope; outer owner clears
+        return
+    _HEAVY_TAIL_MEMO.cache = {}
+    try:
+        yield
+    finally:
+        _HEAVY_TAIL_MEMO.cache = None
+
 
 def _detect_heavy_tail(x: np.ndarray) -> bool:
     """Cheap per-column SPIKE-contamination gate (size-gated dispatcher). True iff a thin fraction of points sit beyond
@@ -155,13 +181,24 @@ def _detect_heavy_tail(x: np.ndarray) -> bool:
     Below ``_DETECT_HEAVY_TAIL_NJIT_MAX_N`` finite values the fused njit core (``_detect_heavy_tail_njit``) is the faster
     BIT-IDENTICAL path (the per-column FE search calls this thousands of times on small columns); above it the numpy body
     wins on its introselect median, so we route there."""
+    _cache = getattr(_HEAVY_TAIL_MEMO, "cache", None)
+    _k = None
+    if _cache is not None:
+        _k = id(x)
+        _hit = _cache.get(_k)
+        if _hit is not None and _hit[0] is x:  # identity-verify -> collision-proof against id reuse
+            return _hit[1]
     finite = np.isfinite(x)
     n_finite = int(np.count_nonzero(finite))
     if n_finite < 8:
-        return False
-    if n_finite < _DETECT_HEAVY_TAIL_NJIT_MAX_N:
-        return _detect_heavy_tail_njit(x)
-    return _detect_heavy_tail_numpy(x)
+        _verdict = False
+    elif n_finite < _DETECT_HEAVY_TAIL_NJIT_MAX_N:
+        _verdict = _detect_heavy_tail_njit(x)
+    else:
+        _verdict = _detect_heavy_tail_numpy(x)
+    if _cache is not None:
+        _cache[_k] = (x, _verdict)  # hold the array ref so id() stays valid + the identity check is sound
+    return _verdict
 
 
 def _detect_heavy_tail_numpy(x: np.ndarray) -> bool:
