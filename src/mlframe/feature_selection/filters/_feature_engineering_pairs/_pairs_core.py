@@ -912,15 +912,24 @@ def check_prospective_fe_pairs(
                     else:
                         vars_transformations[key] = i
                         if _operand_col_specs is not None:
-                            # GPU-resident phase 1: a column is GPU-buildable iff it is a PLAIN unary
-                            # (prewarp / gate_med / hermite-poly are fitted/special -> raw_vals=None forces a
-                            # host copy). ``vals`` is the exact raw operand the CPU tr_func consumed.
+                            # GPU-resident operand table. A PLAIN unary is GPU-built via _unary_apply from the
+                            # resident raw (``vals``). PREWARP (R1, 2026-06-21) is GPU-APPLIED on the device
+                            # from the resident raw + its stored spec via _gpu_apply_prewarp (no host-column
+                            # H2D); the builder falls back to the host copy for any unported basis. gate_med /
+                            # hermite-poly remain host-copied (raw_vals=None) -> not yet ported.
                             _is_plain = (
                                 tr_name != _PREWARP_UNARY
                                 and tr_name != _GATE_MED_UNARY
                                 and "poly_" not in tr_name
                             )
-                            _operand_col_specs.append((i, vals if _is_plain else None, tr_name))
+                            _payload = None
+                            _raw_for_spec = vals if _is_plain else None
+                            if tr_name == _PREWARP_UNARY:
+                                _spec = _prewarp_spec_by_var.get(var)
+                                if _spec is not None:
+                                    _payload = {"kind": "prewarp", "spec": _spec}
+                                    _raw_for_spec = vals
+                            _operand_col_specs.append((i, _raw_for_spec, tr_name, _payload))
                         i += 1
 
     # GPU-RESIDENT OPERAND TABLE (phase 1, gated): now that ``transformed_vars`` + ``vars_transformations``

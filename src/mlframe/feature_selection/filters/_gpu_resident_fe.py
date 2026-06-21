@@ -418,6 +418,133 @@ def _unary_apply(xp, name, x):
     raise ValueError(f"unknown unary {name!r}")
 
 
+# --- GPU port of the per-operand PRE-WARP apply (phase R1, 2026-06-21) ----------------------------------
+# Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
+# the device (from the resident raw input + the tiny stored spec) instead of COPYING the host-computed column
+# (the 1.68 MB non-plain H2D floor). The preprocess (z-score / min-max / shift, all elementwise + a clip) and
+# the Clenshaw polynomial recurrences below replicate numpy's chebval/legval/hermeval(He)/lagval EXACTLY
+# (same float64 op order, scalar->array promotion deferred identically), so the device column matches the host
+# column to fp round-off. Any unsupported basis / failure RAISES so the caller falls back to the host copy
+# (never a correctness regression). fourier_adaptive (escalation only -- not in the main operand table) is
+# ported too for completeness.
+
+def _cheb_clenshaw_gpu(cp, x, c):
+    if len(c) == 1:
+        c0 = c[0]; c1 = 0.0
+    elif len(c) == 2:
+        c0 = c[0]; c1 = c[1]
+    else:
+        x2 = 2.0 * x
+        c0 = c[-2]; c1 = c[-1]
+        for i in range(3, len(c) + 1):
+            tmp = c0
+            c0 = c[-i] - c1
+            c1 = tmp + c1 * x2
+    return c0 + c1 * x
+
+
+def _leg_clenshaw_gpu(cp, x, c):
+    if len(c) == 1:
+        return c[0] + 0.0 * x
+    if len(c) == 2:
+        c0 = c[0]; c1 = c[1]
+    else:
+        nd = len(c)
+        c0 = c[-2]; c1 = c[-1]
+        for i in range(3, len(c) + 1):
+            tmp = c0
+            nd = nd - 1
+            c0 = c[-i] - (c1 * (nd - 1)) / nd
+            c1 = tmp + (c1 * x * (2 * nd - 1)) / nd
+    return c0 + c1 * x
+
+
+def _herme_clenshaw_gpu(cp, x, c):
+    if len(c) == 1:
+        return c[0] + 0.0 * x
+    if len(c) == 2:
+        c0 = c[0]; c1 = c[1]
+    else:
+        nd = len(c)
+        c0 = c[-2]; c1 = c[-1]
+        for i in range(3, len(c) + 1):
+            tmp = c0
+            nd = nd - 1
+            c0 = c[-i] - c1 * (nd - 1)
+            c1 = tmp + c1 * x
+    return c0 + c1 * x
+
+
+def _lag_clenshaw_gpu(cp, x, c):
+    if len(c) == 1:
+        return c[0] + 0.0 * x
+    if len(c) == 2:
+        c0 = c[0]; c1 = c[1]
+    else:
+        nd = len(c)
+        c0 = c[-2]; c1 = c[-1]
+        for i in range(3, len(c) + 1):
+            tmp = c0
+            nd = nd - 1
+            c0 = c[-i] - (c1 * (nd - 1)) / nd
+            c1 = tmp + (c1 * ((2 * nd - 1) - x)) / nd
+    return c0 + c1 * x
+
+
+_PREWARP_CLENSHAW_GPU = {
+    "chebyshev": _cheb_clenshaw_gpu,
+    "legendre": _leg_clenshaw_gpu,
+    "hermite": _herme_clenshaw_gpu,
+    "laguerre": _lag_clenshaw_gpu,
+}
+
+
+def _gpu_apply_prewarp(cp, x, spec):
+    """Device port of ``hermite_fe.apply_operand_prewarp``. ``x`` is a device array (native float dtype);
+    returns a device float64 column. Raises for any basis/path not ported so the caller falls back to the
+    host copy."""
+    basis = str(spec["basis"])
+    xf = x.astype(cp.float64)
+    if basis == "fourier_adaptive":
+        pp = dict(spec["preprocess"])
+        if str(pp.get("arg", "linear")) == "quadratic":
+            z = (xf - float(pp["mean"])) / max(float(pp["std"]), 1e-12)
+            u = cp.sign(z) * (z * z)
+            axis = (u - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+        else:
+            axis = (xf - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+        coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
+        out = cp.zeros_like(axis)
+        for i, f in enumerate(pp["freqs"]):
+            if 2 * i + 1 >= coef.size:
+                break
+            ang = 2.0 * np.pi * float(f) * axis
+            out = out + float(coef[2 * i]) * cp.sin(ang) + float(coef[2 * i + 1]) * cp.cos(ang)
+        return out
+    clen = _PREWARP_CLENSHAW_GPU.get(basis)
+    if clen is None:
+        raise ValueError(f"prewarp basis {basis!r} not GPU-ported")
+    pp = dict(spec["preprocess"])
+    if basis in ("legendre", "chebyshev"):      # _apply_minmax
+        span = pp["hi"] - pp["lo"] + 1e-12
+        z = 2 * (xf - pp["lo"]) / span - 1
+        clip = pp.get("clip")
+        if clip is not None:
+            z = cp.clip(z, -float(clip), float(clip))
+    elif basis == "hermite":                    # _apply_zscore
+        z = (xf - pp["mean"]) / max(pp["std"], 1e-12)
+        clip = pp.get("clip")
+        if clip is not None:
+            z = cp.clip(z, -float(clip), float(clip))
+    else:                                        # laguerre: _apply_shift
+        z = xf - pp["lo"] + 1e-9
+        clip = pp.get("clip")
+        if clip is not None:
+            z = cp.clip(z, 0.0, float(clip) + 1e-9)
+    coef = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]
+    return clen(cp, z, coef)
+
+
 def _binary_apply(xp, name, x, y):
     """Apply binary ``name`` to ``(x, y)`` mirroring ``feature_engineering.create_binary_transformations``
     EXACTLY (full catalog minus the temporarily-disabled agm/logn/binom -- see _FULL_BINARY), incl. safe
@@ -1428,7 +1555,8 @@ def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unarie
     # the host copy below (never a correctness regression).
     _raw_slot: dict = {}   # id(raw_vals) -> (dtype_key, slot_in_group)
     _groups: dict = {}     # dtype_key -> list[host column in native float dtype]
-    for col_idx, raw_vals, unary_name in col_specs:
+    for _spec_t in col_specs:
+        col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
         if raw_vals is not None and unary_name not in fb:
             _rk = id(raw_vals)
             if _rk not in _raw_slot:
@@ -1449,7 +1577,9 @@ def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unarie
             _dev_groups[_dk] = None
     n_gpu = 0
     n_cpu = 0
-    for col_idx, raw_vals, unary_name in col_specs:
+    for _spec_t in col_specs:
+        col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
+        _payload = _spec_t[3] if len(_spec_t) > 3 else None  # R1: prewarp GPU-apply payload (or None)
         gpu_built = False
         if raw_vals is not None and unary_name not in fb:
             try:
@@ -1458,7 +1588,13 @@ def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unarie
                 if _dev is not None:
                     x = _dev[:, _slot]   # native-dtype device view of this raw operand (no per-operand H2D)
                     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                        col = _unary_apply(cp, unary_name, x)
+                        if _payload is not None and _payload.get("kind") == "prewarp":
+                            # R1: APPLY the prewarp on the device (preprocess + Clenshaw) from the raw + spec,
+                            # mirroring hermite_fe.apply_operand_prewarp -- no host-column H2D. _gpu_apply_prewarp
+                            # raises for any unported basis -> falls to the host copy below (bit-exact).
+                            col = _gpu_apply_prewarp(cp, x, _payload["spec"])
+                        else:
+                            col = _unary_apply(cp, unary_name, x)
                     # nan_to_num is NOT applied here: the CPU operand table stores the raw unary output
                     # (un-scrubbed) too -- the materialise kernel scrubs NaN/inf inline -> bit-equal.
                     g[:, col_idx] = col.astype(cp.float32)
