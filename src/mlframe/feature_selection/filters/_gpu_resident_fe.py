@@ -152,6 +152,54 @@ def fe_gpu_resident_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_RESIDENT", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def fe_gpu_resident_codes_enabled() -> bool:
+    """Whether the GPU-RESIDENT-CODES handoff is active (default OFF until proven on a quiet box).
+
+    When ON, ``gpu_materialise_discretize_codes_host`` keeps the on-device int codes RESIDENT (a single
+    (n, K) cupy array in the narrow code dtype) and stashes them in a module-level handoff (keyed on the
+    identity of the host codes array it returns). The noise-gate dispatch then feeds those device codes
+    STRAIGHT into ``batch_mi_with_noise_gate_cuda_resident`` -- skipping the H2D re-upload of the codes the
+    resident gate would otherwise pay (the codes were just produced on the GPU, D2H'd, and re-H2D'd: a
+    pointless GPU->host->GPU round-trip of the (n, K) int codes). The host codes are STILL produced, so the
+    CPU dispatch / analytic gate / GPU-opt-out / SU / any-failure branches are byte-for-byte unchanged and
+    the round-trip is skipped ONLY when the resident CUDA gate is the chosen consumer. Gate:
+    ``MLFRAME_FE_GPU_RESIDENT_CODES`` (truthy)."""
+    return os.environ.get("MLFRAME_FE_GPU_RESIDENT_CODES", "").strip().lower() in ("1", "true", "on", "yes")
+
+
+# RESIDENT-CODES HANDOFF (2026-06-21, gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
+# host`` (producer) and ``_dispatch_batch_mi_with_noise_gate`` (consumer) as SEPARATE steps -- the producer
+# returns the host int codes (``disc_2d``) which the consumer's resident-CUDA gate re-uploads. To pass the
+# ON-DEVICE codes straight through WITHOUT threading a new argument through the chunk path (which is owned
+# elsewhere), the producer stashes the resident device codes here keyed on ``id()`` of the EXACT host array
+# it returns; the dispatch retrieves them by that same identity (the host ``disc_2d`` flows unchanged from
+# producer to dispatch in the same synchronous call, so the id is stable + alive). Shape/dtype are also
+# matched as a guard. Module-level singleton (NOT on an estimator instance) -> never reachable from pickled
+# state. Cleared after consumption / on any mismatch so stale device memory is not pinned.
+_RESIDENT_CODES_HANDOFF: tuple | None = None  # (id(host_codes), device_codes cupy array, shape, dtype) | None
+
+
+def _stash_resident_codes(host_codes, device_codes) -> None:
+    """Record the resident device codes for the host array ``host_codes`` (keyed on its id)."""
+    global _RESIDENT_CODES_HANDOFF
+    _RESIDENT_CODES_HANDOFF = (id(host_codes), device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype))
+
+
+def take_resident_codes(host_codes):
+    """Pop + return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
+    dtype); else None. Single-use: the handoff is cleared on every call so device memory is not pinned past
+    one consumption and a stale entry can never satisfy a later, unrelated dispatch."""
+    global _RESIDENT_CODES_HANDOFF
+    h = _RESIDENT_CODES_HANDOFF
+    _RESIDENT_CODES_HANDOFF = None
+    if h is None:
+        return None
+    _id, dev, shape, dtype = h
+    if _id == id(host_codes) and tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
+        return dev
+    return None
+
+
 # GPU-RESIDENT BINNING DTYPE (2026-06-20). The FE candidate buffer is ALREADY float32 (the njit/CUDA
 # materialise writes float32; the chunk buffer is float32). The original GPU-resident discretize path
 # UP-CAST it to float64 before cp.percentile + cp.searchsorted, so the bandwidth-bound full sort moved
@@ -1175,6 +1223,14 @@ def gpu_materialise_discretize_codes_host(
     K = int(a_cols.shape[0])
     tv_gpu = cp.asarray(tv)  # the ONE H2D of the operand table (n, n_operands)
     out = np.empty((n, K), dtype=dtype)
+    # RESIDENT-CODES HANDOFF (gated, default OFF): keep the on-device int codes in ONE (n, K) resident
+    # cupy array so the noise-gate's resident-CUDA path can consume them DIRECTLY -- skipping the codes'
+    # GPU->host (here) ->GPU (the gate's H2D) round-trip. The host ``out`` is STILL filled (the CPU /
+    # analytic / opt-out / SU / any-failure dispatch branches need it and it is the safe fallback), so this
+    # only ADDS a resident copy when the gate is on; the round-trip is skipped only when the resident gate
+    # is the actual consumer (it matches ``out`` by identity via the module handoff).
+    _resident_codes_on = fe_gpu_resident_codes_enabled()
+    dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
     k_chunk = _gpu_k_chunk(n)
     for start in range(0, K, k_chunk):
         stop = min(start + k_chunk, K)
@@ -1208,8 +1264,17 @@ def gpu_materialise_discretize_codes_host(
         # so the on-device cast cannot overflow.
         _cd = np.dtype(dtype)
         codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
+        if dev_codes is not None:
+            # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below). Bit-identical to the
+            # host ``out`` slice -> selection-equivalent when the resident gate consumes the device copy.
+            dev_codes[:, start:stop] = codes_out
         out[:, start:stop] = cp.asnumpy(codes_out)
         del cand, codes_gpu, codes_out
+    if dev_codes is not None:
+        # Stash by the returned host array's identity so the dispatch can pick the device codes up without
+        # the chunk path threading a new argument (see _RESIDENT_CODES_HANDOFF). Any consumer that is NOT
+        # the resident CUDA gate simply ignores it + reads ``out`` (host) as before.
+        _stash_resident_codes(out, dev_codes)
     return out
 
 

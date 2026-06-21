@@ -49,6 +49,20 @@ def _dispatch_batch_mi_with_noise_gate(
     K = disc_2d.shape[1]
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
 
+    # RESIDENT-CODES HANDOFF (gated, default OFF): if the FE chunk binned these codes ON the GPU and kept
+    # them resident, pop the device codes array keyed on THIS ``disc_2d`` (same object flows producer ->
+    # here). When the resident-CUDA gate is the chosen consumer it reads them IN PLACE, skipping the codes'
+    # H2D re-upload (a pointless GPU->host->GPU round-trip). ALWAYS pop (single-use, self-clearing) so a
+    # stale entry can never satisfy a later dispatch; non-resident branches just ignore it and read host
+    # ``disc_2d``. ``device_codes`` is None unless the gate is on AND the producer stashed a match.
+    device_codes = None
+    try:
+        from .._gpu_resident_fe import fe_gpu_resident_codes_enabled, take_resident_codes
+        if fe_gpu_resident_codes_enabled():
+            device_codes = take_resident_codes(disc_2d)
+    except Exception:
+        device_codes = None
+
     # ---- Analytic large-n noise gate (2026-06-16) -------------------------------------------------
     # The per-candidate permutation null -- CPU prange shuffles AND the GPU cupy-argsort twin below --
     # is the dominant large-n FE-scan cost. At large n the gate's permutation p-value is the analytic
@@ -179,6 +193,7 @@ def _dispatch_batch_mi_with_noise_gate(
                 min_nonzero_confidence=min_nonzero_confidence,
                 use_su=use_su,
                 force_backend=(backend if backend in ("cupy", "cuda") else None),
+                device_codes=device_codes,
             )
             if _res is not None:
                 return _res
@@ -218,6 +233,7 @@ def _batch_mi_with_noise_gate_gpu(
     min_nonzero_confidence,
     use_su,
     force_backend=None,
+    device_codes=None,
 ):
     """Bit-identical GPU twin of ``batch_mi_with_noise_gate``; returns ``fe_mi[K]``
     when a GPU backend is available + chosen, else ``None`` (-> CPU fallback).
@@ -244,11 +260,14 @@ def _batch_mi_with_noise_gate_gpu(
             # identical, never builds that buffer, and doesn't OOM. The cache's backend pick is GPU-vs-CPU;
             # the GPU SUB-backend is ours to choose, and resident-cuda dominates cupy here.
             if _CA:
+                # RESIDENT-CODES HANDOFF (gated): feed the on-device codes (when the producer kept them
+                # resident) straight to the histogram kernel -- skips the codes' H2D re-upload, bit-
+                # identical (same int codes). ``device_codes=None`` keeps the H2D-from-host path.
                 return batch_mi_with_noise_gate_cuda_resident(
                     disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
                     classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=int(npermutations),
                     base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
-                    use_su=False,
+                    use_su=False, d_disc_resident=device_codes,
                 )
         except Exception as _exc:
             _module_logger.debug("resident gate failed (%s: %s); standard GPU path", type(_exc).__name__, _exc)

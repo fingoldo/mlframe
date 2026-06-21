@@ -761,12 +761,21 @@ def batch_mi_with_noise_gate_cuda_resident(
     use_su: bool,
     dtype: type = np.int32,
     threads_per_block: int = 128,
+    d_disc_resident=None,
 ) -> np.ndarray:
     """FULL-GPU-RESIDENT noise gate: batched histogram (all perms, one launch) -> GPU MI kernel -> only
     the (P, K) MI matrix D2H -> host gate decision. The entire permutation noise gate runs on the device
     from resident counts (no per-perm counts D2H, no CPU entropy). Selection-equivalent to
     ``batch_mi_with_noise_gate_cuda`` (same perm gate; GPU MI reproduces the CPU reduction order to fp
-    round-off). ``use_su`` has no GPU entropy form here -> delegates to the CPU-entropy cuda path."""
+    round-off). ``use_su`` has no GPU entropy form here -> delegates to the CPU-entropy cuda path.
+
+    RESIDENT-CODES HANDOFF (2026-06-21, gated): ``d_disc_resident`` -- when the FE chunk binned the codes
+    ON the GPU and kept them resident -- is the (n, K) DEVICE codes array (cupy or numba-cuda; consumed via
+    the CUDA Array Interface). Passing it lets the histogram kernel read the codes IN PLACE, skipping the
+    H2D re-upload of ``disc_2d`` (the codes were produced on the GPU, so re-uploading them is a pointless
+    round-trip). It MUST hold the SAME integer codes as ``disc_2d`` (the producer keeps the exact bytes it
+    D2H'd) -> counts, MI and the gate decision are BIT-IDENTICAL to the host-codes path. ``None`` (the
+    default, and any narrow-dtype mismatch) keeps the H2D-from-host path unchanged."""
     if use_su:
         return batch_mi_with_noise_gate_cuda(
             disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
@@ -808,8 +817,22 @@ def batch_mi_with_noise_gate_cuda_resident(
     # up-casting to int32: nvprof showed the resident gate's wall is dominated by this (n, K) codes H2D,
     # not the (microsecond) kernels, so a 4x-smaller int8 transfer is the real lever. The hist kernel
     # reads disc_2d[r, k] as an index either way (numba compiles a per-dtype variant); counts unchanged.
+    # RESIDENT-CODES HANDOFF (gated): when the producer kept the codes on-device, consume that array IN
+    # PLACE (CUDA Array Interface) instead of re-uploading -- skips the (n, K) codes H2D entirely. Requires
+    # a matching shape + a narrow (itemsize<=2) dtype so the hist kernel reads it as an index exactly like
+    # the host path; any mismatch (or None) falls back to the H2D so it can never change the counts.
     _disc_dt = disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int32
-    d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=_disc_dt))
+    d_disc = None
+    if d_disc_resident is not None:
+        try:
+            _rshape = tuple(int(s) for s in d_disc_resident.shape)
+            _rdt = np.dtype(d_disc_resident.dtype)
+            if _rshape == (n, K) and _rdt.itemsize <= 2 and _rdt == np.dtype(_disc_dt):
+                d_disc = d_disc_resident  # resident device codes -> NO H2D (the round-trip we eliminate)
+        except Exception:
+            d_disc = None
+    if d_disc is None:
+        d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=_disc_dt))
     d_off = _nb_cuda.to_device(np.ascontiguousarray(offsets[:K], dtype=np.int64))
     d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins_arr, dtype=np.int32))
     d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))

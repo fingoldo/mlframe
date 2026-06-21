@@ -46,11 +46,33 @@ def _f64(v: np.ndarray) -> np.ndarray:
 
 
 def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
+    # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF). The cupy twin is float64 + the SAME
+    # std<1e-12 guard, but a cupy reduction can reassociate the last bits vs numpy -> a |corr| drift
+    # that, on the ULP-sensitive clean-form demotion, could flip a pin. So it is ENABLED only on a host
+    # where the gate-on pytest verified the SAME selection; on ANY cupy/device error we fall through to
+    # the exact numpy path (the fit is never broken by a GPU problem).
+    if _GPU_USABILITY():
+        try:
+            from ._usability_gpu import gpu_abscorr
+            return gpu_abscorr(u, v)
+        except Exception:
+            pass  # fall back to the exact CPU path
     u = _f64(u); v = _f64(v)  # precision for the heavy-tail correlation
     if u.size == 0 or float(np.std(u)) < 1e-12 or float(np.std(v)) < 1e-12:
         return 0.0
     r = np.corrcoef(u, v)[0, 1]
     return abs(float(r)) if np.isfinite(r) else 0.0
+
+
+def _GPU_USABILITY() -> bool:
+    """Whether the gated cupy usability-scoring path is active (``MLFRAME_FE_GPU_USABILITY`` + live
+    cupy + global GPU not disabled). Default OFF; the CPU path is the proven, selection-exact default.
+    Imported lazily so a no-cupy host never touches the GPU module."""
+    try:
+        from ._usability_gpu import fe_gpu_usability_enabled
+        return fe_gpu_usability_enabled()
+    except Exception:
+        return False
 
 
 # bench-attempt-rejected (2026-06-18): per-operand near-duplicate unary dedup (|corr|>0.999) to shrink
@@ -592,11 +614,23 @@ def usability_greedy(
         else:
             resid = y_cont - float(np.mean(y_cont))
             rows = slice(None)
+        cand_ids = [i for i in range(len(pool)) if i not in sel_idx]
+        # GATED GPU BATCH (MLFRAME_FE_GPU_USABILITY, default OFF): the per-candidate |corr(values,
+        # resid)| is the n-scaling inner loop of the shortlist -- batch all candidates' columns vs the
+        # one resid in ONE cupy GEMV (centered dot / sqrt(ss)) instead of a Python loop of np.corrcoef.
+        # BIT-FAITHFUL to the per-candidate ``_abscorr`` (same float64 estimator + std<1e-12 guard), so
+        # the shortlist ORDER is unchanged. Any cupy/device error -> the exact per-candidate CPU loop.
+        uses = None
+        if _GPU_USABILITY() and cand_ids:
+            try:
+                from ._usability_gpu import gpu_abscorr_batch
+                cols = np.column_stack([_f64(pool[i].values[rows]) for i in cand_ids])
+                uses = gpu_abscorr_batch(cols, _f64(np.asarray(resid)))
+            except Exception:
+                uses = None  # fall back to the exact CPU path
         scored = []
-        for i in range(len(pool)):
-            if i in sel_idx:
-                continue
-            use = _abscorr(pool[i].values[rows], resid)
+        for k, i in enumerate(cand_ids):
+            use = float(uses[k]) if uses is not None else _abscorr(pool[i].values[rows], resid)
             scored.append((i, (1.0 - w) * (pool[i].mi / mi_max) + w * use))
         scored.sort(key=lambda t: t[1], reverse=True)
         return [i for i, _ in scored[: max(1, shortlist)]]

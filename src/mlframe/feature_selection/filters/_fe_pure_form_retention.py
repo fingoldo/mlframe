@@ -29,6 +29,17 @@ from typing import Any
 import numpy as np
 
 
+def _gpu_usability_on() -> bool:
+    """Whether the gated cupy usability-scoring path is active (``MLFRAME_FE_GPU_USABILITY`` + live
+    cupy + global GPU not disabled). Default OFF; the CPU sklearn path is the proven, selection-exact
+    default. Lazy import so a no-cupy host never touches the GPU module."""
+    try:
+        from ._usability_gpu import fe_gpu_usability_enabled
+        return fe_gpu_usability_enabled()
+    except Exception:
+        return False
+
+
 def retain_usable_pure_forms(
     mrmr: Any,
     X: Any,
@@ -323,9 +334,21 @@ def retain_usable_pure_forms(
                     return False
                 # residual of the form after the ADDITIVE single-operand basis of BOTH operands: the part
                 # that is genuinely a JOINT (non-separable) interaction of the two operands.
-                Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
-                lr = make_pipeline(StandardScaler(), LinearRegression()).fit(Xr, fv)
-                resid = fv - lr.predict(Xr)
+                # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF): compute the additive-basis
+                # residual on cupy (the SAME 6-fn basis, mean-centered OLS == StandardScaler+LinReg). Any
+                # cupy/device error -> the exact sklearn CPU path. The relevance gate below (_abscorr) is
+                # ULP-sensitive, so this is enabled only on a host the gate-on pytest verified.
+                resid = None
+                if _gpu_usability_on():
+                    try:
+                        from ._usability_gpu import gpu_additive_basis_residual
+                        resid = gpu_additive_basis_residual(fv, xa, xb)
+                    except Exception:
+                        resid = None
+                if resid is None:
+                    Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
+                    lr = make_pipeline(StandardScaler(), LinearRegression()).fit(Xr, fv)
+                    resid = fv - lr.predict(Xr)
                 # (a) the form must be genuinely NON-separable in its operands (rejects a linear sum AND a
                 #     separable cross-pair sum-of-single-operand-nonlinearities).
                 if float(np.std(resid)) < min_resid_frac * f_std:
