@@ -382,11 +382,28 @@ def basis_route_by_signal(
         return basis_route_by_moments(x)
     best_basis = None
     best_corr = -1.0
+    _route_no_aux = aux_for_fit is None or len(np.asarray(aux_for_fit)) == 0
     for basis in candidate_bases:
         bcorr = 0.0
+        # FIT-ONCE per basis (2026-06-21): z depends on (x, basis) not degree, so fit the
+        # preprocess (incl the robust heavy-tail np.median axis) ONCE and evaluate both degrees
+        # on the cached z -- byte-identical to the per-degree _evaluate_basis_column, halving the
+        # routing-probe medians (4 bases x 2 degrees = 8 fits -> 4). Aux-pool path stays per-degree.
+        _zc = None
+        if _route_no_aux:
+            try:
+                _zf, _ = _POLY_BASES[basis]["fit"](x)
+                _zc = np.ascontiguousarray(_zf, dtype=np.float64)
+            except Exception:
+                _zc = None
         for d in degrees:
             try:
-                v = _evaluate_basis_column(x, basis, int(d), aux_for_fit=aux_for_fit)
+                if _zc is not None:
+                    _coef = np.zeros(int(d) + 1, dtype=np.float64)
+                    _coef[int(d)] = 1.0
+                    v = polyeval_dispatch(basis, _zc, _coef)
+                else:
+                    v = _evaluate_basis_column(x, basis, int(d), aux_for_fit=aux_for_fit)
             except Exception:
                 continue
             v = np.asarray(v, dtype=np.float64)
