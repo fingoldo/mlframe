@@ -1305,11 +1305,78 @@ def _pinned_view(n_bytes: int, shape, dtype):
 _OPERAND_TABLE_CACHE: dict = {"ref": None, "gpu": None}
 
 
-def _resident_operand_table(cp, transformed_vars):
-    """Device (n, n_operands) float32 copy of ``transformed_vars``, uploaded once per distinct host array
-    object (weakref-identity cache) and reused across a step's chunks. Falls back to a plain upload if the
-    array is not weakref-able."""
+# GPU-RESIDENT OPERAND TABLE (2026-06-21, phase 1 of the 100%-GPU-resident MRMR FE rewrite, gated).
+# The operand table ``transformed_vars`` (n, n_operands) float32 is built on the CPU in
+# ``check_prospective_fe_pairs`` (one column per (var, unary)), then ``_resident_operand_table`` H2Ds it to
+# the device ONCE per step. Phase 1 removes even that single H2D by building the device mirror's columns ON
+# the GPU directly from the resident raw operand inputs (via ``_unary_apply`` -- the same math as the CPU
+# ``unary_transformations``), so the materialise consumes a DEVICE array with NO host->device transfer of
+# the bulk operand bytes. The CPU ``transformed_vars`` is STILL built (the pair-search inner loops /
+# discretize read it on the host -- those move to the GPU in later phases); phase 1 only kills the
+# materialise H2D. Operand transforms that are NOT plain GPU unaries (prewarp / gate_med / hermite-poly --
+# fitted/special, no straightforward cupy form) are built on the CPU and copied into the resident mirror (a
+# few columns); the bulk plain-unary columns are GPU-built. The PREBUILT mirror is registered here by
+# weakref-identity of the host ``transformed_vars`` so ``_resident_operand_table`` returns it WITHOUT the
+# H2D. Module-global -> never reachable from pickled estimator state. Gated OFF by default
+# (``MLFRAME_FE_GPU_RESIDENT_OPERANDS``) until proven 11-green; the CPU / no-CUDA path is unchanged.
+_PREBUILT_OPERAND_TABLE: dict = {"ref": None, "gpu": None}
+
+
+def fe_gpu_resident_operands_enabled() -> bool:
+    """Whether the GPU-RESIDENT operand-table build (phase 1) is active. DEFAULT ON (opt-out
+    ``MLFRAME_FE_GPU_RESIDENT_OPERANDS=0``). When on (and CUDA present -- the caller guards this and
+    falls back on any failure) the operand table's bulk plain-unary columns are produced ON the GPU and
+    the materialise consumes the device array with no H2D re-upload; the CPU / no-CUDA path is byte-for-
+    byte unchanged (operand table H2D'd as before)."""
+    return os.environ.get("MLFRAME_FE_GPU_RESIDENT_OPERANDS", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def register_prebuilt_operand_table(transformed_vars, device_table) -> None:
+    """Register a GPU-RESIDENT device mirror ``device_table`` for the host operand table ``transformed_vars``
+    (keyed on the host array's weakref identity). ``_resident_operand_table`` then returns ``device_table``
+    for that exact host object WITHOUT re-uploading. Pass ``device_table=None`` to clear. The device array
+    MUST be a row-major (n, n_operands) C-contiguous float32 cupy array matching ``transformed_vars``'s
+    shape (the layout ``_fe_materialise_block_gpu``'s kernel addresses); a mismatch is ignored at lookup."""
     import weakref
+    c = _PREBUILT_OPERAND_TABLE
+    if device_table is None:
+        c["ref"] = None
+        c["gpu"] = None
+        return
+    try:
+        c["ref"] = weakref.ref(transformed_vars)
+        c["gpu"] = device_table
+    except TypeError:
+        c["ref"] = None
+        c["gpu"] = None
+
+
+def _prebuilt_operand_table(transformed_vars):
+    """The registered GPU-resident device mirror for ``transformed_vars`` iff it matches the host array by
+    weakref identity AND shape (n, n_operands); else None. Shape guard so a stale/mismatched mirror can
+    never feed the materialise kernel a wrong-width table (out-of-bounds operand-column reads)."""
+    c = _PREBUILT_OPERAND_TABLE
+    ref = c["ref"]
+    if ref is None or c["gpu"] is None:
+        return None
+    if ref() is not transformed_vars:
+        return None
+    g = c["gpu"]
+    if tuple(g.shape) != tuple(transformed_vars.shape):
+        return None
+    return g
+
+
+def _resident_operand_table(cp, transformed_vars):
+    """Device (n, n_operands) float32 copy of ``transformed_vars``. When a GPU-RESIDENT mirror was prebuilt
+    for this exact host object (phase 1, ``register_prebuilt_operand_table``) it is returned WITH NO H2D --
+    the bulk operand bytes were produced on the device. Otherwise the host array is uploaded once per
+    distinct object (weakref-identity cache) and reused across a step's chunks; falls back to a plain
+    upload if the array is not weakref-able."""
+    import weakref
+    pre = _prebuilt_operand_table(transformed_vars)
+    if pre is not None:
+        return pre
     c = _OPERAND_TABLE_CACHE
     ref = c["ref"]
     if ref is not None and ref() is transformed_vars and c["gpu"] is not None:
@@ -1322,6 +1389,69 @@ def _resident_operand_table(cp, transformed_vars):
         c["ref"] = None
         c["gpu"] = None
     return g
+
+
+def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unaries=()):
+    """Build a GPU-RESIDENT (n, n_operands) row-major float32 cupy mirror of the host operand table
+    ``transformed_vars``, producing the bulk PLAIN-UNARY columns ON the GPU (via ``_unary_apply`` -- the
+    same math the CPU ``unary_transformations`` applied) and COPYING the rest (prewarp / gate_med /
+    hermite-poly / any name in ``fallback_unaries`` / any GPU-unbuildable column) from the host array.
+
+    ``col_specs`` is a list aligned with the operand-table columns: each entry is ``(col_idx, raw_vals,
+    unary_name)`` where ``raw_vals`` is the host float64 raw operand input the CPU applied ``unary_name`` to
+    (or ``None`` for a column with no GPU recipe -> copied from the host). A column is GPU-built iff
+    ``raw_vals is not None``, ``unary_name`` is a known plain unary (``_unary_apply`` accepts it, not in
+    ``fallback_unaries``). The unary is applied on the GPU in float64 (the dtype the CPU ``tr_func``
+    received) then cast to float32 (mirroring the CPU's compute-in-f64-then-store-f32) so the GPU column
+    matches the host column to fp round-off. Any per-column GPU failure falls that column back to the host
+    copy (never a correctness regression). Returns the device array (already row-major C-contiguous f32);
+    the caller registers it via ``register_prebuilt_operand_table``."""
+    import cupy as cp
+
+    n, n_operands = transformed_vars.shape
+    fb = set(fallback_unaries)
+    # Allocate the device mirror WITHOUT uploading the host table: the residency win is precisely that the
+    # bulk operand bytes never make the host->device trip. We H2D ONLY the small per-operand RAW inputs (n
+    # floats each, cached so each distinct raw operand is uploaded ONCE -- they recur across a var's unaries)
+    # and GPU-build the plain columns from them; the FEW non-plain / failed columns are copied from the host
+    # one column at a time. Columns with no spec (the unused tail, if any) are zero-filled -- they are never
+    # read by the materialise (operand indices are always < the used width), so their content is irrelevant.
+    g = cp.zeros((n, n_operands), dtype=cp.float32)
+    _raw_dev_cache: dict = {}  # id(raw_vals) -> device float64 copy (each distinct raw operand H2D'd once)
+    n_gpu = 0
+    n_cpu = 0
+    for col_idx, raw_vals, unary_name in col_specs:
+        gpu_built = False
+        if raw_vals is not None and unary_name not in fb:
+            try:
+                # Apply the unary in the RAW INPUT's NATIVE dtype (the exact dtype the CPU ``tr_func`` saw)
+                # then cast to f32 (the operand-table store dtype), mirroring the CPU's compute-then-downcast
+                # -- so the GPU column matches the host column to fp round-off regardless of whether the raw
+                # operand is f64 (pandas) or f32 (some polars columns). _unary_apply raises for non-plain.
+                _rk = id(raw_vals)
+                x = _raw_dev_cache.get(_rk)
+                if x is None:
+                    _rv = np.ascontiguousarray(raw_vals)
+                    if not np.issubdtype(_rv.dtype, np.floating):
+                        _rv = _rv.astype(np.float64)  # CPU tr_func on a non-float would also promote
+                    x = cp.asarray(_rv)
+                    _raw_dev_cache[_rk] = x
+                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                    col = _unary_apply(cp, unary_name, x)
+                # nan_to_num is NOT applied here: the CPU operand table stores the raw unary output
+                # (un-scrubbed) too -- the materialise kernel scrubs NaN/inf inline -> bit-equal.
+                g[:, col_idx] = col.astype(cp.float32)
+                gpu_built = True
+            except Exception:
+                gpu_built = False
+        if not gpu_built:
+            # Non-plain (prewarp / gate_med / poly) or failed: copy just THIS column from the host (a single
+            # (n,) f32 H2D, not the whole table) so the device column equals the CPU bytes exactly.
+            g[:, col_idx] = cp.asarray(np.ascontiguousarray(transformed_vars[:, col_idx], dtype=np.float32))
+            n_cpu += 1
+        else:
+            n_gpu += 1
+    return cp.ascontiguousarray(g), n_gpu, n_cpu
 
 
 def gpu_materialise_discretize_codes_host(

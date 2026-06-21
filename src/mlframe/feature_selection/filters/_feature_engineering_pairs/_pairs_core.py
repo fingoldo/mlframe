@@ -793,6 +793,17 @@ def check_prospective_fe_pairs(
     _need_recompute_map = final_transformed_vals_shared is None
 
     vars_transformations = {}
+    # GPU-RESIDENT OPERAND TABLE (phase 1, gated). Record each successfully-built operand column's
+    # (col_idx, raw_vals, unary_name) so a GPU-resident mirror of ``transformed_vars`` can be produced ON
+    # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
+    # the host) -- removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
+    from .._gpu_resident_fe import _cuda_present, fe_gpu_resident_operands_enabled
+    _resident_operands_on = False
+    try:
+        _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()
+    except Exception:
+        _resident_operands_on = False
+    _operand_col_specs: list = [] if _resident_operands_on else None
     i = 0
     for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
         for var in raw_vars_pair:
@@ -900,7 +911,44 @@ def check_prospective_fe_pairs(
                         )
                     else:
                         vars_transformations[key] = i
+                        if _operand_col_specs is not None:
+                            # GPU-resident phase 1: a column is GPU-buildable iff it is a PLAIN unary
+                            # (prewarp / gate_med / hermite-poly are fitted/special -> raw_vals=None forces a
+                            # host copy). ``vals`` is the exact raw operand the CPU tr_func consumed.
+                            _is_plain = (
+                                tr_name != _PREWARP_UNARY
+                                and tr_name != _GATE_MED_UNARY
+                                and "poly_" not in tr_name
+                            )
+                            _operand_col_specs.append((i, vals if _is_plain else None, tr_name))
                         i += 1
+
+    # GPU-RESIDENT OPERAND TABLE (phase 1, gated): now that ``transformed_vars`` + ``vars_transformations``
+    # are fully built, produce a DEVICE mirror whose bulk plain-unary columns are rebuilt ON the GPU (from
+    # the resident raw inputs via _unary_apply) and the fitted/special columns copied from the host, then
+    # register it so ``_resident_operand_table`` returns the device array WITH NO H2D (the materialise
+    # consumes it transfer-free). The host ``transformed_vars`` is unchanged (the CPU pair-search / discretize
+    # readers still use it). Any failure -> skip (the materialise H2Ds the host table as before; never a
+    # correctness or availability regression). Any allocated tail columns past the used width (``i`` <
+    # n_operands when some (var,tr) raised + were skipped) have no spec -> the builder zero-fills them; the
+    # materialise never reads them (operand indices are always < the used width), so their content is moot.
+    if _operand_col_specs is not None and len(vars_transformations) > 0:
+        try:
+            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table
+            # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
+            # the materialise / _resolve_col paths pass: GPU-build the plain-unary columns from col_specs,
+            # copy every other column (incl. any unused tail) from the host. Registered against the full
+            # array so ``_resident_operand_table`` matches it by identity + shape.
+            _dev_tv, _n_gpu, _n_cpu = build_resident_operand_table(transformed_vars, _operand_col_specs)
+            register_prebuilt_operand_table(transformed_vars, _dev_tv)
+            if verbose:
+                logger.info(
+                    "check_prospective_fe_pairs: GPU-resident operand table built "
+                    "(%d GPU-built columns, %d host-copied; materialise H2D skipped).",
+                    _n_gpu, _n_cpu,
+                )
+        except Exception:
+            logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
 
     if verbose >= 2:
         logger.info("Created. For every pair from the pool, trying all known functions...")
