@@ -227,6 +227,15 @@ def _compute_one_fe_chunk(
         if col > 0 and _gpu_mat_enabled:
             try:
                 from ._pairs_core import _fe_gpu_discretize_enabled
+                # RESIDENCY-OVERRIDE bench-attempt-rejected (2026-06-21): forcing the fused GPU path on
+                # sub-crossover njit chunks (``... or fe_gpu_resident_codes_enabled()``) to keep their codes
+                # on-device was a NO-OP at the canonical 100k fit -- A/B (seed 777): override on vs off =
+                # IDENTICAL 60.27 MB H2D / 953 cp.asarray calls / 45.2-45.8s wall. Every njit chunk already
+                # passes the speed crossover at the 30k screen subsample, so there are no sub-crossover njit
+                # chunks to force; where it COULD fire (smaller fits) it would re-upload operand columns
+                # (~60 MB pattern) instead of the compact int codes the CPU path uploads (~14 MB) -> a net
+                # H2D LOSS. The real residency lever is making the per-chunk operand reads consume the
+                # phase-1 resident operand table (the 953-call / 60 MB floor), not widening this gate.
                 if _fe_gpu_discretize_enabled(transformed_vars.shape[0], col):
                     from .._gpu_resident_fe import gpu_materialise_discretize_codes_host
                     _code_dtype_gpu = _narrow_code_dtype(quantization_nbins, quantization_dtype)
