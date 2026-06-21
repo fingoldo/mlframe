@@ -993,6 +993,9 @@ def fe_gpu_grand_fusion_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
+_COMBO_IDX_CACHE: dict = {}  # block-tuple -> (ua_idx, ub_idx, bop) device int32; module-level -> pickle-safe
+
+
 def _fused_generate_block(ua_cm, ub_cm, combos_block):
     """Generate the (n, len(combos_block)) candidate matrix for ``combos_block`` in ONE kernel launch.
 
@@ -1008,9 +1011,18 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block):
     assert ua_cm.shape[0] == len(_MINIMAL_UNARY) == ub_cm.shape[0], (ua_cm.shape, ub_cm.shape)
     n = int(ua_cm.shape[1])
     K = len(combos_block)
-    ua_idx = cp.asarray([_UNARY_IDX[ua] for ua, _, _ in combos_block], dtype=cp.int32)
-    ub_idx = cp.asarray([_UNARY_IDX[ub] for _, ub, _ in combos_block], dtype=cp.int32)
-    bop = cp.asarray([_BINOP_CODE[bp] for _, _, bp in combos_block], dtype=cp.int32)
+    # combos_block is always a slice of the module constant _COMBOS, so the int32 index trio depends only on
+    # the block contents (identical across every pair at a fixed k_chunk). Cache the device vectors keyed on
+    # the block tuple to drop the per-chunk-per-pair list-comp + tiny-H2D allocs (cupy._core.core.array).
+    _ck = tuple(combos_block)
+    _cc = _COMBO_IDX_CACHE.get(_ck)
+    if _cc is None:
+        ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in combos_block], dtype=np.int32))
+        ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in combos_block], dtype=np.int32))
+        bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in combos_block], dtype=np.int32))
+        _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
+    else:
+        ua_idx, ub_idx, bop = _cc
     out = cp.empty((n, K), dtype=cp.float64)
     total = n * K
     threads = 256
@@ -1354,6 +1366,14 @@ def fe_gpu_radix_edges_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_RADIX_EDGES", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
+# (n, nbins) fully determine the radix interp gather-indices (bi/ai) and weight (w) -- they are derived
+# only from np.linspace(0,100,nbins+1) and n, NOT from the candidate data -- so they are identical for every
+# chunk/pair of a fit. Cache the (tiny, (nbins-1,)) device vectors keyed on (n, nbins) to drop the per-chunk
+# tiny-H2D allocs (the cupy._core.core.array hotspot). Module-level dict -> not part of the MRMR instance
+# pickle (mirrors the other resident-kernel singletons in this module). (n, nbins) take <=2-3 values per fit.
+_RADIX_INTERP_CACHE: dict = {}
+
+
 def _radix_select_interior_edges(cand_gpu, nbins: int):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
     sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
@@ -1395,12 +1415,18 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
         (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
     # the cupy_percentile_weightnening elementwise kernel (U=float64; below/above promoted; w in float64).
-    pos = {int(r): i for i, r in enumerate(uniq)}
-    bi = cp.asarray([pos[int(b)] for b in bel], dtype=cp.int64)
-    ai = cp.asarray([pos[int(a)] for a in abv], dtype=cp.int64)
+    _ik = (int(n), int(nbins))
+    _ic = _RADIX_INTERP_CACHE.get(_ik)
+    if _ic is None:
+        pos = {int(r): i for i, r in enumerate(uniq)}
+        bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
+        ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
+        w = cp.asarray(np.ascontiguousarray(idx - bel))   # float64 weight_above = idx - floor(idx)
+        _RADIX_INTERP_CACHE[_ik] = (bi, ai, w)
+    else:
+        bi, ai, w = _ic
     ab = osv[bi, :].astype(cp.float64)
     aa = osv[ai, :].astype(cp.float64)
-    w = cp.asarray(idx - bel)            # float64 weight_above = idx - floor(idx)
     diff = aa - ab
     edges = cp.where(w[:, None] < 0.5, ab + diff * w[:, None], aa - diff * (1.0 - w)[:, None])
     return edges                          # (nbins-1, K) float64

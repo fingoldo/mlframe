@@ -111,19 +111,26 @@ class TestPluginMIClassifDispatcher:
         np.testing.assert_array_equal(out, expected)
 
 
-class TestPluginMIDispatcherConsultsKTC:
-    """The 2026-05-20 fix routes plugin_mi_classif_(batch_)dispatch
-    through ``kernel_tuning_cache.dispatch.lookup_mi_classif_backend``
-    instead of hardcoded thresholds. A silent regression to hardcoded
-    constants would defeat the per-host calibration win (2-4x at
-    production sizes on most HW).
+class TestPluginMIDispatchGroundTruthNjitOverride:
+    """The host-input MI dispatch (``plugin_mi_classif_(batch_)dispatch``)
+    deliberately defaults to njit via a GROUND-TRUTH OVERRIDE and does NOT
+    consult ``lookup_mi_classif_backend``.
 
-    These tests monkey-patch ``lookup_mi_classif_backend`` and assert
-    the dispatcher actually CALLS it (with the right (n, k) shape) on
-    every dispatcher invocation that has cupy available.
+    The earlier (2026-05-20) KTC-consulting path favored cuda from a SOLO
+    microbenchmark; the contention-aware end-to-end A/B then showed njit is
+    3x faster on the real fit (GPU 318-368s/5.0GB vs njit 115s/1.6GB,
+    identical selection), because the host-input cuda path pays a ~700ms
+    per-call H2D/D2H + serialised launch/sync penalty the microbench never
+    saw. So the dispatch now short-circuits to njit BEFORE any KTC lookup;
+    the GPU win moved to the *resident* path (``_plugin_mi_classif_batch_
+    cuda_resident``), which eliminates the per-call H2D the dispatch can't.
+
+    These tests pin that the host-input dispatch does NOT pay the KTC lookup
+    and returns the njit result; ``MLFRAME_MI_BACKEND=cuda`` still forces GPU
+    for a caller whose own end-to-end profile justifies it (covered above).
     """
 
-    def test_batch_dispatcher_consults_lookup(
+    def test_batch_dispatcher_does_not_consult_ktc(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
@@ -145,23 +152,17 @@ class TestPluginMIDispatcherConsultsKTC:
         monkeypatch.setattr(
             _ktc_dispatch, "lookup_mi_classif_backend", _spy,
         )
-        # Drop any cached MLFRAME_MI_BACKEND override so the dispatcher
-        # actually walks the cache path (env-var force-override would
-        # short-circuit the lookup).
         monkeypatch.delenv("MLFRAME_MI_BACKEND", raising=False)
 
-        plugin_mi_classif_batch_dispatch(X, y, 20)
-        assert calls, (
-            "plugin_mi_classif_batch_dispatch did NOT consult "
-            "lookup_mi_classif_backend; the KTC integration regressed "
-            "to hardcoded thresholds."
+        out = plugin_mi_classif_batch_dispatch(X, y, 20)
+        assert not calls, (
+            "plugin_mi_classif_batch_dispatch consulted the KTC lookup; the "
+            "ground-truth njit override must short-circuit BEFORE it (the "
+            "host-input cuda path is 3x slower end-to-end under contention)."
         )
-        assert calls[-1] == (n, k), (
-            f"KTC lookup called with wrong shape: got {calls[-1]}, "
-            f"expected ({n}, {k})"
-        )
+        np.testing.assert_array_equal(out, _plugin_mi_classif_batch_njit(X, y, 20))
 
-    def test_single_dispatcher_consults_lookup(
+    def test_single_dispatcher_does_not_consult_ktc(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
@@ -185,15 +186,12 @@ class TestPluginMIDispatcherConsultsKTC:
         )
         monkeypatch.delenv("MLFRAME_MI_BACKEND", raising=False)
 
-        plugin_mi_classif_dispatch(x, y, 20)
-        assert calls, (
-            "plugin_mi_classif_dispatch did NOT consult "
-            "lookup_mi_classif_backend; the KTC integration regressed."
+        out = plugin_mi_classif_dispatch(x, y, 20)
+        assert not calls, (
+            "plugin_mi_classif_dispatch consulted the KTC lookup; the "
+            "ground-truth njit override must short-circuit BEFORE it."
         )
-        assert calls[-1] == (n, 1), (
-            f"single-col KTC lookup called with wrong shape: "
-            f"got {calls[-1]}, expected ({n}, 1)"
-        )
+        assert out == float(_plugin_mi_classif_njit(x, y, 20))
 
     def test_env_override_bypasses_ktc(
         self, monkeypatch: pytest.MonkeyPatch,
@@ -230,20 +228,20 @@ class TestPluginMIDispatcherConsultsKTC:
 
 
 class TestPluginMIPerHostRegionOverridesFallback:
-    """A persisted per-host KTC region MUST override the hardcoded fallback.
+    """A persisted per-host KTC region MUST override the conservative fallback.
 
-    The hardcoded fallback (75k single / 10k batch) was measured on a
-    GTX 1050 Ti cc 6.1. On other GPUs the real njit-vs-cuda crossover
-    differs -- e.g. on an RTX 500 Ada the batch crossover is ~50k, so the
-    10k fallback mis-routes the 10k-50k band to GPU where CPU is faster.
-    The fix is purely data: ``ensure_mi_classif_dispatch_tuning`` populates
-    a per-host region the lookup consults. This test pins that a region
-    saying "njit at n=20k k=5" beats the fallback's cuda, so a regression
-    that ignores the persisted crossover (reverting to the hardcoded
-    constant) is caught.
+    ``_fallback_mi_backend`` is now ``njit`` unconditionally (the earlier
+    GPU-favoring constants came from a solo microbench; the contention-aware
+    end-to-end fit is njit-faster -- see ``dispatch._fallback_mi_backend``).
+    The per-host concurrency-aware sweep (``_run_sweep_mi_classif_dispatch``)
+    is the ONLY thing allowed to route a region to cuda, where it genuinely
+    wins under contention. This test pins that a persisted region saying
+    "cuda at n=20k k=5" overrides the njit fallback, so a regression that
+    ignores the persisted crossover (hardcoding njit even when the host was
+    measured cuda-faster) is caught.
     """
 
-    def test_persisted_region_njit_at_20k_batch_beats_fallback_cuda(
+    def test_persisted_region_cuda_at_20k_batch_overrides_njit_fallback(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
@@ -251,25 +249,24 @@ class TestPluginMIPerHostRegionOverridesFallback:
         )
 
         n, k = 20_000, 5
-        # Sanity: the hardcoded fallback would (wrongly, on this HW) route
-        # batch n=20k to cuda -- that is exactly the band the per-host
-        # region corrects.
-        assert _ktc_dispatch._fallback_mi_backend(n, k) == "cuda"
+        # Sanity: the conservative fallback now routes batch n=20k to njit --
+        # that is the safe default a measured per-host region may override.
+        assert _ktc_dispatch._fallback_mi_backend(n, k) == "njit"
 
         class _FakeCache:
             def get_or_tune(self, name, *, dims, tuner, axes, fallback, **kw):
-                # Emulate a persisted per-host region whose measured
-                # crossover routes batch n<=20k to njit (RTX 500 Ada shape).
+                # Emulate a persisted per-host region whose contention-aware
+                # measurement found cuda faster at batch n<=20k on this host.
                 if dims["n_samples"] <= 20_000:
-                    return {"backend_choice": "njit"}
-                return {"backend_choice": "cuda"}
+                    return {"backend_choice": "cuda"}
+                return {"backend_choice": "njit"}
 
         monkeypatch.setattr(_ktc_dispatch, "_get_cache", lambda: _FakeCache())
         choice = _ktc_dispatch.lookup_mi_classif_backend(n, k)
-        assert choice == "njit", (
-            "per-host KTC region was ignored; dispatcher fell back to the "
-            "hardcoded GTX-1050-Ti crossover (10k batch), which mis-routes "
-            "the 10k-50k band to GPU on faster-atomic GPUs."
+        assert choice == "cuda", (
+            "per-host KTC region was ignored; lookup fell back to the "
+            "conservative njit default instead of honoring the measured "
+            "cuda crossover persisted for this host."
         )
 
 

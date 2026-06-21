@@ -239,9 +239,11 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20):
     if y_gpu.dtype != cp.int64:
         y_gpu = y_gpu.astype(cp.int64)
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount index never underflows. Mirrors the njit kernels.
-    y_min = int(cp.min(y_gpu).item())
+    # Single D2H of [min, max] instead of two blocking .item() syncs (each forces a full device stall).
+    _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
+    y_min = int(_ymm[0])
     y_gpu = y_gpu - y_min
-    n_classes = int(cp.max(y_gpu).item()) + 1
+    n_classes = int(_ymm[1]) - y_min + 1   # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
 
     # Per-column quantile binning via cp.percentile EDGES + searchsorted (2026-06-20). Replaced the
     # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster
