@@ -979,6 +979,7 @@ def check_prospective_fe_pairs(
     # way: the engineered column still tracks y monotonically. Prefer the continuous y; fall back to the binned
     # ``classes_y`` codes (still a usable monotone proxy) when no continuous target was threaded.
     _corr_y_cont = None
+    _corr_y_cont_finite = None  # cached np.isfinite(_corr_y_cont); _corr_y_cont is never mutated after assignment
     try:
         _cyc_src = (
             usability_y_continuous if usability_y_continuous is not None
@@ -989,8 +990,10 @@ def check_prospective_fe_pairs(
             _cyc = _cyc[_sample_idx]
         if _cyc.shape[0] == len(classes_y) and np.isfinite(_cyc).any() and float(np.nanstd(_cyc)) > 1e-12:
             _corr_y_cont = _cyc
+            _corr_y_cont_finite = np.isfinite(_corr_y_cont)
     except Exception:
         _corr_y_cont = None
+        _corr_y_cont_finite = None
 
     def _safe_abs_corr(_v) -> float:
         """|Pearson corr| of a column with the (subsample-aligned) target over their jointly-finite rows;
@@ -1001,7 +1004,7 @@ def check_prospective_fe_pairs(
             _a = np.asarray(_v, dtype=np.float64).ravel()
             if _a.shape[0] != _corr_y_cont.shape[0]:
                 return 0.0
-            _m = np.isfinite(_a) & np.isfinite(_corr_y_cont)
+            _m = np.isfinite(_a) & _corr_y_cont_finite
             if int(_m.sum()) < 8:
                 return 0.0
             _av, _yv = _a[_m], _corr_y_cont[_m]
@@ -2013,6 +2016,11 @@ def check_prospective_fe_pairs(
                     _lead_primary = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
                     _max_primary = max(_lead_primary.values()) if _lead_primary else None
                     _ev_configs = [c for c, _m in _lead_primary.items() if _m == _max_primary] if _max_primary is not None else []
+                    # Hoisted out of the per-config loop: depends only on ``raw_vars_pair`` (loop-invariant for the
+                    # whole pair), so the set-difference + sort is recomputed once instead of once per tied leader.
+                    # The RNG draw (``_rng_extval.choice`` below) stays per-config so its state consumption — and
+                    # therefore every later pair's tie-break — is bit-identical.
+                    _ext_factors_sorted = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
                     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
                         if final_transformed_vals is not None:
                             param_a = final_transformed_vals[:, i]
@@ -2038,7 +2046,7 @@ def check_prospective_fe_pairs(
                         # sampled subset) would differ across processes / fits. Sort to a stable order,
                         # then sample with the instance-seeded ``_rng_extval`` so the chosen validation
                         # factors are fully reproducible from the MRMR seed.
-                        external_factors = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
+                        external_factors = _ext_factors_sorted  # hoisted above; deterministic, raw_vars_pair-invariant
                         if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
                             external_factors = _rng_extval.choice(external_factors, fe_max_external_validation_factors, replace=False)
 
