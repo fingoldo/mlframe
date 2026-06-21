@@ -302,3 +302,70 @@ def _build_stability_replay_state(
         "y_codes": y_codes,
         "recipe_replay": recipe_replay,
     }
+
+def fe_decide_on_subsample(
+    fit_with_recipes_fn,
+    X,
+    y,
+    *,
+    subsample_n: int = 0,
+    subsample_seed: int = 42,
+    **kwargs,
+):
+    """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
+    rebuild the chosen columns at FULL n by replaying the returned recipes.
+
+    The MRMR FE families (orth univariate/pair/triplet/quadruplet, the alternate
+    scorers, binned-agg, escalation, ...) historically ranked/selected on the FULL
+    training frame, while the pair-search (``check_prospective_fe_pairs``) decides on
+    a ~30k row subsample and replays winners at full n. This wrapper gives every
+    family the SAME treatment WITHOUT editing each function: it calls
+    ``fit_with_recipes_fn`` on the seeded subsample (so the CPU-heavy MI / detection
+    sweep sees ~subsample_n rows, not n), then replays each returned
+    ``EngineeredRecipe`` on the full X via :func:`apply_recipe`. The recipes are
+    closed-form, so the appended columns equal a full-data fit GIVEN the same winners
+    -- selection-equivalence is validated by the FE pins.
+
+    Output-safety fallbacks (return the FULL-data call, never lose columns):
+      * subsample disabled / frame already small (``subsample_n`` <= 0 or >= n);
+      * the family returned NO recipes (nothing replayable);
+      * a winner column has no replayable recipe (partial coverage) -- rather than
+        silently drop it, fall back to the full-data decision for the whole family.
+    Any per-recipe replay error also triggers the full-data fallback.
+    """
+    n = len(X)
+    if not (isinstance(subsample_n, int) and 0 < subsample_n < n):
+        return fit_with_recipes_fn(X, y, **kwargs)
+    _idx = np.sort(
+        np.random.default_rng(int(subsample_seed)).choice(
+            n, size=int(subsample_n), replace=False,
+        )
+    )
+    _X_sub = X.iloc[_idx].reset_index(drop=True)
+    _y_sub = np.asarray(y)[_idx]
+    # Arity-agnostic: every ``*_with_recipes`` family returns the augmented frame FIRST
+    # and the recipe list LAST (3-tuple (X, scores, recipes) for univariate / extra /
+    # triplet / scorers; 4-tuple (X, uni_sc, cross_sc, recipes) for the pair family).
+    # Preserve the middle elements verbatim.
+    _ret = fit_with_recipes_fn(_X_sub, _y_sub, **kwargs)
+    if not (isinstance(_ret, tuple) and len(_ret) >= 2):
+        return fit_with_recipes_fn(X, y, **kwargs)  # unexpected shape -> full call
+    X_aug_sub, recipes, _middle = _ret[0], _ret[-1], _ret[1:-1]
+    _appended_sub = [c for c in X_aug_sub.columns if c not in _X_sub.columns]
+    # Partial / no recipe coverage -> full-data decision (correctness over speed).
+    if not recipes or len({r.name for r in recipes}) < len(_appended_sub):
+        return fit_with_recipes_fn(X, y, **kwargs)
+    from ..engineered_recipes import apply_recipe
+    _full_cols: dict = {}
+    try:
+        for r in recipes:
+            _full_cols[r.name] = np.asarray(apply_recipe(r, X))
+    except Exception:
+        logger.warning(
+            "fe_decide_on_subsample: full-n replay failed for %r; "
+            "falling back to full-data decision.",
+            getattr(r, "name", "?"),
+        )
+        return fit_with_recipes_fn(X, y, **kwargs)
+    X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1)
+    return (X_aug, *_middle, recipes)

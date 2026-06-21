@@ -45,7 +45,7 @@ in the sibling _helpers.py.
 """
 
 
-from ._helpers import _dispatch_default_scorer, _mrmr_cache_bytes_total, _orth_fe_numeric_cols, _build_stability_replay_state
+from ._helpers import _dispatch_default_scorer, _mrmr_cache_bytes_total, _orth_fe_numeric_cols, _build_stability_replay_state, fe_decide_on_subsample
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
@@ -478,8 +478,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 if _default_scorer == "plug_in":
                     if _h_pair_enable:
-                        X_h, _uni_sc, _cross_sc, _recipes = hybrid_orth_mi_pair_fe_with_recipes(
+                        # Decide on the shared FE subsample; winners replayed at full n.
+                        X_h, _uni_sc, _cross_sc, _recipes = fe_decide_on_subsample(
+                            hybrid_orth_mi_pair_fe_with_recipes,
                             X, _y_for_hybrid,
+                            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                            subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                             cols=_h_cols,
                             degrees=_h_degrees,
                             basis=_h_basis,
@@ -924,8 +928,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if _explicit_triplets is not None and not bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)):
                     _t_top_k_eff = 0
                 X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = (
-                    hybrid_orth_mi_triplet_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_triplet_fe_with_recipes,
                         X, _y_for_triplet,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                         cols=_t_cols,
                         degrees=_t_degrees,
                         basis=_t_basis,
@@ -1047,8 +1054,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _q_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _X_before_quad_cols = list(X.columns)
                 X_q, _q_uni_sc, _q_quad_sc, _q_recipes = (
-                    hybrid_orth_mi_quadruplet_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_quadruplet_fe_with_recipes,
                         X, _y_for_quad,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                         cols=_q_cols,
                         degrees=_q_degrees,
                         basis=_q_basis,
