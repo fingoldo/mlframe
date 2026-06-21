@@ -225,3 +225,38 @@ ON the GPU from the resident input -> bin on GPU -> MI on GPU -> selection reads
 round-trips. That is the multi-family rewrite already scoped in the 2026-06-17 "path to <=20s" entry
 above + MRMR_FE_NUMBA_REPLATFORM_DESIGN.md / the breezy-wishing-gem plan. Wall is compute-bound (~45-56s,
 no single dominant lever), so the rewrite is justified by the residency PRINCIPLE, not a wall win.
+
+## 2026-06-21 (cont) -- RESIDENT-FE rewrite R0/R1 shipped: operand table 100% device-built
+
+Executing the "100% GPU / one transfer" rewrite (the verdict above), phased + pin-validated:
+
+- **R0** (commit 817f27f2): build_resident_operand_table uploaded each DISTINCT raw operand separately
+  (14 cp.asarray at the canonical fit). Now batches them into per-dtype host matrices, ONE H2D each, and
+  builds every GPU column from a strided device VIEW. Native dtype preserved (grouped BY dtype) so the
+  unary applies in the exact dtype the CPU saw -> bit-parity invariant held. Result: operand raws are ONE
+  transfer; H2D calls 953->941, bytes unchanged (repackaged), 11/11 pins green.
+- **R1** (commit 9a915027): the per-operand PRE-WARP columns were the last non-plain operands COPIED from
+  the host (~1.68 MB / ~14 cols). Ported hermite_fe.apply_operand_prewarp to the device (_gpu_apply_prewarp:
+  cupy preprocess + Clenshaw chebyshev/legendre/hermite-He/laguerre mirroring numpy's float64 op order, +
+  fourier_adaptive). col_specs carries {kind:"prewarp", spec}; builder GPU-APPLIES from resident raw + spec
+  (host-copy fallback for unported bases). Result: operand table now "144 GPU-built, 0 host-copied" (was
+  ~14 host-copied) -> the 1.68 MB non-plain floor ELIMINATED. 11/11 pins green INCLUDING the prewarp-ULP
+  tripwire single_compound -> cupy Clenshaw matches host closely enough that prewarp still loses to the
+  clean library form. CPU/no-CUDA path untouched. Zero wall (compute-bound).
+
+NET after R0+R1: the FE operand table -- the heart of candidate generation -- is constructed 100% on the
+device from one per-dtype raw upload, nothing host-copied. The residual H2D is now genuinely "initial data":
+  ~8 MB  baseline discretization of the FULL input (discretize_2d_array_cuda -- the real data copy)
+  ~3.36 MB FE operand-raws = the 30k SUBSAMPLE (one upload, R0)
+  ~1 MB  (a_col,b_col,op_code) chunk metadata (host-computed control flow)
+
+### R2-R4 assessment (the deeper, lower-value remainder)
+- **R2** (literal one transfer): merge the 8 MB baseline-input copy and the 3.36 MB FE-subsample copy into
+  ONE upload + GPU row-slice the subsample. These are genuinely DISTINCT arrays (full 100k incl. y-derived
+  cols vs 30k feature subsample), uploaded by different modules (the discretization util vs the FE builder)
+  with different lifetimes; unifying needs a cross-module resident-input handle threaded through MRMR.fit.
+  Deep plumbing for 3.36 MB ZERO-wall of distinct data. Both copies are "initial data" in the user's sense.
+- **R3/R4** (pair-search readers / greedy CMI / selection): these are about COMPUTE residency, not H2D --
+  the host control flow now reads the already-resident operand table; the heavy MI is already on GPU
+  (resident noise gate). Moving the symbolic enumeration/selection itself to the device is a large rewrite
+  with no transfer or wall payoff (compute-bound, branchy, GPU-hostile). Principle-only.
