@@ -558,7 +558,16 @@ def _append_engineered(self, base_out, X, recipes):
                 if s in chained.columns:
                     continue
                 if _pos < 2 and _nested_by_pos[_pos] is not None:
-                    continue  # resolved recursively via the stored parent recipe
+                    # Resolved recursively via the stored parent recipe -- BUT that parent
+                    # may itself reference a SEPARATE engineered column (its own src) that
+                    # is not yet in ``chained`` (e.g. a nested binned_numeric_agg whose
+                    # group_col is an adaptive Fourier/chirp column produced by another
+                    # recipe). Surface those TRANSITIVE deps so the scheduler waits for the
+                    # producing recipe to replay first, instead of KeyError-ing on the
+                    # missing column. (2026-06-21: exposed once orth-FE/extra-basis is ON
+                    # by default and binned_agg feeds-forward on a chirp operand.)
+                    out.extend(_unresolved_sources(_nested_by_pos[_pos]))
+                    continue
                 out.append(s)
             return out
 
