@@ -679,7 +679,68 @@ def _cuda_hist_kernel_batched_factory():
     return _kernel_b
 
 
+def _cuda_hist_kernel_batched_shared_factory():
+    """Shared-memory PRIVATIZED batched joint-histogram. Each block (k, p) accumulates column k's joint
+    histogram for y_all[p] in DYNAMIC SHARED memory (shared atomics ~20x faster than global AND no
+    cross-block contention), then flushes its disjoint ``counts_flat[p*total_size+off_k : ...]`` slice with
+    PLAIN writes (one block owns that slice). Fixes the global-atomic-contention the elevated nvprof
+    metrics exposed (atomic_transactions_per_request ~14.6, ~430M L2 atomic transactions on the
+    global-atomic kernel). Counts are integer + commutative -> BIT-IDENTICAL. The caller gates on the
+    per-column histogram (nb_k*K_y int32) fitting the shared budget; else the global-atomic kernel."""
+    if not _CUDA_AVAIL:
+        return None
+
+    from numba import int32 as _i32
+
+    @_nb_cuda.jit
+    def _kernel_bs(disc_2d, col_offsets, nbins_col, y_all, counts_flat, n, K_y, total_size):
+        k = _nb_cuda.blockIdx.x
+        p = _nb_cuda.blockIdx.y
+        if k >= disc_2d.shape[1]:
+            return
+        nb_k = nbins_col[k]
+        hsize = nb_k * K_y
+        sh = _nb_cuda.shared.array(0, _i32)  # dynamic; bytes set by launch config
+        tid = _nb_cuda.threadIdx.x
+        nthreads = _nb_cuda.blockDim.x
+        i = tid
+        while i < hsize:
+            sh[i] = 0
+            i += nthreads
+        _nb_cuda.syncthreads()
+        for r in range(tid, n, nthreads):
+            cx = disc_2d[r, k]
+            cy = y_all[p, r]
+            _nb_cuda.atomic.add(sh, cx * K_y + cy, 1)
+        _nb_cuda.syncthreads()
+        off = col_offsets[k] + p * total_size
+        i = tid
+        while i < hsize:
+            counts_flat[off + i] = sh[i]
+            i += nthreads
+
+    return _kernel_bs
+
+
+_CUDA_SHARED_BYTES_PER_BLOCK: int = -1
+
+
+def _cuda_shared_mem_per_block() -> int:
+    """Device shared-memory-per-block budget in bytes (queried once, cached); 0 if unavailable."""
+    global _CUDA_SHARED_BYTES_PER_BLOCK
+    if _CUDA_SHARED_BYTES_PER_BLOCK >= 0:
+        return _CUDA_SHARED_BYTES_PER_BLOCK
+    val = 0
+    try:
+        val = int(getattr(_nb_cuda.get_current_device(), "MAX_SHARED_MEMORY_PER_BLOCK", 0)) or 0
+    except Exception:
+        val = 0
+    _CUDA_SHARED_BYTES_PER_BLOCK = val
+    return val
+
+
 _CUDA_HIST_KERNEL: Any = None
+_CUDA_HIST_KERNEL_BATCHED_SHARED: Any = None
 _CUDA_HIST_KERNEL_BATCHED: Any = None
 
 
@@ -706,11 +767,13 @@ def batch_mi_with_noise_gate_cuda_resident(
             disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
             base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block,
         )
-    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_MI_KERNEL
+    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_MI_KERNEL
     if not _CUDA_AVAIL:
         raise RuntimeError("numba.cuda is not available on this host")
     if _CUDA_HIST_KERNEL_BATCHED is None:
         _CUDA_HIST_KERNEL_BATCHED = _cuda_hist_kernel_batched_factory()
+    if _CUDA_HIST_KERNEL_BATCHED_SHARED is None:
+        _CUDA_HIST_KERNEL_BATCHED_SHARED = _cuda_hist_kernel_batched_shared_factory()
     if _CUDA_MI_KERNEL is None:
         _CUDA_MI_KERNEL = _cuda_mi_from_counts_kernel_factory()
     if _CUDA_HIST_KERNEL_BATCHED is None or _CUDA_MI_KERNEL is None:
@@ -759,7 +822,18 @@ def batch_mi_with_noise_gate_cuda_resident(
     with _warnings.catch_warnings():
         if _NbPerfWarn is not None:
             _warnings.simplefilter("ignore", _NbPerfWarn)
-        _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)
+        # Shared-mem privatized hist when the per-column histogram (max nb_k * K_y int32) fits the device
+        # shared budget (kills the global-atomic contention the metrics exposed); else the global-atomic
+        # kernel (any-cardinality fallback). Bit-identical either way.
+        _max_hist = int(nbins_arr.max()) * K_y if K > 0 else 0
+        _sh_bytes = _max_hist * 4
+        _sh_budget = _cuda_shared_mem_per_block()
+        if (_CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75)):
+            _CUDA_HIST_KERNEL_BATCHED_SHARED[(K, P), threads_per_block, 0, _sh_bytes](
+                d_disc, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
+            )
+        else:
+            _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)
         _tot = K * P
         _blocks = (_tot + threads_per_block - 1) // threads_per_block
         _CUDA_MI_KERNEL[_blocks, threads_per_block](
