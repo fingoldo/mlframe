@@ -513,11 +513,30 @@ def generate_univariate_basis_features(
         if chosen_basis not in _POLY_BASES:
             logger.warning("generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col)
             continue
+        # FIT-ONCE-PER-COLUMN (2026-06-21): the basis preprocess ``z`` + params depend ONLY on
+        # (x, basis), NOT on degree -- the degree only swaps the one-hot coefficient. Re-fitting it
+        # inside the degrees loop recomputed the robust heavy-tail axis (np.median/MAD) once per
+        # degree, the dominant np.median caller in the post-subsample CPU tail. Fit ``z`` ONCE here
+        # and evaluate each degree via polyeval_dispatch on the cached ``z`` -- BYTE-IDENTICAL to the
+        # per-degree _evaluate_basis_column (same fit_fn(x) -> same z -> same polyeval). The rare
+        # aux-pool path keeps the per-degree call (its fit concatenates the pool; left untouched).
+        _z_cached = None
+        if aux_col is None or len(np.asarray(aux_col)) == 0:
+            try:
+                _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
+                _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)
+            except Exception:
+                _z_cached = None
         for d in degrees:
             try:
-                vals = _evaluate_basis_column(
-                    x, chosen_basis, int(d), aux_for_fit=aux_col,
-                )
+                if _z_cached is not None:
+                    _coef = np.zeros(int(d) + 1, dtype=np.float64)
+                    _coef[int(d)] = 1.0
+                    vals = polyeval_dispatch(chosen_basis, _z_cached, _coef)
+                else:
+                    vals = _evaluate_basis_column(
+                        x, chosen_basis, int(d), aux_for_fit=aux_col,
+                    )
                 out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
             except Exception as exc:
                 logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping",
