@@ -355,3 +355,31 @@ PATH TO LITERAL 99% GPU-attribution (long tail, each H2D-risky / fine-grained):
   * the remaining numba `llvmlite` time is partly GPU kernel launches (counts as GPU) -- isolate the njit
     vs cuda-launch split before claiming the residual.
 The BIG win (orth-FE CPU eliminated from the hot path via subsampling) is DONE; literal 99% is this tail.
+
+## 2026-06-21 (cont) -- matrix-native resident MI: foundation shipped + the remaining port
+
+GROUND TRUTH wall (clean, novel seed, separate processes -- the earlier 238s/100s were measurement
+artifacts: A/B of two configs in ONE process poisoned the 2nd timing; cuda-experiment = intentional 2x;
+56/52/46 were contention/cache noise): orth-OFF 33.5s vs orth-ON 34.8s -> enabling orth-FE costs only
++1.3s (+4%), SAME selection. The default flip is justified, NOT a 6x regression.
+
+Remaining CPU tail (real tottime, pstats.print_callers) ~2.4s of ~34s (~7%): np.median 0.6s (the robust
+heavy-tail axis in the orth-basis PREPROCESS -- _hermite_robust:172/193, x1020), argsort 0.35s + reduce
+1.4s (the plug-in-MI binning/hist of HOST orth-FE candidate matrices). The pair-search candidate MI is
+already on the resident GPU gate; this tail is the ORTH-FE candidate MI (host).
+
+PIECE 1 (shipped db5e80e9): _plugin_mi_classif_batch_cuda_resident -- H2D-free plug-in MI on resident
+cupy (X_gpu,y_gpu). Validated bit-for-bit vs host + unit test. The non-regressing MI entry (the naive
+host->GPU route is 2x slower; only resident candidates avoid it).
+
+PIECE 2/3 (remaining -- the large port): build the orth-FE basis candidate matrix ON the GPU so it feeds
+Piece 1 with no H2D:
+  * _gpu_evaluate_basis_column (cupy): preprocess (zscore/minmax/shift -- simple arithmetic; the ROBUST
+    heavy-tail path uses np.median/MAD -> either a cupy median or FALL BACK to host for heavy-tail cols)
+    + Clenshaw eval (REUSE the cupy _cheb/_leg/_herme/_lag_clenshaw_gpu shipped in R1, _gpu_resident_fe).
+  * batch builder -> resident (n,K) cupy candidate matrix; wire score_features_by_mi_uplift to score
+    eng_mi via _plugin_mi_classif_batch_cuda_resident (raw_mi too). Gate on CUDA + n>=crossover; host
+    fallback for robust/replay/aux paths. ULP-validate against the orth-basis RECOVERY pins (layer2x) +
+    canonical single_compound, NOT just no-crash (basis MI ranking is selection-bearing).
+This removes argsort+reduce for orth-FE without the 2x H2D. Diminishing returns (~7% of 34s) -- principle
+(99% GPU attribution), per the user's directive.
