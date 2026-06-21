@@ -139,17 +139,26 @@ def _build_linear(seed: int, n: int = 1200):
 
 
 class TestDefaultIsLegacyByteIdentical:
+    """Since 2026-06-21 ``fe_hybrid_orth_enable`` DEFAULTS TO TRUE (the orth-FE hybrid
+    DECISIONS now run on the FE row-subsample, so the family is affordable by default).
+    The legacy "no hybrid columns" behaviour is therefore reached via the explicit
+    OPT-OUT ``fe_hybrid_orth_enable=False`` -- these tests pin that opt-out contract and
+    document the new default."""
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_default_off_no_hybrid_columns(self, seed):
+    def test_default_is_now_on(self, seed):
+        # New default: the master switch is ON.
+        assert _make_mrmr().fe_hybrid_orth_enable is True
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_explicit_off_no_hybrid_columns(self, seed):
         X, y = _build_linear(seed)
-        m = _make_mrmr()  # all defaults
+        m = _make_mrmr(fe_hybrid_orth_enable=False)  # explicit opt-out = legacy
         m.fit(X, y)
-        # Master switch defaults to OFF.
         assert m.fe_hybrid_orth_enable is False
-        # No hybrid features lifted.
+        # No hybrid features lifted under the explicit opt-out.
         assert m.hybrid_orth_features_ == [], (
-            f"seed={seed}: default fe_hybrid_orth_enable=False should "
+            f"seed={seed}: explicit fe_hybrid_orth_enable=False should "
             f"produce empty hybrid_orth_features_, got "
             f"{m.hybrid_orth_features_}"
         )
@@ -161,24 +170,22 @@ class TestDefaultIsLegacyByteIdentical:
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_default_off_support_identical_to_explicit_off(self, seed):
-        """Explicit fe_hybrid_orth_enable=False must produce the SAME support
-        as omitting the kwarg entirely.
-        """
+    def test_explicit_off_support_deterministic(self, seed):
+        """Two explicit opt-out runs must agree on support_ (legacy path stable)."""
         X, y = _build_linear(seed)
-        m_default = _make_mrmr()
-        m_explicit = _make_mrmr(fe_hybrid_orth_enable=False)
-        m_default.fit(X, y)
-        m_explicit.fit(X, y)
-        assert list(m_default.support_) == list(m_explicit.support_), (
-            f"seed={seed}: explicit False vs default disagreed on support_"
+        m_a = _make_mrmr(fe_hybrid_orth_enable=False)
+        m_b = _make_mrmr(fe_hybrid_orth_enable=False)
+        m_a.fit(X, y)
+        m_b.fit(X, y)
+        assert list(m_a.support_) == list(m_b.support_), (
+            f"seed={seed}: two explicit-off runs disagreed on support_"
         )
-        assert m_default.hybrid_orth_features_ == m_explicit.hybrid_orth_features_
+        assert m_a.hybrid_orth_features_ == m_b.hybrid_orth_features_
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_default_off_transform_no_engineered_cols(self, seed):
+    def test_explicit_off_transform_no_engineered_cols(self, seed):
         X, y = _build_linear(seed)
-        m = _make_mrmr()
+        m = _make_mrmr(fe_hybrid_orth_enable=False)
         Xt = m.fit(X, y).transform(X)
         # Output frame contains only raw selected columns; no hybrid suffixes.
         for c in Xt.columns:

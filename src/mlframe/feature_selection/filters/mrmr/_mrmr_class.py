@@ -1483,7 +1483,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # values alone (no y reference at recipe-build time), so
         # ``MRMR.transform`` replays each engineered column on test data
         # without any leakage risk.
-        fe_hybrid_orth_enable: bool = False,
+        fe_hybrid_orth_enable: bool = True,  # DEFAULT ON (2026-06-21): the orth-FE hybrid DECISIONS now run on the FE row-subsample (fe_decide_on_subsample / inline subsample-replay), so the family is affordable by default; was opt-in only because the full-n decision was too costly.
         # univariate-basis FE, DEFAULT ON. Runs ONLY the
         # orthogonal-basis univariate stage (``a__T2`` ~ a**2, ``a__T3`` ~ a**3,
         # ...), which closes the single-variable-nonlinearity gap the pair-FE

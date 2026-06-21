@@ -109,7 +109,9 @@ def _fit_mrmr(X, y, *, hybrid: bool, pair: bool = True, degrees=(2, 3), top_k: i
             fe_hybrid_orth_top_k=top_k,
         )
     else:
-        kw = _mrmr_kw()
+        # EXPLICIT off baseline: fe_hybrid_orth_enable defaults to True since 2026-06-21,
+        # so the no-hybrid control must disable it explicitly (was relying on the default).
+        kw = _mrmr_kw(fe_hybrid_orth_enable=False)
     return MRMR(**kw).fit(X, y)
 
 
