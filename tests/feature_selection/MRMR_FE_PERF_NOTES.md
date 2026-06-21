@@ -414,3 +414,28 @@ PIECE 3 (remaining wiring -- SELECTION-BEARING, needs full validation before def
   (the 42-min group) must be selection-equivalent. Only then default-on.
   Expected: removes the orth-FE argsort/reduce (~1.7s) + the residual robust median from the tail ->
   closes most of the gap to 99% GPU-attribution. ~7% of a 34s fit (principle, per the directive).
+
+## 2026-06-21 (cont) -- matrix-native MI Piece 3 SHIPPED (gated); validation verdict
+
+Piece 3 (50907f16): hybrid_orth_mi_fe gated matrix-native path -- candidates built on device
+(_gpu_evaluate_basis_column) + MI scored resident (_plugin_mi_classif_batch_cuda_resident), no H2D.
+Gate MLFRAME_FE_GPU_RESIDENT_BASIS_MI, DEFAULT OFF.
+
+VALIDATION with the gate FORCED ON (full biz-value hybrid_orth suite): 384 passed, 2 failed. The 2
+failures are NOT selection bugs -- both are the SAME perf-budget test (test_layer31
+TestPerfBudgets::test_hybrid_p200_under_1s). i.e. the GPU path is SELECTION-EQUIVALENT (every
+orth-basis recovery / uplift / form pin passes with it on) but perf-LOSES at HIGH feature count
+(p=200 -> ~400 candidate columns): the per-column Python build loop (one _gpu_evaluate_basis_column +
+cupy launch per col x basis x degree) has launch overhead that dominates at large K. At the canonical
+(5 features -> ~10 candidates, n=30k subsample) it wins; at p200 it loses.
+
+DECISION: gate stays DEFAULT OFF (so the perf budgets pass by default; default behaviour unchanged).
+The matrix-native chain is COMPLETE + selection-validated + available opt-in. To flip default-on
+without the p200 regression, EITHER:
+  (a) BATCH the device build -- evaluate all (col,basis,degree) candidates in vectorised cupy calls
+      (one preprocess pass + one Clenshaw pass over the stacked operand matrix) instead of the per-
+      column Python loop, killing the launch overhead at high K; OR
+  (b) K-AWARE gate via kernel_tuning_cache (GPU only below a measured candidate-count / above an n
+      crossover) -- mirror _fe_gpu_discretize_enabled; do NOT hardcode the threshold.
+Either makes default-on safe; (a) is the real win (also helps the canonical). Until then the path is
+opt-in (MLFRAME_FE_GPU_RESIDENT_BASIS_MI=1), selection-equivalent, with host fallback.
