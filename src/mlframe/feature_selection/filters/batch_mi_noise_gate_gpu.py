@@ -810,9 +810,20 @@ def batch_mi_with_noise_gate_cuda_resident(
     d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
     d_freq = _nb_cuda.to_device(np.ascontiguousarray(freqs_y, dtype=np.float64))
     d_counts = _nb_cuda.device_array(P * total_size, dtype=np.int64)
-    d_counts[:] = 0
     d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))  # compute every (k,p); host applies the gate
     d_out = _nb_cuda.device_array((P, K), dtype=np.float64)
+
+    # Shared-mem privatized hist when the per-column histogram (max nb_k * K_y int32) fits the device
+    # shared budget (kills the global-atomic contention the metrics exposed); else the global-atomic
+    # kernel (any-cardinality fallback). Bit-identical either way.
+    _max_hist = int(nbins_arr.max()) * K_y if K > 0 else 0
+    _sh_bytes = _max_hist * 4
+    _sh_budget = _cuda_shared_mem_per_block()
+    _use_shared = (_CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75))
+    # The shared kernel OVERWRITES every counts slot (flushes its full [off:off+nb_k*K_y] slice), so the
+    # host zeroing is redundant there; the global-atomic kernel needs the zeroed buffer.
+    if not _use_shared:
+        d_counts[:] = 0
 
     import warnings as _warnings
     try:
@@ -822,13 +833,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     with _warnings.catch_warnings():
         if _NbPerfWarn is not None:
             _warnings.simplefilter("ignore", _NbPerfWarn)
-        # Shared-mem privatized hist when the per-column histogram (max nb_k * K_y int32) fits the device
-        # shared budget (kills the global-atomic contention the metrics exposed); else the global-atomic
-        # kernel (any-cardinality fallback). Bit-identical either way.
-        _max_hist = int(nbins_arr.max()) * K_y if K > 0 else 0
-        _sh_bytes = _max_hist * 4
-        _sh_budget = _cuda_shared_mem_per_block()
-        if (_CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75)):
+        if _use_shared:
             _CUDA_HIST_KERNEL_BATCHED_SHARED[(K, P), threads_per_block, 0, _sh_bytes](
                 d_disc, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
             )
