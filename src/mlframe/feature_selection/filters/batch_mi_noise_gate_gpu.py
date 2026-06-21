@@ -686,7 +686,12 @@ def _cuda_hist_kernel_batched_shared_factory():
     PLAIN writes (one block owns that slice). Fixes the global-atomic-contention the elevated nvprof
     metrics exposed (atomic_transactions_per_request ~14.6, ~430M L2 atomic transactions on the
     global-atomic kernel). Counts are integer + commutative -> BIT-IDENTICAL. The caller gates on the
-    per-column histogram (nb_k*K_y int32) fitting the shared budget; else the global-atomic kernel."""
+    per-column histogram (nb_k*K_y int32) fitting the shared budget; else the global-atomic kernel.
+
+    bench-attempt-rejected (2026-06-21): column-major (K,n) coalescing of THIS shared kernel is 0.89x
+    (loss) even with the transpose amortised over all P perms -- post-privatization the kernel is
+    SHARED-ATOMIC-bound (n counts/block), not disc-load-bound (despite gld_efficiency ~13.8%), so fixing
+    the load layout doesn't help and the transpose pass only adds work. Kept row-major (n, K)."""
     if not _CUDA_AVAIL:
         return None
 
