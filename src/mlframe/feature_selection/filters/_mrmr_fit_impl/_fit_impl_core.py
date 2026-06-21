@@ -494,6 +494,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             degrees=_h_degrees,
                             basis=_h_basis,
                             top_k=_h_top_k,
+                            # Decide on the SAME row-subsample the pair-search FE uses
+                            # (consistency + ~n/sub speedup); winners rebuilt at full n.
+                            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                            subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                         )
                 else:
                     X_h, _uni_sc, _recipes = _dispatch_default_scorer(

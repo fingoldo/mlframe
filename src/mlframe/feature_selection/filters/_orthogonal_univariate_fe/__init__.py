@@ -726,24 +726,54 @@ def hybrid_orth_mi_fe_with_recipes(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    subsample_n: int = 0,
+    subsample_seed: int = 42,
 ):
     """Same as :func:`hybrid_orth_mi_fe` but additionally returns a list of
     ``EngineeredRecipe`` objects -- one per appended univariate column --
     so that ``MRMR.transform`` can recompute each engineered column on
     test data without re-running the MI ranking.
 
+    SUBSAMPLED DECISION (2026-06-21). When ``subsample_n`` > 0 and the frame is
+    larger, the basis-selection DECISION (MI ranking / uplift gate) is made on a
+    seeded row SUBSAMPLE -- the SAME pattern the pair-search FE
+    (``check_prospective_fe_pairs``) uses -- and the chosen engineered columns are
+    then REBUILT at FULL n via the basis evaluator (the recipe loop already
+    recomputes each winner's full-column values to freeze its preprocess params, so
+    the OUTPUT is byte-identical to a full-data fit GIVEN the same winners). This
+    removes the ~n/subsample_n redundant rows from the (CPU-heavy) orth-FE MI sweep
+    and aligns it with the pair-search so both families decide on the same data.
+    Default 0 = legacy full-data decision (byte-for-byte unchanged).
+
     Returns
     -------
     (X_augmented, scores, recipes)
     """
     from ..engineered_recipes import build_orth_univariate_recipe
-    X_aug, scores = hybrid_orth_mi_fe(
-        X, y, cols=cols, degrees=degrees, basis=basis,
+    _full_n = len(X)
+    _do_sub = isinstance(subsample_n, int) and 0 < subsample_n < _full_n
+    if _do_sub:
+        _sub_idx = np.sort(
+            np.random.default_rng(int(subsample_seed)).choice(
+                _full_n, size=int(subsample_n), replace=False,
+            )
+        )
+        _X_fit = X.iloc[_sub_idx].reset_index(drop=True)
+        _y_fit = np.asarray(y)[_sub_idx]
+    else:
+        _X_fit, _y_fit = X, y
+    # DECISION on the (possibly subsampled) fit frame.
+    X_aug_fit, scores = hybrid_orth_mi_fe(
+        _X_fit, _y_fit, cols=cols, degrees=degrees, basis=basis,
         top_k=top_k, min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
     )
-    appended = [c for c in X_aug.columns if c not in X.columns]
+    appended = [c for c in X_aug_fit.columns if c not in _X_fit.columns]
     recipes = []
+    # When subsampling, accumulate the FULL-n engineered columns (rebuilt from full
+    # X[src] in the recipe loop below) so X_aug carries full-n output, not the
+    # subsample-sized X_aug_fit.
+    _full_eng_cols: dict = {}
     for name in appended:
         # Re-derive (src, degree, basis) from the appended frame: src is the
         # prefix before ``__``; basis/degree are encoded in the suffix. Cross-
@@ -780,9 +810,14 @@ def hybrid_orth_mi_fe_with_recipes(
         _pp = None
         try:
             _col_full = np.asarray(X[src].values, dtype=np.float64)
-            _, _pp = _evaluate_basis_column(
+            _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )
+            # The full-column evaluation IS the full-n engineered output for this
+            # winner -- reuse it (the subsampled DECISION only chose basis/degree;
+            # given that, the values equal a full-data fit, so the OUTPUT is exact).
+            if _do_sub:
+                _full_eng_cols[name] = np.asarray(_vals_full)
         except Exception:
             _pp = None  # best-effort: fall back to legacy refit-at-replay path
         recipes.append(build_orth_univariate_recipe(
@@ -790,6 +825,18 @@ def hybrid_orth_mi_fe_with_recipes(
             basis=chosen_basis, degree=chosen_degree,
             preprocess_params=_pp,
         ))
+    # Build the augmented frame at FULL n. Without subsampling X_aug_fit is already
+    # full-n; with subsampling, append the full-n engineered columns rebuilt above
+    # (any winner whose full-column rebuild raised is dropped here AND has no recipe).
+    if _do_sub:
+        if _full_eng_cols:
+            X_aug = pd.concat(
+                [X, pd.DataFrame(_full_eng_cols, index=X.index)], axis=1,
+            )
+        else:
+            X_aug = X.copy()
+    else:
+        X_aug = X_aug_fit
     return X_aug, scores, recipes
 
 
