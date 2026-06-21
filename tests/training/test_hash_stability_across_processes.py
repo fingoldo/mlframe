@@ -62,7 +62,11 @@ def _run_once(target_name: str) -> int:
     )
     proc = subprocess.run(
         [sys.executable, "-c", code],
-        capture_output=True, text=True, timeout=30,
+        # Each fresh subprocess cold-imports mlframe (heavy numba-JIT chain via _dummy_baseline_compute);
+        # 30s is too tight under suite contention (-n workers + parallel sessions) where the cold import alone
+        # can exceed it, while the test runs comfortably (~2min total) in isolation. Generous budget so the
+        # sensor measures seed STABILITY, not import wall-clock.
+        capture_output=True, text=True, timeout=180,
     )
     assert proc.returncode == 0, (
         f"subprocess failed: stderr={proc.stderr}"
