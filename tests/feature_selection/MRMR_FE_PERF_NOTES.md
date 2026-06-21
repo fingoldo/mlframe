@@ -439,3 +439,29 @@ without the p200 regression, EITHER:
       crossover) -- mirror _fe_gpu_discretize_enabled; do NOT hardcode the threshold.
 Either makes default-on safe; (a) is the real win (also helps the canonical). Until then the path is
 opt-in (MLFRAME_FE_GPU_RESIDENT_BASIS_MI=1), selection-equivalent, with host fallback.
+
+## 2026-06-21 (cont) -- matrix-native MI DEFAULT-ON + dual-profiler verdict
+
+SHIPPED + DEFAULT-ON (3887079b): the resident orth-FE basis-MI path (build candidates on device via the
+BATCHED _gpu_evaluate_basis_matrix + score via _plugin_mi_classif_batch_cuda_resident, no per-call H2D).
+Validated selection-EQUIVALENT (385 hybrid_orth biz-value + canonical single_compound + layer21/22
+recovery + 16 basis-parity) AND FASTER (clean canonical 100k 34.8s -> 30.7s, ~12%) AND clears the p200
+high-feature perf budget (the batched build killed the per-column launch overhead). Opt out
+MLFRAME_FE_GPU_RESIDENT_BASIS_MI=0; host fallback on any GPU failure.
+
+DUAL-PROFILER VERDICT (canonical 100k, default-on):
+* cProfile: the orth-FE basis-MI moved to GPU; the residual CPU sort/partition/argsort tail PERSISTS
+  (~20% reduced only) -- it is NOT the orth-FE basis-MI but the OTHER paths (host basis ROUTING eval,
+  escalation prewarp, pair-search binning). Full 99%-GPU would need those too (much larger surface).
+* nvprof --print-gpu-summary: top kernels = radix_select_f32 38.6% (candidate quantile-edge select,
+  272 calls), resident-gate hist 20.8%, cupy_copy__float32 19.7% (largely the radix transpose), 
+  fe_materialise 7.2%, bin_codes 4.4%.
+* nvprof --metrics (no admin needed) on radix_select_f32: achieved_occupancy 0.98, gld_efficiency
+  99.64%, sm_efficiency 98.45% -- ALREADY AT PEAK. No occupancy/coalescing headroom; it is genuine
+  quantile-binning work at near-100% efficiency. The cupy_copy f32 is the (K,n) transpose that BUYS that
+  99.6% coalescing (removing it 8x's the radix-select -- net win to keep). So the GPU path is well-tuned;
+  there is no low-hanging kernel optimization -- the dominant cost is real binning work running optimally.
+
+NET: matrix-native orth-FE MI is on the device, default-on, ~12% faster, selection-equivalent; the GPU
+kernels profile near-optimal. Remaining CPU tail is the non-orth-FE paths (routing/escalation/pair-search)
+-- a separate, larger residency effort, not a kernel-tuning win.
