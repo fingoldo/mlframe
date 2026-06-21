@@ -662,6 +662,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
                         fourier_chirp=_fourier_chirp,
                         fourier_chirp_min_val_corr=_fourier_chirp_mvc,
+                        # Detect frequencies + rank MI on the SAME subsample the pair-search
+                        # uses (the periodogram detector is the dominant orth-FE CPU cost);
+                        # winners replayed at full n. Decision aligned across FE families.
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                     )
                     _e_appended = [
                         c for c in X_e.columns if c not in _X_before_extra_cols

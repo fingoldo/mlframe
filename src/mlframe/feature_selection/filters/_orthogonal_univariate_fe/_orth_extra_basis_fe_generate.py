@@ -447,11 +447,22 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     fourier_adaptive_min_val_corr: float = 0.15,
     fourier_chirp: bool = False,
     fourier_chirp_min_val_corr: float = 0.15,
+    subsample_n: int = 0,
+    subsample_seed: int = 42,
 ):
     """Layer 32 hybrid: spline + Fourier univariate basis FE + MI-greedy
     selection. Mirrors :func:`hybrid_orth_mi_fe_with_recipes` for the
     polynomial path but emits extra-basis columns (B-spline, Fourier)
     instead. Returns (X_augmented, scores, recipes).
+
+    SUBSAMPLED DECISION (2026-06-21). When ``subsample_n`` > 0 and the frame is
+    larger, BOTH the expensive adaptive-frequency DETECTION and the MI ranking run
+    on a seeded row SUBSAMPLE (the pair-search pattern), and the winning columns are
+    REPLAYED at full n via ``apply_recipe`` (the recipe carries the detected
+    frequency + axis params). This removes the ~n/subsample redundant rows from the
+    periodogram detector (the dominant orth-FE CPU cost) and the plug-in-MI sweep,
+    and aligns the family with the pair-search + univariate orth-FE. Default 0 =
+    legacy full-data decision (byte-for-byte unchanged).
 
     The selection rule is the same TWO-GATE chain as the polynomial path:
     relative uplift >= min_uplift AND engineered_mi >= max(legacy floor,
@@ -468,11 +479,24 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     ``arg="quadratic"`` + ``adaptive=True`` (force-admitted past the uplift gate
     and MRMR-protected identically to the linear adaptive legs).
     """
+    _full_n = len(X)
+    _do_sub = isinstance(subsample_n, int) and 0 < subsample_n < _full_n
+    if _do_sub:
+        _sub_idx = np.sort(
+            np.random.default_rng(int(subsample_seed)).choice(
+                _full_n, size=int(subsample_n), replace=False,
+            )
+        )
+        _Xd = X.iloc[_sub_idx].reset_index(drop=True)
+        _yd = np.asarray(y)[_sub_idx]
+    else:
+        _Xd, _yd = X, y
+    # DECISION (adaptive-frequency detection + MI ranking) on the (subsampled) fit frame.
     engineered, meta = generate_extra_basis_features(
-        X, cols=cols, extra_bases=extra_bases,
+        _Xd, cols=cols, extra_bases=extra_bases,
         fourier_freqs=fourier_freqs, fourier_powers=fourier_powers,
         spline_knots=spline_knots,
-        y=y, fourier_adaptive=fourier_adaptive,
+        y=_yd, fourier_adaptive=fourier_adaptive,
         fourier_adaptive_min_val_corr=fourier_adaptive_min_val_corr,
         fourier_chirp=fourier_chirp,
         fourier_chirp_min_val_corr=fourier_chirp_min_val_corr,
@@ -483,8 +507,8 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         ])
         return X.copy(), empty_scores, []
     from . import score_features_by_mi_uplift
-    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
-    scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
+    raw_X = _Xd[[c for c in (cols or _Xd.columns) if c in _Xd.columns and pd.api.types.is_numeric_dtype(_Xd[c])]]
+    scores = score_features_by_mi_uplift(raw_X, engineered, _yd, nbins=nbins)
     raw_baselines = scores["baseline_mi"].to_numpy()
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
@@ -529,7 +553,6 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         if nm not in _keep_set and nm in engineered.columns:
             keep.append(nm)
             _keep_set.add(nm)
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
     recipes = []
     for name in keep:
         if name not in meta:
@@ -537,4 +560,23 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         r = _build_recipe_from_meta(name, meta[name])
         if r is not None:
             recipes.append(r)
+    # OUTPUT at FULL n. Without subsampling ``engineered`` already holds full-n columns.
+    # With subsampling, REPLAY each winner's recipe on the full X (the recipe carries the
+    # detected frequency + axis params) so the appended columns are full length -- output
+    # equals a full-data fit GIVEN the same winners. A winner without a replayable recipe is
+    # dropped (it could not be reproduced at transform time anyway).
+    if _do_sub:
+        from ..engineered_recipes import apply_recipe
+        _full_cols: dict = {}
+        for r in recipes:
+            try:
+                _full_cols[r.name] = np.asarray(apply_recipe(r, X))
+            except Exception:
+                logger.warning("extra-basis subsample replay failed for %r; dropping.", r.name)
+        X_aug = (
+            pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1)
+            if _full_cols else X.copy()
+        )
+    else:
+        X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
     return X_aug, scores, recipes
