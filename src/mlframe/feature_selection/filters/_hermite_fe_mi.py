@@ -266,7 +266,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20):
     # code = #(interior edges <= value), edges f64-promoted exactly as cp.searchsorted does, with its own
     # per-column fallback on kernel failure). Lazy import keeps the module-import graph acyclic (cupy-resident
     # _gpu_resident_fe never top-level-imports this module). astype(int64) only widens the int32 codes
-    # (range [0, n_bins]) for the flat-index math below -- value-preserving, no truncation.
+    # (range [0, n_bins-1]) for the flat-index math below -- value-preserving, no truncation.
     from ._gpu_resident_fe import _searchsorted_codes
     X_binned = _searchsorted_codes(X_gpu, edges[1:-1]).astype(cp.int64, copy=False)
 
