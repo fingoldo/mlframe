@@ -315,11 +315,23 @@ def fe_decide_on_subsample(
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
     rebuild the chosen columns at FULL n by replaying the returned recipes.
 
-    The MRMR FE families (orth univariate/pair/triplet/quadruplet, the alternate
-    scorers, binned-agg, escalation, ...) historically ranked/selected on the FULL
-    training frame, while the pair-search (``check_prospective_fe_pairs``) decides on
-    a ~30k row subsample and replays winners at full n. This wrapper gives every
-    family the SAME treatment WITHOUT editing each function: it calls
+    CORRECTNESS BOUNDARY -- CLOSED-FORM families ONLY. This wrapper rebuilds the output
+    by REPLAYING each recipe (``apply_recipe`` = the transform-time path). That equals
+    the fit-time column ONLY when the engineered column is a PURE FUNCTION of x (the
+    orthogonal-polynomial / Fourier / spline basis families: orth univariate / pair /
+    triplet / quadruplet / extra-basis / the alternate-scorer variants, whose recipe is
+    a closed-form basis eval). Do NOT use it for families whose fit-time output is an
+    OUT-OF-FOLD / data-dependent encoding -- e.g. ``binned_numeric_agg`` (k-fold OOF
+    target-mean/stat encoding): replaying its recipe uses full-train cell stats, which
+    is the LEAKY transform-time value, not the OOF fit-time column. Such families must
+    subsample only their pair/edge DECISION while keeping the OOF stat computation at
+    full n (a per-family change, not this wrapper). MDLP / discretization edge selection
+    is likewise a separate (edges-then-searchsorted) integration.
+
+    The MRMR FE families historically ranked/selected on the FULL training frame, while
+    the pair-search (``check_prospective_fe_pairs``) decides on a ~30k row subsample and
+    replays winners at full n. This wrapper gives every CLOSED-FORM family the SAME
+    treatment WITHOUT editing each function: it calls
     ``fit_with_recipes_fn`` on the seeded subsample (so the CPU-heavy MI / detection
     sweep sees ~subsample_n rows, not n), then replays each returned
     ``EngineeredRecipe`` on the full X via :func:`apply_recipe`. The recipes are

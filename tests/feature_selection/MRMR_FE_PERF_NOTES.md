@@ -296,3 +296,32 @@ REMAINING /loop PROGRAM toward "cProfile 99% on GPU-calling code + nvprof metric
 3. Move the residual candidate quantile-binning njit (sort/partition/argsort, ~4s, numba-internal) onto
    the GPU (radix-select path exists) -- H2D is no longer a constraint (compute-on-GPU is the goal).
 4. Re-profile to confirm 99% GPU-calling attribution; then nvprof-tune the resident kernels.
+
+## 2026-06-21 (cont) -- subsample cleanup: closed-form FE families done; OOF families excluded
+
+Shipped fe_decide_on_subsample (_mrmr_fit_impl/_helpers.py) + wired the orth pair / triplet /
+quadruplet families (commit fd04e619), on top of the inline univariate (5b26795c) + extra-basis
+(d0606b13) fixes. The whole CLOSED-FORM orthogonal family now DECIDES on the shared FE subsample
+(fe_check_pairs_subsample_n + random_seed) and replays winners at full n. 11/11 FE pins green.
+
+CORRECTNESS BOUNDARY (important): the wrapper rebuilds output by REPLAYING recipes (= transform-time
+path). That equals the fit-time column ONLY for CLOSED-FORM families (pure functions of x: orth-poly /
+Fourier / spline basis). It is NOT valid for OUT-OF-FOLD / data-dependent encoders:
+  * binned_numeric_agg (default ON) = k-fold OOF target-stat encoding -> replaying its recipe uses
+    full-train cell stats = the LEAKY transform value, not the OOF fit column. Must subsample only its
+    pair/edge DECISION and keep the OOF stats at full n (per-family change, NOT the wrapper). LEFT FULL-N.
+  * MDLP edge selection (nbins_strategy default) -> edges-then-searchsorted; separate integration. LEFT.
+  * run_fe_auto_escalation (active on failed pairs; closed-form warp specs) -> wrappable in principle but
+    has a custom return (candidate dicts, not (X,scores,recipes)); needs a small adapter. PENDING.
+  * Alternate scorers (ksg/copula/jmim/tc/cmim/routing/diff/cluster/adaptive/auto/ensemble) are
+    closed-form (rank orth-basis columns) -> wrappable, but NON-DEFAULT (fe_hybrid_orth_default_scorer)
+    so untested by the canonical pins; wrap + add a non-default-scorer selection test before shipping.
+
+STATUS vs the 99%-GPU-cProfile goal: the orth-FE njit kernels (_detect_fourier 5.2s, _coarse_basis,
+_power_centered, _plugin_mi_classif_batch_njit) are now OFF the cProfile top (wall 56->46s). Remaining
+CPU is the pair-search candidate quantile-binning njit (sort/partition/argsort ~4s) -> the GPU ops-
+residency port (the ORIGINAL main task), to resume after the subsample cleanup.
+
+SEED/STRATIFY note (still open): the inline univariate/extra-basis + the wrapper use plain rng.choice;
+the pair-search uses _fe_subsample.stratified_subsample_idx. Unify onto one shared stratified helper so
+every family decides on the IDENTICAL rows.
