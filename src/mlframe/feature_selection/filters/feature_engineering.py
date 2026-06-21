@@ -687,8 +687,10 @@ def create_unary_transformations(preset: str = "minimal"):
         unary_transformations.update(
             {
                 # math an
-                "grad1": np.gradient,
-                "grad2": lambda x: np.gradient(x, edge_order=2),
+                # GPU-DISABLED(restore): cross-row np.gradient has no row-blocked GPU form (2026-06-21,
+                # full-GPU residency build). Uncomment with the matching _gpu_resident_fe._FULL_UNARY entries.
+                # "grad1": np.gradient,
+                # "grad2": lambda x: np.gradient(x, edge_order=2),
                 # trigonometric
                 "sinc": np.sinc,
                 "cos": np.cos,
@@ -708,7 +710,8 @@ def create_unary_transformations(preset: str = "minimal"):
                 # special
                 #'psi':sp.psi, polygamma(0,x) is same as psi
                 "erf": sp.erf,
-                "dawsn": sp.dawsn,
+                # GPU-DISABLED(restore): no cupyx.scipy.special.dawsn (2026-06-21, full-GPU residency build).
+                # "dawsn": sp.dawsn,
                 "gammaln": sp.gammaln,
                 #'spherical_jn':sp.spherical_jn
             }
@@ -806,7 +809,8 @@ def create_binary_transformations(preset: str = "minimal"):
                 # All kinds of averages
                 "hypot": np.hypot,
                 "logaddexp": np.logaddexp,
-                "agm": sp.agm,  # Compute the arithmetic-geometric mean of a and b.
+                # GPU-DISABLED(restore): no cupyx agm (2026-06-21, full-GPU residency build).
+                # "agm": sp.agm,  # Compute the arithmetic-geometric mean of a and b.
                 # Rational routines
                 #'lcm':np.lcm, # requires int arguments #  ufunc 'lcm' did not contain a loop with signature matching types (<class 'numpy.dtype[float32]'>, <class 'numpy.dtype[float32]'>) -> None
                 #'gcd':np.gcd, # requires int arguments
@@ -814,7 +818,9 @@ def create_binary_transformations(preset: str = "minimal"):
                 # Powers
                 "pow": np.power,  # non-symmetrical! may required dtype=complex for arbitrary numbers
                 # Logarithms
-                "logn": lambda x, y: np.emath.logn(x - np.min(x) + 0.1, y - np.min(y) + 0.1),  # non-symmetrical!
+                # GPU-DISABLED(restore): np.emath.logn (complex base) -- real GPU form is
+                # log(y-ymin+0.1)/log(x-xmin+0.1) (2026-06-21, full-GPU residency build).
+                # "logn": lambda x, y: np.emath.logn(x - np.min(x) + 0.1, y - np.min(y) + 0.1),  # non-symmetrical!
                 # DSP
                 # 'convolve':np.convolve, # symmetrical wrt args. scipy.signal.fftconvolve should be faster? SLOW?
                 # Linalg
@@ -826,7 +832,8 @@ def create_binary_transformations(preset: str = "minimal"):
                 "equal": lambda x, y: np.equal(x, y).astype(int),
                 # special
                 "beta": sp.beta,  # symmetrical
-                "binom": sp.binom,  # non-symmetrical! binomial coefficient considered as a function of two real variables.
+                # GPU-DISABLED(restore): deferred with the full-GPU residency batch (2026-06-21).
+                # "binom": sp.binom,  # non-symmetrical! binomial coefficient considered as a function of two real variables.
             }
         )
 

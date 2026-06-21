@@ -77,12 +77,14 @@ class TestUnaryTransformationsPresets:
         for k in medium:
             assert k in maximal
         # Maximal-only names per the module docstring / source
+        # GPU-DISABLED(restore): grad1, grad2, dawsn temporarily removed from the catalog for the full-GPU
+        # residency build (2026-06-21) -- re-add them here when the catalog lines are uncommented.
         for k in (
-            "grad1", "grad2", "sinc", "cos", "tan",
+            "sinc", "cos", "tan",
             "arcsin", "arccos", "arctan",
             "sinh", "cosh", "tanh",
             "arcsinh", "arccosh", "arctanh",
-            "erf", "dawsn", "gammaln",
+            "erf", "gammaln",
             # special families
             "polygamma_0", "polygamma_1", "polygamma_2",
             "struve0", "struve1", "struve2",
@@ -133,12 +135,14 @@ class TestBinaryTransformationsPresets:
 
     def test_maximal_superset(self):
         maximal = create_binary_transformations(preset="maximal")
+        # GPU-DISABLED(restore): agm, logn, binom temporarily removed for the full-GPU residency build
+        # (2026-06-21) -- re-add them here when the catalog lines are uncommented.
         for k in (
             "mul", "add", "max", "min",
-            "hypot", "logaddexp", "agm",
-            "pow", "logn", "heaviside",
+            "hypot", "logaddexp",
+            "pow", "heaviside",
             "greater", "less", "equal",
-            "beta", "binom",
+            "beta",
         ):
             assert k in maximal, f"maximal preset missing '{k}'"
 

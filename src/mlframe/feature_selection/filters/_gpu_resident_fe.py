@@ -169,9 +169,49 @@ def fe_gpu_resident_enabled() -> bool:
 # (float32|float64) force-overrides the working dtype host-wide if a future host/data combo needs it.
 
 
+def _xp_special(xp):
+    """The scipy.special-compatible module for array module ``xp``: ``scipy.special`` for numpy,
+    ``cupyx.scipy.special`` for cupy. Used for the GPU full-catalog special functions (erf / gammaln /
+    beta / binom are present in cupyx; dawsn / agm are NOT -- see _GPU_UNAVAILABLE_* below)."""
+    if xp is np:
+        import scipy.special as _s
+        return _s
+    import cupyx.scipy.special as _s
+    return _s
+
+
+# GPU-ONLY catalog (2026-06-21): user directive -- EVERYTHING runs on the GPU, NO CPU fallback. The six
+# ops that lack a cupy/cupyx equivalent or need cross-row / data-dependent / emath handling are
+# TEMPORARILY DISABLED in BOTH catalogs (here AND feature_engineering.create_*_transformations) so the
+# GPU grid == the CPU grid exactly:
+#   unary : grad1, grad2 (cross-row np.gradient -- wrong under row-blocked generation), dawsn (no cupyx)
+#   binary: agm (no cupyx), logn (np.emath complex-base), binom (deferred with the others)
+# TODO(restore): re-enable each behind a real GPU kernel (grad via full-column cp.gradient; dawsn/agm via
+# custom kernels; logn via log/log on the shifted operands) once the GPU residency path is validated.
+# Mirrors feature_engineering's enabled catalog EXACTLY so the GPU candidate == the CPU one to fp
+# round-off (selection-equivalent -- the FE perf bar).
+_FULL_UNARY = (
+    "identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin",          # minimal
+    "sign", "rint", "qubed", "invsquared", "invqubed", "cbrt", "invcbrt", "invsqrt", "exp",  # medium
+    # GPU-DISABLED(restore): "grad1", "grad2",  (cross-row np.gradient)
+    "sinc", "cos", "tan", "arcsin", "arccos", "arctan",                         # maximal trig
+    "sinh", "cosh", "tanh", "arcsinh", "arccosh", "arctanh", "erf", "gammaln",  # maximal hyp+special
+    # GPU-DISABLED(restore): "dawsn",  (no cupyx)
+)
+_FULL_BINARY = (
+    "mul", "add", "sub", "div", "max", "min",                                   # minimal
+    "abs_diff", "hypot", "signed", "ratio_abs",                                 # medium
+    "logaddexp", "pow", "heaviside", "greater", "less", "equal", "beta",        # maximal
+    # GPU-DISABLED(restore): "agm" (no cupyx), "logn" (np.emath), "binom"
+)
+
+
 def _unary_apply(xp, name, x):
     """Apply unary ``name`` to ``x`` using array module ``xp`` (numpy or cupy). Semantics mirror
-    feature_engineering's minimal preset exactly (incl. smart_log's full-column nanmin shift)."""
+    ``feature_engineering.create_unary_transformations`` EXACTLY (full maximal catalog), incl.
+    smart_log's full-column nanmin shift. Raises ValueError for an op with no ``xp`` equivalent (the
+    caller excludes it from the GPU grid -- see _GPU_UNAVAILABLE_UNARY)."""
+    # --- minimal ---
     if name == "identity":
         return x
     if name == "neg":
@@ -190,11 +230,51 @@ def _unary_apply(xp, name, x):
         return xp.log(x) if float(x_min) > 0 else xp.log(x + (1e-5 - x_min))
     if name == "sin":
         return xp.sin(x)
+    # --- medium ---
+    if name == "sign":
+        return xp.sign(x)
+    if name == "rint":
+        return xp.rint(x)
+    if name == "qubed":
+        return xp.power(x, 3)
+    if name == "invsquared":
+        return xp.power(x, -2)
+    if name == "invqubed":
+        return xp.power(x, -3)
+    if name == "cbrt":
+        return xp.cbrt(x)
+    if name == "invcbrt":
+        return xp.power(x, -1.0 / 3.0)
+    if name == "invsqrt":
+        return xp.power(x, -1.0 / 2.0)
+    if name == "exp":
+        return xp.exp(x)
+    # --- maximal: trig / inverse-trig / hyperbolic / inverse-hyperbolic (all native to numpy AND cupy) ---
+    if name in ("sinc", "cos", "tan", "arcsin", "arccos", "arctan",
+                "sinh", "cosh", "tanh", "arcsinh", "arccosh", "arctanh"):
+        return getattr(xp, name)(x)
+    # --- maximal: special functions (scipy.special / cupyx.scipy.special) ---
+    if name == "erf":
+        return _xp_special(xp).erf(x)
+    if name == "gammaln":
+        return _xp_special(xp).gammaln(x)
+    # GPU-DISABLED(restore): uncomment these + the matching _FULL_UNARY entries + the
+    # feature_engineering.py catalog lines to re-enable. grad1/grad2 need a FULL-column gradient (never a
+    # row-block); dawsn needs a cupyx/custom kernel (absent on this stack).
+    # if name == "grad1":
+    #     return xp.gradient(x)
+    # if name == "grad2":
+    #     return xp.gradient(x, edge_order=2)
+    # if name == "dawsn":
+    #     return _xp_special(xp).dawsn(x)
     raise ValueError(f"unknown unary {name!r}")
 
 
 def _binary_apply(xp, name, x, y):
-    """Apply binary ``name`` to ``(x, y)`` mirroring the minimal preset (incl. safe div's y==0 branch)."""
+    """Apply binary ``name`` to ``(x, y)`` mirroring ``feature_engineering.create_binary_transformations``
+    EXACTLY (full catalog minus the temporarily-disabled agm/logn/binom -- see _FULL_BINARY), incl. safe
+    div's y==0 branch. Raises ValueError for an unknown/disabled op."""
+    # --- minimal ---
     if name == "mul":
         return x * y
     if name == "add":
@@ -208,6 +288,42 @@ def _binary_apply(xp, name, x, y):
         return xp.maximum(x, y)
     if name == "min":
         return xp.minimum(x, y)
+    # --- medium ---
+    if name == "abs_diff":
+        return xp.abs(x - y)
+    if name == "hypot":
+        return xp.hypot(x, y)
+    if name == "signed":            # sign(x)*|y| -- non-symmetrical
+        return xp.sign(x) * xp.abs(y)
+    if name == "ratio_abs":         # x/(|y|+1) -- non-symmetrical
+        return x / (xp.abs(y) + 1.0)
+    # --- maximal ---
+    if name == "logaddexp":
+        return xp.logaddexp(x, y)
+    if name == "pow":               # non-symmetrical; negative^frac -> nan, scrubbed downstream (matches np.power)
+        return xp.power(x, y)
+    if name == "heaviside":
+        return xp.heaviside(x, y)
+    if name == "greater":
+        return (x > y).astype(int)
+    if name == "less":
+        return (x < y).astype(int)
+    if name == "equal":
+        return (x == y).astype(int)
+    if name == "beta":
+        return _xp_special(xp).beta(x, y)
+    # GPU-DISABLED(restore): uncomment these + the matching _FULL_BINARY entries + the
+    # feature_engineering.py catalog lines to re-enable. agm needs a cupyx/custom kernel (absent here);
+    # logn is np.emath.logn (complex base) -- a real GPU form is log(y-ymin+0.1)/log(x-xmin+0.1); binom
+    # is deferred with the batch.
+    # if name == "agm":
+    #     return _xp_special(xp).agm(x, y)
+    # if name == "logn":
+    #     xs = x - xp.min(x) + 0.1
+    #     ys = y - xp.min(y) + 0.1
+    #     return xp.log(ys) / xp.log(xs)
+    # if name == "binom":
+    #     return _xp_special(xp).binom(x, y)
     raise ValueError(f"unknown binary {name!r}")
 
 
