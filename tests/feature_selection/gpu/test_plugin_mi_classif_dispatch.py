@@ -346,3 +346,27 @@ class TestPluginMIClassifBizValue:
             f"got cuda={med_cuda:.3f}s, njit={med_njit:.3f}s "
             f"(ratio={med_njit / max(med_cuda, 1e-9):.2f}x)"
         )
+
+
+@pytest.mark.skipif(not _CUDA_AVAILABLE, reason="CUDA required")
+@pytest.mark.parametrize("seed", [0, 1, 7])
+def test_resident_batch_cuda_matches_host_input(seed):
+    """MATRIX-NATIVE: _plugin_mi_classif_batch_cuda_resident (cupy in, NO H2D) must equal
+    the host-input _plugin_mi_classif_batch_cuda bit-for-bit -- the resident entry only
+    skips the per-call cp.asarray, the MI math is identical. Guards the H2D-free core the
+    resident-candidate path uses."""
+    import cupy as cp
+    from mlframe.feature_selection.filters.hermite_fe import (
+        _plugin_mi_classif_batch_cuda,
+        _plugin_mi_classif_batch_cuda_resident,
+    )
+    rng = np.random.default_rng(seed)
+    n, k = 4000, 11
+    X = rng.standard_normal((n, k)).astype(np.float64)
+    y = (rng.random(n) > 0.5).astype(np.int64)
+    mi_host = _plugin_mi_classif_batch_cuda(X, y, 20)
+    mi_res = _plugin_mi_classif_batch_cuda_resident(cp.asarray(X), cp.asarray(y), 20)
+    assert mi_host.shape == mi_res.shape == (k,)
+    assert float(np.max(np.abs(mi_host - mi_res))) == 0.0, (
+        f"seed={seed}: resident MI must equal host-input MI bit-for-bit"
+    )

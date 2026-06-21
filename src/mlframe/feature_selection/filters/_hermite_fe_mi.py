@@ -217,9 +217,27 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     import cupy as cp
     X_gpu = cp.asarray(X_cols, dtype=cp.float64)
     y_gpu = cp.asarray(y, dtype=cp.int64)
+    return _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins)
+
+
+def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20):
+    """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays -- the H2D-FREE core of
+    :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
+    matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
+    is the entry point a matrix-native caller uses when it built/holds its candidate
+    columns on the GPU -- it skips the per-call ``cp.asarray`` H2D that the dispatcher's
+    ground-truth note records as the 2x-slowdown cause (measured: forcing the H2D path on
+    is 52s -> 105s), so MI runs on the device with NO transfer. Math is identical to the
+    host-input variant (same percentile-edge equi-frequency binning + plug-in MI).
+    Returns a host (k,) float64 array of MI values."""
+    import cupy as cp
     n, k = X_gpu.shape
     if n == 0 or k == 0:
         return np.zeros(k, dtype=np.float64)
+    if X_gpu.dtype != cp.float64:
+        X_gpu = X_gpu.astype(cp.float64)
+    if y_gpu.dtype != cp.int64:
+        y_gpu = y_gpu.astype(cp.int64)
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount index never underflows. Mirrors the njit kernels.
     y_min = int(cp.min(y_gpu).item())
     y_gpu = y_gpu - y_min
