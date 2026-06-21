@@ -1295,6 +1295,35 @@ def _pinned_view(n_bytes: int, shape, dtype):
     return np.frombuffer(_PINNED_D2H_BUF, dtype=dtype, count=count).reshape(shape)
 
 
+# Operand-table H2D cache (2026-06-21): the FE step's operand table ``transformed_vars`` is the SAME
+# array object across all ~15 chunks of a step, but was re-uploaded to the GPU per chunk (and again per
+# survivor re-materialise). Cache the device copy by WEAKREF IDENTITY of the host array: reuse while the
+# same object is alive (across the step's chunks), re-upload when the step swaps in a new operand table
+# (the weakref breaks). NOT keyed on id() -- id reuse after free would false-hit on a different table.
+# Pickle-safe (module-global, never on an instance). The data is identical -> candidates/codes/MI/
+# selection bit-identical; this only moves the H2D from per-chunk to once-per-step.
+_OPERAND_TABLE_CACHE: dict = {"ref": None, "gpu": None}
+
+
+def _resident_operand_table(cp, transformed_vars):
+    """Device (n, n_operands) float32 copy of ``transformed_vars``, uploaded once per distinct host array
+    object (weakref-identity cache) and reused across a step's chunks. Falls back to a plain upload if the
+    array is not weakref-able."""
+    import weakref
+    c = _OPERAND_TABLE_CACHE
+    ref = c["ref"]
+    if ref is not None and ref() is transformed_vars and c["gpu"] is not None:
+        return c["gpu"]
+    g = cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32))
+    try:
+        c["ref"] = weakref.ref(transformed_vars)
+        c["gpu"] = g  # drops the prior step's device table (refcount -> freed)
+    except TypeError:
+        c["ref"] = None
+        c["gpu"] = None
+    return g
+
+
 def gpu_materialise_discretize_codes_host(
     transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
     nbins: int, *, dtype=np.int8, out_cand: np.ndarray | None = None,
@@ -1324,7 +1353,9 @@ def gpu_materialise_discretize_codes_host(
     op_codes = np.ascontiguousarray(op_codes, dtype=np.int8)
     n = int(tv.shape[0])
     K = int(a_cols.shape[0])
-    tv_gpu = cp.asarray(tv)  # the ONE H2D of the operand table (n, n_operands)
+    # Operand table H2D cached per-step by weakref identity (same transformed_vars across the step's
+    # chunks -> uploaded ONCE, not per chunk). Pass the ORIGINAL array so the weakref tracks it.
+    tv_gpu = _resident_operand_table(cp, transformed_vars)
     out = np.empty((n, K), dtype=dtype)
     # RESIDENT-CODES HANDOFF (gated, default OFF): keep the on-device int codes in ONE (n, K) resident
     # cupy array so the noise-gate's resident-CUDA path can consume them DIRECTLY -- skipping the codes'

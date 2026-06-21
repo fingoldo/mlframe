@@ -1219,9 +1219,10 @@ def check_prospective_fe_pairs(
             if _cached is not None:
                 return _cached
             import cupy as cp
-            from .._gpu_resident_fe import _fe_materialise_block_gpu
+            from .._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
             if _chunk_tv_gpu is None:
-                _chunk_tv_gpu = cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32))
+                # per-step weakref-cached operand table (shared with gpu_materialise) -> one H2D/step
+                _chunk_tv_gpu = _resident_operand_table(cp, transformed_vars)
             _a, _b, _ops = _chunk_defer_meta
             _cand = _fe_materialise_block_gpu(
                 _chunk_tv_gpu, _a[_buf_col:_buf_col + 1], _b[_buf_col:_buf_col + 1], _ops[_buf_col:_buf_col + 1],
