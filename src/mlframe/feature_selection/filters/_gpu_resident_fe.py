@@ -476,19 +476,26 @@ def _herme_clenshaw_gpu(cp, x, c):
 
 
 def _lag_clenshaw_gpu(cp, x, c):
-    if len(c) == 1:
-        return c[0] + 0.0 * x
-    if len(c) == 2:
-        c0 = c[0]; c1 = c[1]
-    else:
-        nd = len(c)
-        c0 = c[-2]; c1 = c[-1]
-        for i in range(3, len(c) + 1):
-            tmp = c0
-            nd = nd - 1
-            c0 = c[-i] - (c1 * (nd - 1)) / nd
-            c1 = tmp + (c1 * ((2 * nd - 1) - x)) / nd
-    return c0 + c1 * x
+    # FORWARD recurrence ``out = sum_k c[k] L_k`` matching the host _lagval_njit EXACTLY
+    # (L_0=1, L_1=1-x, L_k = ((2k-1-x)L_{k-1} - (k-1)L_{k-2})/k). The prior Clenshaw-style
+    # recurrence here was WRONG for Laguerre (verified: L_2(0) gave -0.5 vs the correct 1) --
+    # it was never exercised because the canonical prewarp uses the chebyshev basis, so no pin
+    # caught it; the matrix-native basis parity test (test_gpu_basis_column_parity) surfaced it.
+    nc = len(c)
+    if nc == 0:
+        return cp.zeros_like(x)
+    out = cp.full(x.shape, c[0], dtype=x.dtype)
+    if nc == 1:
+        return out
+    p_prev = cp.ones_like(x)        # L_0
+    p_curr = 1.0 - x               # L_1
+    out = out + c[1] * p_curr
+    for k in range(2, nc):
+        p_next = ((2 * k - 1 - x) * p_curr - (k - 1) * p_prev) / k
+        out = out + c[k] * p_next
+        p_prev = p_curr
+        p_curr = p_next
+    return out
 
 
 _PREWARP_CLENSHAW_GPU = {
@@ -497,6 +504,105 @@ _PREWARP_CLENSHAW_GPU = {
     "hermite": _herme_clenshaw_gpu,
     "laguerre": _lag_clenshaw_gpu,
 }
+
+# --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2, 2026-06-21) -------------
+# Faithful cupy mirror of _orthogonal_univariate_fe._evaluate_basis_column (no-aux, no-replay path):
+# the robust heavy-tail axis detection (_hermite_robust._detect_heavy_tail_numpy/_robust_scale/
+# _robust_lo_hi) + the per-basis preprocess (z-score / min-max / shift, robust + plain branches) + the
+# one-hot Clenshaw eval (the _*_clenshaw_gpu above). Lets the orth-FE candidate matrix be built ON the
+# device (operands resident) so it feeds _plugin_mi_classif_batch_cuda_resident with NO H2D -- removing
+# the np.median (robust axis) + argsort/reduce (plug-in MI) of the CPU tail. Constants mirror
+# _hermite_robust (K=3, OUTER_K=10, GAP=3, MAX_FRAC=0.20). cp.median/percentile match np to fp round-off;
+# parity is asserted by test_gpu_basis_column_parity (uniform/gaussian/heavytail/skewed x 4 bases).
+_GPU_ROBUST_AXIS_K = 3.0
+_GPU_ROBUST_AXIS_OUTER_K = 10.0
+_GPU_ROBUST_AXIS_GAP = 3.0
+_GPU_ROBUST_AXIS_MAX_FRAC = 0.20
+
+
+def _gpu_robust_scale(cp, xf, med):
+    """cupy mirror of _hermite_robust._robust_scale: 1.4826*MAD, IQR/1.349 fallback, 0.0 if degenerate."""
+    mad = float(cp.median(cp.abs(xf - med)))
+    scale = 1.4826 * mad
+    if scale > 1e-12:
+        return scale
+    q25, q75 = (float(v) for v in cp.percentile(xf, cp.asarray([25.0, 75.0])))
+    iqr_scale = (q75 - q25) / 1.349
+    return iqr_scale if iqr_scale > 1e-12 else 0.0
+
+
+def _gpu_detect_heavy_tail(cp, xf):
+    """cupy mirror of _hermite_robust._detect_heavy_tail_numpy (the n>=3000 oracle path)."""
+    if xf.size < 8:
+        return False
+    med = float(cp.median(xf))
+    scale = _gpu_robust_scale(cp, xf, med)
+    if scale <= 1e-12:
+        return False
+    dev = cp.abs(xf - med)
+    thr = _GPU_ROBUST_AXIS_OUTER_K * scale
+    outer_mask = dev > thr
+    n_outer = int(cp.count_nonzero(outer_mask))
+    if n_outer == 0 or n_outer > _GPU_ROBUST_AXIS_MAX_FRAC * xf.size:
+        return False
+    bulk_edge = float(dev[~outer_mask].max())
+    outer_min = float(dev[outer_mask].min())
+    return (outer_min / max(bulk_edge, 1e-12)) >= _GPU_ROBUST_AXIS_GAP
+
+
+def _gpu_robust_lo_hi(cp, x, xf, med):
+    scale = _gpu_robust_scale(cp, xf, med)
+    if scale <= 1e-12:
+        return float(cp.min(xf)), float(cp.max(xf))
+    return med - _GPU_ROBUST_AXIS_K * scale, med + _GPU_ROBUST_AXIS_K * scale
+
+
+def _gpu_basis_preprocess(cp, x, basis, *, robust: bool):
+    """cupy mirror of the per-basis preprocess fit (_preprocess_zscore/minmax/shift). Returns z (device).
+    ``robust`` is the resolved (_robust_axis_enabled() AND _gpu_detect_heavy_tail) decision from the caller."""
+    xf = x[cp.isfinite(x)]
+    if basis == "hermite":  # z-score
+        if robust:
+            center = float(cp.median(xf))
+            lo, hi = _gpu_robust_lo_hi(cp, x, xf, center)
+            std = (hi - lo) / 6.0
+            std = std if std > 1e-12 else (float(cp.std(xf)) + 1e-12)
+            return cp.clip((x - center) / std, -6.0, 6.0)
+        mean = float(cp.mean(x)); std = float(cp.std(x)) + 1e-12
+        return (x - mean) / std
+    if basis in ("legendre", "chebyshev"):  # min-max -> [-1, 1]
+        if robust:
+            med = float(cp.median(xf))
+            lo, hi = _gpu_robust_lo_hi(cp, x, xf, med)
+            span = hi - lo + 1e-12
+            return cp.clip(2.0 * (x - lo) / span - 1.0, -1.0, 1.0)
+        lo = float(cp.min(x)); hi = float(cp.max(x)); span = hi - lo + 1e-12
+        return 2.0 * (x - lo) / span - 1.0
+    if basis == "laguerre":  # shift to >= 0
+        if robust:
+            med = float(cp.median(xf))
+            lo, hi = _gpu_robust_lo_hi(cp, x, xf, med)
+            upper = hi - lo
+            return cp.clip(x - lo + 1e-9, 0.0, upper + 1e-9)
+        lo = float(cp.min(x))
+        return x - lo + 1e-9
+    raise ValueError(f"basis {basis!r} not GPU-ported")
+
+
+def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
+    """Device port of _evaluate_basis_column (no-aux / no-replay path). ``x`` is an (n,) cupy float64
+    operand; returns the (n,) cupy float64 basis-column values. ``robust_axis`` = _robust_axis_enabled()
+    (host env, passed in to avoid a per-call import). Heavy-tail is detected on-device. Raises for an
+    unported basis so the caller falls back to the host _evaluate_basis_column (never a correctness loss)."""
+    xf64 = x.astype(cp.float64)
+    use_robust = bool(robust_axis) and _gpu_detect_heavy_tail(cp, xf64[cp.isfinite(xf64)])
+    z = cp.ascontiguousarray(_gpu_basis_preprocess(cp, xf64, basis, robust=use_robust), dtype=cp.float64)
+    clen = _PREWARP_CLENSHAW_GPU.get(basis)
+    if clen is None:
+        raise ValueError(f"basis {basis!r} not GPU-ported")
+    coef = [0.0] * (int(degree) + 1)
+    coef[int(degree)] = 1.0
+    return clen(cp, z, coef)
 
 
 def _gpu_apply_prewarp(cp, x, spec):
