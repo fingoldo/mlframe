@@ -1117,6 +1117,36 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
     return out
 
 
+# PINNED D2H STAGING for the out_cand float buffer (2026-06-21, nvprof+paired-microbench driven).
+# The downstream survivor/usability reads need the (n,K) float candidate matrix on host, so out_cand is
+# unavoidable -- but ``cp.asnumpy(cand)`` copies into the caller's PAGEABLE buffer, which makes cupy stage
+# the D2H through an internal pinned bounce buffer at PAGEABLE PCIe bandwidth (the #1 production wall:
+# cProfile cupy.get = 9.07s, 321 blocking syncs). DMA'ing the chunk into a PERSISTENT PINNED host buffer
+# first, then a plain host->host memcpy into the caller's pageable slice, runs the device transfer at full
+# pinned bandwidth. MEASURED GTX 1050 Ti, (100k, blk=1200) f32 = 480MB: the device D2H 143ms->75ms (1.9x);
+# end-to-end into a pageable slice incl. the added host memcpy 209ms->130ms (1.6x); the whole materialise+
+# bin+codes call (K=1200) 696ms->~575ms with the float path on. The buffer is a module-level singleton
+# (never on an instance -> pickle-safe), grown on demand and reused across the 15 canonical chunks.
+# bench-attempt-rejected (2026-06-21, prior): DEFERRING the float D2H entirely (out_cand=None + downstream
+# recompute) was a 0.98x fit-level WASH because removing an overlapped transfer cuts no wall -- but here we
+# do NOT remove it, we make the SAME bytes move faster (pinned DMA), which DOES cut the blocking-sync wall.
+_PINNED_D2H_BUF = None  # cupy pinned-memory allocation (raw); reused/grown across chunks
+
+
+def _pinned_view(n_bytes: int, shape, dtype):
+    """A pinned-host numpy view of at least ``n_bytes``, reshaped to ``shape`` (``dtype``). Reuses a
+    module-level pinned allocation, growing it on demand. Lets ``cupy.ndarray.get(out=...)`` DMA at full
+    pinned PCIe bandwidth instead of cp.asnumpy's pageable bounce-buffer path. Module-level (not on an
+    estimator instance) -> never reachable from pickled state."""
+    global _PINNED_D2H_BUF
+    import cupy as cp
+
+    if _PINNED_D2H_BUF is None or _PINNED_D2H_BUF.mem.size < n_bytes:
+        _PINNED_D2H_BUF = cp.cuda.alloc_pinned_memory(int(n_bytes))
+    count = int(np.prod(shape))
+    return np.frombuffer(_PINNED_D2H_BUF, dtype=dtype, count=count).reshape(shape)
+
+
 def gpu_materialise_discretize_codes_host(
     transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
     nbins: int, *, dtype=np.int8, out_cand: np.ndarray | None = None,
@@ -1152,7 +1182,19 @@ def gpu_materialise_discretize_codes_host(
             tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop]
         )  # resident (n, blk) float32 -- bit-equal to _materialise_chunk_njit
         if out_cand is not None:
-            out_cand[:, start:stop] = cp.asnumpy(cand)  # float candidate D2H for the downstream reads
+            # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
+            # PINNED host buffer (full PCIe bandwidth) then host->host memcpy into the caller's pageable
+            # slice -- 1.6x faster than cp.asnumpy's pageable bounce-buffer path even WITH the added memcpy
+            # (see _pinned_view note). Bit-identical bytes. Falls back to cp.asnumpy on any pinned-alloc
+            # failure (e.g. host pinned-memory exhaustion) so it can never regress correctness.
+            try:
+                hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype)
+                cand.get(out=hv)
+                out_cand[:, start:stop] = hv
+            except Exception:
+                import logging
+                logging.getLogger(__name__).debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
+                out_cand[:, start:stop] = cp.asnumpy(cand)
         # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) -- no f64 up-cast: the
         # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless
         # cast AND halves the bandwidth-bound percentile sort, while preserving the FE selection. The exact
