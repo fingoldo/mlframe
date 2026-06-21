@@ -260,3 +260,39 @@ device from one per-dtype raw upload, nothing host-copied. The residual H2D is n
   the host control flow now reads the already-resident operand table; the heavy MI is already on GPU
   (resident noise gate). Moving the symbolic enumeration/selection itself to the device is a large rewrite
   with no transfer or wall payoff (compute-bound, branchy, GPU-hostile). Principle-only.
+
+## 2026-06-21 (cont) -- FE DECISIONS aligned onto the subsample (the real lever for "99% GPU cProfile")
+
+KEY INSIGHT (user): the FE families were deciding on DIFFERENT data -- the pair-search decides on the
+~30k subsample (replays winners full-n), but the orthogonal-FE family decided on the FULL 100k. cProfile
+confirmed `_plugin_mi_classif_batch_njit` running at shape (100000, k). That is both a ~3.3x perf waste
+AND a methodological inconsistency, AND the reason the CPU njit kernels dominated cProfile (blocking the
+"99% attribution to GPU-calling code" goal). The dispatcher deliberately keeps the orth-FE MI on njit
+(per-call H2D makes cuda 3x slower end-to-end) -- so the win is NOT to force that MI onto the GPU, it is
+to stop feeding it 3.3x too many rows.
+
+FIX (this session): thread `subsample_n=fe_check_pairs_subsample_n` + `random_seed` so each FE family
+DECIDES on the same subsample and REPLAYS winners at full n (bit-safe output). Shipped:
+  * orth-FE univariate  (hybrid_orth_mi_fe_with_recipes)            commit 5b26795c
+  * orth-FE extra-basis (hybrid_orth_extra_basis_fe_with_recipes)   commit d0606b13  <- the Fourier
+    periodogram detector (the ~5.2s cumulative hotspot) now detects on the subsample, replays via
+    apply_recipe at full n.
+RESULT (clean cProfile @ canonical 100k, seed 777): wall 56s -> 46s; `_plugin_mi_classif_batch_njit`,
+`_coarse_basis_njit` (1.84->0.85s), `_power_centered_fused_par_njit` (1.67->0.89s), `_detect_fourier`
+all dropped OFF the tottime top. Top is now GPU-calling: cupy.core.array 4.7s + numba-cuda
+safe_cuda_api 3.2s + cupy.astype 0.9s (~8.8s), then numba-exec (llvmlite) 2.8s, then the residual CPU
+candidate quantile-binning njit (sort 1.1 + partition 1.08 + argsort 0.88 + ufunc.reduce 1.15 ~= 4.2s).
+11/11 FE pins green throughout (incl. single_compound); selection bit-equivalent.
+
+REMAINING /loop PROGRAM toward "cProfile 99% on GPU-calling code + nvprof metrics optimized":
+1. Subsample the rest of the audit's Class-A full-n FE-decision sites (all output-safe via recipe replay):
+   orth pair (A1, hybrid_orth_mi_pair_fe_with_recipes -- needs the param added), triplet/quadruplet,
+   adaptive-arity/degree, routing, diff-basis, cluster, ksg(O(n^2)!), copula, jmim, tc, cmim, auto/ensemble
+   scorers; binned_agg edge+ranking (A23); run_fe_auto_escalation specs (A24); MDLP edges (A25). Many are
+   inactive on the canonical default scorer; ksg/copula/dcor matter under non-default routing.
+2. UNIFY the subsample DRAW: pair-search uses `_fe_subsample.stratified_subsample_idx` (stratified); the
+   new orth-FE fixes use plain `rng.choice` -- so the families still decide on DIFFERENT rows. Route ALL
+   through one shared helper + seed so every family decides on the IDENTICAL subsample.
+3. Move the residual candidate quantile-binning njit (sort/partition/argsort, ~4s, numba-internal) onto
+   the GPU (radix-select path exists) -- H2D is no longer a constraint (compute-on-GPU is the goal).
+4. Re-profile to confirm 99% GPU-calling attribution; then nvprof-tune the resident kernels.
