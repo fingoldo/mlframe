@@ -580,3 +580,31 @@ NET STATUS: the SAFE bit-identical orchestration program is complete (waves 3-6,
 remaining lever (a) is selection-bearing, quiet-machine-gated, and a likely wall WASH on this compute-
 bound fit -- so it is specced + queued rather than force-shipped. (b)/(c) are defer/do-not-port. No safe
 shippable optimization remains on this (non-quiet) machine without risking selection for an unmeasured win.
+
+## 2026-06-22 (cont) -- GPU basis routing implemented + validated: SELECTION-EQUIVALENT but wall WASH (opt-in)
+
+Implemented the queued increment (a): MLFRAME_FE_GPU_ROUTING (default OFF) routes each orth-FE source
+column's basis on the device -- _gpu_route_bases_batched in _gpu_resident_fe.py evals all 4 candidate bases
+x 2 degrees on the resident operand matrix (reusing _gpu_evaluate_basis_matrix) + a batched |Pearson corr|
+vs the resident continuous y (_gpu_batched_abs_corr), then runs the EXACT host argmax (corr VALUES from
+GPU, tie/argmax logic byte-identical to host). Wired into _gpu_build_and_score_univariate behind the gate
+with a per-column host fallback. Ran on the now-QUIET GTX 1050 Ti.
+
+GATE 1 -- selection-equivalence: PASS.
+  * test_gpu_routing_parity (new): GPU router matches host basis_route_by_signal on every clear-margin
+    column across 3 seeds x 6 distributions; the ONLY divergences were sub-1e-16 chebyshev/legendre
+    numerical ties (gap ~1e-17), correctly classified as allowed (the <1e-3 tie band).
+  * full selection-bearing suite with the flag ON: test_mrmr_feature_engineering + layer21/22 orth-recovery
+    + canonical single_compound + hybrid_orth biz = 112 passed. No canonical-fixture tie flipped a feature.
+  * default-OFF path (refactored candidate-collection loop) regression: 14 passed.
+
+GATE 2 -- wall win: FAIL (WASH). Isolated A/B of the routing step (30k x 24 cols, incl. H2D, 7 reps,
+warmed): host median 201ms vs GPU 206ms = 0.98x, 24/24 columns matching. As predicted: routing is a small
+compute-bound slice and consumer-GPU f64 is 1/32-rate, so moving it to the device buys nothing on wall.
+
+DECISION: keep DEFAULT OFF (opt-in). The path is implemented, parity-tested, and proven selection-
+equivalent on every canonical fixture -- available for the GPU-residency principle and ready if a
+datacenter-f64 / large-n host flips the economics (re-bench before defaulting on there). NOT flipped to
+default-on because GATE 2 (measurable wall win) is unmet -- host routing stays the fastest default. This
+closes the host-path residency program: (a) routing done+validated+opt-in, (b) escalation deferred (no-op
+at canonical n), (c) pair-binning already resident. No further FE residency lever remains that wins wall.

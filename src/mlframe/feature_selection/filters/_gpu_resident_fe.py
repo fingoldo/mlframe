@@ -220,6 +220,31 @@ def fe_gpu_resident_basis_mi_enabled() -> bool:
     return _cuda_present()
 
 
+def fe_gpu_routing_enabled() -> bool:
+    """Whether the orth-FE basis ROUTING (basis_route_by_signal) runs on the device. DEFAULT OFF (opt-in).
+
+    When ON, ``_gpu_build_and_score_univariate`` picks each source column's orth-basis on the GPU (batched
+    eval of all candidate bases x degrees on the resident operand matrix + a batched |Pearson corr| vs the
+    resident continuous y, argmax per column) instead of the per-column host ``basis_route_by_signal``.
+
+    DEFAULT OFF because routing is SELECTION-BEARING (the chosen basis is baked into the EngineeredRecipe)
+    and the GPU basis eval is parity-<1e-6, NOT bit-identical, so a near-tie between two bases can flip the
+    argmax -> a different recipe -> a different feature. Enable with ``MLFRAME_FE_GPU_ROUTING=1``.
+
+    VALIDATED 2026-06-22 (quiet GTX 1050 Ti): SELECTION-EQUIVALENT -- test_gpu_routing_parity matches the
+    host router on every clear-margin column across 3 seeds (the only flips were sub-1e-16 chebyshev/legendre
+    numerical ties), and the full selection-bearing suite passes with the flag ON (test_mrmr_feature_
+    engineering + layer21/22 orth-recovery + canonical single_compound + hybrid_orth biz = 112 passed). BUT
+    the wall is a WASH: an isolated A/B of the routing step (30k x 24 cols, incl. H2D) measured host 201ms
+    vs GPU 206ms = 0.98x with 24/24 columns matching -- the fit is compute-bound and consumer-GPU f64 is
+    1/32-rate, so there is no wall win to justify a default flip. Kept opt-in for the GPU-residency principle
+    (and a datacenter-f64 / large-n host may flip the economics -- re-bench before defaulting on there).
+
+    Flip the default to opt-out ONLY after a re-bench shows a measurable wall win on the target host. Any GPU
+    failure / degenerate column falls back to the host router per-column (never a correctness regression)."""
+    return os.environ.get("MLFRAME_FE_GPU_ROUTING", "").strip().lower() in ("1", "true", "on", "yes")
+
+
 def fe_gpu_defer_host_codes_enabled() -> bool:
     """Whether the DEFERRED host-codes D2H is active. DEFAULT ON whenever the resident-codes handoff is on
     (the device codes already exist resident, so skipping the eager host D2H of those SAME codes is free
@@ -733,6 +758,58 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis):
     if not cand_blocks:
         return None, []
     return cp.ascontiguousarray(cp.concatenate(cand_blocks, axis=1)), meta
+
+
+def _gpu_batched_abs_corr(cp, cand, y_cont):
+    """|Pearson corr| of every column of ``cand`` (n, m) with the (n,) continuous ``y_cont``, on device.
+    Degenerate columns (std <= 1e-12) or non-finite results -> -1.0 (so the host argmax skips them, mirroring
+    the host router's ``if std(v) < 1e-12: continue``). Same Pearson definition as np.corrcoef(v, y)[0,1]."""
+    yc = y_cont - y_cont.mean()
+    yn = cp.sqrt((yc * yc).sum())
+    cc = cand - cand.mean(axis=0)
+    cn = cp.sqrt((cc * cc).sum(axis=0))            # (m,)
+    num = (cc * yc[:, None]).sum(axis=0)           # (m,)
+    denom = cn * yn
+    corr = cp.where(denom > 1e-300, num / denom, 0.0)
+    corr = cp.abs(corr)
+    finite_ok = cp.isfinite(corr) & (cn > 1e-12)
+    return cp.where(finite_ok, corr, -1.0)
+
+
+def _gpu_route_bases_batched(cp, M, y_cont, candidate_bases, degrees, *, robust_axis):
+    """Device port of the no-aux ``basis_route_by_signal`` for ALL columns of finite (n, K) ``M`` at once.
+    For each candidate basis it evaluates every column x degree on the device (reusing
+    ``_gpu_evaluate_basis_matrix``), computes the |corr| vs ``y_cont``, then runs the EXACT host argmax
+    (per-column ``bcorr = max over degrees`` with degenerate-skip, then first-basis-wins argmax over
+    ``candidate_bases``). Returns a length-K list of chosen basis names, or ``None`` at a column index where
+    no basis produced a usable expansion (caller host-fallbacks that column to basis_route_by_moments).
+
+    Only the corr VALUES come from the GPU (parity-<1e-6); the argmax/tie logic is byte-identical to the host
+    router (same loop order, same strict ``>``, same ``bcorr`` init 0.0), so a routing divergence can only
+    arise from a genuine <1e-6 near-tie between two bases -- exactly the case the opt-in default guards."""
+    K = int(M.shape[1])
+    # corr_by_basis[basis] = (K,) host array of bcorr (max over degrees, degenerate-skipped), init 0.0
+    corr_by_basis: dict = {}
+    for basis in candidate_bases:
+        bcorr = np.zeros(K, dtype=np.float64)
+        cand, meta = _gpu_evaluate_basis_matrix(cp, M, [basis] * K, list(degrees), robust_axis=robust_axis)
+        if cand is not None:
+            ac = cp.asnumpy(_gpu_batched_abs_corr(cp, cand, y_cont))   # (len(meta),)
+            for j, (ci, _b, _d) in enumerate(meta):
+                if ac[j] > bcorr[ci]:
+                    bcorr[ci] = ac[j]
+        corr_by_basis[basis] = bcorr
+    chosen: list = []
+    for ci in range(K):
+        best_corr = -1.0
+        best_basis = None
+        for basis in candidate_bases:        # candidate_bases order -> first basis wins a tie (host parity)
+            bc = float(corr_by_basis[basis][ci])
+            if bc > best_corr:
+                best_corr = bc
+                best_basis = basis
+        chosen.append(best_basis)
+    return chosen
 
 
 def _gpu_apply_prewarp(cp, x, spec):

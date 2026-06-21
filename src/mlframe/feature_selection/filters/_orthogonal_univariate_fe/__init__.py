@@ -599,9 +599,9 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
     # only the heavy per-(col,basis,degree) eval + the MI move to the GPU -- and the eval is BATCHED.
-    used_x: list = []
-    used_bases: list = []
-    used_src: list = []
+    # First pass: apply the cheap host skip rules to pick candidate columns + their operand arrays.
+    cand_cols: list = []
+    cand_x: list = []
     for col in cols:
         if fe_deadline_passed():
             break
@@ -610,18 +610,48 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
             continue
         if not np.isfinite(x).all():
             continue
+        cand_cols.append(col)
+        cand_x.append(np.ascontiguousarray(x))
+    if not cand_x:
+        return None, [], _empty
+    from .._gpu_resident_fe import (
+        _gpu_evaluate_basis_matrix, fe_gpu_routing_enabled, _gpu_route_bases_batched,
+    )
+    # GPU ROUTING (opt-in, default OFF): decide every candidate column's basis on the device at once,
+    # mirroring the per-column host basis_route_by_signal. Falls back to the host router per column on any
+    # GPU failure or where the device router returned None (degenerate). The top-level guards (y usable,
+    # n>=30) match basis_route_by_signal's host fallback conditions, applied once since y/n are shared.
+    _gpu_routed = None
+    if basis == "auto" and y is not None and fe_gpu_routing_enabled():
+        _yc = np.asarray(_ya, dtype=np.float64).ravel()
+        if (_yc.size == cand_x[0].size and cand_x[0].size >= 30
+                and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12):
+            try:
+                _Mr = cp.asarray(np.ascontiguousarray(np.column_stack(cand_x), dtype=np.float64))
+                _gpu_routed = _gpu_route_bases_batched(
+                    cp, _Mr, cp.asarray(_yc), list(_POLY_BASES), tuple(degrees), robust_axis=ra,
+                )
+            except Exception:
+                _gpu_routed = None
+    used_x: list = []
+    used_bases: list = []
+    used_src: list = []
+    for _i, col in enumerate(cand_cols):
+        x = cand_x[_i]
         if basis == "auto":
-            chosen = basis_route_by_signal(x, _ya, degrees=degrees) if y is not None else basis_route_by_moments(x)
+            if _gpu_routed is not None and _gpu_routed[_i] is not None:
+                chosen = _gpu_routed[_i]
+            else:
+                chosen = basis_route_by_signal(x, _ya, degrees=degrees) if y is not None else basis_route_by_moments(x)
         else:
             chosen = basis
         if chosen not in _POLY_BASES:
             continue
-        used_x.append(np.ascontiguousarray(x))
+        used_x.append(x)
         used_bases.append(chosen)
         used_src.append(col)
     if not used_x:
         return None, [], _empty
-    from .._gpu_resident_fe import _gpu_evaluate_basis_matrix
     # ONE H2D of the (n, n_used) operand matrix, then ONE vectorised preprocess+Clenshaw per
     # (basis, robust) group/degree -- no per-column launch overhead (the high-K perf fix).
     M = cp.asarray(np.ascontiguousarray(np.column_stack(used_x), dtype=np.float64))
