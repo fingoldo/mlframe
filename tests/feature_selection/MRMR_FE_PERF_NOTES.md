@@ -533,3 +533,50 @@ binning) so their argsort/reduce/median tail moves to the device. That is select
 surface, and must be ULP-validated against the recovery pins + canonical single_compound before default-on
 -- a dedicated effort, not an orchestration micro-wave. The threshold-conversion queue
 (MRMR_HARDCODED_THRESHOLDS_BENCH.md) is benchmark-gated and needs a QUIET machine (this one is not).
+
+## 2026-06-22 (cont) -- host-path residency scoping: verdict + the ONE specced increment (quiet-machine-gated)
+
+Scoped the three remaining host CPU-tail paths (read-only agent) for GPU residency. Verdict:
+
+* (c) pair-search binning -- ALREADY device-resident (gpu_materialise_discretize_codes_host ->
+  _gpu_resident_discretize_codes, cp.percentile + _searchsorted_codes). Further residency is a DOCUMENTED
+  WASH (float-D2H deferral A/B 160.0 vs 162.6s = 0.98x, the 3rd such wash); the canonical FE fit is
+  COMPUTE-bound, not transfer-bound. Remaining host _quantile_bin in _mi_greedy_cmi_fe is bench-rejected
+  for GPU (0.60x AND tie-splits CMI selection). DO NOT PORT.
+
+* (b) escalation prewarp (_fe_auto_escalation) -- at canonical n the path admits NOTHING (same 8 eligible
+  pairs, 0 proposed; structurally a no-op when every prescreen pair admitted a column). Its cost is
+  lstsq/ALS solves with NO resident twin (would need new cupy ALS, not kernel reuse), and it is the
+  highest selection-risk path (noise-admission flips; author already proved CPU-side it is selection-
+  fragile). DEFER -- not a reuse-existing-kernels increment.
+
+* (a) host basis ROUTING (basis_route_by_signal) -- the actual np.median/corrcoef host tail. It CAN reuse
+  the existing batched kernels (_gpu_evaluate_basis_matrix / _gpu_detect_heavy_tail_batched + a batched
+  centered-dot |corr| vs the resident y) and the operand matrix M is already uploaded by the adjacent
+  basis-MI path. BUT it is strongly SELECTION-BEARING (picks argmax|corr| over 4 bases x 2 degrees -> the
+  chosen basis is baked into the EngineeredRecipe) with HIGH ULP risk: _gpu_evaluate_basis_matrix is
+  parity <1e-6 (NOT bit-identical), and a ~1e-7 perturbation through corrcoef flips the argmax on a
+  near-tie basis -> different recipe -> different feature. Plus the heavy-tail boolean is a hard branch
+  that can flip the whole preprocess on a borderline column.
+
+SPEC for (a) (the queued increment -- do on a QUIET machine with full validation budget):
+  - Gated, OPT-IN env MLFRAME_FE_GPU_ROUTING (default OFF), inside _gpu_build_and_score_univariate
+    (_orthogonal_univariate_fe/__init__.py:571-643): move the M = cp.asarray(column_stack(used_x)) upload
+    BEFORE the routing loop (after the cheap host skip rules pick candidate cols), then replace the
+    per-column host basis_route_by_signal (:614) with a batched device router: for each candidate basis x
+    degree, eval on resident M (reuse _gpu_basis_preprocess_batched + _gpu_detect_heavy_tail_batched +
+    Clenshaw), batched centered-Pearson |corr| vs resident y_continuous, argmax per column. Keep the host
+    basis_route_by_signal as the PER-COLUMN exception fallback (never per-fit abort).
+  - Route block-size/thresholds through pyutilz.system.kernel_tuning_cache (never hardcode GPU params).
+  - Add test_gpu_routing_parity (uniform/gaussian/heavytail/skewed x 4 bases) asserting IDENTICAL chosen
+    basis per column vs the host router. The parity (selection-equivalence) is checkable on ANY machine;
+    only the WALL justification for a default-ON flip needs a quiet box.
+  - Flip to default-ON (opt-OUT, mirroring fe_gpu_resident_basis_mi_enabled) ONLY after an A/B proves
+    selection-EQUIVALENCE on Layer21/22 + canonical single_compound + the full hybrid_orth biz suite +
+    bench_basis_routing AND a measurable wall win (NOT assumed -- the fit is compute-bound + consumer-GPU
+    f64 is 1/32-rate, so a wash/regression is the likely outcome; measure before flipping).
+
+NET STATUS: the SAFE bit-identical orchestration program is complete (waves 3-6, all pushed). The only
+remaining lever (a) is selection-bearing, quiet-machine-gated, and a likely wall WASH on this compute-
+bound fit -- so it is specced + queued rather than force-shipped. (b)/(c) are defer/do-not-port. No safe
+shippable optimization remains on this (non-quiet) machine without risking selection for an unmeasured win.
