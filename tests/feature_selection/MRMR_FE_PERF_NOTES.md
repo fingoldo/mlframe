@@ -383,3 +383,34 @@ Piece 1 with no H2D:
     canonical single_compound, NOT just no-crash (basis MI ranking is selection-bearing).
 This removes argsort+reduce for orth-FE without the 2x H2D. Diminishing returns (~7% of 34s) -- principle
 (99% GPU attribution), per the user's directive.
+
+## 2026-06-21 (cont) -- matrix-native MI Piece 1+2 SHIPPED; Piece 3 wiring plan
+
+Tail-cut + matrix-native progress (all committed, green):
+  * np.median tail -28% (1086->786) via fit-once hoists in generate_univariate_basis_features +
+    basis_route_by_signal (z depends on (x,basis) not degree) -- BYTE-IDENTICAL (0d068e87, 647b09f4).
+  * Piece 1 (db5e80e9): _plugin_mi_classif_batch_cuda_resident -- H2D-free plug-in MI on resident cupy
+    (bit-identical to host-input variant, unit-tested).
+  * Piece 2 (dbc6e1b0): _gpu_evaluate_basis_column -- orth-FE basis candidates built ON device (cupy
+    robust-axis preprocess + Clenshaw); parity to host <1e-6 across 4 bases x 4 distributions (16 passed).
+    FIXED a latent bug: R1 _lag_clenshaw_gpu Laguerre recurrence was wrong (L_2(0)=-0.5 vs 1), never
+    pinned (canonical prewarp = chebyshev); rewrote to the forward recurrence matching _lagval_njit.
+
+PIECE 3 (remaining wiring -- SELECTION-BEARING, needs full validation before default-on):
+  hybrid_orth_mi_fe / score_features_by_mi_uplift currently: generate_univariate_basis_features (host
+  numpy candidate matrix) -> _mi_classif_batch (njit -> the argsort/reduce tail). Matrix-native:
+    1. build the candidate matrix on device: for each (col, chosen_basis, degree) call
+       _gpu_evaluate_basis_column(cp, x_dev, basis, degree, robust_axis=_robust_axis_enabled()) into a
+       resident (n_sub, K) cupy matrix (operands already resident from R0/R1; one upload of the subsample
+       columns at most). Build raw_X columns on device too (identity, no basis).
+    2. score eng_mi + raw_mi via _plugin_mi_classif_batch_cuda_resident (Piece 1) -- NO per-call H2D.
+    3. assemble the scores DataFrame + two-gate selection UNCHANGED; D2H only the winning columns (or
+       rebuild via recipe) for X_aug.
+  RISK: the GPU plug-in MI uses equi-frequency percentile-edge binning vs the njit RANK binning -- an
+  approved not-bit-identical trade for the FE pair-search (Spearman 1.0, argmax match) but the orth-FE
+  BASIS choice (which basis/degree wins) rides on this ranking, so a tie-cluster reorder could flip a
+  basis. GATE behind MLFRAME_FE_GPU_RESIDENT_BASIS_MI (default off), and VALIDATE before flipping:
+  test_layer2x orth-basis RECOVERY pins + canonical single_compound + the biz-value hybrid_orth suite
+  (the 42-min group) must be selection-equivalent. Only then default-on.
+  Expected: removes the orth-FE argsort/reduce (~1.7s) + the residual robust median from the tail ->
+  closes most of the gap to 99% GPU-attribution. ~7% of a 34s fit (principle, per the directive).
