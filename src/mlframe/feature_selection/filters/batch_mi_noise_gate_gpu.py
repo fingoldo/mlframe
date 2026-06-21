@@ -660,6 +660,10 @@ def _cuda_hist_kernel_batched_factory():
 
     @_nb_cuda.jit
     def _kernel_b(disc_2d, col_offsets, y_all, counts_flat, n, K_y, total_size):
+        # bench-attempt-rejected (2026-06-21): column-major (K,n) coalescing of this batched hist was
+        # 0.79-1.05x (LOSS) -- the host transpose-copy cost outweighs any coalescing gain and the kernel
+        # is not actually bandwidth-coalescing-bound here (consistent with the radix/noise-gate coalescing
+        # washes). Kept row-major (n, K).
         k = _nb_cuda.blockIdx.x
         p = _nb_cuda.blockIdx.y
         if k >= disc_2d.shape[1]:
@@ -732,7 +736,12 @@ def batch_mi_with_noise_gate_cuda_resident(
         shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm)
         y_all[1:, :] = shuf.astype(np.int32)
 
-    d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=np.int32))
+    # H2D the codes in their NATIVE narrow dtype (int8/int16 -- the bins are < 256/65536) instead of
+    # up-casting to int32: nvprof showed the resident gate's wall is dominated by this (n, K) codes H2D,
+    # not the (microsecond) kernels, so a 4x-smaller int8 transfer is the real lever. The hist kernel
+    # reads disc_2d[r, k] as an index either way (numba compiles a per-dtype variant); counts unchanged.
+    _disc_dt = disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int32
+    d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=_disc_dt))
     d_off = _nb_cuda.to_device(np.ascontiguousarray(offsets[:K], dtype=np.int64))
     d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins_arr, dtype=np.int32))
     d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
