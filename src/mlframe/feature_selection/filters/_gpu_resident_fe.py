@@ -1450,7 +1450,11 @@ def _searchsorted_codes(cand_gpu, interior_edges):
 
     n, K = cand_gpu.shape
     try:
-        cand_c = cp.ascontiguousarray(cand_gpu)
+        # cand_gpu is already C-contiguous f32 on the production path (RawKernel cp.empty output / cp.asarray
+        # of a C-contiguous host slice); cp.ascontiguousarray would still alloc+copy the whole (n,K) matrix
+        # (the nvprof cupy_copy__float32_float32 hotspot, 19.7%). The kernel only needs C-order memory -> reuse
+        # the buffer when already contiguous (bit-identical bytes); a strided view still gets the safety copy.
+        cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
         edges_c = cp.ascontiguousarray(interior_edges, dtype=cp.float64)  # edges f64 (match cp.searchsorted promotion)
         ne = int(edges_c.shape[0])
         out = cp.empty((n, K), dtype=cp.int32)
@@ -1507,7 +1511,11 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
     # device limit); any kernel exception also falls back. cp.percentile's interior edges are bin_edges[1:-1].
     if fe_gpu_radix_edges_enabled() and n > 0:
         try:
-            interior = _radix_select_interior_edges(cp.ascontiguousarray(cand_gpu), int(nbins))
+            # Already C-contiguous here (see _searchsorted_codes note); _radix_select_interior_edges does its
+            # OWN coalescing transpose internally and only needs C-order input, so skip the redundant full
+            # (n,K) f32 copy when contiguous (bit-identical edges -> codes). The KEEP transpose stays inside it.
+            _cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
+            interior = _radix_select_interior_edges(_cand_c, int(nbins))
         except Exception:
             import logging
             logging.getLogger(__name__).debug("radix-select edges failed; cp.percentile fallback", exc_info=True)
