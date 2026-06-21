@@ -504,3 +504,32 @@ other resident-kernel singletons in _gpu_resident_fe. Net effect: the per-chunk-
 list-comp churn that fed the cupy._core.core.array bucket is now done once-per-fit-invariant-key (<=2-3
 H2D total for the radix/linspace vectors; one per distinct block for the combo trio) instead of once per
 chunk per pair. Targets the documented top CPU bucket without touching the near-peak kernels.
+
+## 2026-06-22 (cont) -- wave 6: last per-column launch loop fused; orchestration levers EXHAUSTED
+
+Wave 6 (f9682869):
+  * _plugin_mi_classif_batch_cuda_resident: the per-column cp.searchsorted binning loop (k-1 extra launches
+    + k int64 temps/chunk) -> the already-validated fused _searchsorted_codes kernel (1 launch). This was
+    the ONE resident path that never got the fused-kernel treatment the codes path got. Bit-identical
+    (code = #(interior edges <= value) == searchsorted side='right', f64-promoted; own per-column fallback).
+    Selection-bearing (default-on orth-FE basis-MI scoring) -> validated vs resident-MI maxdiff-0, the full
+    cuda-vs-njit equivalence matrix, 11 FE selection-equiv pins, 16 basis parity (60 passed).
+  * _radix_select_interior_edges: gate the 2 .astype(f64) edge-gather casts on dtype (no-op copies on the
+    f64 path: 2 alloc+cast launches/chunk removed; f32 path unchanged).
+
+EXHAUSTION VERDICT (two independent read-only audit agents, 2026-06-22): the SAFE bit-identical
+launch/sync/alloc orchestration levers are now done. Confirmed already-implemented (NOT missed wins):
+fused bin-codes kernel, fused-gen one-launch/chunk, radix-select one-launch/chunk, resident-codes +
+deferred/pinned D2H, the [min,max] y-stack batching the two .item() syncs, the fit-invariant interp/
+qlevel/combo-idx device caches (waves 4-5), and the now-fused resident-MI searchsorted (wave 6). No
+remaining per-loop scalar sync to hoist, no safe cp.fuse opportunity (the MI math is cp.where + reductions
++ broadcasting), no unguarded redundant .astype. nvprof already shows the kernels at peak (radix 98% occ,
+99.6% gld). The dominant cost is genuine binning/MI compute running optimally + the inherent CPU
+orchestration between launches.
+
+REMAINING (NOT a safe bit-identical win -- do NOT re-grind orchestration): the only larger lever is the
+matrix-native residency of the OTHER paths (host basis ROUTING eval, escalation prewarp, pair-search
+binning) so their argsort/reduce/median tail moves to the device. That is selection-bearing, a much larger
+surface, and must be ULP-validated against the recovery pins + canonical single_compound before default-on
+-- a dedicated effort, not an orchestration micro-wave. The threshold-conversion queue
+(MRMR_HARDCODED_THRESHOLDS_BENCH.md) is benchmark-gated and needs a QUIET machine (this one is not).
