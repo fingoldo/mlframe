@@ -994,6 +994,19 @@ def fe_gpu_grand_fusion_enabled() -> bool:
 
 
 _COMBO_IDX_CACHE: dict = {}  # block-tuple -> (ua_idx, ub_idx, bop) device int32; module-level -> pickle-safe
+_QLEVELS_CACHE: dict = {}    # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) device vector; read-only, shared
+
+
+def _quantile_levels_dev(cp, nbins: int, work):
+    """Cached cp.linspace(0,100,nbins+1, dtype=work) percentile-level vector (depends only on (nbins, work),
+    rebuilt every chunk otherwise). Read-only -- cp.percentile never mutates it -- so sharing is safe and
+    the returned array is byte-identical to the inline linspace (deterministic in its args)."""
+    key = (int(nbins), work)
+    hit = _QLEVELS_CACHE.get(key)
+    if hit is None:
+        hit = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
+        _QLEVELS_CACHE[key] = hit
+    return hit
 
 
 def _fused_generate_block(ua_cm, ub_cm, combos_block):
@@ -1562,7 +1575,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
         if interior is not None:
             return _searchsorted_codes(cand_gpu, interior)
 
-    qs = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
+    qs = _quantile_levels_dev(cp, nbins, work)
     if K == 1:
         # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array
         # (verified maxdiff ~23 vs numpy; multi-column is exact). A K==1 chunk occurs whenever the last
@@ -2328,9 +2341,17 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
 
     n = int(ua_cm.shape[1])
     K = int(len(block))
-    ua_idx = cp.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=cp.int32)
-    ub_idx = cp.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=cp.int32)
-    bop = cp.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=cp.int32)
+    # Same fit-invariant index trio as _fused_generate_block (block is a slice of the module constant
+    # _COMBOS); reuse the shared cache to drop the per-chunk-per-pair list-comps + tiny H2D.
+    _ck = tuple(block)
+    _cc = _COMBO_IDX_CACHE.get(_ck)
+    if _cc is None:
+        ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=np.int32))
+        ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=np.int32))
+        bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=np.int32))
+        _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
+    else:
+        ua_idx, ub_idx, bop = _cc
     col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
     P1 = int(y_all_dev.shape[0])
     counts = cp.zeros((P1, int(total_size)), dtype=cp.int64)
@@ -2413,7 +2434,7 @@ def grand_fused_pair_mi_fused(
     # to the non-fused grand-fusion path; MLFRAME_FE_GPU_BINNING_DTYPE=float32 forces f32 percentile).
     forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
     work = cp.float32 if forced in ("float32", "f32", "single") else cp.float64
-    qs = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
+    qs = _quantile_levels_dev(cp, nbins, work)
 
     k_chunk = _gpu_k_chunk(n)
     original_mi_parts: list[np.ndarray] = []
