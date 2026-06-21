@@ -325,3 +325,33 @@ residency port (the ORIGINAL main task), to resume after the subsample cleanup.
 SEED/STRATIFY note (still open): the inline univariate/extra-basis + the wrapper use plain rng.choice;
 the pair-search uses _fe_subsample.stratified_subsample_idx. Unify onto one shared stratified helper so
 every family decides on the IDENTICAL rows.
+
+## 2026-06-21 (cont) -- post-subsample cProfile: GPU-dominated; remaining CPU is a scattered long tail
+
+After orth-FE is ON by default + hybrid/escalation DECISIONS subsample (commits d76929d9 / 851e9efd),
+cProfile @ canonical 100k (warm, ~52s) is GPU-dominated and ALL orth-FE njit kernels (_detect_fourier,
+_coarse_basis, _power_centered, _plugin_mi_classif_batch_njit) are off the top:
+  GPU-calling : cupy._core.array 5.8s + numba-cuda safe_cuda_api 3.6s + cupy.astype 1.0s (~10.4s)
+  numba exec  : llvmlite ffi 4.3s (MIXED -- njit + numba-cuda kernel LAUNCHES)
+  CPU (real tottime via pstats.print_callers, NOT cumtime/dispatch):
+    np.median  ~0.6s  <- hermite_fe/_hermite_robust.py:172 (+ :193 _robust_scale MAD), x1020 calls:
+                         the robust heavy-tail axis detection during prewarp/orth-basis fitting.
+    argsort    ~0.35s <- plugin-MI quantile binning (np.argsort).
+    ufunc.reduce ~1.4s <- scattered numpy sums/means in the MI / stats math.
+So the remaining clear CPU is ~2.4s of ~52s (~5%), small + scattered -- NOT a single binnable hotspot.
+
+REJECTED (bench-attempt, 2026-06-21): forcing the orth-FE MI backend to GPU (MLFRAME_MI_BACKEND=cuda)
+to push attribution onto the device -> WALL 52s -> 105s (2x SLOWER, the per-call H2D penalty the
+dispatcher's ground-truth note already records) AND the partition/sort/argsort DID NOT drop (they are
+np.median / plugin-argsort, not the _mi_classif_batch binning). So the naive route-to-GPU is wrong on
+BOTH wall and attribution -- confirms (again) that the only profitable GPU path here is RESIDENT
+candidates (matrix-native), not backend-switching.
+
+PATH TO LITERAL 99% GPU-attribution (long tail, each H2D-risky / fine-grained):
+  * batch the per-column robust heavy-tail stats (np.median/MAD over the candidate matrix in ONE pass,
+    optionally on GPU) instead of 1020 per-column calls;
+  * GPU-resident plug-in-MI binning (the matrix-native rewrite -- candidates built + binned + scored on
+    device, the only thing that removes the argsort/reduce without the 2x H2D regression);
+  * the remaining numba `llvmlite` time is partly GPU kernel launches (counts as GPU) -- isolate the njit
+    vs cuda-launch split before claiming the residual.
+The BIG win (orth-FE CPU eliminated from the hot path via subsampling) is DONE; literal 99% is this tail.
