@@ -230,6 +230,28 @@ def _batch_mi_with_noise_gate_gpu(
     below -- so the GPU and CPU shuffle streams (and thus the noise-gate rejection)
     are identical to the bit.
     """
+    # FULL-GPU-RESIDENT gate (2026-06-21): once the cache has chosen GPU for this size, run the WHOLE
+    # noise gate on-device (batched histogram + GPU entropy, only the (P,K) MI matrix D2H) -- bit-
+    # identical to the GPU-hist+CPU-entropy path (verified maxdiff ~1e-18, FE pins green) and ~1.14x
+    # faster at the canonical K. SU has no GPU-entropy form -> use the standard path. Any failure falls
+    # through. Opt-out: MLFRAME_FE_GPU_RESIDENT_GATE=0.
+    if not bool(use_su) and os.environ.get("MLFRAME_FE_GPU_RESIDENT_GATE", "1").strip().lower() not in ("0", "false", "no", "off"):
+        try:
+            from ..batch_mi_noise_gate_gpu import batch_mi_with_noise_gate_cuda_resident, _CUDA_AVAIL as _CA
+            # Use the resident CUDA gate whenever GPU is chosen -- INCLUDING when the cache/fallback said
+            # "cupy": the cupy noise gate OOMs on a 4 GB consumer GPU (its (rows, n*K) tiled buffer), which
+            # silently falls back to the CPU njit gate (~3x slower); the resident CUDA path is bit-
+            # identical, never builds that buffer, and doesn't OOM. The cache's backend pick is GPU-vs-CPU;
+            # the GPU SUB-backend is ours to choose, and resident-cuda dominates cupy here.
+            if _CA:
+                return batch_mi_with_noise_gate_cuda_resident(
+                    disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
+                    classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=int(npermutations),
+                    base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
+                    use_su=False,
+                )
+        except Exception as _exc:
+            _module_logger.debug("resident gate failed (%s: %s); standard GPU path", type(_exc).__name__, _exc)
     try:
         from ..batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
     except Exception:

@@ -216,6 +216,64 @@ def _fisher_yates_shuffle(classes_y_safe: np.ndarray, base_seed: np.uint64, perm
     return local
 
 
+_CUDA_MI_KERNEL: Any = None
+
+
+def _cuda_mi_from_counts_kernel_factory():
+    """numba.cuda kernel: MI of every (column k, y-vector p) from the integer joint histograms, ON the
+    GPU -- one thread per (k, p). Reproduces ``_mi_from_counts_cpu`` (use_su=False) reduction order
+    EXACTLY (prob_x = fx/n int/int division; jf = jc/n; mi += jf*log(jf/(prob_x*prob_y))), so the result
+    matches the CPU entropy to fp round-off (selection-equivalent -- the FE perf bar). This is the last
+    CPU step of the noise gate; keeping it on-device lets the whole (orig + perms) gate run from resident
+    counts with only the small (P, K) MI matrix coming back. ``ref_mi`` masks perm columns whose original
+    MI is <= 0 (exactly the CPU loop's perm-skip)."""
+    if not _CUDA_AVAIL:
+        return None
+
+    @_nb_cuda.jit
+    def _kernel(
+        counts_flat,   # (P*total_size,) int64 -- per-(p) per-column joint histograms
+        col_offsets,   # (K,) int64
+        nbins_col,     # (K,) int32
+        freqs_y,       # (K_y,) float64
+        n,
+        K_y,
+        ref_mi,        # (K,) float64 -- original_mi; perm columns with ref_mi<=0 are skipped (-> 0)
+        total_size,
+        P,
+        out_mi,        # (P, K) float64 output
+    ):
+        K = nbins_col.shape[0]
+        tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
+        if tid >= K * P:
+            return
+        p = tid // K
+        k = tid - p * K
+        if p > 0 and ref_mi[k] <= 0.0:
+            out_mi[p, k] = 0.0
+            return
+        nb_k = nbins_col[k]
+        off = col_offsets[k] + p * total_size
+        inv_n = 1.0 / n
+        mi = 0.0
+        for i in range(nb_k):
+            base = off + i * K_y
+            fx = 0
+            for j in range(K_y):
+                fx += counts_flat[base + j]
+            if fx == 0:
+                continue
+            prob_x = fx / n
+            for j in range(K_y):
+                jc = counts_flat[base + j]
+                if jc != 0:
+                    jf = jc * inv_n
+                    mi += jf * math.log(jf / (prob_x * freqs_y[j]))
+        out_mi[p, k] = mi
+
+    return _kernel
+
+
 def _gate_from_mi(
     original_mi: np.ndarray,
     perm_mis: list,          # list of (K,) float64 arrays, one per permutation
@@ -592,7 +650,118 @@ def _cuda_hist_kernel_factory():
     return _kernel
 
 
+def _cuda_hist_kernel_batched_factory():
+    """Batched joint-histogram kernel: ALL P=(npermutations+1) y-vectors in ONE launch. grid (K, P);
+    block (k, p) bins column k against y_all[p] into counts_flat[p*total_size + off_k ...]. Lets the whole
+    noise gate run from resident counts (paired with the GPU MI kernel) so only the (P, K) MI matrix
+    leaves the device. Counts are integer + commutative -> identical to the per-perm kernel."""
+    if not _CUDA_AVAIL:
+        return None
+
+    @_nb_cuda.jit
+    def _kernel_b(disc_2d, col_offsets, y_all, counts_flat, n, K_y, total_size):
+        k = _nb_cuda.blockIdx.x
+        p = _nb_cuda.blockIdx.y
+        if k >= disc_2d.shape[1]:
+            return
+        off = col_offsets[k] + p * total_size
+        tid = _nb_cuda.threadIdx.x
+        nthreads = _nb_cuda.blockDim.x
+        for r in range(tid, n, nthreads):
+            cx = disc_2d[r, k]
+            cy = y_all[p, r]
+            _nb_cuda.atomic.add(counts_flat, off + cx * K_y + cy, 1)
+
+    return _kernel_b
+
+
 _CUDA_HIST_KERNEL: Any = None
+_CUDA_HIST_KERNEL_BATCHED: Any = None
+
+
+def batch_mi_with_noise_gate_cuda_resident(
+    disc_2d: np.ndarray,
+    factors_nbins: np.ndarray,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    base_seed: np.uint64,
+    min_nonzero_confidence: float,
+    use_su: bool,
+    dtype: type = np.int32,
+    threads_per_block: int = 128,
+) -> np.ndarray:
+    """FULL-GPU-RESIDENT noise gate: batched histogram (all perms, one launch) -> GPU MI kernel -> only
+    the (P, K) MI matrix D2H -> host gate decision. The entire permutation noise gate runs on the device
+    from resident counts (no per-perm counts D2H, no CPU entropy). Selection-equivalent to
+    ``batch_mi_with_noise_gate_cuda`` (same perm gate; GPU MI reproduces the CPU reduction order to fp
+    round-off). ``use_su`` has no GPU entropy form here -> delegates to the CPU-entropy cuda path."""
+    if use_su:
+        return batch_mi_with_noise_gate_cuda(
+            disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
+            base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block,
+        )
+    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_MI_KERNEL
+    if not _CUDA_AVAIL:
+        raise RuntimeError("numba.cuda is not available on this host")
+    if _CUDA_HIST_KERNEL_BATCHED is None:
+        _CUDA_HIST_KERNEL_BATCHED = _cuda_hist_kernel_batched_factory()
+    if _CUDA_MI_KERNEL is None:
+        _CUDA_MI_KERNEL = _cuda_mi_from_counts_kernel_factory()
+    if _CUDA_HIST_KERNEL_BATCHED is None or _CUDA_MI_KERNEL is None:
+        raise RuntimeError("numba.cuda kernel factory failed to build")
+
+    n = int(disc_2d.shape[0])
+    K = int(disc_2d.shape[1])
+    fe_mi = np.zeros(K, dtype=np.float64)
+    if K == 0 or n == 0:
+        return fe_mi
+    K_y = int(freqs_y.shape[0])
+    nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
+    per_col_size = nbins_arr * K_y
+    offsets = np.zeros(K + 1, dtype=np.int64)
+    offsets[1:] = np.cumsum(per_col_size)
+    total_size = int(offsets[K])
+    nperm = int(npermutations) if npermutations and npermutations > 0 else 0
+    P = nperm + 1
+
+    y_all = np.empty((P, n), dtype=np.int32)
+    y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
+    if nperm > 0:
+        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm)
+        y_all[1:, :] = shuf.astype(np.int32)
+
+    d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=np.int32))
+    d_off = _nb_cuda.to_device(np.ascontiguousarray(offsets[:K], dtype=np.int64))
+    d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins_arr, dtype=np.int32))
+    d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
+    d_freq = _nb_cuda.to_device(np.ascontiguousarray(freqs_y, dtype=np.float64))
+    d_counts = _nb_cuda.device_array(P * total_size, dtype=np.int64)
+    d_counts[:] = 0
+    d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))  # compute every (k,p); host applies the gate
+    d_out = _nb_cuda.device_array((P, K), dtype=np.float64)
+
+    import warnings as _warnings
+    try:
+        from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
+    except Exception:
+        _NbPerfWarn = None
+    with _warnings.catch_warnings():
+        if _NbPerfWarn is not None:
+            _warnings.simplefilter("ignore", _NbPerfWarn)
+        _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)
+        _tot = K * P
+        _blocks = (_tot + threads_per_block - 1) // threads_per_block
+        _CUDA_MI_KERNEL[_blocks, threads_per_block](
+            d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out,
+        )
+    out_mi = d_out.copy_to_host()  # (P, K) -- the only sizeable D2H
+    original_mi = out_mi[0]
+    if nperm <= 0:
+        return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
+    perm_mis = [out_mi[i] for i in range(1, P)]
+    return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
 
 
 def batch_mi_with_noise_gate_cuda(
