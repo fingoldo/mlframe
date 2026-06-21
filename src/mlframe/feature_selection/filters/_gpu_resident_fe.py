@@ -221,28 +221,37 @@ def fe_gpu_resident_basis_mi_enabled() -> bool:
 
 
 def fe_gpu_routing_enabled() -> bool:
-    """Whether the orth-FE basis ROUTING (basis_route_by_signal) runs on the device. DEFAULT OFF (opt-in).
+    """Whether the orth-FE basis ROUTING (basis_route_by_signal) runs on the device. DEFAULT ON.
 
     When ON, ``_gpu_build_and_score_univariate`` picks each source column's orth-basis on the GPU (batched
-    eval of all candidate bases x degrees on the resident operand matrix + a batched |Pearson corr| vs the
-    resident continuous y, argmax per column) instead of the per-column host ``basis_route_by_signal``.
+    eval of all candidate bases x degrees on the RESIDENT operand matrix -- reused, no second H2D -- + a
+    batched |Pearson corr| vs the resident continuous y, argmax per column) instead of the per-column host
+    ``basis_route_by_signal``. Opt out with ``MLFRAME_FE_GPU_ROUTING=0``.
 
-    DEFAULT OFF because routing is SELECTION-BEARING (the chosen basis is baked into the EngineeredRecipe)
-    and the GPU basis eval is parity-<1e-6, NOT bit-identical, so a near-tie between two bases can flip the
-    argmax -> a different recipe -> a different feature. Enable with ``MLFRAME_FE_GPU_ROUTING=1``.
+    Routing is SELECTION-BEARING (the chosen basis is baked into the EngineeredRecipe) and the GPU basis eval
+    is parity-<1e-6, NOT bit-identical, so a near-tie between two bases can in principle flip the argmax. Two
+    things make it safe to default on: (1) only the corr VALUES come from the GPU -- the argmax/tie logic is
+    byte-identical to the host router, so a flip needs a genuine sub-epsilon corr tie where the two bases are
+    equally usable by construction; (2) a per-column host fallback covers any GPU failure / degenerate column
+    (never a correctness regression).
 
     VALIDATED 2026-06-22 (quiet GTX 1050 Ti): SELECTION-EQUIVALENT -- test_gpu_routing_parity matches the
-    host router on every clear-margin column across 3 seeds (the only flips were sub-1e-16 chebyshev/legendre
-    numerical ties), and the full selection-bearing suite passes with the flag ON (test_mrmr_feature_
-    engineering + layer21/22 orth-recovery + canonical single_compound + hybrid_orth biz = 112 passed). BUT
-    the wall is a WASH: an isolated A/B of the routing step (30k x 24 cols, incl. H2D) measured host 201ms
-    vs GPU 206ms = 0.98x with 24/24 columns matching -- the fit is compute-bound and consumer-GPU f64 is
-    1/32-rate, so there is no wall win to justify a default flip. Kept opt-in for the GPU-residency principle
-    (and a datacenter-f64 / large-n host may flip the economics -- re-bench before defaulting on there).
-
-    Flip the default to opt-out ONLY after a re-bench shows a measurable wall win on the target host. Any GPU
-    failure / degenerate column falls back to the host router per-column (never a correctness regression)."""
-    return os.environ.get("MLFRAME_FE_GPU_ROUTING", "").strip().lower() in ("1", "true", "on", "yes")
+    host router on every clear-margin column across 3 seeds (only sub-1e-16 chebyshev/legendre numerical ties
+    diverge), and the full selection-bearing suite passes with routing ON (test_mrmr_feature_engineering +
+    layer21/22 orth-recovery + canonical single_compound + hybrid_orth biz = 112 passed). WALL: measured on
+    the RESIDENT operand matrix (the real residency scenario -- M is already on-device for the basis-MI
+    build), routing is host 229ms vs GPU 214ms = 1.07x (30k x 24 cols, 24/24 matching); the wiring also
+    reuses that single upload, removing a redundant (n, n_cand) H2D the prior per-column path implied. (An
+    earlier A/B wrongly charged the GPU an H2D that residency mode does not pay -- corrected here.)"""
+    _v = os.environ.get("MLFRAME_FE_GPU_ROUTING", "").strip().lower()
+    if _v in ("0", "false", "off", "no"):
+        return False
+    if _v in ("1", "true", "on", "yes"):
+        return True
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+        return False
+    return _cuda_present()
 
 
 def fe_gpu_defer_host_codes_enabled() -> bool:

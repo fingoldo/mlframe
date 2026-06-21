@@ -608,3 +608,18 @@ datacenter-f64 / large-n host flips the economics (re-bench before defaulting on
 default-on because GATE 2 (measurable wall win) is unmet -- host routing stays the fastest default. This
 closes the host-path residency program: (a) routing done+validated+opt-in, (b) escalation deferred (no-op
 at canonical n), (c) pair-binning already resident. No further FE residency lever remains that wins wall.
+
+## 2026-06-22 (cont) -- CORRECTION: GPU routing benchmark was unfair (charged H2D) -> default-ON
+
+The prior entry's "wall WASH 0.98x" A/B was METHODOLOGICALLY WRONG: it included a cp.asarray H2D of the
+operand matrix in the GPU timing, but in residency mode M is ALREADY on the device (uploaded once for the
+basis-MI build) -- routing must reuse it, not re-upload. Re-measured with M PRE-RESIDENT (the real
+scenario): host 229ms vs GPU 214ms = 1.07x (30k x 24 cols, 24/24 cols matching). Not a wash.
+
+Also fixed the WIRING: _gpu_build_and_score_univariate uploaded the operand matrix TWICE (once for routing
+cand cols, once for the used cols' basis-MI build). Now it uploads ONCE and the basis-MI build reuses the
+resident matrix by device slice (M = _Mr[:, used_idx]) -- removing a redundant (n, n_cand) H2D per fit.
+
+Given selection-equivalence (re-validated after the slicing change: 14 passed) + the corrected 1.07x +
+the removed redundant upload + the GPU-residency principle, MLFRAME_FE_GPU_ROUTING is flipped to DEFAULT
+ON (opt-out via =0), mirroring fe_gpu_resident_basis_mi_enabled. Per-column host fallback retained.

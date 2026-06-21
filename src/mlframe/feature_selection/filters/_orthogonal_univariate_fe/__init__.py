@@ -622,6 +622,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # GPU failure or where the device router returned None (degenerate). The top-level guards (y usable,
     # n>=30) match basis_route_by_signal's host fallback conditions, applied once since y/n are shared.
     _gpu_routed = None
+    _Mr = None  # resident (n, n_cand) operand matrix uploaded ONCE for routing, reused for the basis-MI build
     if basis == "auto" and y is not None and fe_gpu_routing_enabled():
         _yc = np.asarray(_ya, dtype=np.float64).ravel()
         if (_yc.size == cand_x[0].size and cand_x[0].size >= 30
@@ -633,9 +634,11 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
                 )
             except Exception:
                 _gpu_routed = None
+                _Mr = None
     used_x: list = []
     used_bases: list = []
     used_src: list = []
+    used_idx: list = []   # index into cand_x of each survivor, so a resident _Mr can be reused by slice
     for _i, col in enumerate(cand_cols):
         x = cand_x[_i]
         if basis == "auto":
@@ -650,11 +653,16 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         used_x.append(x)
         used_bases.append(chosen)
         used_src.append(col)
+        used_idx.append(_i)
     if not used_x:
         return None, [], _empty
-    # ONE H2D of the (n, n_used) operand matrix, then ONE vectorised preprocess+Clenshaw per
-    # (basis, robust) group/degree -- no per-column launch overhead (the high-K perf fix).
-    M = cp.asarray(np.ascontiguousarray(np.column_stack(used_x), dtype=np.float64))
+    # ONE H2D of the (n, n_used) operand matrix, then ONE vectorised preprocess+Clenshaw per (basis, robust)
+    # group/degree. When GPU routing already uploaded the candidate matrix, REUSE it (device slice, no second
+    # H2D) -- in residency mode the operands are already on the GPU; re-uploading would be a redundant copy.
+    if _Mr is not None:
+        M = _Mr if used_idx == list(range(_Mr.shape[1])) else _Mr[:, used_idx]
+    else:
+        M = cp.asarray(np.ascontiguousarray(np.column_stack(used_x), dtype=np.float64))
     eng_mat, meta = _gpu_evaluate_basis_matrix(cp, M, used_bases, list(degrees), robust_axis=ra)
     if eng_mat is None:
         return None, [], _empty
