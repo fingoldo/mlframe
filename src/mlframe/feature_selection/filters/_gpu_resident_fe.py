@@ -1032,17 +1032,30 @@ _GPU_MI_WORKING_MULTIPLE = 5
 _GPU_RESIDENT_MIN_N = 50_000
 
 
-def _gpu_k_chunk(n: int, *, free_bytes: int | None = None) -> int:
-    """Max candidate columns to materialise+score in ONE on-device batch so the cupy MI working set
-    stays within a fraction of free VRAM -- bounds peak GPU memory the same way the CPU RAM governor
-    bounds host memory, removing the large-n cliff."""
+def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
+                 bytes_per_elem: int = 8, working_multiple: int | None = None,
+                 max_cols: int | None = None) -> int:
+    """Max candidate columns to materialise+score in ONE on-device batch so the working set stays within
+    a fraction of free VRAM -- bounds peak GPU memory like the CPU RAM governor, removing the large-n cliff.
+
+    ``bytes_per_elem`` / ``working_multiple`` describe the per-column resident footprint of the CALLER's
+    path. The defaults (8 bytes x ``_GPU_MI_WORKING_MULTIPLE``) match the f64 MI PROTOTYPE
+    (gpu_resident_pair_candidate_mi: cand f64 + argsort/X_binned/flat int64 coexisting). The production
+    CODES path (gpu_materialise_discretize_codes_host / gpu_discretize_codes_host) only keeps f32 cand +
+    f32 transpose + int32 codes + narrow out alive (~4 bytes x ~4), so passing bytes_per_elem=4 +
+    a small working_multiple gives it a ~3x WIDER sub-chunk = ~3x FEWER radix/bin/materialise launches
+    (the launch+sync+GPU-idle overhead that dominates wall) -- still VRAM-governed by the same 0.25*free
+    fraction, and per-column-independent so the codes are bit-identical regardless of chunk boundaries.
+    ``max_cols`` caps to the caller's column count (defaults to len(_COMBOS))."""
     import cupy as cp
 
     if free_bytes is None:
         free_bytes, _ = cp.cuda.runtime.memGetInfo()
     budget = max(1, int(free_bytes * 0.25))
-    per_col = max(1, int(n) * 8 * _GPU_MI_WORKING_MULTIPLE)
-    return int(min(len(_COMBOS), max(1, budget // per_col)))
+    wm = _GPU_MI_WORKING_MULTIPLE if working_multiple is None else int(working_multiple)
+    per_col = max(1, int(n) * int(bytes_per_elem) * wm)
+    cap = len(_COMBOS) if max_cols is None else int(max_cols)
+    return int(min(cap, max(1, budget // per_col)))
 
 
 def _build_candidate_matrix(xp, a, b):
@@ -1901,7 +1914,12 @@ def gpu_materialise_discretize_codes_host(
     # (n, K) codes D2H (the canonical fit's single largest D2H) whenever the resident gate consumes the
     # device codes. Needs dev_codes (the resident copy) to fill from, so it is only active with it.
     _defer_host_codes = bool(dev_codes is not None and fe_gpu_defer_host_codes_enabled())
-    k_chunk = _gpu_k_chunk(n)
+    # CODES path footprint is f32 (cand + transpose + int32 codes + narrow out), ~4B x ~4 working copies --
+    # NOT the f64 MI prototype's 8x5. Budget for that so the VRAM sub-chunk is ~3x wider -> ~3x fewer
+    # radix/bin/materialise launches (cuts the launch+sync+GPU-idle overhead). working_multiple=6 keeps a
+    # safe margin over the honest ~4 on the 4GB card; still 0.25*free VRAM-governed; per-column-independent
+    # so codes are bit-identical regardless of chunk boundary.
+    k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
     for start in range(0, K, k_chunk):
         stop = min(start + k_chunk, K)
         cand = _fe_materialise_block_gpu(
@@ -1990,7 +2008,9 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
     # tests -- read the return directly, not through the dispatch's ensure_host_codes_filled), and at the
     # canonical fit it is OFF the hot path (the fused gpu_materialise_discretize_codes_host leg, which DOES
     # defer, produces ~all the codes D2H). Keeping it eager keeps the contract intact for ~0 measured cost.
-    k_chunk = _gpu_k_chunk(n)
+    # f32 codes-path footprint (see gpu_materialise_discretize_codes_host) -> wider VRAM sub-chunk, ~3x
+    # fewer bin/edge launches; per-column-independent -> bit-identical codes.
+    k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
     for start in range(0, K, k_chunk):
         block = cand[:, start:start + k_chunk]
         stop = start + block.shape[1]
