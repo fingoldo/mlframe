@@ -56,12 +56,28 @@ def _dispatch_batch_mi_with_noise_gate(
     # stale entry can never satisfy a later dispatch; non-resident branches just ignore it and read host
     # ``disc_2d``. ``device_codes`` is None unless the gate is on AND the producer stashed a match.
     device_codes = None
+    _ensure_host = None  # callable: materialise the (deferred) host codes into disc_2d, idempotent
     try:
-        from .._gpu_resident_fe import fe_gpu_resident_codes_enabled, take_resident_codes
+        from .._gpu_resident_fe import (
+            fe_gpu_resident_codes_enabled, take_resident_codes, ensure_host_codes_filled,
+        )
+        _ensure_host = ensure_host_codes_filled
         if fe_gpu_resident_codes_enabled():
             device_codes = take_resident_codes(disc_2d)
     except Exception:
         device_codes = None
+        _ensure_host = None
+
+    def _need_host_codes():
+        """Materialise the host codes into ``disc_2d`` before any host-codes read (analytic gate / CPU
+        njit / non-resident GPU path). No-op unless the producer DEFERRED the codes D2H (resident handoff
+        on AND no host consumer has read yet) -- in which case it D2Hs the resident device codes into
+        ``disc_2d`` now (the EXACT bytes the eager fill produced -> selection unchanged). NOT swallowed: a
+        fill failure must NOT let a host consumer read the unfilled (garbage) ``disc_2d`` -- it propagates
+        so the GPU branch's try/except routes to the always-correct CPU kernel (which re-calls this; if the
+        D2H is genuinely broken the whole GPU stack is, and a loud error beats silent wrong selection)."""
+        if _ensure_host is not None:
+            _ensure_host(disc_2d)
 
     # ---- Analytic large-n noise gate (2026-06-16) -------------------------------------------------
     # The per-candidate permutation null -- CPU prange shuffles AND the GPU cupy-argsort twin below --
@@ -90,6 +106,7 @@ def _dispatch_batch_mi_with_noise_gate(
             _an_ok = False
         if _an_ok:
             try:
+                _need_host_codes()  # analytic gate reads host codes -> materialise the deferred D2H now
                 _observed = batch_mi_kernel(
                     disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
                     classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=0,
@@ -120,6 +137,7 @@ def _dispatch_batch_mi_with_noise_gate(
     _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
     _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
     if _gpu_opted_out:
+        _need_host_codes()  # CPU njit kernel reads host codes -> materialise the deferred D2H now
         return batch_mi_kernel(
             disc_2d=disc_2d,
             factors_nbins=factors_nbins,
@@ -194,6 +212,7 @@ def _dispatch_batch_mi_with_noise_gate(
                 use_su=use_su,
                 force_backend=(backend if backend in ("cupy", "cuda") else None),
                 device_codes=device_codes,
+                ensure_host_codes=_need_host_codes,
             )
             if _res is not None:
                 return _res
@@ -204,6 +223,7 @@ def _dispatch_batch_mi_with_noise_gate(
             )
 
     # CPU njit-prange kernel (the required win and always-correct fallback).
+    _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
     return batch_mi_kernel(
         disc_2d=disc_2d,
         factors_nbins=factors_nbins,
@@ -234,6 +254,7 @@ def _batch_mi_with_noise_gate_gpu(
     use_su,
     force_backend=None,
     device_codes=None,
+    ensure_host_codes=None,
 ):
     """Bit-identical GPU twin of ``batch_mi_with_noise_gate``; returns ``fe_mi[K]``
     when a GPU backend is available + chosen, else ``None`` (-> CPU fallback).
@@ -263,6 +284,12 @@ def _batch_mi_with_noise_gate_gpu(
                 # RESIDENT-CODES HANDOFF (gated): feed the on-device codes (when the producer kept them
                 # resident) straight to the histogram kernel -- skips the codes' H2D re-upload, bit-
                 # identical (same int codes). ``device_codes=None`` keeps the H2D-from-host path.
+                # When the device codes are consumed in place, host ``disc_2d`` is never read -> the
+                # producer's DEFERRED host-codes D2H is skipped entirely (the canonical win). If
+                # ``device_codes`` is None the resident gate H2Ds host ``disc_2d`` instead, so the deferred
+                # host buffer MUST be materialised first (no-op when not deferred).
+                if device_codes is None and ensure_host_codes is not None:
+                    ensure_host_codes()
                 return batch_mi_with_noise_gate_cuda_resident(
                     disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
                     classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=int(npermutations),
@@ -271,6 +298,9 @@ def _batch_mi_with_noise_gate_gpu(
                 )
         except Exception as _exc:
             _module_logger.debug("resident gate failed (%s: %s); standard GPU path", type(_exc).__name__, _exc)
+    # Standard (non-resident) GPU path H2Ds host ``disc_2d`` -> materialise the deferred host buffer first.
+    if ensure_host_codes is not None:
+        ensure_host_codes()
     try:
         from ..batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
     except Exception:

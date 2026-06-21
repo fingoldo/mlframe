@@ -196,6 +196,25 @@ def fe_gpu_resident_codes_enabled() -> bool:
     return _cuda_present()
 
 
+def fe_gpu_defer_host_codes_enabled() -> bool:
+    """Whether the DEFERRED host-codes D2H is active. DEFAULT ON whenever the resident-codes handoff is on
+    (the device codes already exist resident, so skipping the eager host D2H of those SAME codes is free
+    upside -- the canonical fit's single largest D2H, 1691 MB / 160 transfers @100k, paid only on the host
+    paths that actually read it, which is NONE when the resident gate consumes the device copy). Opt-out
+    ``MLFRAME_FE_GPU_DEFER_HOST_CODES=0`` forces the eager fill back (host ``out`` filled per block).
+
+    SELECTION-EQUIVALENT: when a host consumer (analytic gate / CPU njit / non-resident GPU) reads the
+    codes, the dispatch first calls ``ensure_host_codes_filled`` which D2Hs the resident device codes into
+    ``out`` -- the EXACT bytes the eager fill produced -> identical codes -> identical MI/selection. The
+    only behavioural change is WHEN the D2H happens (lazily, on demand) vs eagerly (always)."""
+    _v = os.environ.get("MLFRAME_FE_GPU_DEFER_HOST_CODES", "").strip().lower()
+    if _v in ("0", "false", "off", "no"):
+        return False
+    if _v in ("1", "true", "on", "yes"):
+        return True
+    return fe_gpu_resident_codes_enabled()  # default ON iff the resident-codes handoff is on
+
+
 # RESIDENT-CODES HANDOFF (2026-06-21, gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
 # host`` (producer) and ``_dispatch_batch_mi_with_noise_gate`` (consumer) as SEPARATE steps -- the producer
 # returns the host int codes (``disc_2d``) which the consumer's resident-CUDA gate re-uploads. To pass the
@@ -208,25 +227,77 @@ def fe_gpu_resident_codes_enabled() -> bool:
 _RESIDENT_CODES_HANDOFF: tuple | None = None  # (id(host_codes), device_codes cupy array, shape, dtype) | None
 
 
+# DEFERRED HOST-CODES FILL (2026-06-21). When the resident-codes path is on, the (n, K) host int codes are
+# the SINGLE largest D2H of the canonical fit (audit n=100k: _gpu_resident_fe.py codes-fill = 1691 MB / 160
+# transfers, the whole D2H budget) -- yet they are REDUNDANT whenever the resident-CUDA noise gate is the
+# consumer (it reads the device codes IN PLACE; host ``disc_2d`` is only touched for ``.shape``). The
+# producer can therefore DEFER the codes D2H: return an UNFILLED host buffer + keep the device codes, and
+# materialise the host buffer LAZILY only if a host-reading consumer (the analytic gate / CPU njit kernel /
+# non-resident GPU path) actually needs it. The dispatch calls ``ensure_host_codes_filled`` before any
+# host-codes read, and ``take_resident_codes`` before the resident path -- so the 1691 MB D2H is paid ONLY
+# on the host paths that read it (none at the canonical n=100k fit) and SKIPPED when the resident gate
+# consumes the device codes. BIT-IDENTICAL: the host buffer, if ever filled, is ``device_codes.get()`` --
+# the exact bytes the eager D2H produced -> selection unchanged. Keyed on ``id(out)`` like the handoff (same
+# host array flows producer -> dispatch synchronously). Module-level singleton -> never on pickled state.
+_DEFERRED_HOST_FILL: tuple | None = None  # (id(host_codes), host_codes ndarray, device_codes, shape, dtype, filled[list[bool]]) | None
+
+
 def _stash_resident_codes(host_codes, device_codes) -> None:
     """Record the resident device codes for the host array ``host_codes`` (keyed on its id)."""
     global _RESIDENT_CODES_HANDOFF
     _RESIDENT_CODES_HANDOFF = (id(host_codes), device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype))
 
 
+def _stash_deferred_host_fill(host_codes, device_codes) -> None:
+    """Register ``host_codes`` (an UNFILLED host buffer) for a lazy D2H fill from ``device_codes`` -- used
+    when the producer skips the eager codes D2H because the resident gate will likely consume the device
+    copy. ``ensure_host_codes_filled`` performs the fill on demand; ``clear_resident_codes_handoff`` drops
+    the record so device memory is not pinned past the dispatch."""
+    global _DEFERRED_HOST_FILL
+    _DEFERRED_HOST_FILL = (id(host_codes), host_codes, device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), [False])
+
+
+def ensure_host_codes_filled(host_codes) -> None:
+    """If ``host_codes`` was returned UNFILLED with a deferred device->host fill registered for it (same id,
+    shape, dtype), D2H the device codes into it NOW (once; idempotent). No-op when there is no deferred fill
+    for this array (it was filled eagerly, or is an unrelated array). Called by the dispatch on every
+    host-codes-reading path (analytic gate / CPU njit kernel / non-resident GPU path) so the codes D2H is
+    paid exactly when -- and only when -- a host consumer reads them. Bit-identical to the eager fill."""
+    h = _DEFERRED_HOST_FILL
+    if h is None:
+        return
+    _id, host, dev, shape, dtype, filled = h
+    if _id != id(host_codes) or tuple(host_codes.shape) != shape or np.dtype(host_codes.dtype) != dtype:
+        return
+    if filled[0]:
+        return
+    # D2H the resident device codes into the caller's host buffer (the exact bytes the eager path produced).
+    dev.get(out=host)
+    filled[0] = True
+
+
 def take_resident_codes(host_codes):
-    """Pop + return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
-    dtype); else None. Single-use: the handoff is cleared on every call so device memory is not pinned past
-    one consumption and a stale entry can never satisfy a later, unrelated dispatch."""
-    global _RESIDENT_CODES_HANDOFF
+    """Return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
+    dtype); else None. The resident-CUDA gate consumes the returned device codes IN PLACE (no host read).
+    The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch -- e.g. the
+    analytic gate that runs after this pop -- can still trigger the deferred host fill from the same device
+    codes); the dispatch clears everything via ``clear_resident_codes_handoff`` in its finally."""
     h = _RESIDENT_CODES_HANDOFF
-    _RESIDENT_CODES_HANDOFF = None
     if h is None:
         return None
     _id, dev, shape, dtype = h
     if _id == id(host_codes) and tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
         return dev
     return None
+
+
+def clear_resident_codes_handoff() -> None:
+    """Drop the resident-codes handoff + the deferred host-fill record so device memory is not pinned past
+    the dispatch that produced it, and a stale entry can never satisfy a later, unrelated dispatch. Called
+    by ``_dispatch_batch_mi_with_noise_gate`` in a finally after it has decided the consumer."""
+    global _RESIDENT_CODES_HANDOFF, _DEFERRED_HOST_FILL
+    _RESIDENT_CODES_HANDOFF = None
+    _DEFERRED_HOST_FILL = None
 
 
 # GPU-RESIDENT BINNING DTYPE (2026-06-20). The FE candidate buffer is ALREADY float32 (the njit/CUDA
@@ -1244,6 +1315,9 @@ def gpu_materialise_discretize_codes_host(
     continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
     import cupy as cp
 
+    # Drop any stale handoff/deferred-fill from a PRIOR chunk before producing this one (releases that
+    # chunk's pinned device codes; each chunk's dispatch should already have consumed/cleared its own).
+    clear_resident_codes_handoff()
     tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
     a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
     b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
@@ -1260,6 +1334,11 @@ def gpu_materialise_discretize_codes_host(
     # is the actual consumer (it matches ``out`` by identity via the module handoff).
     _resident_codes_on = fe_gpu_resident_codes_enabled()
     dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
+    # DEFER the host-codes D2H when the resident handoff is on: the host ``out`` is filled LAZILY (only if a
+    # host consumer reads it -- see ensure_host_codes_filled) instead of eagerly per block. This skips the
+    # (n, K) codes D2H (the canonical fit's single largest D2H) whenever the resident gate consumes the
+    # device codes. Needs dev_codes (the resident copy) to fill from, so it is only active with it.
+    _defer_host_codes = bool(dev_codes is not None and fe_gpu_defer_host_codes_enabled())
     k_chunk = _gpu_k_chunk(n)
     for start in range(0, K, k_chunk):
         stop = min(start + k_chunk, K)
@@ -1297,13 +1376,20 @@ def gpu_materialise_discretize_codes_host(
             # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below). Bit-identical to the
             # host ``out`` slice -> selection-equivalent when the resident gate consumes the device copy.
             dev_codes[:, start:stop] = codes_out
-        out[:, start:stop] = cp.asnumpy(codes_out)
+        if not _defer_host_codes:
+            # Eager host fill (deferral off, or no resident copy): D2H this block's codes into ``out`` now.
+            out[:, start:stop] = cp.asnumpy(codes_out)
         del cand, codes_gpu, codes_out
     if dev_codes is not None:
         # Stash by the returned host array's identity so the dispatch can pick the device codes up without
         # the chunk path threading a new argument (see _RESIDENT_CODES_HANDOFF). Any consumer that is NOT
         # the resident CUDA gate simply ignores it + reads ``out`` (host) as before.
         _stash_resident_codes(out, dev_codes)
+    if _defer_host_codes:
+        # ``out`` is UNFILLED -- register the lazy device->host fill so a host-reading consumer (analytic /
+        # CPU / non-resident GPU) can materialise it on demand via ensure_host_codes_filled. The eager
+        # per-block D2H above was skipped; the resident gate reads the device codes directly (no host read).
+        _stash_deferred_host_fill(out, dev_codes)
     return out
 
 
@@ -1324,6 +1410,7 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
     cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) -- no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)
+    clear_resident_codes_handoff()  # drop any stale prior-chunk handoff before producing this one
     # RESIDENT-CODES HANDOFF (gated, default ON when CUDA present): this is the SECOND codes leg -- the
     # binning-only path the canonical FE chunk takes when the candidate buffer is materialised on the CPU
     # (the default minimal preset's numpy-fallback materialise) then binned on the GPU. It produces the
@@ -1336,6 +1423,11 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
     # by identity). Bit-identical to the host codes -> selection unchanged.
     _resident_codes_on = fe_gpu_resident_codes_enabled()
     dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
+    # NOTE: this binning-only leg does NOT defer the host-codes D2H. Its documented contract is to RETURN a
+    # filled host (n, K) codes array (direct callers -- gpu_pairs_fe_mi's analytic path + the bit-identity
+    # tests -- read the return directly, not through the dispatch's ensure_host_codes_filled), and at the
+    # canonical fit it is OFF the hot path (the fused gpu_materialise_discretize_codes_host leg, which DOES
+    # defer, produces ~all the codes D2H). Keeping it eager keeps the contract intact for ~0 measured cost.
     k_chunk = _gpu_k_chunk(n)
     for start in range(0, K, k_chunk):
         block = cand[:, start:start + k_chunk]
@@ -1383,6 +1475,8 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
         from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
 
         codes = gpu_discretize_codes_host(cand, int(quantization_nbins), dtype=np.int8)  # bit-identical binning
+        # (gpu_discretize_codes_host returns FILLED host codes -- this binning-only leg does not defer the
+        # D2H, so the analytic dispatch below reads them directly without an ensure_host_codes_filled call.)
         fnb = np.full(K, int(quantization_nbins), dtype=np.int64)
         yc = np.ascontiguousarray(classes_y, dtype=np.int64)
         observed = None

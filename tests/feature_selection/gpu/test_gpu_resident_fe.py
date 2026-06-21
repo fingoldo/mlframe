@@ -467,3 +467,50 @@ def test_fused_bin_codes_bit_identical_to_per_column_searchsorted():
         for j in range(K):
             ref[:, j] = cp.searchsorted(interior[:, j], cand[:, j], side="right")
         np.testing.assert_array_equal(fused, cp.asnumpy(ref))
+
+
+def test_deferred_host_codes_bit_identical_to_eager():
+    """DEFERRED host-codes D2H (MLFRAME_FE_GPU_DEFER_HOST_CODES, default ON when the resident handoff is
+    on) must be SELECTION-EQUIVALENT to the eager per-block fill: the host codes are produced unfilled and
+    the resident DEVICE codes kept, so a host-reading consumer materialises ``out`` lazily via
+    ``ensure_host_codes_filled`` -- which D2Hs the EXACT bytes the eager fill produced (maxdiff 0). This
+    removed the canonical fit's single largest D2H (1691 MB / 160 transfers @100k). Covers the FUSED
+    materialise producer leg AND the device-codes==host-codes invariant + fill idempotency. (The
+    binning-only gpu_discretize_codes_host leg stays eager -- direct callers read its host return.)
+    """
+    pytest.importorskip("cupy")
+    import cupy as cp
+    import mlframe.feature_selection.filters._gpu_resident_fe as G
+
+    rng = np.random.default_rng(7)
+    n, n_oper, K, nbins = 4000, 6, 40, 20
+    tv = (rng.random((n, n_oper)).astype(np.float32) + 0.1)
+    a_cols = rng.integers(0, n_oper, size=K).astype(np.int64)
+    b_cols = rng.integers(0, n_oper, size=K).astype(np.int64)
+    ops = rng.integers(0, 9, size=K).astype(np.int8)
+
+    # Force the resident-codes handoff on (so a device copy exists to defer from), and A/B the deferral.
+    import os
+    _saved = os.environ.get("MLFRAME_FE_GPU_DEFER_HOST_CODES")
+    _saved_res = os.environ.get("MLFRAME_FE_GPU_RESIDENT_CODES")
+    os.environ["MLFRAME_FE_GPU_RESIDENT_CODES"] = "1"
+    try:
+        # --- fused materialise leg ---
+        os.environ["MLFRAME_FE_GPU_DEFER_HOST_CODES"] = "0"
+        eager = G.gpu_materialise_discretize_codes_host(tv, a_cols, b_cols, ops, nbins, dtype=np.int8).copy()
+        os.environ["MLFRAME_FE_GPU_DEFER_HOST_CODES"] = "1"
+        out = G.gpu_materialise_discretize_codes_host(tv, a_cols, b_cols, ops, nbins, dtype=np.int8)
+        dev = G.take_resident_codes(out)              # resident gate would consume these in place
+        assert dev is not None and tuple(dev.shape) == (n, K)
+        np.testing.assert_array_equal(cp.asnumpy(dev), eager)   # device codes == eager host codes
+        G.ensure_host_codes_filled(out)               # host consumer (analytic/CPU) materialises lazily
+        np.testing.assert_array_equal(out, eager)     # bit-identical -> selection-equivalent
+        G.ensure_host_codes_filled(out)               # idempotent: second fill is a no-op
+        np.testing.assert_array_equal(out, eager)
+    finally:
+        for k, v in (("MLFRAME_FE_GPU_DEFER_HOST_CODES", _saved), ("MLFRAME_FE_GPU_RESIDENT_CODES", _saved_res)):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        G.clear_resident_codes_handoff()
