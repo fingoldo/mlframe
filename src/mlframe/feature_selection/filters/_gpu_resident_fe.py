@@ -782,6 +782,10 @@ void radix_select_f32(const float* __restrict__ data, const long long n, const i
             for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;}
         __syncthreads();
         int Wl=W;
+        // bench-attempt-rejected (2026-06-21, elevated nvprof): the per-window stride 256 is bank-aligned
+        // (shared_store_transactions_per_request ~6.1), but padding to 257 to de-conflict was SLOWER
+        // (264->324ms) -- the kernel is WARP-DIVERGENCE-bound (warp_execution_efficiency ~42% from the
+        // per-thread window search), not bank-conflict-bound, and the extra shared bytes cut occupancy.
         for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
         __syncthreads();
         for(long long i=tid;i<n;i+=nt){
