@@ -31,11 +31,11 @@
   "training/automl.py:97",
   "training/cb/_cb_pool.py:706",
   "training/extractors/_extractors_showcase.py:50",
-  "training/pipeline/_pipeline_fit_transform.py:126",
-  "training/pipeline/_pipeline_fit_transform.py:127",
   "training/pipeline/_pipeline_fit_transform.py:141",
-  "training/pipeline/_pipeline_fit_transform.py:203",
-  "training/pipeline/_pipeline_fit_transform.py:225",
-  "training/pipeline/_pipeline_fit_transform.py:233",
+  "training/pipeline/_pipeline_fit_transform.py:142",
+  "training/pipeline/_pipeline_fit_transform.py:158",
+  "training/pipeline/_pipeline_fit_transform.py:220",
+  "training/pipeline/_pipeline_fit_transform.py:242",
+  "training/pipeline/_pipeline_fit_transform.py:250",
   "training/preprocessing.py:267"
 ]

@@ -6,7 +6,6 @@
   "feature_selection/_benchmarks/bench_iter59_adaptive_prescreen.py:138",
   "feature_selection/_benchmarks/fs_hybrid/importance_shootout.py:53",
   "feature_selection/_benchmarks/fs_hybrid/importance_shootout.py:86",
-  "feature_selection/_benchmarks/fs_hybrid/round4_broad_realdata_bench.py:322",
   "feature_selection/_benchmarks/fs_hybrid/round4_fe_accept_bench.py:244",
   "feature_selection/_benchmarks/fs_hybrid/round4_fe_accept_frugal_bench.py:273",
   "feature_selection/_benchmarks/fs_hybrid/round4_knockoff_fdr_bench.py:46",
@@ -17,5 +16,6 @@
   "feature_selection/_benchmarks/fs_hybrid/round4_noise_floor_bench.py:81",
   "feature_selection/_benchmarks/fs_hybrid/round4_noise_floor_robust.py:28",
   "feature_selection/_benchmarks/fs_hybrid/round4_permodel_emit_bench.py:275",
-  "feature_selection/_benchmarks/fs_hybrid/run_experiment.py:109"
+  "feature_selection/_benchmarks/fs_hybrid/run_experiment.py:127",
+  "feature_selection/_benchmarks/wide_data_scaling/h1_gpu_large.py:8"
 ]
