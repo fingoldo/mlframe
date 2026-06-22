@@ -119,7 +119,7 @@ from ._model_factories import (
 import lightgbm as _lgb_for_factory
 
 
-def _lgb_classifier_cls():
+def _lgb_classifier_cls() -> type:
     """Trainer-local wrapper around the factory. Reads
     ``USE_LGB_DATASET_REUSE_SHIM`` from THIS module so test monkeypatches on
     ``trainer.USE_LGB_DATASET_REUSE_SHIM`` flip dispatch as documented."""
@@ -128,14 +128,14 @@ def _lgb_classifier_cls():
     return _lgb_for_factory.LGBMClassifier
 
 
-def _lgb_regressor_cls():
+def _lgb_regressor_cls() -> type:
     """Trainer-local wrapper, mirror of ``_lgb_classifier_cls``."""
     if USE_LGB_DATASET_REUSE_SHIM and _LGBMRegressorWithDatasetReuse is not None:
         return _LGBMRegressorWithDatasetReuse
     return _lgb_for_factory.LGBMRegressor
 
 
-def _xgb_classifier_cls():
+def _xgb_classifier_cls() -> type:
     """Trainer-local wrapper around the XGB factory. Reads
     ``USE_XGB_DMATRIX_REUSE_SHIM`` from THIS module so test monkeypatches on
     ``trainer.USE_XGB_DMATRIX_REUSE_SHIM`` flip dispatch as documented (the
@@ -145,7 +145,7 @@ def _xgb_classifier_cls():
     return XGBClassifier
 
 
-def _xgb_regressor_cls():
+def _xgb_regressor_cls() -> type:
     """Trainer-local wrapper, mirror of ``_xgb_classifier_cls``."""
     if USE_XGB_DMATRIX_REUSE_SHIM and _XGBRegressorWithDMatrixReuse is not None:
         return _XGBRegressorWithDMatrixReuse
@@ -212,7 +212,7 @@ def _compute_oof_preds(
     random_seed: int,
     group_ids=None,
     has_time: bool = False,
-):
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
 
     OOF preds replace the in-sample ``train_preds`` for stacking aggregation: the canonical fix for level-1 leakage
@@ -292,7 +292,7 @@ def _compute_oof_preds(
     return np.asarray(oof), None
 
 
-def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: str, n_splits: int):
+def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: str, n_splits: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Manual TimeSeriesSplit OOF: cross_val_predict can't be used (TimeSeriesSplit is not a partition).
 
     Returns (oof_preds, oof_probs) where the warm-up rows (those never in any test fold) are NaN. Downstream OOF
@@ -444,7 +444,7 @@ def _build_configs_from_params(
     # its source default. Mirrors honest_estimator_diagnostics gate.
     mase_seasonality=None,
     **_unused_reporting_kwargs,
-):
+) -> tuple:
     """Build config objects from old-style parameters."""
     merged_drop_columns = list(drop_columns or []) + list(default_drop_columns or [])
 
@@ -600,8 +600,8 @@ def _configure_xgboost_params(
     prefer_cpu_for_xgboost: bool,
     prefer_calibrated_classifiers: bool,
     xgboost_verbose,
-    metamodel_func,
-):
+    metamodel_func: Callable,
+) -> dict:
     """Configure XGBoost model parameters.
 
     Goes through the ``_xgb_classifier_cls`` / ``_xgb_regressor_cls``
@@ -628,8 +628,8 @@ def _configure_lightgbm_params(
     use_regression: bool,
     prefer_cpu_for_lightgbm: bool,
     prefer_calibrated_classifiers: bool,
-    metamodel_func,
-):
+    metamodel_func: Callable,
+) -> dict:
     """Configure LightGBM model parameters.
 
     Goes through the ``_lgb_classifier_cls`` / ``_lgb_regressor_cls``
@@ -655,7 +655,7 @@ def _configure_mlp_params(
     configs,
     config_params: dict,
     use_regression: bool,
-    metamodel_func: callable,
+    metamodel_func: Callable,
     target_type=None,
     n_train: int | None = None,
 ) -> dict:
@@ -875,7 +875,7 @@ def _configure_recurrent_params(
     sequences_train: list[np.ndarray] | None,
     features_train: pd.DataFrame | np.ndarray | None,
     use_regression: bool,
-    metamodel_func: callable = None,
+    metamodel_func: Callable | None = None,
 ) -> dict[str, dict]:
     """Configure recurrent model (LSTM, GRU, RNN, Transformer) parameters.
 

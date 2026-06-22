@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mlframe.reporting.spec import FigureSpec
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +94,14 @@ def make_custom_calibration_plot(
     y: np.ndarray,
     probs: np.ndarray,
     nclasses: int,
-    classes=None,
+    classes: list | None = None,
     nbins: int = 100,
-    competing_probs: list = None,
-    X: np.ndarray = None,
-    display_labels: dict = None,
+    competing_probs: list | None = None,
+    X: np.ndarray | None = None,
+    display_labels: dict | None = None,
     figsize: tuple = (15, 5),
     skip_plotting: bool = False,
-):
+) -> tuple:
     """Custom implementation of calibration plot"""
     if classes is None:
         classes = []
@@ -185,7 +189,7 @@ def bin_predictions(
     y_pred: np.array,
     indices: np.array,
     nbins: int = 20,
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     pockets_predicted, pockets_true = np.zeros(nbins, dtype=np.float64), np.zeros(nbins, dtype=np.float64)
     data = np.zeros((nbins, 4), dtype=np.float64)
@@ -214,9 +218,9 @@ def estimate_calibration_quality_binned(
     y_true: np.array,
     y_pred: np.array,
     nbins: int = 20,
-    indices: np.array = None,
+    indices: np.array | None = None,
     metrics_to_show: dict = METRICS_TO_SHOW,
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     if indices is None:
         indices = np.argsort(y_pred)
     pockets_predicted, pockets_true, data = bin_predictions(y_true=y_true, y_pred=y_pred, indices=indices, nbins=nbins)
@@ -239,7 +243,7 @@ def show_classifier_calibration(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     title: str,
-    indices: np.ndarray = None,
+    indices: np.ndarray | None = None,
     nbins: int = 20,
     alpha: float = 0.40,
     show_table: bool = False,
@@ -248,11 +252,11 @@ def show_classifier_calibration(
     marker_size: int = 15,
     metrics_digits: int = 4,
     connected: bool = True,
-    legend_label: str = None,
+    legend_label: str | None = None,
     append: bool = False,
     metrics_to_show: dict = METRICS_TO_SHOW,
     skip_plotting: bool = False,
-):
+) -> dict | list | pd.DataFrame | None:
 
     s = len(y_true)
     step = s // nintervals
@@ -336,7 +340,7 @@ def build_pit_diagram_spec(
     caption: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
-):
+) -> "FigureSpec":
     """Build the single-source PIT-diagram FigureSpec (density histogram + KS-vs-uniform title).
 
     Same PIT histogram the binary ``PIT`` panel renders; kept here so ``plot_pit_diagram``
@@ -363,15 +367,15 @@ def build_pit_diagram_spec(
 
 
 def plot_pit_diagram(
-    predicted_probs: np.ndarray = None,
-    true_labels: np.ndarray = None,
-    pit_values: np.ndarray = None,
+    predicted_probs: np.ndarray | None = None,
+    true_labels: np.ndarray | None = None,
+    pit_values: np.ndarray | None = None,
     caption: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
     plot_file: str = "",
     plot_outputs: str = "",
-):
+) -> None:
     """
     Plots a Probability Integral Transform (PIT) diagram for binary predictions.
 
@@ -421,14 +425,14 @@ def plot_pit_diagram(
         _close_unless_interactive(fig, was_shown=was_shown)
 
 
-def kolmogorov_smirnov_statistic(pit_values):
+def kolmogorov_smirnov_statistic(pit_values: np.ndarray) -> float:
     """Calculate the KS statistic for PIT values."""
 
     statistic, _ = ks_1samp(pit_values, uniform_cdf, alternative="two-sided")
     return statistic
 
 
-def cramer_von_mises_statistic(pit_values):
+def cramer_von_mises_statistic(pit_values: np.ndarray) -> float:
     """Calculate the Cramér-von Mises statistic for PIT values."""
     result = cramervonmises(pit_values, uniform_cdf)
     return result.statistic
@@ -485,7 +489,7 @@ def _anderson_darling_kernel_parallel(sorted_pit: np.ndarray, n: int) -> float:
 _AD_PARALLEL_THRESHOLD = 200_000
 
 
-def anderson_darling_statistic(pit_values):
+def anderson_darling_statistic(pit_values: np.ndarray) -> float:
     """
     Calculate the Anderson-Darling statistic for a uniform distribution.
     Parameters:
@@ -503,7 +507,7 @@ def anderson_darling_statistic(pit_values):
     return _anderson_darling_kernel(sorted_pit, n)
 
 
-def chi_square_statistic(pit_values, bins=10):
+def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     """Calculate the Chi-Square statistic for PIT values."""
     observed, bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
     expected = np.ones_like(observed) * len(pit_values) / bins
@@ -511,7 +515,7 @@ def chi_square_statistic(pit_values, bins=10):
     return chi2_stat
 
 
-def entropy_calibration_index(pit_values, bins=10, miller_madow: bool = True):
+def entropy_calibration_index(pit_values: np.ndarray, bins: int = 10, miller_madow: bool = True) -> float:
     """Calculate the Entropy-Based Calibration Index (ECI).
 
     ECI = log(bins) - H(binned PIT). A perfectly-calibrated model has a uniform PIT distribution, true entropy log(bins), and true ECI exactly 0.
@@ -534,13 +538,13 @@ def entropy_calibration_index(pit_values, bins=10, miller_madow: bool = True):
     return eci
 
 
-def mean_squared_deviation(pit_values):
+def mean_squared_deviation(pit_values: np.ndarray) -> float:
     """Calculate the Mean Squared Deviation (MSD) from the uniform mean (0.5)."""
     msd = np.mean((pit_values - 0.5) ** 2)
     return msd
 
 
-def weighted_pit_deviation(pit_values):
+def weighted_pit_deviation(pit_values: np.ndarray) -> float:
     """Calculate the Weighted PIT Deviation (WPD)."""
     # Use a larger eps (1e-6) to prevent extreme weights on near-boundary PIT values from
     # dominating the mean. 1e-10 produced weights up to ~1e10 which wrecked numerical stability.
