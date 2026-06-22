@@ -11,42 +11,20 @@ from __future__ import annotations
 import logging
 import os
 from itertools import combinations
-from timeit import default_timer as timer
 
 import numpy as np
 import pandas as pd
 from pandas.api.extensions import ExtensionDtype
-from numpy.polynomial.hermite import hermval
 
-from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
 
-from ._pairs_chunks import (
-    _FE_CHUNK_MAX_COLS_HARD_CAP,
-    _compute_one_fe_chunk,
-    _plan_fe_chunks,
-)
-from ._pairs_common import _TIMES_SPENT_LOCK
-from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
+from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP, _plan_fe_chunks
 from ._pairs_gates import (
-    _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO,
-    _FE_MARGINAL_UPLIFT_MIN_RATIO,
-    _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO,
-    _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT,
-    _FE_REJECTION_RESULT_KEY,
-    _GATE_MED_SPECS_RESULT_KEY,
-    _GATE_MED_UNARY,
-    _PREWARP_SPECS_RESULT_KEY,
-    _PREWARP_UNARY,
-    _gate_med_apply,
-    _select_single_best,
+    _FE_REJECTION_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _GATE_MED_UNARY,
+    _PREWARP_SPECS_RESULT_KEY, _PREWARP_UNARY,
 )
-from ._pairs_materialise import (
-    _fe_use_parallel_kernels,
-    _materialise_extval_njit,
-    _narrow_code_dtype,
-    _njit_binary_op_codes,
-)
+from ._pairs_score import _score_one_pair
+from ._pairs_setup import _build_operand_table, _fit_prewarp_and_gate_med
 
 def _short_fe_name(name, maxlen: int = 30) -> str:
     """Truncate a (possibly long engineered) feature expression for live progress-bar
@@ -299,7 +277,7 @@ def check_prospective_fe_pairs(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from ..feature_engineering import FE_DEFAULT_SUBSAMPLE_N, _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _fe_effective_buffer_budget_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
+    from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _fe_effective_buffer_budget_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
     # 2026-06-05: batched FE-candidate MI + permutation noise-gate (bit-identical to the
     # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
@@ -342,6 +320,7 @@ def check_prospective_fe_pairs(
     _X_full = X
     _full_n_rows = len(_X_full)
     _use_subsample = isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows
+    _sample_idx = None  # set below when subsampling; threaded into _fit_prewarp_and_gate_med
     if _use_subsample:
         _rng_sub = np.random.default_rng(int(subsample_seed))
         if fe_subsample_stratify:
@@ -477,170 +456,22 @@ def check_prospective_fe_pairs(
         _extval_raw_col_cache[_var] = None
         return None
 
-    # PER-OPERAND PRE-WARP setup (2026-06-02). When enabled, fit ONE learned
-    # 1-D pre-warp per raw operand against the (subsample-aligned) target, and
-    # expose it as an extra pseudo-unary named ``_PREWARP_UNARY`` so the existing
-    # unary x unary x binary search naturally considers ``binary(prewarp(a),
-    # prewarp(b))``, ``binary(prewarp(a), b)`` etc. The fitted spec per var is
-    # kept in ``_prewarp_spec_by_var`` for survivor recipe construction; warped
-    # values are written into ``transformed_vars`` like any other unary.
-    _prewarp_active = bool(prewarp_enable) and prewarp_y is not None
-    _prewarp_spec_by_var: dict[int, dict] = {}
-    _prewarp_y_eff = None
-    if _prewarp_active:
-        from ..hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
-        # The ALS reconstruction target: prefer the CONTINUOUS y when supplied (it
-        # is the faithful least-squares target; the binned ``classes_y`` codes the
-        # target-rebin guard produces are for the MI screen, not for reconstructing
-        # a continuous f(a)*g(b)). Fall back to ``classes_y`` codes when no
-        # continuous target was threaded (legacy / non-numeric / multi-output y).
-        _pw_y_src = prewarp_y_continuous if prewarp_y_continuous is not None else prewarp_y
-        _pw_y = np.asarray(_pw_y_src)
-        if _use_subsample and _pw_y.shape[0] == _full_n_rows:
-            _pw_y = _pw_y[_sample_idx]
-        _prewarp_y_eff = np.ascontiguousarray(_pw_y, dtype=np.float64)
-
-        # JOINT per-pair ALS pre-fit. For each prospective pair fit BOTH operand
-        # warps together (rank-1 ALS); an independent 1-D fit cannot recover the
-        # b-side of a product target whose b-marginal is ~0. First pairing wins
-        # for a var shared across pairs (pairs are processed most-prospective-
-        # first, so a shared var binds to its strongest interaction). None specs
-        # leave the pseudo-unary unregistered for that var.
-        # Q8 (2026-06-07): route the prewarp operand extraction through the SHARED
-        # ``_extval_raw_col`` memo (the single {var: raw-ndarray} cache) instead of a
-        # second un-memoised ``X.iloc[...].values`` per call. The prewarp loop reads each
-        # pair's two operands, and a var shared across many prospective pairs was previously
-        # re-extracted once PER pair; the shared memo extracts each distinct var ONCE.
-        # Bit-identical: ``_extval_raw_col`` performs the IDENTICAL ``.values`` / ``.to_numpy()``
-        # extract (same None-on-missing guard) -- only the redundant re-reads are removed.
-        _operand_vals = _extval_raw_col
-
-        # OUT-OF-SAMPLE PREWARP VALIDATION (2026-06-03). The ALS prewarp is a
-        # SUPERVISED per-operand fit; at small n it overfits noise operands (the
-        # in-sample uplift is inflated by the fit AND by the multiple operand/pair
-        # comparisons), so a noise-paired warp clears the in-sample uplift gate,
-        # gets engineered, and ABSORBS a genuine feature -- the raw column then
-        # reads as redundant and is dropped, leaving a noise-diluted feature
-        # (measured: a genuine X5 dropped at n=500). Guard: fit the warp on a TRAIN
-        # slice and keep it only if its rank-1 reconstruction f(a)*g(b) still tracks
-        # y on a HELD-OUT slice. Genuine synergy (incl. zero-marginal XOR) and
-        # genuine non-monotone inners generalise; overfit-on-noise collapses on the
-        # held-out slice. At large n train ~= full so genuine recovery is untouched.
-        # ``fe_pair_prewarp_min_val_corr`` (default 0.08) is the held-out floor; 0.0
-        # restores the legacy in-sample-only fit.
-        _pw_min_val_corr = float(prewarp_min_val_corr or 0.0)
-        _pw_n = int(_prewarp_y_eff.shape[0]) if hasattr(_prewarp_y_eff, "shape") else len(_prewarp_y_eff)
-        # Deterministic stride split (no RNG): every 3rd row -> validation (~33%).
-        _pw_cv_ok = _pw_min_val_corr > 0.0 and _pw_n >= 60
-        if _pw_cv_ok:
-            _val_mask = (np.arange(_pw_n) % 3 == 0)
-            _tr_mask = ~_val_mask
-            _y_tr = _prewarp_y_eff[_tr_mask]
-            _y_val = _prewarp_y_eff[_val_mask] - float(np.mean(_prewarp_y_eff[_val_mask]))
-
-        def _prewarp_generalises(_va_full, _vb_full):
-            """True if an ALS warp fit on the train slice still tracks y on the
-            held-out slice (rank-1 reconstruction correlation >= floor)."""
-            if not _pw_cv_ok:
-                return True  # CV disabled / n too small -> accept (legacy behaviour)
-            try:
-                _a = np.asarray(_va_full, dtype=np.float64).reshape(-1)
-                _b = np.asarray(_vb_full, dtype=np.float64).reshape(-1)
-                if _a.shape[0] != _pw_n or _b.shape[0] != _pw_n:
-                    return True  # length mismatch (subsample edge) -> don't block
-                _sa_tr, _sb_tr = fit_pair_prewarp_als(
-                    _a[_tr_mask], _b[_tr_mask], _y_tr,
-                    basis=prewarp_basis, max_degree=prewarp_max_degree,
-                )
-                if _sa_tr is None or _sb_tr is None:
-                    return False
-                _wa = apply_operand_prewarp(_a[_val_mask], _sa_tr)
-                _wb = apply_operand_prewarp(_b[_val_mask], _sb_tr)
-                _recon = _wa * _wb
-                if float(np.std(_recon)) < 1e-12 or float(np.std(_y_val)) < 1e-12:
-                    return False
-                # measure-experiment-rejected (2026-06-03): a dcor / MI held-out
-                # floor (to recover non-monotone XOR prewarps that |corr| might
-                # under-credit at small n) gives NO gain. The rank-1 reconstruction
-                # f(a)*g(b) is FIT to approximate y, so it is linear-in-y by
-                # construction -> |Pearson| is the right measure and is already
-                # high for genuine synergy (XOR-sign reconstruction |corr| 0.64-0.75
-                # at n=200, far above this 0.08 floor); benched 0/20 cases where
-                # |corr|<floor BUT dcor>=0.15 across mul/xor-sign/sq*abs/a*sin(b).
-                return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
-            except Exception:
-                return True  # validation failure -> fall back to accepting the warp
-
-        # bench-attempt-rejected (2026-06-20): "skip the ALS prewarp fit when the clean-form
-        # demotion (commit 3e62742e) would discard it anyway" was investigated and NOT shipped.
-        # (1) A per-pair MEMO / cross-chunk shared cache to drop "wasted" refits was a NO-OP:
-        # instrumentation showed every distinct (var_a, var_b) index pair is already fit EXACTLY
-        # ONCE per FE step (memo never hit a duplicate). The apparent "32 full fits / 8 distinct
-        # pairs" signal was a measurement artifact -- distinct var-index pairs collided under a
-        # first-2-operand-values signature; there is no redundant fitting to eliminate, so the
-        # batched/shared-factorisation lever (B) has no target.
-        # (2) A PRE-SCREEN (A) -- skip the fit when the prewarp cannot clear the +5% demotion bar
-        # -- needs the clean-form's continuous-y |corr|, but that is the best NON-prewarp ENGINEERED
-        # config (unary x unary x binary), i.e. the very search being timed; it is not cheaply
-        # computable before the fit. The cheap proxy max(best_single_unary|corr(a)|,|corr(b)|) does
-        # NOT separate cleanly: measured prewarp_recon/best_single_unary ratio on the canonical
-        # demoted pairs ranged 1.00-1.12 while the genuinely-non-monotone RETAINED case
-        # (y=(a**3-2a)*(b**2-b)) ranged 1.05-1.47 -- overlapping bands, so any skip threshold safe
-        # for the prewarp_retained pin (>=1.36) would leave most demoted pairs unskipped, and a
-        # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
-        # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
-        # bounded, selection-risky win does not clear the bar. Left as the exact per-pair fit.
-        for (raw_vars_pair, _), _ in prospective_pairs.items():
-            _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
-            if _va in _prewarp_spec_by_var and _vb in _prewarp_spec_by_var:
-                continue
-            _vals_a = _operand_vals(_va)
-            _vals_b = _operand_vals(_vb)
-            if _vals_a is None or _vals_b is None:
-                continue
-            # Reject the warp for this pair if it does not generalise out-of-sample
-            # (overfit-on-noise). Leaves the operands unregistered -> the pair search
-            # falls back to the library unaries, which do not overfit.
-            if not _prewarp_generalises(_vals_a, _vals_b):
-                continue
-            _sa, _sb = fit_pair_prewarp_als(
-                _vals_a, _vals_b, _prewarp_y_eff,
-                basis=prewarp_basis, max_degree=prewarp_max_degree,
-            )
-            if _va not in _prewarp_spec_by_var:
-                _prewarp_spec_by_var[_va] = _sa
-            if _vb not in _prewarp_spec_by_var:
-                _prewarp_spec_by_var[_vb] = _sb
-
-    # PER-OPERAND MEDIAN GATE setup (2026-06-04). When enabled, fit ONE TRAIN
-    # median per raw operand (on the subsample-aligned slice, exactly like the
-    # operand values the unary search consumes) and expose it as an extra
-    # pseudo-unary named ``_GATE_MED_UNARY``. The fit is a single ``np.median``
-    # per operand -- no supervision, no held-out validation (a median does not
-    # overfit). The fitted float per var is kept in ``_gate_med_median_by_var``
-    # for survivor recipe construction; the gated 0/1 column is written into
-    # ``transformed_vars`` like any other unary. Operands missing from
-    # ``original_cols`` or with no usable variance leave the pseudo-unary
-    # unregistered for that var (search falls back to the real unaries).
-    _gate_med_active = bool(fe_gate_med_enable)
-    _gate_med_median_by_var: dict[int, float] = {}
-    if _gate_med_active:
-        for (raw_vars_pair, _), _ in prospective_pairs.items():
-            for _gv in raw_vars_pair:
-                if _gv in _gate_med_median_by_var:
-                    continue
-                if _gv not in original_cols:
-                    continue
-                # Q8: shared {var: raw-ndarray} memo (bit-identical extract).
-                _gvals = _extval_raw_col(_gv)
-                if _gvals is None:
-                    continue
-                _gf = np.asarray(_gvals, dtype=np.float64)
-                # Reject no-variance operands (a constant gate is dead).
-                _gmed = float(np.nanmedian(_gf)) if _gf.size else 0.0
-                if not np.isfinite(_gmed):
-                    continue
-                _gate_med_median_by_var[_gv] = _gmed
+    # Per-operand learned pre-warp + median-gate fit (carved to _pairs_setup.py).
+    (_prewarp_active, _prewarp_spec_by_var, _gate_med_active, _gate_med_median_by_var) = _fit_prewarp_and_gate_med(
+        prospective_pairs=prospective_pairs,
+        prewarp_enable=prewarp_enable,
+        prewarp_y=prewarp_y,
+        prewarp_y_continuous=prewarp_y_continuous,
+        prewarp_basis=prewarp_basis,
+        prewarp_max_degree=prewarp_max_degree,
+        prewarp_min_val_corr=prewarp_min_val_corr,
+        fe_gate_med_enable=fe_gate_med_enable,
+        original_cols=original_cols,
+        _use_subsample=_use_subsample,
+        _full_n_rows=_full_n_rows,
+        _sample_idx=_sample_idx,
+        _extval_raw_col=_extval_raw_col,
+    )
 
     # Effective unary name list: the real registry plus the pre-warp pseudo-unary
     # when active. Used everywhere a per-pair combination over unary names is
@@ -792,172 +623,20 @@ def check_prospective_fe_pairs(
     # _n_binary`` lightweight tuples per pair.
     _need_recompute_map = final_transformed_vals_shared is None
 
-    vars_transformations = {}
-    # GPU-RESIDENT OPERAND TABLE (phase 1, gated). Record each successfully-built operand column's
-    # (col_idx, raw_vals, unary_name) so a GPU-resident mirror of ``transformed_vars`` can be produced ON
-    # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
-    # the host) -- removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
-    from .._gpu_resident_fe import _cuda_present, fe_gpu_resident_operands_enabled
-    _resident_operands_on = False
-    try:
-        _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()
-    except Exception:
-        _resident_operands_on = False
-    _operand_col_specs: list = [] if _resident_operands_on else None
-    i = 0
-    for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
-        for var in raw_vars_pair:
-            # Q8 (2026-06-07): SHARED {var: raw-ndarray} memo. This main unary-materialise
-            # loop iterates over (pair, var); a var shared across prospective pairs was
-            # previously re-extracted via ``X.iloc[...].values`` once per occurrence. Reading
-            # the shared ``_extval_raw_col`` memo (same Polars/pandas extract: ``X[:, idx].to_numpy()``
-            # / ``X.iloc[:, idx].values``) extracts each distinct var ONCE. Bit-identical raw values.
-            #
-            # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): ``_extval_raw_col`` now also
-            # resolves engineered operands (var not in ``original_cols``) by NAME from the
-            # augmented frame, so a step-k>1 ``(eng_i, eng_j)`` pair materialises a real
-            # composite candidate. It returns ``None`` only when the var resolves to neither
-            # a raw position nor an augmented-frame column (a temp / dropped index); skip
-            # silently in that case rather than KeyError out of the whole FE block.
-            vals = _extval_raw_col(var)
-            if vals is None:
-                continue
-            for tr_name in _unary_names_eff:
-                tr_func = unary_transformations.get(tr_name)
-                key = (var, tr_name)
-                # Per-operand learned pre-warp: the joint ALS spec was pre-fit
-                # above (per pair). When the var has no usable spec (solve failed
-                # / non-polynomial basis) the pseudo-unary is simply not
-                # registered and the search proceeds with the real unaries only.
-                # The fitted spec is stashed for survivor recipe construction
-                # (leak-safe replay from coeffs alone).
-                if tr_name == _PREWARP_UNARY:
-                    if _prewarp_spec_by_var.get(var) is None:
-                        continue
-                # Median-gate pseudo-unary: skip vars with no fitted median (no
-                # variance / not in original_cols). The fitted float is stashed
-                # in ``_gate_med_median_by_var`` for survivor recipe construction
-                # (leak-safe replay from the stored median alone).
-                if tr_name == _GATE_MED_UNARY:
-                    if var not in _gate_med_median_by_var:
-                        continue
-                if key not in vars_transformations:
-                    try:
-                        if tr_name == _PREWARP_UNARY:
-                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                transformed_vars[:, i] = apply_operand_prewarp(vals, _prewarp_spec_by_var[var])
-                        elif tr_name == _GATE_MED_UNARY:
-                            transformed_vars[:, i] = _gate_med_apply(vals, _gate_med_median_by_var[var])
-                        elif "poly_" in tr_name:
-                            transformed_vars[:, i] = hermval(vals, c=tr_func)
-                        else:
-                            # WAVE 5 (1/4): if CUDA is available, the
-                            # transformation is GPU-compatible, AND the
-                            # column is large enough to amortise the H2D
-                            # + D2H round trip, run the elementwise op on
-                            # GPU via cupy. The numpy-vs-cupy crossover for
-                            # this n_samples is resolved per-host via the
-                            # shared get_or_tune orchestrator (kernel
-                            # "unary_elementwise"), with the old fixed
-                            # ~500k-cell breakeven as the measurement-backed
-                            # fallback. A "cupy" choice is still gated below
-                            # on live CUDA availability + per-op compat.
-                            _gpu_used = False
-                            from pyutilz.performance.kernel_tuning import array_location
-
-                            from .._unary_elementwise_tuning import unary_elementwise_backend_choice
-                            # residency-aware: VRAM-resident input skips H2D, which flips the
-                            # numpy/cupy crossover (measured), so pass where ``vals`` lives.
-                            _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
-                            if (
-                                _want_gpu
-                                and tr_name in gpu_compatible_unary_names()
-                            ):
-                                try:
-                                    from pyutilz.core.pythonlib import is_cuda_available
-                                    if is_cuda_available():
-                                        import cupy as cp
-                                        _cp_fn = getattr(cp, tr_name, None)
-                                        if _cp_fn is not None:
-                                            d_vals = cp.asarray(vals)
-                                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                                d_res = _cp_fn(d_vals)
-                                            transformed_vars[:, i] = cp.asnumpy(d_res)
-                                            _gpu_used = True
-                                except Exception:
-                                    _gpu_used = False  # fall through to CPU
-                            if not _gpu_used:
-                                # Suppress unary-transform NaN/inf RuntimeWarnings
-                                # (eg ``overflow in exp``, ``divide by zero in
-                                # log``). The downstream nan_to_num + MI-gate
-                                # already filter pathological rows; the bare
-                                # numpy emit only spams stderr.
-                                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                    transformed_vars[:, i] = tr_func(vals)
-                    except Exception as e:
-                        # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
-                        # before reaching FE), calling them inside the error-log formatter itself raises -- masking the real transformation error and aborting MRMR
-                        # entirely. Compute numeric-only diagnostics conditionally.
-                        if np.issubdtype(vals.dtype, np.floating):
-                            _diag = (
-                                f", isnan={np.isnan(vals).sum()}, "
-                                f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
-                            )
-                        else:
-                            _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
-                        logger.error(
-                            f"Error when performing {tr_name} on array {vals[:5]}, "
-                            f"var={cols[var]}: {str(e)}{_diag}"
-                        )
-                    else:
-                        vars_transformations[key] = i
-                        if _operand_col_specs is not None:
-                            # GPU-resident operand table. A PLAIN unary is GPU-built via _unary_apply from the
-                            # resident raw (``vals``). PREWARP (R1, 2026-06-21) is GPU-APPLIED on the device
-                            # from the resident raw + its stored spec via _gpu_apply_prewarp (no host-column
-                            # H2D); the builder falls back to the host copy for any unported basis. gate_med /
-                            # hermite-poly remain host-copied (raw_vals=None) -> not yet ported.
-                            _is_plain = (
-                                tr_name != _PREWARP_UNARY
-                                and tr_name != _GATE_MED_UNARY
-                                and "poly_" not in tr_name
-                            )
-                            _payload = None
-                            _raw_for_spec = vals if _is_plain else None
-                            if tr_name == _PREWARP_UNARY:
-                                _spec = _prewarp_spec_by_var.get(var)
-                                if _spec is not None:
-                                    _payload = {"kind": "prewarp", "spec": _spec}
-                                    _raw_for_spec = vals
-                            _operand_col_specs.append((i, _raw_for_spec, tr_name, _payload))
-                        i += 1
-
-    # GPU-RESIDENT OPERAND TABLE (phase 1, gated): now that ``transformed_vars`` + ``vars_transformations``
-    # are fully built, produce a DEVICE mirror whose bulk plain-unary columns are rebuilt ON the GPU (from
-    # the resident raw inputs via _unary_apply) and the fitted/special columns copied from the host, then
-    # register it so ``_resident_operand_table`` returns the device array WITH NO H2D (the materialise
-    # consumes it transfer-free). The host ``transformed_vars`` is unchanged (the CPU pair-search / discretize
-    # readers still use it). Any failure -> skip (the materialise H2Ds the host table as before; never a
-    # correctness or availability regression). Any allocated tail columns past the used width (``i`` <
-    # n_operands when some (var,tr) raised + were skipped) have no spec -> the builder zero-fills them; the
-    # materialise never reads them (operand indices are always < the used width), so their content is moot.
-    if _operand_col_specs is not None and len(vars_transformations) > 0:
-        try:
-            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table
-            # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
-            # the materialise / _resolve_col paths pass: GPU-build the plain-unary columns from col_specs,
-            # copy every other column (incl. any unused tail) from the host. Registered against the full
-            # array so ``_resident_operand_table`` matches it by identity + shape.
-            _dev_tv, _n_gpu, _n_cpu = build_resident_operand_table(transformed_vars, _operand_col_specs)
-            register_prebuilt_operand_table(transformed_vars, _dev_tv)
-            if verbose:
-                logger.info(
-                    "check_prospective_fe_pairs: GPU-resident operand table built "
-                    "(%d GPU-built columns, %d host-copied; materialise H2D skipped).",
-                    _n_gpu, _n_cpu,
-                )
-        except Exception:
-            logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
+    vars_transformations = _build_operand_table(
+        prospective_pairs=prospective_pairs,
+        transformed_vars=transformed_vars,
+        _unary_names_eff=_unary_names_eff,
+        unary_transformations=unary_transformations,
+        _extval_raw_col=_extval_raw_col,
+        _prewarp_active=_prewarp_active,
+        _prewarp_spec_by_var=_prewarp_spec_by_var,
+        _gate_med_median_by_var=_gate_med_median_by_var,
+        cols=cols,
+        verbose=verbose,
+        logger=logger,
+        gpu_compatible_unary_names=gpu_compatible_unary_names,
+    )
 
     if verbose >= 2:
         logger.info("Created. For every pair from the pool, trying all known functions...")
@@ -1125,11 +804,22 @@ def check_prospective_fe_pairs(
     # per-buf_col columns are cached too (a column may be read several times). Only the GPU-fused path is
     # eligible (else the CPU binning still needs the host buffer); CPU/no-CUDA path is unchanged.
     _fe_defer_float = os.environ.get("MLFRAME_FE_GPU_DEFER_FLOAT", "1").strip().lower() in ("1", "true", "on", "yes")
-    _chunk_float_deferred = False          # set per loaded chunk from its __float_deferred__ signal
-    _chunk_defer_meta = None               # (a_cols, b_cols, ops) int arrays, indexed by buf_col
-    _chunk_tv_gpu = None                   # cupy upload of transformed_vars (the operand table), per chunk
-    _chunk_resolved_cols: dict = {}        # buf_col -> host float32 column (re-materialised), per chunk
-    _chunk_mi_cache: dict = {}
+    # Cross-pair chunk-materialise state, threaded through ``_score_one_pair`` as ONE mutable dict so the
+    # lazy per-chunk load / reset semantics persist across pairs exactly as the in-loop locals did:
+    #   loaded_idx     : index of the chunk currently materialised in ``_chunk_buffer`` (-1 = none).
+    #   mi_cache       : ``_compute_one_fe_chunk`` result for the loaded chunk (per-pair MI + buf cols).
+    #   float_deferred : the chunk's ``__float_deferred__`` signal (GPU buffer-D2H deferral).
+    #   defer_meta     : (a_cols, b_cols, ops) int arrays for on-demand GPU re-materialise, per chunk.
+    #   tv_gpu         : cupy upload of ``transformed_vars`` (the operand table), per chunk.
+    #   resolved_cols  : buf_col -> host float32 column (re-materialised), per chunk.
+    _chunk_state: dict = {
+        "loaded_idx": -1,
+        "mi_cache": {},
+        "float_deferred": False,
+        "defer_meta": None,
+        "tv_gpu": None,
+        "resolved_cols": {},
+    }
     _chunk_buffer = None
     _pair_to_chunk: dict = {}   # raw_vars_pair -> chunk index
     _fe_chunks: list = []
@@ -1166,8 +856,6 @@ def check_prospective_fe_pairs(
                     )
         else:
             _chunk_global_batch = False
-    # Index of the chunk currently materialised in ``_chunk_buffer`` (-1 = none).
-    _loaded_chunk_idx = -1
 
     # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
     # so far across ALL pairs in this FE step + the feature that produced it. Both are
@@ -1184,1245 +872,81 @@ def check_prospective_fe_pairs(
         prospective_pairs.items(), desc="pair", leave=False, disable=not verbose
     )):  # better to start considering form the most prospective pairs with highest mis ratio!
 
-        messages = []
-
-        combs = pair_combs[raw_vars_pair]
-
-        best_config, best_mi = None, -1
-        this_pair_features = set()
-        var_pairs_perf = {}
-        # Pre-warp uplift tracking (2026-06-02): the best engineered MI achievable
-        # with ONLY the elementary library unaries (no ``prewarp`` operand) vs the
-        # best USING a prewarp operand. A 1-D engineered summary of a 2-D pair
-        # cannot retain ``fe_min_engineered_mi_prevalence`` of the 2-D JOINT MI,
-        # so on a non-monotone inner distortion (where the elementary library is
-        # representationally blind) the prewarp winner is rejected by the joint
-        # prevalence gate despite being a large, real uplift over the best the
-        # library can do. The alternative acceptance path below admits a prewarp
-        # winner when it beats the best non-prewarp engineered MI by a margin --
-        # directed (only fires where the prewarp adds representational power) and
-        # noise-safe (on linear/monotone/noise data the prewarp does not beat the
-        # elementary library, so the margin is never cleared).
-        best_nonprewarp_mi = -1.0
-        best_nonprewarp_config = None
-        best_prewarp_config, best_prewarp_mi = None, -1.0
-
-        # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into
-        # ``[:, i]``); recompute-fallback path uses a tiny 1D scratch + a
-        # config-by-i map for on-demand survivor recomputation later.
-        # CROSS-PAIR: when this pair was batched across the chunk, its survivor
-        # columns live in the wide ``_chunk_buffer`` (the config's ``i`` is the
-        # chunk-buffer column), so point ``final_transformed_vals`` at it. The chunk
-        # is materialised LAZILY: pairs are processed in chunk-plan order, so when we
-        # reach the FIRST pair of a not-yet-loaded chunk we fill the buffer + MI cache
-        # for that whole chunk in ONE batched pass. By the time the next chunk's first
-        # pair arrives, all of this chunk's pairs (incl. their survivor packing, which
-        # reads the buffer) have already been processed -> safe to overwrite.
-        _chunk_entry = None
-        if _chunk_global_batch and (_chunk_buffer is not None):
-            _my_chunk = _pair_to_chunk.get(raw_vars_pair)
-            if _my_chunk is not None:
-                if _my_chunk != _loaded_chunk_idx:
-                    _chunk_mi_cache = _compute_one_fe_chunk(
-                        chunk_pairs=_fe_chunks[_my_chunk],
-                        pair_valid_combs=_pair_valid_combs,
-                        chunk_buffer=_chunk_buffer,
-                        vars_transformations=vars_transformations,
-                        transformed_vars=transformed_vars,
-                        binary_transformations=binary_transformations,
-                        quantization_nbins=quantization_nbins,
-                        quantization_dtype=quantization_dtype,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        fe_npermutations=fe_npermutations,
-                        fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                        batch_mi_kernel=batch_mi_with_noise_gate,
-                        use_su=use_su_normalization(),
-                        prewarp_unary=_PREWARP_UNARY,
-                        logger=logger,
-                        discretize_2d_quantile_batch=discretize_2d_quantile_batch,
-                        serial_main_thread=serial_main_thread,  # OPT-A
-                        defer_float=_fe_defer_float,
-                    )
-                    _loaded_chunk_idx = _my_chunk
-                    # Reset the per-chunk re-materialise caches + capture the deferral signal/metadata.
-                    _chunk_float_deferred = bool(_chunk_mi_cache.get("__float_deferred__", False))
-                    _chunk_defer_meta = _chunk_mi_cache.get("__defer_meta__")
-                    _chunk_tv_gpu = None
-                    _chunk_resolved_cols = {}
-                _chunk_entry = _chunk_mi_cache.get(raw_vars_pair)
-        # When the chunk DEFERRED its float D2H the buffer is unfilled -- point the reads at None so they
-        # take the GPU re-materialise branch in ``_resolve_col`` (bit-identical to the buffer value).
-        _this_chunk_deferred = (_chunk_entry is not None) and _chunk_float_deferred
-        if _chunk_entry is not None:
-            final_transformed_vals = None if _this_chunk_deferred else _chunk_buffer
-        else:
-            final_transformed_vals = final_transformed_vals_shared
-        _col_buf_1d: np.ndarray | None = (
-            np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
+        (_pair_res_entry, best_config, best_mi) = _score_one_pair(
+            raw_vars_pair=raw_vars_pair,
+            pair_mi=pair_mi,
+            chunk_state=_chunk_state,
+            rejection_records=_rejection_records,
+            rejection_ledger_out=rejection_ledger_out,
+            X=X,
+            transformed_vars=transformed_vars,
+            vars_transformations=vars_transformations,
+            binary_transformations=binary_transformations,
+            unary_transformations=unary_transformations,
+            pair_combs=pair_combs,
+            final_transformed_vals_shared=final_transformed_vals_shared,
+            _need_recompute_map=_need_recompute_map,
+            _chunk_global_batch=_chunk_global_batch,
+            _chunk_buffer=_chunk_buffer,
+            _pair_to_chunk=_pair_to_chunk,
+            _fe_chunks=_fe_chunks,
+            _pair_valid_combs=_pair_valid_combs,
+            _fe_defer_float=_fe_defer_float,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
+            fe_npermutations=fe_npermutations,
+            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+            quantization_nbins=quantization_nbins,
+            quantization_method=quantization_method,
+            quantization_dtype=quantization_dtype,
+            num_fs_steps=num_fs_steps,
+            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+            fe_max_external_validation_factors=fe_max_external_validation_factors,
+            numeric_vars_to_consider=numeric_vars_to_consider,
+            fe_max_steps=fe_max_steps,
+            fe_print_best_mis_only=fe_print_best_mis_only,
+            fe_mm_debias_prevalence=fe_mm_debias_prevalence,
+            _prewarp_active=_prewarp_active,
+            prewarp_uplift_threshold=prewarp_uplift_threshold,
+            _PREWARP_UNARY=_PREWARP_UNARY,
+            _corr_y_cont=_corr_y_cont,
+            _corr_y_cont_finite=_corr_y_cont_finite,
+            _NOISE_WRAP_CORR_COLLAPSE_FRAC=_NOISE_WRAP_CORR_COLLAPSE_FRAC,
+            _NOISE_WRAP_MIN_OPERAND_CORR=_NOISE_WRAP_MIN_OPERAND_CORR,
+            fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
+            fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
+            fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
+            cols=cols,
+            original_cols=original_cols,
+            _use_subsample=_use_subsample,
+            _X_full=_X_full,
+            _full_n_rows=_full_n_rows,
+            _prewarp_spec_by_var=_prewarp_spec_by_var,
+            _gate_med_median_by_var=_gate_med_median_by_var,
+            engineered_operand_values=engineered_operand_values,
+            _rng_extval=_rng_extval,
+            _n_workers=_n_workers,
+            times_spent=times_spent,
+            verbose=verbose,
+            serial_main_thread=serial_main_thread,
+            _extval_raw_col=_extval_raw_col,
+            _safe_abs_corr=_safe_abs_corr,
+            _operand_marginal_mi=_operand_marginal_mi,
+            _operand_discretized=_operand_discretized,
+            batch_mi_with_noise_gate=batch_mi_with_noise_gate,
+            use_su_normalization=use_su_normalization,
+            discretize_array=discretize_array,
+            discretize_2d_quantile_batch=discretize_2d_quantile_batch,
+            mi_direct=mi_direct,
+            get_new_feature_name=get_new_feature_name,
+            _rebuild_full_survivor_col=_rebuild_full_survivor_col,
+            _can_hoist_shared_buffer=_can_hoist_shared_buffer,
+            _fe_gpu_discretize_enabled=_fe_gpu_discretize_enabled,
         )
-        _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
-
-        def _resolve_col(_buf_col):
-            """Continuous candidate column ``_buf_col`` for the intermediate (subsample) scoring reads.
-            Reads the filled chunk buffer when present; on the DEFERRED-float GPU path the buffer is
-            unfilled, so RE-MATERIALISE the column on the GPU via ``_fe_materialise_block_gpu`` -- the SAME
-            kernel that filled the bulk buffer, so the bytes are BIT-IDENTICAL (no cupy-vs-numpy ULP shift).
-            The operand table is uploaded ONCE per chunk and cached; resolved columns are cached per
-            buf_col (a column may be read several times). Returns a host float32 (n,) array, nan_to_num'd
-            exactly as the bulk materialise (the kernel scrubs inline + we nan_to_num the D2H copy)."""
-            nonlocal _chunk_tv_gpu
-            if final_transformed_vals is not None:
-                return final_transformed_vals[:, _buf_col]
-            _cached = _chunk_resolved_cols.get(_buf_col)
-            if _cached is not None:
-                return _cached
-            import cupy as cp
-            from .._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
-            if _chunk_tv_gpu is None:
-                # per-step weakref-cached operand table (shared with gpu_materialise) -> one H2D/step
-                _chunk_tv_gpu = _resident_operand_table(cp, transformed_vars)
-            _a, _b, _ops = _chunk_defer_meta
-            _cand = _fe_materialise_block_gpu(
-                _chunk_tv_gpu, _a[_buf_col:_buf_col + 1], _b[_buf_col:_buf_col + 1], _ops[_buf_col:_buf_col + 1],
-            )
-            _col = np.ascontiguousarray(cp.asnumpy(_cand)[:, 0])
-            np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-            _chunk_resolved_cols[_buf_col] = _col
-            del _cand
-            return _col
-
-        i = 0
-        # Per-pair thread-local timing accumulator; merged into the shared
-        # ``times_spent`` under the lock once per pair (see end of pair loop).
-        _local_times: dict = {}
-
-        # BATCHED-DISCRETIZE dispatch (2026-06-04): per-candidate ``discretize_array``
-        # (np.linspace + np.nanpercentile->partition + searchsorted) is the FE-pair-search
-        # hotspot -- millions of tiny per-column numpy calls -> serial-dispatch-bound,
-        # idle CPU. On the HOIST path (shared buffer present) with the quantile method we
-        # split this pair's sweep into 3 phases: (1) materialise ALL candidate columns into
-        # the buffer + nan_to_num + record (config, idx, uses_pw); (2) batch-discretise the
-        # filled buffer slice in ONE ``np.nanpercentile(axis=0)`` (amortises dispatch over K
-        # columns -- bit-identical to per-column, see ``discretize_2d_quantile_batch``);
-        # (3) replay the EXACT per-candidate mi_direct + best/prewarp/config tracking.
-        # MI stays per-candidate (mi_direct's permutation confidence is NOT batched). The
-        # recompute-fallback (no buffer) and the uniform method keep the original
-        # per-candidate path verbatim -- only the hoist+quantile case is batched.
-        # A deferred chunk has final_transformed_vals=None (buffer not filled) but still drives the
-        # cross-pair replay path (its MI is precomputed, its columns re-materialise on demand via
-        # _resolve_col) -- so treat a present _chunk_entry as batch-disc-eligible even when deferred.
-        _use_batch_disc = (
-            (final_transformed_vals is not None) or (_chunk_entry is not None and _this_chunk_deferred)
-        ) and (quantization_method == "quantile")
-
-        if _use_batch_disc:
-            # CROSS-PAIR fast path: this pair was batched together with the rest of its
-            # chunk in ``_compute_one_fe_chunk``. Its candidate columns already live
-            # in ``_chunk_buffer`` (the buf_col index is the config ``i``), its MI is
-            # already computed, and its per-bin_func materialise timings are recorded.
-            # We only replay the EXACT per-candidate tracking below. Bit-identical: the
-            # chunk's ONE discretize_2d + ONE batch_mi score each column independently,
-            # and the candidate order per pair is the SAME (combs x bin_funcs) order the
-            # per-pair Phase 1 produced.
-            if _chunk_entry is not None:
-                _batch_candidates, _fe_mi_by_col, _pair_local_times = _chunk_entry
-                for _bf_name, _dt in _pair_local_times.items():
-                    _local_times[_bf_name] = _local_times.get(_bf_name, 0.0) + _dt
-                # ``_fe_mi_arr`` is indexed by the chunk-buffer column (buf_col), so the
-                # replay's ``_fe_mi_arr[_ci]`` lookup is correct without re-indexing.
-                _fe_mi_arr = _fe_mi_by_col
-            else:
-                # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
-                # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
-                _batch_candidates = []  # (transformations_pair, bin_func_name, i, uses_pw)
-                for transformations_pair in combs:
-                    if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
-                        continue
-                    param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-                    param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-                    _uses_pw = (
-                        transformations_pair[0][1] == _PREWARP_UNARY
-                        or transformations_pair[1][1] == _PREWARP_UNARY
-                    )
-                    # Same wide errstate scope as the original per-pair-comb path.
-                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                        for bin_func_name, bin_func in binary_transformations.items():
-                            start = timer()
-                            try:
-                                final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                            except Exception:
-                                logger.error(f"Error when performing {bin_func}")
-                            else:
-                                # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
-                                # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
-                                # K tiny 50k-element isposinf/isneginf calls per pair -> profiled at
-                                # 16.5s / 5834 calls on the 5-feat x 50000-row repro, pure serial
-                                # numpy dispatch with the cores idle). ``nan_to_num`` is elementwise
-                                # so scrubbing the whole [:, :i] block at once is byte-identical to
-                                # scrubbing each column as it is written, and runs one C loop over a
-                                # contiguous (n x K) buffer instead of K strided ones.
-                                _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
-                                _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
-                                i += 1
-
-                # Phase 1b: ONE vectorised NaN/inf scrub over every materialised column
-                # [:, :i] (replaces the per-column ``nan_to_num`` removed above). Elementwise
-                # -> byte-identical to the per-column scrub; one contiguous-block C pass.
-                if i > 0:
-                    np.nan_to_num(final_transformed_vals[:, :i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-                # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
-                # Bit-identical to per-column ``discretize_array(method='quantile')`` -- the
-                # buffer dtype (float32) is NOT cast; per-column edges/codes match exactly.
-                _fe_mi_arr = None
-                if _batch_candidates:
-                    # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
-                    # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
-                    _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
-                    _fe_mi_arr = None
-                    # GPU-resident FE candidate MI (size+HW gated, default OFF via MLFRAME_FE_GPU_DISCRETIZE).
-                    # At large n*K the per-pair binning + observed-MI counting is the dominant FE-scan cost;
-                    # the GPU path runs BOTH on-device and returns fe_mi BIT-IDENTICAL to the production
-                    # analytic dispatch (GPU binning == CPU discretize, maxdiff 0; GPU observed-MI == CPU,
-                    # maxdiff 0; same analytic chi2 gate), so the FE selection is identical. Returns None for
-                    # the non-analytic branch (SU / sparse / small-n) -> falls through to the CPU dispatch.
-                    if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):
-                        try:
-                            from .._gpu_resident_fe import gpu_pairs_fe_mi
-                            _fe_mi_arr = gpu_pairs_fe_mi(
-                                final_transformed_vals[:, :i], int(quantization_nbins),
-                                classes_y, classes_y_safe, freqs_y,
-                                fe_npermutations, fe_min_nonzero_confidence, use_su_normalization(),
-                            )
-                        except Exception:
-                            logger.debug("FE GPU pair-MI failed; falling back to CPU", exc_info=True)
-                            _fe_mi_arr = None
-                    if _fe_mi_arr is None:
-                        _disc_2d = discretize_2d_quantile_batch(
-                            final_transformed_vals[:, :i], n_bins=quantization_nbins,
-                            dtype=_code_dtype,
-                            # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
-                            # gate as the chunk + marginal-uplift discretise -- byte-identical
-                            # column-prange twin when serial_main_thread (no joblib nest).
-                            parallel=_fe_use_parallel_kernels(i, serial_main_thread),
-                            # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
-                            # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
-                            # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
-                            assume_finite=True,
-                        )
-
-                    # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
-                    # columns in ONE kernel call. Bit-identical to the per-candidate
-                    # ``mi_direct`` loop on the default FE path (parallelism='outer',
-                    # n_workers=1 -> parallel_mi_prange, base_seed=0): every candidate is
-                    # tested against the SAME npermutations shuffles of y (the shuffle is
-                    # seeded by (base_seed, perm_index) ONLY, never by classes_x), so a single
-                    # batched kernel can shuffle y once per permutation and score all columns
-                    # against it -- amortising both the MI compute and the shuffle across K.
-                    # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
-                    # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
-                    # Skipped when the GPU pair-MI path above already produced ``_fe_mi_arr``.
-                    if _fe_mi_arr is None:
-                        _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
-                            disc_2d=_disc_2d,
-                            quantization_nbins=quantization_nbins,
-                            classes_y=classes_y,
-                            classes_y_safe=classes_y_safe,
-                            freqs_y=freqs_y,
-                            npermutations=fe_npermutations,
-                            min_nonzero_confidence=fe_min_nonzero_confidence,
-                            use_su=use_su_normalization(),
-                            batch_mi_kernel=batch_mi_with_noise_gate,
-                        )
-
-            # Replay best/prewarp/config tracking in the SAME order candidates were
-            # produced -> identical tie-break behaviour. ``_fe_mi_arr`` is indexed by the
-            # buffer column (per-pair: 0..K-1; cross-pair: the chunk-buffer column).
-            if _batch_candidates and _fe_mi_arr is not None:
-                for transformations_pair, bin_func_name, _ci, _uses_pw in _batch_candidates:
-                    # Cast to Python float so ``var_pairs_perf`` / downstream tracking see
-                    # the same scalar type ``mi_direct`` returned (numba njit returns a
-                    # python float at the call boundary). Value is bit-identical.
-                    fe_mi = float(_fe_mi_arr[_ci])
-
-                    config = (transformations_pair, bin_func_name, _ci)
-                    var_pairs_perf[config] = fe_mi
-                    if _need_recompute_map:
-                        _config_by_i[_ci] = (transformations_pair[0], transformations_pair[1], bin_func_name)
-
-                    if fe_mi > best_mi:
-                        best_mi = fe_mi
-                        best_config = config
-                    if _uses_pw:
-                        if fe_mi > best_prewarp_mi:
-                            best_prewarp_mi = fe_mi
-                            best_prewarp_config = config
-                    else:
-                        if fe_mi > best_nonprewarp_mi:
-                            best_nonprewarp_mi = fe_mi
-                            best_nonprewarp_config = config
-                    if fe_mi > best_mi * 0.85:
-                        if not fe_print_best_mis_only or (fe_mi == best_mi):
-                            if verbose > 2:
-                                print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-        else:
-            for transformations_pair in combs:
-                if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
-                    continue
-                param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-                param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-
-                # A config "uses prewarp" iff either operand's unary name is the
-                # pseudo-unary. Invariant across the bin_func loop -> compute once.
-                _uses_pw = (
-                    transformations_pair[0][1] == _PREWARP_UNARY
-                    or transformations_pair[1][1] == _PREWARP_UNARY
-                )
-
-                # ``bin_func`` produces NaN/+-inf on extreme Optuna-picked params
-                # (overflow in mul/exp, divide-by-zero in log); the downstream
-                # nan_to_num + MI gate already sanitise, so the bare numpy
-                # RuntimeWarnings carry zero diagnostic value. Suppress them for the
-                # whole binary-transform sweep: entering np.errstate per inner
-                # iteration cost ~6.8us/iter (measured ~490ms over 72k iters),
-                # dwarfing the bin_func work itself; one context per pair-comb
-                # removes that. numba kernels (discretize/mi_direct) ignore errstate
-                # and nan_to_num emits nothing, so the wider scope is value-identical.
-                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                    for bin_func_name, bin_func in binary_transformations.items():
-
-                        start = timer()
-                        try:
-                            if final_transformed_vals is not None:
-                                final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                                _col_view = final_transformed_vals[:, i]
-                            else:
-                                # Recompute fallback: write into the shared 1D scratch.
-                                # bin_func returns a fresh ndarray; copy into the scratch
-                                # so downstream nan_to_num + discretize see contiguous
-                                # data. Avoids accumulating one alloc per inner iter.
-                                _col_buf_1d[:] = bin_func(param_a, param_b)
-                                _col_view = _col_buf_1d
-                        except Exception:
-                            logger.error(f"Error when performing {bin_func}")
-                        else:
-                            np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-                            # Wave 27 P1: ``times_spent`` is shared across mrmr.py's
-                            # parallel threading dispatch. Accumulate this pair's
-                            # per-bin_func timings in a thread-LOCAL dict and merge them
-                            # under ``_TIMES_SPENT_LOCK`` once per pair (below); the old
-                            # per-inner-iteration lock was a serialization point on the
-                            # hot path. Totals are identical.
-                            _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
-
-                            discretized_transformed_values = discretize_array(
-                                arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                            )
-                            fe_mi, fe_conf = mi_direct(
-                                discretized_transformed_values.reshape(-1, 1),
-                                x=np.array([0], dtype=np.int64),
-                                y=None,
-                                factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                                classes_y=classes_y,
-                                classes_y_safe=classes_y_safe,
-                                freqs_y=freqs_y,
-                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                npermutations=fe_npermutations,
-                            )
-
-                            config = (transformations_pair, bin_func_name, i)
-                            var_pairs_perf[config] = fe_mi
-                            if _need_recompute_map:
-                                # Map i -> (a_key, b_key, bin_func_name) for downstream
-                                # rebuild; bin_func is looked up via the original dict.
-                                _config_by_i[i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
-
-                            if fe_mi > best_mi:
-                                best_mi = fe_mi
-                                best_config = config
-                            # Track best-with-prewarp vs best-without so the alternative
-                            # uplift gate below can decide whether the prewarp earned its
-                            # place (``_uses_pw`` hoisted above the bin_func loop).
-                            if _uses_pw:
-                                if fe_mi > best_prewarp_mi:
-                                    best_prewarp_mi = fe_mi
-                                    best_prewarp_config = config
-                            else:
-                                if fe_mi > best_nonprewarp_mi:
-                                    best_nonprewarp_mi = fe_mi
-                                    best_nonprewarp_config = config
-                            if fe_mi > best_mi * 0.85:
-                                if not fe_print_best_mis_only or (fe_mi == best_mi):
-                                    if verbose > 2:
-                                        print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-                            i += 1
-
-        # Merge this pair's per-bin_func timings into the shared accumulator in
-        # ONE locked pass (the increment was previously locked per inner
-        # iteration -- a serialization point under the parallel pair dispatch).
-        if _local_times:
-            with _TIMES_SPENT_LOCK:
-                for _bf, _dt in _local_times.items():
-                    times_spent[_bf] += _dt
-
-        if verbose > 2:
-            print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
-
-        # CLEAN-FORM DEMOTION over the per-pair MI winner (2026-06-20). The ``prewarp``
-        # pseudo-unary fits a learned 1-D orthogonal-poly warp per operand; on a target whose
-        # inner function is already LIBRARY-expressible up to a MONOTONE distortion (e.g.
-        # ``log(c)*sin(d)`` -- ``mul(log(c),sin(d))`` is the clean form, while the warp learns a
-        # monotone re-expression ``mul(prewarp(c),sin(d))``) the prewarp form has IDENTICAL
-        # ordering -> bit-equal binned MI, but MI is RANK-only so it cannot prefer the clean leg.
-        # The warp then wins ``best_config`` by an MI tie/epsilon and propagates a DISTORTED form
-        # (``log(div(sqr(a),neg(b)))`` for the a/b half, double-``prewarp(c)`` for the c/d half)
-        # that the step-k>1 composite chains, displacing the clean additive compound AND dragging
-        # in a redundant raw operand. Demote: when the global winner USES a prewarp operand but a
-        # clean elementary-library (non-prewarp) form scores essentially the SAME target MI, keep
-        # the prewarp winner ONLY if it has a real LINEAR-USABILITY uplift (|corr(continuous y)|)
-        # over the best clean form. This preserves prewarp's INTENDED case -- a genuinely
-        # non-monotone inner (``a**3-2a``) where the warp's reconstruction is MORE linearly usable
-        # than any library form, so the uplift is real and the prewarp form is kept -- while making
-        # the monotone-equivalent case (no |corr| uplift) fall back to the clean library compound.
-        if (
-            best_config is not None
-            and best_nonprewarp_config is not None
-            and best_config is not best_nonprewarp_config
-            and best_nonprewarp_mi > 0.0
-            and _corr_y_cont is not None
-        ):
-            _bc_uses_pw = (
-                isinstance(best_config[0], (tuple, list))
-                and len(best_config[0]) == 2
-                and (best_config[0][0][1] == _PREWARP_UNARY or best_config[0][1][1] == _PREWARP_UNARY)
-            )
-            # Only act when the winner is a prewarp form AND the clean form is MI-equivalent
-            # (within the same 0.85 leaders band already used as the equivalence notion). A
-            # strictly-higher-MI prewarp winner is left untouched -- the prewarp/marginal gates
-            # below decide it on its own merits; demotion is for the MI-tie monotone case only.
-            if _bc_uses_pw and best_nonprewarp_mi >= best_mi * fe_good_to_best_feature_mi_threshold:
-
-                def _config_corr(_cfg):
-                    """|corr(continuous y)| of a config's materialised continuous column; -1.0 when
-                    it cannot be rebuilt (so an unrecoverable form never wins the comparison)."""
-                    try:
-                        _ci = _cfg[2]
-                        if final_transformed_vals is not None:
-                            _v = final_transformed_vals[:, _ci]
-                        elif _this_chunk_deferred:
-                            # DEFERRED-float GPU path: re-materialise this column on the GPU (bit-identical
-                            # to the bulk buffer -> the clean-form demotion uses the EXACT same |corr| it
-                            # would have under the host buffer; a numpy recompute here flips it at ULP).
-                            _v = _resolve_col(_ci)
-                        elif _config_by_i is not None and _ci in _config_by_i:
-                            _ak, _bk, _bn = _config_by_i[_ci]
-                            _pa = transformed_vars[:, vars_transformations[_ak]]
-                            _pb = transformed_vars[:, vars_transformations[_bk]]
-                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                _v = binary_transformations[_bn](_pa, _pb)
-                            _v = np.nan_to_num(np.asarray(_v, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                        else:
-                            return -1.0
-                        return _safe_abs_corr(_v)
-                    except Exception:
-                        return -1.0
-
-                _pw_corr = _config_corr(best_config)
-                _clean_corr = _config_corr(best_nonprewarp_config)
-                # Demote to the clean form unless the prewarp form is MEANINGFULLY more linearly
-                # usable. ``1.05`` = the prewarp must beat the clean |corr| by >= 5% to justify the
-                # distorted re-expression; a genuinely non-monotone inner clears this comfortably
-                # (its warp reconstruction is the ONLY linearly-aligned form), while a
-                # monotone-equivalent warp scores <= the clean form and is demoted.
-                if _clean_corr >= 0.0 and _pw_corr < _clean_corr * 1.05:
-                    best_config, best_mi = best_nonprewarp_config, best_nonprewarp_mi
-                    # The single-best emission path (below) does NOT read ``best_config``
-                    # directly -- it rebuilds the leaders band from ``var_pairs_perf`` and
-                    # re-picks via ``_select_single_best`` whose PRIMARY key is exact target
-                    # MI, so a prewarp form that beats the clean form by an MI EPSILON would be
-                    # re-selected and the usability tie-break (gated on EQUAL MI) would never
-                    # engage. So CAP every prewarp-using config's recorded MI at just-below the
-                    # best clean-form MI: it stays in the leaders band (so its column can still
-                    # be emitted if the model wants a tree-friendly twin via multi-emit) but can
-                    # no longer OUT-RANK the clean library form on the primary key, and the
-                    # already-wired ``_leader_usability`` tie-break then picks the clean leg. A
-                    # prewarp form with genuine |corr| uplift (the non-monotone intended case)
-                    # never reaches here (the ``_pw_corr < _clean_corr*1.05`` guard above fails),
-                    # so its MI rank is untouched and it keeps winning.
-                    _pw_cap = best_nonprewarp_mi * 0.999
-                    for _cfg in list(var_pairs_perf.keys()):
-                        _ctp = _cfg[0]
-                        if (
-                            isinstance(_ctp, (tuple, list)) and len(_ctp) == 2
-                            and (_ctp[0][1] == _PREWARP_UNARY or _ctp[1][1] == _PREWARP_UNARY)
-                            and var_pairs_perf[_cfg] > _pw_cap
-                        ):
-                            var_pairs_perf[_cfg] = _pw_cap
-                    if verbose:
-                        messages.append(
-                            f"clean-form demotion: prewarp winner |corr(y)|={_pw_corr:.3f} did not beat "
-                            f"the best clean library form |corr(y)|={_clean_corr:.3f} by >= 5% (MI-equivalent "
-                            f"monotone re-expression); demoting to the clean form and capping prewarp-form "
-                            f"MI at the clean form's so it cannot out-rank it on the primary key."
-                        )
-
-        # experiment-rejected (2026-06-03): a held-out-CV firewall here (score
-        # per-combo MI on a TRAIN stride slice for honest selection, then keep the
-        # winner only if its held-out VAL-slice MI retains >= ratio of train MI) was
-        # implemented and benched END-TO-END on Layer-49 -- NO gain. In an isolated
-        # probe it separated cleanly (genuine synergy val/train 0.90-1.04 vs noise-FE
-        # 0.12-0.36), BUT in the real pipeline the tighter prevalence-gate defaults
-        # (fe_synergy_min_prevalence 1.5 / fe_min_engineered_mi_prevalence 0.97)
-        # already remove the pure noise*noise products, and the RESIDUAL "noise" FE
-        # are signal*noise combos (e.g. max(log(L4_s2),noise_3) -- L4_s2 is a real
-        # sensor) that genuinely generalise (val/train > 0.5) and SHOULD be kept; the
-        # firewall's train-based selection (half the rows) then merely added selection
-        # noise (+1 support). Prevalence gating subsumes the win -> not shipped.
-        # Standard acceptance: the best engineered MI clears the configured
-        # fraction of the 2-D pair-joint MI.
-        #
-        # MILLER-MADOW DEBIAS (2026-06-09, backlog #1 + #4). The RAW ratio
-        # ``best_mi / pair_mi`` compares a 1-D engineered MI (over ~``quantization_nbins``
-        # bins) against a 2-D joint MI (over ~``nbins^2`` bins). Both are plug-in MIs whose
-        # positive bias is ``(k_x-1)(k_y-1)/2n``; the JOINT denominator's term is ~``nbins``x
-        # larger, so the raw ratio is structurally depressed below 1.0 even when the 1-D
-        # feature captures all the joint information (worst at small/moderate n) -- this is
-        # exactly the documented reason the marginal-uplift fallback gate had to be added.
-        # When ``fe_mm_debias_prevalence`` we subtract the MM MI-bias term from BOTH sides,
-        # using the OCCUPIED bin counts (#4: nominal ``nbins`` over-corrects heavy-tailed
-        # columns that collapse), with a denominator-positivity guard that defers to the raw
-        # ratio when the joint bias term swamps the finite-sample joint MI. ``->`` raw ratio
-        # as ``n -> inf`` (bias terms vanish) => large-n selection byte-untouched. The order-2
-        # maxT floor (the outer guard) is MM-debiased CONSISTENTLY upstream (the IRON RULE),
-        # so admitting more pairs here does NOT weaken the best-of-pool noise floor.
-        #
-        # bench-attempt-rejected (2026-06-09, FS backlog #5 "permutation-null-calibrated
-        # prevalence bar"). The idea: REPLACE the hardcoded ``fe_min_engineered_mi_prevalence``
-        # (0.90) with a SELF-CALIBRATING per-pool null ratio -- in the SAME K y-shuffles the
-        # order-2 maxT floor runs, ALSO mirror the max-over-transforms search (discretise the
-        # elementary binary bank mul/add/sub/div/max/min over the CONTINUOUS operands ONCE --
-        # permutation-invariant -- then per shuffle take max 1-D engineered MI / joint pair MI),
-        # and gate ``best_mi/pair_mi`` against the q95 of that null-ratio distribution (the chance
-        # ceiling), admitting only ABOVE it. Unlike #1 (a DETERMINISTIC bias subtraction that
-        # uniformly relaxes the bar) the null ratio is calibrated to what NOISE actually produces.
-        # MEASURED (standalone probe, N_BINS=8, K=25, q=0.95):
-        #   * PURE NOISE (n=2000, p=12): null q95 ratio ~0.16; real noise-pair ratios <=0.17 ->
-        #     ~5% admitted = pure (1-q) chance rate. The HARD noise-FP gate PASSES on clean noise.
-        #   * He2(a)*b genuine synergy (n=500/2000/8000): real ratio 0.28/0.275/0.268 >> null
-        #     0.15/0.16/0.17 -> ADMIT, while the hardcoded 0.90 bar REJECTS at every n. In a mixed
-        #     He2-signal+8-noise frame the null bar admits the genuine (a,b) pair and 0-1/28 noise
-        #     pairs (chance rate). So in ISOLATION #5 is a genuine improvement over #1.
-        # BUT bench-REJECTED on the case that matters -- the user's WEAK F2
-        # (``0.2*a**2/b + log(c*2)*sin(d/3)``, the SAME target that rejected #1/#8/#19): the null
-        # ceiling is ~0.167 (calibrated to clean-noise pairs, ratio ~0.13-0.17), but EVERY weak-F2
-        # pair sits FAR above it (5 seeds, n=20000): genuine_ab ~0.81, genuine_cd ~0.73, AND all four
-        # cross-mix pairs 0.56-0.72 (cross(b,d) ~0.717 >= genuine_cd). So the null bar ADMITS every
-        # cross-mix on every seed -- the IRON-RULE failure mode, identical to #1 (cross-mix 3/10 ->
-        # 9/10). ROOT CAUSE is the documented fundamental detectability limit (see
-        # ``test_mrmr_weak_f2_seed_stability.py`` "THREE DIRECT LEVERS EXHAUSTED"): the cross-mix
-        # smuggles the dominant MONOTONE predictor ``c`` across the pair boundary, so its 1-D
-        # engineered summary recovers a large fraction of its (real, cross) joint -- a HIGH ratio
-        # indistinguishable from genuine synergy by ANY MI threshold. The null bar measures the
-        # noise floor, but the weak-F2 problem is NOT noise admission; it is a real-monotone-predictor
-        # cross-mix whose ratio is nowhere near the noise floor. AND the existing marginal-uplift /
-        # prewarp FALLBACK already recovers the genuine pairs end-to-end at n=500/2000/8000, so #5
-        # adds ZERO incremental recovery while WEAKENING cross-mix rejection. #5 is structurally a
-        # 4th MI-threshold lever and fails by construction like #1/#8/#19; do NOT re-attempt an
-        # MI-threshold/ratio fix here. Numbers + verdict in D:/Temp/null_prev_results.md.
-        _gate_ratio = (best_mi / pair_mi) if pair_mi > 0.0 else 0.0
-        if fe_mm_debias_prevalence and pair_mi > 0.0 and best_config is not None:
-            from ._pairs_gates import _occupied_k, mm_debiased_prevalence_ratio
-            _n_rows = int(len(classes_y))
-            _k_y = int(np.asarray(freqs_y).shape[0])
-            # Engineered winner occupied-K: discretise its CONTINUOUS column (the buffer
-            # column ``best_config[2]``) with the SAME quantiser the MI was scored under.
-            _k_eng = quantization_nbins
-            try:
-                _win_codes = discretize_array(
-                    arr=np.nan_to_num(_resolve_col(best_config[2])),
-                    n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype,
-                )
-                _k_eng = _occupied_k(_win_codes)
-            except Exception:
-                _k_eng = quantization_nbins
-            # 2-D joint occupied-K of the raw operands (bit-identical discretise to the
-            # pair_mi compute); fall back to nominal ``nbins^2`` if either operand is
-            # missing an identity transform.
-            _ca = _operand_discretized(raw_vars_pair[0])
-            _cb = _operand_discretized(raw_vars_pair[1])
-            if _ca is not None and _cb is not None:
-                _nb_b = int(np.asarray(_cb).max()) + 1 if np.asarray(_cb).size else quantization_nbins
-                _joint_codes = np.asarray(_ca, dtype=np.int64) * _nb_b + np.asarray(_cb, dtype=np.int64)
-                _k_joint = _occupied_k(_joint_codes)
-            else:
-                _k_joint = quantization_nbins * quantization_nbins
-            _gate_ratio = mm_debiased_prevalence_ratio(
-                best_mi, pair_mi, k_eng=_k_eng, k_joint=_k_joint, k_y=_k_y, n=_n_rows,
-            )
-        _passes_joint_gate = _gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
-
-        # Alternative pre-warp acceptance (2026-06-02): the joint-prevalence gate
-        # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner
-        # distortion. Admit the prewarp winner when it beats the best NON-prewarp
-        # engineered MI by ``prewarp_uplift_threshold`` AND clears the pair-MI
-        # noise floor (its MI must exceed the larger individual operand MI -- the
-        # same notion the smart_polynom baseline uplift uses), so it cannot fire
-        # on noise (where prewarp does not beat the library) or pure-linear data
-        # (where the elementary library already saturates and the prewarp adds no
-        # uplift). When it fires, the prewarp config becomes the winner.
-        _prewarp_accept = False
-        if (
-            _prewarp_active
-            and not _passes_joint_gate
-            and best_prewarp_config is not None
-            and best_nonprewarp_mi > 0.0
-            and best_prewarp_mi >= best_nonprewarp_mi * float(prewarp_uplift_threshold)
-        ):
-            _prewarp_accept = True
-            # Promote the prewarp winner to the pair's winner so the standard
-            # leading-features / single-best materialisation path emits it.
-            best_config, best_mi = best_prewarp_config, best_prewarp_mi
-            if verbose:
-                messages.append(
-                    f"pre-warp uplift gate: best prewarp MI={best_prewarp_mi:.4f} "
-                    f"beats best non-prewarp MI={best_nonprewarp_mi:.4f} by "
-                    f">= {float(prewarp_uplift_threshold):.2f}x (joint-prevalence "
-                    f"gate {best_mi / pair_mi:.3f} < {fe_min_engineered_mi_prevalence:.2f} "
-                    f"would have rejected it); admitting the prewarp feature."
-                )
-
-        # MARGINAL-UPLIFT alternative acceptance: admit a pair the joint-prevalence
-        # gate rejects when its best ELEMENTARY-LIBRARY (non-prewarp) engineered column
-        # beats the LARGER individual operand marginal MI by ``_FE_MARGINAL_UPLIFT_MIN_RATIO``
-        # AND still recovers at least ``_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO`` of the inflated
-        # 2-D joint. Rationale + thresholds: see the module-level constants. Genuine synergy
-        # pairs (a**2/b, log(c)*sin(d)) clear both; cross-pair artefacts that merely recapture
-        # one operand's marginal fail the uplift bar, and structureless noise pairs never reach
-        # here (the upstream pair screen + order-2 maxT floor remove them). Only fires when the
-        # primary joint gate AND the prewarp path both declined, so it is purely additive recall
-        # for genuine pairs the strict joint bar drops. We score + promote the best NON-PREWARP
-        # winner: the prewarp pseudo-unary has its own dedicated acceptance path above
-        # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
-        # warp spec to round-trip into the recipe -- which is only guaranteed on the prewarp path.
-        _marginal_uplift_accept = False
-        if (
-            not _passes_joint_gate
-            and not _prewarp_accept
-            and best_nonprewarp_config is not None
-            and best_nonprewarp_mi > 0.0
-            and pair_mi > 0.0
-        ):
-            _max_operand_marginal = max(
-                _operand_marginal_mi(raw_vars_pair[0]),
-                _operand_marginal_mi(raw_vars_pair[1]),
-            )
-            _joint_ratio = best_nonprewarp_mi / pair_mi
-            _uplift_ratio = (best_nonprewarp_mi / _max_operand_marginal) if _max_operand_marginal > 0.0 else 0.0
-            # HW-robust two-tier joint-recovery floor (see the constants above): a genuine
-            # same-signal pair clears EITHER the strict joint floor on its own OR is a clear-synergy
-            # pair (high uplift) that clears the relaxed base floor. A cross-signal artefact clears
-            # neither, so a small cross-HW MI perturbation cannot flip it into the support.
-            _joint_recovery_ok = (
-                _joint_ratio >= _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO
-                or (
-                    _uplift_ratio >= _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT
-                    and _joint_ratio >= _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO
-                )
-            )
-            if (
-                _max_operand_marginal > 0.0
-                and best_nonprewarp_mi >= _max_operand_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO
-                and _joint_recovery_ok
-            ):
-                _marginal_uplift_accept = True
-                # Promote the best non-prewarp form so the standard single-best
-                # materialisation path emits a recipe-replayable winner.
-                best_config, best_mi = best_nonprewarp_config, best_nonprewarp_mi
-                if verbose:
-                    messages.append(
-                        f"marginal-uplift gate: best non-prewarp engineered MI={best_nonprewarp_mi:.4f} "
-                        f"beats the larger operand marginal MI={_max_operand_marginal:.4f} by "
-                        f">= {_FE_MARGINAL_UPLIFT_MIN_RATIO:.2f}x and recovers {_joint_ratio:.3f} "
-                        f"of the 2-D joint (joint-prevalence gate "
-                        f"{fe_min_engineered_mi_prevalence:.2f} would have rejected it); "
-                        f"admitting the genuine synergy pair."
-                    )
-
-        # NOISE-WRAP CORR-COLLAPSE VETO (2026-06-15). Whatever path admitted the winner, VETO it when the
-        # winning composite WRAPS a strong, clean operand with a (near-)noise operand: its |corr| with the
-        # target collapses to a small fraction of the best single operand's |corr| while that operand is
-        # genuinely strong on its own. This is the ``sub(log(e),invqubed(a__T2))`` failure -- an extreme
-        # heavy-tailed transform inflates the binned ``best_mi/pair_mi`` so it clears the joint-prevalence
-        # gate, yet the column carries ~0 linear/monotone signal (|corr|~0.02) versus the clean operand's
-        # |corr|~0.99, so it would DISPLACE the clean univariate basis from the support and kill recovery.
-        # Genuine synergy (a*b, log(c)*sin(d)) keeps the engineered column tracking y (no collapse), so the
-        # wide 2x fraction margin never condemns it. Pure-noise pairs never reach here (upstream screens).
-        if (
-            (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept)
-            and _corr_y_cont is not None
-            and best_config is not None
-        ):
-            try:
-                _win_vals = _resolve_col(best_config[2]) if (final_transformed_vals is not None or _this_chunk_deferred) else None
-                _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
-                # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
-                # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` -- raw ``a`` is ~0 corr
-                # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
-                # genuine single-source signal the wrap is diluting.
-                _op_corr = 0.0
-                _tp = best_config[0]
-                for _side in (0, 1):
-                    _opk = _tp[_side] if isinstance(_tp, (tuple, list)) and len(_tp) > _side else None
-                    if _opk is not None and _opk in vars_transformations:
-                        _op_corr = max(_op_corr, _safe_abs_corr(transformed_vars[:, vars_transformations[_opk]]))
-                    _op_corr = max(_op_corr, _safe_abs_corr(_extval_raw_col(raw_vars_pair[_side])))
-                if (
-                    _win_corr is not None
-                    and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR
-                    and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC
-                ):
-                    _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
-                    if verbose:
-                        messages.append(
-                            f"noise-wrap corr-collapse veto: winning composite |corr| with target "
-                            f"{_win_corr:.3f} collapsed below {_NOISE_WRAP_CORR_COLLAPSE_FRAC:.2f}x the "
-                            f"best operand |corr| {_op_corr:.3f}; the pair wraps a clean strong operand with "
-                            f"a near-noise operand (binned-MI inflated by an extreme transform) -- rejecting "
-                            f"so it cannot displace the clean operand."
-                        )
-            except Exception:
-                # Load-bearing selection logic (the noise-wrap corr-collapse veto): log rather than swallow
-                # silently, so a failure that lets a noise-wrapped pair through is visible at debug level.
-                logger.debug("noise-wrap corr-collapse veto failed; pair not vetoed", exc_info=True)
-
-        # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
-        # to DROP -- the joint-prevalence floor declined AND both the prewarp and the
-        # marginal-uplift (abs-MAD / joint-recovery) fallbacks declined. Attribute to whichever
-        # floor it primarily missed: the engineered-MI prevalence floor (the 0.97 floor the
-        # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
-        # prewarp/uplift path declined for another reason) tag the marginal-uplift floor.
-        # All values were already computed above (no recompute).
-        if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept):
-            try:
-                _rej_thr = float(fe_min_engineered_mi_prevalence) * (1.0 if num_fs_steps < 1 else 1.025)
-                _rej_op = None
-                if best_config is not None:
-                    try:
-                        _rej_op = best_config[1]  # binary func name of the best engineered form
-                    except Exception:
-                        _rej_op = None
-                if not _passes_joint_gate:
-                    _rej_rec = {
-                        "gate": "engineered_mi_prevalence",
-                        "candidate": str(raw_vars_pair),
-                        "operands": tuple(raw_vars_pair),
-                        "operator": _rej_op,
-                        "observed": float(_gate_ratio),
-                        "threshold": _rej_thr,
-                        "reason": "best_mi_over_pair_mi_below_floor",
-                    }
-                else:
-                    _rej_rec = {
-                        "gate": "marginal_uplift_floor",
-                        "candidate": str(raw_vars_pair),
-                        "operands": tuple(raw_vars_pair),
-                        "operator": _rej_op,
-                        "observed": float(_gate_ratio),
-                        "threshold": _rej_thr,
-                        "reason": "marginal_uplift_and_prewarp_declined",
-                    }
-                _rejection_records.append(_rej_rec)
-                if rejection_ledger_out is not None:
-                    rejection_ledger_out.append(_rej_rec)
-            except Exception:
-                pass
-
-        if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept:  # Best transformation is good enough
-
-            # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
-            # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
-            # When the pair was admitted ONLY via the marginal-uplift path (the joint /
-            # prewarp gates declined), the winner MUST be a non-prewarp form so the recipe
-            # is replayable -- restrict the leaders to elementary-library configs.
-            _restrict_to_nonprewarp = _marginal_uplift_accept and not (_passes_joint_gate or _prewarp_accept)
-            leading_features = []
-            for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
-                if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
-                    if _restrict_to_nonprewarp and (
-                        next_config[0][0][1] == _PREWARP_UNARY or next_config[0][1][1] == _PREWARP_UNARY
-                    ):
-                        continue
-                    leading_features.append(next_config)
-
-            # LINEAR-USABILITY TIE-BREAK over the MI-leaders (2026-06-16). MI is a RANK
-            # statistic blind to linear usability, so a raw pair's leading-features
-            # equivalence class can hold forms with IDENTICAL target MI but wildly
-            # different linear usability (canonical: on a ``y=1.5*a*b`` bilinear target the
-            # forms ``mul(a,b)``, ``log(a)+log(b)`` and ``1/(a**2*b**2)`` are ALL strictly-
-            # monotone in ``a*b`` -> bit-identical binned MI 0.4561, but |corr(y)| 0.76 /
-            # 0.61 / 0.004). Pre-fix ``_select_single_best`` broke the MI-tie by extval-MI
-            # then NAME, so a linearly-useless inverse-square form could win and cap the
-            # downstream LINEAR model (test-R2 0.884 < 0.90 floor). Score each leader's
-            # |corr(continuous y)| from its materialised column so the tie-break prefers the
-            # linearly-usable leg (the project's "prefer the linearly-usable member" rule).
-            # Tie-break is gated on EQUAL MI inside _select_single_best, so it never overrides
-            # a higher-MI form; trees are rank-indifferent so this cannot hurt the tree list.
-            _leader_usability: dict = {}
-            if len(leading_features) > 1 and _corr_y_cont is not None:
-                for _lc in leading_features:
-                    try:
-                        _li = _lc[2]
-                        if final_transformed_vals is not None:
-                            _lvals = final_transformed_vals[:, _li]
-                        elif _this_chunk_deferred:
-                            # DEFERRED-float GPU path: re-materialise the leader column on the GPU
-                            # (bit-identical to the buffer -> same linear-usability tie-break).
-                            _lvals = _resolve_col(_li)
-                        elif _config_by_i is not None and _li in _config_by_i:
-                            # Recompute fallback (no hoisted buffer): rebuild the leader's
-                            # CONTINUOUS column from its (a_key, b_key, bin_func_name) metadata
-                            # so the linear-usability tie-break is identical to the buffered path
-                            # (the two paths MUST select the same survivor among MI-equal leaders).
-                            _a_key, _b_key, _bin_name = _config_by_i[_li]
-                            _pa = transformed_vars[:, vars_transformations[_a_key]]
-                            _pb = transformed_vars[:, vars_transformations[_b_key]]
-                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                _lvals = binary_transformations[_bin_name](_pa, _pb)
-                            _lvals = np.nan_to_num(np.asarray(_lvals, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                        else:
-                            _lvals = None
-                        if _lvals is not None:
-                            _leader_usability[_lc] = _safe_abs_corr(_lvals)
-                    except Exception:
-                        continue
-
-            if len(leading_features) > 1:
-                if len(numeric_vars_to_consider) > 2:
-
-                    if verbose > 2:
-                        print(f"Taking {len(leading_features)} new features for a separate validation step!")
-
-                    # Test all candidates as-is against the rest of the approved factors (also as-is). Candidates significantly outstanding (in terms of MI with target)
-                    # against any other approved factor are kept.
-                    valid_pairs_perf = {}
-                    # LAZY EXTERNAL VALIDATION (2026-06-06): valid_pairs_perf feeds _select_single_best ONLY as the
-                    # SECONDARY tie-break, decisive solely among leaders whose PRIMARY (target) MI is EXACTLY equal.
-                    # The external loop below (all external_factors x binary_funcs x per-candidate discretize +
-                    # mi_direct) was the single-threaded FE hotspot (py-spy). Run it ONLY for the leaders tied at the
-                    # max primary MI; a unique top leader wins outright with no external work. Bit-identical: a
-                    # lower-primary leader can never win the (primary, secondary, name) max key regardless of its
-                    # (uncomputed) secondary.
-                    _lead_primary = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-                    _max_primary = max(_lead_primary.values()) if _lead_primary else None
-                    _ev_configs = [c for c, _m in _lead_primary.items() if _m == _max_primary] if _max_primary is not None else []
-                    # Hoisted out of the per-config loop: depends only on ``raw_vars_pair`` (loop-invariant for the
-                    # whole pair), so the set-difference + sort is recomputed once instead of once per tied leader.
-                    # The RNG draw (``_rng_extval.choice`` below) stays per-config so its state consumption — and
-                    # therefore every later pair's tie-break — is bit-identical.
-                    _ext_factors_sorted = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
-                    for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
-                        if final_transformed_vals is not None:
-                            param_a = final_transformed_vals[:, i]
-                        elif _this_chunk_deferred:
-                            # DEFERRED-float GPU path: re-materialise the survivor column on the GPU
-                            # (bit-identical to the buffer -> the external-validation MI is unchanged).
-                            param_a = _resolve_col(i)
-                        else:
-                            # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
-                            # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
-                            # (deduped unary table); the bin_func call is cheap (one ufunc).
-                            _a_key, _b_key, _bin_name = _config_by_i[i]
-                            _pa = transformed_vars[:, vars_transformations[_a_key]]
-                            _pb = transformed_vars[:, vars_transformations[_b_key]]
-                            param_a = binary_transformations[_bin_name](_pa, _pb)
-                            np.nan_to_num(param_a, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-                        best_valid_mi = -1
-                        config = (transformations_pair, bin_func_name, i)
-
-                        # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
-                        # PYTHONHASHSEED-randomised for str keys, so the candidate order (and hence the
-                        # sampled subset) would differ across processes / fits. Sort to a stable order,
-                        # then sample with the instance-seeded ``_rng_extval`` so the chosen validation
-                        # factors are fully reproducible from the MRMR seed.
-                        external_factors = _ext_factors_sorted  # hoisted above; deterministic, raw_vars_pair-invariant
-                        if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
-                            external_factors = _rng_extval.choice(external_factors, fe_max_external_validation_factors, replace=False)
-
-                        # BATCHED EXTERNAL VALIDATION (2026-06-07): the per-(external_factor x
-                        # valid_bin_func) ``discretize_array`` + ``mi_direct`` double loop was the
-                        # single dominant serial FE hotspot at wide p (call-site profile on scene
-                        # 2407x299: 228k discretize_array + 228k mi_direct here, ~80% of fit wall;
-                        # CPU near-idle => GIL-bound per-candidate dispatch). ``best_valid_mi`` is a
-                        # pure ``max`` over an order-INDEPENDENT per-candidate MI, and every
-                        # candidate is scored against the SAME y with the SAME estimator the per-pair
-                        # sweep already batches, so we materialise ALL candidate columns into one
-                        # buffer, run ONE ``discretize_2d_quantile_batch`` + ONE
-                        # ``_dispatch_batch_mi_with_noise_gate`` (CPU njit / GPU by size), then take
-                        # the max. BIT-IDENTICAL to the loop on the default FE path
-                        # (``parallelism='outer'``, ``n_workers=1``, ``base_seed=0``,
-                        # ``npermutations=fe_npermutations<32`` so no GPU permutation route) -- the
-                        # batch kernel shuffles y once per permutation and scores all columns against
-                        # it, exactly matching the per-candidate ``mi_direct`` noise-gate. Only the
-                        # ``quantile`` method is batched (matches ``discretize_2d_quantile_batch``'s
-                        # bit-identity domain); any other method falls back to the per-candidate
-                        # loop below.
-                        _ev_param_bs = []
-                        for external_factor in external_factors:
-                            # Memoised raw-values extract (LEVER 1): one extraction
-                            # per distinct external factor for the whole call, reused
-                            # across every config + raw pair. ``None`` => factor not in
-                            # ``original_cols`` -> skip (identical to the prior guard).
-                            _pb_vals = _extval_raw_col(external_factor)
-                            if _pb_vals is None:
-                                continue
-                            _ev_param_bs.append(_pb_vals)
-
-                        # Memory guard: the batch buffer is (n_rows x ext_factors*n_binary)
-                        # float64. On the common wide-but-shallow bed (e.g. scene 2407x299:
-                        # ~1680 cols -> 32 MB) this is trivial, but an unbounded ext-factor set
-                        # on a multi-million-row frame could OOM. Reuse the SAME available-RAM
-                        # budget the shared-buffer hoist uses; if the batch buffer would not fit,
-                        # fall back to the (bit-identical) per-candidate loop below.
-                        _ev_n_bin = len(binary_transformations)
-                        _ev_buf_bytes = len(X) * max(1, len(_ev_param_bs)) * _ev_n_bin * 8
-                        # LARGE-N FIX (2026-06-08): this float64 ext-val buffer coexists with the
-                        # chunk/disc/MI buffers and is allocated per concurrent worker, so use the
-                        # SAME overhead+worker-aware envelope as the candidate buffer above.
-                        _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes, n_workers=_n_workers)
-                        if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:
-                            _ev_bin_funcs = list(binary_transformations.values())
-                            _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)
-                            # float64 buffer: the per-candidate path discretises the RAW
-                            # ``valid_bin_func(...)`` output (numpy bin_funcs return float64) with
-                            # NO nan_to_num -- ``discretize_array``/``discretize_2d_quantile_batch``
-                            # both bin via ``np.nanpercentile`` (NaN-ignoring edges) + per-column
-                            # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
-                            # float64 buffer (not float32) preserves the bin_func's native precision
-                            # so the percentile edges match the 1-D path to the bit.
-                            _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
-                            _ev_op_codes = _njit_binary_op_codes(binary_transformations)
-                            if _ev_op_codes is not None:
-                                # NJIT materialise: ALL (ext x op) candidate columns in one nogil
-                                # kernel (bit-identical to the numpy bin_funcs; see
-                                # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
-                                # the numpy ``for ext: for bin_func`` order, so the discretise +
-                                # MI + max reduction below is unchanged. ``param_a`` may be a
-                                # float32 buffer slice; the kernel upcasts per-element to float64.
-                                # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
-                                # (Q7). The external-factor columns are DISTINCT memoised arrays
-                                # (_extval_raw_col per var) so they genuinely must be assembled into
-                                # a 2-D matrix for the njit kernel; there is no view to substitute.
-                                # This per-column-assign loop is already the fastest assembly
-                                # (n_ext=50/150/300: 0.68/1.39/3.13ms vs np.column_stack
-                                # 0.96/2.10/3.98ms) and is a tiny fraction of the per-call kernel +
-                                # discretise + MI cost (never appears in the scene sampler top-30).
-                                # No actionable speedup; kept as-is.
-                                _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
-                                for _ei, _pb_vals in enumerate(_ev_param_bs):
-                                    _ev_pb_mat[:, _ei] = _pb_vals
-                                _materialise_extval_njit(
-                                    np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
-                                    _ev_buf[:, :_ev_K],
-                                )
-                                _ev_col = _ev_K
-                            else:
-                                # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
-                                # special) -> materialise per-candidate with the exact numpy ufuncs.
-                                _ev_col = 0
-                                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                    for _pb_vals in _ev_param_bs:
-                                        for valid_bin_func in _ev_bin_funcs:
-                                            _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
-                                            _ev_col += 1
-                            _ev_disc = discretize_2d_quantile_batch(
-                                _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
-                                dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
-                                # OPT-A extension (2026-06-07): the marginal-uplift gate's
-                                # discretise ran the SERIAL searchsorted kernel on the main
-                                # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
-                                # the other cores sat idle. ``check_prospective_fe_pairs`` carries
-                                # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
-                                # dispatch, so the same OPT-A predicate that already gates the
-                                # main chunk's discretise (line ~907) safely selects the
-                                # byte-identical column-prange twin here too (no joblib nest).
-                                parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
-                            )
-                            _ev_mi = _dispatch_batch_mi_with_noise_gate(
-                                disc_2d=_ev_disc,
-                                quantization_nbins=quantization_nbins,
-                                classes_y=classes_y,
-                                classes_y_safe=classes_y_safe,
-                                freqs_y=freqs_y,
-                                npermutations=fe_npermutations,
-                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                use_su=use_su_normalization(),
-                                batch_mi_kernel=batch_mi_with_noise_gate,
-                            )
-                            if _ev_mi is not None and len(_ev_mi):
-                                best_valid_mi = float(np.max(_ev_mi))
-                        else:
-                            for _pb_vals in _ev_param_bs:
-                                param_b = _pb_vals
-                                for valid_bin_func_name, valid_bin_func in binary_transformations.items():
-
-                                    valid_vals = valid_bin_func(param_a, param_b)
-
-                                    discretized_transformed_values = discretize_array(
-                                        arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                                    )
-                                    fe_mi, fe_conf = mi_direct(
-                                        discretized_transformed_values.reshape(-1, 1),
-                                        x=np.array([0], dtype=np.int64),
-                                        y=None,
-                                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                                        classes_y=classes_y,
-                                        classes_y_safe=classes_y_safe,
-                                        freqs_y=freqs_y,
-                                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                                        npermutations=fe_npermutations,
-                                    )
-
-                                    if fe_mi > best_valid_mi:
-                                        best_valid_mi = fe_mi
-
-                        valid_pairs_perf[config] = best_valid_mi
-
-                    # ONE-BEST-PER-PAIR (2026-06-01): the leading-features
-                    # equivalence class holds many near-identical representations
-                    # of the same algebraic target (a**2/b == div(sqr(a),b) ==
-                    # mul(sqr(a),reciproc(b)) == div(a,sqrt(b)) ...). The
-                    # pre-refactor code materialised EXACTLY ONE per raw pair;
-                    # the refactor regressed to emitting the whole class (~15
-                    # cols on the canonical fixture). Pick the single best by
-                    # TARGET MI (``var_pairs_perf`` -- the primary objective),
-                    # using the external-validation MI (``valid_pairs_perf``)
-                    # only as a tie-break among target-MI-equal leaders. (Prior
-                    # bug: selected by external-validation MI alone, discarding
-                    # the true max-target-MI form -- e.g. picking add(log(c),1/d)
-                    # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
-                    _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-                    _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf,
-                                                  usability=_leader_usability)
-                    if _winner is not None:
-                        new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
-                        if verbose:
-                            messages.append(
-                                f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                            )
-                        this_pair_features.add((_winner, 0))
-                else:
-                    # Can't narrow by external validation (only 2 vars total) --
-                    # still emit ONE best representative (highest engineered MI,
-                    # deterministic name tie-break) rather than the whole class.
-                    _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-                    _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability)
-                    if _winner is not None:
-                        if verbose:
-                            messages.append(
-                                f"{get_new_feature_name(fe_tuple=_winner, cols_names=cols)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                            )
-                        this_pair_features.add((_winner, 0))
-            else:
-                new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
-                if verbose:
-                    messages.append(
-                        f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                    )
-                j = 0
-                this_pair_features.add((best_config, j))
-
-            # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): the blocks above emit the
-            # single MAX-MI engineered form. MI is rank-based and blind to LINEAR usability,
-            # so the MI-winner can be a tree-friendly monotone warp that a linear model
-            # cannot use, while a lower-MI form is the linearly-aligned one (F2:
-            # sub(exp(c),cbrt(d)) MI 0.288 vs the linearly-usable mul(log(c),sin(d)) MI 0.264).
-            # When ``fe_multi_emit_max_per_pair > 1`` additionally emit the next DISTINCT
-            # forms by target MI (skip any whose continuous values correlate above
-            # ``fe_multi_emit_diversity_corr`` with an already-emitted column, down to
-            # ``fe_multi_emit_mi_floor`` x best_mi) so both survive; the downstream MRMR
-            # redundancy gate prunes residual overlap. Purely additive: never emits FEWER
-            # than the single-best path, byte-identical when max_per_pair == 1.
-            if (
-                int(fe_multi_emit_max_per_pair) > 1
-                and (final_transformed_vals is not None or _this_chunk_deferred)
-                and this_pair_features
-                and best_mi > 0
-            ):
-                _emit_floor = float(best_mi) * float(fe_multi_emit_mi_floor)
-                _div_corr = float(fe_multi_emit_diversity_corr)
-                _already = {c for c, _ in this_pair_features}
-                _emitted_cols = []
-                for _c in _already:
-                    try:
-                        _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
-                    except Exception:
-                        pass
-                for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
-                    if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):
-                        break
-                    if _cfg_mi < _emit_floor:
-                        break  # sorted desc: nothing below the floor remains
-                    if _cfg in _already:
-                        continue
-                    try:
-                        _col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
-                    except Exception:
-                        continue
-                    _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)
-                    if float(np.std(_col)) <= 1e-9:
-                        continue
-                    # DIVERSITY: skip a near-duplicate of any already-emitted column.
-                    _dup = False
-                    for _ec in _emitted_cols:
-                        if float(np.std(_ec)) <= 1e-9:
-                            continue
-                        _r = np.corrcoef(_col, _ec)[0, 1]
-                        if np.isfinite(_r) and abs(_r) > _div_corr:
-                            _dup = True
-                            break
-                    if _dup:
-                        continue
-                    this_pair_features.add((_cfg, 0))
-                    _already.add(_cfg)
-                    _emitted_cols.append(_col)
-                    if verbose:
-                        messages.append(
-                            f"{get_new_feature_name(fe_tuple=_cfg, cols_names=cols)} also emitted "
-                            f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
-                        )
-
-            transformed_vals, new_cols, new_nbins = None, None, None
-
-            if this_pair_features:
-
-                # Bulk add the found & checked best features.
-                # ``this_pair_features`` is a SET of (config, j) tuples
-                # with sparse, non-contiguous ``j`` indices into
-                # ``final_transformed_vals``. The consumer (mrmr.py
-                # ``_run_fe_step``) iterates
-                # ``for k in range(len(this_pair_features)):
-                # transformed_vals[:, k]``, so the buffer MUST have
-                # exactly ``len(this_pair_features)`` columns packed
-                # densely 0..N-1, not the sparse ``j``-indexed layout
-                # with holes. Pre-fix code wrote to ``transformed_vals[:, j]``
-                # then sliced to ``[:, :last_j + 1]`` -- this gives
-                # either a too-short buffer (if last_j was small) and
-                # IndexError downstream, or holes (if last_j was large).
-                # Pack each (config, j) into a compact column index
-                # ``idx = 0..len(this_pair_features)-1`` instead.
-                #
-                # 2026-06-01 (ROOT CAUSE 5 fix): materialise the survivor
-                # columns whenever FE runs (``fe_max_steps >= 1``), not only on
-                # multi-step (``> 1``). Previously, with the default
-                # ``fe_max_steps=1`` the recommended features were LOGGED but
-                # ``transformed_vals`` stayed ``None`` -- so the consumer
-                # (_mrmr_fe_step) had nothing to append, the columns never
-                # entered ``data``/``selected_vars``, and ``_engineered_features_``
-                # stayed empty. Producing the buffer unconditionally lets the
-                # single-step default actually emit engineered columns.
-                # Materialise each survivor into a temp column FIRST, then apply
-                # the NON-CONSTANT guard (2026-06-01): a column that replays as
-                # constant (std<=1e-9) or non-finite is a DEAD feature and must
-                # never be appended -- it reaches the downstream model carrying
-                # zero variance. Several div(sqr(a),b)-family combos replayed
-                # constant on the canonical fixture (degenerate quantile binning
-                # of the heavy-tailed a**2/b). One-best-per-pair already keeps the
-                # non-constant MI winner; this guard is defence-in-depth and also
-                # compacts ``this_pair_features`` / buffers so the recipe builder
-                # downstream never constructs a recipe for a dropped column.
-                _kept_configs = []   # list[(config, j)] that survived the guard
-                _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
-                _kept_names = []
-
-                for idx, (config, j) in enumerate(this_pair_features):
-                    new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
-                    transformations_pair, bin_func_name, i = config
-
-                    if fe_max_steps >= 1:
-                        if _use_subsample:
-                            # SUBSAMPLE path: rebuild from raw _X_full so the survivor column
-                            # carries the FULL n rows the caller expects (mrmr.py appends it
-                            # back to its full-n ``data`` array). The MI sweep used a 200k
-                            # subset; the survivor IDENTITIES are correct (bench shows
-                            # jaccard=1.0 vs full-n at n_eff>=50k), so we just need to
-                            # rematerialise the values at full resolution.
-                            _col_full = _rebuild_full_survivor_col(
-                                config, _X_full, original_cols,
-                                unary_transformations, binary_transformations,
-                                prewarp_spec_by_var=_prewarp_spec_by_var,
-                                gate_med_median_by_var=_gate_med_median_by_var,
-                                cols=cols,
-                                engineered_operand_values=engineered_operand_values,
-                            )
-                        elif final_transformed_vals is not None:
-                            _col_full = final_transformed_vals[:, i]
-                        elif _this_chunk_deferred:
-                            # DEFERRED-float GPU path, NON-subsample (transformed_vars is at full n here):
-                            # re-materialise the survivor column on the GPU (bit-identical to the buffer,
-                            # full-n directly). The subsample case took the _rebuild_full_survivor_col
-                            # branch above (full-n rebuild from raw), so this only handles full-n fits.
-                            _col_full = _resolve_col(i)
-                        else:
-                            # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
-                            # the survivor column from its (a_key, b_key, bin_func_name)
-                            # metadata via the cached unary table. transformed_vars is at
-                            # full n in this path so the column lands at full n directly.
-                            _a_key, _b_key, _bin_name = _config_by_i[i]
-                            _pa = transformed_vars[:, vars_transformations[_a_key]]
-                            _pb = transformed_vars[:, vars_transformations[_b_key]]
-                            _col = binary_transformations[_bin_name](_pa, _pb)
-                            np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                            _col_full = _col
-
-                        # Keep the RAW (float) engineered values, scrubbed of
-                        # nan/inf. CRITICAL (2026-06-02): do NOT cast to the
-                        # integer ``quantization_dtype`` here. ``transformed_vals``
-                        # feeds two consumers downstream -- (a) ``_mrmr_fe_step``
-                        # discretises it via ``discretize_array(method=quantile)``
-                        # into the ``data`` bin-code matrix, and (b) the recipe
-                        # builder computes its quantile EDGES from these values for
-                        # leak-safe replay. A premature int cast TRUNCATES the
-                        # heavy-tailed engineered values (e.g. mul(log(c),sin(d)) in
-                        # (-inf,0] collapses to ~2 integers), so the subsequent
-                        # quantile binning sees only 2-3 distinct values and the
-                        # column reaches the model with a fraction of its MI
-                        # (measured: 0.14 vs the true 0.32). Keeping float lets the
-                        # downstream quantile discretiser produce the full nbins
-                        # codes and the recipe pin correct edges.
-                        _col_arr = np.nan_to_num(
-                            np.asarray(_col_full, dtype=np.float64),
-                            nan=0.0, posinf=0.0, neginf=0.0,
-                        )
-                        if float(np.std(_col_arr)) <= 1e-9:
-                            if verbose:
-                                messages.append(
-                                    f"{new_feature_name} dropped at materialisation: dead column "
-                                    f"(std={float(np.std(_col_arr)):.2e}, non-constant guard)."
-                                )
-                            continue
-                        _kept_cols_vals.append(_col_arr)
-                    _kept_configs.append((config, j))
-                    _kept_names.append(new_feature_name)
-
-                # Rebuild the survivor set / buffers from ONLY the kept columns so
-                # the recipe builder and the downstream dense consumer stay aligned.
-                this_pair_features = set(_kept_configs)
-                new_cols = list(_kept_names)
-                if fe_max_steps >= 1 and _kept_cols_vals:
-                    # float buffer: holds RAW engineered values (discretised to
-                    # codes downstream; see the non-constant-guard comment above).
-                    transformed_vals = np.empty(shape=(_full_n_rows, len(_kept_cols_vals)), dtype=np.float64)
-                    for _ci, _cv in enumerate(_kept_cols_vals):
-                        transformed_vals[:, _ci] = _cv
-                    new_nbins = [quantization_nbins] * len(_kept_cols_vals)
-                else:
-                    transformed_vals, new_nbins = None, []
-
-            res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
+        if _pair_res_entry is not None:
+            res[raw_vars_pair] = _pair_res_entry
 
         # Live progress: surface the best engineered feature found so far in this sweep
         # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
