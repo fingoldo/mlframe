@@ -537,7 +537,14 @@ def get_pandas_view_of_polars_df(
         # (including all production-scale frames) takes the helper for
         # zero-copy numeric safety.
         if _size_bytes_proxy < _LARGE_FRAME_BYTES and _dict_cols >= 5:
-            return df.to_pandas()
+            _raw = df.to_pandas()
+            # Apply the SAME nullable-Boolean coercion the helper path does below: a Boolean column with any null
+            # materialises as pandas ``object`` (Python True/False/None), which the tree backends reject. The raw
+            # fast-path must not silently emit object dtype just because the frame happened to be dict-heavy + small.
+            for _bname, _bdt in df.schema.items():
+                if _bdt == pl.Boolean and _raw[_bname].dtype == object:
+                    _raw[_bname] = _raw[_bname].astype("boolean").astype("Int8")
+            return _raw
 
     import pyarrow as pa
 
