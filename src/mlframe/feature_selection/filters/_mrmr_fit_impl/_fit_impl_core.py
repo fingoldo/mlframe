@@ -78,6 +78,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # categorize path that is active when the harness sets CUDA_PATH) cannot erase the NaN before the candidate
     # scan and defeat the guard.
     _include_numeric_input_nan_cols = set()
+    # Hoisted ONCE (y is never reassigned in _fit_impl): the as-numpy target was re-materialised
+    # 53x across the FE/screen stages. Same array (read-only consumers); behavior-preserving.
+    _y_np = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
     # Per-column boolean NaN mask snapshot at fit entry, before any in-place impute (the include_numeric / binned_numeric_agg cat-FE path GPU-categorizes
     # and imputes X in place when CUDA_PATH is set). The missingness-FE family (is_missing__/missingness_count/missingness_pattern) derives its signal
     # from where the input was NaN; it runs AFTER that impute, so it must read this snapshot, not the live (now-finite) X, or the signal is silently erased.
@@ -423,7 +426,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_pair_fe_with_recipes,
                 )
                 _y_for_hybrid = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # Hybrid MI scoring expects discrete y. Two cases:
                 #   (a) Float-encoded discrete labels (0.0/1.0) -- safe to cast to int64.
@@ -550,7 +553,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _y_for_extra = _y_for_hybrid
             except NameError:
                 _y_for_extra = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_extra.dtype.kind in "fc":
                     if int(np.unique(_y_for_extra).size) <= 32:
@@ -754,7 +757,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # scale/shift invariant). y carries no leak: the recipe stores only
                 # {tau, side}, never y.
                 _y_for_hinge = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _y_for_hinge = np.asarray(_y_for_hinge, dtype=np.float64).ravel()
                 # Seed pool restricted to RAW source columns: a hinge built on a
@@ -854,7 +857,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_triplet_fe_with_recipes,
                 )
                 _y_for_triplet = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_triplet.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_triplet).size)
@@ -1004,7 +1007,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_quadruplet_fe_with_recipes,
                 )
                 _y_for_quad = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_quad.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_quad).size)
@@ -1120,7 +1123,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_adaptive_arity_fe_with_recipes,
                 )
                 _y_for_aa = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_aa.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_aa).size)
@@ -1232,7 +1235,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_adaptive_degree_fe_with_recipes,
                 )
                 _y_for_adapt = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_adapt.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_adapt).size)
@@ -1327,7 +1330,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_conditional_routing_fe_with_recipes,
                 )
                 _y_for_route = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_route.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_route).size)
@@ -1421,7 +1424,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_diff_basis_fe_with_recipes,
                 )
                 _y_for_diff = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_diff.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_diff).size)
@@ -1525,7 +1528,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _record_fe_rejection(self, step=_cb_step, **_kw)
 
                 _y_for_cb = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_cb.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_cb).size)
@@ -1630,7 +1633,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_bootstrap_fe_with_recipes,
                 )
                 _y_for_boot = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_boot.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_boot).size)
@@ -1736,7 +1739,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_three_gate_fe_with_recipes,
                 )
                 _y_for_tg = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_tg.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_tg).size)
@@ -1850,7 +1853,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_ksg_fe_with_recipes,
                 )
                 _y_for_ksg = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_ksg.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_ksg).size)
@@ -1951,7 +1954,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_copula_fe_with_recipes,
                 )
                 _y_for_copula = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2048,7 +2051,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_dcor_fe_with_recipes,
                 )
                 _y_for_dcor = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2145,7 +2148,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_hsic_fe_with_recipes,
                 )
                 _y_for_hsic = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2243,7 +2246,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_jmim_fe_with_recipes,
                 )
                 _y_for_jmim = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2332,7 +2335,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_tc_fe_with_recipes,
                 )
                 _y_for_tc = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2425,7 +2428,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_cmim_fe_with_recipes,
                 )
                 _y_for_cmim = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2514,7 +2517,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_auto_scorer_fe_with_recipes,
                 )
                 _y_for_auto = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2717,7 +2720,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_meta_fe_with_recipes,
                 )
                 _y_for_meta = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _hybrid_already_appended = set(
                     getattr(self, "hybrid_orth_features_", None) or []
@@ -2837,7 +2840,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 def _mig_reject_sink(**_kw):
                     _record_fe_rejection(self, step=_mig_step, **_kw)
                 _y_for_mig = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_mig.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_mig).size)
@@ -2925,7 +2928,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
                 _y_for_cmi = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_cmi.dtype.kind in "fc":
                     _n_unique_cmi = int(np.unique(_y_for_cmi).size)
@@ -3037,7 +3040,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         and c not in _mig_appended
                     ]
                 _y_for_te = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # TE works for both binary classification and regression as-
                 # is (mean of {0,1} = P(y=1); mean of continuous = mean).
@@ -3209,7 +3212,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
                     _X_before_cnt_cols = list(X.columns)
                     _y_for_cnt = (
-                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                        _y_np
                     )
                     X_c, _cnt_appended, _cnt_recipes = count_encode_with_recipes(
                         X, cat_cols=_cnt_cols,
@@ -3260,7 +3263,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
                     _X_before_freq_cols = list(X.columns)
                     _y_for_freq = (
-                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                        _y_np
                     )
                     X_f, _freq_appended, _freq_recipes = frequency_encode_with_recipes(
                         X, cat_cols=_freq_cols,
@@ -3311,7 +3314,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     ]
                     if _cn_cats and _cn_nums:
                         _y_for_cn = (
-                            y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                            _y_np
                         )
                         _y_for_cn = np.asarray(_y_for_cn, dtype=np.float64).ravel()
                         _X_before_cn_cols = list(X.columns)
@@ -3445,7 +3448,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                     _X_before_ind_cols = list(X.columns)
                     _y_for_ind = (
-                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                        _y_np
                     )
                     # Anchor the indicator's MI noise floor on the RAW input columns, not the engineered-polluted X: an earlier adaptive-Fourier stage appended high-(plug-in)-MI hijacker columns that would otherwise inflate the floor above a genuine MNAR indicator's MI and drop it (a >2%-missing source's signal lives in the NaN pattern the Fourier MI inflates).
                     _raw_floor_X = (
@@ -3638,7 +3641,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _l38_mi_gate = bool(getattr(self, "fe_local_mi_gate", False))
             _l38_mi_gate_top_k = int(getattr(self, "fe_local_mi_gate_top_k", 20))
             _y_for_l38 = (
-                y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                _y_np
             )
             from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
@@ -3831,7 +3834,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # CMI gate needs a class-typed target; bin continuous y the
                 # same way the Layer 60 CMI-greedy stage does.
                 _y_for_ga = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_ga.dtype.kind in "fc":
                     _n_unique_ga = int(np.unique(_y_for_ga).size)
@@ -3909,7 +3912,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._composite_group_agg_fe import hybrid_composite_group_agg_fe
 
                 _y_for_cga = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 if _y_for_cga.dtype.kind in "fc":
                     _n_unique_cga = int(np.unique(_y_for_cga).size)
@@ -3998,7 +4001,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._grouped_quantile_fe import hybrid_grouped_quantile_fe
 
                 _y_for_gq = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # Scope auto-detection to the RAW pre-FE columns: by this point X
                 # is already augmented with engineered intermediates from prior FE
@@ -4082,7 +4085,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._cat_pair_fe import hybrid_cat_pair_fe
 
                 _y_for_cp = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _cp_cols = tuple(
                     getattr(self, "fe_cat_pair_cat_cols", ()) or ()
@@ -4154,7 +4157,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._cat_triple_fe import hybrid_cat_triple_fe
 
                 _y_for_ct = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _ct_cols = tuple(
                     getattr(self, "fe_cat_triple_cat_cols", ()) or ()
@@ -4225,7 +4228,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
                 _y_for_nd = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _nd_precisions = tuple(
                     getattr(self, "fe_numeric_decompose_precisions",
@@ -4290,7 +4293,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._periodic_fe import hybrid_modular_fe_with_recipes
 
                 _y_for_md = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _md_periods = tuple(
                     getattr(self, "fe_modular_periods", (7, 12, 24, 30, 365))
@@ -4392,7 +4395,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
 
                 _y_for_pm = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # The detector's relevance floor is class-MI. 1D classification y feeds directly; a CONTINUOUS 1D y is quantile-binned once
                 # (bin_y_for_class_mi, nbins=quantization_nbins) so the kernel sees a discrete target -- the prior int64 cast collapsed continuous y
@@ -4462,7 +4465,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
 
                 _y_for_il = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # Class-MI floor: 1D classification feeds directly, continuous 1D is quantile-binned once, 2D stays skipped (see modular note).
                 _il_appended, _il_recipes = ([], [])
@@ -4528,7 +4531,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
 
                 _y_for_am = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # Class-MI floor: 1D classification feeds directly, continuous 1D is quantile-binned once, 2D stays skipped (see modular note).
                 _am_appended, _am_recipes = ([], [])
@@ -4597,7 +4600,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
 
                 _y_for_cg = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 # The gate detector's MI floor is class-MI (_mi_classif_batch). A CONTINUOUS regression target is quantile-binned once
                 # (bin_y_for_class_mi) before the tau-grid + conditional-divergence sweep -- the prior int64 cast turned continuous y into ~n
@@ -4675,7 +4678,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._group_distance_fe import hybrid_group_distance_fe
 
                 _y_for_gd = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _gd_groups = tuple(
                     getattr(self, "fe_group_distance_group_cols", ()) or ()
@@ -4752,7 +4755,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _record_fe_rejection(self, step=_rc_step, **_kw)
 
                 _y_for_rc = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _rc_cols = tuple(
                     getattr(self, "fe_rare_category_cols", ()) or ()
@@ -4821,7 +4824,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _record_fe_rejection(self, step=_cr_step, **_kw)
 
                 _y_for_cr = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _cr_cols = tuple(
                     getattr(self, "fe_conditional_residual_cols", ()) or ()
@@ -4904,7 +4907,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _record_fe_rejection(self, step=_cd_step, **_kw)
 
                 _y_for_cd = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _cd_cols = tuple(
                     getattr(self, "fe_conditional_dispersion_cols", ()) or ()
@@ -4991,7 +4994,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._wavelet_basis_fe import hybrid_wavelet_fe_with_recipes
 
                 _y_for_wv = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
                 _wv_cols = [c for c in _wv_cols if c in X.columns] or None
@@ -5061,7 +5064,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._extra_fe_families import hybrid_rankgauss_fe
 
                 _y_for_rg = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _rg_cols = tuple(
                     getattr(self, "fe_rankgauss_cols", ()) or ()
@@ -5141,7 +5144,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
                 else:
                     _y_for_ta = (
-                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                        _y_np
                     )
                     if _y_for_ta.dtype.kind in "fc":
                         if int(np.unique(_y_for_ta).size) <= 32:
@@ -5207,7 +5210,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 measure_feature_uplift,
             )
 
-            _y_for_gate = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            _y_for_gate = _y_np
             _gate_seed = int(getattr(self, "random_seed", 0) or 0)
             _gate_classif = infer_classification(_y_for_gate)
             _hybrid_set_now = set(self.hybrid_orth_features_ or [])
@@ -5361,7 +5364,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _eng_mi: dict[str, float] = {}
     try:
         from .._orthogonal_univariate_fe import _mi_classif_batch
-        _y_for_eng_mi = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        _y_for_eng_mi = _y_np
         if _y_for_eng_mi.dtype.kind in "fc":
             _n_unique_eng = int(np.unique(_y_for_eng_mi).size)
             if _n_unique_eng <= 32:
@@ -5756,7 +5759,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _raw_cols_u = [c for c in X.columns if c not in set(_eng_now)]
                 _y_for_u = (
-                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    _y_np
                 )
                 _keep_u = set(unified_second_pass_gate(
                     X, _y_for_u,
@@ -5925,7 +5928,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # pickle slim). Non-numeric / multi-output y -> None (escalation falls back to
     # ``classes_y`` codes).
     try:
-        _y_esc_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        _y_esc_arr = _y_np
         if _y_esc_arr.ndim == 1 and _y_esc_arr.dtype.kind in "fiub" and len(_y_esc_arr) == len(X):
             _y_esc_rank = np.argsort(np.argsort(_y_esc_arr, kind="stable"), kind="stable").astype(np.float64)
             self._fe_escalation_y_rank_ = _y_esc_rank / max(len(_y_esc_rank) - 1, 1)
@@ -5946,7 +5949,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # closed-form function of x. Deleted at fit end (transient, keeps the pickle slim).
     # Non-numeric / multi-output y -> None (ALS falls back to ``classes_y`` codes).
     try:
-        _y_pw_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        _y_pw_arr = _y_np
         if _y_pw_arr.ndim == 1 and _y_pw_arr.dtype.kind in "fiub" and len(_y_pw_arr) == len(X):
             self._fe_prewarp_y_continuous_ = np.ascontiguousarray(_y_pw_arr, dtype=np.float64)
         else:
@@ -7457,7 +7460,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # floor (the hidden-champion win is kept). y is read only here at fit.
         _y_for_hinge_gate = None
         try:
-            _yv = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            _yv = _y_np
             _yv = np.asarray(_yv, dtype=np.float64).reshape(-1)
             if _yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_yv)):
                 _y_for_hinge_gate = _yv
