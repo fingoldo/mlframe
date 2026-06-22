@@ -380,7 +380,6 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     GPU). Returns ``(eng_matrix_cupy, names, scores_df)`` or ``(None, [], empty_scores)`` when no candidate.
     Raises on GPU failure so the caller falls back to the host path (never a correctness regression)."""
     import cupy as cp
-    from .._gpu_resident_fe import _gpu_evaluate_basis_column
     from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
     from ..hermite_fe._hermite_robust import _robust_axis_enabled
     from .._fe_deadline import fe_deadline_passed

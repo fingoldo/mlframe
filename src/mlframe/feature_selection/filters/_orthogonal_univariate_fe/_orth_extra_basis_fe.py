@@ -456,7 +456,12 @@ def _detect_fourier_freqs_for_col(
     # basis already covers".
     _V_tr = np.vander(z_tr, 4)  # [z^3, z^2, z, 1]
     try:
-        _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
+        # normal-eq solve on the 4-col cubic Vandermonde (faster than SVD lstsq); lstsq fallback keeps
+        # the rank-robustness for a degenerate z (constant/near-constant column).
+        try:
+            _poly_coef = np.linalg.solve(_V_tr.T @ _V_tr, _V_tr.T @ y_tr)
+        except np.linalg.LinAlgError:
+            _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
         y_tr = y_tr - _V_tr @ _poly_coef
         y_va = y_va - np.vander(z_va, 4) @ _poly_coef
     except Exception:
@@ -596,7 +601,11 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     ranks = np.argsort(np.argsort(x, kind="stable"), kind="stable").astype(np.float64)
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
-        coef, *_ = np.linalg.lstsq(np.vander(zx[tr], 4), y[tr], rcond=None)
+        _Vtr = np.vander(zx[tr], 4)
+        try:
+            coef = np.linalg.solve(_Vtr.T @ _Vtr, _Vtr.T @ y[tr])  # normal-eq (lstsq fallback below)
+        except np.linalg.LinAlgError:
+            coef, *_ = np.linalg.lstsq(_Vtr, y[tr], rcond=None)
     except Exception:
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
