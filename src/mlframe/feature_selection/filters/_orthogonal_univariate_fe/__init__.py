@@ -393,12 +393,16 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     _ya = np.asarray(y)
     y_arr = np.asarray(_ya, dtype=np.int64) if np.issubdtype(_ya.dtype, np.integer) else _ya.astype(np.int64)
     y_gpu = cp.asarray(y_arr)
+    # y min/max is a fit-constant -> compute ONCE and reuse for both the raw-MI and the eng-MI resident
+    # calls below, instead of each recomputing it (cp.min/max + scalar D2H). Bit-identical (y is invariant).
+    _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
+    _ymin = int(_ymm[0]); _ncls = int(_ymm[1]) - _ymin + 1
     # Baseline RAW-column MI (resident), for the uplift denominator.
     raw_cols = [c for c in cols if pd.api.types.is_numeric_dtype(X[c])]
     raw_mi_map: dict = {}
     if raw_cols:
         raw_mat = cp.asarray(np.ascontiguousarray(X[raw_cols].to_numpy(dtype=np.float64)))
-        raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins)
+        raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
         raw_mi_map = dict(zip(raw_cols, [float(v) for v in raw_mi]))
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
@@ -471,7 +475,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     if eng_mat is None:
         return None, [], _empty
     names = [f"{used_src[_ci]}__{code.get(_b, _b)}{_d}" for (_ci, _b, _d) in meta]
-    eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins)
+    eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
     rows = []
     for j, nm in enumerate(names):
         src = nm.split("__", 1)[0] if "__" in nm else nm

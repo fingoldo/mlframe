@@ -226,7 +226,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     return _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins)
 
 
-def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20):
+def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays -- the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
     matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
@@ -244,12 +244,17 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20):
         X_gpu = X_gpu.astype(cp.float64)
     if y_gpu.dtype != cp.int64:
         y_gpu = y_gpu.astype(cp.int64)
-    # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount index never underflows. Mirrors the njit kernels.
-    # Single D2H of [min, max] instead of two blocking .item() syncs (each forces a full device stall).
-    _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
-    y_min = int(_ymm[0])
+    # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount
+    # index never underflows. y's min/max are a fit-CONSTANT (the same label vector across every pair x
+    # chunk), so when the caller passes them (computed ONCE for the whole pair sweep) skip the per-call
+    # cp.min/cp.max + scalar D2H -- nsys (2026-06-22) showed this exact line is the #1 source of the 71k
+    # cp.max reductions and a huge slice of the 100k tiny D2H in the per-pair x per-chunk MRMR loop.
+    # Bit-identical: y is invariant, so the offset + bincount layout are unchanged.
+    if y_min is None or n_classes is None:
+        _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
+        y_min = int(_ymm[0])
+        n_classes = int(_ymm[1]) - y_min + 1   # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
     y_gpu = y_gpu - y_min
-    n_classes = int(_ymm[1]) - y_min + 1   # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
 
     # Per-column quantile binning via cp.percentile EDGES + searchsorted (2026-06-20). Replaced the
     # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster

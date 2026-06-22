@@ -1237,6 +1237,11 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     ua_cm = _unary_stack_cm(cp, a_gpu)
     ub_cm = _unary_stack_cm(cp, b_gpu)
     y_gpu = cp.asarray(y_i64)   # upload y ONCE, reused across chunks (the host wrapper re-H2D'd it per chunk)
+    # y's min/max are a fit-constant -> compute ONCE here (one cp.min/max + one scalar D2H) and pass into the
+    # resident MI for every chunk, instead of the resident MI recomputing them per chunk (nsys 2026-06-22:
+    # that per-chunk recompute was the #1 source of the cp.max reductions + tiny D2H syncs). Bit-identical.
+    _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
+    _ymin = int(_ymm[0]); _ncls = int(_ymm[1]) - _ymin + 1
     k_chunk = _gpu_k_chunk(n)
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
@@ -1244,8 +1249,10 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
         cand = _fused_generate_block(ua_cm, ub_cm, block)   # one-launch fused generation
         # Both operands are already device-resident (cand from the fused kernel, y_gpu uploaded once), so the
         # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
-        # variant -- test_resident_batch_cuda_matches_host_input pins maxdiff 0).
-        mi_parts.append(np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins), dtype=np.float64))
+        # variant -- test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
+        mi_parts.append(np.asarray(
+            _plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls),
+            dtype=np.float64))
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
 
