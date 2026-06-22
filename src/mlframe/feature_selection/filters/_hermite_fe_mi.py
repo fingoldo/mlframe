@@ -48,6 +48,8 @@ def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     n = x.shape[0]
+    if n == 0:
+        return 0.0  # empty column (fully-filtered subsample / empty finite mask): y[0] below would OOB-crash
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense (a binned continuous target shifted below 0).
     # Sizing on max(y)+1 alone and indexing with the raw label underflows the histogram into out-of-bounds memory -> native AV.
     y_min = y[0]
@@ -94,6 +96,8 @@ def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     n = x.shape[0]
+    if n == 0:
+        return 0.0  # empty column: log(n) and the binning below are undefined on n=0
     x_binned = _quantile_bin_njit(x, n_bins)
     y_binned = _quantile_bin_njit(y, n_bins)
 
@@ -140,6 +144,8 @@ def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray,
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     n = x_binned.shape[0]
+    if n == 0:
+        return 0.0  # empty column: the y[0] below would OOB-crash (numba native access violation)
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense. See _plugin_mi_classif_njit for the AV this guards against.
     y_min = y[0]
     y_max = y[0]

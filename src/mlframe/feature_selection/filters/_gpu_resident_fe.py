@@ -572,6 +572,9 @@ _PREWARP_CLENSHAW_GPU = {
 # the np.median (robust axis) + argsort/reduce (plug-in MI) of the CPU tail. Constants mirror
 # _hermite_robust (K=3, OUTER_K=10, GAP=3, MAX_FRAC=0.20). cp.median/percentile match np to fp round-off;
 # parity is asserted by test_gpu_basis_column_parity (uniform/gaussian/heavytail/skewed x 4 bases).
+# These MIRROR hermite_fe._hermite_robust._ROBUST_AXIS_* (NOT imported: the GPU module avoids a top-level
+# hermite_fe import -- the cycle the in-function lazy imports work around). Keep in sync; the drift is
+# guarded by tests/feature_selection/gpu/test_gpu_cpu_robust_constants_in_sync.py.
 _GPU_ROBUST_AXIS_K = 3.0
 _GPU_ROBUST_AXIS_OUTER_K = 10.0
 _GPU_ROBUST_AXIS_GAP = 3.0
