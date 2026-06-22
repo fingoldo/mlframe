@@ -13,6 +13,7 @@ checked locking and cached as a module global, mirroring ``filters/gpu.py`` (Win
 
 from __future__ import annotations
 
+import logging
 import math
 import multiprocessing
 from typing import Any
@@ -21,6 +22,9 @@ import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import generate_combinations, _merge_topn
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
+
+logger = logging.getLogger(__name__)
 
 _SUBSET_LOSS_KERNEL: Any = None
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
@@ -70,7 +74,8 @@ def gpu_available() -> bool:
         import cupy as cp
 
         return cp.cuda.runtime.getDeviceCount() > 0
-    except Exception:
+    except _cuda_demote_errors() as exc:
+        logger.debug("GPU subset-loss kernel unavailable, demoting to CPU: %s", exc)
         return False
 
 
@@ -95,8 +100,8 @@ def _block_size() -> int:
             entry = ktc.lookup("shap_proxy_subset_loss")  # may be absent -> fall through
             if isinstance(entry, dict) and entry.get("block_size"):
                 return int(entry["block_size"])
-    except Exception:
-        pass
+    except (ImportError, KeyError, ValueError, TypeError) as exc:
+        logger.debug("GPU subset-loss block-size tuning-cache lookup failed, using default: %s", exc)
     return _DEFAULT_BLOCK_SIZE
 
 
@@ -141,6 +146,9 @@ def brute_force_top_n_gpu(
         grid = ((C + block - 1) // block,)
         kernel(grid, (block,), (phi_d, base_d, y_d, combos_d, np.int32(n), np.int32(f),
                                 np.int32(r), np.int64(C), np.int32(metric_code), out_d))
+        # SR1 (mirror of the CPU path): map non-finite losses to +inf so a NaN cannot be argpartition-
+        # selected as "top"; lower=better, so +inf sinks. Cannot be exercised on this CPU-only box.
+        out_d[~cp.isfinite(out_d)] = cp.inf
         k = min(top_n, C)
         sel = cp.argpartition(out_d, k - 1)[:k]
         sel = sel[cp.argsort(out_d[sel])]

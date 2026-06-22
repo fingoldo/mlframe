@@ -62,6 +62,13 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
     return chosen["features"]
 
 
+def _random_baseline_is_meaningful(k: int, f: int) -> bool:
+    """RF1: the winner's-curse random baseline is meaningful only when the winner is STRICTLY smaller than
+    the full feature set. At ``k >= f`` a same-size random sample would BE the whole feature set, so the
+    baseline equals the all-features model and carries no winner's-curse signal -- skip it."""
+    return 0 < k < f
+
+
 def _ucb_auto_slack(evaluated_proxy, evaluated_honest_mean, stdev_multiplier=1.5):
     """Calibrate the UCB slack from already-evaluated (proxy, honest_mean) pairs.
 
@@ -403,15 +410,18 @@ def revalidate_top_n(
                 break
 
     # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
+    # RF1: only meaningful when the winner is strictly smaller than the full feature set; when k >= f the
+    # "random" sample would BE the whole feature set, so the baseline equals the all-features model and
+    # carries no winner's-curse signal -- skip it (baseline stays None) rather than report a tautology.
     baseline = None
     if best_idx:
         k = len(_expand(best_idx, unit_to_members))
         f = X_search.shape[1]
-        k = min(k, f)
-        rnd = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
-        baseline = dict(features=rnd, honest_loss=_honest_loss(
-            model_template, X_search, y_search, X_holdout, y_holdout, list(rnd), classification, metric,
-            cache=cache, disk_cache=disk_cache))
+        if _random_baseline_is_meaningful(k, f):
+            rnd = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
+            baseline = dict(features=rnd, honest_loss=_honest_loss(
+                model_template, X_search, y_search, X_holdout, y_holdout, list(rnd), classification, metric,
+                cache=cache, disk_cache=disk_cache))
     ucb_info = dict(enabled=bool(use_ucb), n_candidates_total=int(n_total),
                     n_candidates_evaluated=int(n_candidates_evaluated),
                     min_eval_size=int(ucb_min_eval_size_eff),

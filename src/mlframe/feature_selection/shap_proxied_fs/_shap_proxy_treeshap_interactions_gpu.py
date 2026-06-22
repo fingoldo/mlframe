@@ -23,10 +23,15 @@ module global (Windows-spawn safe), mirroring ``_shap_proxy_treeshap_gpu`` and `
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 from typing import Any
 
 import numpy as np
+
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
+
+logger = logging.getLogger(__name__)
 
 _INTERACTION_KERNEL: Any = None
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
@@ -51,11 +56,9 @@ void treeshap_interactions(const float* X, const int n, const int P,
     if (i >= n) return;
     const int width = max_path + 2;        // entries per recursion level
 
-    // Per-thread path scratch (local memory). Sized for _MAX_SUPPORTED_DEPTH at compile time; the +3
-    // levels mirror the numba kernel's n_levels = max_path + 3 (conditioned child reaches one deeper).
-    const int MAXW   = 26;                 // _MAX_SUPPORTED_DEPTH + 2 (entries per level)
-    const int MAXLVL = 27;                 // _MAX_SUPPORTED_DEPTH + 3 (number of levels)
-    const int MAXP   = 256;                // _MAX_SUPPORTED_FEATURES
+    // Per-thread path scratch (local memory). MAXW / MAXLVL / MAXP are injected #defines derived from the
+    // Python ``_MAX_SUPPORTED_DEPTH`` / ``_MAX_SUPPORTED_FEATURES`` caps (T1) so they cannot drift from the
+    // host caps; the +3 levels mirror the numba kernel's n_levels = max_path + 3 (conditioned child deeper).
     long   pf_feat[MAXW * MAXLVL];
     double pf_zero[MAXW * MAXLVL];
     double pf_one [MAXW * MAXLVL];
@@ -245,7 +248,8 @@ def gpu_interactions_available() -> bool:
         import cupy as cp
 
         return cp.cuda.runtime.getDeviceCount() > 0
-    except Exception:
+    except _cuda_demote_errors() as exc:
+        logger.debug("GPU interaction kernel unavailable, demoting to CPU: %s", exc)
         return False
 
 
@@ -258,8 +262,8 @@ def _block_size() -> int:
             entry = ktc.lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_gpu_block_size"):
                 return int(entry["interaction_gpu_block_size"])
-    except Exception:
-        pass
+    except (ImportError, KeyError, ValueError, TypeError) as exc:
+        logger.debug("GPU interaction block-size tuning-cache lookup failed, using default: %s", exc)
     return _DEFAULT_BLOCK_SIZE
 
 
@@ -272,10 +276,21 @@ def _ensure_kernel():
             import cupy as cp
 
             # The __device__ scan must precede the kernel that calls it; compile them as one module
-            # and fetch the kernel entry point.
-            module = cp.RawModule(code=_DEVICE_SRC + _KERNEL_SRC)
+            # and fetch the kernel entry point. Scratch-size #defines (T1) are injected from the Python
+            # caps at the very front so neither the device scan nor the kernel can use a drifted literal.
+            module = cp.RawModule(code=_defines_header() + _DEVICE_SRC + _KERNEL_SRC)
             _INTERACTION_KERNEL = module.get_function("treeshap_interactions")
     return _INTERACTION_KERNEL
+
+
+def _defines_header() -> str:
+    """CUDA ``#define``s for the scratch caps, derived from the Python constants (T1): MAXW = depth + 2,
+    MAXLVL = depth + 3 (conditioned child reaches one level deeper), MAXP = max supported features. The
+    host asserts ``ensemble.max_depth <= _MAX_SUPPORTED_DEPTH`` and width ``<= _MAX_SUPPORTED_FEATURES``
+    before launch, so these bound the realised path/stack depth and the per-thread phi accumulators."""
+    maxw = _MAX_SUPPORTED_DEPTH + 2
+    maxlvl = _MAX_SUPPORTED_DEPTH + 3
+    return f"#define MAXW {maxw}\n#define MAXLVL {maxlvl}\n#define MAXP {_MAX_SUPPORTED_FEATURES}\n"
 
 
 def interaction_tensor_gpu(ensemble, X: np.ndarray):

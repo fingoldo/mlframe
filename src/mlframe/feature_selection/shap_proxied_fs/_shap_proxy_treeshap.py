@@ -32,6 +32,7 @@ SHAP *interaction* values have their own shared-tensor kernel in ``_shap_proxy_t
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -63,6 +64,29 @@ class TreeEnsemble:
     n_features: int
 
 
+_XGB_DEFAULT_FEATURE = re.compile(r"^f(\d+)$")
+
+
+def _resolve_split_feature(split, fmap) -> int:
+    """Map an xgboost JSON-dump split name to a column index.
+
+    T2: the prior ``int(str(sp).lstrip("f"))`` had two bugs. (1) ``lstrip("f")`` strips ALL leading ``f``
+    characters, so a real feature literally named ``"ffx"`` would mis-parse; only the single positional
+    ``f<idx>`` prefix should be stripped, matched here as ``^f\\d+$``. (2) when an ``fmap`` (feature-name
+    map) is present but a split name is missing from it, falling back to a positional parse silently
+    misattributes SHAP -- we now raise instead so the mismatch surfaces. The positional ``f<idx>`` parse
+    is used only when there is NO fmap (the common numeric-default-feature-name case)."""
+    sp = str(split)
+    if fmap is not None:
+        if sp in fmap:
+            return int(fmap[sp])
+        raise KeyError(f"xgboost split feature {sp!r} not found in feature-name map (fmap); cannot resolve column index")
+    m = _XGB_DEFAULT_FEATURE.match(sp)
+    if m is not None:
+        return int(m.group(1))
+    raise ValueError(f"cannot resolve xgboost split feature {sp!r} to a column index (expected 'f<int>' default name)")
+
+
 def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     """Parse an xgboost booster's JSON dump into flat per-node tensors (done once per fit)."""
     cfg = json.loads(booster.save_config())
@@ -75,6 +99,9 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     # objective from the config and transform; regression objectives keep base_score as-is.
     objective = str(cfg["learner"]["objective"].get("name", "")).lower()
     if "logistic" in objective or "logitraw" in objective or objective.startswith("binary:"):
+        # T3: a degenerate base_score in {0, 1} (single-class training, a caller error) clamps to a
+        # finite-but-arbitrary logit (+-~16.1) that will NOT satisfy exact additivity; this is accepted
+        # as the least-bad behaviour for a degenerate input, and CPU/GPU agree on it (not a parity bug).
         p = min(max(base_offset, 1e-7), 1.0 - 1e-7)
         base_offset = float(np.log(p / (1.0 - p)))
 
@@ -118,8 +145,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
                 cr.append(local_to_global[node["no"]])
                 cd.append(local_to_global[node["missing"]])
                 sp = node["split"]
-                fi = fmap[sp] if (fmap is not None and sp in fmap) else int(str(sp).lstrip("f"))
-                feat.append(int(fi))
+                feat.append(_resolve_split_feature(sp, fmap))
                 thr.append(float(node["split_condition"]))
                 val.append(0.0)
                 cover.append(float(node.get("cover", 1.0)))

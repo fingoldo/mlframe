@@ -129,6 +129,10 @@ def brute_force_top_n_cpu_ref(
             continue
         out = np.empty(C, dtype=np.float64)
         scan(phi, base, y, combos, metric_code, out)
+        # SR1: argpartition ordering is undefined with NaN, so a NaN loss (degenerate single-class slice)
+        # could be selected as "top" (lowest). Map non-finite losses to +inf (worst) so they sink, never
+        # win; lower=better, so +inf is correctly the least-preferred and is dropped downstream.
+        out[~np.isfinite(out)] = np.inf
         k = min(top_n, C)
         sel = np.argpartition(out, k - 1)[:k]
         sel = sel[np.argsort(out[sel])]

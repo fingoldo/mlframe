@@ -9,9 +9,10 @@ expensive top-N honest re-validation. This both answers the user's open "do we n
 partial sums?" question (yes -- but as a redundancy/cardinality-dependent map fit from data, not a
 guessed global scale) and concentrates the honest-retrain budget on the corrector's best subsets.
 
-The corrector is monotone-agnostic and cheap (Ridge over 4 engineered features); with too few anchors
-it degrades gracefully to "proxy_loss only" (rank-preserving), so it can never do worse than the raw
-proxy ordering on the held anchors.
+The corrector is cheap (Ridge over 4 engineered features) and order-guarded: with too few anchors it
+degrades gracefully to "proxy_loss only" (rank-preserving), and even when fit it is KEPT only if its
+predicted ordering on the anchors is non-inverting vs the raw proxy (positive Spearman) -- otherwise it
+falls back to identity. So it can never do worse than the raw proxy ordering on the held anchors.
 """
 
 from __future__ import annotations
@@ -110,7 +111,35 @@ def fit_proxy_corrector(proxy_losses, honest_losses, cards, redunds, *, min_anch
     std = np.where(F.std(axis=0) > 0, F.std(axis=0), 1.0)
     Fs = (F - mean) / std
     model = Ridge(alpha=1.0).fit(Fs, honest)
-    return ProxyCorrector(model=model, mean=mean, std=std, fallback=False)
+    corr = ProxyCorrector(model=model, mean=mean, std=std, fallback=False)
+    # CA1: the docstring promises the corrector "can never do worse than the raw proxy ordering".
+    # An unconstrained Ridge over (proxy, card, redund, proxy*redund) can learn a NEGATIVE net proxy
+    # response (the proxy*redund interaction + a negative proxy coeff), which INVERTS the proxy order
+    # vs honest loss and breaks that guarantee. Enforce it empirically: the corrector is only kept if
+    # its predicted ordering on the anchors is positively rank-correlated with the raw proxy ordering;
+    # otherwise we fall back to identity (proxy-only, rank-preserving). This is the cheap, robust
+    # monotonicity gate -- a non-inverting map by construction, with no extra anchors required.
+    pred_anchor = corr.predict(proxy, cards, redunds)
+    if not _ranks_non_inverting(proxy, pred_anchor):
+        return ProxyCorrector(fallback=True)
+    return corr
+
+
+def _ranks_non_inverting(proxy: np.ndarray, pred: np.ndarray) -> bool:
+    """True iff the corrector's predicted ordering does not invert the raw proxy ordering on the anchors.
+
+    Uses Spearman rank correlation (Pearson on the rank-transformed vectors) so the test is about ORDER,
+    not scale: a positive coefficient means lower proxy -> lower predicted honest loss, preserving the
+    proxy ranking the guarantee rests on. Degenerate inputs (constant proxy or constant prediction ->
+    undefined rank correlation) are treated as non-inverting (the corrector cannot reorder a tie)."""
+    if proxy.size < 2:
+        return True
+    pr = np.argsort(np.argsort(proxy)).astype(np.float64)
+    pe = np.argsort(np.argsort(pred)).astype(np.float64)
+    if pr.std() == 0 or pe.std() == 0:
+        return True
+    rho = float(np.corrcoef(pr, pe)[0, 1])
+    return rho >= 0.0
 
 
 def rerank_candidates(corrector: ProxyCorrector, candidates, phi):

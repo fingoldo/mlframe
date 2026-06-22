@@ -72,6 +72,24 @@ def _interaction_gpu_min_cells() -> int:
     return _INTERACTION_GPU_MIN_CELLS
 
 
+def _broadcast_base(base, n: int) -> np.ndarray:
+    """Return the expected-value base as a ``(n,)`` float64 vector for the coalition-margin contract.
+
+    IX3: the in-sample single-model TreeSHAP base is a scalar today, and ``np.full(n, float(base))``
+    relied on that -- it would raise (ndim>0) or silently collapse if a future kernel ever returned a
+    per-row base. Handle both: a scalar broadcasts to ``(n,)``; an already per-row ``(n,)`` base is
+    accepted as-is (cast + length-checked) so per-row attributions are NOT collapsed to base[0]."""
+    arr = np.asarray(base, dtype=np.float64)
+    if arr.ndim == 0:
+        return np.full(n, float(arr), dtype=np.float64)
+    arr = arr.ravel()
+    if arr.shape[0] == n:
+        return np.ascontiguousarray(arr)
+    if arr.shape[0] == 1:
+        return np.full(n, float(arr[0]), dtype=np.float64)
+    raise ValueError(f"interaction base has length {arr.shape[0]}, expected scalar or (n={n},)")
+
+
 def _interaction_tensor_numba(est, X, *, classification):
     """Custom numba TreeSHAP interaction tensor for a supported xgboost estimator, else ``None``.
 
@@ -86,8 +104,7 @@ def _interaction_tensor_numba(est, X, *, classification):
         return None
     Xv = X.values if hasattr(X, "values") else np.asarray(X)
     Phi, _phi, base = interaction_tensor_numba(ensemble, Xv)
-    n = Phi.shape[0]
-    return Phi, np.full(n, float(base), dtype=np.float64)
+    return Phi, _broadcast_base(base, Phi.shape[0])
 
 
 def _interaction_tensor_gpu(est, X, *, classification):
@@ -105,8 +122,7 @@ def _interaction_tensor_gpu(est, X, *, classification):
         return None
     Xv = X.values if hasattr(X, "values") else np.asarray(X)
     Phi, _phi, base = interaction_tensor_gpu(ensemble, Xv)
-    n = Phi.shape[0]
-    return Phi, np.full(n, float(base), dtype=np.float64)
+    return Phi, _broadcast_base(base, Phi.shape[0])
 
 
 def compute_interaction_tensor(model_template, X, y, *, classification, rng=None, backend="auto"):
@@ -174,8 +190,9 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
     Phi = explainer.shap_interaction_values(X)
     base = explainer.expected_value
     if isinstance(Phi, list):  # binary -> positive class
-        Phi = Phi[1] if len(Phi) == 2 else Phi[0]
-        base = base[1] if (np.ndim(base) > 0 and len(Phi) == 2) else (base[0] if np.ndim(base) > 0 else base)
+        was_binary_list = len(Phi) == 2  # capture BEFORE reassigning Phi (len(Phi) below would read n_rows, not class count)
+        Phi = Phi[1] if was_binary_list else Phi[0]
+        base = base[1] if (np.ndim(base) > 0 and was_binary_list) else (base[0] if np.ndim(base) > 0 else base)
     Phi = np.asarray(Phi, dtype=np.float64)
     if Phi.ndim == 4:  # (n, P, P, classes) -> positive class
         Phi = Phi[:, :, :, -1]
@@ -222,22 +239,8 @@ def interaction_top_n(
         for r in range(min_card, max_card + 1):
             for comb in itertools.combinations(range(P), r):
                 loss(comb)
-    else:  # greedy forward only when too wide to enumerate
-        current = ()
-        best = float("inf")
-        remaining = set(range(P))
-        while remaining and len(current) < max_card:
-            cand, cl = None, float("inf")
-            for j in remaining:
-                l = loss(current + (j,))
-                if l < cl:
-                    cl, cand = l, j
-            if cand is None or cl >= best:
-                break
-            current = tuple(sorted(current + (cand,)))
-            best = cl
-            remaining.discard(cand)
-    # Always run greedy-forward to surface interacting pairs (cheap, dedup via cache).
+    # Always run greedy-forward to surface interacting pairs (cheap, dedup via cache); when P is too
+    # wide to enumerate exhaustively this is the only pass that runs.
     current = ()
     best = float("inf")
     remaining = set(range(P))
@@ -548,7 +551,11 @@ def sparse_interaction_candidates(
         if col_a not in col_to_idx or col_b not in col_to_idx:
             continue
         nm = f"_suprod_{k}__{col_a}__x__{col_b}"
-        aug[nm] = X_proxy[col_a].values * X_proxy[col_b].values
+        # IX2: a single NaN/inf product (overflow on large-magnitude operands, or a NaN operand) poisons
+        # the whole in-sample SHAP fit on the augmented frame. Sanitise to finite values up front so one
+        # bad pair cannot take down the entire sparse-interaction ranking; nan->0, +-inf->float bounds.
+        prod = X_proxy[col_a].values.astype(np.float64) * X_proxy[col_b].values.astype(np.float64)
+        aug[nm] = np.nan_to_num(prod, nan=0.0, posinf=np.finfo(np.float64).max, neginf=np.finfo(np.float64).min)
         product_to_operands[n_base + len(prod_names)] = (col_to_idx[col_a], col_to_idx[col_b])
         prod_names.append(nm)
 

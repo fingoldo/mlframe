@@ -14,10 +14,30 @@ mirroring ``_shap_proxy_gpu`` and ``filters/gpu.py``.
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Narrow exceptions that legitimately mean "no usable CUDA, demote to CPU": cupy not installed, or a
+# cupy/CUDA runtime/driver error (no device, OOM, driver mismatch). Anything else (a bug in our own
+# dispatch / lookup code) must propagate, not be silently swallowed into a CPU demotion (T4).
+def _cuda_demote_errors():
+    excs: tuple = (ImportError,)
+    try:
+        import cupy as cp
+
+        excs = excs + (cp.cuda.runtime.CUDARuntimeError,)
+        compile_exc = getattr(cp.cuda, "compiler", None)
+        if compile_exc is not None and hasattr(compile_exc, "CompileException"):
+            excs = excs + (compile_exc.CompileException,)
+    except Exception:
+        pass
+    return excs
+
 
 _TREESHAP_KERNEL: Any = None
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
@@ -37,8 +57,8 @@ void treeshap(const float* X, const int n, const int f,
     if (i >= n) return;
     const int width = max_path + 2;        // entries per recursion level
     const int n_levels = max_path + 2;
-    // Per-thread path scratch (local memory). Sized for _MAX_SUPPORTED_DEPTH at compile time.
-    const int MAXW = 26;                   // _MAX_SUPPORTED_DEPTH + 2
+    // Per-thread path scratch (local memory). MAXW / MAXSP are injected #defines derived from the Python
+    // ``_MAX_SUPPORTED_DEPTH`` cap (T1) so the buffer sizes can never drift out of sync with the host cap.
     long pf_feat[MAXW * MAXW];
     double pf_zero[MAXW * MAXW];
     double pf_one[MAXW * MAXW];
@@ -48,12 +68,12 @@ void treeshap(const float* X, const int n, const int f,
     double* phi_i = phi + (long)i * f;
 
     // Explicit stack replacing recursion: each frame is (node, level, unique_depth, zero, one, feat).
-    int   st_node[64];
-    int   st_level[64];
-    int   st_ud[64];
-    double st_zero[64];
-    double st_one[64];
-    int   st_feat[64];
+    int   st_node[MAXSP];
+    int   st_level[MAXSP];
+    int   st_ud[MAXSP];
+    double st_zero[MAXSP];
+    double st_one[MAXSP];
+    int   st_feat[MAXSP];
 
     for (int t = 0; t < n_trees; t++){
         int sp = 0;
@@ -154,7 +174,8 @@ def gpu_treeshap_available() -> bool:
         import cupy as cp
 
         return cp.cuda.runtime.getDeviceCount() > 0
-    except Exception:
+    except _cuda_demote_errors() as exc:
+        logger.debug("GPU TreeSHAP unavailable, demoting to CPU: %s", exc)
         return False
 
 
@@ -167,8 +188,8 @@ def _block_size() -> int:
             entry = ktc.lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("gpu_block_size"):
                 return int(entry["gpu_block_size"])
-    except Exception:
-        pass
+    except (ImportError, KeyError, ValueError, TypeError) as exc:
+        logger.debug("GPU block-size tuning-cache lookup failed, using default: %s", exc)
     return _DEFAULT_BLOCK_SIZE
 
 
@@ -180,8 +201,19 @@ def _ensure_kernel():
         if _TREESHAP_KERNEL is None:  # double-checked
             import cupy as cp
 
-            _TREESHAP_KERNEL = cp.RawKernel(_KERNEL_SRC, "treeshap")
+            _TREESHAP_KERNEL = cp.RawKernel(_kernel_source(), "treeshap")
     return _TREESHAP_KERNEL
+
+
+def _kernel_source() -> str:
+    """Prepend ``#define``s derived from the Python ``_MAX_SUPPORTED_DEPTH`` cap so the CUDA scratch sizes
+    cannot drift from the host cap (T1). MAXW = depth + 2 (entries per level); MAXSP sizes the explicit DFS
+    stack at 2*MAXW + 12 (the original literal was 64 at depth 24, i.e. 2*26 + 12; this formula reproduces
+    that headroom and scales with the cap). The host asserts ``ensemble.max_depth <= _MAX_SUPPORTED_DEPTH``
+    before launch, so these sizes always bound the realised path/stack depth."""
+    maxw = _MAX_SUPPORTED_DEPTH + 2
+    maxsp = 2 * maxw + 12
+    return f"#define MAXW {maxw}\n#define MAXSP {maxsp}\n" + _KERNEL_SRC
 
 
 def treeshap_phi_base_gpu(ensemble, X: np.ndarray):

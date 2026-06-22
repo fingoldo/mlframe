@@ -234,23 +234,73 @@ def _try_cap_n_estimators(est, cap):
     return None
 
 
+def _classification_proba(est, X_ev_arr):
+    """Probability prediction for the holdout, multiclass-aware.
+
+    Returns the positive-class column ``(n,)`` for a binary fit (booster classes ``{0,1}``) and the full
+    probability matrix ``(n, C)`` for a >2-class fit. A single-class anchor returns a 1-column proba
+    (sklearn convention); a hard ``[:, 1]`` would raise IndexError on such rare-class anchors, so we fall
+    back to the lone column (all-1.0 for the sole class) and let the loss layer's NaN/AUC guards handle the
+    degenerate holdout. The downstream :func:`_loss_from_predictions` dispatches on the shape: a 1-D vector
+    is the binary positive-class probability, a 2-D matrix is the multiclass probability matrix."""
+    proba = est.predict_proba(X_ev_arr)
+    if proba.shape[1] <= 2:
+        return proba[:, 1] if proba.shape[1] > 1 else proba[:, 0]
+    return proba
+
+
+# Back-compat alias: the prior name leaked into a regression test (L2). It now also covers the
+# multiclass matrix path, so the name is generalised but the symbol is preserved.
+_positive_class_proba = _classification_proba
+
+
 def _loss_from_predictions(p_or_pred, y_ev, classification, metric):
     """Compute the holdout loss from a precomputed prediction vector (no fit, no slicing).
 
     Exposed so :func:`_permutation_importance_ranking` can reuse the loss-aggregation branches
     without re-fitting the booster -- the permutation-importance pass scores k shuffled-column
-    holdout predictions per fit, so we want the predict+loss path with zero fit overhead."""
+    holdout predictions per fit, so we want the predict+loss path with zero fit overhead.
+
+    Multiclass (L3): when the classification probability is a 2-D ``(n, C>2)`` matrix the binary
+    closed forms (``brier_score_loss`` / ``log_loss(labels=[0,1])`` / scalar ``roc_auc_score``) are
+    wrong, so we route to multiclass log-loss (over the observed class set) for the pointwise metrics
+    and one-vs-rest macro AUC for the ranking metric. The proxy search itself stays binary (a single
+    SHAP margin -> sigmoid), but the honest-loss layer must score a multiclass target correctly rather
+    than silently mis-scoring or crashing."""
     if classification:
         p = p_or_pred
+        if np.ndim(p) > 1:  # multiclass probability matrix (n, C)
+            return _multiclass_loss_from_proba(p, y_ev, metric)
         if metric == "brier":
             return float(brier_score_loss(y_ev, p))
         if metric == "logloss":
             return float(log_loss(y_ev, np.clip(p, 1e-7, 1 - 1e-7), labels=[0, 1]))
+        # A single-class holdout has no defined AUC; return NaN (dropped by every downstream finite-mask) rather than a magic
+        # 1.0 that masquerades as a measured loss and biases the corrector / stable-score ranking on rare-class anchors.
         if len(np.unique(y_ev)) < 2:
-            return 1.0
+            return float("nan")
         return float(1.0 - roc_auc_score(y_ev, p))
     pred = p_or_pred
     return float(mean_absolute_error(y_ev, pred)) if metric == "mae" else float(root_mean_squared_error(y_ev, pred))
+
+
+def _multiclass_loss_from_proba(proba, y_ev, metric):
+    """Honest loss for a >2-class holdout from the full ``(n, C)`` probability matrix (lower=better).
+
+    ``brier``/``logloss`` map to multiclass log-loss (a proper scoring rule that subsumes binary
+    log-loss); ``auc`` maps to one-vs-rest macro AUC turned into a loss (``1 - auc``). The holdout may
+    not contain every training class, so we pass the booster's class count as ``labels`` to keep the
+    probability columns aligned. A holdout with a single realised class has no defined AUC -> NaN
+    (dropped by the finite-mask, mirroring the binary single-class guard)."""
+    n_classes = proba.shape[1]
+    all_labels = list(range(n_classes))
+    if metric == "auc":
+        if len(np.unique(y_ev)) < 2:
+            return float("nan")
+        auc = roc_auc_score(y_ev, proba, multi_class="ovr", average="macro", labels=all_labels)
+        return float(1.0 - auc)
+    # brier + logloss both fold into multiclass log-loss (the proper multiclass scoring rule).
+    return float(log_loss(y_ev, np.clip(proba, 1e-7, 1.0), labels=all_labels))
 
 
 def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed=None,
@@ -328,7 +378,7 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
     est.fit(_slice_cols_to_numpy(X_tr, cols), y_tr)
     X_ev_arr = _slice_cols_to_numpy(X_ev, cols)
     if classification:
-        p = est.predict_proba(X_ev_arr)[:, 1]
+        p = _positive_class_proba(est, X_ev_arr)
     else:
         p = est.predict(X_ev_arr)
     loss = _loss_from_predictions(p, y_ev, classification, metric)
@@ -407,7 +457,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     # Score the un-permuted base once; cheaper to use the same model with the un-shuffled matrix.
     X_ev_arr = _slice_cols_to_numpy(X_ev, cols)
     if classification:
-        base_p = est.predict_proba(X_ev_arr)[:, 1]
+        base_p = _positive_class_proba(est, X_ev_arr)
     else:
         base_p = est.predict(X_ev_arr)
     base_loss = _loss_from_predictions(base_p, y_ev, classification, metric)
@@ -426,7 +476,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
         orig = X_perm[:, j].copy()
         X_perm[:, j] = orig[perm]
         if classification:
-            p = est.predict_proba(X_perm)[:, 1]
+            p = _positive_class_proba(est, X_perm)
         else:
             p = est.predict(X_perm)
         loss_shuf = _loss_from_predictions(p, y_ev, classification, metric)

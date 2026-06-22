@@ -300,6 +300,10 @@ def _pairwise_su_edges(
     """
     n_features, n_samples = bins_packed.shape
     flags = np.zeros((n_features, n_features), dtype=np.uint8)
+    # P1f: guard the ``1.0 / n_samples`` below. Empty input is short-circuited by the callers today, but
+    # a zero-sample matrix here would divide by zero; with no samples there are no edges, so return early.
+    if n_samples == 0:
+        return flags
     # max joint cardinality controls a single thread-local reusable buffer per
     # outer iteration; avoids per-pair np.zeros allocation that bottlenecks at
     # width >= 2000 (numba memory allocator under contention).
@@ -711,7 +715,7 @@ def cluster_correlated_features_su(
         and the scalar kernel is faster. ``None`` consults
         ``pyutilz.performance.kernel_tuning.cache``
         (key ``mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins``);
-        default 16.
+        default 12 (the iter73-bench crossover; ``_resolve_bitmap_max_n_bins``).
 
     Returns
     -------
@@ -819,12 +823,14 @@ def cluster_correlated_features_su(
 
     for i in range(f - 1):
         classes_i, freqs_i = marginals[i]
-        if freqs_i.size == 0 or freqs_i.size == 1:
+        # Constant column == <=1 POPULATED bin, not <=1 allocated bin: ``freqs`` is padded to max(bin_id)+1 / n_bins_hint, so a
+        # one-realized-bin column has size>1 with one nonzero entry. Keying off size diverged from the kernel path (nonzero_bins<=1).
+        if np.count_nonzero(freqs_i) <= 1:
             # constant column -> SU=0 with every partner
             continue
         for j in range(i + 1, f):
             classes_j, freqs_j = marginals[j]
-            if freqs_j.size == 0 or freqs_j.size == 1:
+            if np.count_nonzero(freqs_j) <= 1:
                 continue
             # ``compute_su_from_classes`` is numba-jitted and reads the
             # int64 class arrays + float64 freq arrays we computed above.
