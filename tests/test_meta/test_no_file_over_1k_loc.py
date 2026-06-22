@@ -110,7 +110,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # (de-exempted 2026-06-22: radix-select/residency block carved to _gpu_resident_select.py [+ the
     # prewarp/orth-basis + grand-fusion block to _gpu_resident_basis.py]; _gpu_resident_fe.py now under 1k)
     # (de-exempted 2026-06-22: kernels carved to _batch_mi_noise_gate_kernels.py)
-    "src/mlframe/feature_selection/filters/evaluation.py",
+    # (de-exempted 2026-06-22: candidate-evaluation driver carved to _evaluation_driver.py)
     # (de-exempted 2026-06-22: _orthogonal_univariate_fe/__init__.py carved to ~860 LOC via _orth_dedup.py)
 }
 
