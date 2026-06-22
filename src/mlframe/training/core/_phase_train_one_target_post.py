@@ -17,7 +17,6 @@ own lazy imports moved with them so the parent-bottom re-export doesn't add hard
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import numpy as np
 

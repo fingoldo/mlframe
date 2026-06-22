@@ -12,34 +12,17 @@ unpickle cleanly.
 """
 from __future__ import annotations
 
-import copy
-import gc
-import hashlib
 import logging
-import math
 import os
 import psutil
-import textwrap
-import time
 import warnings
-from collections import OrderedDict, defaultdict
-from itertools import combinations, islice
-from os.path import exists
-from timeit import default_timer as timer
+from collections import OrderedDict
 from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
-import numba
-from numba import njit, jit
-from numba.core import types
-from joblib import Parallel, delayed
 
-from sklearn.base import BaseEstimator, TransformerMixin, clone, is_classifier, is_regressor
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import make_scorer
-from sklearn.model_selection import KFold
-from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and

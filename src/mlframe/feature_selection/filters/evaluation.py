@@ -4,10 +4,7 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 """
 from __future__ import annotations
 
-import gc
 import logging
-import math
-import time
 from timeit import default_timer as timer
 from typing import Sequence
 
@@ -16,28 +13,24 @@ import numpy as np
 from numba import njit
 from numba.core import types
 
-from pyutilz.numbalib import generate_combinations_recursive_njit, python_dict_2_numba_dict
+from pyutilz.numbalib import generate_combinations_recursive_njit
 # Module-level import so cloudpickle can resolve tqdmu when the function ships to a joblib worker.
-from pyutilz.system import tqdmu
 
-from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, MAX_ITERATIONS_TO_TRACK
-from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
+from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS
+from ._numba_utils import arr2str, count_cand_nbins
 from .gpu import mi_direct_gpu
 from .info_theory import (
-    compute_mi_from_classes, conditional_mi, entropy, merge_vars, mi,
+    conditional_mi, entropy, merge_vars, mi,
     # 2026-05-28: SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
     # toggle set by ``MRMR.fit`` when ``mi_normalization='su'``; legacy path
     # (toggle off) is one extra Python call ahead of njit kernels.
-    cmi_or_csu, use_su_normalization, conditional_symmetric_uncertainty,
+    use_su_normalization, conditional_symmetric_uncertainty,
     # 2026-05-30 Wave 8: JMIM aggregator + BUR weight thread-local toggles
     # used in evaluate_gain / evaluate_candidate.
     use_jmim_aggregator, get_bur_lambda,
     # 2026-05-30 Wave 9.1 iter 5: setters for re-publishing the toggles into
     # joblib worker threads.
-    set_su_normalization, set_jmim_aggregator, set_bur_lambda,
-    # Research-knob thread-locals (RelaxMRMR 3-D redundancy / PID synergy bonus / CMI permutation early-stop), all default OFF; forwarded to workers like SU/JMIM/BUR.
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
-    set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
 )
 from .permutation import mi_direct
 

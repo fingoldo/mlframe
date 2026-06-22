@@ -30,7 +30,6 @@ from sklearn.base import clone
 
 from pyutilz.system import tqdmu_lazy_start
 
-from ..configs import TargetTypes as _TargetTypes
 from ..phases import phase
 from ..models import is_neural_model
 from ..strategies import PipelineCache
@@ -60,7 +59,6 @@ from ._phase_train_one_target_mlp_helpers import (
     _apply_mlp_extreme_ar_weight_decay_bump,
     _drop_columns_for_mlp,
     _identify_per_group_columns,
-    extreme_ar_skip_decision,
 )
 from ._phase_train_one_target_post import (
     _evaluate_mlp_extreme_ar_gate,
@@ -77,22 +75,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     # import ...`` would create a hard import cycle. Python module cache makes
     # repeat imports cheap; the dict lookup is sub-microsecond per call.
     from ._phase_train_one_target import (
-        _apply_loss_recommendation_in_place,
         _build_feature_selection_report,
         _cached_init_params,
         _capture_dataset_reuse_cache,
         _compute_pipeline_cache_key,
         _ensure_feature_side_cache,
         _forward_dataset_reuse_cache,
-        _invalidate_polars_feature_side_cache,
-        _is_regression_target_type,
-        _maybe_run_feature_handling_apply,
         _release_ctx_polars_frames,
         _restore_dataset_reuse_cache,
         _selector_params_hash,
         _unwrap_selector,
     )
-    from ._phase_train_one_target import slugify
 
     _maybe_run_unsupervised_pre_screen(ctx, targets)
     split_config = ctx.split_config

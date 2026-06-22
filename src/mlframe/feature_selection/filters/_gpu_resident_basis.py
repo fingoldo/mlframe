@@ -41,9 +41,7 @@ from ._gpu_resident_fe import (
     _unary_apply,
     _unary_stack_cm,
     cpu_pair_candidate_mi,
-    ensure_host_codes_filled,
     fe_gpu_grand_fusion_enabled,
-    gpu_resident_pair_candidate_mi,
 )
 
 
@@ -739,7 +737,7 @@ def grand_fused_pair_mi_fused(
     import cupy as cp
 
     from .batch_mi_noise_gate_gpu import (
-        _build_shuffle_matrix, _gate_from_mi, _mi_from_counts_cpu, _mi_columns_from_counts_cpu,
+        _build_shuffle_matrix, _gate_from_mi, _mi_columns_from_counts_cpu,
     )
 
     a_gpu = cp.asarray(a, dtype=cp.float64)

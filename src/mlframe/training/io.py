@@ -26,7 +26,6 @@ from __future__ import annotations
 import itertools
 import logging
 import os
-import tempfile
 import uuid
 from collections import OrderedDict
 import warnings

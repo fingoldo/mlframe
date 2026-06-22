@@ -29,7 +29,6 @@ from ._gpu_resident_fe import (
     _stash_resident_codes,
     _unary_apply,
     clear_resident_codes_handoff,
-    ensure_host_codes_filled,
     fe_gpu_defer_host_codes_enabled,
     fe_gpu_resident_codes_enabled,
 )

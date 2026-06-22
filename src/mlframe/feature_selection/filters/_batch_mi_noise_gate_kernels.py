@@ -10,7 +10,6 @@ source / numerics / dispatch behavior changed by the move.
 from __future__ import annotations
 
 import math
-from typing import Any
 
 import numpy as np
 from numba import njit, prange
@@ -338,7 +337,6 @@ def _cuda_hist_kernel_factory():
         k = _nb_cuda.blockIdx.x
         if k >= disc_2d.shape[1]:
             return
-        nb_k = nbins_col[k]
         off = col_offsets[k]
         tid = _nb_cuda.threadIdx.x
         nthreads = _nb_cuda.blockDim.x

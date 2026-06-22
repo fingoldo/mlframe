@@ -47,7 +47,6 @@ from ._batch_mi_noise_gate_kernels import (
     _CUDA_AVAIL,
     _cp,
     _CUPY_AVAIL,
-    _cupy_bincount_kernel,
     _cupy_bincount_known_size,
     _mi_from_counts_cpu,
     _mi_columns_from_counts_cpu,
