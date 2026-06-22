@@ -54,9 +54,9 @@ A good isolation bench:
 
 Examples in `profiling/`:
 
-- [`bench_polars_largestring_cb_xgb.py`](../profiling/bench_polars_largestring_cb_xgb.py) — tests the large_string hypothesis against CB and XGB.
-- [`bench_polars_cb_repro.py`](../profiling/bench_polars_cb_repro.py) — feature-by-feature sweep (Int16, Boolean, multi-cat, text_features, null-cat) to find which axis triggers.
-- [`bench_polars_cb_nullfrac.py`](../profiling/bench_polars_cb_nullfrac.py) — null-fraction binary search proving any null triggers.
+- [`bench_polars_largestring_cb_xgb.py`](https://github.com/fingoldo/mlframe/blob/master/profiling/bench_polars_largestring_cb_xgb.py) — tests the large_string hypothesis against CB and XGB.
+- [`bench_polars_cb_repro.py`](https://github.com/fingoldo/mlframe/blob/master/profiling/bench_polars_cb_repro.py) — feature-by-feature sweep (Int16, Boolean, multi-cat, text_features, null-cat) to find which axis triggers.
+- [`bench_polars_cb_nullfrac.py`](https://github.com/fingoldo/mlframe/blob/master/profiling/bench_polars_cb_nullfrac.py) — null-fraction binary search proving any null triggers.
 
 ### 2. Test one variable at a time
 
