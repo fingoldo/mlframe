@@ -288,7 +288,15 @@ def materialise_and_finalise_fe_candidates(
                 (_gate_src <= _cf_cov) and (_cf_marg >= _g_marg)
                 for _cf_cov, _cf_marg in _clean_forms
             )
-            if _multi_gate or (not _within_one) or _stronger_clean_same_pair:
+            # (4) it drags an EXTRA raw operand beyond its own gate pair (``sub(sin(a),sin(gate_mask__d__c))``
+            #     -- the gate is over (c,d) but the node also pulls in raw ``a`` from the OTHER group) while
+            #     the gate pair is already WITHIN a clean survivor: the node is then an ENTANGLED cross-group
+            #     re-mix, never a clean carrier of any single pair (the clean ``mul(log(c),sin(d))`` carries
+            #     (c,d) and ``div(sqr(a),neg(b))`` carries a). Only fires under the outer ``_cov <= _clean_cov``
+            #     guard, so a genuine carrier of an otherwise-uncaptured group (CASE2) is never reached here.
+            _extra_raw = _bare_tokens(_nm) - _gate_src
+            _entangled_extra = bool(_extra_raw) and _within_one
+            if _multi_gate or (not _within_one) or _stronger_clean_same_pair or _entangled_extra:
                 _gate_composite_drop.add(_nm)
 
         if _gate_composite_drop:
@@ -331,11 +339,17 @@ def materialise_and_finalise_fe_candidates(
                     len(_gate_composite_drop), sorted(_gate_composite_drop),
                 )
 
-    # FAST-SEARCH CLEANLINESS PRUNE (2026-06-15). The exhaustive path removes two further junk classes
-    # via passes the fast profile disables (the step>=1 CMI re-screen at the raised relative bar + the
-    # cross-fold stability vote + the fused-composite raw-redundancy cascade). To keep the fast path's
-    # selection clean WITHOUT re-enabling those expensive passes, replay the SAME cheap subset-coverage
-    # discriminator already proven safe for gate composites above, against two more over-materialisations:
+    # CROSS-GROUP CLEANLINESS PRUNE (2026-06-15; un-gated to BOTH paths 2026-06-22). Removes two junk
+    # classes the per-pair / CMI gates leave behind. Originally scoped to fe_fast_search ONLY, on the
+    # assumption that the exhaustive path's extra passes (the step>=1 CMI re-screen at the raised relative
+    # bar + the cross-fold stability vote + the fused-composite raw-redundancy cascade) would already
+    # remove them. They do NOT on the canonical y=a**2/b+log(c)*sin(d) fixture: the exhaustive fit emitted
+    # the fused compound + its two clean fragments PLUS a cross-group bare gate (gate_mask__d__b) AND a
+    # cross-signal artefact (sub(sin(a),sin(gate_mask__d__c))) -- 5 engineered cols, over the <=4 cap
+    # (over-materialization regression). The discriminator is PURELY STRUCTURAL (raw coverage already a
+    # subset of the clean non-gate survivors), equally valid in both paths, so it now runs unconditionally.
+    # Replay the SAME cheap subset-coverage discriminator already proven safe for gate composites above,
+    # against two over-materialisations:
     #   (A) a STANDALONE bare gate column whose gate pair is CROSS-GROUP (no single clean survivor covers
     #       the whole pair) AND whose raw coverage is already in the clean survivors -- the spurious
     #       ``gate_mask__c__b`` on CASE1. The genuine warped (c,d) gate on CASE2 is WITHIN-pair with NO
@@ -345,10 +359,11 @@ def materialise_and_finalise_fe_candidates(
     #       clean survivor -- the documented cross-signal artefact ``sub(sqr(a),invcbrt(c))`` (a & c from
     #       the {a,b} and {c,d} groups). Dropping it also removes the false anchor that was propping up
     #       the redundant raw a / raw c in the raw-redundancy KEEP decision.
-    # GATED on ``fe_fast_search`` so the exhaustive path is BYTE-IDENTICAL. Operates on the post-CMI
-    # ``prospective_additions`` and the same ``_clean_forms`` / ``_bare_tokens`` already built above; only
-    # fires when that gate-composite block ran (a gate fired) for (A), and unconditionally for (B).
-    if bool(getattr(self, "fe_fast_search", False)) and prospective_additions:
+    # Runs in BOTH paths now (the cross-group artefacts leak in the exhaustive path too). Operates on the
+    # post-CMI ``prospective_additions`` and the same ``_clean_forms`` / ``_bare_tokens`` already built
+    # above; only fires when that gate-composite block ran (a gate fired) for (A), and unconditionally for
+    # (B). No-op (byte-identical) when no cross-group over-materialisation is present.
+    if prospective_additions:
         import re as _re_fsc
 
         def _bare_tokens_fsc(_nm: str) -> set:

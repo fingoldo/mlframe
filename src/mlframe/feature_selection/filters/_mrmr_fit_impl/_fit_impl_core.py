@@ -7017,16 +7017,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _removed_set = set(_ca_removed)
         selected_vars = [v for v in selected_vars if cols[v] not in _removed_set]
 
-    # FAST-SEARCH STANDALONE CROSS-GROUP GATE PRUNE (2026-06-15). Under fe_fast_search the conditional-gate
+    # STANDALONE CROSS-GROUP GATE PRUNE (2026-06-15; un-gated to BOTH paths 2026-06-22). The conditional-gate
     # pre-pass appends gate_mask columns into the screening pool and the greedy can select a STANDALONE one;
     # the FE-step cross-group prune cannot reach it (it filters prospective_additions, not selected_vars).
     # Drop a selected standalone gate column iff its gate pair is CROSS-GROUP (no single clean ENGINEERED
     # survivor jointly covers its raw sources) AND those sources are already covered by the clean survivors'
-    # union -- the spurious gate_mask__c__b on y=a**2/b+log(c)*sin(d) (c,b from the two different groups,
-    # both already in div(sqr(a),..)+mul(log(c),sin(d))). A genuine warped (c,d) carrier is WITHIN-pair (or
-    # embedded in a composite, not a standalone gate name) so it is KEPT. GATED on fe_fast_search ->
-    # exhaustive path untouched. Never empties the support (only drops a gate fully covered by survivors).
-    if bool(getattr(self, "fe_fast_search", False)) and len(selected_vars) and getattr(self, "_gate_col_src_vars_", None):
+    # union -- the spurious gate_mask__c__b / gate_mask__b__d on y=a**2/b+log(c)*sin(d) (b,d from the two
+    # different groups, both already in div(sqr(a),neg(b))+mul(log(c),sin(d))). A genuine warped (c,d) carrier
+    # is WITHIN-pair (or embedded in a composite, not a standalone gate name) so it is KEPT. Originally scoped
+    # to fe_fast_search on the assumption the exhaustive path's extra passes would remove these; they do NOT
+    # (the canonical exhaustive fit selected TWO such standalone cross-group gates -> over the <=4 cap). The
+    # discriminator is purely structural and never empties the support, so it now runs in BOTH paths.
+    if len(selected_vars) and getattr(self, "_gate_col_src_vars_", None):
         try:
             import re as _re_sg
             _gmap_sg = dict(self._gate_col_src_vars_)
@@ -7038,6 +7040,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if nm not in _gmap_sg and ("(" in nm) and ("gate_mask" not in nm)
             ]
             _clean_union_sg = set().union(*_clean_tok_sets_sg) if _clean_tok_sets_sg else set()
+            # "Genuine single-pair carrier" anchors for the within-one test are PURE-PAIR survivors only
+            # (<= 2 distinct raw vars). A FULL-TARGET fused compound spans every var ({a,b,c,d}) and would
+            # otherwise make EVERY gate look within-one, defeating the cross-group test -- so the canonical
+            # ``add(sqrt(div(sqr(a),neg(b))),sin(mul(log(c),sin(d))))`` is excluded as an anchor; the clean
+            # pure pairs ``div(sqr(a),neg(b))`` / ``mul(log(c),sin(d))`` are the real carriers and a
+            # cross-group gate over {b,d} (whose pair no single pure survivor covers) is correctly dropped.
+            _pair_tok_sets_sg = [_ts for _ts in _clean_tok_sets_sg if len(_ts) <= 2]
             _drop_sg = set()
             for nm in _sel_names_sg:
                 if nm not in _gmap_sg:
@@ -7045,7 +7054,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _src = set(str(s) for s in _gmap_sg.get(nm, ()))
                 if len(_src) < 2:
                     continue
-                _within_one = any(_src <= _ts for _ts in _clean_tok_sets_sg)
+                _within_one = any(_src <= _ts for _ts in _pair_tok_sets_sg)
                 if (not _within_one) and _src and _src <= _clean_union_sg:
                     _drop_sg.add(nm)
             if _drop_sg:
