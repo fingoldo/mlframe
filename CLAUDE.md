@@ -32,6 +32,19 @@ validation in-loop and proceed to the next item. The only legitimate turn-ends
 are the (a)-(d) pauses above or genuinely running out of context mid-edit
 (commit what is safe, state exactly what remains — still do not ask).
 
+## Prefer top performance — take the riskier optimization (CRITICAL)
+
+In a performance-critical path, implement the HIGHER-performance optimization
+even when it is more complex/riskier — do NOT settle for a "safer but partial"
+win that leaves measurable performance on the table. When a plan offers a safe-F1
+(e.g. barrier removal) plus a riskier-F2 (e.g. the full contiguous-buffer +
+reused-scratch rewrite), do BOTH. De-risk by VALIDATING the aggressive version
+rigorously (bit-identity, GPU/CPU parity, selection-equivalence, the existing
+suite) — the test suite is the safety net, not a watered-down implementation.
+"Risk" here means more-complex code proven equivalent, NOT shipping an unvalidated
+selection change (that line is still firm). User, 2026-06-22: "я бы рискнул. нам
+нужна топ-производительность в таких случаях!"
+
 ## Enable corrective mechanisms by default (CRITICAL)
 
 When you build a corrective mechanism that fixes a bug class — DCD
