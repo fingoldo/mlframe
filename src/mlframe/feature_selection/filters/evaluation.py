@@ -105,6 +105,17 @@ def _prefill_cond_MIs_gpu(
     do NOT pre-apply). Key format replicates ``evaluate_gain`` EXACTLY via the same ``@njit``
     ``arr2str`` -- a mismatch would silently disable the cache.
 
+    SELECTION-EQUIVALENCE (not bit-identical): the GPU CMI reduces the four entropies from the joint
+    counts on-device (``_cmi_cuda._entropy_from_counts_axis``), parity ~1e-9 to the CPU scalar
+    ``conditional_mi`` (a different float64 reduction order over the nonzero bins). This is the SAME
+    parity bound the rest of the GPU MI path carries and is treated identically: a ranking flip needs two
+    candidates whose Fleuret gains sit within ~1e-9 -- a pathological near-tie. Crucially the prefill is
+    ALL-OR-NOTHING per round: if ANY candidate is multi-element it returns 0 and the WHOLE round stays on
+    the exact scalar CPU path (see the ``len(X) != 1`` guard), and within a round it writes every order-1
+    ``(cand, z)`` CMI, so the candidates compared against each other use a CONSISTENT backend rather than a
+    GPU/CPU mix. A bit-exact alternative (D2H the integer counts + CPU-reduce) would defeat the entire
+    point of the batched kernel for a ~1e-9 P2 near-tie, so it is intentionally not taken.
+
     Routing is delegated to ``conditional_mi_batched_dispatch`` (size/HW gate via the
     kernel_tuning_cache; GPU only when beneficial+available). ANY failure falls back silently:
     the cache is simply left un-prefilled and ``evaluate_gain`` runs the scalar path. Determinism
