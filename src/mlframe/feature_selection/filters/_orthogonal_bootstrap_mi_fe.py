@@ -73,10 +73,15 @@ _LCB_Z = 1.96
 
 
 def _coerce_y_int64(y) -> np.ndarray:
-    arr = np.asarray(y)
-    if not np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64)
-    return arr.astype(np.int64)
+    """Dense int64 class labels. Non-integer y is densified via
+    ``np.unique(return_inverse=...)`` rather than truncated with
+    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    continuous-y signal (everything in [0, 1) collapses to class 0)."""
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
 
 
 def _all_columns_distinct(arr: np.ndarray) -> bool:

@@ -121,6 +121,8 @@ from ._orthogonal_univariate_fe import (
 
 logger = logging.getLogger(__name__)
 
+_INT64_MAX = np.iinfo(np.int64).max
+
 __all__ = [
     "cmim_score",
     "score_features_by_cmim",
@@ -130,10 +132,15 @@ __all__ = [
 
 
 def _coerce_y_int64(y) -> np.ndarray:
-    arr = np.asarray(y)
-    if not np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64)
-    return arr.astype(np.int64)
+    """Dense int64 class labels. Non-integer y is densified via
+    ``np.unique(return_inverse=...)`` rather than truncated with
+    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    continuous-y signal (everything in [0, 1) collapses to class 0)."""
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
 
 
 def _factorize_pack(*cols: np.ndarray) -> tuple[np.ndarray, int]:
@@ -154,15 +161,36 @@ def _factorize_pack(*cols: np.ndarray) -> tuple[np.ndarray, int]:
         return np.zeros(0, dtype=np.int64), 1
     n = cols[0].size
     key = np.zeros(n, dtype=np.int64)
+    radix = 1  # running product of per-column (max+1)
+    overflow = False
     for c in cols:
         c64 = np.asarray(c, dtype=np.int64)
         cmax = int(c64.max()) + 1 if c64.size else 1
-        # ``key * cmax + c64`` is the standard Horner pack for
-        # mixed-radix integer compositions; overflow is impossible at
-        # the bin counts we use (<= 16 per column * <= 8 support cols).
+        # ``key * cmax + c64`` is the standard Horner pack for mixed-radix
+        # integer compositions. It is normally safe at our bin counts, but a
+        # high-cardinality column (cmax ~= n, e.g. a continuous source binned
+        # to n levels) can push ``radix * cmax`` past int64 max, silently
+        # wrapping the key and corrupting the joint count multiset. Detect that
+        # and fall back to a sort-based per-column renumber (no Horner radix).
+        if radix > _INT64_MAX // max(cmax, 1):
+            overflow = True
+            break
+        radix *= cmax
         key = key * cmax + c64
+    if overflow:
+        return _renumber_joint_safe(*cols)
     codes, uniques = pd.factorize(key, sort=False)
     return codes.astype(np.int64, copy=False), int(len(uniques))
+
+
+def _renumber_joint_safe(*cols: np.ndarray) -> tuple[np.ndarray, int]:
+    """Overflow-proof joint renumber: stack columns and factorize the rows
+    directly (no Horner radix product), so cardinality cannot overflow int64."""
+    stacked = np.column_stack([np.asarray(c, dtype=np.int64) for c in cols])
+    _, inv = np.unique(stacked, axis=0, return_inverse=True)
+    inv = inv.astype(np.int64, copy=False).ravel()
+    k = int(inv.max()) + 1 if inv.size else 1
+    return inv, k
 
 
 def _build_cmi_yz_cache(

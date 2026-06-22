@@ -169,10 +169,16 @@ def mine_mi(
             ema = cur_mean
         else:
             ema = ema_decay * ema + (1.0 - ema_decay) * cur_mean
-        # Loss = -DV bound; gradient uses bias-corrected log term.
-        loss = -(t_joint - (exp_t.mean() / ema.detach()) * torch.log(ema.detach()))
-        # Simpler unbiased form: dv = t_joint - log mean(exp(t_marg)).
-        # Belghazi's "biased grad" trick rescales by EMA without changing the value.
+        # Loss = -DV bound. The EMA-corrected gradient (Belghazi 2018 eq. 12) replaces the gradient
+        # of ``log(mean(exp_t))`` with ``mean(exp_t) / ema`` -- a constant-detached normaliser -- to
+        # remove the biased-gradient artefact of the log-of-a-minibatch-mean. The forward value the
+        # backward graph minimises must therefore be ``mean(exp_t) / ema * <stop-grad sum>`` only via
+        # its gradient; using ``(mean/ema) * log(ema)`` as the forward term made the OPTIMISED quantity
+        # ``log(ema)`` scaled by a non-unit factor, so the followed gradient was mis-scaled. Build the
+        # term so that d/dtheta == grad(mean(exp_t)) / ema while the value still tracks log(mean(exp_t)).
+        exp_mean = exp_t.mean()
+        log_term = torch.log(exp_mean.detach() + 1e-12) + (exp_mean - exp_mean.detach()) / ema.detach()
+        loss = -(t_joint - log_term)
         opt.zero_grad()
         loss.backward()
         opt.step()

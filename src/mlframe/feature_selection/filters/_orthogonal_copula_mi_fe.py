@@ -174,8 +174,19 @@ def copula_mi(
         plug-in + Miller-Madow estimator to converge while keeping
         sensitivity to local structure inside the unit square.
     """
-    u = _rank_to_uniform(np.asarray(x))
-    v = _rank_to_uniform(np.asarray(y))
+    x_arr = np.asarray(x, dtype=np.float64).ravel()
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    # Mask non-finite BEFORE ranking. rankdata assigns NaN the largest rank,
+    # so a NaN would map to a valid high uniform bin and masquerade as real
+    # high-value signal -- corrupting the copula MI. Drop non-finite pairwise.
+    finite = np.isfinite(x_arr) & np.isfinite(y_arr)
+    if not finite.all():
+        x_arr = x_arr[finite]
+        y_arr = y_arr[finite]
+    if x_arr.shape[0] < 2:
+        return 0.0
+    u = _rank_to_uniform(x_arr)
+    v = _rank_to_uniform(y_arr)
     return _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
 
 
@@ -191,11 +202,23 @@ def _copula_mi_batch(
     X_arr = np.asarray(X, dtype=np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
-    y_arr = np.asarray(y).ravel()
-    v = _rank_to_uniform(y_arr)
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_finite = np.isfinite(y_arr)
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     for j in range(X_arr.shape[1]):
-        u = _rank_to_uniform(X_arr[:, j])
+        col = X_arr[:, j]
+        # Mask non-finite pairwise BEFORE ranking: rankdata maps NaN to the
+        # largest rank -> a valid high uniform bin that fakes high-value signal.
+        finite = y_finite & np.isfinite(col)
+        if finite.all():
+            u = _rank_to_uniform(col)
+            v = _rank_to_uniform(y_arr)
+        elif finite.sum() >= 2:
+            u = _rank_to_uniform(col[finite])
+            v = _rank_to_uniform(y_arr[finite])
+        else:
+            out[j] = 0.0
+            continue
         out[j] = _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
     return out
 

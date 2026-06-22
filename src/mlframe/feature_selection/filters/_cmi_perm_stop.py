@@ -19,10 +19,13 @@ Implementation notes:
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 from numba import njit
+
+logger = logging.getLogger(__name__)
 
 
 @njit(nogil=True, cache=True)
@@ -96,8 +99,17 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
             z_comp = z_comp * K_j + col_j.astype(np.int64)
             K_z = K_z * K_j
             if K_z > 1_000_000:
-                # Truncate -- the test becomes a marginal-MI test on truncated
-                # conditioning; still useful as a coarse stop.
+                # Conditioning cardinality overflowed the modulus: distinct conditioning states now
+                # collide under ``z_comp % 1_000_000``, so the CMI is measured against a COARSENED Z.
+                # This can make a genuinely relevant feature look insignificant (its conditional
+                # dependence is masked by collided states) and trigger a premature stop -- warn so the
+                # caller can raise nbins / reduce |selected| rather than silently trust a coarse test.
+                logger.warning(
+                    "CMI permutation-stop: conditioning cardinality K_z exceeded 1_000_000 after %d/%d "
+                    "selected features; truncating z_comp via modulo -- distinct conditioning states "
+                    "may collide and mask relevance (risk of premature stop).",
+                    j + 1, len(selected_cols),
+                )
                 z_comp = z_comp % 1_000_000
                 K_z = 1_000_000
                 break

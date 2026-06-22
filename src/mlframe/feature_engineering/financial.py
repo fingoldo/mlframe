@@ -625,7 +625,9 @@ def merge_perticker_and_wholemarket_features(
         for col in perticker_features.collect_schema().names():
             if f"{col}_wm_min" in wholemarket_cols and f"{col}_wm_max" in wholemarket_cols:
                 rankings.append(
-                    ((pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min")))
+                    pllib.clean_numeric(  # market-constant column → wm_max==wm_min → division by zero yields inf/NaN
+                        (pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min"))
+                    )
                     .alias(f"{col}_wm_rnk")
                 )
 

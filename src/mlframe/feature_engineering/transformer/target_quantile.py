@@ -100,16 +100,17 @@ def compute_target_quantile_attention(
     if n_quantiles < 2:
         raise ValueError(f"n_quantiles must be >= 2; got {n_quantiles}.")
 
-    if standardize:
+    # Mode A refits the scaler PER FOLD on train_idx only (below) so a fold's held-out rows never enter its scaler stats; only Mode B fits once on full train here.
+    if standardize and X_query is not None:
         scaler = RobustScaler().fit(X_train)
         X_tr_s = scaler.transform(X_train).astype(dtype, copy=False)
-        X_q_s = scaler.transform(X_query).astype(dtype, copy=False) if X_query is not None else None
+        X_q_s = scaler.transform(X_query).astype(dtype, copy=False)
     else:
         X_tr_s = X_train.astype(dtype, copy=False)
         X_q_s = X_query.astype(dtype, copy=False) if X_query is not None else None
 
     if similarity == "rbf" and rbf_gamma is None:
-        rbf_gamma = 1.0 / max(X_tr_s.shape[1], 1)
+        rbf_gamma = 1.0 / max(X_train.shape[1], 1)
 
     def _compute_centroids(X_pool: np.ndarray, y_pool: np.ndarray) -> np.ndarray:
         """Return (n_quantiles, d) centroids: bucket y_pool into quantiles, take mean X for rows in each bucket."""
@@ -151,11 +152,18 @@ def compute_target_quantile_attention(
         return np.exp(-rbf_gamma * np.maximum(dist_sq, 0.0))
 
     if X_query is None:
-        # Mode A: OOF.
+        # Mode A: OOF. Scaler is refit per fold on the fold's train rows so the held-out rows' X-distribution never leaks into their own fold's scaler stats.
         out = np.zeros((X_tr_s.shape[0], n_quantiles), dtype=dtype)
         for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_tr_s)):
-            centroids = _compute_centroids(X_tr_s[tr_idx], y_train[tr_idx])
-            out[va_idx] = _similarity_matrix(X_tr_s[va_idx], centroids).astype(dtype, copy=False)
+            if standardize:
+                fold_scaler = RobustScaler().fit(X_train[tr_idx])
+                X_tr_fold = fold_scaler.transform(X_train[tr_idx]).astype(dtype, copy=False)
+                X_va_fold = fold_scaler.transform(X_train[va_idx]).astype(dtype, copy=False)
+            else:
+                X_tr_fold = X_tr_s[tr_idx]
+                X_va_fold = X_tr_s[va_idx]
+            centroids = _compute_centroids(X_tr_fold, y_train[tr_idx])
+            out[va_idx] = _similarity_matrix(X_va_fold, centroids).astype(dtype, copy=False)
     else:
         # Mode B: single-pass with full-train centroids.
         centroids = _compute_centroids(X_tr_s, y_train)

@@ -24,8 +24,9 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl
-from sklearn.model_selection import KFold
 
+from ._oof import apply_dedupe
+from ._residual_oof import compute_oof_yhat_within
 from ._utils import require_seed, validate_numeric_input
 from .row_attention import compute_row_attention
 
@@ -75,42 +76,54 @@ def compute_pred_augmented_attention(
         )
         return lgb.LGBMClassifier(**common) if task == "binary" else lgb.LGBMRegressor(**common)
 
-    # Step 1: OOF predictions on X_train.
-    aux_splitter = KFold(n_splits=aux_n_splits, shuffle=True, random_state=seed)
-    y_hat_train = np.zeros(X_train.shape[0], dtype=np.float32)
-    for tr_idx, va_idx in aux_splitter.split(X_train):
+    def _augment(X_base: np.ndarray, y_hat: np.ndarray) -> np.ndarray:
+        return np.concatenate([X_base.astype(dtype, copy=False), y_hat.reshape(-1, 1).astype(dtype, copy=False)], axis=1)
+
+    def _yhat_full(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray) -> np.ndarray:
         model = _make_aux()
-        model.fit(X_train[tr_idx], y_train[tr_idx])
+        model.fit(X_fit, y_fit)
         if task == "binary":
-            y_hat_train[va_idx] = model.predict_proba(X_train[va_idx])[:, 1].astype(np.float32, copy=False)
-        else:
-            y_hat_train[va_idx] = model.predict(X_train[va_idx]).astype(np.float32, copy=False)
+            return model.predict_proba(X_pred)[:, 1].astype(np.float32, copy=False)
+        return model.predict(X_pred).astype(np.float32, copy=False)
 
-    # Step 2: full-train aux LGB for X_query (Mode B).
-    if X_query is not None:
-        aux_full = _make_aux()
-        aux_full.fit(X_train, y_train)
-        if task == "binary":
-            y_hat_query = aux_full.predict_proba(X_query)[:, 1].astype(np.float32, copy=False)
-        else:
-            y_hat_query = aux_full.predict(X_query).astype(np.float32, copy=False)
-    else:
-        y_hat_query = None
-
-    # Step 3: augment X with y_hat as extra column.
-    X_train_aug = np.concatenate([X_train.astype(dtype, copy=False), y_hat_train.reshape(-1, 1).astype(dtype, copy=False)], axis=1)
-    if X_query is not None:
-        X_query_aug = np.concatenate([X_query.astype(dtype, copy=False), y_hat_query.reshape(-1, 1).astype(dtype, copy=False)], axis=1)
-    else:
-        X_query_aug = None
-
-    logger.info("pred_augmented: y_hat OOF mean=%.4f std=%.4f, augmented X shape: train=%s, query=%s",
-                y_hat_train.mean(), y_hat_train.std(), X_train_aug.shape, "n/a" if X_query_aug is None else str(X_query_aug.shape))
-
-    # Step 4: run row-attention with raw y target on augmented X.
-    return compute_row_attention(
-        X_train=X_train_aug, y_train=y_train, X_query=X_query_aug, splitter=splitter,
-        seed=seed, n_heads=n_heads, head_dim=min(head_dim, X_train_aug.shape[1] - 1), k=k,
-        aggregate=aggregate, projection=projection, gpu_stage4=False, dedupe_threshold=None,
-        column_prefix=column_prefix,
+    common_attn = dict(
+        seed=seed, n_heads=n_heads, k=k, aggregate=aggregate, projection=projection,
+        gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
     )
+
+    if X_query is not None:
+        # Mode B: aux y_hat OOF for the train bank; query rows get y_hat from a full-train aux fit (leakage-safe — query rows are disjoint from train).
+        y_hat_train = compute_oof_yhat_within(X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed)
+        X_train_aug = _augment(X_train, y_hat_train)
+        X_query_aug = _augment(X_query, _yhat_full(X_train, y_train, X_query))
+        logger.info("pred_augmented: y_hat OOF mean=%.4f std=%.4f, augmented X shape: train=%s, query=%s",
+                    y_hat_train.mean(), y_hat_train.std(), X_train_aug.shape, X_query_aug.shape)
+        return compute_row_attention(
+            X_train=X_train_aug, y_train=y_train, X_query=X_query_aug, splitter=splitter,
+            head_dim=min(head_dim, X_train_aug.shape[1] - 1), **common_attn,
+        )
+
+    # Mode A: nest the aux OOF inside the caller's outer splitter so a val row's own target never leaks into the augmented similarity coordinate. For each outer fold
+    # the bank's y_hat is an aux OOF restricted to the fold's train complement; the val rows' y_hat comes from a full-complement aux fit (val rows are out-of-complement).
+    n_train = X_train.shape[0]
+    fold_frames: list[pl.DataFrame] = []
+    fold_val_idx: list[np.ndarray] = []
+    for train_idx, val_idx in splitter.split(X_train):
+        X_comp, y_comp = X_train[train_idx], y_train[train_idx]
+        y_hat_comp = compute_oof_yhat_within(X_comp, y_comp, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed)
+        y_hat_val = _yhat_full(X_comp, y_comp, X_train[val_idx])
+        X_comp_aug = _augment(X_comp, y_hat_comp)
+        X_val_aug = _augment(X_train[val_idx], y_hat_val)
+        fold_out = compute_row_attention(
+            X_train=X_comp_aug, y_train=y_comp, X_query=X_val_aug, splitter=splitter,
+            head_dim=min(head_dim, X_comp_aug.shape[1] - 1), **common_attn,
+        )
+        fold_frames.append(fold_out)
+        fold_val_idx.append(np.asarray(val_idx))
+
+    names = fold_frames[0].columns
+    matrix = np.zeros((n_train, len(names)), dtype=dtype)
+    for frame, val_idx in zip(fold_frames, fold_val_idx):
+        matrix[val_idx] = frame.select(names).to_numpy().astype(dtype, copy=False)
+    matrix, names = apply_dedupe(matrix, list(names), dedupe_threshold=None)
+    return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})

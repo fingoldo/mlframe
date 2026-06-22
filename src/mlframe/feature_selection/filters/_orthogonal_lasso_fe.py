@@ -86,6 +86,12 @@ from ._orthogonal_univariate_fe import generate_univariate_basis_features
 
 logger = logging.getLogger(__name__)
 
+# Below this baseline |coef| a source is treated as no-signal: the uplift ratio
+# is suppressed (it would otherwise explode) and an absolute |coef| floor is
+# required instead -- the same guard JMIM applies (Layer 21/65+).
+_BASELINE_EPS = 1e-6
+_ABS_MI_FLOOR = 1e-3
+
 __all__ = [
     "score_features_by_lasso_coef",
     "hybrid_orth_mi_lasso_fe",
@@ -255,7 +261,13 @@ def score_features_by_lasso_coef(
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_coef_map.get(source, 0.0))
         emi = float(eng_coefs[j])
-        uplift = emi / (baseline + 1e-12)
+        # Near-zero baseline |coef| makes the uplift ratio explode past the
+        # gate even on a no-signal source; suppress the ratio there and let the
+        # absolute |coef| floor decide (mirrors the JMIM guard).
+        if baseline < _BASELINE_EPS:
+            uplift = 0.0 if emi < _ABS_MI_FLOOR else float("inf")
+        else:
+            uplift = emi / baseline
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,

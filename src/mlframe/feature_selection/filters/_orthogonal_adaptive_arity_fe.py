@@ -108,11 +108,16 @@ def _adaptive_eng_col_name(
 
 
 def _coerce_y_classif(y) -> np.ndarray:
-    """Match _mi_classif_batch contract: int64 labels."""
-    y_arr = np.asarray(y)
-    if not np.issubdtype(y_arr.dtype, np.integer):
-        return y_arr.astype(np.int64)
-    return y_arr.astype(np.int64)
+    """Match _mi_classif_batch contract: dense int64 labels.
+
+    Non-integer y is densified via ``np.unique(return_inverse=...)`` rather than
+    truncated with ``.astype(int64)`` -- plain truncation merges distinct labels
+    and destroys continuous-y signal (everything in [0, 1) collapses to 0)."""
+    y_arr = np.asarray(y).ravel()
+    if np.issubdtype(y_arr.dtype, np.integer):
+        return y_arr.astype(np.int64, copy=False)
+    _, inv = np.unique(y_arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
 
 
 def generate_adaptive_arity_cross_basis(

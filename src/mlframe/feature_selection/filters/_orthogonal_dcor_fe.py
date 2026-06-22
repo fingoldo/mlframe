@@ -157,6 +157,14 @@ def distance_correlation(
             f"distance_correlation: x has {x_arr.shape[0]} rows, "
             f"y has {y_arr.shape[0]}; row alignment required."
         )
+    # Mask non-finite pairwise BEFORE subsampling/distance computation. A NaN
+    # left in produces NaN distances that poison every row/col mean and the
+    # grand mean of the U-centred matrix, yielding a NaN (or, worse, a finite
+    # but meaningless) dCor. Drop non-finite rows so the estimate is honest.
+    finite = np.isfinite(x_arr) & np.isfinite(y_arr)
+    if not finite.all():
+        x_arr = x_arr[finite]
+        y_arr = y_arr[finite]
     n = x_arr.shape[0]
     if n < 2:
         return 0.0

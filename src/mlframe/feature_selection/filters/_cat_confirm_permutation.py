@@ -28,6 +28,11 @@ from .info_theory import compute_mi_from_classes, merge_vars
 
 logger = logging.getLogger(__name__)
 
+# Stable base seed for the confirmation phase's local RNGs (Westfall-Young shuffle, null subsample).
+# CatFEConfig carries no user seed; this keeps the permutation null + subsample reproducible across
+# runs without touching (or being touched by) the process-global numpy RNG.
+_CAT_CONFIRM_BASE_SEED = 1_000_003
+
 
 # ============================================================================
 # Permutation confirmation (same-shuffle three-MI)
@@ -539,6 +544,7 @@ def _compute_westfall_young_corrected_p(
     n_perms: int,
     dtype,
     verbose: int,
+    base_seed: int = _CAT_CONFIRM_BASE_SEED,
 ) -> dict:
     """Full Westfall-Young: per shuffle, compute II_perm for ALL search-phase pairs, take the MAX, and accumulate the max-II distribution. Each survivor's p-value is
     ``(1 + #{b: max_II_perm[b] >= II_obs}) / (B + 1)``.
@@ -555,6 +561,10 @@ def _compute_westfall_young_corrected_p(
     n_samples = factors_data.shape[0]
     m = len(pairs_a)
     classes_y_safe = classes_y.copy()
+    # Local RNG: the prior code used the unseeded global ``np.random.shuffle`` -- non-reproducible
+    # AND it polluted the process-global RNG stream for every downstream caller (the cupy sibling
+    # already uses a local stream). Seed from ``base_seed`` so re-runs are bit-stable.
+    wy_rng = np.random.default_rng(int(base_seed))
 
     if verbose:
         logger.info(
@@ -595,7 +605,7 @@ def _compute_westfall_young_corrected_p(
     # Permutation loop: for each shuffle, compute max II across all m pairs
     max_ii_per_perm = np.zeros(n_perms, dtype=np.float64)
     for b in range(n_perms):
-        np.random.shuffle(classes_y_safe)
+        wy_rng.shuffle(classes_y_safe)
         # Compute MI(merged; Y_shuffled) for all pairs, and marginals for
         # all touched columns. Then II = joint - marginal_i - marginal_j.
         marginal_perm: dict = {}
@@ -716,7 +726,10 @@ def _confirm_pairs_via_permutation(
     # test stays "subsampled-null vs full-data observed". Cost-vs-rigour trade-off documented on the config field.
     _perm_subsample = getattr(cfg, "permutation_subsample", None)
     if _perm_subsample is not None and _perm_subsample > 0 and n_samples > _perm_subsample:
-        _ss_rng = np.random.default_rng(int(_perm_subsample) ^ n_samples)
+        # Seed from the orchestrator's stable base seed (not ``subsample_size ^ n_samples`` which is
+        # independent of the configured seed -- it changed only when the data shape changed). Mixing the
+        # subsample size in keeps distinct subsample configs decorrelated while staying reproducible.
+        _ss_rng = np.random.default_rng(_CAT_CONFIRM_BASE_SEED + int(_perm_subsample))
         _ss_idx = _ss_rng.choice(n_samples, size=int(_perm_subsample), replace=False)
         _ss_idx.sort()  # contiguous-friendly access for downstream indexing
         _ss_classes_y = classes_y[_ss_idx]

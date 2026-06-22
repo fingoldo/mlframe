@@ -49,31 +49,29 @@ def compute_conformal_coverage_failure_features(
         rng = np.random.default_rng(int(fold_seed))
         rng.shuffle(idx)
         h1, h2 = idx[: n // 2], idx[n // 2 :]
+        # Coverage labels + the kNN bank use ONLY the held-out calib half h2: the conformal model is fit on h1, so h2 predictions are out-of-sample and the
+        # coverage indicator is honest. Including h1's in-sample preds (which the model has memorised) would understate miscoverage and leak the fit into the bank.
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s[h1], y_t[h1].astype(np.int32))
             preds_h2 = m.predict_proba(Xt_s[h2])[:, 1].astype(np.float32)
             scores_h2 = np.abs(y_t[h2] - preds_h2)
-            preds_train_all = np.empty(n, dtype=np.float32)
-            preds_train_all[h2] = preds_h2
-            preds_train_all[h1] = m.predict_proba(Xt_s[h1])[:, 1].astype(np.float32)  # for symmetry, in-sample
             preds_query = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s[h1], y_t[h1])
             preds_h2 = m.predict(Xt_s[h2]).astype(np.float32)
             scores_h2 = np.abs(y_t[h2] - preds_h2)
-            preds_train_all = np.empty(n, dtype=np.float32)
-            preds_train_all[h2] = preds_h2
-            preds_train_all[h1] = m.predict(Xt_s[h1]).astype(np.float32)
             preds_query = m.predict(Xq_s).astype(np.float32)
         q = float(np.quantile(scores_h2, 1.0 - alpha))
-        # Coverage status for each train row: did its true y fall within ±q of its prediction?
-        train_covered = (np.abs(y_t - preds_train_all) <= q).astype(np.float32)
-        train_signed_miscov = np.where(np.abs(y_t - preds_train_all) > q, np.sign(y_t - preds_train_all), 0.0).astype(np.float32)
-        k_eff = min(k_neighbors, n)
-        nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s)
+        y_h2 = y_t[h2]
+        Xt_s_h2 = Xt_s[h2]
+        # Coverage status for each h2 row: did its true y fall within ±q of its out-of-sample prediction?
+        bank_covered = (np.abs(y_h2 - preds_h2) <= q).astype(np.float32)
+        bank_signed_miscov = np.where(np.abs(y_h2 - preds_h2) > q, np.sign(y_h2 - preds_h2), 0.0).astype(np.float32)
+        k_eff = min(k_neighbors, Xt_s_h2.shape[0])
+        nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s_h2)
         _, q_idx = nn.kneighbors(Xq_s)
-        nbr_covered = train_covered[q_idx]
-        nbr_miscov = train_signed_miscov[q_idx]
+        nbr_covered = bank_covered[q_idx]
+        nbr_miscov = bank_signed_miscov[q_idx]
         frac_covered = nbr_covered.mean(axis=1).astype(np.float32)
         mean_signed_miscov = nbr_miscov.mean(axis=1).astype(np.float32)
         std_covered = nbr_covered.std(axis=1).astype(np.float32) + 1e-9

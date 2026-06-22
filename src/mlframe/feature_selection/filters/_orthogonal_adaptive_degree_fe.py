@@ -52,11 +52,34 @@ from ._orthogonal_univariate_fe import (
 
 logger = logging.getLogger(__name__)
 
+# Below this baseline MI a source is treated as carrying no signal, so the
+# uplift ratio is suppressed (it would otherwise explode) and an absolute MI
+# floor is required instead -- the same guard JMIM applies (Layer 21/65+).
+_BASELINE_EPS = 1e-6
+_ABS_MI_FLOOR = 1e-3
+
 __all__ = [
     "generate_adaptive_degree_basis_features",
     "hybrid_orth_mi_adaptive_degree_fe",
     "hybrid_orth_mi_adaptive_degree_fe_with_recipes",
 ]
+
+
+def _coerce_y_classif(y) -> np.ndarray:
+    """Dense int64 class labels for ``_mi_classif_batch``.
+
+    Integer dtypes pass straight through. Non-integer y (float / continuous /
+    categorical) is DENSIFIED via ``np.unique(return_inverse=...)`` rather than
+    truncated with ``.astype(int64)``: plain truncation merges distinct labels
+    (1.2 and 1.8 -> 1) and destroys continuous-y signal entirely (every value
+    in [0, 1) collapses to 0). The dense-rank mapping preserves every distinct
+    value as its own class, which is the contract the MI estimator expects.
+    """
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
 
 
 def generate_adaptive_degree_basis_features(
@@ -128,11 +151,7 @@ def generate_adaptive_degree_basis_features(
     if not cols or not degree_range:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = _coerce_y_classif(np.asarray(y))
 
     # ---- Step 1: raw baselines for the chosen sources (one batch MI call)
     raw_X = X[cols]
@@ -223,9 +242,18 @@ def generate_adaptive_degree_basis_features(
     for src, info in best_per_source.items():
         baseline = float(raw_mi_map.get(src, 0.0))
         emi = float(info["engineered_mi"])
-        uplift = emi / (baseline + 1e-12)
-        if uplift < min_uplift_f:
-            continue
+        # Near-zero baseline makes the uplift ratio explode (a tiny noise
+        # baseline divides a tiny emi into a huge ratio that passes the gate
+        # despite no real signal). Mirror the JMIM guard: when the baseline is
+        # below eps, suppress the ratio and require an absolute MI floor instead.
+        if baseline < _BASELINE_EPS:
+            uplift = 0.0
+            if emi < _ABS_MI_FLOOR:
+                continue
+        else:
+            uplift = emi / baseline
+            if uplift < min_uplift_f:
+                continue
         name = str(info["engineered_col"])
         vals = cand_values[int(info["values_idx"])]
         out_cols[name] = vals

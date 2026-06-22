@@ -36,12 +36,22 @@ def _fourier_fit(x: np.ndarray):
     """Min-max normalise x to [0, 1] -- one period covers the full data range. Returns (z, params)."""
     lo = float(np.min(x))
     hi = float(np.max(x))
-    span = max(hi - lo, 1e-12)
-    z = (x - lo) / span
-    return z, dict(lo=lo, span=span)
+    raw_span = hi - lo
+    # Degenerate (constant / near-constant) column: when the span is negligible relative to the
+    # column's own scale, a 1e-12 floor maps x to a z whose dynamic range is dominated by a single
+    # outlier (e.g. one value 1e-9 off 63 identical ones -> z spanning [0, ~8]); sin(2*pi*k*z) then
+    # produces a high-frequency garbage feature off rounding noise. Map such a column to z=0 (a finite
+    # constant feature) rather than amplifying noise into structure.
+    scale = abs(lo) + abs(hi) + 1.0
+    if raw_span <= 1e-9 * scale:
+        return np.zeros_like(x, dtype=np.float64), dict(lo=lo, span=0.0, degenerate=True)
+    z = (x - lo) / raw_span
+    return z, dict(lo=lo, span=raw_span, degenerate=False)
 
 
 def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
+    if params.get("degenerate"):
+        return np.zeros_like(x, dtype=np.float64)
     return (x - params["lo"]) / params["span"]
 
 
@@ -227,12 +237,22 @@ def _sigmoid_canonical_seeds(degree: int) -> list:
 def _pade_fit(x: np.ndarray):
     """Standardize input -- Pade is sensitive to scale. Reference domain is roughly [-3, 3] post z-score."""
     mean = float(np.mean(x))
-    std = float(np.std(x) + 1e-12)
-    return (x - mean) / std, dict(mean=mean, std=std)
+    raw_std = float(np.std(x))
+    # Degenerate (constant / near-constant) column: an additive 1e-12 std floor does NOT dominate a
+    # tiny-but-nonzero std (e.g. std ~ 1e-10 from one outlier), so z = (x - mean) / std blows the
+    # outlier to z ~ 8 while the bulk sits near 0 -- the rational Horner eval then produces a garbage
+    # feature dominated by that single point. Treat a column whose std is negligible relative to its
+    # own scale as constant and map it to z=0.
+    scale = abs(mean) + 1.0
+    if raw_std <= 1e-9 * scale:
+        return np.zeros_like(x, dtype=np.float64), dict(mean=mean, std=0.0, degenerate=True)
+    return (x - mean) / raw_std, dict(mean=mean, std=raw_std, degenerate=False)
 
 
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    return ((x - params["mean"]) / max(params["std"], 1e-12)).astype(np.float64)
+    if params.get("degenerate"):
+        return np.zeros_like(x, dtype=np.float64)
+    return ((x - params["mean"]) / params["std"]).astype(np.float64)
 
 
 @njit(fastmath=True, cache=True)

@@ -93,6 +93,8 @@ from ._orthogonal_univariate_fe import (
 
 logger = logging.getLogger(__name__)
 
+_INT64_MAX = np.iinfo(np.int64).max
+
 __all__ = [
     "total_correlation",
     "score_features_by_tc_uplift",
@@ -102,10 +104,15 @@ __all__ = [
 
 
 def _coerce_y_int64(y) -> np.ndarray:
-    arr = np.asarray(y)
-    if not np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64)
-    return arr.astype(np.int64)
+    """Dense int64 class labels. Non-integer y is densified via
+    ``np.unique(return_inverse=...)`` rather than truncated with
+    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    continuous-y signal (everything in [0, 1) collapses to class 0)."""
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
 
 
 def _entropy_from_classes(classes: np.ndarray) -> float:
@@ -143,11 +150,19 @@ def _factorize_pack(*cols: np.ndarray) -> np.ndarray:
         return np.zeros(0, dtype=np.int64)
     n = cols[0].size
     key = np.zeros(n, dtype=np.int64)
+    radix = 1  # running product of per-column (max+1)
     for c in cols:
         c64 = np.asarray(c, dtype=np.int64)
         cmax = int(c64.max()) + 1 if c64.size else 1
-        # Horner pack -- overflow is impossible at the bin counts we use
-        # (<= 16 per col * <= 8 support cols + y).
+        # Horner pack. Normally safe at our bin counts, but a high-cardinality
+        # column (cmax ~= n) can push ``radix * cmax`` past int64 max, silently
+        # wrapping the key and corrupting the joint count multiset. Detect and
+        # fall back to a sort-based row renumber that cannot overflow.
+        if radix > _INT64_MAX // max(cmax, 1):
+            stacked = np.column_stack([np.asarray(cc, dtype=np.int64) for cc in cols])
+            _, inv = np.unique(stacked, axis=0, return_inverse=True)
+            return inv.astype(np.int64, copy=False).ravel()
+        radix *= cmax
         key = key * cmax + c64
     codes, _ = pd.factorize(key, sort=False)
     return codes.astype(np.int64, copy=False)

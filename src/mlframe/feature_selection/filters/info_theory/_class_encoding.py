@@ -123,6 +123,8 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
     reduction is reused verbatim -- no re-derivation of the log-sum numerics here).
     """
     n = factors_data.shape[0]
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
     size = nb_a * nb_b
     freqs = np.zeros(size, dtype=np.int64)
     for r in range(n):
@@ -165,6 +167,8 @@ def joint_entropy_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb
         left-to-right ``h += log(p) * p`` accumulation here reproduces it bit-for-bit, then negates.
     """
     n = factors_data.shape[0]
+    if n == 0:
+        return 0.0
     size = nb_a * nb_b
     freqs = np.zeros(size, dtype=np.int64)
     for r in range(n):

@@ -15,6 +15,35 @@ import numpy as np
 from sklearn.model_selection import KFold
 
 
+def compute_oof_yhat_within(
+    X_sub: np.ndarray,
+    y_sub: np.ndarray,
+    *,
+    task: str,
+    make_aux: Callable[[], Any],
+    aux_n_splits: int,
+    seed: int,
+) -> np.ndarray:
+    """Aux OOF predictions ``y_hat`` for the rows of ``X_sub`` using only rows within ``X_sub`` — used per outer fold on the fold's train complement.
+
+    The aux sub-partition is restricted to ``X_sub`` so no row outside it contributes to any row's prediction. ``aux_n_splits`` is capped to the subset size so tiny
+    subsets still partition cleanly.
+    """
+    n = X_sub.shape[0]
+    n_splits = min(aux_n_splits, n) if n >= 2 else 2
+    n_splits = max(2, n_splits)
+    y_hat = np.zeros(n, dtype=np.float32)
+    aux_splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    for tr_idx, va_idx in aux_splitter.split(X_sub):
+        model = make_aux()
+        model.fit(X_sub[tr_idx], y_sub[tr_idx])
+        if task == "binary":
+            y_hat[va_idx] = model.predict_proba(X_sub[va_idx])[:, 1].astype(np.float32, copy=False)
+        else:
+            y_hat[va_idx] = model.predict(X_sub[va_idx]).astype(np.float32, copy=False)
+    return y_hat
+
+
 def compute_oof_residual_within(
     X_sub: np.ndarray,
     y_sub: np.ndarray,
@@ -29,16 +58,5 @@ def compute_oof_residual_within(
     The aux sub-partition is restricted to the complement so no outer-val row contributes to a complement-row residual. ``aux_n_splits`` is capped to the complement
     size so tiny complements (rare with sane fold counts) still partition cleanly.
     """
-    n = X_sub.shape[0]
-    n_splits = min(aux_n_splits, n) if n >= 2 else 2
-    n_splits = max(2, n_splits)
-    y_hat = np.zeros(n, dtype=np.float32)
-    aux_splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    for tr_idx, va_idx in aux_splitter.split(X_sub):
-        model = make_aux()
-        model.fit(X_sub[tr_idx], y_sub[tr_idx])
-        if task == "binary":
-            y_hat[va_idx] = model.predict_proba(X_sub[va_idx])[:, 1].astype(np.float32, copy=False)
-        else:
-            y_hat[va_idx] = model.predict(X_sub[va_idx]).astype(np.float32, copy=False)
+    y_hat = compute_oof_yhat_within(X_sub, y_sub, task=task, make_aux=make_aux, aux_n_splits=aux_n_splits, seed=seed)
     return (y_sub.astype(np.float32) - y_hat).astype(np.float32)

@@ -113,6 +113,12 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Only numeric / data-shape failures are an acceptable "no signal -> 0.0"
+# outcome for the meta-feature probes. A genuine programming error
+# (AttributeError, KeyError, NameError, ...) must propagate, not be silently
+# coerced to 0.0 -- that would misroute the scorer by faking absence of signal.
+_NUMERIC_ERRORS = (ValueError, TypeError, ZeroDivisionError, FloatingPointError, ArithmeticError)
+
 __all__ = [
     "META_SCORER_NAMES",
     "fingerprint_signal",
@@ -207,7 +213,8 @@ def fingerprint_signal(
                 if np.isfinite(r):
                     pears.append(abs(r))
         mean_abs_pearson = float(np.mean(pears)) if pears else 0.0
-    except Exception:
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer mean_abs_pearson failed numerically: %r", exc)
         mean_abs_pearson = 0.0
 
     # mean_abs_skew and mean_kurtosis on numeric columns. skew() returns
@@ -215,12 +222,14 @@ def fingerprint_signal(
     try:
         skews = X_num.skew(axis=0, numeric_only=True)
         mean_abs_skew = float(skews.abs().replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(skews) else 0.0
-    except Exception:
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer mean_abs_skew failed numerically: %r", exc)
         mean_abs_skew = 0.0
     try:
         kurts = X_num.kurt(axis=0, numeric_only=True)
         mean_kurtosis = float(kurts.replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(kurts) else 0.0
-    except Exception:
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer mean_kurtosis failed numerically: %r", exc)
         mean_kurtosis = 0.0
 
     # inter_x_max_corr: max |Pearson| among off-diagonal pairs. Redundancy
@@ -235,7 +244,8 @@ def fingerprint_signal(
             inter_x_max_corr = float(np.abs(finite_off).max()) if finite_off.size else 0.0
         else:
             inter_x_max_corr = 0.0
-    except Exception:
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer inter_x_max_corr failed numerically: %r", exc)
         inter_x_max_corr = 0.0
 
     # dcor_proxy: mean MAX(|Spearman|, |Pearson(|x - mean|, y)|) of each
@@ -280,7 +290,8 @@ def fingerprint_signal(
             dcor_proxy = float(np.mean(sps)) if sps else 0.0
         else:
             dcor_proxy = 0.0
-    except Exception:
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer dcor_proxy failed numerically: %r", exc)
         dcor_proxy = 0.0
 
     return {

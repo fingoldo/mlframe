@@ -115,8 +115,7 @@ def genie_aggregate(estimates: Sequence[float], weights: np.ndarray) -> float:
     w = np.asarray(weights, dtype=np.float64).ravel()
     if arr.size != w.size:
         raise ValueError(f"estimates ({arr.size}) and weights ({w.size}) size mismatch")
-    mi = float((arr * w).sum())
-    return max(0.0, mi)
+    return float((arr * w).sum())
 
 
 def genie_mi_panel(x: np.ndarray, y: np.ndarray,
@@ -191,7 +190,8 @@ def best_on_calibration_mi(
         return 0.0
     try:
         return float(estimators[best_estimator](x, y))
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"best_on_calibration: chosen estimator {best_estimator!r} failed on (x, y): {exc!r}")
         return 0.0
 
 

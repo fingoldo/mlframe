@@ -297,7 +297,7 @@ def row_attention_stage4_cupy(
             k_dev,
             y_dev,
             topk_dev,
-            np.float32(1.0 / softmax_temp),
+            np.float32(1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0),
             np.int32(n_queries),
             np.int32(head_dim),
             np.int32(k),

@@ -105,6 +105,12 @@ from ._orthogonal_univariate_fe import generate_univariate_basis_features
 
 logger = logging.getLogger(__name__)
 
+# Below this baseline a source is treated as no-signal: the uplift ratio is
+# suppressed (it would otherwise explode) and an absolute MI floor is required
+# instead -- the same guard JMIM applies (Layer 21/65+).
+_BASELINE_EPS = 1e-6
+_ABS_MI_FLOOR = 1e-3
+
 __all__ = [
     "hsic",
     "median_heuristic_sigma",
@@ -471,7 +477,13 @@ def score_features_by_hsic_uplift(
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_mi_map.get(source, 0.0))
         emi = float(eng_mi[j])
-        uplift = emi / (baseline + 1e-12)
+        # Near-zero baseline makes the uplift ratio explode past the gate even
+        # on a no-signal source; suppress the ratio there and let the absolute
+        # MI floor decide (mirrors the JMIM guard).
+        if baseline < _BASELINE_EPS:
+            uplift = 0.0 if emi < _ABS_MI_FLOOR else float("inf")
+        else:
+            uplift = emi / baseline
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,

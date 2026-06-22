@@ -81,6 +81,7 @@ def _fit_elasticnet_abs_coefs(
     l1_ratio=0.0 reproduces pure Ridge -- sklearn's ElasticNet handles both
     edges via internal dispatch.
     """
+    from sklearn.exceptions import ConvergenceWarning
     from sklearn.linear_model import ElasticNet
 
     X_arr = np.asarray(X_stack, dtype=np.float64)
@@ -101,16 +102,25 @@ def _fit_elasticnet_abs_coefs(
             X_scaled[:, const_mask] = 0.0
     else:
         X_scaled = X_clean
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model = ElasticNet(
-            alpha=float(alpha),
-            l1_ratio=float(l1_ratio),
-            fit_intercept=True,
-            max_iter=5000,
-            random_state=int(random_state),
-        )
+    model = ElasticNet(
+        alpha=float(alpha),
+        l1_ratio=float(l1_ratio),
+        fit_intercept=True,
+        max_iter=5000,
+        random_state=int(random_state),
+    )
+    # Surface (do NOT blanket-ignore) ConvergenceWarning: a non-converged
+    # ElasticNet returns coefficients that silently drive feature selection, so
+    # the caller must at least see a WARN. Other warning categories pass through
+    # the normal filters unchanged.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", category=ConvergenceWarning)
         model.fit(X_scaled, y_arr)
+    if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+        logger.warning(
+            "ElasticNet did not converge in max_iter=5000 (alpha=%s, l1_ratio=%s); "
+            "|coef| feature scores may be unreliable.", alpha, l1_ratio,
+        )
     return np.abs(np.asarray(model.coef_, dtype=np.float64)).ravel()
 
 
