@@ -63,14 +63,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # if it must shrink: lift the per-pair candidate-scoring + external-validation block
     # into a ``_pairs_score.py`` helper invoked from the pair loop.
     "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py",
-    # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
-    # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
-    # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53
-    # lengths.cpu() non-sync sequence landed. Sensible carve: lift the
-    # ``RecurrentDataset`` + collate helpers into
-    # ``recurrent_dataset_helpers.py`` sibling; keep the LightningModule
-    # in the parent facade.
-    "src/mlframe/training/neural/recurrent.py",
+    # (de-exempted 2026-06-22: RecurrentDataset + collate carved to recurrent_dataset_helpers.py)
     # FIXME(carve-wave-next): filters/_screen_predictors.py -- the irreducible single-function
     # body of ``screen_predictors`` (one sequential orchestration: input validation, RNG
     # snapshot/restore try/finally, the candidate-generate -> confirm -> select greedy loop with
@@ -78,9 +71,9 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # (``_short_name`` / ``_pool_warmup_noop``) plus the confirmation math (``confirm_one_predictor``
     # in ``_confirm_predictor.py``) and the prescreen (``_screen_predictors_prescreen.py``) already
     # live in siblings; only the one giant orchestration function remains over budget (mirrors
-    # ``_step_core.py`` / ``_pairs_core.py``). Carve candidate if it must shrink: lift the
-    # inline DCD discover/swap block out of the select loop into a ``_screen_dcd_swap.py`` helper.
-    "src/mlframe/feature_selection/filters/_screen_predictors.py",
+    # ``_step_core.py`` / ``_pairs_core.py``).
+    # (de-exempted 2026-06-22: inline DCD discover/swap block carved out of the select loop into
+    # _screen_dcd_swap.py; _screen_predictors.py now ~934 LOC, under the 1k ceiling)
     # FIXME(carve-wave-next): feature_selection/shap_proxied_fs/_shap_proxied_fit.py -- the
     # ``ShapProxiedFitMixin.fit`` orchestration body (~990 lines) after the shap_proxied_fs
     # subpackage split. The resolver / coercion / preflight helpers already live in sibling
