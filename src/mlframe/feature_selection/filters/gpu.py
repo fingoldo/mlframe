@@ -533,6 +533,38 @@ def mi_direct_gpu_batched(
     # array is itself a kernel launch. The list-of-arrays pattern below
     # avoids both pitfalls: no per-batch sync, no per-batch device-side
     # arithmetic; just queue compute, sync once.
+    # Loop-invariant marginal product (freqs_x x freqs_y) + the masked-safe form, hoisted out of the batch
+    # loop (it depends only on freqs_x/freqs_y). Also the basis for the FP-consistent gate reference below.
+    outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
+    outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
+
+    def _mi_from_counts(counts_2d):
+        # (b, joint_size) int counts -> (b,) MI in nats, via the SAME cp reduction the gate compares against.
+        jf = (counts_2d.astype(cp.float64) / n).reshape(-1, nbins_x, nbins_y)
+        ratio = cp.where(jf > 0, jf / outer_safe, 1.0)
+        return (jf * cp.log(ratio)).sum(axis=(1, 2))
+
+    # GATE REFERENCE (FP-consistency fix, 2026-06-22): the permutation gate counts #{perm_mi >= observed_mi}.
+    # ``mi_batch`` is reduced on the GPU (cp tree reduction); comparing it to the CPU-njit ``original_mi`` (a
+    # DIFFERENT FP summation order) let a ~1e-15 delta flip an equality count -> flip nfailed -> flip the
+    # noise-gate accept/reject. Recompute the observed MI here through the SAME kernel + reduction on the
+    # UNPERMUTED y so both sides of the >= use identical FP order. The CPU ``original_mi`` stays the RETURNED
+    # value (it must remain bit-consistent with the other CPU MI values used in ranking).
+    _id_counts = cp.zeros((1, nbins_x * nbins_y), dtype=cp.int32)
+    _id_perm = classes_y_gpu.reshape(1, n).astype(cp.int32)
+    if use_shared_hist:
+        compute_joint_hist_batched_shared_cuda(
+            (grid_x, 1), (block_size,),
+            (classes_x_gpu, _id_perm, _id_counts, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+            shared_mem=shared_mem_bytes,
+        )
+    else:
+        compute_joint_hist_batched_cuda(
+            (grid_x, 1), (block_size,),
+            (classes_x_gpu, _id_perm, _id_counts, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+        )
+    original_mi_gpu = _mi_from_counts(_id_counts)  # (1,) device scalar, compared against mi_batch below
+
     batch_failures = []  # list of CuPy 0-d arrays
     nchecked = 0
     remaining = npermutations
@@ -569,25 +601,13 @@ def mi_direct_gpu_batched(
                 ),
             )
 
-        # Compute MI per row of joint_counts_batch via vectorised math.
-        # joint_freqs = joint_counts / n; mi = sum p_xy log(p_xy / (p_x p_y)).
-        joint_freqs = joint_counts_batch.astype(cp.float64) / n
-        joint_freqs = joint_freqs.reshape(b, nbins_x, nbins_y)
-        # Broadcast p_x * p_y (shape (nbins_x, nbins_y)).
-        outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
-        # Mask the RATIO (not the log) so nan / inf never enter cp.log.
-        # An ``outer_marginals`` cell of 0 (e.g. unobserved class) would
-        # produce inf at jf>0 or nan at jf==0; cp.log of either is nan
-        # which CuPy 8+ propagates through fma despite the where-mask.
-        # Safe form: where(joint_freqs > 0, jf / outer_marginals, 1.0)
-        # so the masked path computes log(1) = 0 with no nan / inf in flight.
-        outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
-        ratio = cp.where(joint_freqs > 0, joint_freqs / outer_safe, 1.0)
-        log_ratio = cp.log(ratio)
-        mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))  # (b,)
+        # MI per row via the SAME reduction as the gate reference (the masked-safe ratio avoids nan/inf in
+        # cp.log; outer_safe hoisted above). joint_freqs = joint_counts / n; mi = sum p_xy log(p_xy/(p_x p_y)).
+        mi_batch = _mi_from_counts(joint_counts_batch)  # (b,)
 
-        # Stage on device; defer cross-device sync.
-        batch_failures.append((mi_batch >= original_mi).sum())
+        # Stage on device; defer cross-device sync. Compare against the GPU-reduced observed MI (same FP
+        # order as mi_batch) -- NOT the CPU-njit original_mi -- so an equality near-tie cannot spuriously flip.
+        batch_failures.append((mi_batch >= original_mi_gpu).sum())
         nchecked += b
         remaining -= b
 
@@ -718,6 +738,34 @@ def mi_direct_gpu_batched_streamed(
     # iter could read garbage. Force a sync before launching child streams.
     cp.cuda.Stream.null.synchronize()
 
+    # FP-consistency gate reference (mirrors the non-streamed twin, 2026-06-22): reduce the OBSERVED MI on
+    # the GPU via the same kernel + reduction on the unpermuted y, so the >= gate compares like-with-like and
+    # a ~1e-15 reduction-order delta vs the CPU-njit original_mi cannot flip a noise-gate count. Computed on
+    # the default stream before the child streams launch. CPU original_mi stays the RETURNED value.
+    outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
+    outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
+
+    def _mi_from_counts(counts_2d):
+        jf = (counts_2d.astype(cp.float64) / n).reshape(-1, nbins_x, nbins_y)
+        ratio = cp.where(jf > 0, jf / outer_safe, 1.0)
+        return (jf * cp.log(ratio)).sum(axis=(1, 2))
+
+    _id_counts = cp.zeros((1, joint_size), dtype=cp.int32)
+    _id_perm = classes_y_gpu.reshape(1, n).astype(cp.int32)
+    if use_shared_hist:
+        compute_joint_hist_batched_shared_cuda(
+            (grid_x, 1), (block_size,),
+            (classes_x_gpu, _id_perm, _id_counts, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+            shared_mem=shared_mem_bytes,
+        )
+    else:
+        compute_joint_hist_batched_cuda(
+            (grid_x, 1), (block_size,),
+            (classes_x_gpu, _id_perm, _id_counts, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+        )
+    cp.cuda.Stream.null.synchronize()
+    original_mi_gpu = _mi_from_counts(_id_counts)  # (1,) device scalar for the gate comparison below
+
     streams = [cp.cuda.Stream(non_blocking=True) for _ in range(max(1, n_streams))]
     # B1 fix: cp.random.uniform uses a singleton device-side RandomState
     # whose curandState advance is NOT safe under concurrent stream access.
@@ -753,16 +801,10 @@ def mi_direct_gpu_batched_streamed(
                     (classes_x_gpu, perms_y, joint_counts_batch,
                      np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
                 )
-            joint_freqs = joint_counts_batch.astype(cp.float64) / n
-            joint_freqs = joint_freqs.reshape(b, nbins_x, nbins_y)
-            outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
-            # Same C3 fix as the non-streamed variant: mask the ratio
-            # (not the log) to keep nan / inf out of cp.log entirely.
-            outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
-            ratio = cp.where(joint_freqs > 0, joint_freqs / outer_safe, 1.0)
-            log_ratio = cp.log(ratio)
-            mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))
-            batch_failures.append((mi_batch >= original_mi).sum())
+            # Same reduction as the gate reference (outer_safe + closure hoisted above); mask the ratio (not
+            # the log) to keep nan/inf out of cp.log entirely.
+            mi_batch = _mi_from_counts(joint_counts_batch)
+            batch_failures.append((mi_batch >= original_mi_gpu).sum())
         iter_idx += 1
         nchecked += b
         remaining -= b
