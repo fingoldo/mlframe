@@ -38,18 +38,19 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_dispatch_default_scorer`` / ``_mrmr_instance_state_size_bytes`` /
     # ``_mrmr_cache_bytes_total``) live in the sibling ``_helpers.py``; only the one giant
     # fit-orchestration function remains over budget (mirrors ``_step_core.py`` /
-    # ``_pairs_core.py``). Carve candidate if it must shrink: lift the empty-support fallback
-    # block + the FE/RFECV post-pass into a ``_finalise.py`` helper.
+    # ``_pairs_core.py``). 2026-06-22 (Tier E partial): the empty-RAW-support fallback rescue
+    # (the ``else`` branch of the post-selection raw-support reconciliation) was carved verbatim
+    # into ``_finalise._finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins,
+    # target_indices)`` -- parent shrank ~9.8k -> ~9.5k LOC (still over budget). Remaining carve
+    # candidate if it must shrink further: lift the FE/RFECV post-pass into the same ``_finalise.py``.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
     # (de-exempted 2026-06-22: per-candidate scoring block carved to _step_score.py
     # [+ the per-pair rank loop to _step_pairs_rank.py, the batch pair-MI/maxT-floor stage
     # to _step_pairmi.py, and the operand-pool construction to _step_pool.py];
     # _step_core.py is now under the 1k ceiling.)
-    # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
-    # at ~1.02k LOC after the recurrent-ensemble integration + composite-
-    # discovery wiring. Sibling carve candidates: the recurrent rerun block
-    # and the composite-post tail into per-phase helpers.
-    "src/mlframe/training/core/_phase_train_one_target_body.py",
+    # (de-exempted 2026-06-22: extreme-AR gate + per-model post-train tail (uncertainty-eval +
+    # composite y-scale emit + RAM reclaim) + selector-sticky-attrs helper carved to
+    # _phase_train_one_target_post.py; _phase_train_one_target_body.py now under the 1k ceiling.)
     # (de-exempted 2026-06-22: per-pair scoring block carved to _pairs_score.py; the admitted-pair
     # emission tail to _pairs_emit.py; the prewarp/gate-med + operand-table setup to _pairs_setup.py.
     # _pairs_core.py is now under the 1k ceiling.)

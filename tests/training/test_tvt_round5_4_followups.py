@@ -52,8 +52,19 @@ class TestMlpExtremeArGroupAwareSkip:
         """Lock in that the per-model loop reads the skip flag from
         behavior_config (not env). Catches a future refactor that
         re-introduces env-var gating without updating the config."""
-        from mlframe.training.core import _phase_train_one_target_body
-        src = _module_source(_phase_train_one_target_body)
+        # Monolith-split compat: the extreme-AR gate body was carved out of
+        # ``_phase_train_one_target_body`` into the ``_phase_train_one_target_post``
+        # sibling; concatenate both so the marker sensor still matches the
+        # relocated skip logic.
+        from mlframe.training.core import (
+            _phase_train_one_target_body,
+            _phase_train_one_target_post,
+        )
+        src = (
+            _module_source(_phase_train_one_target_body)
+            + "\n"
+            + _module_source(_phase_train_one_target_post)
+        )
         assert "mlp_extreme_ar_group_aware_skip" in src
         assert "mlp_extreme_ar_threshold" in src
         assert "lag1_autocorr_per_group" in src
