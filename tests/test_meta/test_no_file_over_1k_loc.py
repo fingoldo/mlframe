@@ -76,6 +76,13 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # not cleanly liftable to module scope. Carve candidate if it must shrink: extract the honest-
     # OOF split + per-candidate scoring block into a ``_post_xt_score.py`` helper taking the pool +
     # frames explicitly, leaving the assembly/mutate-in-place tail in the parent.
+    # Assessed 2026-06-22: NOT safely carvable -- the OOF/scoring block mutably REBINDS the candidate
+    # pool (``_components``/``_component_names``/``_component_specs`` in the external_val pre-screen)
+    # that the ``_compute_train_rmse_proxy``/``_get_train_pred`` closures close over AND that the
+    # post-block proxy-fallback re-reads; ``_get_train_pred`` is also re-called in the assembly tail.
+    # Threading this out would require passing the 3 closures in + returning ~10 rebound locals,
+    # reproducing the whole local env as an arg list -- an unvalidated training-behavior risk for no
+    # real decoupling. Left exempt by design.
     "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py",
     # FIXME(carve-wave-next): training/io.py at ~1.02k LOC -- crossed the ceiling via the perf-loop save/load work
     # (asizeof precheck + sha256 reopen + lib-version memoisation). Carve candidate: the ~380-line
