@@ -87,21 +87,16 @@ import numpy as np
 #   (binning), MI counting already on GPU + cheap. So the only production lever is roadmap #2 (rank-EXACT
 #   sort-free edges, e.g. radix-SELECT of the nbins-1 order statistics + cp.percentile's linear interp ->
 #   exact edges without a full O(n log n) sort), which must still EMIT the float out_cand for downstream.
-# (4) multi-stream across k-chunks (lowers the GPU crossover n) stays FUTURE. Route
-# block size (currently threads=256) + the VRAM 0.25/5x constants + any f32 threshold
-# through pyutilz kernel_tuning_cache; keep cp.argsort as the exact fallback when adding a radix _v2.
-# ARCHITECTURE (wiring, before flipping any default): the production FE speaks STRUCTURED, preset-stamped,
-# gate-filtered, replayable EngineeredRecipe -- this path speaks flat (name, MI). Wire it as a candidate-MI
-# PROVIDER feeding the EXISTING gates (noise-gate/SU/external-validation/prevalence), emitting structured
-# (ua,ub,bop) triples + real src column names + active presets (reuse fe_tuple->get_new_feature_name->
-# EngineeredRecipe; never re-parse the string). Drive the op set from create_*_transformations(preset) +
-# the gpu_compatible_unary_names allowlist with CPU fallback for unsupported/NON-pure ops (smart_log
-# anchor must be the frozen full-column value, not the subsample min). Replace the hardcoded
-# _GPU_RESIDENT_MIN_N with a CONTENTION-AWARE kernel_tuning_cache sweep (mirror _run_sweep_mi_classif_
-# dispatch). Collapse MLFRAME_FE_MATRIX_P0 + MLFRAME_FE_GPU_RESIDENT into one backend selector (gpu=>
-# matrix). Add: pickle/clone test (no cupy/FeatureMatrix/RawKernel reachable from estimator state),
-# combo-order-vs-registry meta-test, and a 3-impl op-parity test (registry vs _unary/_binary_apply vs the
-# CUDA switch -- _safe_div is the single spec; its 2026-06-13 heavy-tail fix lives in ONE place).
+# (4) multi-stream across k-chunks (lowers the GPU crossover n) stays FUTURE. The VRAM K-chunk fraction is
+# now KTC-tuned (G3, _gpu_resident_k_chunk_ktc); block size (threads=256) + any f32 threshold + the hardcoded
+# _GPU_RESIDENT_MIN_N still want a contention-aware sweep (mirror _run_sweep_mi_classif_dispatch); keep
+# cp.argsort as the exact fallback when adding a radix _v2.
+# ARCHITECTURE (wiring, before flipping any default): wire this flat (name, MI) path as a candidate-MI
+# PROVIDER feeding the EXISTING gates, emitting structured (ua,ub,bop) triples + real src names + presets
+# (reuse fe_tuple->get_new_feature_name->EngineeredRecipe; never re-parse the string); drive the op set from
+# create_*_transformations(preset) + the gpu_compatible_unary_names allowlist with CPU fallback for non-pure
+# ops; collapse MLFRAME_FE_MATRIX_P0 + MLFRAME_FE_GPU_RESIDENT into one selector; add pickle/clone + op-parity
+# (registry vs _unary/_binary_apply vs CUDA switch -- _safe_div is the single spec) meta-tests.
 
 # Minimal-preset op NAMES (kept in sync with feature_engineering.create_*_transformations "minimal").
 _MINIMAL_UNARY = ("identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin")
@@ -113,30 +108,15 @@ _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 # full (n,K) float candidate buffer via ``out_cand`` -- measured 6.7 GB total across the canonical
 # n=100k fit (15 calls), a large slice of the ~10.5s ``cupy.get`` wall. The codes (for MI) are produced
 # RESIDENT and don't need that buffer; only a HANDFUL of host reads do.
-#   * Final survivors ALREADY recompute from raw via ``_rebuild_full_survivor_col`` (the subsample path,
-#     _pairs_core.py:2218) -- they do NOT read the float buffer.
-#   * The bulk float buffer feeds only the INTERMEDIATE subsample scoring reads in check_prospective_fe_pairs:
-#     best-config (~1625/1749), multi-emit (~2126/2137), MI-replay (~1499). A few columns per pair.
-# So the win = KEEP the chunk-batch GPU-codes path, pass ``out_cand=None`` (skip the 6.7 GB D2H), and
-# route those few intermediate reads through the SAME validated recompute helper (``_config_by_i`` /
-# ``_rebuild_full_survivor_col``, already bit-identical). Gate it on the GPU-fused path actually running
-# (else the CPU binning still needs the buffer) and report ``float_deferred`` back from the chunk so the
-# caller knows to recompute vs read the buffer.
-# MEASURED CONSTRAINT: forcing the pure recompute path (no buffer, no chunk-batch) is 3x SLOWER
-# (217s vs 69s) -- chunk-batch is essential, so the replatform must COMBINE chunk-batch + deferred-float
-# + per-read recompute, NOT replace chunk-batch with recompute. Implement gated + pin-validated.
-# TURNKEY IMPLEMENTATION (exact sites in _pairs_core.check_prospective_fe_pairs):
-#   1. Gate ``MLFRAME_FE_GPU_DEFER_FLOAT`` (default off). Active only when the chunk used the GPU FUSED
-#      codes path (_gpu_disc_2d produced) -- else the CPU binning still needs the float buffer.
-#   2. When deferred: pass ``out_cand=None`` to gpu_materialise_discretize_codes_host (skip the float D2H),
-#      and after the chunk set ``final_transformed_vals = None`` for the read phase + populate
-#      ``_config_by_i`` from the chunk's _batch_candidates (the (a_key,b_key,bin_name) per buffer column).
-#   3. Add the SAME ``elif _config_by_i is not None`` recompute fallback that _config_corr (~1500-1506)
-#      already has to the THREE direct buffer reads that lack it: best-config (~1625), winner-vals (~1749),
-#      multi-emit (~2126/2137). The recompute is binary_transformations[bn](pa,pb)+nan_to_num -- bit-
-#      identical to the buffer value. (1499 already has the fallback.) Survivor packing (~2218) already
-#      recomputes via _rebuild_full_survivor_col on the subsample path, so it needs no change.
-#   4. Validate: the 3 clean-compound pins + _compound_gate at n=10k/100k with the flag ON must match OFF.
+#   * Final survivors ALREADY recompute from raw via ``_rebuild_full_survivor_col`` (subsample path,
+#     _pairs_core.py:2218); the buffer feeds only the INTERMEDIATE subsample scoring reads in
+#     check_prospective_fe_pairs (best-config ~1625/1749, multi-emit ~2126/2137, MI-replay ~1499).
+# Proposed win = KEEP the chunk-batch GPU-codes path, pass ``out_cand=None`` (skip the 6.7 GB D2H), route
+# the few intermediate reads through the validated recompute helper (_config_by_i / _rebuild_full_survivor_-
+# col, bit-identical), gated on the GPU-fused path. MEASURED CONSTRAINT: pure recompute (no buffer, no
+# chunk-batch) is 3x SLOWER (217s vs 69s), so chunk-batch is essential. (Turnkey deferral scaffold -- gate
+# MLFRAME_FE_GPU_DEFER_FLOAT, out_cand=None, _config_by_i recompute at the 3 buffer reads in
+# check_prospective_fe_pairs -- was implemented then bench-rejected below; see git 72d1c364.)
 # BENCH-REJECTED (2026-06-21): the float-D2H deferral was IMPLEMENTED (gated scaffold) and measured --
 # clean paired A/B (6 cold fits, quiet box) = OFF 160.0s vs ON 162.6s = 0.98x, a WASH. The 6.7 GB float
 # D2H OVERLAPS the GPU/CPU compute (async), so skipping it does not cut wall -- cProfile's cupy.get time
@@ -784,31 +764,51 @@ def _unary_stack_cm(xp, x):
 # X_binned int64 + flat int64 coexist, so budget ~5x the bare cand bytes. Conservative -> avoids the
 # n=300k VRAM cliff (measured: unchunked (300k,384) thrashed the 4GB card to 60s).
 _GPU_MI_WORKING_MULTIPLE = 5
+
+# G3 (2026-06-22): K-chunk width is governed by what FRACTION of free VRAM the working set may occupy.
+# WIDER fraction = fewer/larger chunks = fewer kernel launches+reductions (the nsys launch/sync overhead),
+# bounded by the card not thrashing. 0.25 is the conservative source-code default; per
+# feedback_use_kernel_tuning_cache_for_gpu the live fraction is looked up per-host from the
+# kernel_tuning_cache (sweep+spec in the _gpu_resident_k_chunk_ktc sibling, re-exported below; carved for
+# the <1k-LOC budget). Chunk width is per-column-INDEPENDENT, so the candidate MI is selection-equivalent
+# regardless of the chunk boundary (the sweep ranks fractions by WALL only).
+_GPU_K_CHUNK_VRAM_FRACTION_DEFAULT = 0.25
+_GPU_K_CHUNK_VRAM_FRACTIONS = (0.25, 0.40, 0.55, 0.70)  # discrete grid the per-host sweep ranks
+
+
 # Below this n the GPU launch/transfer dominates and the CPU njit grid wins (bench: 20k -> 0.76x,
 # 100k -> 1.79x); the dispatcher routes < this to CPU. Provisional crossover; a later sweep can tune it.
 _GPU_RESIDENT_MIN_N = 50_000
 
 
+def _gpu_k_chunk_vram_fraction(n: int) -> float:
+    """Per-host VRAM fraction for :func:`_gpu_k_chunk` (lazy KTC resolver in sibling); safe default on miss."""
+    try:
+        from ._gpu_resident_k_chunk_ktc import gpu_k_chunk_vram_fraction as _resolve
+        return _resolve(n)
+    except Exception:
+        return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
+
+
 def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
                  bytes_per_elem: int = 8, working_multiple: int | None = None,
-                 max_cols: int | None = None) -> int:
-    """Max candidate columns to materialise+score in ONE on-device batch so the working set stays within
-    a fraction of free VRAM -- bounds peak GPU memory like the CPU RAM governor, removing the large-n cliff.
+                 max_cols: int | None = None, vram_fraction: float | None = None) -> int:
+    """Max candidate columns to score in ONE on-device batch so the working set stays within a FRACTION of
+    free VRAM -- bounds peak GPU memory like the CPU RAM governor, removing the large-n cliff.
 
-    ``bytes_per_elem`` / ``working_multiple`` describe the per-column resident footprint of the CALLER's
-    path. The defaults (8 bytes x ``_GPU_MI_WORKING_MULTIPLE``) match the f64 MI PROTOTYPE
-    (gpu_resident_pair_candidate_mi: cand f64 + argsort/X_binned/flat int64 coexisting). The production
-    CODES path (gpu_materialise_discretize_codes_host / gpu_discretize_codes_host) only keeps f32 cand +
-    f32 transpose + int32 codes + narrow out alive (~4 bytes x ~4), so passing bytes_per_elem=4 +
-    a small working_multiple gives it a ~3x WIDER sub-chunk = ~3x FEWER radix/bin/materialise launches
-    (the launch+sync+GPU-idle overhead that dominates wall) -- still VRAM-governed by the same 0.25*free
-    fraction, and per-column-independent so the codes are bit-identical regardless of chunk boundaries.
-    ``max_cols`` caps to the caller's column count (defaults to len(_COMBOS))."""
+    ``bytes_per_elem`` / ``working_multiple`` describe the caller's per-column resident footprint; defaults
+    (8 x ``_GPU_MI_WORKING_MULTIPLE``) match the f64 MI prototype, the CODES path passes 4 x ~4 for a ~3x
+    wider sub-chunk = ~3x fewer launches. Per-column-INDEPENDENT, so codes/MI are bit-identical regardless of
+    chunk boundaries. ``max_cols`` caps to the caller's column count (defaults len(_COMBOS)). G3: the VRAM
+    fraction is per-host KTC-tuned; an explicit ``vram_fraction`` (sweep probe) overrides; clamp to (0, 0.9]
+    so a stale cache entry never zeros the budget nor exceeds 90% of free VRAM."""
     import cupy as cp
 
     if free_bytes is None:
         free_bytes, _ = cp.cuda.runtime.memGetInfo()
-    budget = max(1, int(free_bytes * 0.25))
+    frac = _gpu_k_chunk_vram_fraction(n) if vram_fraction is None else float(vram_fraction)
+    frac = min(0.9, max(1e-3, frac))
+    budget = max(1, int(free_bytes * frac))
     wm = _GPU_MI_WORKING_MULTIPLE if working_multiple is None else int(working_multiple)
     per_col = max(1, int(n) * int(bytes_per_elem) * wm)
     cap = len(_COMBOS) if max_cols is None else int(max_cols)
@@ -894,6 +894,9 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
 
+
+# G3 (2026-06-22): the per-fraction PROBE + sweep + kernel_tuner registration live in the
+# ``_gpu_resident_k_chunk_ktc`` sibling (LOC budget), re-exported at the bottom of this module.
 
 def _sortfree_mi_gpu(cand_gpu, y_i64, nbins, *, sub: int = 4096):
     """On-device APPROXIMATE plug-in MI for an (n, k) cupy candidate block, with NO sort: bin via a
@@ -989,7 +992,8 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
 # several private names by path). At the BOTTOM so the siblings' top-level back-imports resolve.
 from . import _gpu_resident_basis as _grb  # noqa: E402
 from . import _gpu_resident_select as _grs  # noqa: E402
-for _m in (_grb, _grs):
+from . import _gpu_resident_k_chunk_ktc as _grk  # noqa: E402  (G3 KTC carve)
+for _m in (_grb, _grs, _grk):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():
             globals()[_n] = getattr(_m, _n)
