@@ -68,23 +68,30 @@ class DataFingerprint:
             n, p = int(arr.shape[0]), int(arr.shape[1])
         y_arr = np.asarray(y)
         # Target type
+        # Absolute label cap (mirrors _univariate_ht._MULTICLASS_MAX_LABELS): a sqrt(n)-growing threshold mis-labels a
+        # high-cardinality integer regression target (counts / ages / integer-coded ordinals) as 'multiclass' on large n.
+        _MAX_LABELS = 50
         if y_arr.dtype.kind in "iub":
             uniq = np.unique(y_arr)
-            target_type = "binary" if uniq.size == 2 else (
-                "multiclass" if uniq.size <= max(10, int(np.sqrt(n))) else "regression"
-            )
+            if uniq.size == 2:
+                target_type = "binary"
+            elif uniq.size <= _MAX_LABELS and uniq.size <= 0.05 * n:
+                target_type = "multiclass"
+            else:
+                target_type = "regression"
         else:
             uniq = np.unique(y_arr[~np.isnan(y_arr)]) if y_arr.dtype.kind == "f" else np.unique(y_arr)
             if uniq.size == 2:
                 target_type = "binary"
-            elif uniq.size <= 10:
+            elif uniq.size <= _MAX_LABELS and uniq.size <= 0.05 * n:
                 target_type = "multiclass"
             else:
                 target_type = "regression"
         # Target imbalance
         if target_type in ("binary", "multiclass"):
-            counts = np.bincount(y_arr.astype(int)) if y_arr.dtype.kind in "iu" \
-                else np.unique(y_arr, return_counts=True)[1]
+            # np.unique handles negative / non-contiguous integer labels; np.bincount(astype(int)) would raise
+            # on negative labels and silently allocate up-to-max_label bins on sparse high integer codes.
+            counts = np.unique(y_arr, return_counts=True)[1]
             counts = counts[counts > 0]
             target_imbalance = float(counts.min() / counts.sum()) if counts.size else 0.0
         else:

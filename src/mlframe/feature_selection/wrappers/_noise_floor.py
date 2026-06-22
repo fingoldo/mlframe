@@ -14,6 +14,10 @@ NOT over-cut a real-signal curve. Needs >=3 permutations (n_perm=1 is noisy). It
 RANKING + the data (not wired into RFECV's fit-time N-rule, which has no access to X/y at the dispatch stage and whose
 default config times out on wide frames); call it on a fitted model's importance ranking or any valid FI ordering.
 
+The task (binary / multiclass / continuous) is inferred from y: binary -> roc_auc, multiclass -> one-vs-rest macro AUC,
+continuous -> R^2; classification uses StratifiedKFold, regression KFold. A stratified class with fewer members than the
+fold count still crashes the splitter (an intrinsic sklearn limit) -- pass a smaller ``cv`` for such tiny rare classes.
+
 The LITERAL "first N to clear the noise floor" rule is a signal-ONSET detector (fires at N~2, over-cuts); only the
 PLATEAU rule is a valid stop -- so only that one is exposed.
 """
@@ -75,9 +79,34 @@ def _default_grid(p: int) -> list:
     return sorted({n for n in grid if 1 <= n <= p})
 
 
+def _infer_task_scoring(y_arr: np.ndarray):
+    """Infer (task, scoring) from the target so the noise-floor curve works on binary, multiclass AND regression y.
+
+    Binary -> roc_auc; multiclass -> roc_auc_ovr (one-vs-rest macro AUC); continuous -> r2. The continuous case also
+    drives a KFold (vs StratifiedKFold) at the caller, since stratification on a continuous target is meaningless.
+    """
+    finite = y_arr[~_isnan_mask(y_arr)]
+    n_unique = np.unique(finite).size
+    looks_integer = np.allclose(finite, np.round(finite)) if finite.size else False
+    if looks_integer and n_unique <= 2:
+        return "binary", "roc_auc"
+    # Integer-coded with a small alphabet -> multiclass; otherwise treat as a regression target.
+    if looks_integer and n_unique <= max(20, int(0.05 * finite.size)):
+        return "multiclass", "roc_auc_ovr"
+    return "regression", "r2"
+
+
+def _isnan_mask(arr: np.ndarray) -> np.ndarray:
+    """NaN mask that is safe on integer / object dtype arrays (np.isnan raises on non-float)."""
+    a = np.asarray(arr)
+    if a.dtype.kind in "fc":
+        return np.isnan(a)
+    return np.zeros(a.shape, dtype=bool)
+
+
 def cv_curve(estimator_factory: Callable, X, y, ranking: Sequence, n_grid: Sequence[int], cv,
-             permute: bool = False, n_perm: int = 1, base_seed: int = 100):
-    """Per-N CV ROC-AUC on the top-N features by ``ranking``. If permute, average over n_perm shuffles of y.
+             permute: bool = False, n_perm: int = 1, base_seed: int = 100, scoring: str = "roc_auc"):
+    """Per-N CV score (``scoring``) on the top-N features by ``ranking``. If permute, average over n_perm shuffles of y.
 
     estimator_factory() must return a FRESH unfitted estimator (a fresh model per N keeps the curve honest). Returns
     the real curve (permute=False) or (mean_curve, all_perm_curves) (permute=True).
@@ -99,7 +128,7 @@ def cv_curve(estimator_factory: Callable, X, y, ranking: Sequence, n_grid: Seque
         for n in n_grid:
             cols = list(ranking[:n])
             Xn = X[cols] if is_df else X[:, cols]
-            row.append(float(np.mean(cross_val_score(estimator_factory(), Xn, yy, cv=cv, scoring="roc_auc", n_jobs=1))))
+            row.append(float(np.mean(cross_val_score(estimator_factory(), Xn, yy, cv=cv, scoring=scoring, n_jobs=1))))
         curves.append(row)
     arr = np.asarray(curves)
     return (arr.mean(axis=0), arr) if permute else arr[0]
@@ -113,7 +142,9 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
     Parameters
     ----------
     estimator_factory : callable -> fresh unfitted classifier (e.g. ``lambda: LGBMClassifier(...)``).
-    X : DataFrame or ndarray; y : array-like binary target.
+    X : DataFrame or ndarray; y : array-like target. Binary (roc_auc), multiclass (one-vs-rest macro AUC) and
+        continuous (R^2) targets are all supported; the task is inferred from y and drives both the scorer and the
+        splitter (StratifiedKFold for classification, KFold for regression).
     ranking : feature names (DataFrame) or integer indices (ndarray), MOST-IMPORTANT-FIRST (e.g. from a fitted
         model's importances, or RFECV's elimination order). The cut keeps a leading prefix of this ranking.
     n_grid : feature counts to evaluate; default a log-ish grid up to len(ranking).
@@ -124,7 +155,7 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
     -------
     dict with keys: ``selected`` (top-N* feature ids), ``n_star``, ``n_grid``, ``real_curve``, ``perm_mean``.
     """
-    from sklearn.model_selection import StratifiedKFold
+    from sklearn.model_selection import KFold, StratifiedKFold
 
     ranking = list(ranking)
     if not ranking:
@@ -133,10 +164,19 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
         n_grid = _default_grid(len(ranking))
     else:
         n_grid = sorted({int(n) for n in n_grid if 1 <= int(n) <= len(ranking)})
-    splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state) if isinstance(cv, int) else cv
-    real_curve = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter, permute=False)
+    y_arr = y.values if hasattr(y, "values") else np.asarray(y)
+    task, scoring = _infer_task_scoring(y_arr)
+    if isinstance(cv, int):
+        # Stratification is only meaningful for classification; a continuous target must use plain KFold.
+        if task == "regression":
+            splitter = KFold(n_splits=cv, shuffle=True, random_state=random_state)
+        else:
+            splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+    else:
+        splitter = cv
+    real_curve = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter, permute=False, scoring=scoring)
     perm_mean, perm_curves = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter,
-                                      permute=True, n_perm=n_perm, base_seed=100 + random_state)
+                                      permute=True, n_perm=n_perm, base_seed=100 + random_state, scoring=scoring)
     n_star, _, _, _ = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=pct)
     if n_perm < 3:
         logger.warning("select_features_noise_floor: n_perm=%d is noisy; >=3 permutations recommended.", n_perm)

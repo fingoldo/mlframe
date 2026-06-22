@@ -31,7 +31,11 @@ _KNOCKOFFS_STRICT_LAM_MIN = False
 
 
 def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np.ndarray:
-    """Generate fixed-design Gaussian knockoffs (Barber-Candes 2015).
+    """Generate model-X Gaussian knockoffs (Candes et al. 2018, "Panning for Gold").
+
+    This is the model-X construction (X assumed ~ N(mu, Sigma)), NOT the fixed-design Barber-Candes 2015 procedure:
+    the FDR guarantee here holds in expectation over the Gaussian design, and degrades when X is non-Gaussian or
+    near-collinear (s -> 0 makes the knockoff a near-copy with near-zero power; see the lambda_min guard below).
 
     For each X_j a knockoff X_tilde_j is produced that has the same
     correlation with X_{-j} as X_j does, but is independent of y. This
@@ -156,6 +160,11 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
     The probability that a noise feature is in the selected set is bounded
     by q (Barber & Candes 2015, Theorem 1). Returns [] if no threshold
     achieves the target FDR (typical on small n / weak signal).
+
+    Low-power caveat (NOT a bug): on few positive W (e.g. one strong driver + one negative knockoff lead) the
+    ``(1 + #neg)`` numerator offset cannot be beaten at small support, so even an obvious driver yields ``[]``. This
+    is correct Barber-Candes behaviour -- the data-splitting "knockoff+" offset is the price of finite-sample FDR
+    control -- not a defect. When the support is small, prefer a marginal screen (univariate-HT) for power.
 
     Parameters
     ----------

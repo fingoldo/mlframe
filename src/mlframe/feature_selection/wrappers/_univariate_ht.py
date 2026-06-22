@@ -167,6 +167,57 @@ def _rank_with_ties(x: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
+def _rank_and_tiesum(x: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Mean-ranks AND the tie-correction sum (sum t^3 - t over tie groups) in a SINGLE argsort pass.
+
+    The U / H kernels both need the average-ranks and the tie sum; computing them together avoids a second
+    O(n log n) sort of the same array (the dominant per-feature cost on n>=1000 prescreens).
+    """
+    n = x.shape[0]
+    order = np.argsort(x, kind="mergesort")
+    ranks = np.empty(n, dtype=np.float64)
+    tie_sum = 0.0
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and x[order[j + 1]] == x[order[i]]:
+            j += 1
+        avg = (i + j) * 0.5 + 1.0
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg
+        t = j - i + 1
+        if t > 1:
+            tie_sum += t * t * t - t
+        i = j + 1
+    return ranks, tie_sum
+
+
+@njit(cache=True)
+def _mann_whitney_u_z_v2(x: np.ndarray, group: np.ndarray) -> Tuple[float, float, float]:
+    """Single-sort Mann-Whitney U (ranks + tie sum from one pass). Bit-identical to _mann_whitney_u_z."""
+    n = x.shape[0]
+    ranks, tie_sum = _rank_and_tiesum(x)
+    n1 = 0
+    rank_sum_1 = 0.0
+    for i in range(n):
+        if group[i] == 1:
+            n1 += 1
+            rank_sum_1 += ranks[i]
+    n2 = n - n1
+    if n1 == 0 or n2 == 0:
+        return 0.0, 0.0, 0.0
+    U1 = rank_sum_1 - n1 * (n1 + 1) / 2.0
+    mu_U = n1 * n2 / 2.0
+    if n > 1:
+        var_U = (n1 * n2 / 12.0) * ((n + 1) - tie_sum / (n * (n - 1)))
+    else:
+        var_U = n1 * n2 * (n + 1) / 12.0
+    if var_U <= 0:
+        return U1, mu_U, 0.0
+    return U1, mu_U, math.sqrt(var_U)
+
+
+@njit(cache=True)
 def _mann_whitney_u_z(x: np.ndarray, group: np.ndarray) -> Tuple[float, float, float]:
     """Mann-Whitney U two-sided z-statistic with tie correction.
 
@@ -226,7 +277,7 @@ def _mann_whitney_p_numeric_binary(x: np.ndarray, y: np.ndarray) -> float:
     if uniq.size != 2:
         return 1.0
     grp = (y[mask] == uniq[1]).astype(np.int64)
-    U, mu, sigma = _mann_whitney_u_z(xm, grp)
+    U, mu, sigma = _mann_whitney_u_z_v2(xm, grp)
     if sigma <= 0:
         return 1.0
     z = (U - mu) / sigma
@@ -264,6 +315,32 @@ def _kruskal_wallis_h(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tuple[
         if t > 1:
             tie_sum += t * t * t - t
         i = j + 1
+    if n > 1:
+        C = 1.0 - tie_sum / (n * n * n - n)
+        if C > 0:
+            H = H / C
+    return H, n_groups - 1
+
+
+@njit(cache=True)
+def _kruskal_wallis_h_v2(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tuple[float, int]:
+    """Single-sort Kruskal-Wallis H (ranks + tie sum from one pass). Bit-identical to _kruskal_wallis_h."""
+    n = x.shape[0]
+    ranks, tie_sum = _rank_and_tiesum(x)
+    group_sizes = np.zeros(n_groups, dtype=np.int64)
+    group_rank_sums = np.zeros(n_groups, dtype=np.float64)
+    for i in range(n):
+        g = group[i]
+        if g >= 0:
+            group_sizes[g] += 1
+            group_rank_sums[g] += ranks[i]
+    if n < 2:
+        return 0.0, 0
+    H_raw = 0.0
+    for k in range(n_groups):
+        if group_sizes[k] > 0:
+            H_raw += (group_rank_sums[k] * group_rank_sums[k]) / group_sizes[k]
+    H = 12.0 / (n * (n + 1)) * H_raw - 3.0 * (n + 1)
     if n > 1:
         C = 1.0 - tie_sum / (n * n * n - n)
         if C > 0:
@@ -341,7 +418,7 @@ def _kw_p_numeric_multiclass(x: np.ndarray, y: np.ndarray) -> float:
     uniq, inv = np.unique(y[mask], return_inverse=True)
     if uniq.size < 2:
         return 1.0
-    H, df = _kruskal_wallis_h(xm, inv.astype(np.int64), int(uniq.size))
+    H, df = _kruskal_wallis_h_v2(xm, inv.astype(np.int64), int(uniq.size))
     return _chi2_sf(H, df)
 
 
@@ -391,15 +468,17 @@ def _kendall_tau_z(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
     return tau, z
 
 
-def _kendall_p_numeric_continuous(x: np.ndarray, y: np.ndarray) -> float:
+def _kendall_p_numeric_continuous(x: np.ndarray, y: np.ndarray, random_state: int = 0) -> float:
     mask = ~np.isnan(x) & ~np.isnan(y)
     if mask.sum() < 5:
         return 1.0
     xm = x[mask].astype(np.float64, copy=False)
     ym = y[mask].astype(np.float64, copy=False)
     if xm.size > 2000:
-        # Subsample for the O(n^2) loop -- the BY-FDR procedure tolerates this loss.
-        rng = np.random.default_rng(0)
+        # Subsample for the O(n^2) loop -- the BY-FDR procedure tolerates this loss. The caller's seed controls
+        # which subsample is drawn so the p-values are reproducible AND controllable (a fixed seed is repeatable
+        # across calls; distinct seeds let the caller average out subsample variance on huge n).
+        rng = np.random.default_rng(random_state)
         idx = rng.choice(xm.size, size=2000, replace=False)
         xm = xm[idx]
         ym = ym[idx]
@@ -428,6 +507,15 @@ def _chi2_independence_p(x_cat: np.ndarray, y_cat: np.ndarray) -> float:
     expected = row_sums @ col_sums / total
     # Avoid division-by-zero on impossible expected cells.
     expected_safe = np.where(expected > 0, expected, 1e-12)
+    # Cochran's rule: the asymptotic chi-squared is unreliable when expected cell counts fall below 5 (small
+    # contingency tables then give inflated significance). Warn rather than silently trust the p-value; BY-FDR only
+    # partially compensates. A Fisher-exact r x c fallback is the rigorous fix but needs scipy + is exponential in
+    # table size, so it stays out of this hot prescreen path.
+    n_low = int(np.sum(expected < 5.0))
+    if n_low > 0 and n_low > 0.2 * expected.size:
+        logger.warning(
+            "chi2_independence: %d/%d expected cell(s) < 5 (Cochran's rule); the asymptotic chi-squared p-value "
+            "is unreliable on this small/sparse contingency table.", n_low, expected.size)
     chi2 = float(np.sum((table - expected) ** 2 / expected_safe))
     df = (table.shape[0] - 1) * (table.shape[1] - 1)
     return _chi2_sf(chi2, df)
@@ -444,6 +532,7 @@ def calculate_relevance_table(
     ml_task: str = "auto",
     fdr_level: float = 0.05,
     n_jobs: int = 1,
+    random_state: int = 0,
 ) -> pd.DataFrame:
     """Per-feature univariate relevance test with BY-FDR correction.
 
@@ -453,6 +542,8 @@ def calculate_relevance_table(
         ml_task: 'auto' / 'classification' / 'regression'. 'auto' inspects ``y``.
         fdr_level: Benjamini-Yekutieli FDR alpha (default 0.05).
         n_jobs: reserved for future parallelisation. Currently runs serial.
+        random_state: seed for the Kendall-tau subsample (continuous targets with n>2000 are subsampled to 2000 rows
+            for the O(n^2) tau loop). Controls reproducibility; distinct seeds draw distinct subsamples.
 
     Returns:
         pd.DataFrame indexed by feature name with columns ['feature', 'p_value', 'relevant'].
@@ -463,7 +554,9 @@ def calculate_relevance_table(
     if ml_task == "auto":
         target_type = _classify_target(y_arr)
     elif ml_task == "classification":
-        target_type = "binary" if len(np.unique(y_arr)) == 2 else "multiclass"
+        # Drop NaN before counting labels: a single NaN in a float-coded target otherwise inflates the unique
+        # count and mis-routes a genuine binary target to the multiclass (Kruskal-Wallis) branch.
+        target_type = "binary" if np.unique(y_arr[~_isnan_mask(y_arr)]).size == 2 else "multiclass"
     elif ml_task == "regression":
         target_type = "continuous"
     else:
@@ -483,14 +576,19 @@ def calculate_relevance_table(
                     pv = _kw_p_numeric_multiclass(xv, y_arr)
                 else:
                     yv = y_arr.astype(np.float64, copy=False)
-                    pv = _kendall_p_numeric_continuous(xv, yv)
+                    pv = _kendall_p_numeric_continuous(xv, yv, random_state=random_state)
             else:
                 # Categorical / object feature: chi-squared independence.
                 # For continuous target, bin into deciles to make a contingency table.
                 if target_type == "continuous":
                     yb = pd.qcut(pd.Series(y_arr), q=min(10, max(2, len(y_arr) // 50)),
                                  labels=False, duplicates="drop")
-                    pv = _chi2_independence_p(ser.to_numpy(), yb.to_numpy())
+                    # ``duplicates="drop"`` (heavily-tied y) and NaN in y both leave NaN bins in ``yb``; pairing them
+                    # against ``x_cat`` and dropping the NaN-bin rows from BOTH keeps the contingency table aligned
+                    # (else crosstab silently drops only the NaN-y rows, mismatching the two series' lengths).
+                    yb_arr = yb.to_numpy()
+                    bin_ok = ~pd.isna(yb_arr)
+                    pv = _chi2_independence_p(ser.to_numpy()[bin_ok], yb_arr[bin_ok])
                 else:
                     pv = _chi2_independence_p(ser.to_numpy(), y_arr)
         except Exception as exc:
