@@ -118,3 +118,34 @@ the 2026-06-22 follow-through update). The REMAINING (invasive / low-value / par
 ## EXECUTION ORDER (agreed)
 Tier A/D perf+hygiene first (D3 in progress → D2 → G3/G6 → D4/D5 → D1/D6), then **Tier C (residual-FE) LAST**.
 One item at a time: implement → validate against its GATE → commit+push → tick the box here.
+
+## PART 5 — TIER E: monolith carves (drain the >1k-LOC meta-test EXEMPT list)
+
+WHY these exist (answer to "how did we breed mastodons when we have a <1k meta-test"): the meta-test
+(`tests/test_meta/test_no_file_over_1k_loc.py`) DOES enforce <1000 LOC, but via an EXEMPT list with
+FIXME(carve-wave-next) tags. The exempt files are **irreducible single giant FUNCTION bodies** -- e.g.
+`_fit_impl` is ONE ~9.8k-line function bound onto MRMR. Prior carve waves split the SURROUNDING helpers into
+siblings (the sibling-re-export pattern), but that pattern splits MULTIPLE functions, not ONE giant one. To
+shrink these you must first EXTRACT BLOCKS of the giant function into helper functions (threading the shared
+local state), THEN move them to sub-modules. New code kept being appended to the giant body instead of being
+carved as it grew (now forbidden -- see CLAUDE.md "Build new code in focused submodules from the START").
+
+Currently-exempt (drain to {}):
+- `_mrmr_fit_impl/_fit_impl_core.py` (~9.8k) — extract the ~40 inline `if bool(getattr(self,"fe_X_enable")):`
+  FE-stage blocks into uniform `_fe_stage_X(self, data, cols, nbins, y_np, ...) -> appended_cols` helpers
+  driven by one ordered loop; then carve `_fit_setup.py` / `_fe_stages_*.py` / `_fit_screen.py` /
+  `_fit_finalize.py`. (Biggest; do via stage-extraction first.)
+- `mrmr/_mrmr_class.py` (~4.8k) — carve `__setstate__` legacy defaults (~357 lines) → `_mrmr_setstate_defaults.py`;
+  `_VALID_*`/`_DEMOTED_*` validation constants → `_mrmr_param_constants.py`; the fit god-method's thread-local
+  set/reset blocks → a contextmanager.
+- `_mrmr_fe_step/_step_core.py` (~1.5k), `_feature_engineering_pairs/_pairs_core.py` (~1.6k),
+  `_screen_predictors.py`, `shap_proxied_fs/_shap_proxied_fit.py` — each one giant orchestration function;
+  lift the per-candidate scoring / external-validation / DCD-swap blocks into `_*_score.py` siblings (with a
+  bit-identity selection pin -- these share mutable scratch).
+- `_gpu_resident_fe.py` (~2.7k) → `_gpu_resident_select.py` (residency-buffer + radix-select) + `_gpu_fused.py`;
+  `batch_mi_noise_gate_gpu.py` (~1.3k) → `_batch_mi_noise_gate_kernels.py`; `evaluation.py` (~1.16k, D6) → carve
+  the prefill/JMIM block; training/* monoliths similarly.
+- [x] `_orthogonal_univariate_fe/__init__.py` — already carved (→ ~860) via `_orth_dedup.py`; **de-exempted**.
+
+RISK for all: these are single functions threading dozens of interdependent locals -> every carve MUST land
+with a bit-identity / selection-equivalence pin. Do one at a time; the meta-test green is the structural gate.

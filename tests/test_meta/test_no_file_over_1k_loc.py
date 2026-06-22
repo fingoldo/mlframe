@@ -116,7 +116,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
     "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py",
     "src/mlframe/feature_selection/filters/evaluation.py",
-    "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/__init__.py",
+    # (de-exempted 2026-06-22: _orthogonal_univariate_fe/__init__.py carved to ~860 LOC via _orth_dedup.py)
 }
 
 
