@@ -31,7 +31,14 @@ Mark `[x]` + commit hash when landed.
   1282-1285` builds operand columns ON the device + reuses per chunk. The agent mis-attributed the 2.35 GB
   to `gpu_resident_pair_candidate_mi` (the PROTOTYPE, not the production path). Residual H2D = necessary
   cached raw-input/y uploads × the 2 profiled fits. No clean further win. → resolved (see perf notes a45120f6).
-- [ ] **G3 (was #3) — chunk sizing.** `_hermite_fe_mi.py:261,267-269` `cp.percentile` per chunk per pair.
+- [x] **G3 (was #3) — chunk sizing.** → **DONE 80aa2ed3**. The lever was the VRAM-budget FRACTION in
+  `_gpu_resident_fe._gpu_k_chunk` (hardcoded 0.25), not the per-chunk `cp.percentile` (that runs once on the
+  full matrix in `_plugin_mi_classif_batch_cuda_resident`, not per-chunk-per-pair). Routed the fraction
+  through `kernel_tuning_cache` (sweep+spec in the new `_gpu_resident_k_chunk_ktc` sibling, re-exported);
+  fallback = the safe 0.25 so the un-tuned/CPU/no-cupy path keeps the legacy k_chunk byte-identical. Chunk
+  width is per-column-independent → MI selection-invariant across fractions (regression pin: bit-identical
+  MI + ranking @0.25 vs 0.70). No measured A/B claimed (per-host sweep populates on a quiet GPU box).
+  ORIGINAL NOTE (superseded): `_hermite_fe_mi.py:261,267-269` `cp.percentile` per chunk per pair.
   The chunking is per-pair; raising `k_chunk` (fewer/larger chunks) cuts the launch/reduction count. FIX:
   route `k_chunk` width through `kernel_tuning_cache` to maximise chunk width within the VRAM budget. GATE:
   `test_percentile_binning_chunk_invariant` (chunk-invariant binning) + FE pins; selection-equivalent. RISK:
@@ -90,11 +97,13 @@ warp-product proposer, not admission relaxation."
 All P0/P1/P2 equivalency divergences from those agents are RESOLVED (see the audit doc's RESOLVED section +
 the 2026-06-22 follow-through update). The REMAINING (invasive / low-value / parallel-session) ones:
 
-- [ ] **D1. source-name `__` split** (hidden-flaw #5). 9 sites in `_orthogonal_univariate_fe/` (`__init__.py`
-  :477,524,754-755; `_orth_pair_cross_fe.py`:202,442-444,507-508). `name.split("__",1)[0]` mis-stems a
-  one-hot source `col__value` → `uplift = emi/1e-12` → always clears the gate. FIX: carry the source col in
-  metadata instead of re-parsing. GATE: new `col__value`-named-source test + recipe round-trip tests. RISK:
-  invasive naming-convention change; preserve recipe-replay byte-exactness.
+- [x] **D1. source-name `__` split** (hidden-flaw #5). → **DONE 7908b79c**. Fixed all sites in
+  `_orthogonal_univariate_fe/` (`__init__.py`: GPU scorer carries `used_src` directly,
+  `score_features_by_mi_uplift` + recipe loop via new `_source_from_engineered_name`; `_orth_pair_cross_fe.py`:
+  scorer + recipe loop via new `_pair_sources_from_engineered_name`). Source is now recovered against the
+  KNOWN raw-column set (longest `{raw}__` prefix), legacy first-`__` split kept only as a no-raw-set
+  fallback. Regression test `test_orth_source_name_double_underscore.py`: `city__NY` source baseline is its
+  real raw MI (not the 1e-12 floor), uplift bounded; normal no-`__` inputs unchanged.
 - [x] **D2. `y.to_numpy()` 53× hoist** in `_fit_impl_core.py` (code-quality). Hoist once (y not reassigned);
   replace the 53 inline `y.to_numpy() if hasattr else np.asarray(y)`. GATE: grep-confirm no reassign +
   test_mrmr_feature_engineering + biz subset. RISK: mechanical (53 sites in 9.8k file); behavior-preserving.
@@ -105,9 +114,13 @@ the 2026-06-22 follow-through update). The REMAINING (invasive / low-value / par
 - [x] **D4. `_env_truthy` env-flag DRY.** TWO helpers (`_env_opt_in` / `_env_opt_out_cuda`) — the gates have
   divergent opt-in vs opt-out+CUDA_VISIBLE_DEVICES+MLFRAME_DISABLE_GPU logic. GATE: import smoke + gate-
   default tests. RISK: a wrong default flips a gate; behavior-preserving.
-- [ ] **D5. ctor-defaults single-source** in `mrmr/_mrmr_class.py` — derive `__setstate__` defaults from
-  `_ctor_defaults()` (already drifted: cluster_aggregate_mode). GATE: pickle round-trip + edges-coverage.
-  RISK: legacy-pickle back-compat — keep extra legacy keys.
+- [x] **D5. ctor-defaults single-source** in `mrmr/_mrmr_class.py` — → **DONE 16f27ac6**. Added
+  `MRMR._ctor_defaults()` (reads `__init__`'s signature) and overlay it onto the `__setstate__`
+  legacy-injection dict for every shared ctor-param key, exempting an explicit `_SETSTATE_LEGACY_OVERRIDES`
+  allowlist (the 10 documented intentional divergences — master FE switches OFF for legacy byte-equivalence).
+  Pure no-op today (all 175 shared keys already matched); drift-proof going forward. Regression
+  `test_mrmr_setstate_ctor_defaults_no_drift.py` (no-drift invariant + override allowlist genuinely divergent
+  + full pickle round-trip); pickle suite green.
 - [ ] **D6. evaluation.py carve** (1144 LOC > 1000-LOC meta-test ceiling). Carve a sibling (prefill/JMIM
   block) + re-export. GATE: test_no_file_over_1k_loc green + greedy/CMI tests. RISK: parallel-session-owned;
   rebase carefully; verbatim move.
