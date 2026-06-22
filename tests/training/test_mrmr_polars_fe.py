@@ -98,9 +98,10 @@ def test_mrmr_fe_zero_copy_polars():
 
 
 def test_mrmr_fe_transform_returns_polars_when_input_polars():
-    """After FE-enabled fit, transform on a polars input must still
-    return polars (subset of original cols — FE-generated cols are
-    internal MI state, not transform outputs)."""
+    """After FE-enabled fit, transform on a polars input must return polars and is format-faithful:
+    selected ENGINEERED features (e.g. ``num_a*num_b__He1_He1``) are now first-class transform outputs (replayed from
+    the frozen recipes), so the output is the original-column subset PLUS any selected engineered columns. Every
+    NON-engineered output column must still be a genuine original input column (no garbage / mis-named columns)."""
     df, y = _build_pair_signal_data(n=400, seed=2, frame_type="polars")
     sel = MRMR(**_mrmr_kwargs_quick_fe())
     sel.fit(df, y)
@@ -108,8 +109,14 @@ def test_mrmr_fe_transform_returns_polars_when_input_polars():
     assert isinstance(out, pl.DataFrame), (
         f"transform on polars input should return polars; got {type(out).__name__}"
     )
-    # Selected cols must all be in the original frame (FE cols are internal).
-    assert set(out.columns).issubset(set(df.columns))
+    # Engineered FE columns carry operator syntax ("*", "__", "(") in their names; every other (raw) output column
+    # must be an original input column.
+    _fe_markers = ("*", "__", "(")
+    raw_out_cols = [c for c in out.columns if not any(m in c for m in _fe_markers)]
+    assert set(raw_out_cols).issubset(set(df.columns)), (
+        f"non-engineered transform outputs must be original columns; "
+        f"unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
+    )
 
 
 def test_mrmr_fe_caller_frame_not_mutated_on_polars():
