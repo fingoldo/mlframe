@@ -12,6 +12,8 @@ unpickle cleanly.
 """
 from __future__ import annotations
 
+import copy
+import inspect
 import logging
 import os
 import psutil
@@ -3192,6 +3194,42 @@ class MRMR(BaseEstimator, TransformerMixin):
         """
         return {"cv": self.cv, "cv_shuffle": self.cv_shuffle}
 
+    @classmethod
+    def _ctor_defaults(cls) -> dict:
+        """Single source of truth for every constructor-parameter default.
+
+        Read straight off ``__init__``'s signature so a ctor default can never
+        silently diverge from a hand-written copy elsewhere (the D5 drift hazard:
+        ``__setstate__`` injected a literal default that drifted from the ctor --
+        e.g. ``cluster_aggregate_mode``). ``__setstate__`` overlays these onto its
+        legacy-injection dict for every ctor-param key EXCEPT the documented
+        legacy-pickle overrides below.
+        """
+        sig = inspect.signature(cls.__init__)
+        return {
+            name: param.default
+            for name, param in sig.parameters.items()
+            if param.default is not inspect.Parameter.empty
+        }
+
+    # Keys whose ``__setstate__`` legacy-injection value INTENTIONALLY differs from the
+    # live constructor default, to keep OLD pickles byte-identical on reload (master FE
+    # switches default ON for new fits but must stay OFF / at the old contract when an
+    # attribute-less legacy pickle is resurrected). These are NOT sourced from
+    # ``_ctor_defaults()``; every other shared key IS, so it cannot drift.
+    _SETSTATE_LEGACY_OVERRIDES = frozenset({
+        "max_confirmation_cand_nbins",          # legacy 50; ctor None (adaptive)
+        "fe_fallback_to_all",                   # legacy True; ctor False
+        "mrmr_identity_cache_ycorr_threshold",  # legacy 0.0 (gate off); ctor 0.5
+        "fe_pair_prewarp_enable",               # legacy OFF; ctor ON
+        "fe_hybrid_orth_enable",                # legacy OFF; ctor ON
+        "fe_hybrid_orth_triplet_enable",        # legacy OFF; ctor ON
+        "fe_hybrid_orth_quadruplet_enable",     # legacy OFF; ctor ON
+        "fe_kfold_te_enable",                   # legacy OFF; ctor ON
+        "fe_conditional_dispersion_enable",     # legacy OFF; ctor ON
+        "fe_wavelet_enable",                    # legacy OFF; ctor ON
+    })
+
     # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
     def __setstate__(self, state):
         defaults = {
@@ -3548,6 +3586,19 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Fitted-attribute mirror: an unpickled pre-feature fit has no passthrough roster; default empty so transform's re-attach loop is a no-op.
             "_passthrough_features_": [],
         }
+        # D5 (2026-06-22): source every shared ctor-param default from the SINGLE source of
+        # truth (the constructor signature) so a setstate literal can never silently drift from
+        # the ctor default. Documented legacy-pickle overrides (above) are exempt; setstate-only
+        # keys (fitted attrs / legacy-only params not on the ctor) keep their explicit literals.
+        _ctor = self._ctor_defaults()
+        for k in list(defaults.keys()):
+            # Only RE-SOURCE keys this dict already injects (preserve the exact legacy-injection
+            # roster); never widen it by adding ctor params that setstate never injected.
+            if k not in _ctor or k in self._SETSTATE_LEGACY_OVERRIDES:
+                continue
+            v = _ctor[k]
+            # deep-copy mutable ctor defaults so unpickled instances never share a default object.
+            defaults[k] = copy.deepcopy(v) if isinstance(v, (list, dict, set)) else v
         for k, v in defaults.items():
             state.setdefault(k, v)
         self.__dict__.update(state)
