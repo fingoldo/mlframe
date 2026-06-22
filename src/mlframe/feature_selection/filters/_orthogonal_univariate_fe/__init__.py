@@ -687,16 +687,6 @@ def hybrid_orth_mi_fe(
 # per appended column, and return them alongside the existing outputs.
 
 
-def _col_basis_for_recipe(x: np.ndarray, basis: str) -> str:
-    """Resolve the per-column basis: explicit string when caller pinned one,
-    else moment-routed auto. Mirrors the inline decision in
-    ``generate_univariate_basis_features`` / ``generate_pair_cross_basis_features``.
-    """
-    if basis == "auto":
-        return basis_route_by_moments(x)
-    return basis
-
-
 def hybrid_orth_mi_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

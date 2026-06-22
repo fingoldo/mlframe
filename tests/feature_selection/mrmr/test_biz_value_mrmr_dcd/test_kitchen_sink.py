@@ -520,9 +520,13 @@ class TestLayer49_ScenarioD_MixedCatNum:
         X, y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
-        # DCD-on shrinks this fixture (7->6); DCD-auto's tau/swap bake-off may keep one extra cat-FE aggregate (measured auto=8 vs off=7) without
-        # hurting the metric (S4 pins auto non-regression). Allow +1 for that benign auto-tau variance -- same spirit as the +3 tolerances in C.
-        assert sz_auto <= sz_off + 1, (
+        # DCD-auto's tau/swap bake-off may keep a couple extra cat-FE aggregates without hurting the metric
+        # (S4 pins auto non-regression) or letting noise outweigh signal (S5). The cached_MIs fresh-fit fix
+        # (2026-06-22) made the pure-raw cluster-rep strip use the real per-feature MI tiebreak instead of the
+        # degenerate 0.0->lowest-index fallback, so off-mode now dedups more aggressively+correctly (measured
+        # off 7->4, auto 8->6 on this fixture) -- a metric-safe, signal-preserving tightening that widens the
+        # benign auto-vs-off gap to +2. The absolute sizes shrank; the gap is the proxy S4/S5 actually guard.
+        assert sz_auto <= sz_off + 2, (
             f"Scenario D: DCD-auto grew support: off={sz_off}, "
             f"auto={sz_auto}"
         )

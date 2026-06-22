@@ -8528,7 +8528,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Mixed clusters (raw anchor + pseudo-remix/engineered member) fall to the pseudo-remix-protected
         # member strip below.
         _nm2col_cm = {c: i for i, c in enumerate(cols)}
-        _cached_cm = self.cached_MIs if hasattr(self, "cached_MIs") else {}
+        # Use the in-scope LOCAL cached_MIs (populated by the screen, same dict used at the other read
+        # sites) -- self.cached_MIs is only assigned near the end of _fit_impl, so on a FRESH fit
+        # hasattr(self,...) is False and this degraded to {} -> every rep tiebreak collapsed to 0.0.
+        _cached_cm = cached_MIs if ("cached_MIs" in dir() and isinstance(cached_MIs, dict)) else {}
         _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
         # Names ALREADY in selected_vars (raw, in feature_names_in_ index space). The greedy
         # screen / retention passes have already chosen these as the cluster's surviving
@@ -8702,7 +8705,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _pgn_eng = int(n_engineered_out) if "n_engineered_out" in dir() else 0
         _pgn_raw_budget = max(0, _pgn_ceiling - _pgn_eng)
         if len(selected_vars) > _pgn_raw_budget:
-            _pgn_cached = self.cached_MIs if hasattr(self, "cached_MIs") else {}
+            # LOCAL cached_MIs (see the cluster-rep note above): self.cached_MIs is unset until the end of
+            # _fit_impl, so on a fresh fit this read degraded to {} and the p>=n cap sort collapsed to index order.
+            _pgn_cached = cached_MIs if ("cached_MIs" in dir() and isinstance(cached_MIs, dict)) else {}
             _pgn_n2ci = {c: i for i, c in enumerate(cols)} if "cols" in dir() else {}
             _fni_pgn = self.feature_names_in_
 
