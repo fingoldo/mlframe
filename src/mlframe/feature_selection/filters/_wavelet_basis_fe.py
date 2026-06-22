@@ -150,6 +150,16 @@ _WAVELET_MIN_INCR_MI: float = 0.005
 # occasional smooth false-positive that the bare ``min_incr_mi`` floor let through
 # (smooth FP rate 2/10 seeds -> 0/10 with this guard; step/bump unaffected).
 _WAVELET_SMOOTH_COMPLEMENT_RATIO: float = 0.5
+# PERMUTATION-NULL DEBIAS for the held-out incremental MI. Plug-in joint MI over the
+# (binned-x x 3-cell-leg) contingency is finite-sample POSITIVELY biased: the joint has
+# up to ~3*nbins cells, so on a small held-out slice (~n/3 rows) even a pure-noise leg
+# scores a chance incremental MI in the ~2e-3..7e-3 band (n=1500), which overruns the bare
+# ``_WAVELET_MIN_INCR_MI`` floor and emits spurious noise legs. We subtract the max
+# incremental MI under K y-shuffles (same binning, same cells) so the statistic measures the
+# leg's value ABOVE its own finite-sample bias: a localized step/bump keeps a large positive
+# debiased incr; a pure-noise leg centers at ~0 and fails the floor. K small (the null mean is
+# a stable estimate -- its variance shrinks as 1/K and the floor has margin).
+_WAVELET_INCR_NULL_PERMS: int = 8
 
 
 def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndarray:
@@ -284,9 +294,33 @@ def _heldout_incremental_mi(
     leg_code = np.searchsorted(np.array([-1.0, 0.0, 1.0]), legc)
     leg_code = np.clip(leg_code, 0, 2)
     joint = xc * 3 + leg_code
-    base_mi = _binned_mi(xc.astype(np.float64), y[va], nbins=max(nbins, int(xc.max()) + 1))
-    joint_mi = _binned_mi(joint.astype(np.float64), y[va], nbins=int(joint.max()) + 1)
-    leg_incr = float(joint_mi - base_mi)
+    y_va = np.asarray(y[va])
+    base_mi = _binned_mi(xc.astype(np.float64), y_va, nbins=max(nbins, int(xc.max()) + 1))
+    joint_mi = _binned_mi(joint.astype(np.float64), y_va, nbins=int(joint.max()) + 1)
+    leg_incr_raw = float(joint_mi - base_mi)
+    # PERMUTATION-NULL DEBIAS: subtract the worst-shuffle incremental MI so the leg's finite-sample plug-in
+    # bias (the extra leg cells inflate the joint MI even on noise) cancels. Deterministic seed -> reproducible
+    # gate; only the leg's contribution ABOVE its own bias survives.
+    n_perm = int(_WAVELET_INCR_NULL_PERMS)
+    if n_perm > 0:
+        _rng = np.random.default_rng(0)
+        xc_f = xc.astype(np.float64)
+        joint_f = joint.astype(np.float64)
+        base_nb = max(nbins, int(xc.max()) + 1)
+        joint_nb = int(joint.max()) + 1
+        null = np.empty(n_perm, dtype=np.float64)
+        for _p in range(n_perm):
+            yp = y_va[_rng.permutation(y_va.size)]
+            null[_p] = _binned_mi(joint_f, yp, nbins=joint_nb) - _binned_mi(xc_f, yp, nbins=base_nb)
+        # Subtract the MAX incremental MI over the shuffles: the leg survives only if its incremental MI beats
+        # every shuffled-y replicate -- a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
+        # extra contingency cells inflate the joint MI even on noise (finite-sample plug-in bias) and that bias
+        # has high variance on the small held-out slice, so a pure-noise leg can still hit a large positive raw
+        # incr; subtracting the worst shuffle cancels both the bias and its spread. A genuine localized
+        # step/bump clears the null by a wide margin; a noise leg lands at <= 0.
+        leg_incr = float(leg_incr_raw - float(null.max()))
+    else:
+        leg_incr = leg_incr_raw
     # SMOOTH-refinement competitor: finer (2*nbins) location binning of raw x.
     xc_fine = _x_codes(x[va], nbins=2 * nbins)
     fine_mi = _binned_mi(

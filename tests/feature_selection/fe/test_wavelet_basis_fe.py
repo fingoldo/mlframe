@@ -194,6 +194,38 @@ def test_pure_noise_admits_no_wavelet():
     assert n_admit == 0, f"noise admitted {n_admit} legs over 8 seeds (want 0)"
 
 
+def test_noise_columns_admit_no_wavelet_with_correlated_target():
+    """Regression: noise columns must emit 0 wavelet legs even when y carries strong
+    signal from OTHER (non-noise) columns. The held-out incremental MI of a leg over
+    binned raw noise x is finite-sample positively biased AND high-variance on the
+    small held-out slice, so a bare absolute floor lets a chance noise leg through
+    (it rode on the nonzero baseline MI of a y correlated to the signal columns). The
+    permutation-null gate (subtract the worst shuffle's incremental MI) must reject all
+    noise legs. Pre-fix this emitted 5 noise legs on the n=1500 / seed=49 sensor mesh,
+    which polluted the DCD tau-auto calibration and broke the 5-pack clustering."""
+    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+        hybrid_wavelet_fe_with_recipes,
+    )
+    rng = np.random.default_rng(49)
+    n = 1500
+    cols = {}
+    latents = []
+    for li in range(5):
+        z = rng.standard_normal(n)
+        latents.append(z)
+        for si in range(3):
+            cols[f"L{li}_s{si}"] = z + 0.10 * rng.standard_normal(n)
+    for ki in range(5):
+        cols[f"noise_{ki}"] = rng.standard_normal(n)
+    X = pd.DataFrame(cols)
+    weights = np.array([1.0, -0.8, 0.6, -0.4, 0.3])
+    score = sum(w * z for w, z in zip(weights, latents))
+    y = (score + 0.3 * rng.standard_normal(n) > 0).astype(int)
+    _, keep, _, _ = hybrid_wavelet_fe_with_recipes(X, y)
+    noise_legs = [c for c in keep if c.split("__", 1)[0].startswith("noise_")]
+    assert noise_legs == [], f"noise columns admitted wavelet legs: {noise_legs}"
+
+
 def test_scale_selection_bounds_candidate_count():
     """Even on a richly localized column the emitted leg count is capped at
     max_legs (candidate-explosion control)."""
