@@ -1217,7 +1217,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
 
     from . import hermite_fe as _hf  # noqa: F401 -- full-init the parent first so the direct
     # ``_hermite_fe_mi`` import below can't trip the _ensure_cuda_kernels back-import cycle.
-    from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda
+    from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
     # bench-attempt-rejected (2026-06-20, "eliminate ALL f64 in the GPU FE MI path" on the GTX 1050 Ti):
     # generating + scoring this whole chain in float32 (operands/fused-gen/binning/MI all f32) gave only
@@ -1236,14 +1236,16 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     # bit-equal, ~15x faster generation). Only the chunk matrix is bounded, so peak VRAM is governed.
     ua_cm = _unary_stack_cm(cp, a_gpu)
     ub_cm = _unary_stack_cm(cp, b_gpu)
+    y_gpu = cp.asarray(y_i64)   # upload y ONCE, reused across chunks (the host wrapper re-H2D'd it per chunk)
     k_chunk = _gpu_k_chunk(n)
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
         block = _COMBOS[start:start + k_chunk]
         cand = _fused_generate_block(ua_cm, ub_cm, block)   # one-launch fused generation
-        # _plugin_mi_classif_batch_cuda's cp.asarray is a no-op for an already-device array -> no extra
-        # transfer; one big-k kernel scores the resident chunk.
-        mi_parts.append(np.asarray(_plugin_mi_classif_batch_cuda(cand, y_i64, nbins), dtype=np.float64))
+        # Both operands are already device-resident (cand from the fused kernel, y_gpu uploaded once), so the
+        # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
+        # variant -- test_resident_batch_cuda_matches_host_input pins maxdiff 0).
+        mi_parts.append(np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins), dtype=np.float64))
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
 
