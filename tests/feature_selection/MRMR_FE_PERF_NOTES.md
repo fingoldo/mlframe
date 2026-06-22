@@ -657,3 +657,40 @@ half is no longer dominated) -- the escalation path already residualises but adm
 n; making step-2 of the main pair-search residualise (or the gate residual-relative) is the principled fix.
 Selection-bearing -> must validate against the single_compound + biz-value suite. (Testing existing knobs
 -- fe_max_steps, lower prevalence -- first to see if it is a default tweak vs new code.)
+
+## 2026-06-22 (cont) -- profiling-driven optimizations + distribution-robustness goal
+
+LANDED (validated + committed):
+* CPU noise-gate (batch_mi_with_noise_gate, the 93%-of-CPU-fit hotspot): restructured to prange-over-columns
+  with a serial perm-inner loop, precomputing all Fisher-Yates shuffles once + a contiguous col buffer +
+  one reused histogram (new _perm_failcount_col). Removes npermutations-1 fork/join barriers + strided
+  gathers + per-(perm,col) allocs. Bit-identical (integer nfailed reassociates; same reduce order; per-k
+  thread-private). 106 passed. (900dd660)
+* GPU#1: hoist the fit-CONSTANT y min/max out of the per-chunk resident MI (it was recomputed per chunk per
+  pair -- the nsys #1 source of the 71,812 cp.max + bulk of the 100,757 tiny D2H). Optional y_min/n_classes
+  params, computed once per pair/build. Bit-identical. 37 passed. (ca85bf3f)
+* GPU#5: dedup the basis-INDEPENDENT heavy-tail detection across routing's 4 candidate bases (heavy_host
+  computed once, passed in). Bit-identical. 43 passed. (1dc6af37)
+* n_iters 5->2 for the per-host KTC sweeps (pyutilz time_backend default + the mlframe sweep call sites) --
+  one-time sweeps run ~2.5x faster. (785c212 / fa767dbc)
+
+GOAL ENCODED (test_f2_single_compound_across_distributions, 53a12960): F2 must recover ONE clean compound
+under EVERY input distribution. uniform = hard regression guard (passes); scaled_1_5 / heavy_tailed / mixed
+/ with_outliers = xfail(strict=True) -- the distribution-robustness gap. Root cause: signal-scale imbalance
+(a**2/b dominates Var(y); the weak log(c)*sin(d) half falls below the prevalence gate -> fragments).
+
+REMAINING (large, need a fresh-context validation budget -- each is selection-bearing/core):
+1. RESIDUAL-AWARE FE (the distribution-robustness fix). Foundation done (SufficientSummaryVerdict.residual
+   surfaced). Wiring: in _fit_impl_core.py:6731, when _ss_verdict.reached is False AND blocking_raw>=0 AND
+   residual is not None, set self._fe_residual_target_continuous_ = verdict.residual for the next step;
+   in _step_core.py:1108-1118 use it (discretised) as classes_y / _prewarp_y_cont / _usab_y_cont for that
+   step and recompute cached_MIs against it (the 1.05 prevalence constant is unchanged -- the residual just
+   makes the weak half clear it). DOCUMENTED RISK (_mrmr_class.py:1728-1731): a prior admission-relaxation
+   admitted (c,d) but construction still failed -- may also need a separable warp-product proposer. GATE:
+   the new goal test (flip xfail->pass) + the single_compound pin must NOT regress + no-noise-admission.
+2. GPU#2: keep the source operand matrix + y device-resident across the WHOLE pair sweep (slice columns per
+   pair) instead of per-pair cp.asarray -- eliminates the nsys 2.35 GB H2D (the residency violation). Touches
+   check_prospective_fe_pairs / pair_candidate_mi_dispatch. Bit-identical (same bytes, uploaded once).
+3. Deferred audit tail (MRMR_AUDIT_2026_06_22.md): source-name __ split (9-site naming-convention),
+   y.to_numpy 53x hoist, lstsq->normal-eq in _orth_extra_basis_fe deflation, _env_truthy DRY, ctor-defaults
+   single-source, evaluation.py carve (1144 LOC).
