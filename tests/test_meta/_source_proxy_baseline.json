@@ -40,6 +40,7 @@
   "training/test_audit_tz_naive_aware_mixing.py::_vals_naive = values",
   "training/test_audit_tz_naive_aware_mixing.py::if np.all(values.astype(f\"datetime64[{date_fract}]\") == values):",
   "training/test_audit_tz_naive_aware_mixing.py::values.tz_convert(\"UTC\").tz_localize(None)",
+  "training/test_biz_val_training_preproc_backend_dead_knobs.py::config.fallback_to_sklearn",
   "training/test_broad_except_swallow_p1_fixes.py::except Exception:\n                    # Non-BaseEstimator",
   "training/test_broad_except_swallow_p1_fixes.py::multilabel log-loss: %d/%d class component(s) failed",
   "training/test_broad_except_swallow_p1_fixes.py::original reference",
