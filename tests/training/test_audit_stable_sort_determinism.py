@@ -229,7 +229,10 @@ def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
 
 
 def test_mrmr_empty_fallback_uses_secondary_index() -> None:
-    src = _read("feature_selection/filters/mrmr/_mrmr_class.py")
+    # The empty-RAW-support fallback rescue was carved out of the giant ``_fit_impl``
+    # body into the ``_mrmr_fit_impl/_finalise.py`` sibling when ``_fit_impl_core.py``
+    # was split toward the 1k LOC ceiling; the stable secondary-index sort lives there now.
+    src = _read("feature_selection/filters/_mrmr_fit_impl/_finalise.py")
     assert "_raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))" in src
 
 
