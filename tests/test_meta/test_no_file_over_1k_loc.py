@@ -114,7 +114,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # into a ``_batch_mi_noise_gate_kernels.py``; the orthogonal-univariate facade can shed its extra-basis
     # re-exports into the already-existing ``_orth_extra_basis_fe*`` siblings.
     "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
-    "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py",
+    # (de-exempted 2026-06-22: kernels carved to _batch_mi_noise_gate_kernels.py)
     "src/mlframe/feature_selection/filters/evaluation.py",
     # (de-exempted 2026-06-22: _orthogonal_univariate_fe/__init__.py carved to ~860 LOC via _orth_dedup.py)
 }
