@@ -1,0 +1,870 @@
+"""GPU-resident FE: residency-buffer + radix-select edge kernels (Tier E carve).
+
+Carved VERBATIM out of ``_gpu_resident_fe.py`` (sibling re-export pattern) to bring the parent under the
+1k-LOC ceiling. Holds the residency-buffer + radix-select edge block: the rank-EXACT sort-free
+``radix_select_*`` RawKernels + their wrappers, the fused ``bin_codes`` kernel, the resident discretize
+path, the FE-materialise kernel, the pinned-D2H staging buffer, the operand-table residency cache/build
+helpers, and the GPU materialise/discretize codes host fast paths.
+
+The gate helpers (``_cuda_present`` / ``_env_gpu_default_on`` / ``fe_gpu_*_enabled``) and the candidate-
+grid primitives stay in the PARENT and are imported below; the parent re-exports every public/used name
+moved here so all ``from .._gpu_resident_fe import X`` paths still resolve byte-for-byte. The few
+cross-sibling references (``_gpu_apply_prewarp`` in ``_gpu_resident_basis``) are LAZY-imported inside the
+function bodies to avoid an import cycle. No kernel-source, dispatch-threshold, residency, or selection
+behavior changed.
+"""
+from __future__ import annotations
+
+import os
+
+import numpy as np
+
+# Parent-defined names this block consumes. Imported at module top: the PARENT does
+# ``from ._gpu_resident_select import *`` at its BOTTOM (after all these names are defined), so re-entering
+# the partially-initialised parent here always finds them -- no circular-import hazard.
+from ._gpu_resident_fe import (
+    _gpu_k_chunk,
+    _quantile_levels_dev,
+    _stash_deferred_host_fill,
+    _stash_resident_codes,
+    _unary_apply,
+    clear_resident_codes_handoff,
+    ensure_host_codes_filled,
+    fe_gpu_defer_host_codes_enabled,
+    fe_gpu_resident_codes_enabled,
+)
+
+
+# RANK-EXACT SORT-FREE QUANTILE EDGES via RADIX-SELECT (roadmap #2, 2026-06-20). cp.percentile bins each
+# column with a FULL O(n log n) sort (profiled n=100k/79s: the cp.percentile SORT in this function = 12.9s,
+# the #1 production GPU cost) but it only needs the nbins-1 INTERIOR quantile EDGES -- i.e. the ~2*(nbins-1)
+# bracketing ORDER STATISTICS per column, not a full ordering. This kernel extracts exactly those order
+# statistics with a byte-digit RADIX-SELECT: one block per column, R<=2*(nbins-1) target ranks resolved
+# TOGETHER in 8 (float64) / 4 (float32) histogram passes over the column. Each pass reads the column once,
+# bins each row's current byte-digit into its rank-window's 256-bucket SHARED-MEM histogram (a row maps to
+# exactly ONE active window, found by matching its fixed high-byte prefix), then advances every rank's
+# prefix to the bucket holding its target rank. After all passes each rank's exact order-statistic VALUE
+# is recovered from the converged key. The float key is the standard order-preserving IEEE transform
+# (flip sign bit for positives, all bits for negatives) so the byte order == the float order EXACTLY ->
+# the recovered values are BIT-IDENTICAL to the sorted column at those ranks (verified maxdiff 0 on the
+# order stats; the codes through cp.searchsorted match cp.percentile maxdiff 0 across all columns).
+#
+# WHY THIS WINS (the prior estimate said ~8-11 passes ~= sort bandwidth so it may NOT win -- DISPROVEN for
+# THIS cupy: cp.percentile uses a comparison MERGE-sort over (value,index) zip-iterators, NOT a radix sort;
+# nvprof n=300k K=384: DeviceMergeSort{Merge,BlockSort,Partition} = 65.6% of binning, far above the linear
+# bandwidth floor. The 8-pass radix-select read floor measured 16-17x faster than that sort.) MEASURED
+# GTX 1050 Ti, R=38, heavy-tailed a**2/b candidates, CUDA-event A/B vs cp.percentile, BIT-IDENTICAL codes
+# (maxdiff 0 all columns): f64  100k 1.17x / 300k 1.19x / 1M 2.06x;  f32  100k 2.38x / 300k 2.30x / 1M
+# 3.67x. The win GROWS with n (O(n) select vs O(n log n) sort) -- exactly the large-n*K regime the GPU
+# binning engages (the auto-router keeps small n on the CPU). The per-row inner window-match loop (R<=40)
+# keeps the real time above the bare bandwidth floor; a sorted-prefix binary search is the obvious next
+# lever (FUTURE) but the current kernel already beats the sort at every measured size.
+#
+# EXACTNESS / fallback: the order statistics are exact; the cupy 'linear' interpolation is reproduced in
+# float64 EXACTLY (idx=q*(N-1); w=idx-floor(idx); w<0.5 ? below+diff*w : above-diff*(1-w); diff in f64 over
+# the (f32-promoted-to-f64 or native-f64) order stats) so the edges -> codes equal cp.percentile bit-for-
+# bit. cp.percentile stays the gated exact fallback: MLFRAME_FE_GPU_RADIX_EDGES=0 forces it, and ANY kernel
+# failure (compile / launch / shared-mem overflow) falls back to cp.percentile inside this function. The
+# shared histogram is R*256 uint32 (R<=40 -> <=40KB < the 48KB default) plus a few small per-rank arrays;
+# the host gates the radix path off (-> cp.percentile) if that ever exceeds the device limit.
+_RADIX_SELECT_F64_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f64(const double* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, double* __restrict__ out){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];          // W*256 histogram (counts <= n < 2^31 -> uint32 ok)
+    __shared__ unsigned long long prefix[MAXR];   // per-rank running key prefix (high bytes fixed)
+    __shared__ unsigned long long below[MAXR];    // count strictly below each rank's window
+    __shared__ unsigned long long wpref[MAXR];    // distinct active window prefixes (masked)
+    __shared__ int rank2w[MAXR];                  // rank -> window index
+    __shared__ int W;
+    if(tid<R){prefix[tid]=0ULL;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=7;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned long long hmask=(byte==7)?0ULL:(0xFFFFFFFFFFFFFFFFULL<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned long long p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);  // COLUMN-MAJOR: coalesced
+            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            unsigned long long pm=u&hmask;int win=-1;
+            for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
+            if(win>=0){int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        if(tid==0){for(int r=0;r<R;++r){int w=rank2w[r];unsigned long long acc=below[r];int chosen=0;long long want=ranks[r];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[r]=acc;prefix[r]=(prefix[r]&hmask)|((unsigned long long)chosen<<shift);}}
+        __syncthreads();
+    }
+    if(tid<R){unsigned long long u=prefix[tid];u=(u&0x8000000000000000ULL)?(u&0x7FFFFFFFFFFFFFFFULL):~u;
+        double d;memcpy(&d,&u,8);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F32_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f32(const float* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, float* __restrict__ out){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned int prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned int wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ int W;
+    if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=3;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;}
+        __syncthreads();
+        int Wl=W;
+        // bench-attempt-rejected (2026-06-21, elevated nvprof): the per-window stride 256 is bank-aligned
+        // (shared_store_transactions_per_request ~6.1), but padding to 257 to de-conflict was SLOWER
+        // (264->324ms) -- the kernel is WARP-DIVERGENCE-bound (warp_execution_efficiency ~42% from the
+        // per-thread window search), not bank-conflict-bound, and the extra shared bytes cut occupancy.
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
+            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            unsigned int pm=u&hmask;int win=-1;
+            for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
+            if(win>=0){int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        if(tid==0){for(int r=0;r<R;++r){int w=rank2w[r];unsigned long long acc=below[r];int chosen=0;long long want=ranks[r];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[r]=acc;prefix[r]=(prefix[r]&hmask)|((unsigned int)chosen<<shift);}}
+        __syncthreads();
+    }
+    if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)
+_RADIX_SELECT_F32_KERNEL = None
+_RADIX_SELECT_THREADS = 512  # measured sweet spot on GTX 1050 Ti (256/512/1024); FUTURE: kernel_tuning_cache
+_RADIX_SELECT_MAXR = 64      # must match MAXR in the kernel sources
+
+
+def _get_radix_select_kernel(is_f32: bool):
+    global _RADIX_SELECT_F64_KERNEL, _RADIX_SELECT_F32_KERNEL
+    import cupy as cp
+    if is_f32:
+        if _RADIX_SELECT_F32_KERNEL is None:
+            _RADIX_SELECT_F32_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_SRC, "radix_select_f32")
+        return _RADIX_SELECT_F32_KERNEL
+    if _RADIX_SELECT_F64_KERNEL is None:
+        _RADIX_SELECT_F64_KERNEL = cp.RawKernel(_RADIX_SELECT_F64_SRC, "radix_select_f64")
+    return _RADIX_SELECT_F64_KERNEL
+
+
+def fe_gpu_radix_edges_enabled() -> bool:
+    """Whether the rank-EXACT sort-free radix-select quantile edges replace cp.percentile's full sort.
+    ON unless ``MLFRAME_FE_GPU_RADIX_EDGES`` is explicitly falsy (it is bit-identical to cp.percentile in
+    the produced codes -- verified maxdiff 0 -- and faster, the win growing with n; cp.percentile stays
+    the gated exact fallback one env flip away and the automatic fallback on any kernel failure)."""
+    return os.environ.get("MLFRAME_FE_GPU_RADIX_EDGES", "1").strip().lower() in ("1", "true", "on", "yes")
+
+
+# (n, nbins) fully determine the radix interp gather-indices (bi/ai) and weight (w) -- they are derived
+# only from np.linspace(0,100,nbins+1) and n, NOT from the candidate data -- so they are identical for every
+# chunk/pair of a fit. Cache the (tiny, (nbins-1,)) device vectors keyed on (n, nbins) to drop the per-chunk
+# tiny-H2D allocs (the cupy._core.core.array hotspot). Module-level dict -> not part of the MRMR instance
+# pickle (mirrors the other resident-kernel singletons in this module). (n, nbins) take <=2-3 values per fit.
+_RADIX_INTERP_CACHE: dict = {}
+
+
+def _radix_select_interior_edges(cand_gpu, nbins: int):
+    """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
+    sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
+    are BIT-IDENTICAL (in the resulting codes) to ``cp.percentile(cand, linspace(0,100,nbins+1))[1:-1]``.
+    Returns ``None`` if the radix path is inapplicable (R over the kernel cap, shared-mem over the device
+    limit) so the caller uses the cp.percentile fallback. ``cand_gpu`` must be C-contiguous (n, K)."""
+    import cupy as cp
+
+    n, K = cand_gpu.shape
+    is_f32 = cand_gpu.dtype == cp.float32
+    # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
+    qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0   # (nbins-1,) fractions
+    idx = qfr * (n - 1)
+    bel = np.floor(idx).astype(np.int64)
+    abv = np.minimum(bel + 1, n - 1)
+    uniq = np.unique(np.concatenate([bel, abv]))                   # the order-statistic ranks to extract
+    R = int(uniq.size)
+    if R > _RADIX_SELECT_MAXR:
+        return None
+    # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit).
+    shmem = R * 256 * 4
+    try:
+        dev = cp.cuda.Device()
+        sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+    except Exception:
+        sh_limit = 48 * 1024
+    if shmem > sh_limit:
+        return None
+    ranks_g = cp.asarray(uniq, dtype=cp.int64)
+    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
+    ker = _get_radix_select_kernel(is_f32)
+    # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
+    # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
+    # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
+    # (data[col*n+i]) -- one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
+    # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
+    data_cm = cp.ascontiguousarray(cand_gpu.T)   # (K, n) C-order = column-major
+    ker((K,), (_RADIX_SELECT_THREADS,),
+        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
+    # the cupy_percentile_weightnening elementwise kernel (U=float64; below/above promoted; w in float64).
+    _ik = (int(n), int(nbins))
+    _ic = _RADIX_INTERP_CACHE.get(_ik)
+    if _ic is None:
+        pos = {int(r): i for i, r in enumerate(uniq)}
+        bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
+        ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
+        w = cp.asarray(np.ascontiguousarray(idx - bel))   # float64 weight_above = idx - floor(idx)
+        _RADIX_INTERP_CACHE[_ik] = (bi, ai, w)
+    else:
+        bi, ai, w = _ic
+    # Fancy-indexed gathers are already fresh allocations (never aliased to osv); only cast when osv is f32.
+    # On the f64 binning path .astype(f64) was a no-op copy (alloc + cast launch x2 per chunk) -- skip it.
+    _ab = osv[bi, :]
+    _aa = osv[ai, :]
+    ab = _ab if _ab.dtype == cp.float64 else _ab.astype(cp.float64)
+    aa = _aa if _aa.dtype == cp.float64 else _aa.astype(cp.float64)
+    diff = aa - ab
+    edges = cp.where(w[:, None] < 0.5, ab + diff * w[:, None], aa - diff * (1.0 - w)[:, None])
+    return edges                          # (nbins-1, K) float64
+
+
+# FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
+# cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
+# int32 cast-copies (searchsorted returns int64, ``out`` is int32). nvprof on the n=100k/300k binning path:
+# cupy_copy__int64_int32 = 19.2% of GPU time (2304 calls) + cupy_searchsorted_kernel = 11.7% (2304 calls)
+# -- ~31% of GPU time in launch overhead + a needless dtype cast. This ONE kernel bins the whole (n,K)
+# matrix: each thread takes one element, binary-searches its column's nbins-1 interior edges (upper_bound
+# = count of edges <= value = EXACTLY cp.searchsorted(.., side='right')), and writes the int32 code
+# directly -- coalesced cand/out (row-major) + coalesced strided edge reads (consecutive threads = adjacent
+# columns). BIT-IDENTICAL to the per-column searchsorted; one launch, no int64 intermediate.
+# Edges are ALWAYS float64 (cp.percentile and the radix-select both produce f64 edges). The value is
+# promoted to double for the compare -- EXACTLY what cp.searchsorted(f64_edges, f32_value) does (it
+# upcasts the value to the edges' dtype). Comparing in the value's f32 instead would 1-off at boundaries
+# (a downcast of the f64 edge loses precision) -- the bug that broke bit-identity on the first cut.
+_BIN_CODES_SRC = r"""
+extern "C" __global__
+void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict__ edges,
+                        const long long n, const int K, const int ne, int* __restrict__ out) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (idx >= total) return;
+    int col = (int)(idx % (long long)K);
+    double v = (double)cand[idx];
+    int lo = 0, hi = ne;                       // upper_bound over this column's interior edges
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (edges[(long long)mid * K + col] <= v) lo = mid + 1; else hi = mid;
+    }
+    out[idx] = lo;                             // = #(edges <= v) = searchsorted(.., 'right')
+}
+"""
+
+_BIN_CODES_KERNELS: dict = {}
+
+
+def _get_bin_codes_kernel(dtype):
+    """Lazy-compiled (pickle-safe, module-level cache) fused binning RawKernel for f32 / f64."""
+    import cupy as cp
+
+    key = "f64" if dtype == cp.float64 else "f32"
+    k = _BIN_CODES_KERNELS.get(key)
+    if k is None:
+        ctype = "double" if key == "f64" else "float"
+        src = _BIN_CODES_SRC.replace("TYPENAME", key).replace("TYPE", ctype)
+        k = cp.RawKernel(src, "bin_codes_" + key)
+        _BIN_CODES_KERNELS[key] = k
+    return k
+
+
+def _searchsorted_codes(cand_gpu, interior_edges):
+    """Bin (n,K) ``cand_gpu`` against per-column ascending ``interior_edges`` (ne,K) -> int32 (n,K) codes,
+    code = #(interior edges <= value) (== per-column cp.searchsorted side='right'). One fused kernel
+    launch (no K searchsorted launches, no int64->int32 cast). Falls back to the per-column loop on any
+    kernel failure -- bit-identical either way."""
+    import cupy as cp
+
+    n, K = cand_gpu.shape
+    try:
+        # cand_gpu is already C-contiguous f32 on the production path (RawKernel cp.empty output / cp.asarray
+        # of a C-contiguous host slice); cp.ascontiguousarray would still alloc+copy the whole (n,K) matrix
+        # (the nvprof cupy_copy__float32_float32 hotspot, 19.7%). The kernel only needs C-order memory -> reuse
+        # the buffer when already contiguous (bit-identical bytes); a strided view still gets the safety copy.
+        cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
+        edges_c = cp.ascontiguousarray(interior_edges, dtype=cp.float64)  # edges f64 (match cp.searchsorted promotion)
+        ne = int(edges_c.shape[0])
+        out = cp.empty((n, K), dtype=cp.int32)
+        total = n * K
+        threads = 256
+        blocks = (total + threads - 1) // threads
+        _get_bin_codes_kernel(cand_c.dtype)(
+            (blocks,), (threads,),
+            (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),
+        )
+        return out
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
+        out = cp.empty((n, K), dtype=cp.int32)
+        ec = cp.ascontiguousarray(interior_edges)
+        for j in range(K):
+            out[:, j] = cp.searchsorted(ec[:, j], cand_gpu[:, j], side="right")
+        return out
+
+
+def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
+    """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
+    ``discretize_2d_array_cuda`` -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
+    edges + per-column ``cp.searchsorted(edges[1:-1], col, side='right')`` -- but keeps the input + output
+    on-device (no H2D of the big candidate matrix, no D2H of codes here), so it chains gen -> discretize ->
+    noise-gate without round-trips. Returns a cupy int32 (n, K) codes array (resident).
+
+    DTYPE: the percentile + searchsorted run in the INPUT's native dtype by default -- so the float32 FE
+    candidate buffer stays float32 (no up-cast; float32 halves the bandwidth of the dominant full sort
+    cp.percentile does and preserves the FE selection, the acceptance bar) while the float64 grand-fused
+    MI path stays float64 (bit-identical). ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` forces the exact f64
+    path host-wide (bit-identical to the CPU ``discretize_2d_quantile_batch``, whose ``np.percentile``
+    upcasts float32 to float64); ``=float32`` forces f32."""
+    import cupy as cp
+
+    # Bin in the input's NATIVE dtype by default (the float32 FE candidate buffer stays float32 -- no
+    # up-cast, half the sort bandwidth; the float64 grand-fused MI path stays float64 -- bit-identical).
+    # MLFRAME_FE_GPU_BINNING_DTYPE forces a specific working dtype (float64 = the exact CPU-parity fallback).
+    forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
+    if forced in ("float64", "f64", "double"):
+        work = cp.float64
+    elif forced in ("float32", "f32", "single"):
+        work = cp.float32
+    else:
+        work = cand_gpu.dtype
+    if cand_gpu.dtype != work:
+        cand_gpu = cand_gpu.astype(work, copy=False)
+    n, K = cand_gpu.shape
+
+    # RANK-EXACT SORT-FREE EDGES (roadmap #2): extract just the nbins-1 interior quantile edges via the
+    # radix-select kernel instead of cp.percentile's full sort. Bit-identical codes (verified maxdiff 0),
+    # faster (win grows with n). Returns None -> cp.percentile fallback (R over cap / shared-mem over the
+    # device limit); any kernel exception also falls back. cp.percentile's interior edges are bin_edges[1:-1].
+    if fe_gpu_radix_edges_enabled() and n > 0:
+        try:
+            # Already C-contiguous here (see _searchsorted_codes note); _radix_select_interior_edges does its
+            # OWN coalescing transpose internally and only needs C-order input, so skip the redundant full
+            # (n,K) f32 copy when contiguous (bit-identical edges -> codes). The KEEP transpose stays inside it.
+            _cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
+            interior = _radix_select_interior_edges(_cand_c, int(nbins))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("radix-select edges failed; cp.percentile fallback", exc_info=True)
+            interior = None
+        if interior is not None:
+            return _searchsorted_codes(cand_gpu, interior)
+
+    qs = _quantile_levels_dev(cp, nbins, work)
+    if K == 1:
+        # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array
+        # (verified maxdiff ~23 vs numpy; multi-column is exact). A K==1 chunk occurs whenever the last
+        # candidate block holds one column, which would silently corrupt that column's codes (breaking the
+        # discretize bit-identity). Ravel to 1D where cp.percentile is correct, then restore the shape.
+        bin_edges = cp.percentile(cand_gpu.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+    else:
+        bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
+    return _searchsorted_codes(cand_gpu, bin_edges[1:-1])
+
+
+# CHUNK-MATERIALISE CUDA RawKernel (2026-06-20). The FE chunk path's #1 CPU hotspot is
+# ``_materialise_chunk_njit`` -- it builds the (n, K) float32 candidate matrix by gathering strided
+# operand columns ``tv[r, ai]`` / ``tv[r, bi]`` out of a row-major operand table and applying the
+# binary op-code table (mlframe.feature_selection.filters._feature_engineering_pairs._pairs_materialise
+# ._NJIT_BINARY_OP_CODES). It is MEMORY-BANDWIDTH bound on those gathers, not compute. This kernel does
+# the IDENTICAL work on the GPU: each thread owns one (row, candidate) cell, gathers its two operand
+# columns by op-code index, applies the binary op, scrubs non-finite -> 0, and writes float32 row-major.
+#
+# BIT-IDENTICAL to ``_materialise_chunk_njit``: operands are read as float32 (the ``tv`` dtype); mul/add/
+# sub/abs_diff are plain float32 ops; max/min/signed propagate NaN exactly (``a+b`` when either is NaN);
+# div (op 3) and ratio_abs (op 8) are FLOAT64-PROMOTED then cast back to float32 (matching the njit
+# kernel's ``np.float32(np.float64(a)/...)`` -- numba/numpy promote the float64 ``1e-9`` / ``1.0``
+# literals); the final nan_to_num(nan=0, +-inf=0) is the same predicate. The op-code numbering is the
+# njit table: 0=mul 1=add 2=sub 3=div 4=max 5=min 6=abs_diff 7=signed 8=ratio_abs. ``tv`` is the
+# (n, n_operands) row-major float32 operand table; the kernel addresses operand column ``c`` of row
+# ``i`` via ``tv[i*n_operands + c]`` (so NO transpose is needed -- it mirrors the njit ``tv[r, ai]``).
+_FE_MATERIALISE_SRC = r"""
+extern "C" __global__
+void fe_materialise(const float* __restrict__ tv,
+                    const long long* __restrict__ a_cols,
+                    const long long* __restrict__ b_cols,
+                    const signed char* __restrict__ ops,
+                    const long long n, const long long n_operands, const int K,
+                    float* __restrict__ out) {
+    long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (tid >= total) return;
+    int k = (int)(tid % (long long)K);
+    long long i = tid / (long long)K;
+    long long ai = a_cols[k];
+    long long bi = b_cols[k];
+    float a = tv[i * n_operands + ai];
+    float b = tv[i * n_operands + bi];
+    int op = (int)ops[k];
+    float v;
+    if (op == 0) {            // mul
+        v = a * b;
+    } else if (op == 1) {     // add
+        v = a + b;
+    } else if (op == 2) {     // sub
+        v = a - b;
+    } else if (op == 3) {     // div = _safe_div (2026-06-13 form): exact x/y for y!=0, eps floor only on exact-zero
+        v = (float)((double)a / ((b == 0.0f) ? 1e-9 : (double)b));
+    } else if (op == 4) {     // max = np.maximum (nan-propagating)
+        if (a != a || b != b) v = a + b; else v = (a > b) ? a : b;
+    } else if (op == 5) {     // min = np.minimum (nan-propagating)
+        if (a != a || b != b) v = a + b; else v = (a < b) ? a : b;
+    } else if (op == 6) {     // abs_diff = |a - b|
+        v = fabsf(a - b);
+    } else if (op == 7) {     // signed = sign(a)*|b| (nan-propagating)
+        if (a != a || b != b) {
+            v = a + b;
+        } else {
+            float sgn = (a == 0.0f) ? 0.0f : ((a > 0.0f) ? 1.0f : -1.0f);
+            v = sgn * fabsf(b);
+        }
+    } else {                  // op == 8: ratio_abs = float64-promoted a/(|b|+1)
+        v = (float)((double)a / ((double)fabsf(b) + 1.0));
+    }
+    // np.nan_to_num(nan=0, posinf=0, neginf=0)
+    if (isnan(v) || isinf(v)) v = 0.0f;
+    out[i * (long long)K + k] = v;
+}
+"""
+_FE_MATERIALISE_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
+
+
+def _get_fe_materialise_kernel():
+    global _FE_MATERIALISE_KERNEL
+    if _FE_MATERIALISE_KERNEL is None:
+        import cupy as cp
+        _FE_MATERIALISE_KERNEL = cp.RawKernel(_FE_MATERIALISE_SRC, "fe_materialise")
+    return _FE_MATERIALISE_KERNEL
+
+
+def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
+    """Generate the (n, len(ops_block)) float32 candidate matrix for the given column blocks in ONE kernel
+    launch, RESIDENT on the GPU. ``tv_gpu`` is the (n, n_operands) row-major float32 operand table already
+    on the device. ``a_cols_block`` / ``b_cols_block`` (int64) / ``ops_block`` (int8) are host or device
+    arrays of length K. Returns a row-major (n, K) cupy float32 matrix, BIT-EQUAL to
+    ``_materialise_chunk_njit`` (same float32 ops, same float64-promoted div/ratio_abs, same nan_to_num)."""
+    import cupy as cp
+
+    n = int(tv_gpu.shape[0])
+    n_operands = int(tv_gpu.shape[1])
+    K = int(len(ops_block))
+    a_g = cp.asarray(a_cols_block, dtype=cp.int64)
+    b_g = cp.asarray(b_cols_block, dtype=cp.int64)
+    ops_g = cp.asarray(ops_block, dtype=cp.int8)
+    out = cp.empty((n, K), dtype=cp.float32)
+    total = n * K
+    threads = 256
+    blocks = (total + threads - 1) // threads
+    _get_fe_materialise_kernel()(
+        (blocks,), (threads,),
+        (tv_gpu, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), out),
+    )
+    return out
+
+
+# PINNED D2H STAGING for the out_cand float buffer (2026-06-21, nvprof+paired-microbench driven).
+# The downstream survivor/usability reads need the (n,K) float candidate matrix on host, so out_cand is
+# unavoidable -- but ``cp.asnumpy(cand)`` copies into the caller's PAGEABLE buffer, which makes cupy stage
+# the D2H through an internal pinned bounce buffer at PAGEABLE PCIe bandwidth (the #1 production wall:
+# cProfile cupy.get = 9.07s, 321 blocking syncs). DMA'ing the chunk into a PERSISTENT PINNED host buffer
+# first, then a plain host->host memcpy into the caller's pageable slice, runs the device transfer at full
+# pinned bandwidth. MEASURED GTX 1050 Ti, (100k, blk=1200) f32 = 480MB: the device D2H 143ms->75ms (1.9x);
+# end-to-end into a pageable slice incl. the added host memcpy 209ms->130ms (1.6x); the whole materialise+
+# bin+codes call (K=1200) 696ms->~575ms with the float path on. The buffer is a module-level singleton
+# (never on an instance -> pickle-safe), grown on demand and reused across the 15 canonical chunks.
+# bench-attempt-rejected (2026-06-21, prior): DEFERRING the float D2H entirely (out_cand=None + downstream
+# recompute) was a 0.98x fit-level WASH because removing an overlapped transfer cuts no wall -- but here we
+# do NOT remove it, we make the SAME bytes move faster (pinned DMA), which DOES cut the blocking-sync wall.
+_PINNED_D2H_BUF = None  # cupy pinned-memory allocation (raw); reused/grown across chunks
+
+
+def _pinned_view(n_bytes: int, shape, dtype):
+    """A pinned-host numpy view of at least ``n_bytes``, reshaped to ``shape`` (``dtype``). Reuses a
+    module-level pinned allocation, growing it on demand. Lets ``cupy.ndarray.get(out=...)`` DMA at full
+    pinned PCIe bandwidth instead of cp.asnumpy's pageable bounce-buffer path. Module-level (not on an
+    estimator instance) -> never reachable from pickled state."""
+    global _PINNED_D2H_BUF
+    import cupy as cp
+
+    if _PINNED_D2H_BUF is None or _PINNED_D2H_BUF.mem.size < n_bytes:
+        _PINNED_D2H_BUF = cp.cuda.alloc_pinned_memory(int(n_bytes))
+    count = int(np.prod(shape))
+    return np.frombuffer(_PINNED_D2H_BUF, dtype=dtype, count=count).reshape(shape)
+
+
+# Operand-table H2D cache (2026-06-21): the FE step's operand table ``transformed_vars`` is the SAME
+# array object across all ~15 chunks of a step, but was re-uploaded to the GPU per chunk (and again per
+# survivor re-materialise). Cache the device copy by WEAKREF IDENTITY of the host array: reuse while the
+# same object is alive (across the step's chunks), re-upload when the step swaps in a new operand table
+# (the weakref breaks). NOT keyed on id() -- id reuse after free would false-hit on a different table.
+# Pickle-safe (module-global, never on an instance). The data is identical -> candidates/codes/MI/
+# selection bit-identical; this only moves the H2D from per-chunk to once-per-step.
+_OPERAND_TABLE_CACHE: dict = {"ref": None, "gpu": None}
+
+
+# GPU-RESIDENT OPERAND TABLE (2026-06-21, phase 1 of the 100%-GPU-resident MRMR FE rewrite, gated).
+# The operand table ``transformed_vars`` (n, n_operands) float32 is built on the CPU in
+# ``check_prospective_fe_pairs`` (one column per (var, unary)), then ``_resident_operand_table`` H2Ds it to
+# the device ONCE per step. Phase 1 removes even that single H2D by building the device mirror's columns ON
+# the GPU directly from the resident raw operand inputs (via ``_unary_apply`` -- the same math as the CPU
+# ``unary_transformations``), so the materialise consumes a DEVICE array with NO host->device transfer of
+# the bulk operand bytes. The CPU ``transformed_vars`` is STILL built (the pair-search inner loops /
+# discretize read it on the host -- those move to the GPU in later phases); phase 1 only kills the
+# materialise H2D. Operand transforms that are NOT plain GPU unaries (prewarp / gate_med / hermite-poly --
+# fitted/special, no straightforward cupy form) are built on the CPU and copied into the resident mirror (a
+# few columns); the bulk plain-unary columns are GPU-built. The PREBUILT mirror is registered here by
+# weakref-identity of the host ``transformed_vars`` so ``_resident_operand_table`` returns it WITHOUT the
+# H2D. Module-global -> never reachable from pickled estimator state. Gated OFF by default
+# (``MLFRAME_FE_GPU_RESIDENT_OPERANDS``) until proven 11-green; the CPU / no-CUDA path is unchanged.
+_PREBUILT_OPERAND_TABLE: dict = {"ref": None, "gpu": None}
+
+
+def fe_gpu_resident_operands_enabled() -> bool:
+    """Whether the GPU-RESIDENT operand-table build (phase 1) is active. DEFAULT ON (opt-out
+    ``MLFRAME_FE_GPU_RESIDENT_OPERANDS=0``). When on (and CUDA present -- the caller guards this and
+    falls back on any failure) the operand table's bulk plain-unary columns are produced ON the GPU and
+    the materialise consumes the device array with no H2D re-upload; the CPU / no-CUDA path is byte-for-
+    byte unchanged (operand table H2D'd as before)."""
+    return os.environ.get("MLFRAME_FE_GPU_RESIDENT_OPERANDS", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def register_prebuilt_operand_table(transformed_vars, device_table) -> None:
+    """Register a GPU-RESIDENT device mirror ``device_table`` for the host operand table ``transformed_vars``
+    (keyed on the host array's weakref identity). ``_resident_operand_table`` then returns ``device_table``
+    for that exact host object WITHOUT re-uploading. Pass ``device_table=None`` to clear. The device array
+    MUST be a row-major (n, n_operands) C-contiguous float32 cupy array matching ``transformed_vars``'s
+    shape (the layout ``_fe_materialise_block_gpu``'s kernel addresses); a mismatch is ignored at lookup."""
+    import weakref
+    c = _PREBUILT_OPERAND_TABLE
+    if device_table is None:
+        c["ref"] = None
+        c["gpu"] = None
+        return
+    try:
+        c["ref"] = weakref.ref(transformed_vars)
+        c["gpu"] = device_table
+    except TypeError:
+        c["ref"] = None
+        c["gpu"] = None
+
+
+def _prebuilt_operand_table(transformed_vars):
+    """The registered GPU-resident device mirror for ``transformed_vars`` iff it matches the host array by
+    weakref identity AND shape (n, n_operands); else None. Shape guard so a stale/mismatched mirror can
+    never feed the materialise kernel a wrong-width table (out-of-bounds operand-column reads)."""
+    c = _PREBUILT_OPERAND_TABLE
+    ref = c["ref"]
+    if ref is None or c["gpu"] is None:
+        return None
+    if ref() is not transformed_vars:
+        return None
+    g = c["gpu"]
+    if tuple(g.shape) != tuple(transformed_vars.shape):
+        return None
+    return g
+
+
+def _resident_operand_table(cp, transformed_vars):
+    """Device (n, n_operands) float32 copy of ``transformed_vars``. When a GPU-RESIDENT mirror was prebuilt
+    for this exact host object (phase 1, ``register_prebuilt_operand_table``) it is returned WITH NO H2D --
+    the bulk operand bytes were produced on the device. Otherwise the host array is uploaded once per
+    distinct object (weakref-identity cache) and reused across a step's chunks; falls back to a plain
+    upload if the array is not weakref-able."""
+    import weakref
+    pre = _prebuilt_operand_table(transformed_vars)
+    if pre is not None:
+        return pre
+    c = _OPERAND_TABLE_CACHE
+    ref = c["ref"]
+    if ref is not None and ref() is transformed_vars and c["gpu"] is not None:
+        return c["gpu"]
+    g = cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32))
+    try:
+        c["ref"] = weakref.ref(transformed_vars)
+        c["gpu"] = g  # drops the prior step's device table (refcount -> freed)
+    except TypeError:
+        c["ref"] = None
+        c["gpu"] = None
+    return g
+
+
+def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unaries=()):
+    """Build a GPU-RESIDENT (n, n_operands) row-major float32 cupy mirror of the host operand table
+    ``transformed_vars``, producing the bulk PLAIN-UNARY columns ON the GPU (via ``_unary_apply`` -- the
+    same math the CPU ``unary_transformations`` applied) and COPYING the rest (prewarp / gate_med /
+    hermite-poly / any name in ``fallback_unaries`` / any GPU-unbuildable column) from the host array.
+
+    ``col_specs`` is a list aligned with the operand-table columns: each entry is ``(col_idx, raw_vals,
+    unary_name)`` where ``raw_vals`` is the host float64 raw operand input the CPU applied ``unary_name`` to
+    (or ``None`` for a column with no GPU recipe -> copied from the host). A column is GPU-built iff
+    ``raw_vals is not None``, ``unary_name`` is a known plain unary (``_unary_apply`` accepts it, not in
+    ``fallback_unaries``). The unary is applied on the GPU in float64 (the dtype the CPU ``tr_func``
+    received) then cast to float32 (mirroring the CPU's compute-in-f64-then-store-f32) so the GPU column
+    matches the host column to fp round-off. Any per-column GPU failure falls that column back to the host
+    copy (never a correctness regression). Returns the device array (already row-major C-contiguous f32);
+    the caller registers it via ``register_prebuilt_operand_table``."""
+    import cupy as cp
+
+    from ._gpu_resident_fe import _gpu_apply_prewarp  # lazy: parent-defined, avoids import cycle
+
+    n, n_operands = transformed_vars.shape
+    fb = set(fallback_unaries)
+    # Allocate the device mirror WITHOUT uploading the host table: the residency win is precisely that the
+    # bulk operand bytes never make the host->device trip. We H2D ONLY the small per-operand RAW inputs (n
+    # floats each, cached so each distinct raw operand is uploaded ONCE -- they recur across a var's unaries)
+    # and GPU-build the plain columns from them; the FEW non-plain / failed columns are copied from the host
+    # one column at a time. Columns with no spec (the unused tail, if any) are zero-filled -- they are never
+    # read by the materialise (operand indices are always < the used width), so their content is irrelevant.
+    g = cp.zeros((n, n_operands), dtype=cp.float32)
+    # ONE-TRANSFER (phase R0, 2026-06-21): batch the DISTINCT raw operands referenced by the GPU-buildable
+    # specs into per-dtype host matrices and upload each in ONE H2D, instead of one cp.asarray per distinct
+    # raw. Each raw keeps its NATIVE float dtype (we group BY dtype) so the unary still applies in the exact
+    # dtype the CPU ``tr_func`` saw -> the GPU column matches the host column to fp round-off (the invariant
+    # the per-operand path enforced). Values are byte-identical; only the H2D packaging changes. Per-dtype
+    # grouping means uniform-dtype fits (the common case: all-pandas f64 -> 14 distinct raws) collapse to ONE
+    # upload. The device column is a strided VIEW into the group matrix -- _unary_apply is elementwise, so the
+    # result equals the contiguous-input result bit-for-bit. Any group/build failure falls that column back to
+    # the host copy below (never a correctness regression).
+    _raw_slot: dict = {}   # id(raw_vals) -> (dtype_key, slot_in_group)
+    _groups: dict = {}     # dtype_key -> list[host column in native float dtype]
+    for _spec_t in col_specs:
+        col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
+        if raw_vals is not None and unary_name not in fb:
+            _rk = id(raw_vals)
+            if _rk not in _raw_slot:
+                _rv = np.ascontiguousarray(raw_vals)
+                if not np.issubdtype(_rv.dtype, np.floating):
+                    _rv = _rv.astype(np.float64)  # CPU tr_func on a non-float would also promote
+                _dk = _rv.dtype.str
+                grp = _groups.setdefault(_dk, [])
+                _raw_slot[_rk] = (_dk, len(grp))
+                grp.append(_rv)
+    _dev_groups: dict = {}  # dtype_key -> device (n, m) array (ONE H2D per dtype group)
+    for _dk, cols in _groups.items():
+        try:
+            _host = (np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1
+                     else np.ascontiguousarray(cols[0]).reshape(-1, 1))
+            _dev_groups[_dk] = cp.asarray(_host)
+        except Exception:
+            _dev_groups[_dk] = None
+    n_gpu = 0
+    n_cpu = 0
+    for _spec_t in col_specs:
+        col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
+        _payload = _spec_t[3] if len(_spec_t) > 3 else None  # R1: prewarp GPU-apply payload (or None)
+        gpu_built = False
+        if raw_vals is not None and unary_name not in fb:
+            try:
+                _dk, _slot = _raw_slot[id(raw_vals)]
+                _dev = _dev_groups.get(_dk)
+                if _dev is not None:
+                    x = _dev[:, _slot]   # native-dtype device view of this raw operand (no per-operand H2D)
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        if _payload is not None and _payload.get("kind") == "prewarp":
+                            # R1: APPLY the prewarp on the device (preprocess + Clenshaw) from the raw + spec,
+                            # mirroring hermite_fe.apply_operand_prewarp -- no host-column H2D. _gpu_apply_prewarp
+                            # raises for any unported basis -> falls to the host copy below (bit-exact).
+                            col = _gpu_apply_prewarp(cp, x, _payload["spec"])
+                        else:
+                            col = _unary_apply(cp, unary_name, x)
+                    # nan_to_num is NOT applied here: the CPU operand table stores the raw unary output
+                    # (un-scrubbed) too -- the materialise kernel scrubs NaN/inf inline -> bit-equal.
+                    g[:, col_idx] = col.astype(cp.float32)
+                    gpu_built = True
+            except Exception:
+                gpu_built = False
+        if not gpu_built:
+            # Non-plain (prewarp / gate_med / poly) or failed: copy just THIS column from the host (a single
+            # (n,) f32 H2D, not the whole table) so the device column equals the CPU bytes exactly.
+            g[:, col_idx] = cp.asarray(np.ascontiguousarray(transformed_vars[:, col_idx], dtype=np.float32))
+            n_cpu += 1
+        else:
+            n_gpu += 1
+    return cp.ascontiguousarray(g), n_gpu, n_cpu
+
+
+def gpu_materialise_discretize_codes_host(
+    transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
+    nbins: int, *, dtype=np.int8, out_cand: np.ndarray | None = None,
+) -> np.ndarray:
+    """GPU fast path for the FE chunk's MATERIALISE + BINNING. Uploads the operand table
+    ``transformed_vars`` (n, n_operands) float32 ONCE, then for each VRAM-bounded column block: generates
+    the float32 candidate matrix on the GPU (``_fe_materialise_block_gpu`` -- bit-equal to
+    ``_materialise_chunk_njit``) and quantile-bins it RESIDENT (``_gpu_resident_discretize_codes``,
+    bit-equal to ``discretize_2d_quantile_batch``). Returns the (n, K) ``dtype`` codes (BIT-IDENTICAL to
+    the CPU njit-materialise -> ``gpu_discretize_codes_host`` pipeline, verified maxdiff 0).
+
+    The candidate matrix is generated + binned RESIDENT (the int codes are the only mandatory D2H). But the
+    downstream FE survivor / usability / ext-val stages read the CONTINUOUS candidate columns out of the
+    chunk buffer, so the caller passes ``out_cand`` (the ``chunk_buffer[:, :K]`` float32 view) to receive
+    the materialised float candidate matrix as well -- this replaces the CPU njit materialise with the GPU
+    one (the bandwidth-bound strided-gather op the GPU is good at) while keeping the buffer the rest of the
+    pipeline expects. Pass ``out_cand=None`` to skip the float D2H (codes-only, when no downstream
+    continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
+    import cupy as cp
+
+    # Drop any stale handoff/deferred-fill from a PRIOR chunk before producing this one (releases that
+    # chunk's pinned device codes; each chunk's dispatch should already have consumed/cleared its own).
+    clear_resident_codes_handoff()
+    tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
+    a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
+    b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
+    op_codes = np.ascontiguousarray(op_codes, dtype=np.int8)
+    n = int(tv.shape[0])
+    K = int(a_cols.shape[0])
+    # Operand table H2D cached per-step by weakref identity (same transformed_vars across the step's
+    # chunks -> uploaded ONCE, not per chunk). Pass the ORIGINAL array so the weakref tracks it.
+    tv_gpu = _resident_operand_table(cp, transformed_vars)
+    out = np.empty((n, K), dtype=dtype)
+    # RESIDENT-CODES HANDOFF (gated, default OFF): keep the on-device int codes in ONE (n, K) resident
+    # cupy array so the noise-gate's resident-CUDA path can consume them DIRECTLY -- skipping the codes'
+    # GPU->host (here) ->GPU (the gate's H2D) round-trip. The host ``out`` is STILL filled (the CPU /
+    # analytic / opt-out / SU / any-failure dispatch branches need it and it is the safe fallback), so this
+    # only ADDS a resident copy when the gate is on; the round-trip is skipped only when the resident gate
+    # is the actual consumer (it matches ``out`` by identity via the module handoff).
+    _resident_codes_on = fe_gpu_resident_codes_enabled()
+    dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
+    # DEFER the host-codes D2H when the resident handoff is on: the host ``out`` is filled LAZILY (only if a
+    # host consumer reads it -- see ensure_host_codes_filled) instead of eagerly per block. This skips the
+    # (n, K) codes D2H (the canonical fit's single largest D2H) whenever the resident gate consumes the
+    # device codes. Needs dev_codes (the resident copy) to fill from, so it is only active with it.
+    _defer_host_codes = bool(dev_codes is not None and fe_gpu_defer_host_codes_enabled())
+    # CODES path footprint is f32 (cand + transpose + int32 codes + narrow out), ~4B x ~4 working copies --
+    # NOT the f64 MI prototype's 8x5. Budget for that so the VRAM sub-chunk is ~3x wider -> ~3x fewer
+    # radix/bin/materialise launches (cuts the launch+sync+GPU-idle overhead). working_multiple=6 keeps a
+    # safe margin over the honest ~4 on the 4GB card; still 0.25*free VRAM-governed; per-column-independent
+    # so codes are bit-identical regardless of chunk boundary.
+    k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
+    for start in range(0, K, k_chunk):
+        stop = min(start + k_chunk, K)
+        cand = _fe_materialise_block_gpu(
+            tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop]
+        )  # resident (n, blk) float32 -- bit-equal to _materialise_chunk_njit
+        if out_cand is not None:
+            # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
+            # PINNED host buffer (full PCIe bandwidth) then host->host memcpy into the caller's pageable
+            # slice -- 1.6x faster than cp.asnumpy's pageable bounce-buffer path even WITH the added memcpy
+            # (see _pinned_view note). Bit-identical bytes. Falls back to cp.asnumpy on any pinned-alloc
+            # failure (e.g. host pinned-memory exhaustion) so it can never regress correctness.
+            try:
+                hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype)
+                cand.get(out=hv)
+                out_cand[:, start:stop] = hv
+            except Exception:
+                import logging
+                logging.getLogger(__name__).debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
+                out_cand[:, start:stop] = cp.asnumpy(cand)
+        # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) -- no f64 up-cast: the
+        # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless
+        # cast AND halves the bandwidth-bound percentile sort, while preserving the FE selection. The exact
+        # f64 fallback (bit-identical to the CPU pipeline) is one env flip away (MLFRAME_FE_GPU_BINNING_DTYPE
+        # =float64). _gpu_resident_discretize_codes applies the working dtype internally.
+        codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))
+        # Cast int32 codes -> target narrow ``dtype`` (int8/int16) ON the GPU before the D2H so the
+        # transfer moves 1/4 (int8) the bytes of the int32 codes AND skips the host-side astype copy.
+        # bench (GTX 1050 Ti, n=100k K=384): int32-D2H+host-cast 170ms -> gpu-cast+D2H 25ms = 6.7x on
+        # the codes export, BIT-IDENTICAL. The narrow dtype is the FE code dtype (nbins<=255 -> int8),
+        # so the on-device cast cannot overflow.
+        _cd = np.dtype(dtype)
+        codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
+        if dev_codes is not None:
+            # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below). Bit-identical to the
+            # host ``out`` slice -> selection-equivalent when the resident gate consumes the device copy.
+            dev_codes[:, start:stop] = codes_out
+        if not _defer_host_codes:
+            # Eager host fill (deferral off, or no resident copy): D2H this block's codes into ``out`` now.
+            out[:, start:stop] = cp.asnumpy(codes_out)
+        del cand, codes_gpu, codes_out
+    if dev_codes is not None:
+        # Stash by the returned host array's identity so the dispatch can pick the device codes up without
+        # the chunk path threading a new argument (see _RESIDENT_CODES_HANDOFF). Any consumer that is NOT
+        # the resident CUDA gate simply ignores it + reads ``out`` (host) as before.
+        _stash_resident_codes(out, dev_codes)
+    if _defer_host_codes:
+        # ``out`` is UNFILLED -- register the lazy device->host fill so a host-reading consumer (analytic /
+        # CPU / non-resident GPU) can materialise it on demand via ensure_host_codes_filled. The eager
+        # per-block D2H above was skipped; the resident gate reads the device codes directly (no host read).
+        _stash_deferred_host_fill(out, dev_codes)
+    return out
+
+
+def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) -> np.ndarray:
+    """Quantile-bin a host (n, K) float candidate matrix to ordinal codes via the GPU, returning a host
+    ``(n, K)`` array of ``dtype``. The FE candidate buffer is ALREADY float32, so the matrix is kept at
+    its native dtype (NO f64 up-cast) and binned in float32 (the input's native dtype) -- removing a
+    needless cast AND halving the bandwidth-bound cp.percentile sort, while preserving the FE selection
+    (the acceptance bar; f32-vs-f64 codes agree ~100%). Set ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` for
+    the bit-identical fallback matching the CPU ``discretize_2d_quantile_batch`` (np.percentile upcasts
+    float32 to float64). Feeding the result into the UNCHANGED ``_dispatch_batch_mi_with_noise_gate``
+    keeps the FE selection equivalent -- this only moves the binning (CPU partition+searchsorted, the
+    dominant per-pair cost at large n) onto the GPU. Inputs are assumed finite (caller scrubs NaN/inf).
+
+    VRAM-chunked over columns so a wide candidate block never over-allocates device memory."""
+    import cupy as cp
+
+    cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) -- no f64 up-cast
+    n, K = cand.shape
+    out = np.empty((n, K), dtype=dtype)
+    clear_resident_codes_handoff()  # drop any stale prior-chunk handoff before producing this one
+    # RESIDENT-CODES HANDOFF (gated, default ON when CUDA present): this is the SECOND codes leg -- the
+    # binning-only path the canonical FE chunk takes when the candidate buffer is materialised on the CPU
+    # (the default minimal preset's numpy-fallback materialise) then binned on the GPU. It produces the
+    # SAME on-device int codes as the fused materialise path, so keep them RESIDENT (one (n, K) cupy array
+    # in the narrow code dtype) and stash them by the returned host array's identity -- the noise-gate
+    # dispatch then consumes the device codes IN PLACE, skipping the codes' GPU->host (here) ->GPU (the
+    # gate's H2D) round-trip. The host ``out`` is STILL filled (the CPU / analytic / opt-out / any-failure
+    # branches read it, and it is the safe fallback), so this only ADDS a resident copy when the gate is on;
+    # the round-trip is skipped only when the resident CUDA gate is the actual consumer (it matches ``out``
+    # by identity). Bit-identical to the host codes -> selection unchanged.
+    _resident_codes_on = fe_gpu_resident_codes_enabled()
+    dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
+    # NOTE: this binning-only leg does NOT defer the host-codes D2H. Its documented contract is to RETURN a
+    # filled host (n, K) codes array (direct callers -- gpu_pairs_fe_mi's analytic path + the bit-identity
+    # tests -- read the return directly, not through the dispatch's ensure_host_codes_filled), and at the
+    # canonical fit it is OFF the hot path (the fused gpu_materialise_discretize_codes_host leg, which DOES
+    # defer, produces ~all the codes D2H). Keeping it eager keeps the contract intact for ~0 measured cost.
+    # f32 codes-path footprint (see gpu_materialise_discretize_codes_host) -> wider VRAM sub-chunk, ~3x
+    # fewer bin/edge launches; per-column-independent -> bit-identical codes.
+    k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
+    for start in range(0, K, k_chunk):
+        block = cand[:, start:start + k_chunk]
+        stop = start + block.shape[1]
+        codes_gpu = _gpu_resident_discretize_codes(cp.asarray(block), int(nbins))
+        # Narrow int32->dtype ON the GPU before D2H (1/4 the bytes for int8, no host astype copy) --
+        # same 6.7x codes-export win as gpu_materialise_discretize_codes_host, BIT-IDENTICAL.
+        _cd = np.dtype(dtype)
+        codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
+        if dev_codes is not None:
+            # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below) for the gate consumer.
+            dev_codes[:, start:stop] = codes_out
+        out[:, start:stop] = cp.asnumpy(codes_out)
+        del codes_gpu, codes_out
+    if dev_codes is not None:
+        _stash_resident_codes(out, dev_codes)
+    return out

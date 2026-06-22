@@ -107,13 +107,8 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``save_mlframe_model`` body (atomic-write + sidecar + version-stamp orchestration) lifts cleanly into a
     # ``_io_save.py`` sibling re-exported from io.py; ``load_mlframe_model`` + the ``_SafeUnpickler`` stay in the parent.
     # (de-exempted 2026-06-22: save_mlframe_model carved to _io_save.py)
-    # FIXME(carve-wave-next): the GPU-residency replatform grew these filter modules past the 1k ceiling
-    # (candidate-float / codes residency, the radix-select edges, the per-host KTC sweep + dispatch). Carve
-    # candidates: lift the residency-buffer + radix-select block out of _gpu_resident_fe.py into a
-    # ``_gpu_resident_select.py`` sibling; split the cupy/cuda RawKernel bodies in batch_mi_noise_gate_gpu.py
-    # into a ``_batch_mi_noise_gate_kernels.py``; the orthogonal-univariate facade can shed its extra-basis
-    # re-exports into the already-existing ``_orth_extra_basis_fe*`` siblings.
-    "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
+    # (de-exempted 2026-06-22: radix-select/residency block carved to _gpu_resident_select.py [+ the
+    # prewarp/orth-basis + grand-fusion block to _gpu_resident_basis.py]; _gpu_resident_fe.py now under 1k)
     # (de-exempted 2026-06-22: kernels carved to _batch_mi_noise_gate_kernels.py)
     "src/mlframe/feature_selection/filters/evaluation.py",
     # (de-exempted 2026-06-22: _orthogonal_univariate_fe/__init__.py carved to ~860 LOC via _orth_dedup.py)
