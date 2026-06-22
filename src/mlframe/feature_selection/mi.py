@@ -14,6 +14,11 @@ from numba import njit, prange
 # numerical drift under @njit(fastmath=True). DO NOT delete or unify them.
 # The runtime benchmark in feature_selection.general picks the fastest
 # at import time but all three must remain callable for correctness tests.
+#
+# INPUT CONTRACT (load-bearing, fastmath relies on it): every kernel here assumes the data is ALREADY binned to finite, non-negative integer codes in [0, n_bins-1]
+# and uses them directly as histogram offsets. fastmath=True additionally tells LLVM the inputs are finite, so a NaN/inf or out-of-range code is undefined behaviour
+# (out-of-bounds write), not a handled case. The chatgpt path validates the [0,127] int8 range before its cast; the grok/deepseek paths do NOT -- callers feeding those
+# kernels MUST pre-bin to int8 themselves. A constant column collapses to a single histogram bin and correctly yields MI=0; empty data (n_samples==0) is guarded per-kernel.
 
 USE_FASTMATH: bool = True
 

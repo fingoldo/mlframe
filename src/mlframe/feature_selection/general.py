@@ -218,7 +218,10 @@ def estimate_features_relevancy(
             baseline_mi = np.nanquantile(all_permuted_mis[target_name], permuted_max_mi_quantile) * min_mi_prevalence
 
         target_features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
-        # test #1: original MI must be above highest permuted MI for this feature
+        # test #1: original MI must be above highest permuted MI for this feature.
+        # The exceedance uses ``>=`` (a permuted MI that ties the observed counts as a failure); on discrete / low-cardinality data ties are frequent, so this is mildly
+        # conservative (it can demote a genuinely-weak feature whose null occasionally ties it). Tolerated here because the prevalence is rate-thresholded against
+        # ``max_permuted_prevalence_percent`` rather than requiring zero exceedances, and ``nanmax`` / ``nanquantile`` already guard the NaN-MI degenerate-pair case below.
         permuted_prevalence = (current_permuted_mis[target_name] >= original_mi_results[target_idx]).sum(axis=0)
         passed_permutation = ((permuted_prevalence / current_permuted_mis[target_name].shape[0]) <= max_permuted_prevalence_percent).astype(np.int32)
         target_features_usefulness = target_features_usefulness + passed_permutation

@@ -41,6 +41,34 @@ import os as _os
 _NULL_MEAN_MIN_PERMS = max(2, int(_os.environ.get("MLFRAME_MRMR_NULL_PERMS", "32")))
 
 
+def _addone_pvalue_enabled() -> bool:
+    """Whether the permutation p-value uses the add-one (Monte-Carlo) estimator ``p = (1 + nfailed) / (nchecked + 1)`` instead of the plain ``nfailed / nchecked``.
+
+    The plain rate is a biased-low estimator of the true tail probability: with a finite permutation budget it can read p=0 (confidence=1.0) for a feature whose true p is
+    merely small, and on discrete / low-cardinality data the exceedance comparator ``mi_perm >= original_mi`` counts ties as failures, so the plain rate is ALSO upward-biased
+    on the noise side. The add-one form ``(1 + nfailed)/(nchecked + 1)`` is the standard, unbiased Monte-Carlo p-value estimator (Davison & Hinkley 1997; Phipson & Smyth 2010):
+    it can never assert p exactly 0 from a finite sample and corrects the tie bias toward a calibrated value. SELECTION-ALTERING (it shifts the confidence each candidate
+    receives), so it is gated. Default ON per the corrective-mechanism convention after the multi-seed selection bench (``_benchmarks/bench_perm_pvalue_addone.py``) confirmed it
+    does not worsen selection on discrete data. Set ``MLFRAME_MRMR_ADDONE_PVALUE=0`` for the legacy plain-rate estimator.
+    """
+    return _os.environ.get("MLFRAME_MRMR_ADDONE_PVALUE", "1") != "0"
+
+
+def _perm_pvalue(nfailed: int, nchecked: int, full_budget: int = None) -> float:
+    """Permutation p-value from the exceedance count.
+
+    ``full_budget`` (P2): when an early-break path stopped at ``nchecked < full_budget`` because ``nfailed`` blew past ``max_failed``, the plain ``nfailed/nchecked`` OVERSTATES
+    the failure rate relative to a full-budget run (the run stopped precisely because failures were piling up early). Passing the full budget makes the denominator budget-
+    consistent so the returned confidence does not depend on WHERE the early break happened to fire. The add-one numerator/denominator both then use the full budget.
+    """
+    if nchecked <= 0:
+        return 1.0
+    denom = int(full_budget) if (full_budget is not None and int(full_budget) > nchecked) else nchecked
+    if _addone_pvalue_enabled():
+        return (1.0 + nfailed) / (denom + 1.0)
+    return nfailed / float(denom)
+
+
 @njit(cache=True)
 def distribute_permutations(npermutations: int, n_workers: int) -> list:
     """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""
@@ -621,10 +649,13 @@ def mi_direct(
             )
             if n_checked > 0:
                 null_mean = sum_perm_mi / float(n_checked)
-                p_value = nfailed / float(n_checked)
+                # The rejection gate uses the RAW exceedance rate (legacy unanimous-rejection semantics on the screen's tiny budget), while the surfaced p_value / confidence use
+                # the add-one Monte-Carlo estimator -- the gate decision is unchanged, only the reported confidence is calibrated. ``_null_nperms`` is the full budget for P2.
+                _raw_rate = nfailed / float(n_checked)
+                p_value = _perm_pvalue(nfailed, n_checked, full_budget=_null_nperms)
                 confidence = 1.0 - p_value
                 _rate_floor = float(1.0 - float(min_nonzero_confidence))
-                if p_value >= _rate_floor:
+                if _raw_rate >= _rate_floor:
                     original_mi = 0.0
         return original_mi, confidence, null_mean, p_value
 
@@ -782,8 +813,9 @@ def mi_direct(
             if nfailed >= max_failed:
                 original_mi = 0.0
 
-        # Caller-side npermutations==0 guard.
+        # Caller-side npermutations==0 guard. P2: the BC and outer-worker paths can early-break with ``n_checked = i + 1 < npermutations``; pass the full budget so the
+        # reported confidence is full-budget-consistent (does not depend on where the break fired), and apply the add-one Monte-Carlo p-value estimator (P1).
         if i >= 0:
-            confidence = 1 - nfailed / (i + 1)
+            confidence = 1.0 - _perm_pvalue(nfailed, i + 1, full_budget=npermutations)
 
     return original_mi, confidence

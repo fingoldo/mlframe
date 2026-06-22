@@ -221,19 +221,25 @@ def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_signi
 
 
 def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, factors_nbins, dtype=np.int32):
-    """Sum_j I(Y; X_j | X_i) over neighbors via the chain rule ``I((X_i,X_j);Y) - I(X_i;Y)`` (clamped >=0).
+    """Sum_j I(Y; X_j | X_i) over neighbors via the chain rule ``I((X_i,X_j);Y) - I(X_i;Y)``.
 
-    Returns ``(total_unique, [(j, cmi), ...])``. Large total => neighbors carry target info beyond X_i
+    Returns ``(total_unique, [(j, cmi_raw), ...])``. Large total => neighbors carry target info beyond X_i
     (friend-graph "sink"); small total => neighbors are noisy copies of the same signal (a reflection
     cluster the aggregate step wants).
+
+    The per-neighbor value carried in ``detail`` is the RAW chain-rule CMI (it may be slightly negative from plug-in finite-sample noise -- the joint estimate over the
+    (X_i, X_j) cells carries more positive bias than the marginal I(X_i;Y), so a true-zero CMI fluctuates around 0). Only the ``total_unique`` AGGREGATE is clamped at 0
+    for the red-flag comparison, which must be a non-negative "how much extra do the friends know" quantity. Previously the per-neighbor value was clamped too, which
+    silently zeroed every noisy-but-real positive neighbor and could leave a red node flagged-but-unprunable (no justifier survived the clamp); keeping the raw sign in
+    ``detail`` lets ``prune_by_friend_graph`` recognise a weakly-positive justifier instead of discarding it.
     """
     detail: List[Tuple[int, float]] = []
     total_unique = 0.0
     for j in neighbor_indices:
         joint = float(mi(factors_data, np.array([i, j], dtype=np.int64), target, factors_nbins, dtype=dtype))
-        cmi = max(0.0, joint - rel_i)
+        cmi = joint - rel_i
         detail.append((int(j), cmi))
-        total_unique += cmi
+        total_unique += max(0.0, cmi)
     return total_unique, detail
 
 
@@ -254,11 +260,15 @@ def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tup
             g.add_edge(e.a, e.b, weight=float(e.mi))
         raw = nx.spring_layout(g, weight="weight", seed=int(seed) if seed is not None else None)
         return {int(k): (float(v[0]), float(v[1])) for k, v in raw.items()}
-    except Exception:
-        logger.debug("networkx layout unavailable; using deterministic circular layout", exc_info=True)
-        n = len(sel)
-        angles = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
-        return {int(v): (float(np.cos(a)), float(np.sin(a))) for v, a in zip(sel, angles)}
+    except (ImportError, ModuleNotFoundError) as _exc:
+        logger.debug("networkx unavailable (%s); using deterministic circular layout", _exc)
+    except Exception as _exc:
+        # Layout is purely cosmetic (node positions for the plot), so a degenerate-graph failure inside spring_layout must not abort graph construction -- but WARN
+        # so a real networkx bug is distinguishable from the expected "networkx absent" path above, then fall through to the deterministic circular layout.
+        logger.warning("friend_graph spring_layout raised %s: %s; using circular layout", type(_exc).__name__, _exc, exc_info=True)
+    n = len(sel)
+    angles = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
+    return {int(v): (float(np.cos(a)), float(np.sin(a))) for v, a in zip(sel, angles)}
 
 
 def build_friend_graph(
@@ -336,8 +346,14 @@ def build_friend_graph(
                 sel, factors_data, factors_nbins, target,
                 dtype=dtype, force_backend=gpu_backend,
             )
-        except Exception:
-            logger.debug("friend_graph GPU dispatch unavailable; using CPU edge pass", exc_info=True)
+        except (ImportError, ModuleNotFoundError) as _exc:
+            # The expected "no GPU here" outcome: cupy / the GPU twin module is absent. Quietly fall back to the bit-identical CPU edge pass.
+            logger.debug("friend_graph GPU dispatch unavailable (%s); using CPU edge pass", _exc)
+            gpu_stats = None
+        except Exception as _exc:
+            # A real error from the GPU path (shape mismatch, bad dtype, CUDA OOM) -- distinct from "GPU absent". WARN so a genuine kernel bug is not silently
+            # indistinguishable from a missing device, then still fall back to CPU so the diagnostic graph is produced.
+            logger.warning("friend_graph GPU dispatch raised %s: %s; falling back to CPU edge pass", type(_exc).__name__, _exc, exc_info=True)
             gpu_stats = None
 
     # Per-node entropy + target relevance (from GPU stats when present, else CPU
@@ -413,6 +429,12 @@ def build_friend_graph(
     # unique_max_degree others carries non-shared knowledge and is green.
     neighbors_unique: Dict[int, float] = {i: 0.0 for i in sel}
     klass: Dict[int, str] = {}
+    # Bias-debias constants for the F3 garbage threshold: n (row count) and the target cardinality (product of the target columns' bin counts).
+    n_samples_garbage = float(max(1, int(factors_data.shape[0])))
+    n_y_card = 1
+    for _t in np.asarray(target, dtype=np.int64).ravel():
+        n_y_card *= int(factors_nbins[int(_t)])
+    n_y_card = max(2, n_y_card)
     for i in sel:
         if edges_skipped:
             klass[i] = "yellow"
@@ -425,7 +447,20 @@ def build_friend_graph(
             )
             neighbors_unique[i] = total_unique
             graph._neighbor_unique_detail[i] = detail
-            if total_unique > max(mi_eps, garbage_unique_ratio * rel[i]):
+            # F3 finite-sample debias: the red-flag compares ``total_unique`` (a SUM of ``degree`` chain-rule CMIs, each carrying the upward plug-in bias of a 2-variable
+            # joint MI ~ (n_i*n_j-1)(n_y-1)/(2n)) against ``rel[i]`` (a single 1-variable MI, bias ~ (n_i-1)(n_y-1)/(2n)). Comparing the inflated multi-term sum against the
+            # less-inflated single term tilts the decision toward flagging high-cardinality nodes red purely from bias, flipping which features ``prune_by_friend_graph``
+            # removes on small n. Subtract the Miller-Madow bias from BOTH sides (each chain-rule term debiased by [(n_i*n_j-1)-(n_i-1)](n_y-1)/(2n); rel[i] by its own
+            # (n_i-1)(n_y-1)/(2n)) so the threshold compares bias-matched quantities. At large n the corrections vanish and the decision is unchanged.
+            n_i = int(factors_nbins[i])
+            total_unique_db = 0.0
+            for j, _m in neighbors[i]:
+                n_j = int(factors_nbins[j])
+                cmi_bias = (n_i * n_j - 1 - (n_i - 1)) * (n_y_card - 1) / (2.0 * n_samples_garbage)
+                idx_cmi = next((c for jj, c in detail if jj == int(j)), 0.0)
+                total_unique_db += max(0.0, idx_cmi - cmi_bias)
+            rel_i_db = max(0.0, rel[i] - (n_i - 1) * (n_y_card - 1) / (2.0 * n_samples_garbage))
+            if total_unique_db > max(mi_eps, garbage_unique_ratio * rel_i_db):
                 klass[i] = "red"
             else:
                 klass[i] = "yellow"

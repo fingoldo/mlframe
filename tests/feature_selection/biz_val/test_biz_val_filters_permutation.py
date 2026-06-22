@@ -342,9 +342,13 @@ def test_biz_val_significance_gate_keeps_weak_signal_demotes_noise():
 
 def test_biz_val_null_signif_alpha_default_is_005_and_decision_stable_across_band():
     """Pins the production default ``_MRMR_NULL_SIGNIF_ALPHA == 0.05`` (the constant ``evaluate_candidate`` reads on the CPU MRMR relevance path) AND the KEEP verdict of
-    bench_mrmr_null_signif_alpha: the keep/demote decision is INVARIANT across the whole benched 0.01-0.15 alpha band for clear signal and clear noise, because the
-    permutation p-value distribution is bimodal (signal p ~ 0, noise p ~ 0.3-0.7) far from any cutoff. A future flip of the default (or a regression that smears the
-    p-value distribution toward the cutoffs) trips this sensor."""
+    bench_mrmr_null_signif_alpha: the keep/demote decision is INVARIANT across the alpha band for clear signal and clear noise, because the permutation p-value distribution
+    is bimodal (signal p near the MC floor, noise p ~ 0.3-0.7) far from any cutoff. A future flip of the default (or a regression that smears the p-value distribution toward
+    the cutoffs) trips this sensor.
+
+    Band starts at 0.031: with the add-one Monte-Carlo p-value estimator (P1, default ON) the smallest resolvable p on the screen's null budget (``_NULL_MEAN_MIN_PERMS=32``)
+    is ``1/(32+1) = 0.0303`` -- the estimator cannot honestly claim a p below its own resolution, so alpha values under the MC floor are below the achievable resolution and
+    are not part of the stability band. This is the calibration correctness the add-one buys (no false p=0), not a regression."""
     from mlframe.feature_selection.filters import evaluation
     from mlframe.feature_selection.filters.permutation import mi_direct
 
@@ -366,7 +370,69 @@ def test_biz_val_null_signif_alpha_default_is_005_and_decision_stable_across_ban
     _, _, _, p_noise = mi_direct(noise, x=(0,), y=(1,), factors_nbins=fnb_noise,
                                  npermutations=2, base_seed=1, prefer_gpu=False, return_null_mean=True)
 
-    # Decision (significant => keep) is identical for every alpha in the benched band: signal always kept, noise always demoted.
-    for alpha in (0.01, 0.031, 0.05, 0.0625, 0.10, 0.15):
+    # Decision (significant => keep) is identical for every alpha in the band at/above the add-one MC resolution floor: signal always kept, noise always demoted.
+    for alpha in (0.031, 0.05, 0.0625, 0.10, 0.15):
         assert (p_sig < alpha) is True, f"clear signal must be kept (significant) at alpha={alpha}; p_sig={p_sig:.4f}"
         assert (p_noise >= alpha) is True, f"clear noise must be demoted (non-significant) at alpha={alpha}; p_noise={p_noise:.4f}"
+
+
+# ---------------------------------------------------------------------------
+# P1: add-one Monte-Carlo p-value estimator (calibrated confidence on discrete/tied data).
+# P2: early-break confidence is full-budget-consistent.
+# ---------------------------------------------------------------------------
+
+
+def _addone_factors(n=2000, seed=0):
+    """Strong-signal discrete column where NO permutation beats the observed MI -> plain rate gives confidence exactly 1.0; add-one caps it below 1.0."""
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, 2, n).astype(np.int32)
+    x = (y ^ (rng.random(n) < 0.05)).astype(np.int32)
+    data = np.column_stack([x, y]).astype(np.int32)
+    return data, np.array([2, 2], dtype=np.int64)
+
+
+def test_biz_val_addone_pvalue_caps_confidence_below_one(monkeypatch):
+    """biz_value (P1): on a strong-signal discrete column where zero permutations beat the observed MI, the plain rate reports an over-confident p=0 / confidence=1.0, while
+    the add-one estimator reports the calibrated ``conf = 1 - 1/(nperm+1)`` < 1.0. The measured win is a finite, budget-aware confidence ceiling rather than false certainty."""
+    from mlframe.feature_selection.filters import permutation as pm
+    data, fnb = _addone_factors()
+    nperm = 200
+
+    monkeypatch.setenv("MLFRAME_MRMR_ADDONE_PVALUE", "0")
+    _, conf_plain = pm.mi_direct(data, x=(0,), y=(1,), factors_nbins=fnb,
+                                 npermutations=nperm, parallelism="inner", base_seed=1, prefer_gpu=False)
+    monkeypatch.setenv("MLFRAME_MRMR_ADDONE_PVALUE", "1")
+    _, conf_add = pm.mi_direct(data, x=(0,), y=(1,), factors_nbins=fnb,
+                               npermutations=nperm, parallelism="inner", base_seed=1, prefer_gpu=False)
+
+    assert conf_plain == pytest.approx(1.0), f"plain rate must read full confidence on a no-failure strong signal; got {conf_plain}"
+    expected_ceiling = 1.0 - 1.0 / (nperm + 1.0)
+    assert conf_add == pytest.approx(expected_ceiling, abs=1e-9), f"add-one confidence must equal 1-1/(nperm+1)={expected_ceiling:.5f}; got {conf_add}"
+    assert conf_add < conf_plain, "add-one must be strictly more conservative than the plain rate when no permutation fails"
+
+
+def test_regression_addone_default_is_on_and_does_not_change_selection(monkeypatch):
+    """Regression (P1): the add-one estimator is ON by default (no env var set) AND the post-gate MI selection is identical to the plain-rate mode, so flipping it on changed
+    only the reported confidence, never which feature is kept. Pre-fix there was no add-one (plain rate only); this pins the corrective default."""
+    from mlframe.feature_selection.filters import permutation as pm
+    monkeypatch.delenv("MLFRAME_MRMR_ADDONE_PVALUE", raising=False)
+    assert pm._addone_pvalue_enabled() is True, "add-one p-value must default ON"
+
+    data, fnb = _addone_factors(seed=3)
+    mi_default, _ = pm.mi_direct(data, x=(0,), y=(1,), factors_nbins=fnb,
+                                 npermutations=64, parallelism="inner", base_seed=2, prefer_gpu=False)
+    monkeypatch.setenv("MLFRAME_MRMR_ADDONE_PVALUE", "0")
+    mi_plain, _ = pm.mi_direct(data, x=(0,), y=(1,), factors_nbins=fnb,
+                               npermutations=64, parallelism="inner", base_seed=2, prefer_gpu=False)
+    assert (mi_default > 0) == (mi_plain > 0), "add-one must not change the keep/reject decision vs the plain rate"
+
+
+def test_regression_p2_early_break_confidence_full_budget_consistent():
+    """Regression (P2): ``_perm_pvalue`` with a ``full_budget`` larger than ``nchecked`` (the early-break case) uses the full-budget denominator, so the reported confidence does
+    not depend on WHERE the early break fired. Pre-fix the confidence used ``i+1`` (the truncated count), over-stating the failure rate."""
+    from mlframe.feature_selection.filters.permutation import _perm_pvalue
+    # Early break: 8 failures observed in 10 checked, but the budget was 100. Full-budget-consistent p must use 100, not 10.
+    p_truncated_denom = (1.0 + 8) / (10 + 1.0)
+    p_full_budget = _perm_pvalue(8, 10, full_budget=100)
+    assert p_full_budget == pytest.approx((1.0 + 8) / (100 + 1.0)), "P2: early-break p-value must use the full budget denominator"
+    assert p_full_budget < p_truncated_denom, "full-budget denominator must lower the failure-rate estimate vs the truncated count"

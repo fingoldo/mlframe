@@ -62,6 +62,8 @@ def get_binningprocess_featureselectors(
     )
 
     nocat_cols = features.columns.tolist()
+    # ``.head()`` is safe for category detection because dtype is a column-level attribute (the first 5 rows carry the same dtype as the full column). CONTRACT: column
+    # names must be unique -- ``list.remove`` drops only the first match, so a duplicated name would leave a stale category column in ``nocat_cols`` (or raise if absent).
     for col in features.head().select_dtypes("category").columns:
         nocat_cols.remove(col)
 

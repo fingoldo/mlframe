@@ -218,7 +218,10 @@ def compare_selectors(
         if do_fit:
             try:
                 selector.fit(X, y, **fit_kwargs)
-            except Exception as exc:  # unavailable dep / GPU-only path / fit failure
+            except Exception as exc:
+                # Broad by design: this is a best-effort cross-selector comparison harness, so any selector that cannot fit (missing optional dep, GPU-only path on a
+                # CPU host, an input it rejects) must not abort the whole comparison. The failure is RECORDED in ``skipped`` with its type+message and surfaced to the
+                # caller -- it is visible, not swallowed -- so the broad catch is the correct policy for an exploratory comparison rather than a masked error.
                 skipped[name] = f"fit failed: {type(exc).__name__}: {exc}"
                 continue
         elif not already:

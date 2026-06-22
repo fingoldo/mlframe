@@ -22,6 +22,22 @@ from sklearn.base import BaseEstimator, TransformerMixin, clone
 logger = logging.getLogger(__name__)
 
 
+def _support_to_indices(support, n_features: int) -> np.ndarray:
+    """Normalise an estimator's ``support_`` to integer column indices.
+
+    A boolean mask (sklearn ``SelectorMixin.get_support()`` default) of length ``n_features`` is converted via ``np.flatnonzero``; an integer-index array
+    is returned as-is. Pre-fix a bool mask was coerced through ``astype(int64)`` to ``[0,1,0,...]`` and indexed ``counts`` at positions 0/1 only, silently
+    mis-counting every selector that exposes a mask instead of indices.
+    """
+    arr = np.asarray(support)
+    if arr.dtype == bool:
+        return np.flatnonzero(arr).astype(np.int64)
+    # A full-length object/bool-like mask (e.g. list of python bools) also normalises to indices.
+    if arr.size == n_features and arr.dtype == object and arr.size and isinstance(arr.flat[0], (bool, np.bool_)):
+        return np.flatnonzero(arr.astype(bool)).astype(np.int64)
+    return arr.astype(np.int64)
+
+
 class StabilityMRMR(BaseEstimator, TransformerMixin):
     """Bootstrap-stability wrapper for mRMR-family selectors.
 
@@ -48,6 +64,13 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
     random_state : int, default None
     n_jobs : int, default 1
         Passes through to ``joblib.Parallel`` for the bootstrap loop.
+    stratify : bool, default True
+        Preserve the per-class proportions of ``y`` in each bootstrap subsample (class-stratified sampling without replacement). On rare / imbalanced targets an
+        unstratified subsample can omit the minority class entirely, giving a single-class fit that the base MI/MRMR selector degenerates on -- its garbage support is then
+        silently folded into the inclusion counts. Stratification draws ``round(sample_fraction * n_class)`` rows from each class (floored at 1 per present class) so every
+        class survives every bootstrap. ON by default per the corrective-mechanism convention; falls back to the plain unstratified draw when ``y`` is not class-like (more
+        than ``max(50, n/2)`` distinct values -- i.e. a regression / continuous target where stratification is meaningless). Set ``stratify=False`` for the legacy behaviour.
+        Rare classes still need adequate n: per the project rule a 1%-prevalence class needs n >~ 5000 for a reliable split even with stratification.
     """
     def __init__(
         self,
@@ -57,6 +80,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         support_threshold: float = 0.6,
         random_state: int = None,
         n_jobs: int = 1,
+        stratify: bool = True,
     ):
         self.estimator = estimator
         self.n_bootstraps = n_bootstraps
@@ -64,6 +88,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         self.support_threshold = support_threshold
         self.random_state = random_state
         self.n_jobs = n_jobs
+        self.stratify = stratify
 
     def fit(self, X, y):
         from joblib import Parallel, delayed
@@ -113,14 +138,35 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         # Generate seeds upfront so the bootstrap is deterministic for a given ``random_state`` regardless of joblib worker order.
         seeds = rng.integers(0, 2 ** 31 - 1, size=self.n_bootstraps)
 
+        # Decide once whether stratified sampling applies: ON when requested AND y looks class-like (few distinct values). A high-cardinality / continuous y is a
+        # regression target where per-class stratification is meaningless, so fall back to the plain draw. The per-class index groups are precomputed once and reused.
+        _y_arr = np.asarray(y.values if hasattr(y, "values") else y)
+        _class_groups = None
+        if self.stratify and _y_arr.ndim == 1:
+            _uniq = np.unique(_y_arr)
+            if _uniq.size <= max(50, n_samples // 2):
+                _class_groups = [np.flatnonzero(_y_arr == c) for c in _uniq]
+
+        def _stratified_indices(local_rng) -> np.ndarray:
+            # Draw round(sample_fraction * n_class) rows from each class (>=1 per present class) so no class is dropped; the global floor of 2 total rows still holds.
+            parts = []
+            for grp in _class_groups:
+                k = max(1, int(round(self.sample_fraction * grp.size)))
+                k = min(k, grp.size)
+                parts.append(local_rng.choice(grp, size=k, replace=False))
+            return np.concatenate(parts)
+
         def _one_bootstrap(seed: int) -> np.ndarray:
             local_rng = np.random.default_rng(seed)
-            idx = local_rng.choice(n_samples, size=sub_size, replace=False)
+            if _class_groups is not None:
+                idx = _stratified_indices(local_rng)
+            else:
+                idx = local_rng.choice(n_samples, size=sub_size, replace=False)
             X_sub = X.iloc[idx] if hasattr(X, "iloc") else X[idx]
             y_sub = y.iloc[idx] if hasattr(y, "iloc") else y[idx]
             est = clone(self.estimator)
             est.fit(X_sub, y_sub)
-            return np.asarray(est.support_, dtype=np.int64)
+            return _support_to_indices(est.support_, n_features)
 
         if self.n_jobs == 1:
             supports = [_one_bootstrap(s) for s in seeds]
@@ -141,7 +187,11 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
             counts[sup] += 1
 
         self.selection_probabilities_ = counts / self.n_bootstraps
-        self.support_ = np.where(self.selection_probabilities_ >= self.support_threshold)[0]
+        # Compare integer counts against a ceiling rather than float prob >= float threshold: counts/n_bootstraps is not exactly representable
+        # (e.g. 12/20 != 0.6 in float64), so a feature selected in exactly threshold*n runs could spuriously fail a direct float >= compare.
+        import math as _math
+        _min_count = int(_math.ceil(float(self.support_threshold) * self.n_bootstraps - 1e-9))
+        self.support_ = np.where(counts >= _min_count)[0]
         self.n_features_ = len(self.support_)
         self.n_features_in_ = n_features
         if hasattr(X, "columns"):
