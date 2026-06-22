@@ -757,9 +757,14 @@ def hybrid_temporal_agg_fe(
 
     y_arr = np.asarray(y)
     if not np.issubdtype(y_arr.dtype, np.integer):
-        y_arr = y_arr.astype(np.int64)
-    _, y_bin = np.unique(y_arr, return_inverse=True)
-    y_bin = y_bin.astype(np.int64)
+        # Continuous y must be quantile-binned, never int-truncated: astype(int64) collapses 0.7->0 and destroys the MI gate for regression targets.
+        if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
+            try:
+                y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
+            except Exception:
+                pass
+        _, y_arr = np.unique(y_arr, return_inverse=True)
+    y_bin = y_arr.astype(np.int64)
 
     rows = []
     for col in enc_df.columns:

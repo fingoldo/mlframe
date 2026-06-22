@@ -456,7 +456,9 @@ class ColumnKNNCache:
 # =============================================================================
 
 
-def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5) -> float:
+def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5,
+                     intens: float = 1e-10, max_input_n: int = 50000,
+                     seed: int = 0) -> float:
     """cupy-accelerated mixed-KSG. KDTree build still CPU; the eps-radius
     counts move to cupy via sorted-array binary search (cp.searchsorted)."""
     try:
@@ -466,11 +468,23 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5) -> float:
         return mixed_ksg_mi(x, y, k=k)
     import cupy as cp
     from sklearn.neighbors import KDTree
+    rng = np.random.default_rng(int(seed))
     x_np = np.asarray(x, dtype=np.float64).ravel()
     y_np = np.asarray(y, dtype=np.float64).ravel()
     n = x_np.size
     if n < 2 * k + 2:
         return 0.0
+    # Mirror the CPU mixed_ksg_mi pre-processing so GPU/CPU agree: subsample to max_input_n, then add tie-breaking jitter only on columns that have ties
+    # (raw ties give eps=0 -> count_within_eps=0 -> digamma(0) blow-up; CPU jitters them, the GPU path previously did not -> divergent MI on discrete data).
+    if n > int(max_input_n):
+        idx = rng.choice(n, size=int(max_input_n), replace=False)
+        x_np = x_np[idx]
+        y_np = y_np[idx]
+        n = int(max_input_n)
+    if np.unique(x_np).size < n:
+        x_np = x_np + intens * rng.standard_normal(n)
+    if np.unique(y_np).size < n:
+        y_np = y_np + intens * rng.standard_normal(n)
     xy = np.column_stack([x_np, y_np]).astype(np.float64)
     tree = KDTree(xy, metric="chebyshev")
     d, _ = tree.query(xy, k=k + 1)

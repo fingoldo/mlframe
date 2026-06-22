@@ -920,7 +920,7 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict):
     Novelty detection? !TODO
     """
     head = df.head(1)
-    for col, repl_instructions in features_cleaning["features_transforms"]:
+    for col, repl_instructions in features_cleaning["features_transforms"].items():
         df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
 
     constant_features = features_cleaning["constant_features"].copy()

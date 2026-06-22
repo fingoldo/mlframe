@@ -169,8 +169,11 @@ def distance_correlation(
     dvar2_x = float(np.mean(A * A))
     dvar2_y = float(np.mean(B * B))
     denom = dvar2_x * dvar2_y
-    if denom <= 0.0:
-        # Constant column -- no dispersion -> by convention dCor = 0.
+    # A non-finite denom (all-NaN/inf column -> NaN distance matrix) makes `denom <= 0` False, so a NaN dCor would otherwise escape into the ranking. Guard explicitly.
+    if not np.isfinite(denom) or denom <= 0.0:
+        # Constant / degenerate column -- no dispersion -> by convention dCor = 0.
+        return 0.0
+    if not np.isfinite(dcov2):
         return 0.0
     # Numerical floor: tiny negative dcov2 can arise from float roundoff
     # on very-near-independent pairs (the U-centring leaves a tail of
@@ -207,7 +210,8 @@ def _dcor_batch(
         dvar2_x = float(np.mean(A * A))
         dcov2 = float(np.mean(A * B))
         denom = dvar2_x * dvar2_y
-        if denom <= 0.0:
+        # A non-finite denom (all-NaN/inf column) makes `denom <= 0` False, so a NaN score would otherwise escape and sort to the top; guard explicitly.
+        if not np.isfinite(denom) or denom <= 0.0 or not np.isfinite(dcov2):
             out[j] = 0.0
             continue
         if dcov2 < 0.0:

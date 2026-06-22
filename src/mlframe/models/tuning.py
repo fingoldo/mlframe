@@ -244,6 +244,42 @@ def normalize_probs(probs: np.ndarray):
     np.divide(probs, total, out=probs)
 
 
+def objective_to_sampling_weights(predictions: np.ndarray, y: np.ndarray, minimize: bool, improving_by_atleast: float) -> np.ndarray:
+    """Turn model-predicted candidate objectives into non-negative sampling weights.
+
+    Shifts predictions to be non-negative; when minimizing, rank-inverts so low-objective candidates carry the most weight.
+    When ``improving_by_atleast`` is set, zeroes the weight of candidates not predicted to improve on the observed band:
+    minimize keeps candidates at/below ``y.min() + range*frac``, maximize keeps those at/above ``y.max() - range*frac``.
+    """
+    predictions = np.asarray(predictions, dtype=np.float64)
+
+    if predictions.min() < 0:
+        probs = predictions - predictions.min()
+    else:
+        probs = predictions.copy()
+
+    if minimize:
+        probs = probs.max() - probs
+
+    if improving_by_atleast:
+        if minimize:
+            desired_objective = y.min() + (y.max() - y.min()) * improving_by_atleast
+            bad_indices = np.where(predictions >= desired_objective)[0]
+            logging.info(
+                "Best and worst observed trial's objectives: %s, %s. Skipping %s candidates with predicted objective over %s",
+                y.min(), y.max(), len(bad_indices), desired_objective,
+            )
+        else:
+            desired_objective = y.max() - (y.max() - y.min()) * improving_by_atleast
+            bad_indices = np.where(predictions <= desired_objective)[0]
+            logging.info(
+                f"Best and worst observed trial's objectives: {y.max()}, {y.min()}. Skipping {len(bad_indices)} candidates with predicted objective under {desired_objective}"
+            )
+        probs[bad_indices] = 0.0
+
+    return probs
+
+
 def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFrame, cat_features: list, order: int = 1) -> None:
     """
     Assign higher select probabilities to combinations of order N that were never chosen yet in the trials object.
@@ -514,38 +550,7 @@ class ParamsOptimizer:
                             preprocess_df(candidates_df, cat_features)
                             predictions = fitted_model.predict(candidates_df)
 
-                            if predictions.min() < 0:
-                                probs = predictions + predictions.min()
-                            else:
-                                probs = predictions
-
-                            if minimize:
-                                probs = 1 - probs
-
-                            # ---------------------------------------------------------------------------------------------
-                            # only samples with expected performance above currently highest one
-                            # ---------------------------------------------------------------------------------------------
-
-                            if improving_by_atleast:
-
-                                if minimize:
-                                    desired_objective = y.max() - (y.max() - y.min()) * improving_by_atleast
-                                    bad_indices = np.where(predictions >= desired_objective)[0]
-
-                                    logging.info(
-                                        "Best and worst observed trial's objectives: %s, %s. Skipping %s candidates with predicted objective over %s",
-                                        y.min(), y.max(), len(bad_indices), desired_objective,
-                                    )
-
-                                else:
-                                    desired_objective = y.max() - (y.max() - y.min()) * improving_by_atleast
-                                    bad_indices = np.where(predictions <= desired_objective)[0]
-
-                                    logging.info(
-                                        f"Best and worst observed trial's objectives: {y.max()}, {y.min()}. Skipping {len(bad_indices)} candidates with predicted objective under {desired_objective}"
-                                    )
-
-                                probs[bad_indices] = 0.0
+                            probs = objective_to_sampling_weights(predictions=predictions, y=y, minimize=minimize, improving_by_atleast=improving_by_atleast)
                             normalize_probs(probs)
 
                     # ---------------------------------------------------------------------------------------------

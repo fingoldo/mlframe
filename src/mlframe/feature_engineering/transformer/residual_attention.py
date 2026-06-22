@@ -13,7 +13,7 @@ Why this should help boostings downstream:
 
 Leakage discipline:
 - Auxiliary LGB is fit via KFold OOF to get unbiased residuals for train rows.
-- Mode A (X_query=None): outer row-attention also uses its own splitter for OOF; the inner auxiliary OOF and the outer attention OOF can share the same splitter (we do) so each train row attends only to non-self residuals.
+- Mode A (X_query=None): the aux OOF is NESTED inside the caller's outer splitter. For each outer fold f, the residual bank that f's val rows attend to is produced by an aux OOF restricted to f's train complement only, so no row of fold f ever contributes to a complement-row residual. A flat aux KFold independent of the outer splitter would let a val row's own target leak into its attention feature: the complement residuals it attends to could come from an aux model that trained on fold f (including the val row itself).
 - Mode B (X_query!=None): auxiliary LGB is fit once on full train → y_hat for X_query (residual unknown for X_query, that's fine — we're using train residuals as the bank's "target"); outer attention uses full train residual_bank.
 
 Reference: stacking (Wolpert 1992); gradient boosting + residual learning (Friedman 2001); FB GBDT+LR but with neighbour aggregate as the "LR" output.
@@ -25,8 +25,8 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl
-from sklearn.model_selection import KFold
-
+from ._oof import apply_dedupe
+from ._residual_oof import compute_oof_residual_within
 from ._utils import require_seed, validate_numeric_input
 from .row_attention import compute_row_attention
 
@@ -51,6 +51,7 @@ def compute_residual_attention(
     aggregate: tuple[str, ...] = ("y_mean", "y_std"),
     projection: Literal["random", "pls"] = "pls",
     column_prefix: str = "resid",
+    dedupe_threshold: float | None = None,
     dtype: np.dtype = np.float32,
 ) -> pl.DataFrame:
     """Residual row-attention: fits auxiliary LGB, takes OOF residuals, runs row-attention with residuals as target.
@@ -92,24 +93,44 @@ def compute_residual_attention(
         )
         return lgb.LGBMClassifier(**common) if task == "binary" else lgb.LGBMRegressor(**common)
 
-    # Step 1: OOF predictions on X_train via auxiliary LGB.
-    y_hat_oof = np.zeros(X_train.shape[0], dtype=np.float32)
-    aux_splitter = KFold(n_splits=aux_n_splits, shuffle=True, random_state=seed)
-    for fold_idx, (tr_idx, va_idx) in enumerate(aux_splitter.split(X_train)):
-        model = _make_aux()
-        model.fit(X_train[tr_idx], y_train[tr_idx])
-        if task == "binary":
-            y_hat_oof[va_idx] = model.predict_proba(X_train[va_idx])[:, 1].astype(np.float32, copy=False)
-        else:
-            y_hat_oof[va_idx] = model.predict(X_train[va_idx]).astype(np.float32, copy=False)
-    residual_train = (y_train.astype(np.float32) - y_hat_oof).astype(np.float32)
-    logger.info("residual_attention: aux LGB OOF residuals: mean=%.4f, std=%.4f, abs_mean=%.4f", residual_train.mean(), residual_train.std(), np.abs(residual_train).mean())
-
-    # Step 2: run row-attention with residuals as the "target".
-    out = compute_row_attention(
-        X_train=X_train, y_train=residual_train, X_query=X_query, splitter=splitter,
+    common_attn = dict(
         seed=seed, n_heads=n_heads, head_dim=head_dim, k=k,
         aggregate=aggregate, projection=projection,
         gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
     )
-    return out
+
+    if X_query is not None:
+        # Mode B: aux fit once on full train → residual bank for the full train; query rows attend to the full bank.
+        residual_train = compute_oof_residual_within(
+            X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed,
+        )
+        logger.info("residual_attention: aux LGB OOF residuals: mean=%.4f, std=%.4f, abs_mean=%.4f", residual_train.mean(), residual_train.std(), np.abs(residual_train).mean())
+        return compute_row_attention(X_train=X_train, y_train=residual_train, X_query=X_query, splitter=splitter, **common_attn)
+
+    # Mode A: nest the aux OOF inside the caller's outer splitter. For each outer fold f, the residual bank attended by f's val rows is built from an aux OOF
+    # restricted to f's train complement only — so no row of fold f contributes to a complement-row residual (the cross-outer-fold target leak the flat aux KFold had).
+    n_train = X_train.shape[0]
+    fold_frames: list[pl.DataFrame] = []
+    fold_val_idx: list[np.ndarray] = []
+    abs_means: list[float] = []
+    for train_idx, val_idx in splitter.split(X_train):
+        residual_complement = compute_oof_residual_within(
+            X_train[train_idx], y_train[train_idx], task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed,
+        )
+        abs_means.append(float(np.abs(residual_complement).mean()))
+        # Single-fold attention: complement residuals are the bank, this fold's val rows are the queries (Mode B mechanics, leakage-safe by construction here).
+        fold_out = compute_row_attention(
+            X_train=X_train[train_idx], y_train=residual_complement, X_query=X_train[val_idx], splitter=splitter, **common_attn,
+        )
+        fold_frames.append(fold_out)
+        fold_val_idx.append(np.asarray(val_idx))
+    logger.info("residual_attention: nested aux OOF residuals over %d outer folds: abs_mean=%.4f", len(fold_frames), float(np.mean(abs_means)) if abs_means else 0.0)
+
+    # Scatter each fold's val-row features into the master output at val_idx. Column names are deterministic (dedupe disabled per fold), so all folds share a schema.
+    names = fold_frames[0].columns
+    matrix = np.zeros((n_train, len(names)), dtype=dtype)
+    for frame, val_idx in zip(fold_frames, fold_val_idx):
+        matrix[val_idx] = frame.select(names).to_numpy().astype(dtype, copy=False)
+
+    matrix, names = apply_dedupe(matrix, list(names), dedupe_threshold=dedupe_threshold)
+    return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})

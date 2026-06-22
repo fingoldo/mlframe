@@ -83,9 +83,21 @@ _CLASSIFIERS = _partial_fit_estimators("classifier")
 _REGRESSORS = _partial_fit_estimators("regressor")
 
 
+# Exceptions that legitimately mean "this estimator structurally cannot consume continuous Gaussian
+# features", NOT "the wrapper regressed". Count-only naive Bayes (CategoricalNB / MultinomialNB) require
+# non-negative integer-encoded categoricals: signed input raises ValueError("Negative values ..."), and even
+# on |X| the held-out val fold contains category indices unseen during partial_fit -> IndexError. These are
+# data-shape incompatibilities of the WRAPPED estimator, not of EarlyStoppingWrapper, so they warrant a skip.
+# Anything else (an EarlyStoppingWrapper.fit regression) must propagate and FAIL the test.
+_DATA_SHAPE_SKIP = (ValueError, IndexError)
+
+
 def _fit_es(base_model, X, y):
-    """Run the wrapper, retrying on non-negative-feature estimators (count NB) with |X|. Returns the
-    fitted wrapper + the (possibly abs'd) X actually used, or None if the estimator can't fit the data."""
+    """Run the wrapper, retrying on non-negative-feature estimators (count NB) with |X|. Returns the fitted
+    wrapper + the (possibly abs'd) X actually used. Raises ``pytest.skip`` only when EVERY attempt failed with
+    an expected data-shape incompatibility (see ``_DATA_SHAPE_SKIP``); any UNEXPECTED exception propagates so a
+    genuine wrapper regression fails the test rather than degrading into a green-by-skip run."""
+    last_exc = None
     for X_try in (X, np.abs(X)):
         es = EarlyStoppingWrapper(clone(base_model), patience=8, max_iter=80, validation_fraction=0.1)
         try:
@@ -93,9 +105,10 @@ def _fit_es(base_model, X, y):
                 warnings.simplefilter("ignore")
                 es.fit(X_try, y)
             return es, X_try
-        except Exception:
+        except _DATA_SHAPE_SKIP as exc:
+            last_exc = exc
             continue
-    return None, None
+    pytest.skip(f"{type(base_model).__name__}: incompatible with continuous features ({last_exc!r})")
 
 
 # --------------------------------------------------------------------------- #
@@ -108,8 +121,7 @@ def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
     X, y = _classification_data()
     n_val = max(1, int(len(X) * 0.1))
     es, X_used = _fit_es(_CLASSIFIERS[name], X, y)
-    if es is None:
-        pytest.skip(f"{name}: cannot fit the synthetic classification data via partial_fit")
+    assert es is not None, f"{name}: EarlyStoppingWrapper.fit returned no wrapper"
     Xv, yv = X_used[-n_val:], y[-n_val:]
 
     assert es.best_model_ is not None and es.best_score_ > -np.inf
@@ -140,8 +152,7 @@ def test_biz_val_wrapper_regressor_no_rmse_loss(name):
     X, y = _regression_data()
     n_val = max(1, int(len(X) * 0.1))
     es, X_used = _fit_es(_REGRESSORS[name], X, y)
-    if es is None:
-        pytest.skip(f"{name}: cannot fit the synthetic regression data via partial_fit")
+    assert es is not None, f"{name}: EarlyStoppingWrapper.fit returned no wrapper"
     Xv, yv = X_used[-n_val:], y[-n_val:]
 
     assert es.best_model_ is not None and es.best_score_ > -np.inf

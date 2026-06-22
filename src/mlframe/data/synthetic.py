@@ -76,6 +76,27 @@ def sample_random_variable(
 
     return dist_name.replace("_", "-"), data
     
+def assign_classes_from_probability(predictors: np.ndarray, draw: np.ndarray, n_classes: int, out: np.ndarray | None = None) -> np.ndarray:
+    """Pick a class per row by walking the cumulative per-row predictor probabilities against a uniform draw.
+
+    ``predictors`` are float32 per-row normalized to sum ~1.0, but float32 rounding (and degenerate all-zero rows
+    where the row sum was guarded to 0) can leave the cumulative total just under the draw, so the default class is
+    the last one — without it ``out`` (an ``np.empty`` buffer) would retain uninitialized garbage for those rows.
+    """
+    n_samples = predictors.shape[0]
+    if out is None:
+        out = np.empty(n_samples, dtype=np.int32)
+    for i in range(n_samples):
+        total = 0.0
+        out[i] = n_classes - 1
+        for j in range(n_classes):
+            total += predictors[i, j]
+            if draw[i] < total:
+                out[i] = j
+                break
+    return out
+
+
 def generate_modelling_data(
     n_samples: int = 100_000,
     *,
@@ -172,13 +193,7 @@ def generate_modelling_data(
 
             # Let's draw from 0 to 1 and pick the class
             draw = generator.rand(n_samples)
-            for i in range(n_samples):
-                total = 0.0
-                for j in range(n_classes):
-                    total += predictors[i, j]
-                    if draw[i] < total:
-                        y[i] = j
-                        break
+            assign_classes_from_probability(predictors, draw, n_classes, out=y)
 
             X[:, :n_informative] = predictors[:, :n_informative]
         else:

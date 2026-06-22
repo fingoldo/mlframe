@@ -111,16 +111,38 @@ def _fit_lasso_abs_coefs(
     has the same |coef| ranking as the canonical logistic-Lasso path at
     the typical sample sizes / signal strengths Layer 21's downstream
     gates work with, AND is dramatically cheaper.
+    Multiclass y (>2 discrete classes) is one-hot/binarised and a Lasso is
+    fit per class indicator; the per-feature score is the MAX ``|coef|``
+    across the one-vs-rest fits. This is invariant to class-label
+    ordinality, unlike regressing on the raw ordinal class integers (which
+    would let a meaningless label ordering drive selection).
     """
     from sklearn.linear_model import Lasso
 
     X_arr = np.asarray(X_stack, dtype=np.float64)
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_raw = np.asarray(y).ravel()
+    y_arr = y_raw.astype(np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n_rows, n_cols = X_arr.shape
     if n_rows == 0 or n_cols == 0:
         return np.zeros(n_cols, dtype=np.float64)
+
+    # Multiclass detection: a small set of discrete (integer-valued) labels with >2 classes is a classification target whose label INTEGERS carry no
+    # ordinal meaning. Regressing Lasso on those integers yields coefficients driven by the arbitrary class numbering. One-hot each class and take the
+    # max |coef| over the one-vs-rest fits so selection is invariant to relabelling.
+    uniq = np.unique(y_raw[np.isfinite(y_arr)]) if np.issubdtype(y_arr.dtype, np.floating) else np.unique(y_raw)
+    is_discrete = uniq.size <= max(20, int(0.05 * n_rows)) and np.all(y_arr[np.isfinite(y_arr)] == np.round(y_arr[np.isfinite(y_arr)]))
+    if is_discrete and uniq.size > 2:
+        classes = np.unique(y_raw)
+        best = np.zeros(n_cols, dtype=np.float64)
+        for cls in classes:
+            indicator = (y_raw == cls).astype(np.float64)
+            coefs = _fit_lasso_abs_coefs(
+                X_arr, indicator, alpha=alpha, standardize=standardize, random_state=random_state,
+            )
+            best = np.maximum(best, coefs)
+        return best
     # NaN / inf scrub: Lasso's coordinate-descent does not tolerate NaN.
     X_clean = np.where(np.isfinite(X_arr), X_arr, 0.0)
     if standardize:
@@ -172,9 +194,11 @@ def score_features_by_lasso_coef(
         carry the ``"{source}__{basis_code}{degree}"`` suffix so the
         baseline can be looked up by source.
     y : array-like (n,)
-        Target. Continuous or {0, 1}; multiclass is treated as one-hot
-        of the FIRST class for the Lasso fit (rare in MRMR usage; binary
-        is the dominant production path).
+        Target. Continuous, binary {0, 1}, or multiclass. Multiclass
+        (>2 discrete classes) is binarised one-vs-rest and the per-feature
+        score is the MAX ``|coef|`` across the per-class Lasso fits, so the
+        ranking is invariant to the arbitrary class-label ordering (binary
+        remains the dominant production path).
     alpha : float
         Lasso L1 strength. Higher -> sparser support, more candidates
         driven to zero. Default 0.01 matches the orth-poly fixture SNR.
