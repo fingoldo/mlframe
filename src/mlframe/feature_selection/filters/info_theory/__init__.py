@@ -60,8 +60,10 @@ from ._class_mi_kernels import (
 from ._batch_kernels import (
     _relevance_from_dense,
     batch_mi_with_noise_gate,
+    batch_mi_with_noise_gate_v2,
     batch_pair_mi_prange,
     batch_triple_mi_prange,
+    select_batch_mi_kernel,
 )
 
 __all__ = [
@@ -100,4 +102,6 @@ __all__ = [
     "batch_pair_mi_prange",
     "batch_triple_mi_prange",
     "batch_mi_with_noise_gate",
+    "batch_mi_with_noise_gate_v2",
+    "select_batch_mi_kernel",
 ]

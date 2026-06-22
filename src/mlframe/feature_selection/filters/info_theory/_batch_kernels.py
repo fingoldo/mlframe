@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 from numba import njit, prange
@@ -413,6 +414,176 @@ def batch_mi_with_noise_gate(
     return fe_mi
 
 
+@njit(parallel=True, nogil=True, cache=True)
+def batch_mi_with_noise_gate_v2(
+    disc_2d: np.ndarray,
+    factors_nbins: np.ndarray,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    base_seed: np.uint64,
+    min_nonzero_confidence: float,
+    use_su: bool,
+    dtype: type = np.int32,
+    classes_dtype: type = np.int16,
+) -> np.ndarray:
+    """FUSED-OBSERVED-MI twin of :func:`batch_mi_with_noise_gate` (F2, 2026-06-22). BIT-IDENTICAL output
+    (same dense codes, same observed MI, same permutation noise-gate, same shuffle stream) -- the ONLY
+    change is that the per-column observed-MI pass writes the dense codes AND accumulates the joint with y
+    in ONE n-row loop (``_densify_and_relevance_fused``) instead of writing the dense codes then re-reading
+    them in a SECOND strided pass (the legacy ``classes_dense[r,k]=...`` loop + ``_relevance_from_dense``).
+    The observed-MI sweep is the dominant CPU FE cost at the canonical 30k-subsample chunk (measured ~5.8s
+    of the ~7s per chunk EVEN with npermutations=0), so collapsing its double column-pass to a single pass
+    is the largest selection-safe lever. The permutation path below is verbatim from the original kernel
+    (it re-reads ``classes_dense`` per shuffle, which the fused pass still fully populates). Dispatched via
+    :func:`select_batch_mi_kernel` (KTC-gated); the original kernel remains the fallback / small-size path."""
+    n = disc_2d.shape[0]
+    K = disc_2d.shape[1]
+    fe_mi = np.zeros(K, dtype=np.float64)
+
+    if K == 0 or n == 0:
+        return fe_mi
+
+    max_nbins = 1
+    for k in range(K):
+        nb_k = int(factors_nbins[k])
+        if nb_k > max_nbins:
+            max_nbins = nb_k
+
+    classes_dense = np.zeros((n, K), dtype=classes_dtype)
+    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
+    kx = np.zeros(K, dtype=np.int64)
+    original_mi = np.zeros(K, dtype=np.float64)
+
+    for k in prange(K):
+        nb_k = int(factors_nbins[k])
+        counts = np.zeros(nb_k, dtype=np.int64)
+        col = disc_2d[:, k]
+        for r in range(n):
+            counts[col[r]] += 1
+        lookup = np.empty(nb_k, dtype=np.int64)
+        nzeros = 0
+        for c in range(nb_k):
+            if counts[c] == 0:
+                nzeros += 1
+            lookup[c] = c - nzeros
+        n_dense = nb_k - nzeros
+        kx[k] = n_dense
+        wpos = 0
+        for c in range(nb_k):
+            if counts[c] != 0:
+                freqs_dense[k, wpos] = counts[c] / n
+                wpos += 1
+        # FUSED: write classes_dense[:, k] AND accumulate the observed-MI joint in ONE pass.
+        original_mi[k] = _densify_and_relevance_fused(
+            use_su, col, lookup, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
+        )
+
+    if npermutations <= 0:
+        for k in range(K):
+            fe_mi[k] = original_mi[k]
+        return fe_mi
+
+    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    if max_failed <= 1:
+        max_failed = 1
+
+    nfailed = np.zeros(K, dtype=np.int64)
+    ny = classes_y_safe.shape[0]
+
+    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
+    for i in range(npermutations):
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
+        local = classes_y_safe.copy()
+        for j in range(ny - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            kk = int(state >> np.uint64(33)) % (j + 1)
+            tmp = local[j]
+            local[j] = local[kk]
+            local[kk] = tmp
+        locals_mat[i] = local
+
+    for k in prange(K):
+        if original_mi[k] <= 0.0:
+            continue
+        nfailed[k] = _perm_failcount_col(
+            classes_dense, k, freqs_dense, int(kx[k]), locals_mat, freqs_y, n,
+            npermutations, original_mi[k], use_su, dtype,
+        )
+
+    for k in range(K):
+        om = original_mi[k]
+        if om > 0.0 and nfailed[k] >= max_failed:
+            fe_mi[k] = 0.0
+        else:
+            fe_mi[k] = om
+
+    return fe_mi
+
+
+@njit(nogil=True, cache=True)
+def _densify_and_relevance_fused(
+    use_su: bool,
+    col: np.ndarray,
+    lookup: np.ndarray,
+    classes_dense: np.ndarray,
+    k: int,
+    freqs_dense: np.ndarray,
+    K_x: int,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype,
+) -> float:
+    """FUSED dense-code WRITE + observed-MI of column ``k`` in ONE pass over the n rows (F2, 2026-06-22,
+    cProfile-driven). The legacy path made TWO strided full-column passes per candidate: one to write
+    ``classes_dense[r,k] = lookup[col[r]]`` and a SECOND inside ``_relevance_from_dense`` to re-read
+    ``classes_dense[r,k]`` + ``classes_y[r]`` into the joint histogram. At the canonical 30k-subsample
+    K~3888 chunk that observed-MI sweep is the dominant CPU FE cost (~5.8s/chunk even with npermutations=0,
+    i.e. the permutation shuffles are NOT the cost -- this densify/relevance double-pass is). Fusing them
+    accumulates the (dense_x, y) joint WHILE writing the dense code, so the n-row column is touched once
+    here instead of twice. BIT-IDENTICAL to ``classes_dense[r,k]=lookup[col[r]]`` followed by
+    ``_relevance_from_dense(...)``: the dense codes written are the same values, the joint counts are the
+    same increments, and the ``jf*log(jf/(px*py))`` reduction order over the (K_x, K_y) histogram is
+    unchanged. ``classes_dense`` is still fully written (the permutation path re-reads it per shuffle)."""
+    n = col.shape[0]
+    K_y = len(freqs_y)
+    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    for r in range(n):
+        dc = lookup[col[r]]
+        classes_dense[r, k] = dc
+        joint_counts[dc, classes_y[r]] += 1
+    inv_n = 1.0 / n
+
+    mi_xy = 0.0
+    for i in range(K_x):
+        prob_x = freqs_dense[k, i]
+        for j in range(K_y):
+            jc = joint_counts[i, j]
+            if jc != 0:
+                prob_y = freqs_y[j]
+                jf = jc * inv_n
+                mi_xy += jf * math.log(jf / (prob_x * prob_y))
+
+    if not use_su:
+        return mi_xy
+
+    h_x = 0.0
+    for i in range(K_x):
+        p = freqs_dense[k, i]
+        if p > 0:
+            h_x -= p * math.log(p)
+    h_y = 0.0
+    for j in range(K_y):
+        p = freqs_y[j]
+        if p > 0:
+            h_y -= p * math.log(p)
+    denom = h_x + h_y
+    if denom <= 1e-12:
+        return 0.0
+    return 2.0 * mi_xy / denom
+
+
 @njit(nogil=True, cache=True)
 def _relevance_from_dense(
     use_su: bool,
@@ -472,3 +643,104 @@ def _relevance_from_dense(
     if denom <= 1e-12:
         return 0.0
     return 2.0 * mi_xy / denom
+
+
+# ---- batched FE-candidate MI kernel selector (F2 fused observed-MI dispatch, 2026-06-22) -------------
+# ``batch_mi_with_noise_gate_v2`` fuses the per-column dense-code write with the observed-MI joint
+# accumulation (one n-row pass instead of two), measured 1.18-1.21x faster than the original kernel at the
+# canonical 30k-subsample K~3888 chunk and BIT-IDENTICAL (maxdiff 0.0 on the observed MI AND the
+# noise-gated output, both npermutations=0 and =25). It is structurally never slower (it removes a full
+# strided column re-read), so it is the default. Per the repo "keep all kernel versions; dispatch by
+# size via kernel_tuning_cache" rule the ORIGINAL kernel is retained and the choice is routed per-host
+# through the KTC (axes n_rows x n_cols); the v2 fused path is the measurement-backed fallback for an
+# un-tuned host (the safe faster default here). ``MLFRAME_BATCH_MI_KERNEL=v1|v2`` force-overrides.
+_BATCH_MI_KERNEL_CODE_VERSION = "batch_mi_noise_gate_kernel-v2-fused-2026-06-22"
+
+
+def _batch_mi_kernel_fallback_choice(n_rows: int, n_cols: int) -> str:
+    """Pre-sweep default kernel for the batched FE-candidate MI: the fused v2 (measured uniformly faster
+    + bit-identical). The KTC sweep can later refine per-host if a pathological size ever regresses."""
+    return "v2"
+
+
+def select_batch_mi_kernel(n_rows: int, n_cols: int):
+    """Return the batched FE-candidate MI kernel (``batch_mi_with_noise_gate`` v1 or the fused v2) for this
+    (n_rows, n_cols) on this host. Routed through ``pyutilz.system.kernel_tuning_cache`` (per-host cache,
+    code-version checked, async background sweep, measurement-backed fallback) -- NOT a hardcoded threshold.
+    ``MLFRAME_BATCH_MI_KERNEL`` env (``v1``/``v2``) force-overrides for A/B + safety. Defaults to v2 (the
+    fused, measured-faster, bit-identical kernel) on any miss/failure so an un-tuned host gets the win."""
+    _env = os.environ.get("MLFRAME_BATCH_MI_KERNEL", "").strip().lower()
+    if _env == "v1":
+        return batch_mi_with_noise_gate
+    if _env == "v2":
+        return batch_mi_with_noise_gate_v2
+    choice = "v2"
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        res = KernelTuningCache.load_or_create().get_or_tune(
+            "batch_mi_fe_kernel",
+            dims={"n_rows": int(n_rows), "n_cols": int(n_cols)},
+            tuner=_run_batch_mi_kernel_sweep,
+            axes=["n_rows", "n_cols"],
+            fallback={"kernel_choice": _batch_mi_kernel_fallback_choice(int(n_rows), int(n_cols))},
+            code_version=_BATCH_MI_KERNEL_CODE_VERSION,
+            async_sweep=True,
+        )
+        if isinstance(res, str):
+            choice = res
+        elif res:
+            choice = str(res.get("kernel_choice", "v2"))
+    except Exception:
+        choice = "v2"
+    return batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2
+
+
+def _run_batch_mi_kernel_sweep():
+    """Per-host v1-vs-v2 crossover sweep for the batched FE-candidate MI kernel -> kernel_choice regions
+    keyed on (n_rows, n_cols). Both kernels are bit-identical so equivalence holds at a tight tol; the
+    sweep ranks by wall only. Returns [] when the benchmarking helper is unavailable (-> fallback v2)."""
+    try:
+        from pyutilz.dev.benchmarking import sweep_backend_grid
+        from ..discretization import discretize_2d_quantile_batch
+    except Exception:
+        return []
+
+    def _make_inputs(dims):
+        n = int(dims["n_rows"]); K = int(dims["n_cols"]); nbins = 10
+        rng = np.random.default_rng(0)
+        a = rng.uniform(0.1, 1.1, n); b = rng.uniform(0.1, 1.1, n); base = a ** 2 / b
+        cand = np.empty((n, K), dtype=np.float32)
+        for k in range(K):
+            cand[:, k] = (base * (1.0 + 0.01 * rng.standard_normal(n)) + 0.001 * k).astype(np.float32)
+        np.nan_to_num(cand, copy=False)
+        disc = discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
+        y = a ** 2 / b
+        edges = np.quantile(y, np.linspace(0, 1, nbins + 1)[1:-1])
+        yc = np.searchsorted(edges, y).astype(np.int64)
+        fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+        return (disc, np.full(K, nbins, dtype=np.int64), yc, fy)
+
+    def _call(kernel):
+        def _f(disc, fn, yc, fy):
+            return kernel(
+                disc_2d=disc, factors_nbins=fn, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
+                npermutations=25, base_seed=np.uint64(0), min_nonzero_confidence=0.0, use_su=False,
+                dtype=np.int32, classes_dtype=np.int8,
+            )
+        return _f
+
+    try:
+        return sweep_backend_grid(
+            {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2)},
+            {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
+            _make_inputs,
+            reference="v1", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-15,
+            result_key="kernel_choice",
+        )
+    except TypeError:
+        return sweep_backend_grid(
+            {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2)},
+            {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
+            _make_inputs,
+            reference="v1", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-15,
+        )

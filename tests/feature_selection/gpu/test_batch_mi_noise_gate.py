@@ -157,3 +157,72 @@ def test_su_mode_bit_identical(monkeypatch):
         base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=True, dtype=np.int32,
     )
     assert np.array_equal(got, ref)
+
+
+# ---- F2 fused observed-MI kernel (v2) regression (2026-06-22) ---------------------------------------
+# ``batch_mi_with_noise_gate_v2`` fuses the per-column dense-code write with the observed-MI joint
+# accumulation (one n-row pass instead of two). It MUST be bit-identical to v1 (and thus to the per-column
+# mi_direct reference) -- any drift would change which engineered features MRMR keeps. These pin the
+# bit-identity across the same n/K/nbins/npermutations/min_nonzero_confidence grid + SU + pure-noise.
+from mlframe.feature_selection.filters.info_theory import (  # noqa: E402
+    batch_mi_with_noise_gate_v2,
+    select_batch_mi_kernel,
+)
+
+
+@pytest.mark.parametrize("n,K,nbins", [(200, 8, 4), (500, 13, 6), (1000, 20, 5)])
+@pytest.mark.parametrize("npermutations", [0, 3, 10])
+@pytest.mark.parametrize("min_nonzero_confidence", [0.99, 0.0])
+def test_v2_bit_identical_to_v1(n, K, nbins, npermutations, min_nonzero_confidence):
+    disc_2d, classes_y, freqs_y = _make_frame(n, K, nbins, seed=1234 + n + K + nbins)
+    factors_nbins = np.full(K, nbins, dtype=np.int64)
+    kw = dict(
+        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
+        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=npermutations,
+        base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
+        use_su=False, dtype=np.int32,
+    )
+    v1 = batch_mi_with_noise_gate(**kw)
+    v2 = batch_mi_with_noise_gate_v2(**kw)
+    assert np.array_equal(v1, v2), (
+        f"v2 != v1 n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}"
+    )
+
+
+def test_v2_su_mode_bit_identical():
+    disc_2d, classes_y, freqs_y = _make_frame(400, 10, 5, seed=7)
+    factors_nbins = np.full(10, 5, dtype=np.int64)
+    kw = dict(
+        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
+        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
+        base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=True, dtype=np.int32,
+    )
+    assert np.array_equal(batch_mi_with_noise_gate(**kw), batch_mi_with_noise_gate_v2(**kw))
+
+
+def test_v2_pure_noise_zeroed_identically():
+    n = 800
+    rng = np.random.default_rng(99)
+    y = rng.integers(0, 4, size=n).astype(np.int32)
+    disc_2d = rng.integers(0, 6, size=n).astype(np.int32).reshape(-1, 1)
+    classes_y, freqs_y, _ = merge_vars(
+        factors_data=y.reshape(-1, 1), vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None, factors_nbins=np.array([int(y.max()) + 1], dtype=np.int64), dtype=np.int32,
+    )
+    factors_nbins = np.array([6], dtype=np.int64)
+    kw = dict(
+        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
+        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
+        base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=False, dtype=np.int32,
+    )
+    assert np.array_equal(batch_mi_with_noise_gate(**kw), batch_mi_with_noise_gate_v2(**kw))
+
+
+def test_select_batch_mi_kernel_env_override(monkeypatch):
+    """The env override forces a specific kernel; default returns a callable kernel."""
+    monkeypatch.setenv("MLFRAME_BATCH_MI_KERNEL", "v1")
+    assert select_batch_mi_kernel(30_000, 600) is batch_mi_with_noise_gate
+    monkeypatch.setenv("MLFRAME_BATCH_MI_KERNEL", "v2")
+    assert select_batch_mi_kernel(30_000, 600) is batch_mi_with_noise_gate_v2
+    monkeypatch.delenv("MLFRAME_BATCH_MI_KERNEL", raising=False)
+    assert callable(select_batch_mi_kernel(30_000, 600))

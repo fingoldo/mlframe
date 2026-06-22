@@ -49,6 +49,19 @@ def _dispatch_batch_mi_with_noise_gate(
     K = disc_2d.shape[1]
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
 
+    # F2 (2026-06-22): route the CPU njit observed-MI kernel to the fused v2 (one n-row pass per column
+    # instead of two -- bit-identical, measured 1.18-1.21x at the canonical 30k chunk) via the per-host
+    # kernel_tuning_cache. The caller passes the v1 kernel as ``batch_mi_kernel``; the selector swaps it
+    # for v2 when the KTC (or the v2-default fallback) picks it. Every CPU njit call below (analytic
+    # npermutations=0 observed-MI, GPU-opt-out, the always-correct fallback) uses ``_cpu_kernel``. The
+    # GPU twin is unaffected (it has its own device kernels). Failure -> original ``batch_mi_kernel``.
+    _cpu_kernel = batch_mi_kernel
+    try:
+        from ..info_theory._batch_kernels import select_batch_mi_kernel
+        _cpu_kernel = select_batch_mi_kernel(int(n), int(K))
+    except Exception:
+        _cpu_kernel = batch_mi_kernel
+
     # RESIDENT-CODES HANDOFF (gated, default OFF): if the FE chunk binned these codes ON the GPU and kept
     # them resident, pop the device codes array keyed on THIS ``disc_2d`` (same object flows producer ->
     # here). When the resident-CUDA gate is the chosen consumer it reads them IN PLACE, skipping the codes'
@@ -107,7 +120,7 @@ def _dispatch_batch_mi_with_noise_gate(
         if _an_ok:
             try:
                 _need_host_codes()  # analytic gate reads host codes -> materialise the deferred D2H now
-                _observed = batch_mi_kernel(
+                _observed = _cpu_kernel(
                     disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
                     classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=0,
                     base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
@@ -138,7 +151,7 @@ def _dispatch_batch_mi_with_noise_gate(
     _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
     if _gpu_opted_out:
         _need_host_codes()  # CPU njit kernel reads host codes -> materialise the deferred D2H now
-        return batch_mi_kernel(
+        return _cpu_kernel(
             disc_2d=disc_2d,
             factors_nbins=factors_nbins,
             classes_y=classes_y,
@@ -224,7 +237,7 @@ def _dispatch_batch_mi_with_noise_gate(
 
     # CPU njit-prange kernel (the required win and always-correct fallback).
     _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
-    return batch_mi_kernel(
+    return _cpu_kernel(
         disc_2d=disc_2d,
         factors_nbins=factors_nbins,
         classes_y=classes_y,
