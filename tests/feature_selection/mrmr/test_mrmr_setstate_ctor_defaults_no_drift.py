@@ -7,15 +7,16 @@ constructed estimator. The fix derives every shared ctor-param default from the 
 truth (``_ctor_defaults()`` reading ``__init__``'s signature), exempting only an explicit, documented
 ``_SETSTATE_LEGACY_OVERRIDES`` allowlist of intentional legacy-byte-equivalence divergences.
 
-These tests pin that invariant: a legacy-injected ctor-param default ALWAYS equals the ctor default
-unless the key is on the documented override allowlist.
+These tests pin that invariant BEHAVIOURALLY (no ``inspect.getsource`` source-text inspection,
+per feedback_behavioral_tests): they resurrect an attribute-less legacy pickle via
+``__setstate__({})`` and compare the resulting live attributes against a fresh ctor. After the D5
+overlay, an attribute-less pickle's injected value for a shared key equals the ctor default UNLESS
+the key is on ``_SETSTATE_LEGACY_OVERRIDES`` (which keeps its legacy literal). So the live
+post-setstate attributes ARE the effective legacy defaults -- the exact thing we need to assert.
 """
 from __future__ import annotations
 
-import ast
-import inspect
 import pickle
-import textwrap
 
 import numpy as np
 import pandas as pd
@@ -23,30 +24,25 @@ import pandas as pd
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
-def _literal_setstate_defaults() -> dict:
-    """The literal ``defaults = {...}`` dict spelled out in ``__setstate__`` (pre-overlay)."""
-    src = textwrap.dedent(inspect.getsource(MRMR.__setstate__))
-    fn = ast.parse(src).body[0]
-    out = {}
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "defaults" for t in node.targets):
-            for k, v in zip(node.value.keys, node.value.values):
-                try:
-                    out[ast.literal_eval(k)] = ast.literal_eval(v)
-                except Exception:
-                    out[ast.literal_eval(k)] = "<EXPR>"
-    return out
+def _legacy_setstate_attrs() -> MRMR:
+    """An attribute-less legacy pickle resurrected: every injected default is now a live attr."""
+    m = MRMR.__new__(MRMR)
+    m.__setstate__({})  # empty legacy state -> all defaults injected (+ D5 ctor-overlay applied)
+    return m
 
 
 def test_shared_ctor_defaults_have_no_drift():
+    """For every shared, non-override ctor param, the resurrected legacy default == ctor default."""
+    fresh = MRMR()
+    m = _legacy_setstate_attrs()
     ctor = MRMR._ctor_defaults()
-    lit = _literal_setstate_defaults()
     overrides = set(MRMR._SETSTATE_LEGACY_OVERRIDES)
     drift = {}
-    for k, v in lit.items():
-        if k in ctor and k not in overrides and v != "<EXPR>":
-            if v != ctor[k]:
-                drift[k] = (v, ctor[k])
+    for k in ctor:
+        if k in overrides or not hasattr(m, k):
+            continue
+        if getattr(m, k) != getattr(fresh, k):
+            drift[k] = (getattr(m, k), getattr(fresh, k))
     assert not drift, (
         "setstate legacy defaults drifted from the ctor (add to _SETSTATE_LEGACY_OVERRIDES "
         f"only if the divergence is intentional): {drift}"
@@ -55,13 +51,17 @@ def test_shared_ctor_defaults_have_no_drift():
 
 def test_override_allowlist_is_actually_divergent():
     """Every key on the override allowlist MUST genuinely differ from the ctor default --
-    otherwise it is dead allowlist noise hiding a key that should be auto-sourced."""
+    otherwise it is dead allowlist noise hiding a key that should be auto-sourced.
+
+    The overlay SKIPS override keys, so the resurrected legacy attr keeps its legacy literal;
+    comparing it to the ctor default proves the divergence is real."""
+    m = _legacy_setstate_attrs()
     ctor = MRMR._ctor_defaults()
-    lit = _literal_setstate_defaults()
     for k in MRMR._SETSTATE_LEGACY_OVERRIDES:
         assert k in ctor, f"override key {k!r} is not a constructor parameter"
-        assert lit.get(k) != ctor[k], (
-            f"override key {k!r} no longer diverges from the ctor (lit={lit.get(k)!r}, "
+        assert hasattr(m, k), f"override key {k!r} was not injected by __setstate__"
+        assert getattr(m, k) != ctor[k], (
+            f"override key {k!r} no longer diverges from the ctor (legacy={getattr(m, k)!r}, "
             f"ctor={ctor[k]!r}); remove it from _SETSTATE_LEGACY_OVERRIDES so it auto-sources"
         )
 
@@ -72,15 +72,13 @@ def test_legacy_empty_pickle_matches_ctor_for_shared_keys():
     fresh = MRMR()
     ctor = MRMR._ctor_defaults()
     overrides = set(MRMR._SETSTATE_LEGACY_OVERRIDES)
-    lit = _literal_setstate_defaults()
-
-    m = MRMR.__new__(MRMR)
-    m.__setstate__({})  # empty legacy state -> all defaults injected
-    for k in lit:
-        if k in ctor and k not in overrides:
-            assert getattr(m, k) == getattr(fresh, k), (
-                f"legacy-refit {k!r}={getattr(m, k)!r} != fresh {getattr(fresh, k)!r}"
-            )
+    m = _legacy_setstate_attrs()
+    for k in ctor:
+        if k in overrides or not hasattr(m, k):
+            continue
+        assert getattr(m, k) == getattr(fresh, k), (
+            f"legacy-refit {k!r}={getattr(m, k)!r} != fresh {getattr(fresh, k)!r}"
+        )
 
 
 def test_named_drift_key_cluster_aggregate_mode():

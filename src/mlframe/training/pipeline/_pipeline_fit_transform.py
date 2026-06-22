@@ -227,7 +227,7 @@ def fit_and_transform_pipeline(
             and not _polarsds_fell_back_to_sklearn
         ):
             if verbose:
-                logger.info(f"Applying {config.categorical_encoding} encoding to {len(cat_features)} categorical features: {cat_features}")
+                logger.info("Applying %s encoding to %s categorical features: %s", config.categorical_encoding, len(cat_features), cat_features)
 
             t0_encode = timer()
             from category_encoders import OrdinalEncoder, OneHotEncoder
@@ -249,7 +249,7 @@ def fit_and_transform_pipeline(
 
             if verbose:
                 encode_elapsed = timer() - t0_encode
-                logger.info(f"  Encoding done -- train: {train_df.shape[0]:_}x{train_df.shape[1]}, {encode_elapsed:.1f}s")
+                logger.info("  Encoding done -- train: %sx%s, %.1fs", f"{train_df.shape[0]:_}", train_df.shape[1], encode_elapsed)
 
             # After encoding, cat_features are no longer categorical (they're numeric)
             cat_features = []
@@ -257,7 +257,7 @@ def fit_and_transform_pipeline(
         # Prepare categorical features for CatBoost (if not already encoded)
         elif cat_features:
             if verbose:
-                logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost...")
+                logger.info("Preparing %s categorical features for CatBoost...", len(cat_features))
 
             # Joint train+val union for stable codes across splits.
             _safe_val = val_df if (val_df is not None and len(val_df) > 0) else None
