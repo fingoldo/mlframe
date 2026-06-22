@@ -1,5 +1,0 @@
-﻿test_collinear_cluster_collapses : NO XML (native crash) ec=-1
-test_heavy_tail_recovers_signals : tests=1 fail=0 err=0 skip=0 time=4.4s
-test_large_p_noise_exclusion : tests=6 fail=0 err=0 skip=0 time=11.4s
-test_exact_duplicate_keeps_one_jmim_vs_default : tests=2 fail=0 err=0 skip=0 time=3.8s
-END
