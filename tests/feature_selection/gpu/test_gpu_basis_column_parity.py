@@ -37,7 +37,10 @@ def _datasets(seed: int, n: int = 8000) -> dict:
 
 @pytest.mark.parametrize("seed", [0, 7])
 @pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre"])
-@pytest.mark.parametrize("degree", [2, 3])
+# Degrees 4-6 added 2026-06-22 (P3-5): host uses a FORWARD recurrence for cheb/leg/herme while the GPU
+# (and numpy) use Clenshaw -- the two diverge most at high degree (~7e-12 at d=5). Pinning <1e-6 here proves
+# the host<->GPU basis values stay selection-equivalent even where the recurrences differ the most.
+@pytest.mark.parametrize("degree", [2, 3, 4, 5, 6])
 def test_gpu_basis_column_parity(seed, basis, degree):
     ra = _robust_axis_enabled()
     for dname, x in _datasets(seed).items():

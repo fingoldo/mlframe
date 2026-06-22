@@ -480,11 +480,16 @@ def _unary_apply(xp, name, x):
 # Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
 # the device (from the resident raw input + the tiny stored spec) instead of COPYING the host-computed column
 # (the 1.68 MB non-plain H2D floor). The preprocess (z-score / min-max / shift, all elementwise + a clip) and
-# the Clenshaw polynomial recurrences below replicate numpy's chebval/legval/hermeval(He)/lagval EXACTLY
-# (same float64 op order, scalar->array promotion deferred identically), so the device column matches the host
-# column to fp round-off. Any unsupported basis / failure RAISES so the caller falls back to the host copy
-# (never a correctness regression). fourier_adaptive (escalation only -- not in the main operand table) is
-# ported too for completeness.
+# the Clenshaw polynomial recurrences below replicate NUMPY's chebval/legval/hermeval(He)/lagval to fp
+# round-off (same Clenshaw algorithm + float64 op order). SELECTION-EQUIVALENCE NOTE (P2-2): the production
+# HOST path (polyeval_dispatch -> njit) evaluates these three (cheb/leg/herme) by a FORWARD recurrence, which
+# differs from numpy/GPU-Clenshaw by ~1e-12 at degree>=3 (laguerre is forward on both, so it is bit-consistent
+# across device+host). So a candidate MI-RANKED on GPU-Clenshaw values and later REPLAYED via host-forward
+# differs by ~1e-12 -- far below any selection threshold (selection is decided on the consistent GPU values
+# within the resident path; test_gpu_basis_column_parity pins the host<->GPU bound). Unifying both onto one
+# recurrence is a FUTURE kernel change, unneeded at the default max_degree. Any unsupported basis / failure
+# RAISES so the caller falls back to the host copy (never a correctness regression). fourier_adaptive
+# (escalation only -- not in the main operand table) is ported too for completeness.
 
 def _cheb_clenshaw_gpu(cp, x, c):
     if len(c) == 1:
