@@ -82,6 +82,32 @@ __all__ = [
 _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "LL"}
 
 
+def _source_from_engineered_name(name: str, raw_names) -> str:
+    """Recover the TRUE source column of an engineered name ``"{src}__{suffix}"``.
+
+    The engineered-name grammar is ``"{src}__{basis_code}{degree}"`` -- but blindly
+    splitting on the FIRST ``"__"`` (``name.split("__", 1)[0]``) MISPARSES any raw
+    input whose own name contains ``"__"`` (one-hot / dummy names like ``"city__NY"``):
+    it stems ``"city__NY__He2"`` to ``"city"`` instead of ``"city__NY"``, so the
+    per-source raw-MI baseline lookup misses, the uplift denominator collapses to the
+    ``1e-12`` floor, and EVERY such engineered column clears the uplift gate spuriously.
+
+    FIX (D1, 2026-06-22): the true source is always a member of the known raw-column
+    set ``raw_names``. Recover it by LONGEST matching ``"{raw}__"`` prefix (longest so
+    a raw ``"city"`` cannot shadow a raw ``"city__NY"``). Fall back to the legacy
+    first-``"__"`` split only when no raw name prefixes the engineered name (defensive;
+    keeps standalone callers that never pass a raw set working).
+    """
+    best = None
+    for raw in raw_names:
+        if name == raw or name.startswith(raw + "__"):
+            if best is None or len(raw) > len(best):
+                best = raw
+    if best is not None:
+        return best
+    return name.split("__", 1)[0] if "__" in name else name
+
+
 def _evaluate_basis_column(
     x: np.ndarray,
     basis: str,
@@ -474,10 +500,14 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     if eng_mat is None:
         return None, [], _empty
     names = [f"{used_src[_ci]}__{code.get(_b, _b)}{_d}" for (_ci, _b, _d) in meta]
+    # D1 (2026-06-22): the TRUE source per emitted name is ``used_src[_ci]`` -- carry it
+    # directly rather than re-parsing the name via ``split("__", 1)[0]`` (which mis-stems a
+    # one-hot source ``"city__NY"`` and collapses the uplift denominator to the 1e-12 floor).
+    name_src = [used_src[_ci] for (_ci, _b, _d) in meta]
     eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
     rows = []
     for j, nm in enumerate(names):
-        src = nm.split("__", 1)[0] if "__" in nm else nm
+        src = name_src[j]
         base = float(raw_mi_map.get(src, 0.0))
         emi = float(eng_mi[j])
         rows.append({
@@ -524,7 +554,9 @@ def score_features_by_mi_uplift(
     eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
-        source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        # D1 (2026-06-22): recover the true source via longest raw-prefix match, not a blind
+        # first-``"__"`` split (which mis-stems one-hot sources like ``"city__NY"``).
+        source = _source_from_engineered_name(eng_name, raw_cols)
         baseline = float(raw_mi_map.get(source, 0.0))
         emi = float(eng_mi[j])
         uplift = emi / (baseline + 1e-12)
@@ -744,6 +776,8 @@ def hybrid_orth_mi_fe_with_recipes(
         min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
     )
     appended = [c for c in X_aug_fit.columns if c not in _X_fit.columns]
+    # D1 (2026-06-22): the authoritative raw-source set for un-stemming engineered names.
+    _raw_src_cols = [c for c in _X_fit.columns]
     recipes = []
     # When subsampling, accumulate the FULL-n engineered columns (rebuilt from full
     # X[src] in the recipe loop below) so X_aug carries full-n output, not the
@@ -754,8 +788,10 @@ def hybrid_orth_mi_fe_with_recipes(
         # prefix before ``__``; basis/degree are encoded in the suffix. Cross-
         # check by also routing the source column via the same auto rule we
         # used at fit time so the recipe replays identically.
-        src = name.split("__", 1)[0]
-        suffix = name.split("__", 1)[1]
+        src = _source_from_engineered_name(name, _raw_src_cols)
+        # suffix = everything after the recovered ``"{src}__"`` (NOT the first ``"__"``, which
+        # would mis-split a one-hot source ``"city__NY__He2"`` -> src="city", suffix="NY__He2").
+        suffix = name[len(src) + 2:] if name.startswith(src + "__") else name.split("__", 1)[1]
         # _BASIS_CODE = {"hermite":"He","legendre":"L","chebyshev":"T","laguerre":"LL"}
         # Order longest-first to avoid 'L' matching the start of 'LL'.
         code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}

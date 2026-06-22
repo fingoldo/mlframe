@@ -29,6 +29,41 @@ __all__ = [
 ]
 
 
+def _pair_sources_from_engineered_name(name: str, raw_names):
+    """Recover ``(col_i, col_j)`` from a pair-cross name ``"{col_i}*{col_j}__{suffix}"``.
+
+    D1 (2026-06-22): the legacy ``name.split("__", 1)[0]`` then ``head.split("*", 1)``
+    MISPARSES whenever a one-hot raw source contains ``"__"`` (e.g.
+    ``"city__NY*age__He2_He3"`` -> head ``"city"`` -> not a pair). Recover the legs by
+    matching against the known raw-column set: split on each ``"*"``, take the FIRST split
+    where both halves (the second half un-stemmed of its ``"__{suffix}"``) are raw columns.
+
+    Returns ``(col_i, col_j)`` or ``(None, None)`` when no pair structure resolves.
+    """
+    raw_set = set(raw_names)
+    # The right leg is ``"{col_j}__{suffix}"``; recover col_j by longest raw prefix.
+    star_positions = [i for i, ch in enumerate(name) if ch == "*"]
+    for sp in star_positions:
+        left = name[:sp]
+        right = name[sp + 1:]
+        if left not in raw_set:
+            continue
+        # right = "{col_j}__{suffix}"; longest raw prefix is col_j.
+        best = None
+        for raw in raw_names:
+            if right == raw or right.startswith(raw + "__"):
+                if best is None or len(raw) > len(best):
+                    best = raw
+        if best is not None:
+            return left, best
+    # Legacy fallback (no raw set match): first-"__" then first-"*".
+    head = name.split("__", 1)[0] if "__" in name else name
+    if "*" in head:
+        ci, cj = head.split("*", 1)
+        return ci, cj
+    return None, None
+
+
 def _pair_eng_col_name(col_i: str, col_j: str, basis: str, deg_a: int, deg_b: int) -> str:
     """Stable naming: ``"{col_i}*{col_j}__He{a}_He{b}"``.
 
@@ -198,12 +233,12 @@ def score_pair_cross_basis_by_mi_uplift(
     eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
-        # parse "{col_i}*{col_j}__..."
-        head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
-        if "*" not in head:
+        # D1 (2026-06-22): recover legs against the raw-column set, not a blind first-"__"
+        # split + first-"*" (which mis-parses one-hot sources like "city__NY*age__He2_He3").
+        col_i, col_j = _pair_sources_from_engineered_name(eng_name, raw_cols)
+        if col_i is None or col_j is None:
             # not a pair column -- skip
             continue
-        col_i, col_j = head.split("*", 1)
         baseline_i = float(raw_mi_map.get(col_i, 0.0))
         baseline_j = float(raw_mi_map.get(col_j, 0.0))
         baseline = max(baseline_i, baseline_j)
@@ -437,12 +472,18 @@ def hybrid_orth_mi_pair_fe_with_recipes(
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+    # D1 (2026-06-22): authoritative raw-source set for un-stemming engineered names.
+    _raw_src_cols = [c for c in X.columns]
     recipes = []
     for name in appended:
-        if "*" in name.split("__", 1)[0]:
+        _pair_ci, _pair_cj = _pair_sources_from_engineered_name(name, _raw_src_cols)
+        if _pair_ci is not None and _pair_cj is not None:
             # pair cross: "{col_i}*{col_j}__{code}{deg_a}_{code}{deg_b}"
-            head, suffix = name.split("__", 1)
-            col_i, col_j = head.split("*", 1)
+            col_i, col_j = _pair_ci, _pair_cj
+            # suffix = everything after "{col_i}*{col_j}__" (NOT first "__", which mis-splits
+            # one-hot sources like "city__NY*age__He2_He3").
+            _head = col_i + "*" + col_j
+            suffix = name[len(_head) + 2:] if name.startswith(_head + "__") else name.split("__", 1)[1]
             # parse "{code_a}{deg_a}_{code_b}{deg_b}"
             try:
                 left, right = suffix.split("_", 1)
@@ -504,8 +545,9 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             ))
         else:
             # univariate: "{col}__{code}{degree}"
-            src = name.split("__", 1)[0]
-            suffix = name.split("__", 1)[1]
+            from . import _source_from_engineered_name as _src_of
+            src = _src_of(name, _raw_src_cols)
+            suffix = name[len(src) + 2:] if name.startswith(src + "__") else name.split("__", 1)[1]
             chosen_basis = None
             chosen_degree = None
             for code in ("LL", "He", "T", "L"):
