@@ -49,8 +49,14 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_pairs_core.py``). 2026-06-22 (Tier E partial): the empty-RAW-support fallback rescue
     # (the ``else`` branch of the post-selection raw-support reconciliation) was carved verbatim
     # into ``_finalise._finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins,
-    # target_indices)`` -- parent shrank ~9.8k -> ~9.5k LOC (still over budget). Remaining carve
-    # candidate if it must shrink further: lift the FE/RFECV post-pass into the same ``_finalise.py``.
+    # target_indices)`` -- parent shrank ~9.8k -> ~9.5k LOC (still over budget). 2026-06-23
+    # (Tier E partial): the Layer 92 temporal leak-safe grouped-aggregation FE stage (the
+    # self-contained ``if fe_temporal_agg_enable:`` block) was carved verbatim into
+    # ``_fe_stage_temporal_agg._fe_stage_temporal_agg(self, X, _y_np, verbose,
+    # _temporal_agg_pre_recipes) -> X`` -- threads self + the two fit-body locals + the recipes
+    # dict explicitly, mutates self/recipes in place, returns the (possibly replaced) ``X``;
+    # parent shrank ~9.5k -> ~9.4k LOC (still over budget). Remaining carve candidates if it must
+    # shrink further: other single ``fe_<X>_enable`` FE-stage blocks, or the FE/RFECV post-pass.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
     # (de-exempted 2026-06-22: per-candidate scoring block carved to _step_score.py
     # [+ the per-pair rank loop to _step_pairs_rank.py, the batch pair-MI/maxT-floor stage

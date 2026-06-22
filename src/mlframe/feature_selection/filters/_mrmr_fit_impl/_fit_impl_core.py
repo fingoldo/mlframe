@@ -5102,90 +5102,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_rg_exc).__name__, _rg_exc,
                 )
 
-    # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Keyed on
-    # a time column, only ever seeing the strict past (expanding / rolling /
-    # lag). Each survivor MI-gated against y; recipes store the fit-time
-    # per-entity sorted history so transform() replays test rows against TRAIN
-    # history only. Routing piggybacks on hybrid_orth_features_.
-    if bool(getattr(self, "fe_temporal_agg_enable", False)):
-        if not isinstance(X, pd.DataFrame):
-            warnings.warn(
-                "MRMR: Layer 92 temporal_agg FE enabled but X is not a pandas "
-                "DataFrame; the features are skipped. Convert via "
-                "X.to_pandas() before fit() to apply them.",
-                UserWarning, stacklevel=3,
-            )
-        else:
-            try:
-                from .._temporal_agg_fe import hybrid_temporal_agg_fe
-
-                _ta_time = getattr(self, "fe_temporal_agg_time_col", None)
-                _ta_entities = [
-                    c for c in (getattr(self, "fe_temporal_agg_entity_cols", ()) or ())
-                    if c in X.columns
-                ]
-                _ta_values = [
-                    c for c in (getattr(self, "fe_temporal_agg_value_cols", ()) or ())
-                    if c in X.columns
-                ]
-                if _ta_time is None or _ta_time not in X.columns or not _ta_entities or not _ta_values:
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit temporal_agg: skipped (need time_col + "
-                            "entity_cols + value_cols all present in X)."
-                        )
-                else:
-                    _y_for_ta = (
-                        _y_np
-                    )
-                    if _y_for_ta.dtype.kind in "fc":
-                        if int(np.unique(_y_for_ta).size) <= 32:
-                            _y_for_ta = _y_for_ta.astype(np.int64)
-                        else:
-                            try:
-                                _y_for_ta = pd.qcut(
-                                    _y_for_ta, q=10, labels=False, duplicates="drop",
-                                ).astype(np.int64)
-                            except Exception:
-                                _y_for_ta = _y_for_ta.astype(np.int64)
-                    _ta_stats = tuple(
-                        getattr(self, "fe_temporal_agg_stats", ())
-                        or ("mean", "std", "count")
-                    )
-                    _ta_windows = tuple(getattr(self, "fe_temporal_agg_windows", ()) or ())
-                    _ta_lags = tuple(getattr(self, "fe_temporal_agg_lags", (1,)) or ())
-                    _ta_top_k = int(getattr(self, "fe_temporal_agg_top_k", 10))
-                    _X_before_ta_cols = list(X.columns)
-                    X_ta, _ta_appended, _ta_recipes, _ta_scores = hybrid_temporal_agg_fe(
-                        X, _y_for_ta,
-                        entity_cols=_ta_entities, value_cols=_ta_values,
-                        time_col=_ta_time, stats=_ta_stats,
-                        windows=_ta_windows, lags=_ta_lags, top_k=_ta_top_k,
-                    )
-                    _ta_appended = [
-                        c for c in _ta_appended if c not in _X_before_ta_cols
-                    ]
-                    if _ta_appended:
-                        X = X_ta
-                        self.temporal_agg_features_ = list(_ta_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_ta_appended)
-                        )
-                        for _r in _ta_recipes:
-                            if _r.name in _ta_appended:
-                                _temporal_agg_pre_recipes[_r.name] = _r
-                        if verbose:
-                            logger.info(
-                                "MRMR.fit temporal_agg: appended %d engineered "
-                                "column(s): %s",
-                                len(_ta_appended), _ta_appended[:8],
-                            )
-            except Exception as _ta_exc:
-                logger.warning(
-                    "MRMR.fit temporal_agg FE raised %s: %s; continuing without "
-                    "temporal-aggregate columns.",
-                    type(_ta_exc).__name__, _ta_exc,
-                )
+    # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Carved
+    # verbatim into the sibling ``_fe_stage_temporal_agg`` (Tier E partial
+    # split); the helper threads self + ``_y_np`` / ``verbose`` /
+    # ``_temporal_agg_pre_recipes`` explicitly, mutates self + the recipes dict
+    # in place, and RETURNS the (possibly replaced) working ``X`` frame.
+    from ._fe_stage_temporal_agg import _fe_stage_temporal_agg
+    X = _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes)
 
     # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source -- or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) -- is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
     if (
