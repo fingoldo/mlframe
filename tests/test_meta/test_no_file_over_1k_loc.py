@@ -106,7 +106,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # (asizeof precheck + sha256 reopen + lib-version memoisation). Carve candidate: the ~380-line
     # ``save_mlframe_model`` body (atomic-write + sidecar + version-stamp orchestration) lifts cleanly into a
     # ``_io_save.py`` sibling re-exported from io.py; ``load_mlframe_model`` + the ``_SafeUnpickler`` stay in the parent.
-    "src/mlframe/training/io.py",
+    # (de-exempted 2026-06-22: save_mlframe_model carved to _io_save.py)
     # FIXME(carve-wave-next): the GPU-residency replatform grew these filter modules past the 1k ceiling
     # (candidate-float / codes residency, the radix-select edges, the per-host KTC sweep + dispatch). Carve
     # candidates: lift the residency-buffer + radix-select block out of _gpu_resident_fe.py into a
