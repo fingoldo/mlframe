@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 _OOF_FEATURE_PREFIX = "_oof_"
 
 
+def _spec_base_columns(spec: Any) -> tuple[str, ...] | None:
+    """Full base-column tuple for a spec, or ``None`` for a single-base spec.
+
+    A multi-base spec's OOF estimator must reconstruct the SAME multi-column base matrix the
+    spec represents; dropping ``extra_base_columns`` silently substitutes a different
+    single-base transform, so its OOF column no longer matches the spec it feeds.
+    """
+    extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
+    if not extra:
+        return None
+    return (spec.base_column, *extra)
+
+
 def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
     """Warn for any *new* pass-2 spec whose base is an ephemeral ``_oof_*`` column.
 
@@ -145,6 +158,7 @@ def fit_stacked(
                 base_estimator=Ridge(alpha=1e-3),
                 transform_name=_s.transform_name,
                 base_column=_s.base_column,
+                base_columns=_spec_base_columns(_s),
             )
         try:
             preds = composite_oof_predictions(
@@ -323,6 +337,7 @@ def fit_stacked_on_residual(
                 base_estimator=Ridge(alpha=1e-3),
                 transform_name=_s.transform_name,
                 base_column=_s.base_column,
+                base_columns=_spec_base_columns(_s),
             )
         try:
             _oof = composite_oof_predictions(

@@ -61,6 +61,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: Any) -> str:
+    """Human-readable label for one report class.
+
+    When the report class is a numeric stand-in and a label encoder is present, look the original label up by ENUMERATE POSITION (``class_id``) in the positionally-ordered ``classes_`` -- indexing by the raw integer label VALUE picks the wrong class (or raises IndexError) whenever labels are not a contiguous 0-based range.
+    """
+    if str(class_name).isnumeric() and target_label_encoder:
+        return str(target_label_encoder.classes_[class_id])
+    return str(class_name)
+
+
 def _slugify_class(name: str) -> str:
     """Filesystem-safe class-name slug for per-class plot filenames."""
     try:
@@ -402,10 +412,7 @@ def report_probabilistic_model_perf(
 
     true_classes = []
     for class_id, class_name in enumerate(classes):
-        if str(class_name).isnumeric() and target_label_encoder:
-            str_class_name = str(target_label_encoder.classes_[class_name])
-        else:
-            str_class_name = str(class_name)
+        str_class_name = _resolve_class_label(class_id, class_name, target_label_encoder)
         true_classes.append(str_class_name)
 
         # Multilabel: never skip class_id=0; every column is an independent label.

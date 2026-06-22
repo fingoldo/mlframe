@@ -20,6 +20,7 @@ from ._setup_helpers_pipeline_cache import (
     _PolarsDsPipelineJsonProxy,
     _load_pipeline_disk_cache_into_memory,
     _persist_pipeline_disk_cache,
+    pipeline_json_cache_key,
 )
 
 if TYPE_CHECKING:
@@ -153,7 +154,7 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
             if isinstance(_pipeline_orig, _PdsPipeline):
                 try:
                     _js = _pipeline_orig.to_json()
-                    _js_hash = hash(_js)
+                    _js_hash = pipeline_json_cache_key(_js)
                     # iter275: hydrate from disk cache once per process; gives
                     # cross-process reuse so fuzz combo re-runs / pytest-xdist
                     # workers / CI all skip the 8.5s validation after the first

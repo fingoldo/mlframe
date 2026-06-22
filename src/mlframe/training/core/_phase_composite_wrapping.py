@@ -28,6 +28,21 @@ logger = logging.getLogger(__name__)
 _WATCHDOG_RELATIVE_THRESHOLD = 0.01
 
 
+def _watchdog_y_scale(y_split: Any) -> float:
+    """Robust y-scale (std of finite values) for the OOD watchdog, never raising.
+
+    A non-float (object / string) target slice makes ``np.std`` / ``np.isfinite`` raise, which the
+    watchdog's broad except swallows at DEBUG -- silently disabling the OOD check. Cast to float64 once
+    (numeric-as-object coerces cleanly); on any failure fall back to 1.0 so the watchdog stays armed.
+    """
+    try:
+        y = np.asarray(y_split, dtype=np.float64)
+        finite = y[np.isfinite(y)]
+        return float(np.std(finite)) or 1.0
+    except (TypeError, ValueError):
+        return 1.0
+
+
 def _watchdog_base_columns(spec: dict) -> tuple[str, ...]:
     """Full ordered base-column tuple for a spec, mirroring the wrapper's ``_resolve_base_columns``.
 
@@ -613,7 +628,7 @@ def _run_composite_target_wrapping(
                                     _fu = np.isfinite(_ru)
                                     if int(_fu.sum()) > 0:
                                         _max_dev = float(np.max(np.abs(_ru[_fu])))
-                                        _y_scale = float(np.std(_y_split[np.isfinite(_y_split)])) or 1.0
+                                        _y_scale = _watchdog_y_scale(_y_split)
                                         _rel = _max_dev / _y_scale
                                         # ``_WATCHDOG_RELATIVE_THRESHOLD`` (module-level) carries the rationale; tune there.
                                         if _rel > _WATCHDOG_RELATIVE_THRESHOLD:

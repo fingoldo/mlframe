@@ -56,6 +56,28 @@ def _columns_with_nan(df_: Any) -> list[str]:
     return []
 
 
+def _fit_predict_outlier_detector(outlier_detector: Any, train_numeric: Any):
+    """Fit + score an outlier detector, returning the inlier mask (1 = inlier).
+
+    ``LocalOutlierFactor`` (with the default ``novelty=False``) is fit-time-only: it has
+    no ``predict``; calling it raises ``AttributeError`` and the OD step gets silently
+    skipped even on clean numeric data. For that case use ``fit_predict``, which is the
+    sklearn-sanctioned API. Every other detector keeps the ``fit`` + ``predict`` path.
+    """
+    if _detector_requires_fit_predict(outlier_detector):
+        return outlier_detector.fit_predict(train_numeric)
+    outlier_detector.fit(train_numeric)
+    return outlier_detector.predict(train_numeric)
+
+
+def _detector_requires_fit_predict(outlier_detector: Any) -> bool:
+    """True for a LocalOutlierFactor that lacks a usable ``predict`` (``novelty=False``)."""
+    if getattr(outlier_detector, "novelty", None) is False and hasattr(outlier_detector, "fit_predict"):
+        return True
+    # Fall back to capability sniffing: a detector exposing fit_predict but no predict needs fit_predict.
+    return hasattr(outlier_detector, "fit_predict") and not hasattr(outlier_detector, "predict")
+
+
 def _apply_outlier_detection_global(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame | None,
@@ -109,8 +131,7 @@ def _apply_outlier_detection_global(
     # frame) where a bare ``LocalOutlierFactor`` raised
     # ``ValueError: Input X contains NaN. LocalOutlierFactor does not accept missing values``.
     try:
-        outlier_detector.fit(_train_numeric)
-        is_inlier = outlier_detector.predict(_train_numeric)
+        is_inlier = _fit_predict_outlier_detector(outlier_detector, _train_numeric)
     except (ValueError, TypeError, ImportError, RuntimeError, MemoryError, AttributeError) as _od_exc:
         # Narrowed from bare ``Exception`` so typo/programmer-error attributes raise loudly. The
         # graceful-skip rationale only applies to runtime data issues (NaN inputs, dtype, missing

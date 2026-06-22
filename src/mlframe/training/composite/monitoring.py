@@ -119,7 +119,8 @@ def _ks_statistic(ref_knots: np.ndarray, new_values: np.ndarray) -> float:
     if new.size == 0 or ref_knots.size == 0:
         return 0.0
     k = ref_knots.size
-    ref_levels = (np.arange(k, dtype=np.float64) + 1.0) / (k + 1.0)
+    # Midpoint plotting positions (i + 0.5)/k span (0,1) symmetrically and reach ~1.0 at the top knot; the prior (i + 1)/(k + 1) capped the reference CDF at k/(k+1) < 1, adding a constant ~1/(k+1) positive bias to every KS stat -> false drift alerts even on a no-drift batch.
+    ref_levels = (np.arange(k, dtype=np.float64) + 0.5) / k
     points = np.unique(np.concatenate([ref_knots, new]))
     # Train CDF at each point: fraction of knots <= point, scaled to the knot
     # level grid (right-continuous step through the stored quantile levels).

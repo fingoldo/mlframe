@@ -90,7 +90,7 @@ def predict_from_models(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
@@ -556,6 +556,8 @@ def predict_from_models(
             if not _probs_list:
                 continue
             _flavour = _resolve_chosen_flavour(metadata, _tt, _tname)
+            _ens_params = _resolve_chosen_ensemble_params(metadata, _tt, _tname)
+            _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
             _key = f"{_tt}_{_tname}"
             _sample_model = None
             try:
@@ -566,7 +568,7 @@ def predict_from_models(
             _q_alphas = _resolve_quantile_alphas(metadata, _tt, _tname, _sample_model)
             if len(_probs_list) > 1:
                 _combined = _combine_probs(
-                    _probs_list, _flavour, quantile_alphas=_q_alphas,
+                    _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
                     is_calibrated_per_model=per_target_calib_flags.get((_tt, _tname)),
                     metadata=metadata,
                     target_label=f"{_tt}/{_tname}",

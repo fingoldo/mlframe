@@ -97,7 +97,12 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
             ctx._pre_screen_done = True
             ctx._pre_screen_dropped_cols = []
             return
-        _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars or ctx.train_df_pd)
+        # Do NOT use ``ctx.train_df_polars or ctx.train_df_pd``: bool(pl.DataFrame) raises a TypeError
+        # (ambiguous truthiness) which the outer except swallows, silently skipping the pre-screen on
+        # polars-only inputs and latching ``_pre_screen_done``. Explicit ``is not None`` avoids that.
+        _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (
+            ctx.train_df_polars if ctx.train_df_polars is not None else ctx.train_df_pd
+        )
         _drops = compute_unsupervised_drops(
             _train_for_screen,
             variance_threshold=getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),

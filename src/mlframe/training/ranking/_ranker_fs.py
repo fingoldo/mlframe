@@ -69,15 +69,16 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     out: dict = {}
     uniq = np.unique(groups)
     sizes = np.array([int(np.sum(groups == g)) for g in uniq], dtype=np.float64)
-    total = float(sizes.sum()) or 1.0
     masks = [groups == g for g in uniq]
+    # Normalise by the sum of CONTRIBUTING (size>=4) group sizes, not all rows: tiny queries are skipped in the accumulation, so dividing by total rows shrinks the size-weighted average toward 0 by the fraction of rows living in those skipped tiny queries -- a systematic downward relevance bias.
+    contributing_total = float(sizes[sizes >= 4].sum()) or 1.0
     for j, name in enumerate(cols):
         xj = arr[:, j]
         acc = 0.0
         for gi, m in enumerate(masks):
             if sizes[gi] >= 4:
                 acc += sizes[gi] * _binned_mi(xj[m], y[m], bins=bins)
-        out[name] = acc / total
+        out[name] = acc / contributing_total
     return out
 
 

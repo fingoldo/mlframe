@@ -15,6 +15,25 @@ from .utils import _augment_with_dropped_high_card_cols
 logger = logging.getLogger(__name__)
 
 
+def _resolve_spec_raw_target(matching_spec: dict, target_type, target_by_type: dict, cur_target_name: str):
+    """Resolve ``(raw_target_col, raw_y_full)`` for the y-scale dummy baseline.
+
+    Schema-drifted cached specs may lack ``target_col``; a hard index there raised KeyError that the
+    caller's broad except swallowed, silently dropping the y-scale dummy baseline. Returns
+    ``(None, None)`` with a log line when the column is absent so the skip is visible.
+    """
+    raw_target_col = matching_spec.get("target_col")
+    if raw_target_col is None:
+        logger.info(
+            "[dummy-baselines] target='%s': composite spec has no 'target_col' (schema-drifted "
+            "cached spec); skipping the y-scale dummy baseline for this target.",
+            cur_target_name,
+        )
+        return None, None
+    raw_y_full = target_by_type.get(target_type, {}).get(raw_target_col)
+    return raw_target_col, raw_y_full
+
+
 def run_dummy_baselines(
     *,
     target_type,
@@ -295,8 +314,9 @@ def run_dummy_baselines(
                 # from metadata. Reproduced by fuzz c0047 (mode=legacy,
                 # multi-base auto-promoted to linresM-num_1+num_dep).
                 _extra_bases = tuple(_matching_spec.get("extra_base_columns") or ())
-                _raw_target_col = _matching_spec["target_col"]
-                _raw_y_full = target_by_type.get(target_type, {}).get(_raw_target_col)
+                _raw_target_col, _raw_y_full = _resolve_spec_raw_target(
+                    _matching_spec, target_type, target_by_type, cur_target_name,
+                )
                 _y_scale_dummy_metrics: dict[str, dict[str, float]] = {}
                 for _split_name, _split_df, _split_idx, _T_preds_key in (
                     ("val", filtered_val_df, filtered_val_idx, "strongest_val_preds"),

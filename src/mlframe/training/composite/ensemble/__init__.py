@@ -555,8 +555,11 @@ def compute_oof_holdout_predictions(
             if _is_polars_df(train_X):
                 fold_train_mask = np.zeros(n_train, dtype=bool)
                 fold_train_mask[fold_train_idx] = True
+                # Build the holdout from an EXPLICIT fold_holdout_idx mask, not ~train_mask: under TimeSeriesSplit ~train includes the FUTURE rows beyond this fold's holdout, so ~train_mask yields a frame longer than fold_holdout_idx -> length mismatch silently drops the component every fold (the pandas/ndarray branches already index by fold_holdout_idx).
+                fold_holdout_mask = np.zeros(n_train, dtype=bool)
+                fold_holdout_mask[fold_holdout_idx] = True
                 X_stack = train_X.filter(pl.Series(fold_train_mask))
-                X_holdout = train_X.filter(pl.Series(~fold_train_mask))
+                X_holdout = train_X.filter(pl.Series(fold_holdout_mask))
             elif isinstance(train_X, pd.DataFrame):
                 X_stack = train_X.iloc[fold_train_idx].reset_index(drop=True)
                 X_holdout = train_X.iloc[fold_holdout_idx].reset_index(drop=True)

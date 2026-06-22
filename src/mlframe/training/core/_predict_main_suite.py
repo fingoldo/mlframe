@@ -261,6 +261,10 @@ def predict_mlframe_models_suite(
     # Per-target accumulator so Fix 3 can replay the chosen flavour separately for each (target_type, target_name).
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    # One disk-loaded model per target, so the ensemble replay can introspect the inner estimator for
+    # quantile alphas (parity with the in-memory predict_from_models path) -- without it, disk-loaded
+    # quantile bundles skipped fix_quantile_crossing and emitted crossed quantiles.
+    per_target_sample_model: dict[tuple[Any, Any], Any] = {}
     # Arch-4: per-member calibration flags so _combine_probs can WARN on mixed ensembles. One bool
     # per probability array, aligned with the prob accumulators above.
     all_calib_flags: list[bool] = []
@@ -368,6 +372,7 @@ def predict_mlframe_models_suite(
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
                 per_target_probs.setdefault((_tt, _tn), []).append(probs)
+                per_target_sample_model.setdefault((_tt, _tn), model_obj)
                 _is_cal = _is_post_hoc_calibrated_model(model_obj)
                 all_calib_flags.append(_is_cal)
                 per_target_calib_flags.setdefault((_tt, _tn), []).append(_is_cal)
@@ -438,7 +443,7 @@ def predict_mlframe_models_suite(
             _ens_params = _resolve_chosen_ensemble_params(metadata, _tt_k, _tn_k)
             _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
             _key = f"{_tt_k}_{_tn_k}"
-            _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k)
+            _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k, per_target_sample_model.get((_tt_k, _tn_k)))
             if len(_probs_list) > 1:
                 _combined = _combine_probs(
                     _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,

@@ -10,6 +10,7 @@ identical to the pre-split monolith.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from typing import TYPE_CHECKING
@@ -19,6 +20,17 @@ if TYPE_CHECKING:
 
 
 _PARENT_MODULE = "mlframe.training.core._setup_helpers"
+
+
+def pipeline_json_cache_key(pipeline_json: str) -> str:
+    """Stable, content-only cache key for a pipeline ``to_json()`` payload.
+
+    The builtin ``hash()`` is salted per process by PYTHONHASHSEED, so keying the
+    disk cache on it produced a 100% cross-process miss -- defeating the whole point
+    of persisting the round-trip verdict. blake2b of the UTF-8 bytes depends only on
+    the content, so every process derives the same key for the same JSON.
+    """
+    return hashlib.blake2b(pipeline_json.encode("utf-8"), digest_size=16).hexdigest()
 
 
 def _parent_attr(name: str, default):
@@ -147,7 +159,7 @@ def _load_pipeline_disk_cache_into_memory() -> None:
         return
     for hash_str, ok in entries.items():
         try:
-            _PIPELINE_JSON_ROUNDTRIP_CACHE[int(hash_str)] = bool(ok)
+            _PIPELINE_JSON_ROUNDTRIP_CACHE[str(hash_str)] = bool(ok)
         except (ValueError, TypeError):
             continue  # skip malformed entries
 

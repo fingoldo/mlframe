@@ -239,7 +239,10 @@ def fit_region_adaptive(
             tr_params.append(best_params)
             tr_scores.append(-np.inf)
             continue
-        best_score, best_name, best_params = -np.inf, candidates[0], None
+        # Seed best_params from a guaranteed full-region linear_residual fit so it is NEVER None: when every candidate scores -inf (degenerate region), `score > best_score` is `-inf > -inf == False`, leaving best_params None -> stored -> tr.forward/inverse hits None -> TypeError at predict.
+        best_name = "linear_residual"
+        best_params = _TRANSFORMS_REGISTRY[best_name].fit(yk, bk)
+        best_score = -np.inf
         for cand in candidates:
             score, params = _oof_score_transform(cand, yk, bk, n_folds, rng)
             if score > best_score:
