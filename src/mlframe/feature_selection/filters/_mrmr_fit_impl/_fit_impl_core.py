@@ -5408,6 +5408,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _eng_keep: list[str] = []
         _eng_drop: set[str] = set()
         _eng_arrs: dict[str, np.ndarray] = {}
+        # Cache each column's FULL-column average ranks. When a (candidate, kept) pair is jointly finite
+        # over ALL rows (the common no-NaN engineered case) the masked-subset ranks equal these full ranks,
+        # so we reuse them instead of re-sorting both columns per pair -- removing the O(K^2) rank-sorts the
+        # dedup did (only the O(K^2) corrcoef remains). Bit-identical: same arrays -> same average ranks.
+        _eng_ranks: dict[str, np.ndarray] = {}
         for _c in _eng_cols_appended:
             if _c in _eng_drop:
                 continue
@@ -5445,7 +5450,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # the perfect linear case (e.g. x^2 vs x^2-1); Spearman at 0.99
             # catches the full monotone-equivalent family that MRMR's
             # downstream gate cannot distinguish.
+            # Full-column ranks of the candidate, cached (reused below when a pair is fully finite).
             _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
+            _eng_ranks[_c] = _ranks_c
             _colliding_kept: list[str] = []
             for _kept in _eng_keep:
                 _arr_k = _eng_arrs[_kept]
@@ -5455,8 +5462,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _a, _b = _arr_c[_mask], _arr_k[_mask]
                 if _a.std() <= 1e-12 or _b.std() <= 1e-12:
                     continue
-                _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
-                _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
+                if bool(_mask.all()):
+                    # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
+                    # (identical values) instead of re-sorting both columns for this pair.
+                    _ranks_a = _ranks_c
+                    _ranks_b = _eng_ranks.get(_kept)
+                    if _ranks_b is None:
+                        _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
+                        _eng_ranks[_kept] = _ranks_b
+                else:
+                    _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
+                    _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
                 if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
                     continue
                 _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
