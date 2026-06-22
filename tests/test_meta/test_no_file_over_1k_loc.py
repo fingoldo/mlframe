@@ -41,15 +41,10 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_pairs_core.py``). Carve candidate if it must shrink: lift the empty-support fallback
     # block + the FE/RFECV post-pass into a ``_finalise.py`` helper.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
-    # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_core.py at ~1.53k LOC --
-    # the irreducible single-function body of ``_run_fe_step`` after the
-    # _mrmr_fe_step subpackage split. The two small operand-pool helpers
-    # (``_non_numeric_column_indices`` / ``_synergy_bootstrap_can_supply_pool``)
-    # already live in the sibling ``_helpers.py``; only the one giant FE-step
-    # orchestration function remains over budget (mirrors ``_pairs_core.py``).
-    # Carve candidate if it must shrink: lift the per-candidate scoring /
-    # quantile-discretization materialise block into a ``_step_score.py`` helper.
-    "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py",
+    # (de-exempted 2026-06-22: per-candidate scoring block carved to _step_score.py
+    # [+ the per-pair rank loop to _step_pairs_rank.py, the batch pair-MI/maxT-floor stage
+    # to _step_pairmi.py, and the operand-pool construction to _step_pool.py];
+    # _step_core.py is now under the 1k ceiling.)
     # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
     # at ~1.02k LOC after the recurrent-ensemble integration + composite-
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
