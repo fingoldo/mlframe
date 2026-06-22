@@ -514,3 +514,24 @@ def test_deferred_host_codes_bit_identical_to_eager():
             else:
                 os.environ[k] = v
         G.clear_resident_codes_handoff()
+
+
+def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
+    """Regression (Tier E carve 2026-06-22): ``_gpu_apply_prewarp`` lives in ``_gpu_resident_fe``
+    but the ``_PREWARP_CLENSHAW_GPU`` lookup table it reads was carved into ``_gpu_resident_basis``.
+    A bare-name reference left behind raised ``NameError`` on every Clenshaw-basis prewarp (hermite/
+    legendre/chebyshev/laguerre) -- a GPU-only path the parity suite never exercised. Pin that the
+    parent resolves the carved dict (qualified via the ``_grb`` re-export) so the NameError can't return."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_apply_prewarp
+    from mlframe.feature_selection.filters._gpu_resident_basis import _PREWARP_CLENSHAW_GPU
+
+    x = cp.asarray(np.linspace(0.2, 1.0, 16))
+    for basis in _PREWARP_CLENSHAW_GPU:  # chebyshev / legendre / hermite / laguerre
+        spec = {"basis": basis, "preprocess": {}, "coef": [1.0, 0.0, 0.0]}
+        try:
+            _gpu_apply_prewarp(cp, x, spec)
+        except NameError as e:  # the carved-dict reference must resolve
+            pytest.fail(f"_gpu_apply_prewarp NameError on basis {basis!r}: {e}")
+        except Exception:
+            pass  # incomplete minimal spec may raise KeyError/ValueError downstream -- not the bug under test

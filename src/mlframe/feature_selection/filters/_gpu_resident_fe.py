@@ -489,7 +489,7 @@ def _gpu_apply_prewarp(cp, x, spec):
             ang = 2.0 * np.pi * float(f) * axis
             out = out + float(coef[2 * i]) * cp.sin(ang) + float(coef[2 * i + 1]) * cp.cos(ang)
         return out
-    clen = _PREWARP_CLENSHAW_GPU.get(basis)
+    clen = _grb._PREWARP_CLENSHAW_GPU.get(basis)  # dict carved to _gpu_resident_basis (Tier E 2026-06-22); _grb bound at module bottom, resolved at call time
     if clen is None:
         raise ValueError(f"prewarp basis {basis!r} not GPU-ported")
     pp = dict(spec["preprocess"])
