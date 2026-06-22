@@ -19,12 +19,14 @@ from pydantic import Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig
 
-# Keys consumed by ``registry._instantiate_rfecv`` / ``_instantiate_boruta_shap``
-# (popped from the kwargs to drive the default-ON GroupAwareMRMR cluster-medoid
-# pre-reduction wrap), NOT forwarded to the underlying RFECV / BorutaShap ctor. The
-# kwargs validators must allow them through -- same rationale as ``cv_n_splits`` for
-# RFECV -- otherwise the (default-ON) cluster-reduce wrap is unreachable via
-# FeatureSelectionConfig: the validator rejects the keys before the registry pops them.
+# Keys consumed by ``registry._instantiate_boruta_shap`` (popped from the kwargs to drive the
+# default-ON GroupAwareMRMR cluster-medoid pre-reduction wrap), NOT forwarded to the underlying
+# BorutaShap ctor. The boruta_shap_kwargs validator allows them through so the (default-ON)
+# cluster-reduce wrap is reachable. NOT allowed for rfecv_kwargs: the suite constructs RFECV
+# directly (configure_training_params), bypassing registry._instantiate_rfecv, so these keys would
+# be forwarded verbatim to RFECV(**kwargs) and crash with a TypeError at construction. The suite's RFECV
+# cluster-reduce wrap is driven instead by the first-class ``rfecv_cluster_*`` fields below (applied in
+# ``_build_pre_pipelines``), so the documented default-ON cluster-medoid behaviour now actually holds for the suite RFECV.
 _REGISTRY_CLUSTER_REDUCE_KEYS = frozenset({"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"})
 
 
@@ -66,6 +68,11 @@ class FeatureSelectionConfig(BaseConfig):
     #   * ``train_or_test`` (default "train"): SHAP attributed on training data over-fits to noise on tree models; pass "test" for an internal train-test split when n is large enough that the held-out estimate is reliable.
     boruta_shap_kwargs: Optional[Dict[str, Any]] = None
 
+    # ShapProxiedFS (SHAP-coalition-proxy selector) is OFF by default for the same reason as BorutaShap: it fits a SHAP TreeExplainer (OOF) and then runs a subset search + honest re-validation, so it is markedly more expensive than MRMR / RFECV. Enable when the SHAP-coalition proxy's subset-search signal is worth the compute -- typically on narrow-to-medium frames where the subset interactions the additive filters miss matter. Mirrors the BorutaShap wiring: registered in the selector registry AND reachable from the suite via this flag + a ``_build_pre_pipelines`` branch.
+    use_shap_proxied_fs: bool = False
+    # Forwarded verbatim to ``ShapProxiedFS.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ShapProxiedFS clusters correlated features internally, so it is intentionally NOT wrapped in the GroupAwareMRMR cluster-medoid reduction (double-clustering) -- the cluster-reduce keys are therefore NOT whitelisted here. ``classification`` is auto-derived from the target type when unset (mirrors BorutaShap), so a regression target picks the regressor inner model.
+    shap_proxied_fs_kwargs: Optional[Dict[str, Any]] = None
+
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
@@ -74,6 +81,13 @@ class FeatureSelectionConfig(BaseConfig):
     rfecv_leakage_corr_threshold: Optional[float] = 0.95
     # rfecv_mbh_adaptive_threshold: when the per-fit MBH evaluation budget is <= this value, the surrogate switches from a CatBoost model (~500ms fixed overhead per fit) to a sklearn ExtraTreesRegressor (~20ms). 30 was the historical hardcoded crossover; tune up on tiny outer estimators (LR / Ridge) where CB overhead still dominates at larger budgets, tune down when the surrogate noise from a 20-tree ETR hurts selection quality.
     rfecv_mbh_adaptive_threshold: int = 30
+
+    # Cluster-medoid pre-reduction for the suite's RFECV. DEFAULT ON: the suite builds its RFECV instances directly in configure_training_params (not via registry._instantiate_rfecv), so this is the suite-side switch that wraps each prebuilt RFECV in GroupAwareMRMR(expand=True) at _build_pre_pipelines time -- making the documented "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually hold (previously the registry default was dead for the suite RFECV path). Multi-seed validation (bench_cross_selector_diverse, 3 seeds x synthetic varied-redundancy + signal-in-non-medoid risk case) gives OOS AUC delta in [-0.0058, +0.0009] (mean -0.0005), never materially hurting (>= -0.01 floor), with the min_reduction guard making it a no-op on near-uncorrelated data (bare RFECV on full X) so it only acts where genuine correlated redundancy exists. Set False for the bare RFECV. The cluster knobs below tune the wrap.
+    rfecv_cluster_reduce: bool = True
+    rfecv_cluster_corr_threshold: float = 0.9
+    rfecv_cluster_min_reduction: float = 0.05
+    # ``rfecv_cluster_corr_method`` (pearson | spearman | kendall | su). Pearson default (cheapest; tied SU on the broad bench within noise); pin "su" for known non-monotone redundancy.
+    rfecv_cluster_corr_method: str = "pearson"
     # When True, FS becomes weight-aware (correctness over speed) and re-runs per weight schema: MRMR.fit and
     # RFECV.fit receive the suite's sample_weight via fit_params, so the selected features reflect the active
     # weighting (e.g. recency emphasis). When False (default), FS is computed ONCE per target and reused across
@@ -165,7 +179,12 @@ class FeatureSelectionConfig(BaseConfig):
         from mlframe.feature_selection.wrappers import RFECV
 
         # ``cv_n_splits`` is consumed by get_training_configs to construct a CV splitter; not a direct RFECV.__init__ arg.
-        valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"} | _REGISTRY_CLUSTER_REDUCE_KEYS
+        # The cluster-reduce keys are NOT whitelisted for RFECV: the suite builds its RFECV instances directly in
+        # configure_training_params (NOT via registry._instantiate_rfecv), so any key in rfecv_kwargs is forwarded verbatim
+        # to RFECV(**rfecv_kwargs). RFECV.__init__ rejects cluster_reduce/cluster_corr_threshold/... with a TypeError at
+        # construction. Accepting them here was a config-time-green / fit-time-crash trap. (BorutaShap DOES route through the
+        # registry wrap, so its validator still allows them.)
+        valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"}
         unknown = sorted(set(v) - valid_keys)
         if unknown:
             raise ValueError(f"FeatureSelectionConfig.rfecv_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
@@ -183,6 +202,27 @@ class FeatureSelectionConfig(BaseConfig):
         unknown = sorted(set(v) - valid_keys)
         if unknown:
             raise ValueError(f"FeatureSelectionConfig.boruta_shap_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
+    @field_validator("shap_proxied_fs_kwargs")
+    @classmethod
+    def _validate_shap_proxied_fs_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+        valid_keys = set(inspect.signature(ShapProxiedFS.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.shap_proxied_fs_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
+    @field_validator("rfecv_cluster_corr_method")
+    @classmethod
+    def _validate_rfecv_cluster_corr_method(cls, v: str) -> str:
+        if v not in {"pearson", "spearman", "kendall", "su"}:
+            raise ValueError(f"FeatureSelectionConfig.rfecv_cluster_corr_method must be one of pearson/spearman/kendall/su, got {v!r}")
         return v
 
     @model_validator(mode="after")
@@ -272,5 +312,11 @@ class FeatureSelectionConfig(BaseConfig):
                 "FeatureSelectionConfig: boruta_shap_kwargs supplied but use_boruta_shap=False. "
                 "The kwargs would be silently ignored. Set use_boruta_shap=True OR drop "
                 "boruta_shap_kwargs to make the intent explicit."
+            )
+        if self.shap_proxied_fs_kwargs and not self.use_shap_proxied_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: shap_proxied_fs_kwargs supplied but use_shap_proxied_fs=False. "
+                "The kwargs would be silently ignored. Set use_shap_proxied_fs=True OR drop "
+                "shap_proxied_fs_kwargs to make the intent explicit."
             )
         return self

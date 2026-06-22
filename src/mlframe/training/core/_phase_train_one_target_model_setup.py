@@ -592,6 +592,12 @@ def _setup_per_target_mlframe_models(
         rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
         use_boruta_shap=feature_selection_config.use_boruta_shap,
         boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
+        use_shap_proxied_fs=feature_selection_config.use_shap_proxied_fs,
+        shap_proxied_fs_kwargs=feature_selection_config.shap_proxied_fs_kwargs,
+        rfecv_cluster_reduce=feature_selection_config.rfecv_cluster_reduce,
+        rfecv_cluster_corr_threshold=feature_selection_config.rfecv_cluster_corr_threshold,
+        rfecv_cluster_min_reduction=feature_selection_config.rfecv_cluster_min_reduction,
+        rfecv_cluster_corr_method=feature_selection_config.rfecv_cluster_corr_method,
         use_sample_weights_in_fs=feature_selection_config.use_sample_weights_in_fs,
         mrmr_identity_cache=(
             ctx._mrmr_identity_cache

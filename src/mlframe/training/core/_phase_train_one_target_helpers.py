@@ -180,6 +180,24 @@ def _build_feature_selection_report(
         except Exception:
             pass
 
+    # Registry-driven per-selector extraction (architecture: consume FeatureSelectorSpec.report_extract).
+    # Selectors registered with a ``report_extract`` (e.g. ShapProxiedFS) get their scores / reason map filled
+    # here without a hard-coded branch above, so adding a selector's report logic lives next to its spec. Only
+    # fills fields the hard-coded branches left empty -- the built-in MRMR/RFECV/BorutaShap branches still win.
+    if _kind is not None:
+        try:
+            from mlframe.feature_selection.registry import get as _get_selector_spec
+            _spec = _get_selector_spec(_kind)
+            _extract = getattr(_spec, "report_extract", None)
+            if callable(_extract):
+                _frag = _extract(selector, kept_columns)
+                if isinstance(_frag, dict):
+                    for _k in ("scores", "reason_per_feature"):
+                        if _report.get(_k) is None and _frag.get(_k) is not None:
+                            _report[_k] = _frag[_k]
+        except Exception:
+            pass
+
     # Friend-graph post-analysis summary (MRMR only; absent on other selectors). Compact,
     # JSON-serializable: per-class counts, suspected-sink / pruned feature names, and per-node
     # entropy / relevance / redundancy stats. A failed read must never abort the run.

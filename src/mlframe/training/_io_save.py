@@ -224,6 +224,13 @@ def save_mlframe_model(
         if not isinstance(_d, dict):
             return
         for _k, _v in list(_d.items()):
+            # FS suite-runtime markers: ``_build_pre_pipelines`` stamps selectors with private ``_mlframe_*`` attributes (selector-kind dispatch tag, weight-aware fit flag, the cross-target identity-cache override) purely so the in-process training loop can route report-build / weight-forwarding / cache reuse. None is needed for INFERENCE, so strip them from the pickle (temp-remove + restore-after-dump, same mechanism as the Lightning bloat strip) so the saved model carries no FS-internal suite state; restored on the caller's in-memory object in the finally block.
+            if _k.startswith("_mlframe_") and (
+                _k.endswith("_selector_kind_") or _k.endswith("_use_sample_weights_in_fs_") or _k.endswith("_identity_cache_override_")
+            ):
+                _bloat_strips.append((obj, _k, _v))
+                del _d[_k]
+                continue
             # torch.compile: swap to the un-compiled underlying nn.Module.
             _orig = getattr(_v, "_orig_mod", None)
             if _orig is not None and _orig is not _v:

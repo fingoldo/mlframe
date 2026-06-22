@@ -239,6 +239,12 @@ def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, 
         use_mrmr_fs=False,  # MRMR handled by the group-aware path above
         mrmr_kwargs={}, use_boruta_shap=bool(getattr(fsc, "use_boruta_shap", False)),
         boruta_shap_kwargs=dict(getattr(fsc, "boruta_shap_kwargs", None) or {}),
+        use_shap_proxied_fs=bool(getattr(fsc, "use_shap_proxied_fs", False)),
+        shap_proxied_fs_kwargs=dict(getattr(fsc, "shap_proxied_fs_kwargs", None) or {}),
+        rfecv_cluster_reduce=bool(getattr(fsc, "rfecv_cluster_reduce", True)),
+        rfecv_cluster_corr_threshold=float(getattr(fsc, "rfecv_cluster_corr_threshold", 0.9)),
+        rfecv_cluster_min_reduction=float(getattr(fsc, "rfecv_cluster_min_reduction", 0.05)),
+        rfecv_cluster_corr_method=str(getattr(fsc, "rfecv_cluster_corr_method", "pearson")),
         target_type=target_type, fs_random_seed=fs_random_seed,
     )
     y_ser = pd.Series(y_arr, name="relevance")

@@ -18,6 +18,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _NonPicklingCacheView:
+    """A dict-like view stamped onto a fitted selector as a RUNTIME cache that must NOT
+    enter the persisted model.
+
+    The MRMR cross-target identity cache (``_mlframe_identity_cache_override_``) is a
+    ctx-scoped, suite-lifetime dict the suite shares across every per-target MRMR so a
+    later target can skip a re-fit of identical X. Stamped as a plain attribute it would
+    be deep-walked by ``dill.dumps`` when the fitted MRMR pre_pipeline is saved with the
+    model -- pickling cross-target fingerprint state into every model bundle (size bloat)
+    and replaying STALE entries on reload. The view DELEGATES reads/writes to the shared
+    backing dict (cross-target reuse preserved -- every per-target stamp wraps the SAME
+    backing object), and ``__reduce__`` collapses it to an empty plain ``dict`` at pickle
+    time so the saved model carries no suite-runtime cache."""
+
+    __slots__ = ("_backing",)
+
+    def __init__(self, backing: dict):
+        self._backing = backing
+
+    def get(self, key, default=None):
+        return self._backing.get(key, default)
+
+    def __getitem__(self, key):
+        return self._backing[key]
+
+    def __setitem__(self, key, value):
+        self._backing[key] = value
+
+    def __contains__(self, key):
+        return key in self._backing
+
+    def __reduce__(self):
+        return (dict, ())
+
+
 def _build_pre_pipelines(
     use_ordinary_models: bool,
     rfecv_models: list[str],
@@ -29,11 +64,17 @@ def _build_pre_pipelines(
     rfecv_mbh_adaptive_threshold: int = 30,
     use_boruta_shap: bool = False,
     boruta_shap_kwargs: dict[str, Any] | None = None,
+    use_shap_proxied_fs: bool = False,
+    shap_proxied_fs_kwargs: dict[str, Any] | None = None,
     use_sample_weights_in_fs: bool = False,
     mrmr_identity_cache: dict | None = None,
     target_type: Any = None,
     fs_random_seed: int | None = None,
     fs_use_groups: bool = False,
+    rfecv_cluster_reduce: bool = True,
+    rfecv_cluster_corr_threshold: float = 0.9,
+    rfecv_cluster_min_reduction: float = 0.05,
+    rfecv_cluster_corr_method: str = "pearson",
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
@@ -105,11 +146,31 @@ def _build_pre_pipelines(
                         setattr(_rfecv_instance, "random_state", int(fs_random_seed))
                 else:
                     setattr(_rfecv_instance, "random_state", int(fs_random_seed))
-            # Suite-internal marker (user constraint: keep as setattr; not a public RFECV constructor kwarg).
-            setattr(_rfecv_instance, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
+            # Cluster-medoid pre-reduction for the suite's RFECV. The suite builds RFECV directly (above,
+            # via configure_training_params) rather than through ``registry._instantiate_rfecv``, so the
+            # registry's default-ON wrap never reached the suite RFECV path. Apply it HERE so the documented
+            # "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually holds: wrap the prebuilt (and now
+            # suite-overridden) RFECV in GroupAwareMRMR(expand=True). The GroupAwareMRMR.min_reduction guard
+            # makes this a no-op (bare RFECV on full X) on near-uncorrelated data, so it only acts where genuine
+            # correlated redundancy exists. Multi-seed validated SAFE (OOS AUC delta >= -0.01).
+            _selector_obj = _rfecv_instance
+            if rfecv_cluster_reduce:
+                from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+                _selector_obj = GroupAwareMRMR(
+                    _rfecv_instance,
+                    corr_threshold=float(rfecv_cluster_corr_threshold),
+                    corr_method=str(rfecv_cluster_corr_method),
+                    expand=True,
+                    min_reduction=float(rfecv_cluster_min_reduction),
+                )
+            # Suite-internal markers stamped on the OUTER object that enters pre_pipelines (the wrapper when
+            # cluster-reduce is on, else the bare RFECV): ``_selector_kind`` reads them off this object directly
+            # and the weight-aware fit driver / sklearn.clone sticky-attr forwarding operate on it.
+            setattr(_selector_obj, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
             # Dedicated dispatch marker so downstream report-build / cache code can identify the selector
             # kind without class-name string matching or abusing the weight-marker as a type tag.
-            setattr(_rfecv_instance, "_mlframe_selector_kind_", "RFECV")
+            setattr(_selector_obj, "_mlframe_selector_kind_", "RFECV")
+            _rfecv_instance = _selector_obj
         pre_pipelines.append(_rfecv_instance)
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
@@ -117,8 +178,9 @@ def _build_pre_pipelines(
         # MRMR handles NaN natively via ``nan_strategy`` (default "separate_bin" routes NaN rows to a
         # dedicated discretization bin instead of imputing them; see MRMR._validate_inputs). Wrapping in
         # SimpleImputer would discard that signal and silently degrade downstream NaN-aware backends
-        # (catboost / lgb / xgb). Registry-driven dispatch (A-Arch-002): adding a fourth selector
-        # registers a spec instead of touching this function.
+        # (catboost / lgb / xgb). Instantiation goes through the registry spec (lazy import + report_extract
+        # live next to the spec); the suite-wiring of a new selector still needs a config flag + a branch here
+        # + a _selector_kind entry -- see registry.py module docstring for the data-driven-loop FUTURE plan.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _mrmr_spec = _get_selector_spec("MRMR")
         # Reproducibility: default MRMR's seed from the split seed when the operator didn't pass one
@@ -138,13 +200,13 @@ def _build_pre_pipelines(
         # stamp it on the MRMR instance so fit-time identity-cache reads/writes route to the suite-bounded dict instead of the
         # process-global module-level cache. None falls back to the module-level cache (mrmr_identity_cache_scope="process").
         if mrmr_identity_cache is not None:
-            setattr(_mrmr, "_mlframe_identity_cache_override_", mrmr_identity_cache)
+            setattr(_mrmr, "_mlframe_identity_cache_override_", _NonPicklingCacheView(mrmr_identity_cache))
         pre_pipelines.append(_mrmr)
         pre_pipeline_names.append("MRMR ")
 
     if use_boruta_shap:
-        # Registry-driven dispatch (A-Arch-002). The BorutaShap spec hides the lazy-import behind
-        # ``instantiate`` so shap / matplotlib / seaborn (~2s cold cost) only load when this branch fires.
+        # The BorutaShap spec hides the lazy-import behind ``instantiate`` so shap / matplotlib / seaborn
+        # (~2s cold cost) only load when this branch fires.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _bs_spec = _get_selector_spec("BorutaShap")
         # BorutaShap's ``classification`` defaults to True, so the inner
@@ -165,6 +227,25 @@ def _build_pre_pipelines(
         setattr(_bs, "_mlframe_selector_kind_", "BorutaShap")
         pre_pipelines.append(_bs)
         pre_pipeline_names.append("BorutaShap ")
+
+    if use_shap_proxied_fs:
+        # Registry-driven dispatch (mirrors BorutaShap). The ShapProxiedFS spec hides the lazy-import (shap +
+        # a tree booster) behind ``instantiate`` so it only loads when this branch fires. ShapProxiedFS clusters
+        # correlated features internally, so it is intentionally NOT wrapped in the GroupAwareMRMR cluster-medoid
+        # reduction (the registry instantiate does not wrap it either).
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _sp_spec = _get_selector_spec("ShapProxiedFS")
+        # ShapProxiedFS, like BorutaShap, defaults ``classification=True`` (inner classifier). Auto-derive it
+        # from target_type when the caller did not pin it, so a regression target picks the regressor inner model
+        # instead of crashing on continuous y.
+        _sp_kwargs = dict(shap_proxied_fs_kwargs or {})
+        if "classification" not in _sp_kwargs and target_type is not None:
+            _is_regression = "regression" in str(target_type).lower()
+            _sp_kwargs["classification"] = not _is_regression
+        _sp = _sp_spec.instantiate(**_sp_kwargs)
+        setattr(_sp, "_mlframe_selector_kind_", "ShapProxiedFS")
+        pre_pipelines.append(_sp)
+        pre_pipeline_names.append("ShapProxiedFS ")
 
     if custom_pre_pipelines:
         # Clone every user-supplied pre-pipeline before insertion so fit-time

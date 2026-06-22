@@ -1,10 +1,24 @@
 """Unified FeatureSelectorSpec protocol + registry for the training suite.
 
-Replaces the per-selector dispatch in ``_build_pre_pipelines``: each selector self-describes
-how to instantiate (``instantiate(**kwargs)``) and how to extract its FS report
-(``report_extract(selector, kept)``). Adding a fourth selector (sklearn RFE, boruta-py, etc.)
-becomes a single class registration instead of touching five edit sites across
-_build_pre_pipelines / FeatureSelectionConfig / validators / _selector_kind / _build_feature_selection_report.
+Each selector self-describes how to instantiate (``instantiate(**kwargs)``) and how to extract its
+FS report (``report_extract(selector, kept)``, now consumed by ``_build_feature_selection_report``).
+
+Reachability contract (NOT yet a single registration): the registry is the instantiation+report
+dispatch table, but wiring a selector INTO the suite still also needs (a) a ``use_<sel>`` flag +
+``<sel>_kwargs`` + validator in ``FeatureSelectionConfig``, (b) a branch in ``_build_pre_pipelines``,
+and (c) a kind string in ``_selector_kind``. Each registered selector here is reachable from the suite
+(MRMR / RFECV / BorutaShap / ShapProxiedFS all have their flag + branch). ``report_extract`` already
+lives next to the spec, so the central report builder no longer hard-codes a branch per selector.
+
+FUTURE (data-driven ``_build_pre_pipelines`` over ``registry.available()``): collapse the per-selector
+branches into one loop by extending ``FeatureSelectorSpec`` with declarative wiring metadata --
+``config_enable_field`` ("use_mrmr_fs"), ``config_kwargs_field`` ("mrmr_kwargs"), ``selector_kind``, and
+a ``post_instantiate`` hook for the selector-specific stamping (MRMR's seed-default + identity-cache view,
+RFECV's prebuilt-instance override + cluster-medoid wrap, BorutaShap/ShapProxiedFS's classification
+auto-derive). Deferred because the four branches today have materially different wiring (RFECV is passed
+in PREBUILT by configure_training_params, not instantiated from kwargs like the others), so a faithful
+data-driven loop needs that per-spec hook surface designed + validated against the full suite test bed
+first; not a safe in-place refactor for a wiring pass.
 
 Lazy imports inside ``instantiate`` keep the cold-import cost (MRMR ~25s,
 BorutaShap ~2s from shap/matplotlib/seaborn) gated behind the opt-in flag, preserving
@@ -75,8 +89,10 @@ def _instantiate_mrmr(**kwargs):
 def _instantiate_rfecv(**kwargs):
     # Go through the public re-export so the underscore module remains an implementation detail.
     from mlframe.feature_selection.wrappers import RFECV
-    # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction is
-    # DEFAULT-ON for the suite's RFECV. Broad validation
+    # cluster-medoid pre-reduction is DEFAULT-ON for RFECV instantiated through THIS factory (MRMR / BorutaShap
+    # ranker paths). The training suite does NOT build RFECV through this factory -- it constructs RFECV directly
+    # in configure_training_params and wraps it in GroupAwareMRMR inside _build_pre_pipelines, driven by the
+    # FeatureSelectionConfig.rfecv_cluster_* fields (so the default-ON behaviour holds for the suite RFECV too). Broad validation
     # (bench_cross_selector_diverse: synthetic make_classification with varied
     # redundancy + a signal-in-non-medoid risk case + real breast_cancer / wine /
     # digits) showed OOS AUC delta in [-0.0004, +0.0081] -- never materially
@@ -143,10 +159,36 @@ def _instantiate_shap_proxied_fs(**kwargs):
     return ShapProxiedFS(**kwargs)
 
 
+def _report_extract_shap_proxied_fs(selector, kept) -> dict:
+    """Per-feature ShapProxiedFS report fragment consumed by ``_build_feature_selection_report``.
+
+    Surfaces the mean-|phi| importances the selector ranked subsets by (when present) as ``scores``,
+    and a kept/dropped reason map. Kept/dropped names are computed by the central builder; this only
+    adds selector-specific signal. Every read is defensive: a failed extraction must never abort training.
+    """
+    out: dict = {"scores": None, "reason_per_feature": None}
+    try:
+        _rep = getattr(selector, "shap_proxy_report_", None)
+        if isinstance(_rep, dict):
+            _imp = _rep.get("mean_abs_shap") or _rep.get("importances")
+            if isinstance(_imp, dict) and _imp:
+                out["scores"] = {str(k): float(v) for k, v in _imp.items()}
+    except Exception:
+        out["scores"] = None
+    try:
+        _sel = set(str(c) for c in (getattr(selector, "selected_features_", None) or []))
+        _all = getattr(selector, "feature_names_in_", None)
+        if _all is not None and _sel:
+            out["reason_per_feature"] = {str(c): ("selected" if str(c) in _sel else "dropped") for c in _all}
+    except Exception:
+        pass
+    return out
+
+
 register(_SimpleSpec(name="MRMR", instantiate=_instantiate_mrmr))
 register(_SimpleSpec(name="RFECV", instantiate=_instantiate_rfecv))
 register(_SimpleSpec(name="BorutaShap", instantiate=_instantiate_boruta_shap))
-# Opt-in only: registration does NOT auto-wire ShapProxiedFS into the training suite (each selector
-# is gated behind its own explicit flag in _setup_helpers_pre_pipelines); this just makes it
-# discoverable via registry.get("ShapProxiedFS").
-register(_SimpleSpec(name="ShapProxiedFS", instantiate=_instantiate_shap_proxied_fs))
+# ShapProxiedFS is reachable from the suite via ``FeatureSelectionConfig.use_shap_proxied_fs`` +
+# the matching ``_build_pre_pipelines`` branch (mirrors BorutaShap). The registration also carries
+# ``report_extract`` so the central report builder picks up ShapProxiedFS scores without a hard-coded branch.
+register(_SimpleSpec(name="ShapProxiedFS", instantiate=_instantiate_shap_proxied_fs, report_extract=_report_extract_shap_proxied_fs))
