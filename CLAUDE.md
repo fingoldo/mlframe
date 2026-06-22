@@ -21,6 +21,17 @@ with no clear winner; (b) a destructive, irreversible operation; (c) touching
 another session's uncommitted WIP or clearly out-of-scope code; (d) a hard
 blocker you cannot proceed past. Everything else: keep going.
 
+**NEVER END A TURN WHILE AUTHORIZED TASKS REMAIN (CRITICAL, 2026-06-22).** A
+progress report is fine — even expected — but it must be FOLLOWED by the next
+work in the SAME turn, not be the turn's final act. Ending a response with a
+status summary while items are still undone reads as quitting and is wrong, no
+matter how much was already shipped. "I'll take X next / continuing now" is
+banned UNLESS X's tool call is in the same response. A large, expensive, or
+selection-rippling batch is NOT a reason to checkpoint-and-stop: run the long
+validation in-loop and proceed to the next item. The only legitimate turn-ends
+are the (a)-(d) pauses above or genuinely running out of context mid-edit
+(commit what is safe, state exactly what remains — still do not ask).
+
 ## Enable corrective mechanisms by default (CRITICAL)
 
 When you build a corrective mechanism that fixes a bug class — DCD
