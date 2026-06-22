@@ -118,8 +118,11 @@ def generate_pair_cross_basis_features(
             continue
         if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j])):
             continue
-        x_i = np.asarray(X[col_i].to_numpy(), dtype=np.float64)
-        x_j = np.asarray(X[col_j].to_numpy(), dtype=np.float64)
+        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block for a
+        # contiguous float64 column, and the np.copyto NaN-fill below would then mutate the CALLER's X
+        # (corrupting downstream missingness-FE). A fresh copy keeps the fill local to this function.
+        x_i = np.array(X[col_i].to_numpy(), dtype=np.float64)
+        x_j = np.array(X[col_j].to_numpy(), dtype=np.float64)
         for x in (x_i, x_j):
             finite_mask = np.isfinite(x)
             if not finite_mask.all():

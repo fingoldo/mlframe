@@ -4512,7 +4512,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         else:
             self.feature_names_in_ = [f"f{i}" for i in range(n_cols)]
         self._engineered_features_ = []
-        self._engineered_recipes_ = {}
+        self._engineered_recipes_ = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
         self.n_features_in_ = int(n_cols)
         self.n_features_ = int(n_cols)
         self.fallback_used_ = False
