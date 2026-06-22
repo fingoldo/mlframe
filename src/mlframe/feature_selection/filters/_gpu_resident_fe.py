@@ -2490,7 +2490,7 @@ def grand_fused_pair_mi_fused(
     import cupy as cp
 
     from .batch_mi_noise_gate_gpu import (
-        _build_shuffle_matrix, _gate_from_mi, _mi_from_counts_cpu,
+        _build_shuffle_matrix, _gate_from_mi, _mi_from_counts_cpu, _mi_columns_from_counts_cpu,
     )
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
@@ -2557,20 +2557,23 @@ def grand_fused_pair_mi_fused(
         total_size = blk * int(nbins) * K_y
         counts = _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins, K_y, total_size)
         del edges_int
-        # CPU bit-exact reduction (identical to batch_mi_with_noise_gate_cupy): per-column block reshape.
+        # CPU bit-exact reduction (identical to batch_mi_with_noise_gate_cupy). Use the BATCHED njit
+        # _mi_columns_from_counts_cpu (one compiled call over all blk columns) instead of the per-(perm,k)
+        # Python->njit dispatch -- bit-identical (same _mi_from_counts_cpu body per column) but removes the
+        # blk*(nperm+1) Python-call overhead. ref_mi reproduces the perm-skip: all-positive for the original
+        # row (compute every column), then `om` for each perm row (compute only where om>0; else stays 0).
         nb_ky = int(nbins) * K_y
-        om = np.zeros(blk, dtype=np.float64)
-        for k in range(blk):
-            blk_counts = counts[0, k * nb_ky:(k + 1) * nb_ky].reshape(int(nbins), K_y)
-            om[k] = _mi_from_counts_cpu(blk_counts, int(nbins), fy, n, bool(use_su))
+        _col_off = np.arange(blk, dtype=np.int64) * nb_ky
+        _nbins_arr = np.full(blk, int(nbins), dtype=np.int64)
+        _all_pos = np.ones(blk, dtype=np.float64)
+        om = _mi_columns_from_counts_cpu(
+            np.ascontiguousarray(counts[0]), _col_off, _nbins_arr, K_y, fy, n, bool(use_su), _all_pos,
+        )
         original_mi_parts.append(om)
         for p in range(nperm):
-            mp = np.zeros(blk, dtype=np.float64)
-            for k in range(blk):
-                if om[k] <= 0.0:
-                    continue
-                blk_counts = counts[p + 1, k * nb_ky:(k + 1) * nb_ky].reshape(int(nbins), K_y)
-                mp[k] = _mi_from_counts_cpu(blk_counts, int(nbins), fy, n, bool(use_su))
+            mp = _mi_columns_from_counts_cpu(
+                np.ascontiguousarray(counts[p + 1]), _col_off, _nbins_arr, K_y, fy, n, bool(use_su), om,
+            )
             perm_mi_parts[p].append(mp)
         del counts
     original_mi = np.concatenate(original_mi_parts) if original_mi_parts else np.empty(0)
