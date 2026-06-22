@@ -67,18 +67,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_step_core.py`` / ``_pairs_core.py``).
     # (de-exempted 2026-06-22: inline DCD discover/swap block carved out of the select loop into
     # _screen_dcd_swap.py; _screen_predictors.py now ~934 LOC, under the 1k ceiling)
-    # FIXME(carve-wave-next): feature_selection/shap_proxied_fs/_shap_proxied_fit.py -- the
-    # ``ShapProxiedFitMixin.fit`` orchestration body (~990 lines) after the shap_proxied_fs
-    # subpackage split. The resolver / coercion / preflight helpers already live in sibling
-    # mixins (``_shap_proxied_methods`` / ``_shap_proxied_resolvers``) and the SHAP-explain /
-    # search kernels in their own submodules; only the one sequential fit pipeline (disjoint-
-    # holdout split -> prefilter -> OOF-SHAP -> proxy search -> honest revalidation/ablation/
-    # refine) remains over budget, threaded through ~40 interdependent locals + nested ``_stage``/
-    # ``_budget`` closures. Carve candidate if it must shrink: lift the post-prefilter holdout-
-    # materialisation + clustering block into a ``_shap_proxied_fit_prefilter.py`` helper that
-    # returns (working_cols, X_hold, y_hold) -- but only with a bit-identity selection gate, as
-    # the block shares mutable scratch with the search core.
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit.py",
+    # (de-exempted 2026-06-22: prefilter holdout/clustering block carved to _shap_proxied_fit_prefilter.py)
     # FIXME(carve-wave-next): training/core/_phase_composite_post_xt_ensemble/__init__.py -- the
     # irreducible single-function body of ``_build_cross_target_ensemble_for_target`` (the
     # CT_ENSEMBLE builder lifted out of the per-target training loop). Its three nested closures
