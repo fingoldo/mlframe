@@ -37,10 +37,10 @@ Mark `[x]` + commit hash when landed.
   `test_percentile_binning_chunk_invariant` (chunk-invariant binning) + FE pins; selection-equivalent. RISK:
   low (chunk-invariant already pinned). NOTE: partly addressed by the existing `_gpu_k_chunk` VRAM governor;
   the remaining lever is KTC-tuning the width.
-- [ ] **G4 (was #4) — sum(axis) per chunk per pair.** `_hermite_fe_mi.py:287-288,311` (≈ the 48k cub Sum).
+- [x] **G4 (was #4) — sum(axis) per chunk per pair.** `_hermite_fe_mi.py:287-288,311` (≈ the 48k cub Sum).
   Same outer-multiplier lever as G1/G3; already optimally batched WITHIN a call. No separate change beyond
   G3's fewer-chunks. → fold into G3 / mark no-op after G3.
-- [ ] **G6 (was #6) — dead per-column scalar-D2H path.** `_gpu_resident_fe.py:589-655`
+- [x] **G6 (was #6) — dead per-column scalar-D2H path.** `_gpu_resident_fe.py:589-655`
   (`_gpu_robust_scale`/`_gpu_detect_heavy_tail`/`_gpu_basis_preprocess` per-column scalar variants, ~6-10
   `float(cp...)` D2H each) are SUPERSEDED by the `_batched` twins. CONFIRM no live caller uses the per-column
   `_gpu_evaluate_basis_column` (`__init__.py` imports it but the live path uses `_gpu_evaluate_basis_matrix`)
@@ -95,14 +95,14 @@ the 2026-06-22 follow-through update). The REMAINING (invasive / low-value / par
   one-hot source `col__value` → `uplift = emi/1e-12` → always clears the gate. FIX: carry the source col in
   metadata instead of re-parsing. GATE: new `col__value`-named-source test + recipe round-trip tests. RISK:
   invasive naming-convention change; preserve recipe-replay byte-exactness.
-- [ ] **D2. `y.to_numpy()` 53× hoist** in `_fit_impl_core.py` (code-quality). Hoist once (y not reassigned);
+- [x] **D2. `y.to_numpy()` 53× hoist** in `_fit_impl_core.py` (code-quality). Hoist once (y not reassigned);
   replace the 53 inline `y.to_numpy() if hasattr else np.asarray(y)`. GATE: grep-confirm no reassign +
   test_mrmr_feature_engineering + biz subset. RISK: mechanical (53 sites in 9.8k file); behavior-preserving.
-- [ ] **D3. lstsq→normal-eq** in `_orth_extra_basis_fe.py` deflation (perf #8). `_deflate_sincos:336`
+- [x] **D3. lstsq→normal-eq** in `_orth_extra_basis_fe.py` deflation (perf #8). `_deflate_sincos:336`
   [IN PROGRESS] + the vander-poly sites `:449,589`. normal-eq solve + lstsq fallback (rank-robustness). GATE:
   test_fe_auto_escalation + test_biz_value_mrmr_adaptive_fourier + test_biz_val_extra_basis_fe + F2 pin.
   RISK: selection-bearing (not bit-identical), low live impact (escalation-gated).
-- [ ] **D4. `_env_truthy` env-flag DRY.** TWO helpers (`_env_opt_in` / `_env_opt_out_cuda`) — the gates have
+- [x] **D4. `_env_truthy` env-flag DRY.** TWO helpers (`_env_opt_in` / `_env_opt_out_cuda`) — the gates have
   divergent opt-in vs opt-out+CUDA_VISIBLE_DEVICES+MLFRAME_DISABLE_GPU logic. GATE: import smoke + gate-
   default tests. RISK: a wrong default flips a gate; behavior-preserving.
 - [ ] **D5. ctor-defaults single-source** in `mrmr/_mrmr_class.py` — derive `__setstate__` defaults from
