@@ -812,6 +812,15 @@ def run_fe_auto_escalation(
     # closed-form recipe so the caller materialises the full-n column (output equals a
     # full-data fit given the same admitted set). A candidate whose full replay fails is
     # dropped (it would otherwise inject a wrong-length column).
+    #
+    # SELECTION-EQUIVALENCE NOTE (P1-5/P1-6): the orth-poly proposers gate on subsample values computed via
+    # polyeval_dispatch at the SMALL subsample n (njit/Horner), while this replay rebuilds at full n where
+    # the dispatch may pick the CUDA recurrence -- which differs from njit-Horner by ~1e-12 for cheb/leg/herme
+    # (see _gpu_resident_fe P2-2 note; laguerre is forward on both). So a near-FLOOR esc-poly admit decided on
+    # Horner values ships a column whose binned MI can differ by that ~1e-12. This is far below the gate's
+    # effective resolution (min_val_corr / pairness_margin), and escalation admits ~nothing at the canonical
+    # fit anyway (the interleaved A/B above records the same eligible pairs + 0 proposed); the decide->replay
+    # set is unchanged. Pinning one polyeval backend across decide+replay is a FUTURE change, unneeded here.
     if _esc_do_sub and admitted:
         from .engineered_recipes import apply_recipe
         _rebuilt: list[dict] = []
