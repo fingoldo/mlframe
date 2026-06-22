@@ -851,6 +851,11 @@ def discretize_2d_array_cuda(
     if n_rows == 0 or n_cols == 0:
         return np.empty(arr.shape, dtype=dtype)
 
+    # Widen the code dtype to hold ordinal codes 0..n_bins-1 BEFORE allocating the device output -- mirrors
+    # the CPU discretize_2d_array (_safe_code_dtype). Without this an int8 request at n_bins>128 wrapped the
+    # top bins negative on the GPU (codes 128..n_bins-1 -> negative) while the CPU path widened to int16,
+    # a silent cross-backend divergence on the public API. (Verified: NaN routing already matches CPU.)
+    dtype = _safe_code_dtype(n_bins, dtype)
     d_arr = cp.asarray(arr)  # H2D once for the whole frame
     _out_cp_dtype = cp.int8 if dtype == np.int8 else cp.asarray(np.zeros(1, dtype=dtype)).dtype
     out = cp.empty((n_rows, n_cols), dtype=_out_cp_dtype)
