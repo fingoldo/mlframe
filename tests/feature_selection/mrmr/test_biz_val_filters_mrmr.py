@@ -379,7 +379,11 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     # the two fits can swap the ratio. Apply the constraint only when the
     # absolute wall is large enough for the perm budget to actually matter
     # (>= 200ms) and use a 2x bound to allow noisy fast paths.
-    if t_high >= 0.2:
+    # Wall-clock ratios are unreliable under -n xdist contention (a worker can be CPU-starved, and the
+    # full_npermutations=1 path pays its own cold numba JIT the default-perm warmup above did not compile, so the
+    # FIRST timed fit can dwarf the second). Skip the ratio there; the signal-recovery assert above always runs.
+    from tests.conftest import running_under_xdist
+    if t_high >= 0.2 and not running_under_xdist():
         assert t_low <= t_high * 2.0, (
             f"full_npermutations=1 must be no slower than 2x of =10; "
             f"got low={t_low:.2f}s, high={t_high:.2f}s"
