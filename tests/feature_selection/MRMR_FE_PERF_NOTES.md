@@ -694,3 +694,21 @@ REMAINING (large, need a fresh-context validation budget -- each is selection-be
 3. Deferred audit tail (MRMR_AUDIT_2026_06_22.md): source-name __ split (9-site naming-convention),
    y.to_numpy 53x hoist, lstsq->normal-eq in _orth_extra_basis_fe deflation, _env_truthy DRY, ctor-defaults
    single-source, evaluation.py carve (1144 LOC).
+
+## 2026-06-22 (cont) -- GPU#2 verification + deferred-tail dispositions (verify-before-fix)
+
+GPU#2 (the agent's "eliminate the 2.35GB H2D by keeping operands resident across the pair sweep): VERIFIED
+ALREADY DONE in production. The operand-table residency is fully wired: _pairs_core.py:946-952 calls
+build_resident_operand_table (builds the bulk operand columns ON the device -- no H2D of operand bytes) +
+register_prebuilt_operand_table, and :1282-1285 reuses _resident_operand_table per chunk (weakref-identity
+cache). The agent mis-attributed the 2.35GB to gpu_resident_pair_candidate_mi, which is the PROTOTYPE
+dispatch ("default FE pipeline does NOT call this yet") -- NOT the production F2 path. The residual H2D is
+the necessary, already-cached per-distinct-raw-operand + y uploads, doubled by the 2 profiled fits
+(warm+timed). No clean further residency win without deeper per-call profiling; the machinery is
+comprehensive. DISPOSITION: already-addressed (verified), not a remaining item.
+
+lstsq->normal-eq in _deflate_sincos (perf #8): NOT a clean drop-in. The SVD lstsq is there for RANK-
+robustness (a degenerate freq -> the sin column collapses -> rank-deficient A; lstsq gives the min-norm
+solution, normal-eq solve raises). It is also NOT bit-identical (SVD vs normal-eq), so it is selection-
+bearing and needs Fourier-detection validation. Low live impact (the Fourier path is escalation-gated,
+admits ~nothing at canonical n). DISPOSITION: queued as selection-bearing, not a free win.
