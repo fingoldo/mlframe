@@ -25,17 +25,34 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 # f is the irreducible-noise term -- NOT a feature.
 # GOAL SPEC: ``uniform`` is a HARD regression guard (recovered today). The imbalanced / dirty profiles are
 # xfail(strict=True) -- the distribution-robustness GOAL (one clean compound regardless of input
-# distribution) that the residual-aware FE work is being built to satisfy. They share one root cause
-# (signal-scale imbalance: a**2/b dominates Var(y) so the weak log(c)*sin(d) half falls below the
-# prevalence gate). strict=True makes the test FAIL the moment a fix makes any of them pass, forcing the
+# distribution). strict=True makes the test FAIL the moment a fix makes any of them pass, forcing the
 # xfail to be removed -- so this self-polices and is NOT a "deferred bug" (it is a known-unimplemented goal).
-_XFAIL = "distribution-robustness GOAL (residual-aware FE WIP): weak half dominated by a**2/b fragments"
+#
+# ROOT CAUSE (corrected 2026-06-22 by two empirical residual-FE investigations -- the ORIGINAL "weak half
+# falls below the prevalence gate, fix via residual retarget" premise was REFUTED by per-profile diagnostics):
+# variance imbalance breaks the goal in TWO distinct ways, and residual-retarget (targeting MRMR on
+# r = y - E_hat[y|selected]) is the WRONG tool for both -- the ridge residual is a/b-shaped, so retarget
+# re-chases the dominant half. uniform passes because Var(a**2/b) ~= Var(c*d) there, so both halves are
+# constructed AND the nested-parent pair search fuses them into one add(...).
+#   * FUSION-BLOCKED (heavy_tailed, mixed): the weak mul(log(c),sin(d)) half IS already constructed cleanly;
+#     the failure is non-fusion -- raw/a-b fragments survive and the two halves never combine into the single
+#     add(...). Fixable by C2 additive-fusion (reuse unary_binary + nested_parent_a/b with binary_name="add";
+#     byte-exact replay, no new recipe kind) so the fused candidate wins re-selection and the conditional-
+#     redundancy sweep drops the fragments.
+#   * DOMINANT-CAPTURE-BLOCKED (scaled_1_5, with_outliers): the dominant a/b half is captured corrupted and
+#     log(c) is DROPPED (-> cbrt(d)/sin(d)); there is no clean c/d half to fuse. Blocker lives upstream in the
+#     pair-search leader/tie-break + linear-usability guard (_step_core.py ~486-498), a research-grade FE-quality
+#     fix that must not regress the canonical test_biz_value_mrmr_fe_canonical (same signal, strong config,
+#     currently recovered perfectly). Must precede C2; C2 alone gets at most 2/4.
+# (Two no-ship iterations are documented in the work plan; the strict xfails stay until a fix lands all 4.)
+_XFAIL_FUSION = "GOAL: weak log(c)*sin(d) half constructed but NOT fused into one add(...) -- needs C2 additive-fusion"
+_XFAIL_CAPTURE = "GOAL: dominant a/b half corrupted under variance imbalance (log(c) dropped) -- needs upstream dominant-capture fix before C2"
 _PROFILES = [
     "uniform",
-    pytest.param("scaled_1_5", marks=pytest.mark.xfail(strict=True, reason=_XFAIL)),
-    pytest.param("heavy_tailed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL)),
-    pytest.param("mixed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL)),
-    pytest.param("with_outliers", marks=pytest.mark.xfail(strict=True, reason=_XFAIL)),
+    pytest.param("scaled_1_5", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
+    pytest.param("heavy_tailed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_FUSION)),
+    pytest.param("mixed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_FUSION)),
+    pytest.param("with_outliers", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
 ]
 
 
