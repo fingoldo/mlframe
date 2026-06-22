@@ -214,8 +214,18 @@ def fit_and_transform_pipeline(
             and not _looks_text(train_df[col])
         ]
 
-        # Apply categorical encoding if specified (for models that don't support categorical natively)
-        if cat_features and config.categorical_encoding in ["ordinal", "onehot"] and not config.skip_categorical_encoding:
+        # Apply categorical encoding if specified (for models that don't support categorical natively).
+        # EXCEPTION: when we fell back here from an UNAVAILABLE polars-ds pipeline, mirror the polars-ds path's
+        # contract and leave categoricals RAW (preserving ``cat_features`` for the downstream model strategy, e.g.
+        # CatBoost's native handling). Ordinal-encoding them here would clear cat_features to [] and silently strip
+        # CatBoost's native categorical support purely because polars-ds was missing -- a behaviour divergence the
+        # polars-ds path never has (it returns the original cat columns untouched).
+        if (
+            cat_features
+            and config.categorical_encoding in ["ordinal", "onehot"]
+            and not config.skip_categorical_encoding
+            and not _polarsds_fell_back_to_sklearn
+        ):
             if verbose:
                 logger.info(f"Applying {config.categorical_encoding} encoding to {len(cat_features)} categorical features: {cat_features}")
 
