@@ -31,10 +31,10 @@ from .info_theory import (
     set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
 )
 
-# Helpers + the module-level JMIM cache stats deque live in the parent ``evaluation.py``. Importing
-# at module top is safe (no circular hazard): this sibling is first imported by ``evaluation.py``'s
-# bottom re-export, by which point the parent body has fully executed and these names exist.
-from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS
+# Helpers + the module-level JMIM cache stats deque live in the parent ``evaluation.py``. These are
+# imported LAZILY inside ``_evaluate_candidates_inner`` (see ``# lazy: avoids import cycle`` there)
+# rather than at module top, so the static module-level import graph has no ``_evaluation_driver ->
+# evaluation -> _evaluation_driver`` cycle while runtime behaviour is identical.
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +255,10 @@ def _evaluate_candidates_inner(
     dtype=np.int32, max_runtime_mins=None, start_time=None,
     min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
 ):
+
+    # lazy: parent-defined helpers + cache deque, imported here to avoid the
+    # _evaluation_driver <-> evaluation module-level import cycle.
+    from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS
 
     best_gain = -LARGE_CONST
     best_candidate = None

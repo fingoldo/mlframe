@@ -5,27 +5,24 @@ the 1000-LOC ceiling. Holds only :func:`save_mlframe_model` (atomic-write +
 sidecar + version-stamp orchestration); ``load_mlframe_model`` + the
 ``_SafeUnpickler`` trust boundary stay in the parent ``io.py``.
 
-Shared helpers/constants (``logger``, ``_LEAN_STRIP_FIELDS``,
-``atomic_write_bytes``, ``_write_save_meta_sidecar``) are imported from the
-parent at module top; the parent imports ``save_mlframe_model`` from here at the
-BOTTOM of ``io.py`` so there is no import cycle.
+``logger`` is created module-locally; the remaining parent-defined helpers
+(``_LEAN_STRIP_FIELDS``, ``atomic_write_bytes``, ``_write_save_meta_sidecar``)
+are imported LAZILY inside ``save_mlframe_model`` rather than at module top, so
+the static import graph has no ``_io_save -> io -> _io_save`` cycle. The parent
+imports ``save_mlframe_model`` from here at the BOTTOM of ``io.py``.
 """
 
 from __future__ import annotations
 
 import os
+import logging
 from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
 import dill
 import zstandard as zstd
 
-from mlframe.training.io import (
-    logger,
-    _LEAN_STRIP_FIELDS,
-    atomic_write_bytes,
-    _write_save_meta_sidecar,
-)
+logger = logging.getLogger("mlframe.training.io")
 
 
 def save_mlframe_model(
@@ -101,6 +98,14 @@ def save_mlframe_model(
     Returns:
         True if save was successful, False otherwise.
     """
+    # lazy: parent-defined helpers, imported here to avoid the
+    # _io_save <-> io module-level import cycle.
+    from mlframe.training.io import (
+        _LEAN_STRIP_FIELDS,
+        atomic_write_bytes,
+        _write_save_meta_sidecar,
+    )
+
     if zstd_kwargs is None:
         zstd_kwargs = dict(
             level=4,
