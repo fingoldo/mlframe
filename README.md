@@ -500,7 +500,9 @@ Markers: `slow`, `integration`, `gpu`, `multigpu`, `benchmark`, `windows_only`,
 Pull requests are welcome. Code style is `black` + `ruff` with a line length of 160.
 Every new feature ships with a unit test, a quantitative business-value test, a
 representative `@pytest.mark.fast` subset, and a `cProfile` hotspot check. See
-[CLAUDE.md](CLAUDE.md) for project conventions and the fuzz / combo test philosophy.
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full development workflow, test bar, and
+the fuzz / combo test philosophy. By participating you agree to abide by our
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
