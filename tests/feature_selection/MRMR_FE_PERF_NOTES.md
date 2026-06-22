@@ -623,3 +623,37 @@ resident matrix by device slice (M = _Mr[:, used_idx]) -- removing a redundant (
 Given selection-equivalence (re-validated after the slicing change: 14 passed) + the corrected 1.07x +
 the removed redundant upload + the GPU-residency principle, MLFRAME_FE_GPU_ROUTING is flipped to DEFAULT
 ON (opt-out via =0), mirroring fe_gpu_resident_basis_mi_enabled. Per-column host fallback retained.
+
+## 2026-06-22 (cont) -- F2 100k CPU-vs-GPU wall + dual-profiler + [1,5] fragmentation root-cause
+
+GOLDEN EXAMPLE: y = a**2/b + f/5 + log(c)*sin(d), n=100k, canonical single-compound config
+(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05).
+Measured WARM (KTC sweeps pre-completed -- a cold first-fit pays a one-time ~6min async grid sweep that
+otherwise poisons the wall; pre-warm via the ensure_*_tuning hooks). n_iters for the sweeps cut 5->2.
+
+WALL (warm, sweep-free):
+  data uniform[0.1,1.1]: GPU 30.1s vs CPU 204.1s = 6.8x  -> ONE clean compound add(div(sqr(a),b),mul(log(c),sin(d)))
+  data uniform[1,5]    : GPU 21.6s vs CPU  84.3s = 3.9x  -> 3 features (1 full + 2 frag) -- FRAGMENTS
+  CPU==GPU selection on both (validates the equivalence work). default 3/2 == canon 10/20 wall + same compound.
+
+DUAL-PROFILER (the two modes have OPPOSITE bottlenecks):
+  * CPU (cProfile): batch_mi_with_noise_gate (info_theory/_batch_kernels.py:203) = 190s tottime ~= 93% of
+    the fit -- permutation-noise-gate COMPUTE bound (10/20 perms x n=100k x candidates). Everything else <4s.
+  * GPU (nsys): ORCHESTRATION/TRANSFER bound, NOT compute. cub DeviceReduce::Max 52% (71,812 calls) + Sum
+    31% (48,078) + RadixSort 15% (23,942) -- all from cupy cp.max/cp.sum/cp.median/percentile in Python
+    loops; 381,216 cuLaunchKernel; 100,757 tiny D2H (scalar .item() syncs); 2.35 GB H2D (945 ops, one 58MB)
+    -- the H2D is the "100% residency" violation. ncu per-kernel metrics would just confirm the cub kernels
+    are NVIDIA-tuned/efficient; the cost is call COUNT + transfers, so the residency lever is batching the
+    reductions + keeping operands resident (eliminate the 2.35GB H2D), NOT kernel-level tuning.
+  (nvprof is non-functional on CUDA 12.8; used Nsight Systems nsys + Nsight Compute ncu instead.)
+
+[1,5] FRAGMENTATION ROOT CAUSE (quantified, NOT a bug): signal-scale imbalance. On uniform[1,5]
+var(a**2/b)=13.8 dominates var(log c*sin d)=0.61, so y~=a**2/b and MI(c/d;y)=0.131 is only 10.5% of
+MI(a/b;y)=1.245 -- the c/d half sits near the relevance/prevalence gate floor and never survives to be
+fused, so the compound degrades to add(sin(d),a**2/b) (drops the log(c) factor) + 2 fragments. On
+[0.1,1.1] the halves are balanced (MI ratio 0.625) -> both recovered -> one clean compound. FIX DIRECTION:
+residual-aware FE (after capturing the dominant a**2/b term, search the RESIDUAL y - a**2/b where the c/d
+half is no longer dominated) -- the escalation path already residualises but admits ~nothing at canonical
+n; making step-2 of the main pair-search residualise (or the gate residual-relative) is the principled fix.
+Selection-bearing -> must validate against the single_compound + biz-value suite. (Testing existing knobs
+-- fe_max_steps, lower prevalence -- first to see if it is a default tweak vs new code.)
