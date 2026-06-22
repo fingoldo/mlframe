@@ -171,9 +171,33 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         state["_cuda_graph_predict_cache"] = {}
         state["_compiled_predict_fn"] = None
         state["_compile_predict_failed"] = False
+        # self.optimizer holds the optimizer CLASS (e.g. torch.optim.AdamW), used only in
+        # configure_optimizers (training). dill pickles this class BY VALUE, descending into
+        # Optimizer.zero_grad which torch wraps with @torch._dynamo.disable -- that closure
+        # captures torch._dynamo.config (a ConfigModuleInstance), so bare dill.dumps raised
+        # "cannot pickle 'ConfigModuleInstance' object" even though the predict caches were
+        # already nulled (the class is reached via the Trainer back-ref, bypassing the live
+        # network's getstate). Serialise it as an importable (module, qualname) reference and
+        # rebuild the class lazily in __setstate__; predictions are unaffected.
+        _opt = state.get("optimizer")
+        if isinstance(_opt, type):
+            state["optimizer"] = ("__optimizer_class_ref__", _opt.__module__, _opt.__qualname__)
         return state
 
     def __setstate__(self, state):  # type: ignore[no-untyped-def]
+        _opt_ref = state.get("optimizer")
+        if isinstance(_opt_ref, tuple) and len(_opt_ref) == 3 and _opt_ref[0] == "__optimizer_class_ref__":
+            try:
+                import importlib
+
+                _mod = importlib.import_module(_opt_ref[1])
+                _obj = _mod
+                for _part in _opt_ref[2].split("."):
+                    _obj = getattr(_obj, _part)
+                state = dict(state)
+                state["optimizer"] = _obj
+            except Exception:
+                logger.warning("Failed to restore optimizer class %r; leaving as reference.", _opt_ref, exc_info=True)
         self.__dict__.update(state)
         self._cuda_graph_predict_cache = {}
         self._compiled_predict_fn = None
