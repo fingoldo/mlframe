@@ -1,0 +1,66 @@
+name: release
+
+# Publishes to PyPI on a published GitHub Release (or a v* tag) using PyPI
+# Trusted Publishing (OIDC) — no API token is stored as a secret.
+#
+# One-time setup on PyPI: add a Trusted Publisher for this repo pointing at
+# this workflow file (release.yml) and the "pypi" environment below.
+#
+# NOTE: a successful upload requires the runtime dependency `pyutilz` to be
+# available on PyPI; until then this workflow builds and validates but the
+# upload step will be the gating action to run only once that is true.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Verify distributions with twine
+        run: uvx twine check dist/*
+
+      - name: Upload built distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mlframe
+    permissions:
+      id-token: write  # required for Trusted Publishing (OIDC)
+    steps:
+      - name: Download built distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
