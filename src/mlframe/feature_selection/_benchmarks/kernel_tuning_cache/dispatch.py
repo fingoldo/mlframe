@@ -140,7 +140,7 @@ def lookup_joint_hist(n_samples: int, joint_size: int,
 
         from ._auto_tune_sweeps_a import _run_sweep_joint_hist
 
-        tuner = (lambda: _run_sweep_joint_hist(n_iters=5)) if run_auto_tune else (lambda: [])
+        tuner = (lambda: _run_sweep_joint_hist(n_iters=2)) if run_auto_tune else (lambda: [])
         result = cache.get_or_tune(
             "joint_hist_batched",
             dims={"n_samples": n_samples, "joint_size": joint_size},
@@ -258,7 +258,7 @@ def lookup_mi_classif_backend(n_samples: int, k: int,
 
         from ._auto_tune_sweeps_a import _run_sweep_mi_classif_dispatch
 
-        tuner = (lambda: _run_sweep_mi_classif_dispatch(n_iters=5)) if run_auto_tune else (lambda: [])
+        tuner = (lambda: _run_sweep_mi_classif_dispatch(n_iters=2)) if run_auto_tune else (lambda: [])
         result = cache.get_or_tune(
             "plugin_mi_classif_dispatch",
             dims={"n_samples": n_samples, "k": k},

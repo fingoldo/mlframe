@@ -201,7 +201,7 @@ def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     logger.info("kernel_tuning_cache: joint_hist sweep starting (one-time per host)")
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_joint_hist(n_iters=5)
+        regions = _run_sweep_joint_hist(n_iters=2)
     except Exception as e:
         logger.warning("kernel_tuning_cache: joint_hist sweep failed: %s", e)
         return None
@@ -361,7 +361,7 @@ def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict
     )
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_mi_classif_dispatch(n_iters=5)
+        regions = _run_sweep_mi_classif_dispatch(n_iters=2)
     except Exception as e:
         logger.warning(
             "kernel_tuning_cache: plugin_mi_classif_dispatch sweep failed: %s", e,
@@ -532,7 +532,7 @@ def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
     )
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_polyeval(n_iters=5)
+        regions = _run_sweep_polyeval(n_iters=2)
     except Exception as e:
         logger.warning("kernel_tuning_cache: polyeval sweep failed: %s", e)
         return None
@@ -639,7 +639,7 @@ def ensure_joint_hist_single_perm_tuning(force: bool = False) -> Optional[list[d
     logger.info("kernel_tuning_cache: joint_hist_single_perm sweep starting")
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_joint_hist_single_perm(n_iters=5)
+        regions = _run_sweep_joint_hist_single_perm(n_iters=2)
     except Exception as e:
         logger.warning(
             "kernel_tuning_cache: joint_hist_single_perm sweep failed: %s", e,
@@ -772,7 +772,7 @@ def ensure_joint_hist_multi_pair_tuning(force: bool = False) -> Optional[list[di
     logger.info("kernel_tuning_cache: joint_hist_multi_pair sweep starting")
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_joint_hist_multi_pair(n_iters=5)
+        regions = _run_sweep_joint_hist_multi_pair(n_iters=2)
     except Exception as e:
         logger.warning(
             "kernel_tuning_cache: joint_hist_multi_pair sweep failed: %s", e,

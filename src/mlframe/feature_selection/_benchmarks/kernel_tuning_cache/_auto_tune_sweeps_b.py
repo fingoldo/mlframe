@@ -285,7 +285,7 @@ def ensure_rmse_partial_sum_tuning(force: bool = False) -> Optional[list[dict]]:
     logger.info("kernel_tuning_cache: rmse_partial_sum sweep starting")
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_rmse_partial_sum(n_iters=5)
+        regions = _run_sweep_rmse_partial_sum(n_iters=2)
     except Exception as e:
         logger.warning("kernel_tuning_cache: rmse_partial_sum sweep failed: %s", e)
         return None
@@ -385,7 +385,7 @@ def ensure_unary_elementwise_tuning(force: bool = False) -> Optional[list[dict]]
     logger.info("kernel_tuning_cache: unary_elementwise sweep starting")
     t0 = time.perf_counter()
     try:
-        regions = _run_sweep_unary_elementwise(n_iters=5)
+        regions = _run_sweep_unary_elementwise(n_iters=2)
     except Exception as e:
         logger.warning("kernel_tuning_cache: unary_elementwise sweep failed: %s", e)
         return None
