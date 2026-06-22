@@ -58,14 +58,30 @@ _SIG = re.compile(r"x(\d+)")
 
 
 def _recovery(sel, signal):
-    """(distinct signal columns recovered, total selected). Credits engineered
-    survivors that reference a signal column (e.g. ``add(x0,x2)``)."""
-    names = selected_names(sel)
+    """(distinct signal columns recovered, total RAW selected). Credits engineered
+    survivors that reference a signal column (e.g. ``add(x0,x2)`` or the pair
+    composite ``div(exp(x0),...)``).
+
+    The RECOVERY numerator scans the RAW selected columns UNION the engineered
+    survivors in ``get_feature_names_out()`` -- under severe imbalance MRMR's
+    pair/MI-greedy FE can subsume the raw signal columns into a single engineered
+    composite that references them all and drop the raws from ``support_`` (the
+    raw column then no longer appears in ``selected_names`` but the signal IS
+    recovered, just wrapped). ``selected_names`` alone (raw-only) misses that and
+    under-reports recovery as 0 even though every signal column survives inside the
+    composite -- the bug that made ``degenerate_empty_on_unlucky_rare_seed`` regress.
+
+    The ``nsel`` denominator stays the RAW selected count (what the compactness
+    ceilings were calibrated on); only the recovery credit is widened to honour the
+    documented "credits engineered survivors" contract."""
+    raw_names = list(selected_names(sel))
+    names_in = set(getattr(sel, "feature_names_in_", []) or [])
+    engineered = [n for n in sel.get_feature_names_out() if n not in names_in]
     sig = set(int(i) for i in signal)
     got: set = set()
-    for nm in names:
+    for nm in raw_names + engineered:
         got |= {int(m) for m in _SIG.findall(nm)} & sig
-    return len(got), len(names)
+    return len(got), len(raw_names)
 
 
 def _fit_quiet(sel, df, ys, **fit_kw):
