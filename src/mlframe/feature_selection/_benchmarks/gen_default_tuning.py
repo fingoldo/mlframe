@@ -63,10 +63,13 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-# The committed defaults file lives next to this module so it ships inside the
-# wheel (``package-data`` picks up the json) and the consumer can resolve it by
-# ``importlib.resources`` / a relative path.
-DEFAULT_OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_kernel_tuning.json")
+# The committed defaults file lives next to the runtime consumer
+# (filters/_kernel_tuning.py) so it ships inside the wheel (package-data picks up
+# the json); this dev-only producer is NOT packaged, so it writes across to that
+# runtime location to keep the two in sync.
+DEFAULT_OUTPUT_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "filters", "default_kernel_tuning.json")
+)
 
 # Schema version of the defaults document. Must match what
 # ``register_default_cache`` expects (pyutilz cache SCHEMA_VERSION == 3).

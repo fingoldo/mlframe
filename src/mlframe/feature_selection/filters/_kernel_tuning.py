@@ -28,11 +28,10 @@ _LOAD_LOCK = threading.Lock()
 
 # Path to the repo-committed, anonymized DEFAULT tunings JSON (produced by
 # ``mlframe.feature_selection._benchmarks.gen_default_tuning``). It ships inside
-# the wheel next to that generator module. Resolved relative to THIS file so it
-# works from a source checkout and an installed wheel alike.
-_DEFAULT_TUNING_JSON = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "_benchmarks", "default_kernel_tuning.json")
-)
+# the wheel next to THIS loader module (the _benchmarks producer is dev-only and
+# not packaged). Resolved relative to this file so it works from a source
+# checkout and an installed wheel alike.
+_DEFAULT_TUNING_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_kernel_tuning.json")
 _DEFAULTS_REGISTERED = False
 _DEFAULTS_LOCK = threading.Lock()
 

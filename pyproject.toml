@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "mlframe"
 dynamic = ["version"]
 description = "Production-grade machine learning framework for tabular data: training pipelines, feature engineering & selection, ensembling, calibration, ranking, and quantile regression."
 authors = [{name = "Anatoly Alexeev", email = "fingoldo@gmail.com"}]
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.9"
 keywords = [
@@ -29,7 +30,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -325,7 +325,6 @@ dev = [
 
 [project.scripts]
 mlframe-tune-kernels = "mlframe.system.kernel_tuning_cache:main"
-mlframe-gen-default-tuning = "mlframe.feature_selection._benchmarks.gen_default_tuning:main"
 
 [project.urls]
 Homepage = "https://github.com/fingoldo/mlframe"
@@ -339,14 +338,14 @@ version = {attr = "mlframe.version.__version__"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["mlframe*"]
-exclude = ["tests*", "legacy*", "benchmarks*", "profiling*", "docs*", "scripts*"]
+exclude = ["tests*", "legacy*", "benchmarks*", "profiling*", "docs*", "scripts*", "*._benchmarks", "*._benchmarks.*"]
 
 # Static data files shipped with the wheel (if any).
 [tool.setuptools.package-data]
 mlframe = ["py.typed"]
 # The anonymized default kernel-tuning JSON is consulted at runtime by
 # filters._kernel_tuning (register_default_cache), so it MUST ship in the wheel.
-"mlframe.feature_selection._benchmarks" = ["default_kernel_tuning.json"]
+"mlframe.feature_selection.filters" = ["default_kernel_tuning.json"]
 
 # ---------------------------------------------------------------------------
 # Pytest
@@ -375,7 +374,7 @@ markers = [
     "uses_matplotlib: test produces matplotlib figures; triggers plt.close('all') + gc in cleanup_memory autouse",
     "uses_torch: test allocates GPU/CPU torch tensors; triggers torch.cuda.empty_cache in cleanup_memory autouse",
     "numba_disabled: include in the NUMBA_DISABLE_JIT=1 nightly coverage run; tests run 10-100x slower under no-JIT, see scripts/run_numba_coverage.{sh,ps1}",
-    "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix.yml); tests pin scikit-learn surface contracts across the supported version range (1.5-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
+    "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix-ci.yml); tests pin scikit-learn surface contracts across the supported version range (1.5-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",
