@@ -513,6 +513,17 @@ def _run_fe_step(
     # over ALL raw numeric columns runs on the measured CUDA kernel (the only path that recovers a
     # balanced L=0 interaction). The exhaustive decision already verified GPU availability + budget.
     _exhaustive_active = bool(getattr(self, "_fe_synergy_exhaustive_active_", False))
+    # When exhaustive is active, run the full C(p,2) sweep on the measured CUDA kernel where a GPU is
+    # present, else on the CPU njit-prange backend (decide_exhaustive_sweep made the choice hardware-
+    # independent, so a GPU-less host runs exhaustive on CPU rather than silently dropping to the lossy
+    # pre-rank -- otherwise a balanced L=0 interaction feature would exist only on CUDA hosts).
+    _exhaustive_backend = None
+    if _exhaustive_active:
+        try:
+            from mlframe.feature_selection.filters.batch_pair_mi_gpu import _CUDA_AVAIL as _exh_cuda
+        except Exception:
+            _exh_cuda = False
+        _exhaustive_backend = "cuda" if _exh_cuda else "njit_parallel"
     if (
         _BATCH_PRECOMPUTE_ENABLED
         and (_exhaustive_active or _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K)
@@ -531,7 +542,7 @@ def _run_fe_step(
                 nbins=nbins,
                 classes_y=classes_y,
                 freqs_y=freqs_y,
-                force_backend="cuda" if _exhaustive_active else None,
+                force_backend=_exhaustive_backend,
             )
             # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).

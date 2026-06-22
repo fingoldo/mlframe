@@ -53,6 +53,14 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # path measures-and-caches per (n, p) below.
 _EXHAUSTIVE_FALLBACK_PAIRS_PER_SEC = 5.0e4
 
+# CPU (njit-prange) fallback throughput (pairs/s). The exhaustive sweep has a CPU backend
+# (batch_pair_mi_njit_prange); on a GPU-less host the exhaustive decision must be made on the CPU cost so
+# that feature EXISTENCE (recovering a balanced L=0 interaction) does NOT depend on whether a CUDA device
+# is present -- only on whether the sweep is affordable on the available hardware. Conservative: the prange
+# kernel is ~1-2 orders slower than the CUDA one, so default to ~2e3 pairs/s (a GPU-less host then runs
+# exhaustive only at small p / generous budget, and force-mode runs it regardless).
+_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC = 2.0e3
+
 # Tuner sweep grid for the throughput model. Sparse on purpose -- one cheap CUDA timing per
 # region; the cache interpolates the nearest region for the (n, p) at decision time.
 _EXH_TPUT_SWEEP_N_SAMPLES = [50_000, 200_000, 1_000_000]
@@ -236,35 +244,45 @@ def decide_exhaustive_sweep(
     if mode == "never":
         return False, "never (pre-rank + capped sweep; fe_synergy_exhaustive='auto' escalates to exhaustive when affordable)"
 
+    if n_raw < 2:
+        return False, f"declined: only {n_raw} raw numeric column(s); nothing to sweep"
+
     try:
         from .batch_pair_mi_gpu import _CUDA_AVAIL
     except Exception:
         _CUDA_AVAIL = False
-    if not _CUDA_AVAIL:
-        # No GPU: the exhaustive CPU sweep is far too slow to default to; the pre-rank is the right path.
-        _why = "no CUDA GPU available" if mode == "force" else "no CUDA GPU available (auto cannot afford the CPU exhaustive sweep)"
-        return False, f"declined: {_why}; using the pre-rank path"
-
-    if n_raw < 2:
-        return False, f"declined: only {n_raw} raw numeric column(s); nothing to sweep"
 
     budget = _resolve_exhaustive_budget_seconds(self)   # MRMR's own max_runtime_mins; None => unlimited
-    # Opportunistically warm the per-host throughput cache so the prediction is measured, not
-    # the cold fallback (no-op if already warm / no GPU).
-    warm_exhaustive_throughput_cache()
-    predicted, pps, source = predict_exhaustive_seconds(n_samples, n_raw)
     n_pairs = (n_raw * (n_raw - 1)) // 2
+    if _CUDA_AVAIL:
+        # Opportunistically warm the per-host throughput cache so the prediction is measured, not the cold
+        # fallback (no-op if already warm).
+        warm_exhaustive_throughput_cache()
+        predicted, pps, source = predict_exhaustive_seconds(n_samples, n_raw)
+        backend = "CUDA"
+    else:
+        # No GPU: predict on the CPU njit-prange backend (which DOES exist) rather than hard-declining.
+        # The exhaustive sweep recovers a balanced (L=0) interaction the O(p) pre-rank provably cannot, so
+        # gating its EXISTENCE on GPU presence makes a feature appear on a CUDA host and vanish on a CPU one.
+        # Decide on the CPU cost instead -> the decision is hardware-independent (affordable-or-not), not
+        # device-gated; the sweep then runs on the CPU backend (see _step_core force_backend selection).
+        pps = float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
+        predicted = float(n_pairs) / pps
+        source = "cpu-njit-prange-fallback"
+        backend = "CPU"
     if mode == "force":
         return True, (
             f"running FULL exhaustive C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric columns "
-            f"(force; predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], budget ignored) -- recovers "
-            f"balanced (L=0) interactions the O(p) pre-rank cannot."
+            f"on the {backend} backend (force; predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], "
+            f"budget ignored) -- recovers balanced (L=0) interactions the O(p) pre-rank cannot."
         )
     # AUTO: escalate to exhaustive unless a budget is set AND the predicted sweep would exceed it. With NO
     # budget set (max_runtime_mins is None and no explicit override) p is NOT limited -- auto always sweeps.
+    # The prediction uses the AVAILABLE backend's throughput, so the affordability verdict is consistent
+    # with what will actually run (CUDA where present, CPU prange otherwise).
     if budget is not None and predicted > budget:
         return False, (
-            f"auto -> pre-rank: predicted exhaustive wall-time {predicted:.1f}s "
+            f"auto -> pre-rank: predicted exhaustive wall-time {predicted:.1f}s on the {backend} backend "
             f"(C({n_raw},2)={n_pairs} pairs @ {pps:.0f} pairs/s [{source}]) exceeds the MRMR time budget "
             f"{budget:.0f}s (from max_runtime_mins / fe_synergy_exhaustive_max_seconds); the O(p) pre-rank "
             f"recovers leaky interactions cheaply (only a perfectly-balanced L=0 interaction is missed). "
@@ -273,8 +291,8 @@ def decide_exhaustive_sweep(
     _bud = "unlimited (no MRMR time budget set)" if budget is None else f"<= budget {budget:.0f}s"
     return True, (
         f"auto -> exhaustive: FULL C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric columns "
-        f"(predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], {_bud}) -- the complete result, "
-        f"recovering balanced (L=0) interactions the pre-rank cannot."
+        f"on the {backend} backend (predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], {_bud}) -- the "
+        f"complete result, recovering balanced (L=0) interactions the pre-rank cannot."
     )
 
 
