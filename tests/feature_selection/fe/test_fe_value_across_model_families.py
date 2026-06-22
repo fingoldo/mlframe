@@ -58,6 +58,12 @@ lgb = pytest.importorskip("lightgbm")
 # relevance/redundancy machinery, so the delta is attributable purely to the FE step.
 _RAW_ONLY = dict(
     fe_max_steps=0,
+    # fe_hybrid_orth_enable flipped to default-ON 2026-06-21 (commit d76929d9); the
+    # univariate/pair orth-basis stage opens on `_hybrid_on OR _univ_basis_on`, so the
+    # raw-only baseline MUST opt out of the hybrid master switch too -- otherwise the
+    # baseline silently receives `x__He2`, which (being the only linear carrier of the
+    # even-symmetric signal) lifts lr_raw to ~1.0 and erases the FE-vs-raw lift contract.
+    fe_hybrid_orth_enable=False,
     fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
     fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
     fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
