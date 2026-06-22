@@ -138,10 +138,16 @@ class TestRecipeBuilding:
         # without picking the engineered col.
         recipes = mrmr._engineered_recipes_
         assert isinstance(recipes, list)
+        # The FE engine emits a growing vocabulary of recipe kinds (unary_binary,
+        # orth_pair_cross, hermite_pair, ...); whichever wins the synergy search is
+        # legitimate. Pin the structural contract -- a recognised kind, >=1 source,
+        # every source a real input column -- not one specific kind.
+        from typing import get_args, get_type_hints
+        _valid_kinds = set(get_args(get_type_hints(EngineeredRecipe)["kind"]))
         for r in recipes:
             assert isinstance(r, EngineeredRecipe)
-            assert r.kind == "unary_binary"
-            assert len(r.src_names) == 2
+            assert r.kind in _valid_kinds, f"Unknown recipe kind {r.kind!r}"
+            assert len(r.src_names) >= 1
             for src in r.src_names:
                 assert src in df_tr.columns, \
                     f"Recipe src '{src}' must reference a real input column"
