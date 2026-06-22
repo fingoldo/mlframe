@@ -212,3 +212,9 @@ benchmarks/*.png
 # Agent run scratch
 audit/**/HEARTBEAT_*.txt
 audit/**/*_commitmsg.txt
+# Dev-internal working dirs: agent audit notes, research probes, dead legacy code.
+# Kept locally but not part of the public release.
+/audit/
+/research/
+/legacy/
+/audit_disposition.md
