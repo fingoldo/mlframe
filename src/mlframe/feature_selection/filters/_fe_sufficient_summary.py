@@ -117,6 +117,10 @@ class SufficientSummaryVerdict:
     n_raw_tested: int = 0
     blocking_raw: int = -1                        # cols-index of the raw that blocked the stop (or -1)
     per_raw_mi: dict = field(default_factory=dict)  # {cols_index: MI(r; x_j)}
+    residual: "np.ndarray | None" = None          # continuous r = y - E_hat[y|selected]; surfaced so the FE
+    # loop can RE-TARGET the next step on the residual when a raw still carries residual structure
+    # (reached=False AND blocking_raw>=0): on r the captured dominant term is removed, so a weak secondary
+    # half (e.g. log(c)*sin(d) when a**2/b dominates Var(y)) clears the prevalence gate relative to r.
 
 
 def _shannon_entropy_nats(codes: np.ndarray, nbins_hint: int = 0) -> float:
@@ -286,6 +290,7 @@ def sufficient_summary_reached(
     if not np.all(np.isfinite(r)):
         v.reason = "non-finite residual from the cheap fit"
         return v
+    v.residual = r  # surface the continuous residual for the residual-targeted FE step (when blocked below)
 
     # --- Discretise the residual equi-frequency at the target's resolution. ---
     q_nbins = int(quantization_nbins) if quantization_nbins and quantization_nbins > 1 else 10
