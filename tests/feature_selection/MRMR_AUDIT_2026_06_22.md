@@ -106,3 +106,34 @@ selection decision on a default-ON GPU path whose CPU twin is the validated refe
 test at the divergence-visible regime. The highest-value RESOLVED items (the `div` perturbation + extval
 `min` bug) were genuine selection-altering divergences on the default path. The QUEUED selection-rippling
 items each need the broad biz-value/layer suite as their validation gate and are intentionally not rushed.
+
+## UPDATE — follow-through implementation status (2026-06-22, end of session)
+
+RESOLVED + pushed (each with a regression test or selection-equivalence contract + validation):
+
+- div perturbation + extval ops 6/7/8 (ce7378fa); _engineered_recipes list-invariant + pair-cross
+  caller-mutation (4b182069); _dedup carve under LOC budget (9fe6f980); cached_MIs fresh-fit tiebreak +
+  dead _col_basis_for_recipe + DCD S2 reframe (5769f708); C1 n==0 njit guards + CPU/GPU robust-const drift
+  guard (0edcb979); two load-bearing silent-except -> logger.debug (d4c6a571).
+- P0-1 exhaustive-synergy device-independent (no GPU-gated feature existence) -- 58a2a358.
+- P1-3 discretize_2d_array_cuda int8 widen + first GPU/CPU discretize parity tests; P1-2 DISPROVED
+  empirically (NaN routes to top on both backends -- agent mis-traced the rawkernel) -- 9f4bebc0.
+- P1-4 permutation-MI gate compares GPU-reduced observed MI (FP-consistent, both twins) -- fa5e33ba.
+- P2-1 GPU CMI prefill: selection-equivalence contract documented (all-or-nothing per round, ~1e-9 parity;
+  a CPU-exact reduce would defeat the batched kernel for a P2 near-tie -- intentionally not taken) -- 1b5a2cd1.
+- P2-2 GPU-Clenshaw vs host-forward recurrence: comment corrected + parity test extended to degree 6
+  (<1e-6 holds; selection decided on consistent GPU values) -- e5ab4b78.
+- P1-5/6 escalation decide/replay backend-straddle: selection-equivalence contract (admits ~nothing at
+  canonical n; ~1e-12 below the gate resolution) -- 61b37bf6.
+- perf#4 cross-stage Spearman dedup: cache full-column ranks, drop O(K^2) re-sorts (bit-identical) -- 5a453aff.
+- eff#3 resident pair-MI: upload y once + H2D-free resident MI -- 65dc5d72.
+- perf#1 grand-fusion MI reduction via the batched njit (drop ~10k/chunk per-cell dispatch) -- f5cbac94.
+- eff#1 pair_candidate_mi_dispatch routes the GPU<->CPU crossover through kernel_tuning_cache (50k is now
+  only the cold-start fallback) instead of the hardcoded threshold.
+
+REMAINING (genuinely invasive / low-value / parallel-session -- deliberately NOT rushed at depth; each is
+specced above): source-name ``__`` split (hidden #5, a 9-site recipe-naming-convention change needing
+round-trip validation); the 53x ``y.to_numpy()`` hoist in _fit_impl_core.py (mechanical but in the 9.8k-LOC
+file); lstsq->normal-eq in _orth_extra_basis_fe deflation (perf#8, measure-first); ``_env_truthy`` DRY
+helper; ctor-defaults single-source; evaluation.py carve (1144 LOC, parallel-session-owned); the LOW M-tier
+edge cases on opt-in/bench-rejected paths. All P0/P1/P2 equivalency divergences are resolved.

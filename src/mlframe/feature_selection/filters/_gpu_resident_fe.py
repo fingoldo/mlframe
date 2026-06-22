@@ -2660,7 +2660,15 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
     ``(names, mi)`` identical in shape/order to both paths. The default FE pipeline does NOT call this
     yet (gated prototype); it is the dispatcher the production wiring will use."""
     n = int(np.asarray(a).shape[0])
-    if n >= _GPU_RESIDENT_MIN_N:
+    # Per-host crossover via the shared kernel_tuning_cache (mirrors the FE pair-MI path) rather than the
+    # hardcoded 50k: the per-host CPU-vs-GPU sweep decides, and _GPU_RESIDENT_MIN_N is only the source-code
+    # FALLBACK (inside _fe_gpu_pairs_mi_fallback_choice) when the cache is cold / lookup fails. Honours the
+    # project rule against hardcoded GPU thresholds; the 50k stays as the conservative cold-start default.
+    try:
+        _use_gpu = fe_gpu_pairs_mi_backend_choice(n, len(_COMBOS)) == "gpu"
+    except Exception:
+        _use_gpu = n >= _GPU_RESIDENT_MIN_N
+    if _use_gpu:
         try:
             import cupy  # noqa: F401
 
