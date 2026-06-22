@@ -455,7 +455,15 @@ def test_user_case_rejects_spurious_cross_signal_feature():
     product sub-expression). ``sub(exp(a),invcbrt(c))`` preserves neither -> flagged;
     the additive full-target composite preserves both -> allowed."""
     import re as _re
-    import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core as _FEP
+    # The base joint-recovery floor lives in ``_pairs_gates`` but is imported
+    # BY VALUE into ``_pairs_score`` at module load (``from ._pairs_gates import
+    # _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO``), and the two-tier gate reads that
+    # MODULE-GLOBAL name directly. To actually nudge the floor the production gate
+    # consumes (the adversarial RTX-divergence simulation in part 2), we must patch
+    # the binding ``_pairs_score`` resolves -- patching ``_pairs_gates`` or the old
+    # monolith ``_pairs_core`` (the historical home before the 142461f5 subpackage
+    # split) would be a no-op against the already-captured name.
+    import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score as _FEP
 
     df, y = _make_user_fixture()
 
