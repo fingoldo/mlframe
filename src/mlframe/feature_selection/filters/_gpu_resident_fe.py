@@ -745,17 +745,24 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     raise ValueError(f"basis {basis!r} not GPU-ported")
 
 
-def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis):
+def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host=None):
     """BATCHED device build. ``M`` is a finite (n, K) cupy operand matrix; ``bases`` a per-column basis
     list; ``degrees`` the degree sequence. Groups columns by (basis, robust-decision) and runs the
     preprocess + one-hot Clenshaw VECTORISED per group/degree. Returns ``(cand_matrix (n, total), meta)``
     where ``meta`` is a list of ``(col_idx, basis, degree)`` aligned with the candidate columns (any column
-    whose basis is not GPU-ported is dropped -- the caller host-fallbacks those). ``(None, [])`` if empty."""
+    whose basis is not GPU-ported is dropped -- the caller host-fallbacks those). ``(None, [])`` if empty.
+
+    ``heavy_host`` (optional (K,) bool): the per-column heavy-tail verdict. It is BASIS-INDEPENDENT (a
+    function of M's values only), so a caller that evaluates the SAME M under several candidate bases (the
+    routing sweep) computes it ONCE and passes it in -- avoiding the 4x redundant cp.median/percentile
+    reduction _gpu_detect_heavy_tail_batched would otherwise run per basis. Bit-identical (same M -> same
+    verdict)."""
     n, K = M.shape
-    if robust_axis:
-        heavy_host = cp.asnumpy(_gpu_detect_heavy_tail_batched(cp, M))
-    else:
-        heavy_host = np.zeros(K, dtype=bool)
+    if heavy_host is None:
+        if robust_axis:
+            heavy_host = cp.asnumpy(_gpu_detect_heavy_tail_batched(cp, M))
+        else:
+            heavy_host = np.zeros(K, dtype=bool)
     groups: dict = {}
     for ci in range(K):
         groups.setdefault((bases[ci], bool(heavy_host[ci])), []).append(ci)
@@ -805,11 +812,17 @@ def _gpu_route_bases_batched(cp, M, y_cont, candidate_bases, degrees, *, robust_
     router (same loop order, same strict ``>``, same ``bcorr`` init 0.0), so a routing divergence can only
     arise from a genuine <1e-6 near-tie between two bases -- exactly the case the opt-in default guards."""
     K = int(M.shape[1])
+    # Heavy-tail verdict is BASIS-INDEPENDENT -> compute ONCE here and reuse for all candidate bases instead
+    # of _gpu_evaluate_basis_matrix recomputing the cp.median/percentile reduction per basis (4x redundant).
+    if robust_axis:
+        _heavy = cp.asnumpy(_gpu_detect_heavy_tail_batched(cp, M))
+    else:
+        _heavy = np.zeros(K, dtype=bool)
     # corr_by_basis[basis] = (K,) host array of bcorr (max over degrees, degenerate-skipped), init 0.0
     corr_by_basis: dict = {}
     for basis in candidate_bases:
         bcorr = np.zeros(K, dtype=np.float64)
-        cand, meta = _gpu_evaluate_basis_matrix(cp, M, [basis] * K, list(degrees), robust_axis=robust_axis)
+        cand, meta = _gpu_evaluate_basis_matrix(cp, M, [basis] * K, list(degrees), robust_axis=robust_axis, heavy_host=_heavy)
         if cand is not None:
             ac = cp.asnumpy(_gpu_batched_abs_corr(cp, cand, y_cont))   # (len(meta),)
             for j, (ci, _b, _d) in enumerate(meta):
