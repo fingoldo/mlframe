@@ -94,11 +94,11 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
                 v = a + b
             elif op == 2:      # sub
                 v = a - b
-            elif op == 3:      # div = x / (y + sign(y)*eps + eps). numpy/numba promote the float64 ``eps`` literal,
-                # so _safe_div computes in float64 then casts to float32 -> match that exactly (an all-float32 div
-                # would differ in the last bit).
-                sgn = zero if b == zero else (one if b > zero else -one)
-                v = np.float32(np.float64(a) / (np.float64(b) + np.float64(sgn) * 1e-9 + 1e-9))
+            elif op == 3:      # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on an
+                # exact-zero denominator (the prior x/(y+sign(y)*eps+eps) perturbed every positive denom by 2*eps,
+                # diverging from the canonical _safe_div). float64-promoted then cast to float32 to match _safe_div's
+                # float64 division exactly (an all-float32 div would differ in the last bit).
+                v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
             elif op == 4:      # max = np.maximum (nan-propagating)
                 if a != a or b != b:
                     v = a + b  # nan + anything -> nan (matches np.maximum nan propagation)
@@ -163,9 +163,9 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
                 v = a + b
             elif op == 2:      # sub
                 v = a - b
-            elif op == 3:      # div = x / (y + sign(y)*eps + eps); float64-promoted like the serial twin
-                sgn = zero if b == zero else (one if b > zero else -one)
-                v = np.float32(np.float64(a) / (np.float64(b) + np.float64(sgn) * 1e-9 + 1e-9))
+            elif op == 3:      # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on exact-zero
+                # (matches the serial twin + canonical _safe_div; float64-promoted then cast to float32).
+                v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
             elif op == 4:      # max = np.maximum (nan-propagating)
                 if a != a or b != b:
                     v = a + b
@@ -298,9 +298,11 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
     and ``div`` mirrors the current ``_safe_div`` -- exact ``x/y`` for every nonzero denominator, with the ``1e-9``
     floor substituting only for an exact-zero ``y`` (the 2026-06-13 heavy-tail form, no per-denominator perturbation).
 
-    ``op_codes`` are the ``_NJIT_BINARY_OP_CODES`` (0=mul 1=add 2=sub 3=div 4=max 5=min);
-    callers MUST gate on ``_njit_binary_op_codes(...) is not None`` (only the minimal/
-    medium closed ops are coded) and fall back to the numpy loop otherwise. ``op_codes``
+    ``op_codes`` are the ``_NJIT_BINARY_OP_CODES`` (0=mul 1=add 2=sub 3=div 4=max 5=min
+    6=abs_diff 7=signed 8=ratio_abs -- ALL registry-coded ops, matching ``_materialise_chunk_njit``;
+    a prior version implemented only 0-5 and silently computed 6/7/8 as ``min``);
+    callers MUST gate on ``_njit_binary_op_codes(...) is not None`` (returns None for any op
+    not in the registry, e.g. hypot / scipy.special) and fall back to the numpy loop otherwise. ``op_codes``
     is in registry (bin_func) order; the inner loop walks it so the column index matches
     the Python ``for ext: for bin_func:`` materialise order exactly.
     """
@@ -327,9 +329,19 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
                         v = a + b
                     else:
                         v = a if a > b else b
-                else:              # op == 5: min = np.minimum (nan-propagating)
+                elif op == 5:      # min = np.minimum (nan-propagating)
                     if a != a or b != b:
                         v = a + b
                     else:
                         v = a if a < b else b
+                elif op == 6:      # abs_diff = |a - b|
+                    v = abs(a - b)
+                elif op == 7:      # signed = sign(a)*|b| (nan-propagating)
+                    if a != a or b != b:
+                        v = a + b
+                    else:
+                        sgn = 0.0 if a == 0.0 else (1.0 if a > 0.0 else -1.0)
+                        v = sgn * abs(b)
+                else:              # op == 8: ratio_abs = a/(|b|+1)
+                    v = a / (abs(b) + 1.0)
                 out[r, col] = v

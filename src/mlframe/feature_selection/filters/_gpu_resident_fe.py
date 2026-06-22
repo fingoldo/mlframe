@@ -1718,9 +1718,8 @@ void fe_materialise(const float* __restrict__ tv,
         v = a + b;
     } else if (op == 2) {     // sub
         v = a - b;
-    } else if (op == 3) {     // div = float64-promoted x/(y + sign(y)*eps + eps)
-        double sgn = (b == 0.0f) ? 0.0 : ((b > 0.0f) ? 1.0 : -1.0);
-        v = (float)((double)a / ((double)b + sgn * 1e-9 + 1e-9));
+    } else if (op == 3) {     // div = _safe_div (2026-06-13 form): exact x/y for y!=0, eps floor only on exact-zero
+        v = (float)((double)a / ((b == 0.0f) ? 1e-9 : (double)b));
     } else if (op == 4) {     // max = np.maximum (nan-propagating)
         if (a != a || b != b) v = a + b; else v = (a > b) ? a : b;
     } else if (op == 5) {     // min = np.minimum (nan-propagating)
