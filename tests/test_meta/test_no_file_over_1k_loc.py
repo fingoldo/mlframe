@@ -24,13 +24,15 @@ LOC_LIMIT = 1000
 # wave; the goal is to drain this set to {} over consecutive PRs. Do NOT add
 # new entries without a documented PR-description reason.
 LOC_BUDGET_EXEMPT: set[str] = {
-    # FIXME(carve-wave-next): filters/mrmr/_mrmr_class.py at ~3.7k LOC -- the irreducible
+    # FIXME(carve-wave-next): filters/mrmr/_mrmr_class.py at ~4.76k LOC -- the irreducible
     # ``MRMR`` estimator class body after the mrmr subpackage split (class moved verbatim;
-    # the package ``__init__.py`` facade re-exports it + runs the method bindings). Carve
-    # candidate if it must shrink: lift the predictor-screening loop and the FE-flag
-    # plumbing block off the class body into sibling helper functions bound the same way as
-    # ``_fit_impl`` / ``_run_fe_step`` already are; the validate/transform/fit/fe-step/
-    # partial-fit/provenance method bodies already live in sibling modules.
+    # the package ``__init__.py`` facade re-exports it + runs the method bindings).
+    # Carved 2026-06-22: the Gate-A SIS front-screen ``_apply_sis_screen`` method (~76 LOC)
+    # lifted verbatim into filters/_mrmr_sis_apply.py and bound the same way as ``_fit_impl`` /
+    # ``_run_fe_step`` (4836 -> 4760 LOC; still exempt). Remaining carve candidates if it must
+    # shrink further: the FE-flag plumbing block + the giant ``__init__`` attribute plumbing;
+    # the validate/transform/fit/fe-step/partial-fit/provenance method bodies already live in
+    # sibling modules.
     "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py",
     # FIXME(carve-wave-next): filters/_mrmr_fit_impl/_fit_impl_core.py -- the irreducible
     # single-function body of ``_fit_impl`` (bound onto ``MRMR``) after the _mrmr_fit_impl

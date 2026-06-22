@@ -163,6 +163,12 @@ MRMR._fit_impl = _fit_impl_func
 from .._mrmr_fe_step import _run_fe_step as _run_fe_step_func  # noqa: E402
 MRMR._run_fe_step = _run_fe_step_func
 
+# Gate-A SIS front-screen application (I/O + column subsetting around the standalone ``sis_screen`` kernel),
+# carved verbatim out of the class body into a filters-level sibling. ``self._apply_sis_screen(X, y)`` call site
+# in ``fit`` is unchanged; selection is byte-for-byte identical.
+from .._mrmr_sis_apply import _apply_sis_screen as _apply_sis_screen_func  # noqa: E402
+MRMR._apply_sis_screen = _apply_sis_screen_func
+
 from .._mrmr_validate_transform import (  # noqa: E402
     _validate_string_params as _validate_string_params_func,
     _validate_inputs as _validate_inputs_func,
