@@ -141,6 +141,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         early_stop_margin: float = 0.15,
         max_runtime_mins: float = None,
         stop_file: str = "stop",
+        shadow_min_pad: int = 5,
     ):
         """
         Parameters
@@ -185,6 +186,13 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             Relative slack on the binomial decision threshold. A still-tentative feature counts as "near a boundary"
             (so the stop is refused) when its Bonferroni-corrected accept- or reject-p-value < ``pvalue * (1 + margin)``.
 
+        shadow_min_pad: int (default 5)
+            Minimum number of shadow attributes the information system is extended by (the canonical Boruta >=5 pad).
+            On frames with fewer real columns the shadow side is padded with recycled real columns (each independently
+            re-permuted, so still uncorrelated with y) up to this count, so the per-trial shadow-importance MAX (the
+            gate threshold) is estimated from a well-populated null rather than 1-2 noisy draws. Wide frames
+            (n_features >= shadow_min_pad) are unaffected. Set 0 for the legacy exactly-one-shadow-per-column null.
+
         """
         # sklearn contract: __init__ stores params VERBATIM (no mutation / validation), so the estimator is
         # clone-able (GridSearchCV / Pipeline). importance_measure is lowercased at its comparison sites, fit_params
@@ -204,6 +212,13 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self._rng = np.random.default_rng(random_state)
 
         self.n_trials = n_trials
+        # Canonical Boruta extends the system by AT LEAST ``shadow_min_pad`` shadow attributes even when the real
+        # frame is narrower, so the per-trial shadow-importance MAX (the gate threshold) is not estimated from 1-2
+        # draws. On narrow frames the extra shadows are recycled real columns (re-permuted), each still independent
+        # of y, only widening the null pool. Default 5 (the canonical value, bench-validated neutral-or-better on
+        # narrow frames). Set 0 to opt out (legacy exactly-one-shadow-per-column behaviour); wide frames (>= pad) are
+        # unaffected. See ``create_shadow_features``.
+        self.shadow_min_pad = shadow_min_pad
         self.sample = sample
         self.train_or_test = train_or_test
         # premerge_clusters (off by default): collapse raw |corr| >= premerge_corr_thr clusters to one representative
@@ -319,10 +334,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             check_feature_importance = True
 
         if self.model is None:
+            # The default surrogate is refit every trial and the tree fit is ~82% of wall (profiled); sklearn's
+            # default n_jobs=None runs it single-threaded. n_jobs=-1 parallelizes the independent trees across
+            # cores -- selection is bit-identical (fixed random_state makes the forest deterministic regardless
+            # of worker count). Caller-supplied models are untouched.
             if self.classification:
-                self.model = RandomForestClassifier()
+                self.model = RandomForestClassifier(n_jobs=-1)
             else:
-                self.model = RandomForestRegressor()
+                self.model = RandomForestRegressor(n_jobs=-1)
 
         elif check_fit is False and check_predict is False:
             raise AttributeError("Model must contain both the fit() and predict() methods")
@@ -537,6 +556,38 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.accepted = list(set(self.flatten_list(self.accepted_columns)))
         self.tentative = list(set(self.all_columns) - set(self.rejected + self.accepted))
 
+        # Empty acceptance is a defensible-but-silent outcome (single-class target -> RF fits, importances ~0, the
+        # shadow gate accepts nothing; or every importance collapsed to ~0). Emit a logger warning so the caller gets
+        # a signal instead of an unexplained empty support_. Always on (corrective), independent of ``verbose``: a
+        # downstream selector silently keeping zero features is a failure the user must see. The two probed causes are
+        # the ones a caller can act on (degenerate target / no discriminative signal); other empty-accept cases still
+        # warn generically. ``getattr`` keeps the check robust for partially-built / pickled instances.
+        if not self.accepted:
+            _y = getattr(self, "y", None)
+            _single_class = False
+            if _y is not None:
+                try:
+                    _single_class = bool(getattr(self, "classification", False)) and len(np.unique(np.asarray(_y))) < 2
+                except (TypeError, ValueError):
+                    _single_class = False
+            _imp = getattr(self, "X_feature_import", None)
+            _all_zero_imp = False
+            if _imp is not None and len(_imp):
+                _imp_arr = np.asarray(_imp, dtype=float)
+                _all_zero_imp = bool(np.all(np.abs(_imp_arr[np.isfinite(_imp_arr)]) < 1e-12))
+            if _single_class:
+                logger.warning(
+                    "BorutaShap accepted 0 features: the target has a single class (n_unique<2), so the surrogate "
+                    "cannot rank any feature above the shadow null. Check the target / split before trusting an empty selection."
+                )
+            elif _all_zero_imp:
+                logger.warning(
+                    "BorutaShap accepted 0 features: every real-feature importance collapsed to ~0, so none cleared "
+                    "the shadow gate. The features may carry no signal for this target, or the surrogate failed to fit."
+                )
+            else:
+                logger.warning("BorutaShap accepted 0 features (all features rejected or tentative); the selection is empty.")
+
         if verbose:
             logger.info("%s attributes confirmed important: %s", len(self.accepted), self.accepted)
             logger.info("%s attributes confirmed unimportant: %s", len(self.rejected), self.rejected)
@@ -665,8 +716,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         else:
             newly_rejected = self.symetric_difference_between_two_arrays(newly_accepted, self.tentative)
 
-        print(str(len(newly_accepted)) + " tentative features are now accepted: " + str(newly_accepted))
-        print(str(len(newly_rejected)) + " tentative features are now rejected: " + str(newly_rejected))
+        # logger (not print): a non-ASCII feature name in the array repr would crash cp1251 stdout on Windows, and
+        # this should honour the verbose channel like the rest of the class rather than writing to stdout directly.
+        logger.info("%s tentative features are now accepted: %s", len(newly_accepted), list(newly_accepted))
+        logger.info("%s tentative features are now rejected: %s", len(newly_rejected), list(newly_rejected))
 
         self.rejected = self.rejected + newly_rejected.tolist()
         self.accepted = self.accepted + newly_accepted.tolist()

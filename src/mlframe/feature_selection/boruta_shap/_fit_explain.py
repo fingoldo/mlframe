@@ -274,9 +274,10 @@ def fit(self, X, y):
     """
     The main body of the program this method it computes the following
 
-    1. Extend the information system by adding copies of all variables (the information system
-    is always extended by at least 5 shadow attributes, even if the number of attributes in
-    the original set is lower than 5).
+    1. Extend the information system by adding one shadow copy per real attribute (a value-permutation of that
+    column). On frames with fewer than 5 real columns the shadow side is, by default, additionally padded by
+    recycling real columns up to 5 shadows so the per-trial shadow-max null is not estimated from 1-2 draws (opt
+    out via ``shadow_min_pad=0``; see ``create_shadow_features`` and ``shadow_min_pad`` in ``__init__``).
 
     2. Shuffle the added attributes to remove their correlations with the response.
 

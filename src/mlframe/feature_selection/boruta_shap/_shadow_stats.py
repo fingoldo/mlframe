@@ -135,6 +135,22 @@ def create_shadow_features(self):
     if not _fast:
         self.X_shadow = self.X.apply(lambda col: _rng.permutation(col.values))
 
+    # Canonical >=N shadow pad on narrow frames: when there are fewer real columns than ``shadow_min_pad`` the
+    # shadow-importance MAX (the per-trial gate threshold) would be estimated from only 1-2 draws and is noisy.
+    # Recycle real columns (each independently re-permuted, so still uncorrelated with y) as extra shadows up to the
+    # pad, widening the null pool without adding any real-vs-real comparison. Wide frames (n_cols >= pad) are
+    # untouched. Opt out with ``shadow_min_pad=0``. Suffixed names (``shadow_<col>__pad<k>``) stay unique and the
+    # real/shadow split in ``feature_importance`` (``len(self.X.columns)``) already counts every extra as a shadow.
+    _pad = int(getattr(self, "shadow_min_pad", 0) or 0)
+    _n_real = self.X.shape[1]
+    if _pad > _n_real > 0 and isinstance(self.X_shadow, pd.DataFrame):
+        _extra = {}
+        _real_cols = list(self.X.columns)
+        for _k in range(_pad - _n_real):
+            _src = _real_cols[_k % _n_real]
+            _extra[f"__shadowpad{_k}__{_src}"] = _rng.permutation(self.X[_src].values)
+        self.X_shadow = pd.concat([self.X_shadow, pd.DataFrame(_extra, index=self.X.index)], axis=1)
+
     if isinstance(self.X_shadow, pd.DataFrame):
         # append
         obj_col = self.X_shadow.select_dtypes(include=["object", "string"]).columns.tolist()
@@ -143,7 +159,9 @@ def create_shadow_features(self):
         else:
             self.X_shadow[obj_col] = self.X_shadow[obj_col].astype("category")
 
-    self.X_shadow.columns = ["shadow_" + feature for feature in self.X.columns]
+    # Prefix each shadow's name; the pad columns already carry a distinct ``__shadowpad{k}__`` infix so all
+    # shadow names stay unique even when a real column is recycled.
+    self.X_shadow.columns = ["shadow_" + str(feature) for feature in self.X_shadow.columns]
     self.X_boruta = pd.concat([self.X, self.X_shadow], axis=1)
 
     col_types = self.X_boruta.dtypes
@@ -256,7 +274,11 @@ def get_5_percent_splits(self, length):
     splits dataframe into 5% intervals
     """
     five_percent = self.get_5_percent(length)
-    return np.arange(five_percent, length, five_percent)
+    # On small frames (length <= 18) ``round(0.05*length)`` is 0, and ``np.arange(0, length, 0)`` raises
+    # ZeroDivisionError, aborting the whole fit before any trial when ``sample=True``. Floor the step at 1
+    # so the split grid degrades gracefully to single-row increments instead of crashing.
+    step = max(1, int(five_percent))
+    return np.arange(step, length, step)
 
 def find_sample(self):
     """
@@ -335,14 +357,23 @@ def test_features(self, iteration):
         Two arrays of the names of the accepted and rejected columns at that instance
     """
 
+    # ``self.hits`` is full-length (indexed by ``all_columns``), so this re-tests already-removed features every
+    # trial. That is CORRECT, not a bug: a removed feature's hit count is frozen at removal, the Bonferroni base is
+    # the constant full count (see ``_n_tests`` below), so its decision never changes -- re-testing it is a no-op on
+    # the final partition. The only residual cost is the extra binomtests, which the ``_binom_test_cached`` LRU
+    # collapses to O(1) per distinct ``(x, n, p, alternative)``, so the waste is negligible (B4, subsumed by the B3 base fix).
     acceptance_p_values = self.binomial_H0_test(self.hits, n=iteration, p=0.5, alternative="greater")
 
     regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=0.5, alternative="less")
 
-    # [1] as function returns a tuple
-    modified_acceptance_p_values = self.bonferoni_corrections(acceptance_p_values, alpha=0.05, n_tests=len(self.columns))[1]
+    # [1] as function returns a tuple. Bonferroni base is the FULL original feature count (all_columns), not the
+    # shrinking current column set: self.hits and the accept/reject indexing are full-length, and using the live
+    # (post-removal) count would weaken the correction trial-over-trial as features drop out -- a leniency drift.
+    # This matches the base the shipped margin-gated stop already uses (_n_total_cols = len(all_columns)).
+    _n_tests = len(self.all_columns)
+    modified_acceptance_p_values = self.bonferoni_corrections(acceptance_p_values, alpha=0.05, n_tests=_n_tests)[1]
 
-    modified_regect_p_values = self.bonferoni_corrections(regect_p_values, alpha=0.05, n_tests=len(self.columns))[1]
+    modified_regect_p_values = self.bonferoni_corrections(regect_p_values, alpha=0.05, n_tests=_n_tests)[1]
 
     # Take the inverse as we want true to keep featrues
     rejected_columns = np.array(modified_regect_p_values) < self.pvalue
