@@ -32,6 +32,19 @@ validation in-loop and proceed to the next item. The only legitimate turn-ends
 are the (a)-(d) pauses above or genuinely running out of context mid-edit
 (commit what is safe, state exactly what remains — still do not ask).
 
+## Build new code in focused submodules from the START (CRITICAL)
+
+When adding non-trivial functionality, put it in a NEW, appropriately-named submodule/subpackage (sibling
+`.py` named for its concern) and re-export the public names from the parent facade — do NOT keep appending
+to an already-large file and rely on a later mass "carve wave". Keep every module focused and well under the
+1000-LOC ceiling PROACTIVELY; `tests/test_meta/test_no_file_over_1k_loc.py` is a backstop, not the design,
+and a file that must be added to its EXEMPT list is a process failure. If a file/function is already nearing
+~800-900 LOC, carve BEFORE adding more (Monolith split: move a sub-block to a sibling, parent re-exports at
+bottom, lazy-import parent helpers when init-order matters). The monoliths we have (_fit_impl_core 9.8k,
+_mrmr_class 4.8k) exist precisely because new code was dumped into one giant single-function body instead of
+being carved as it grew — don't repeat that. User, 2026-06-22: "вместо того чтобы херачить весь новый код в
+1 файл, а потом массово разгребать завалы."
+
 ## Prefer top performance — take the riskier optimization (CRITICAL)
 
 In a performance-critical path, implement the HIGHER-performance optimization
