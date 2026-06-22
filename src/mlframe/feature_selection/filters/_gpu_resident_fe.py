@@ -167,6 +167,21 @@ def _cuda_present() -> bool:
             return False
 
 
+def _env_gpu_default_on(name: str) -> bool:
+    """Shared GPU opt-out gate: explicit env ``<name>`` = 0/1 (off/on) wins; otherwise default ON when a
+    CUDA device is usable -- False if CUDA_VISIBLE_DEVICES='' or MLFRAME_DISABLE_GPU=1, or no CUDA present.
+    Single source for the fe_gpu_*_enabled default-on gates (was copy-pasted per gate)."""
+    _v = os.environ.get(name, "").strip().lower()
+    if _v in ("0", "false", "off", "no"):
+        return False
+    if _v in ("1", "true", "on", "yes"):
+        return True
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+        return False
+    return _cuda_present()
+
+
 def fe_gpu_resident_codes_enabled() -> bool:
     """Whether the GPU-RESIDENT-CODES handoff is active. DEFAULT ON when CUDA is present (env opt-out
     ``MLFRAME_FE_GPU_RESIDENT_CODES=0``); explicit truthy forces it on even without a detected device.
@@ -183,17 +198,7 @@ def fe_gpu_resident_codes_enabled() -> bool:
     ``MLFRAME_FE_GPU_RESIDENT_CODES`` (0/false/off -> off; 1/true/on/yes -> on; UNSET -> on iff CUDA
     present). Honours the CUDA opt-out conventions (``CUDA_VISIBLE_DEVICES=""`` / ``MLFRAME_DISABLE_GPU=1``)
     by short-circuiting to OFF -- the resident gate is skipped on those runs anyway, so never stash."""
-    _v = os.environ.get("MLFRAME_FE_GPU_RESIDENT_CODES", "").strip().lower()
-    if _v in ("0", "false", "off", "no"):
-        return False
-    if _v in ("1", "true", "on", "yes"):
-        return True
-    # UNSET: default ON when a CUDA device is usable. Respect the documented GPU opt-outs so a no-GPU run
-    # never pays the resident-copy alloc / stash (the dispatch routes to CPU there regardless).
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
-        return False
-    return _cuda_present()
+    return _env_gpu_default_on("MLFRAME_FE_GPU_RESIDENT_CODES")
 
 
 def fe_gpu_resident_basis_mi_enabled() -> bool:
@@ -209,15 +214,7 @@ def fe_gpu_resident_basis_mi_enabled() -> bool:
     it on: 385 passed) AND FASTER (clean canonical 100k wall 34.8s -> 30.7s, ~12%; the batched build also
     clears the p200 high-feature perf budget). Opt out with ``MLFRAME_FE_GPU_RESIDENT_BASIS_MI=0``. Any GPU
     failure / unported basis falls back to the host path per-call (never a correctness regression)."""
-    _v = os.environ.get("MLFRAME_FE_GPU_RESIDENT_BASIS_MI", "").strip().lower()
-    if _v in ("0", "false", "off", "no"):
-        return False
-    if _v in ("1", "true", "on", "yes"):
-        return True
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
-        return False
-    return _cuda_present()
+    return _env_gpu_default_on("MLFRAME_FE_GPU_RESIDENT_BASIS_MI")
 
 
 def fe_gpu_routing_enabled() -> bool:
@@ -243,15 +240,7 @@ def fe_gpu_routing_enabled() -> bool:
     build), routing is host 229ms vs GPU 214ms = 1.07x (30k x 24 cols, 24/24 matching); the wiring also
     reuses that single upload, removing a redundant (n, n_cand) H2D the prior per-column path implied. (An
     earlier A/B wrongly charged the GPU an H2D that residency mode does not pay -- corrected here.)"""
-    _v = os.environ.get("MLFRAME_FE_GPU_ROUTING", "").strip().lower()
-    if _v in ("0", "false", "off", "no"):
-        return False
-    if _v in ("1", "true", "on", "yes"):
-        return True
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
-        return False
-    return _cuda_present()
+    return _env_gpu_default_on("MLFRAME_FE_GPU_ROUTING")
 
 
 def fe_gpu_defer_host_codes_enabled() -> bool:
