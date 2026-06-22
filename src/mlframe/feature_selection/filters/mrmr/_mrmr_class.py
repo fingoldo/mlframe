@@ -29,6 +29,29 @@ from sklearn.base import BaseEstimator, TransformerMixin, clone
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
 # downstream callers continue to resolve historical names.
+# Pure-data constants carved out of this module (no class refs -> safe top-level import):
+# the constructor-param validation allow-lists and the legacy-pickle default-injection roster.
+from ._mrmr_param_constants import (  # noqa: E402,F401
+    _VALID_QUANTIZATION_METHODS,
+    _VALID_NAN_STRATEGIES,
+    _VALID_MRMR_RELEVANCE_ALGOS,
+    _VALID_MRMR_REDUNDANCY_ALGOS,
+    _VALID_NBINS_STRATEGIES,
+    _VALID_MI_CORRECTIONS,
+    _VALID_REDUNDANCY_AGGREGATORS,
+    _VALID_STABILITY_SELECTION_METHODS,
+    _DEMOTED_NBINS_STRATEGIES,
+    _VALID_FE_UNARY_PRESETS,
+    _VALID_FE_BINARY_PRESETS,
+    _VALID_CLUSTER_AGGREGATE_MODES,
+    _VALID_CLUSTER_AGGREGATE_METHODS,
+    _VALID_DCD_DISTANCES,
+    _VALID_DCD_SWAP_METHODS,
+    _VALID_RFECV_SELECTION_RULES,
+    _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS,
+)
+from ._mrmr_setstate_defaults import build_setstate_defaults  # noqa: E402,F401
+
 from .._mrmr_fingerprints import (  # noqa: E402,F401
     _astropy_histogram,
     histogram,
@@ -2938,93 +2961,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature = None
 
-    # Allowed string values for the constructor params. Kept module-private rather
-    # than a typing.Literal alias so the runtime check can produce a richer error
-    # listing the valid options. fix audit row FS-P2-1.
-    _VALID_QUANTIZATION_METHODS = ("quantile", "uniform")
-    _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise")
-    _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
-    _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
-    # adaptive per-feature bin-edge chooser.
-    # MRMR's MI computation stays exclusively on the integer-bin plug-in path
-    # (see bench_adaptive_nbins / bench_adaptive_nbins_mega). Alternative MI
-    # estimators (KSG, MINE, InfoNet, MIST, fastMI, aggregators) are
-    # intentionally NOT routed into the MRMR hot loop.
-    _VALID_NBINS_STRATEGIES = (
-        None,
-        "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile",
-        "knuth", "blocks",  # demoted to research-only with AccuracyWarning
-        "mdlp", "fayyad_irani", "optimal_joint", "cv",
-        "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive
-    )
-    # opt-in validation sets.
-    _VALID_MI_CORRECTIONS = ("none", "miller_madow", "chao_shen")
-    _VALID_REDUNDANCY_AGGREGATORS = (None, "jmim", "auto")
-    _VALID_STABILITY_SELECTION_METHODS = (
-        "classic", "cluster", "complementary_pairs",
-    )
-    # per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
-    # Bayesian Blocks (MI_mean 0.272, weakest overall), and MAH/SCI
-    # (MI_mean 0.168, catastrophic on noisy continuous signals due to
-    # over-aggressive SCI-greedy bin merging that collapses to ~2 bins)
-    # are demoted from the recommended option set. They remain selectable
-    # for research / reproduction work but emit an ``AccuracyWarning`` so
-    # downstream callers can opt-in explicitly.
-    _DEMOTED_NBINS_STRATEGIES = (
-        "knuth", "blocks",
-        "mah", "mah_sci", "sci", "marx",
-    )
-    _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
-    _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
-    _VALID_CLUSTER_AGGREGATE_MODES = ("augment", "replace")
-    # the cluster_aggregate method allow-list expands
-    # to include the four new combiners (``pca_pc2``, ``median_z``,
-    # ``signed_max_abs``, ``signed_l2_sum``) so direct ``cluster_aggregate_methods``
-    # API users can pin them individually, not just reach them via DCD ``auto``.
-    _VALID_CLUSTER_AGGREGATE_METHODS = (
-        "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
-        "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
-    )
-    # DCD validation constants. swap_methods alias the
-    # cluster_aggregate methods (Critic2/E fix: no duplicate constant).
-    # ``"auto"`` runs SU and VI in parallel per pair
-    # and returns the tighter redundancy score (``max(SU, VI_sim)``). Catches
-    # both linear-friendly duplicates (SU strong) and non-linear functional
-    # equivalences like y = f(x^2) (VI strong, SU silent).
-    _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla", "auto")
-    # DCD ``dcd_swap_method`` accepts the same expanded combiner set
-    # so users can pin a single new method instead of relying on ``auto``.
-    _VALID_DCD_SWAP_METHODS = (
-        "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
-        "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
-    )
-    # additional_rfecv_selection_rule flows verbatim into RFECV's
-    # n_features_selection_rule (see _mrmr_fit_impl rescue block). Mirror
-    # RFECV's own accepted set (_rfecv.py constructor guard) so a typo fails
-    # at MRMR.fit() start with an actionable message instead of deep inside the
-    # RFECV fit.
-    _VALID_RFECV_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max")
-
-    # accepted values for
-    # ``fe_hybrid_orth_default_scorer``. "plug_in" preserves Layer 21's
-    # behaviour byte-for-byte; the other 12 entries route the univariate
-    # basis-selection stage through the Layers listed alongside.
-    _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = (
-        "plug_in",     # Layer 21 (default)
-        "cmim",        # Layer 74
-        "jmim",        # Layer 72
-        "tc",          # Layer 73
-        "ksg",         # Layer 65
-        "copula",      # Layer 66
-        "dcor",        # Layer 67
-        "hsic",        # Layer 71
-        "auto",        # Layer 68
-        "ensemble",    # Layer 69
-        "meta",        # Layer 76
-        "lasso",       # Layer 81
-        "elasticnet",  # Layer 82
-        "auto_oracle",  # Layer 100 (L76 cold-start + L68 bake-off + Param-Oracle learning)
-    )
+    # Constructor-param validation allow-lists. Carved VERBATIM into the leaf module
+    # ``_mrmr_param_constants.py`` (no class refs -> no cycle) and re-bound here as class
+    # attributes so ``self._VALID_*`` resolution stays byte-identical (the validator in
+    # ``_mrmr_validate_transform`` reads them off the instance). Kept module-private rather
+    # than a typing.Literal alias so the runtime check can produce a richer error listing
+    # the valid options (fix audit row FS-P2-1). See that sibling for the per-constant notes.
+    _VALID_QUANTIZATION_METHODS = _VALID_QUANTIZATION_METHODS
+    _VALID_NAN_STRATEGIES = _VALID_NAN_STRATEGIES
+    _VALID_MRMR_RELEVANCE_ALGOS = _VALID_MRMR_RELEVANCE_ALGOS
+    _VALID_MRMR_REDUNDANCY_ALGOS = _VALID_MRMR_REDUNDANCY_ALGOS
+    _VALID_NBINS_STRATEGIES = _VALID_NBINS_STRATEGIES
+    _VALID_MI_CORRECTIONS = _VALID_MI_CORRECTIONS
+    _VALID_REDUNDANCY_AGGREGATORS = _VALID_REDUNDANCY_AGGREGATORS
+    _VALID_STABILITY_SELECTION_METHODS = _VALID_STABILITY_SELECTION_METHODS
+    _DEMOTED_NBINS_STRATEGIES = _DEMOTED_NBINS_STRATEGIES
+    _VALID_FE_UNARY_PRESETS = _VALID_FE_UNARY_PRESETS
+    _VALID_FE_BINARY_PRESETS = _VALID_FE_BINARY_PRESETS
+    _VALID_CLUSTER_AGGREGATE_MODES = _VALID_CLUSTER_AGGREGATE_MODES
+    _VALID_CLUSTER_AGGREGATE_METHODS = _VALID_CLUSTER_AGGREGATE_METHODS
+    _VALID_DCD_DISTANCES = _VALID_DCD_DISTANCES
+    _VALID_DCD_SWAP_METHODS = _VALID_DCD_SWAP_METHODS
+    _VALID_RFECV_SELECTION_RULES = _VALID_RFECV_SELECTION_RULES
+    _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS
 
     @classmethod
     def recommend_default_scorer(cls) -> str:
@@ -3232,360 +3191,11 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
     def __setstate__(self, state):
-        defaults = {
-            "max_confirmation_cand_nbins": 50,  # legacy default
-            "fe_fallback_to_all": True,         # legacy default
-            "_engineered_features_": [],
-            # Recipes-based replay so transform() can recompute engineered features on test data. Old pickles
-            # have no recipes (their engineered cols were never replayable); empty list reproduces the legacy
-            # "engineered cols dropped from transform output" behaviour bit-exact.
-            "_engineered_recipes_": [],
-            # Cat-FE: ``None`` means disabled or never ran; injecting ``None`` makes getattr(...) no-op.
-            "cat_fe_config": None,
-            "_cat_fe_state_": None,
-            "_cat_fe_cache_": None,  # streaming cache; None on legacy pickles
-            "strict_groups": False,  # legacy pickles default to warn-only behaviour
-            # Renamed from skip_retraining_on_same_shape (misnomer; cache keys on content). Legacy pickles carry only the old attr; inject the new one so _fit_impl's getattr resolves.
-            "skip_retraining_on_same_content": True,
-            # Identity-cache y-correlation gate (added later); legacy pickles default to 0.0 (gate off = legacy any-X-fingerprint short-circuit) to preserve their behaviour bit-for-bit.
-            "mrmr_identity_cache_ycorr_threshold": 0.0,
-            # Friend-graph post-analysis. Legacy pickles refit with the
-            # current defaults; ``friend_graph_`` itself is a fitted attribute, not seeded here.
-            "build_friend_graph": False,
-            "friend_graph_prune": False,
-            "friend_graph_max_nodes": 200,
-            "friend_graph_mi_eps": 1e-6,
-            "friend_graph_edge_significance": 3.0,
-            "friend_graph_garbage_min_degree": 3,
-            "friend_graph_unique_ratio": 1.0,
-            "friend_graph_unique_max_degree": 1,
-            # Clustered-feature aggregation. ENABLED by default
-            # (cluster_aggregate_enable=True); legacy pickles refit with these
-            # defaults so an attribute-less pickle behaves like a fresh MRMR.
-            # Mode was "augment" here but the constructor default is "replace"
-            # (the deliberate fix for the duplicate-vote effect) -- legacy
-            # pickles must refit to the corrected behaviour, not the
-            # superseded one.
-            "cluster_aggregate_enable": True,
-            "cluster_aggregate_mode": "replace",
-            "cluster_aggregate_methods": ("mean_z",),
-            "cluster_aggregate_mi_prevalence": 1.0,
-            "cluster_aggregate_min_member_relevance": 0.0,
-            "cluster_aggregate_min_cluster_size": 3,
-            "cluster_aggregate_max_cluster_size": 12,
-            "cluster_aggregate_corr_threshold": 0.6,
-            "cluster_aggregate_homogeneity_tau": 0.6,
-            "cluster_aggregate_max_candidates": 200,
-            # hybrid orthogonal-poly FE auto-wire.
-            # Defaults preserve legacy behaviour: master switch OFF, so old
-            # pickles unpickle to "hybrid FE disabled".
-            # per-operand pre-warp for the unary/binary pair search.
-            # OFF by default; legacy pickles unpickle to "pre-warp disabled".
-            "fe_pair_prewarp_enable": False,
-            "fe_pair_prewarp_basis": "chebyshev",
-            "fe_pair_prewarp_max_degree": 4,
-            "fe_pair_prewarp_uplift_threshold": 1.20,
-            # per-operand median gate for the unary/binary pair
-            # search. OFF by default; legacy pickles unpickle to "gate disabled".
-            "fe_gate_med_enable": False,
-            "fe_hybrid_orth_enable": False,
-            "fe_hybrid_orth_degrees": (2, 3),
-            "fe_hybrid_orth_basis": "auto",
-            "fe_hybrid_orth_top_k": 5,
-            "fe_hybrid_orth_pair_enable": True,
-            "fe_hybrid_orth_pair_max_degree": 2,
-            # triplet cross-basis FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_triplet_enable": False,
-            "fe_hybrid_orth_triplet_max_degree": 1,
-            "fe_hybrid_orth_triplet_seed_k": 4,
-            "fe_hybrid_orth_triplet_top_count": 2,
-            # quadruplet (4-way) cross-basis FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_quadruplet_enable": False,
-            "fe_hybrid_orth_quadruplet_max_degree": 1,
-            "fe_hybrid_orth_quadruplet_seed_k": 4,
-            "fe_hybrid_orth_quadruplet_top_count": 2,
-            # adaptive-arity cross-basis FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_adaptive_arity_enable": False,
-            "fe_hybrid_orth_adaptive_arity_max_arity": 3,
-            "fe_hybrid_orth_adaptive_arity_max_degree": 1,
-            "fe_hybrid_orth_adaptive_arity_seed_k": 4,
-            "fe_hybrid_orth_adaptive_arity_top_count": 3,
-            # semi-supervised basis-preprocess fitting.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_semi_supervised_enable": False,
-            # Lasso-based pre-selection defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_lasso_enable": False,
-            "fe_hybrid_orth_lasso_alpha": 0.01,
-            # Elastic Net (L1 + L2) pre-selection defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_elasticnet_enable": False,
-            "fe_hybrid_orth_elasticnet_alpha": 0.01,
-            "fe_hybrid_orth_elasticnet_l1_ratio": 0.5,
-            # adaptive per-column degree defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_adaptive_degree_enable": False,
-            "fe_hybrid_orth_adaptive_degree_range": (1, 2, 3, 4, 5, 6),
-            "fe_hybrid_orth_adaptive_degree_min_uplift": 1.05,
-            # conditional basis routing FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_conditional_routing_enable": False,
-            "fe_hybrid_orth_conditional_routing_top_k": 5,
-            "fe_hybrid_orth_conditional_routing_min_uplift": 1.10,
-            "fe_hybrid_orth_conditional_routing_degrees": (2, 3),
-            # diff-basis FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_diff_basis_enable": False,
-            "fe_hybrid_orth_diff_basis_corr_threshold": 0.7,
-            "fe_hybrid_orth_diff_basis_degrees": (1, 2, 3),
-            "fe_hybrid_orth_diff_basis_top_k": 3,
-            # per-cluster shared-basis FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_cluster_basis_enable": False,
-            "fe_hybrid_orth_cluster_basis_aggregator": "mean_z",
-            "fe_hybrid_orth_cluster_basis_degrees": (2, 3),
-            "fe_hybrid_orth_cluster_basis_top_k": 3,
-            # bootstrap-stable MI ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_bootstrap_enable": False,
-            "fe_hybrid_orth_bootstrap_n_boot": 10,
-            "fe_hybrid_orth_bootstrap_sample_fraction": 0.8,
-            # three-gate + K-fold OOF MI defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_three_gate_enable": False,
-            "fe_hybrid_orth_three_gate_n_folds": 5,
-            "fe_hybrid_orth_three_gate_cmi_min": 0.001,
-            # KSG / k-NN MI ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_ksg_enable": False,
-            "fe_hybrid_orth_ksg_n_neighbors": 3,
-            "fe_hybrid_orth_ksg_min_uplift": 0.95,
-            "fe_hybrid_orth_ksg_min_abs_mi_frac": 0.05,
-            # copula-MI ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_copula_enable": False,
-            "fe_hybrid_orth_copula_n_bins": 20,
-            # distance-correlation ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_dcor_enable": False,
-            "fe_hybrid_orth_dcor_n_sample": 500,
-            # HSIC ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_hsic_enable": False,
-            "fe_hybrid_orth_hsic_kernel": "rbf",
-            "fe_hybrid_orth_hsic_n_sample": 500,
-            # JMIM (Bennasar 2015) defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_jmim_enable": False,
-            "fe_hybrid_orth_jmim_n_bins": 10,
-            # TC (Watanabe 1960) ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_tc_enable": False,
-            "fe_hybrid_orth_tc_n_bins": 10,
-            # CMIM (Fleuret 2004) ranking defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_cmim_enable": False,
-            "fe_hybrid_orth_cmim_n_bins": 10,
-            # per-column scorer auto-selection defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_auto_scorer_enable": False,
-            "fe_hybrid_orth_auto_scorer_n_boot": 5,
-            # ensemble rank-fusion defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_ensemble_enable": False,
-            "fe_hybrid_orth_ensemble_aggregator": "mean_rank",
-            "fe_hybrid_orth_ensemble_scorers": (
-                "plug_in", "ksg", "copula", "dcor", "hsic",
-            ),
-            # meta-scorer auto-selection defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_hybrid_orth_meta_enable": False,
-            "fe_hybrid_orth_meta_force_scorer": None,
-            # extra-basis (spline / fourier) defaults.
-            "fe_hybrid_orth_extra_bases": (),
-            "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
-            "fe_hybrid_orth_spline_knots": 5,
-            # Fitted attribute (list of engineered names from hybrid stage);
-            # legacy pickles default to empty list.
-            "hybrid_orth_features_": [],
-            # MI-greedy FE constructor. Defaults
-            # preserve legacy behaviour: master switch OFF.
-            "fe_mi_greedy_enable": False,
-            "fe_mi_greedy_top_k": 5,
-            "fe_mi_greedy_seed_cols_count": 5,
-            "fe_mi_greedy_include_unary": True,
-            "fe_mi_greedy_include_binary": True,
-            "mi_greedy_features_": [],
-            # CMI-greedy FE constructor. Defaults
-            # preserve legacy behaviour: master switch OFF.
-            "fe_mi_greedy_cmi_enable": False,
-            "fe_mi_greedy_cmi_top_k": 5,
-            "fe_mi_greedy_cmi_seed_cols_count": 4,
-            "fe_mi_greedy_cmi_min_gain": 0.005,
-            # K-fold target-encoding FE defaults.
-            # Master switch OFF preserves legacy pickle byte-equivalence.
-            "fe_kfold_te_enable": False,
-            "fe_kfold_te_cols": (),
-            "fe_kfold_te_folds": 5,
-            "fe_kfold_te_smoothing": 10.0,
-            "kfold_te_features_": [],
-            # count / frequency / cat x num residual.
-            # Master switches OFF preserve legacy pickle byte-equivalence.
-            "fe_count_encoding_enable": False,
-            "fe_count_encoding_cols": (),
-            "fe_frequency_encoding_enable": False,
-            "fe_frequency_encoding_cols": (),
-            "fe_cat_num_interaction_enable": False,
-            "fe_cat_num_interaction_cat_cols": (),
-            "fe_cat_num_interaction_num_cols": (),
-            "fe_cat_num_interaction_folds": 5,
-            "fe_cat_num_interaction_smoothing": 10.0,
-            "count_encoding_features_": [],
-            "frequency_encoding_features_": [],
-            "cat_num_interaction_features_": [],
-            # two-tier IT gates on the recipe-emitting
-            # FE mechanisms. Master switches OFF preserve legacy pickle
-            # byte-equivalence.
-            "fe_local_mi_gate": True,  # default-flip (corrective gate, see __init__)
-            "fe_local_mi_gate_top_k": 20,
-            "fe_unified_second_pass_gate": False,
-            "fe_unified_second_pass_max_keep": None,
-            "fe_unified_second_pass_min_gain": 0.005,
-            # partial_fit / streaming refit.
-            # Legacy pickles default OFF (decay 0, threshold 100, no window);
-            # fitted-state buffers default to None until partial_fit is called.
-            "partial_fit_decay": 0.0,
-            "partial_fit_min_recompute": 100,
-            "partial_fit_window": None,
-            "_partial_fit_X_buffer_": None,
-            "_partial_fit_y_buffer_": None,
-            "_partial_fit_n_seen_": 0,
-            "_partial_fit_n_since_refit_": 0,
-            # FE provenance tracking.
-            # Legacy pickles default to ``None`` and the empty predictor log;
-            # the next fit() repopulates from the live greedy run.
-            "fe_provenance_": None,
-            # Per-gate FE REJECTION LEDGER (the rejection side of fe_provenance_):
-            # a DataFrame (one row per rejected FE candidate-per-gate) + its raw record
-            # list. Legacy pickles default to None / [] and the next fit() repopulates.
-            "fe_rejection_ledger_": None,
-            "_fe_rejection_records_": [],
-            "_predictors_log_": (),
-            # Produced-recipes audit ledger: every EngineeredRecipe the FE stages emitted this fit (pre-screen). fe_provenance_ reads it so the audit / pickle-replay paths recover which mechanism
-            # produced each engineered column even when the greedy CMI screen dropped it. Legacy pickles default to [] and the next fit() repopulates from the live FE run.
-            "_produced_recipes_": [],
-            # fe_auto "1-knob" mode. Pre-L99 pickles
-            # default to False -> byte-identical legacy path on reload.
-            "fe_auto": False,
-            # three new recipe-based FE families.
-            # Master switches OFF preserve legacy pickle byte-equivalence;
-            # fitted-attr lists default empty until the next fit repopulates.
-            "fe_rare_category_enable": False,
-            "fe_rare_category_cols": (),
-            "fe_rare_category_threshold": 0.01,
-            "fe_rare_category_top_k": 10,
-            "fe_conditional_residual_enable": False,
-            "fe_conditional_residual_cols": (),
-            "fe_conditional_residual_n_bins": 10,
-            "fe_conditional_residual_top_k": 10,
-            "fe_conditional_residual_max_pair_cols": 6,
-            # Family D conditional dispersion. Pre-#12 pickles default OFF so the
-            # legacy reload path is byte-identical (the live default is ON for new
-            # fits via __init__); the fitted-attr list defaults empty.
-            "fe_conditional_dispersion_enable": False,
-            "fe_conditional_dispersion_cols": (),
-            "fe_conditional_dispersion_n_bins": 10,
-            "fe_conditional_dispersion_top_k": 10,
-            "fe_conditional_dispersion_max_pair_cols": 6,
-            # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
-            # legacy reload path is byte-identical (the live default is ON for new
-            # fits via __init__); the fitted-attr list defaults empty.
-            "fe_wavelet_enable": False,
-            "fe_wavelet_cols": (),
-            "fe_wavelet_max_scale": 3,
-            "fe_wavelet_max_legs": 6,
-            "fe_wavelet_top_k": 8,
-            "wavelet_features_": [],
-            "fe_rankgauss_enable": False,
-            "fe_rankgauss_cols": (),
-            "fe_rankgauss_top_k": 10,
-            "rare_category_features_": [],
-            "conditional_residual_features_": [],
-            "conditional_dispersion_features_": [],
-            "rankgauss_features_": [],
-            # ADAPTIVE-FREQUENCY Fourier. Pre-adaptive pickles
-            # default to the on/0.15 contract for re-fits; the fitted-attr
-            # list defaults empty (no adaptive features replayed on reload
-            # until the next fit repopulates it).
-            "fe_univariate_fourier_adaptive": True,
-            "fe_univariate_fourier_adaptive_min_val_corr": 0.15,
-            # ADAPTIVE-CHIRP Fourier. Pre-chirp pickles default to
-            # the on/0.15 contract for re-fits (the chirp legs share the
-            # adaptive-feature capture/protection list above).
-            "fe_univariate_fourier_chirp": True,
-            "fe_univariate_fourier_chirp_min_val_corr": 0.15,
-            "_adaptive_fourier_features_": [],
-            # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09,
-            # backlog #1 + #4). bench-rejected as default (admits cross-mix noise on
-            # weak F2); kept OPT-IN. Pre-MM pickles default to OFF for re-fits.
-            "fe_mm_debias_prevalence": False,
-            # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
-            # 2026-06-09. Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
-            # Pre-seeder pickles default to the same safe values for re-fits.
-            # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12). Live default ON; pre-fix
-            # pickles default ON too (the rescue only adds a leak-safe second-chance path
-            # behind the full admission gates -- it never changes an already-admitted
-            # column's values, so replay of a pre-fix recipe is unaffected).
-            "fe_synergy_prevalence_rescue_enable": True,
-            # ESCALATION FEATURES TERMINAL in feed-forward (2026-06-12). Pre-fix pickles
-            # default OFF too (matches the live default; escalation features were rare and
-            # this only restricts NEW composite seeding, never replay of an existing recipe).
-            "fe_escalation_feedforward_enable": False,
-            "fe_gbm_seeder_enable": False,
-            "fe_gbm_seeder_min_features": 30,
-            "fe_gbm_seeder_top_k_pairs": 12,
-            "fe_gbm_seeder_top_k_triples": 8,
-            "fe_gbm_seeder_n_estimators": 300,
-            "fe_gbm_seeder_max_depth": 4,
-            "fe_gbm_seeder_self_gate_margin": 0.0,
-            "fe_gbm_seeder_self_gate_reps": 5,
-            "fe_gbm_seeder_self_gate_min_z": 2.0,
-            # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (#21), 2026-06-10. OPT-IN;
-            # pre-feature pickles default to OFF for re-fits (byte-identical legacy path).
-            "fe_gradient_interaction_enable": False,
-            "fe_triple_maxt_null_permutations": 25,
-            "fe_triple_maxt_null_quantile": 0.95,
-            "fe_triple_maxt_min_triples": 4,
-            # SUFFICIENT-SUMMARY EARLY-STOP (backlog #22, 2026-06-10). DEFAULT-ON; pre-feature
-            # pickles default to the same on/0.25 contract for re-fits (the early-stop never
-            # changes the final selection, so an old pickle's behaviour is unchanged either way).
-            "fe_sufficient_summary_early_stop": True,
-            "fe_sufficient_summary_residual_frac": 0.25,
-            "fe_sufficient_summary_maxt_permutations": 25,
-            "fe_sufficient_summary_maxt_quantile": 0.95,
-            "fe_sufficient_summary_ridge_alpha": 1e-3,
-            # CMI-redundancy gate cost guard (2026-06-11). Old pickles default to the
-            # same 64-candidate cap; it only fires on pools WIDER than the cap (deep-tail
-            # low-marginal-MI redundant remaps), so a re-fit of any pickle whose pool was
-            # already <= 64 candidates is byte-identical.
-            "fe_engineered_cmi_max_candidates": 64,
-            # CMI-redundancy gate strong-significance escape (2026-06-11). Old pickles
-            # default to the same 3.0 margin (the gate's _step_core read already falls
-            # back to 3.0 via getattr; pinned here for an explicit, pickle-stable default).
-            # The escape only LOOSENS leg 2 for a candidate that already clears its floor
-            # 3x, so a re-fit of any pickle whose pool had no such candidate is byte-identical.
-            "fe_engineered_cmi_significance_escape_margin": 3.0,
-            # EMBEDDING / FREE-TEXT PASSTHROUGH (default ON). Old pickles default to the same on contract; a re-fit of any pickle whose X had no non-scalar columns
-            # is byte-identical (the detector finds nothing and never narrows the frame).
-            "embedding_passthrough": True,
-            "embedding_passthrough_detect_embeddings": True,
-            "embedding_passthrough_detect_text": True,
-            # Fitted-attribute mirror: an unpickled pre-feature fit has no passthrough roster; default empty so transform's re-attach loop is a no-op.
-            "_passthrough_features_": [],
-        }
+        # Legacy-injection roster carved VERBATIM into ``_mrmr_setstate_defaults.py``;
+        # ``build_setstate_defaults()`` returns a fresh deep copy each call so no two
+        # unpickled instances alias a mutable default (the literal dict was re-executed
+        # per call before; the deep copy preserves that exactly).
+        defaults = build_setstate_defaults()
         # D5 (2026-06-22): source every shared ctor-param default from the SINGLE source of
         # truth (the constructor signature) so a setstate literal can never silently drift from
         # the ctor default. Documented legacy-pickle overrides (above) are exempt; setstate-only

@@ -29,8 +29,14 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # the package ``__init__.py`` facade re-exports it + runs the method bindings).
     # Carved 2026-06-22: the Gate-A SIS front-screen ``_apply_sis_screen`` method (~76 LOC)
     # lifted verbatim into filters/_mrmr_sis_apply.py and bound the same way as ``_fit_impl`` /
-    # ``_run_fe_step`` (4836 -> 4760 LOC; still exempt). Remaining carve candidates if it must
-    # shrink further: the FE-flag plumbing block + the giant ``__init__`` attribute plumbing;
+    # ``_run_fe_step`` (4836 -> 4760 LOC; still exempt).
+    # Carved 2026-06-22 (constants drain): the ``_VALID_*`` / ``_DEMOTED_*`` ctor-param
+    # validation allow-lists -> filters/mrmr/_mrmr_param_constants.py (re-bound onto the class
+    # so ``self._VALID_*`` stays byte-identical), and the ~354-line ``__setstate__`` legacy
+    # default-injection dict literal -> filters/mrmr/_mrmr_setstate_defaults.py (re-imported via
+    # ``build_setstate_defaults()`` which deep-copies per call; the D5 no-drift ctor overlay runs
+    # unchanged on the copy). 4794 -> ~4404 LOC; still exempt. Remaining carve candidates if it
+    # must shrink further: the FE-flag plumbing block + the giant ``__init__`` attribute plumbing;
     # the validate/transform/fit/fe-step/partial-fit/provenance method bodies already live in
     # sibling modules.
     "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py",
