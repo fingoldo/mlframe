@@ -780,7 +780,7 @@
   },
   "save_mlframe_model": {
     "kind": "callable",
-    "module": "mlframe.training.io",
+    "module": "mlframe.training._io_save",
     "signature": "(model:any:0, file:any:0, zstd_kwargs:any:1, verbose:any:1, lean:any:1, durable:any:1, auto_lean_retry:any:1, auto_lean_pre_check_mb:any:1)"
   },
   "save_series_or_df": {
