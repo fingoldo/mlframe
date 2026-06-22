@@ -39,16 +39,30 @@ def fit_multioutput(self, X, y, groups, sample_weight, fit_params, strategy: str
     n_features = len(feature_names)
 
     per_column_selected: dict[str, list] = {}
+    skipped_columns: dict[str, str] = {}
+    n_columns = 0
     for label, y_col in _y_columns(y):
+        n_columns += 1
         sub = clone(self)
         # The sub-fit is single-target; clear the strategy so it takes the normal path, not infinite recursion.
         sub.multioutput_strategy = None
-        sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
+        # Per-column resilience: a single degenerate output (e.g. an all-constant target) raising inside its
+        # sub-fit must not abort the OTHER, valid columns. Skip the failed column, aggregate over the rest.
+        try:
+            sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
+        except Exception as exc:
+            skipped_columns[label] = f"{type(exc).__name__}: {exc}"
+            logger.warning("RFECV multioutput[%s]: sub-fit failed (%s); skipping this output column.", label, exc)
+            continue
         per_column_selected[label] = list(sub.get_feature_names_out())
         if self.verbose:
             logger.info("RFECV multioutput[%s]: selected %d features.", label, len(per_column_selected[label]))
 
     if not per_column_selected:
+        if skipped_columns:
+            raise ValueError(
+                f"RFECV multioutput: all {n_columns} output column(s) failed to fit: {skipped_columns}"
+            )
         raise ValueError("RFECV multioutput: y has no output columns to fit.")
 
     sets = [set(v) for v in per_column_selected.values()]
@@ -70,5 +84,6 @@ def fit_multioutput(self, X, y, groups, sample_weight, fit_params, strategy: str
     self.feature_names_in_ = feature_names
     self._selected_cols_cache = selected_in_order
     self.multioutput_supports_ = per_column_selected
+    self.multioutput_skipped_ = skipped_columns
     self.multioutput_strategy_ = strategy
     return self

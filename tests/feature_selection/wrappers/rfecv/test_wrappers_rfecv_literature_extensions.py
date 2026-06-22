@@ -124,6 +124,40 @@ class TestMultiOutputGuard:
         assert "(80, 2)" in msg, f"message must report the offending y shape; got: {msg}"
         assert "per target" in msg and "support_" in msg, f"message must give per-target/union guidance; got: {msg}"
 
+    def test_2d_y_one_constant_column_does_not_abort_others(self):
+        # F6: a single degenerate output column (all-constant target -> single-class crash in the sub-fit) must NOT
+        # abort the other valid columns. The failed column is skipped + recorded; aggregation proceeds over the rest.
+        X, y_good = make_classification(n_samples=200, n_features=6, n_informative=4, random_state=3)
+        y = np.column_stack([y_good, np.zeros(X.shape[0], dtype=int)])  # 2nd column all-constant -> single class
+        rfecv = RFECV(estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2, multioutput_strategy="union")
+        rfecv.fit(X, y)  # pre-fix: the constant column's single-class crash propagated and aborted ALL columns
+        assert rfecv.support_.dtype == bool and rfecv.support_.shape[0] == 6
+        assert bool(rfecv.support_.any()), "the valid output column should still drive a non-empty selection"
+        assert "y0" in rfecv.multioutput_supports_, "the valid column must be fitted and aggregated"
+        assert "y1" in rfecv.multioutput_skipped_, "the constant column must be recorded as skipped, not abort the fit"
+
+
+class TestObjectDtypeNaNScan:
+    def test_object_dtype_ndarray_nan_is_imputed_not_passed_to_core(self):
+        # F5: an object-dtype ndarray carrying embedded float('nan') was NOT scanned (kind 'O' fell through), so the
+        # NaN reached the linear core and crashed. The policy now coerces object arrays and median-imputes them.
+        X_num, y = make_classification(n_samples=120, n_features=5, n_informative=3, random_state=7)
+        X = X_num.astype(object)
+        X[0, 0] = float("nan")
+        X[5, 2] = float("nan")
+        rfecv = RFECV(estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2)
+        rfecv.fit(X, y)  # pre-fix: object-dtype NaN unscanned -> "Input X contains NaN" from validate_data
+        assert rfecv.support_.dtype == bool and rfecv.support_.shape[0] == 5
+
+    def test_object_dtype_ndarray_nan_raise_policy_detects(self):
+        # The 'raise' policy must also SEE object-dtype NaN; pre-fix it silently passed through (scan skipped kind 'O').
+        X_num, y = make_classification(n_samples=80, n_features=4, n_informative=2, random_state=8)
+        X = X_num.astype(object)
+        X[3, 1] = float("nan")
+        rfecv = RFECV(estimator=LogisticRegression(max_iter=300), cv=2, max_refits=2, nan_in_X_policy="raise")
+        with pytest.raises(ValueError, match="nan_in_X_policy='raise'"):
+            rfecv.fit(X, y)
+
 
 # ----------------------------------------------------------------------- L1 / L2
 

@@ -299,4 +299,7 @@ def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9,
     low = int(np.percentile(choices_arr, 100.0 * alpha))
     high = int(np.percentile(choices_arr, 100.0 * (1.0 - alpha)))
     n = getattr(self, "n_features_", int(np.median(choices_arr)))
-    return (low, int(n), high)
+    # The point estimate is the picker's n_features_ (a different rule than bootstrap-argmax), so it can land outside the
+    # bootstrap percentile band; clamp it into [low, high] so the returned triple is always a well-ordered (low, mid, high).
+    n = int(min(max(int(n), low), high))
+    return (low, n, high)

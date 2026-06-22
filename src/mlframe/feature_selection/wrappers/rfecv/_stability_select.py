@@ -199,12 +199,14 @@ def _fit_stability_selection(self, X, y, signature):
         # Top-K from this bootstrap (across-estimator mean importance).
         if per_feature_score_sum.sum() <= 0:
             continue
-        # Wave 57 (2026-05-20): np.lexsort with feature-index tiebreaker so tied
-        # scores don't make the top-K pick depend on feature_names insertion
-        # order; stability_selection's public support_mask was sensitive to this.
+        # np.lexsort with feature-index tiebreaker so tied scores don't make the top-K pick depend on feature_names insertion order.
         top_idx = np.lexsort(
             (np.arange(len(per_feature_score_sum)), -per_feature_score_sum)
         )[:top_k]
+        # Only count features that actually carry positive importance this bootstrap. When fewer than top_k features have nonzero FI,
+        # padding the top-K with zero-importance (pure-noise) columns lets them accrue selection counts every bootstrap and cross the
+        # stability threshold -- admitting noise into support_. A zero-FI feature is, by definition, not "selected" by this bootstrap.
+        top_idx = top_idx[per_feature_score_sum[top_idx] > 0]
         selection_counts[top_idx] += 1
 
     selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
@@ -531,9 +533,13 @@ def select_optimal_nfeatures_(
             self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
     if verbose:
-        dummy_gain = (base_perf[0] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
-        allfeat_gain = (base_perf[-1] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
+        # base_perf[0]/[-1] are the smallest/largest EVALUATED N on the curve, not necessarily N=0 (dummy) or N=full;
+        # report the gain against those actual curve endpoints so the figure is honest when neither extreme was probed.
+        _nf = np.asarray(checked_nfeatures)
+        min_n, max_n = int(_nf[0]), int(_nf[-1])
+        low_gain = (base_perf[0] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
+        high_gain = (base_perf[-1] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
         logger.info(
-            "%d predictive factors selected out of %d during %d rounds. Gain vs dummy=%.1f%%, gain vs all features=%.1f%%",
-            self.n_features_, self.n_features_in_, len(self.selected_features_), dummy_gain * 100, allfeat_gain * 100,
+            "%d predictive factors selected out of %d during %d rounds. Gain vs smallest evaluated N=%d: %.1f%%, gain vs largest evaluated N=%d: %.1f%%",
+            self.n_features_, self.n_features_in_, len(self.selected_features_), min_n, low_gain * 100, max_n, high_gain * 100,
         )

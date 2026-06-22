@@ -93,12 +93,15 @@ def _finalize_fit_results(
                 evaluated_scores_std=evaluated_scores_std,
                 verbose=verbose, ndigits=ndigits,
             )
-            # After the swap pass best_nfeatures may have changed.
-            if evaluated_scores_mean:
-                new_best_nf = max(evaluated_scores_mean, key=evaluated_scores_mean.get)
-                if evaluated_scores_mean[new_best_nf] > best_score:
+            # After the swap pass best_nfeatures may have changed. Pick the argmax over FINITE means only:
+            # ``max(d, key=d.get)`` with a NaN entry returns an arbitrary key (NaN comparisons are all False), which
+            # could mask a genuinely-better swapped subset and silently discard the swap improvement.
+            _finite_means = {n: v for n, v in evaluated_scores_mean.items() if v is not None and not np.isnan(v)}
+            if _finite_means:
+                new_best_nf = max(_finite_means, key=_finite_means.get)
+                if _finite_means[new_best_nf] > best_score:
                     best_nfeatures = new_best_nf
-                    best_score = evaluated_scores_mean[new_best_nf]
+                    best_score = _finite_means[new_best_nf]
         except Exception as _swap_exc:
             if verbose:
                 logger.warning("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)

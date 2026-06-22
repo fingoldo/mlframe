@@ -104,7 +104,14 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
     else:
         try:
             _arr = np.asarray(X)
-            has_nan = _arr.dtype.kind in "fc" and bool(np.isnan(_arr).any())
+            if _arr.dtype.kind in "fc":
+                has_nan = bool(np.isnan(_arr).any())
+            elif _arr.dtype.kind == "O":
+                # Object-dtype ndarrays can hold embedded ``float('nan')``; np.isnan rejects object dtype,
+                # so coerce to float (non-numeric -> NaN, harmless here) and scan. Integer kinds can't hold NaN.
+                has_nan = bool(np.isnan(_arr.astype(float, copy=False)).any())
+            else:
+                has_nan = False
         except (TypeError, ValueError):
             has_nan = False
         nan_cols = []
