@@ -383,7 +383,17 @@ def binned_numeric_agg_with_recipes(
         # under the same conditioning; the max over a handful of permutations is the candidate's own noise ceiling.
         # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling -- genuine cell-conditional
         # signal sits far above the null, redundant re-encodings sit at it.
-        _n_perm = 15
+        #
+        # 2026-06-22 FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
+        # alpha per candidate and many (group, agg, stat) candidates over many fits, a high-variance noise stat
+        # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck -- measured on the
+        # all-noise null frame (seed=6, clf): binagg_kurt(n2|qbin(n4)) cmi=0.02507 vs max-of-15=0.02279 (PASS by
+        # luck) yet max-of-60=0.02490 and the candidate sits squarely INSIDE the null. Replace the unstable raw
+        # max with a robust one-sided z-ceiling (mean + _NULL_Z * std of the permutation CMIs): a stable estimate
+        # of the null upper tail that does not depend on catching the single luckiest permutation. Genuine signal
+        # sits far above the null so this does not suppress it; it collapses the borderline noise FPs to zero.
+        _n_perm = 30
+        _NULL_Z = 2.0
         _rng = np.random.default_rng(int(random_state))
 
         def _src_bins(col: str) -> np.ndarray:
@@ -401,11 +411,13 @@ def binned_numeric_agg_with_recipes(
             cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
             null_ceiling = 0.0
             if np.isfinite(cmi) and cmi >= float(min_cmi_gain):
-                for _ in range(_n_perm):
+                _null = np.empty(_n_perm, dtype=np.float64)
+                for _i in range(_n_perm):
                     yp = y_cls[_rng.permutation(y_cls.shape[0])]
                     c0 = _cmi_from_binned(cand_bin, yp, z_joint)
-                    if np.isfinite(c0) and c0 > null_ceiling:
-                        null_ceiling = c0
+                    _null[_i] = c0 if np.isfinite(c0) else 0.0
+                # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
+                null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
             keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
             if keep:
                 kept_cols.append(nm)

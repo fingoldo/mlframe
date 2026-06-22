@@ -245,19 +245,16 @@ def test_default_pipeline_null_selection_is_bounded_fast():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    reason="PROD GAP: shipped-default MRMR manufactures a Haar-wavelet engineered "
-    "recipe (n1__haar_j3k5) from a PURE-NOISE column on the reg target at seed=3 "
-    "(measured ~1/12 seeds, n=2500/p=10). The default FE family-wise error rate is "
-    "non-zero on pure noise; this pins the measured residual so a tightening flips "
-    "it to xpass and a worsening still trips the bounded-selection sensor above.",
-    strict=False,
-)
 def test_default_pipeline_null_manufactures_no_engineered_recipe_from_noise():
     """The shipped default should NEVER synthesize an engineered feature from a
     frame that is pure noise -- doing so is a family-wise false positive at the FE
-    layer. Measured: it does, on the reg target at seed=3 (a Haar wavelet on noise
-    column ``n1``). Pinned as the correct contract under xfail(strict=False)."""
+    layer.
+
+    This was previously xfail(strict=False): the reg target at seed=3 manufactured a
+    residual recipe from a pure-noise column. The 2026-06-22 binagg redundancy-gate
+    tightening (robust mean+2*std permutation-null ceiling, replacing the unstable
+    raw max-of-15) collapses that residual to zero, so the contract is now a hard
+    assertion. A regression that re-admits a noise recipe trips it directly."""
     n, p, seed = 2500, 10, 3
     X, _y_clf, y_reg = _build_null_frame(n, p, seed)
     sel = _fit_default(X, y_reg, seed)
