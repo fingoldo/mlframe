@@ -332,6 +332,12 @@ Repository = "https://github.com/fingoldo/mlframe.git"
 Issues = "https://github.com/fingoldo/mlframe/issues"
 Changelog = "https://github.com/fingoldo/mlframe/blob/master/CHANGELOG.md"
 
+[tool.setuptools]
+# Do NOT auto-include everything MANIFEST.in matches as package data; that would
+# ship the dev _benchmarks trees into the wheel. Only the explicit package-data
+# below is bundled. MANIFEST.in still governs the sdist.
+include-package-data = false
+
 [tool.setuptools.dynamic]
 version = {attr = "mlframe.version.__version__"}
 
@@ -346,6 +352,8 @@ mlframe = ["py.typed"]
 # The anonymized default kernel-tuning JSON is consulted at runtime by
 # filters._kernel_tuning (register_default_cache), so it MUST ship in the wheel.
 "mlframe.feature_selection.filters" = ["default_kernel_tuning.json"]
+# Vendored infonet configs referenced by its inference entry point.
+"mlframe.feature_selection.filters._vendored.infonet" = ["configs/*.yaml"]
 
 # ---------------------------------------------------------------------------
 # Pytest
