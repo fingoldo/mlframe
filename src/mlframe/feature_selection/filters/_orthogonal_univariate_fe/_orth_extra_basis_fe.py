@@ -340,8 +340,18 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
     ang = 2.0 * np.pi * float(freq) * z
     A = np.column_stack([np.ones_like(z), np.sin(ang), np.cos(ang)])
     try:
-        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+        # Normal-equations solve on the well-conditioned 3-column [1, sin, cos] design (faster than the SVD
+        # lstsq); fall back to SVD lstsq if A^T A is singular (a degenerate freq collapsing the sin column ->
+        # rank-deficient, where lstsq's min-norm solution is the robust choice). Same projection residual.
+        AtA = A.T @ A
+        coef = np.linalg.solve(AtA, A.T @ y)
         return y - A @ coef
+    except np.linalg.LinAlgError:
+        try:
+            coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+            return y - A @ coef
+        except Exception:
+            return y
     except Exception:
         return y
 

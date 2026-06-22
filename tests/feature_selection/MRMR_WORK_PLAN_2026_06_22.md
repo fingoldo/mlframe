@@ -1,77 +1,120 @@
-# MRMR FS/FE — active work plan (2026-06-22)
+# MRMR FS/FE — detailed work plan (2026-06-22)
 
-Living plan for the outstanding MRMR work. Ordered by the agreed priority: **validatable optimizations /
-hygiene first; the distribution-robustness (residual-aware FE) goal LAST** (per request). Each item lists:
-files, the exact change, the VALIDATION GATE (what must stay/go green), and the risk. Mark `[x]` when landed
-(with the commit). Every change keeps the standing invariants: CPU/no-CUDA path byte-unchanged; selection
-bit-identical where claimed; no unvalidated selection change ships; commit+push per item.
+Exhaustive plan for the outstanding MRMR work. Captures EVERY finding from the 3 most-recent optimization
+agents (GPU-residency, CPU-noise-gate, residual-FE) AND the deferred findings from the earlier 6 critique
+agents. Ordered per request: **validatable optimizations/hygiene first; distribution-robustness (residual-
+aware FE) LAST**.
 
-## DONE earlier this session (context)
-- [x] ~21 critique findings (all P0/P1/P2 equivalency divergences + safe perf/quality) — see MRMR_AUDIT_2026_06_22.md
-- [x] n_iters 5→2 for KTC sweeps (785c212 / fa767dbc)
-- [x] CPU noise-gate restructure — batch_mi_with_noise_gate prange-over-cols + contiguous + reused histogram (900dd660)
-- [x] GPU#1 — hoist fit-constant y min/max out of per-chunk resident MI (ca85bf3f)
-- [x] GPU#5 — dedup heavy-tail detection across routing's bases (1dc6af37)
-- [x] GPU#2 — VERIFIED already-done (operand residency wired in production: build_resident_operand_table); agent mis-attributed to the prototype path
-- [x] F2 100k wall report + dual-profiler (perf notes 29cb613a); distribution-robustness GOAL encoded as self-policing xfail (53a12960)
+Source / cross-reference files (read these for full context):
+- `tests/feature_selection/MRMR_AUDIT_2026_06_22.md` — the 6-agent critique audit + dispositions (RESOLVED /
+  QUEUED / REJECTED). The "QUEUED" + "code quality / hygiene" sections there are the deferred findings.
+- `tests/feature_selection/MRMR_FE_PERF_NOTES.md` — wall report, dual-profiler (nsys/cProfile) numbers,
+  every landed perf change + bench-rejected notes, and the GPU#2-already-done verification.
 
-## TIER A — perf / hygiene (validatable; do first)
+Invariants for EVERY item: CPU/no-CUDA path byte-unchanged; selection bit-identical where claimed; NO
+unvalidated selection change ships; one item at a time → implement → validate against its GATE → commit+push.
+Mark `[x]` + commit hash when landed.
 
-- [ ] **A1. lstsq→normal-eq in `_deflate_sincos`** (perf #8). File: `_orth_extra_basis_fe.py:336`. Change:
-  normal-equations solve on the 3-col [1,sin,cos] design + lstsq fallback on LinAlgError (keeps rank-
-  robustness on degenerate freq). GATE: test_fe_auto_escalation + test_biz_value_mrmr_adaptive_fourier +
-  test_biz_val_extra_basis_fe green; F2 single_compound pin no-regress. RISK: selection-bearing (not bit-
-  identical, SVD vs normal-eq) but low live impact (Fourier path escalation-gated). [IN PROGRESS]
-  - Also the sibling vander-poly lstsq sites `_orth_extra_basis_fe.py:449,589` (held-out poly deflation) —
-    same normal-eq+fallback substitution, same gate.
-- [ ] **A2. `y.to_numpy()` 53× hoist** in `_fit_impl_core.py`. Hoist `_y_np = y.to_numpy() if hasattr(y,
-  "to_numpy") else np.asarray(y)` ONCE (y is never reassigned in `_fit_impl`); replace the 53 inline copies.
-  GATE: confirm via grep that `y` is not reassigned between the hoist point and the last use; run
-  test_mrmr_feature_engineering + a biz-value layer subset. RISK: mechanical (53 sites in a 9.8k file) —
-  verify each replacement; behavior-preserving (same array).
-- [ ] **A3. `_env_truthy` / env-flag DRY** across the `fe_gpu_*_enabled` gates + pairs env flags. NOTE: the
-  gates have DIVERGENT logic (opt-in `in (1,true,...)`; opt-out default-on with `=0` + CUDA_VISIBLE_DEVICES
-  + MLFRAME_DISABLE_GPU). So TWO helpers: `_env_opt_in(name)` and `_env_opt_out_cuda(name)` (the default-on-
-  when-CUDA pattern). GATE: import smoke + the gate-default tests (test_gpu_routing_parity gate-off,
-  test_plugin_mi_classif_dispatch). RISK: a wrong default flips a gate — replicate each gate's exact logic;
-  behavior-preserving.
-- [ ] **A4. ctor-defaults single-source** in `_mrmr_class.py` — derive `__setstate__` defaults from
-  `_ctor_defaults()` (already drifted once: cluster_aggregate_mode). GATE: pickle round-trip tests +
-  test_mrmr_edges_coverage. RISK: back-compat (legacy pickles) — keep the legacy dict's extra keys.
+---
 
-## TIER B — module hygiene / carves (validatable)
+## PART 1 — GPU-residency agent findings (nsys F2 100k: cuLaunchKernel 381,216; cub DeviceReduce::Max 52%
+## /71,812 calls, Sum 31%/48,078, RadixSort 15%/23,942; 100,757 tiny D2H; 2.35 GB H2D)
 
-- [ ] **B1. evaluation.py carve** (1144 LOC, over the meta-test ceiling). Carve a sibling (e.g. the
-  prefill/JMIM block) + re-export, per the monolith-split pattern. GATE: test_no_file_over_1k_loc green for
-  evaluation.py + the MRMR greedy/CMI tests. RISK: parallel-session-owned file (last touched 2026-06-19) —
-  rebase carefully; behavior-preserving (verbatim move + re-export).
-- [ ] **B2. source-name `__` split** (hidden #5). 9 sites across `_orthogonal_univariate_fe/`. Carry the
-  source col in metadata instead of `name.split("__",1)[0]` (mis-stems one-hot `col__value` → infinite
-  uplift). GATE: a new test with a `col__value`-named source + the recipe round-trip tests. RISK: invasive
-  naming-convention change — must preserve recipe replay byte-exactness.
+- [x] **G1 (was #1, the top cp.max source).** `_hermite_fe_mi.py:249` recomputed `cp.min(y)+cp.max(y)+D2H`
+  per chunk per pair though y is a fit-constant. FIX: optional `y_min`/`n_classes` params, computed once by
+  the callers. → **DONE ca85bf3f** (37 passed).
+- [x] **G5 (was #5).** `_gpu_route_bases_batched` re-ran `_gpu_detect_heavy_tail_batched` per candidate basis
+  (basis-independent). FIX: compute `heavy_host` once, pass via new param. → **DONE 1dc6af37** (43 passed).
+- [x] **G2 (was #2) — 2.35 GB H2D / operand residency.** `_gpu_resident_fe.py:1230-1231,1239`
+  per-pair `cp.asarray(a/b/y)`. **VERIFIED ALREADY-DONE in production**: `build_resident_operand_table`
+  (+ `register_prebuilt_operand_table`, `_resident_operand_table` weakref-cache) at `_pairs_core.py:946-952,
+  1282-1285` builds operand columns ON the device + reuses per chunk. The agent mis-attributed the 2.35 GB
+  to `gpu_resident_pair_candidate_mi` (the PROTOTYPE, not the production path). Residual H2D = necessary
+  cached raw-input/y uploads × the 2 profiled fits. No clean further win. → resolved (see perf notes a45120f6).
+- [ ] **G3 (was #3) — chunk sizing.** `_hermite_fe_mi.py:261,267-269` `cp.percentile` per chunk per pair.
+  The chunking is per-pair; raising `k_chunk` (fewer/larger chunks) cuts the launch/reduction count. FIX:
+  route `k_chunk` width through `kernel_tuning_cache` to maximise chunk width within the VRAM budget. GATE:
+  `test_percentile_binning_chunk_invariant` (chunk-invariant binning) + FE pins; selection-equivalent. RISK:
+  low (chunk-invariant already pinned). NOTE: partly addressed by the existing `_gpu_k_chunk` VRAM governor;
+  the remaining lever is KTC-tuning the width.
+- [ ] **G4 (was #4) — sum(axis) per chunk per pair.** `_hermite_fe_mi.py:287-288,311` (≈ the 48k cub Sum).
+  Same outer-multiplier lever as G1/G3; already optimally batched WITHIN a call. No separate change beyond
+  G3's fewer-chunks. → fold into G3 / mark no-op after G3.
+- [ ] **G6 (was #6) — dead per-column scalar-D2H path.** `_gpu_resident_fe.py:589-655`
+  (`_gpu_robust_scale`/`_gpu_detect_heavy_tail`/`_gpu_basis_preprocess` per-column scalar variants, ~6-10
+  `float(cp...)` D2H each) are SUPERSEDED by the `_batched` twins. CONFIRM no live caller uses the per-column
+  `_gpu_evaluate_basis_column` (`__init__.py` imports it but the live path uses `_gpu_evaluate_basis_matrix`)
+  → if dead, remove/guard so it can't regress. GATE: grep callers + import smoke + FE pins. RISK: dead-path
+  removal — verify zero live callers first.
 
-## TIER C — distribution-robustness (residual-aware FE) — LAST, per request
+## PART 2 — CPU-noise-gate agent findings (cProfile F2 100k: batch_mi_with_noise_gate = 190s / 93%)
 
-Goal test (self-policing): `test_f2_single_compound_across_distributions` — uniform passes (hard guard);
-scaled_1_5 / heavy_tailed / mixed / with_outliers are xfail(strict=True). Root cause: signal-scale imbalance
-(a²/b dominates Var(y) → the weak log(c)·sin(d) half falls below the prevalence gate → fragments).
+- [x] **F1 + F2.** `batch_mi_with_noise_gate` perm loop: serial-outer with inner prange (fork/join barriers)
+  + strided `classes_dense[:,k]` re-read + per-(perm,col) `np.zeros`. FIX: precompute all shuffled y once,
+  prange-over-columns + serial-perm-inner via new `_perm_failcount_col` (contiguous col buffer + reused
+  histogram + hoisted SU denom). → **DONE 900dd660** (106 passed).
+- [x] **F3 — prange over live (om>0) columns.** Already present (`if original_mi[k] <= 0.0: continue` inside
+  the prange) + the new `_perm_failcount_col` skips dead columns. → covered by 900dd660.
+- [x] **F4 — fastmath.** REJECTED (would reassociate the log-sum → flip a boundary gate verdict). Left a note
+  in the commit. → no-action by design.
 
-- [x] **C0. Foundation** — `SufficientSummaryVerdict.residual` surfaces r = y − E_hat[y|selected] (53a12960).
-- [ ] **C1. Retarget wiring**. `_fit_impl_core.py:6731`: when `_ss_verdict.reached` is False AND
-  `blocking_raw >= 0` AND `residual is not None`, set `self._fe_residual_target_continuous_ =
-  verdict.residual` for the next FE step (clear after). `_step_core.py:1108-1118`: when set, use the
-  discretised residual as classes_y / _prewarp_y_cont / _usab_y_cont for that step and recompute cached_MIs
-  against it (the 1.05 prevalence constant unchanged — the residual makes the weak half clear it). Default-on
-  gated by residual-signal-present (no-op on balanced/complete targets). GATE: the goal test (flip the
-  xfails → pass, then REMOVE the xfail marks) + single_compound pin no-regress + a no-noise-admission test
-  (y = a²/b + f/5, assert no new c/d/e). RISK (documented `_mrmr_class.py:1728-1731`): a prior admission
-  relaxation admitted (c,d) but CONSTRUCTION still failed — verify the residual step actually builds the
-  clean mul(log(c),sin(d)); if not → C2.
-- [ ] **C2. Separable warp-product proposer** (only if C1's construction fails the goal test). A terminal
-  (no-fusion) proposer that, on the residual, builds the clean log(c)·sin(d) product directly. GATE: same as
-  C1.
+## PART 3 — Residual-FE agent findings (the distribution-robustness fix) — TIER C, LAST
 
-## Execution rule
-One item at a time: implement → validate against its GATE → commit+push → next. Never end a turn with an
-item half-done-and-unvalidated; if context runs out mid-edit, commit what is safe + note the exact remaining
-step here. Distribution-robustness (Tier C) is LAST.
+Goal test (self-policing): `test_f2_single_compound_across_distributions` (53a12960) — uniform = hard guard;
+scaled_1_5 / heavy_tailed / mixed / with_outliers = `xfail(strict=True)`. Root cause: signal-scale imbalance
+(a²/b dominates Var(y) → MI(log c·sin d ; y) ≈ 10% of MI(a/b ; y) → the weak half falls below the prevalence
+gate → fragments). KEY in-code note `_mrmr_class.py:1728-1731`: a prior admission relaxation
+(`fe_pair_perm_null_admission_enable`) admitted (c,d) but CONSTRUCTION still failed → "needs a separable
+warp-product proposer, not admission relaxation."
+
+- [x] **C0 — foundation.** `SufficientSummaryVerdict.residual` surfaces `r = y − E_hat[y|selected]`
+  (`_fe_sufficient_summary.py:285`). → **DONE 53a12960**.
+- [ ] **C1 — retarget wiring.** `_fit_impl_core.py:6731`: when `_ss_verdict.reached` is False AND
+  `blocking_raw >= 0` AND `residual is not None` → `self._fe_residual_target_continuous_ = verdict.residual`
+  for the next FE step (clear after). `_step_core.py:1108-1118`: when set, use the discretised residual as
+  classes_y / `_fe_prewarp_y_continuous_` / `usability_y_continuous` for that step and recompute `cached_MIs`
+  against it (the 1.05 prevalence constant is UNCHANGED — the residual makes the weak half clear it). Keep all
+  noise gates ON applied to r (order-1 perm null `general.py:212-236`, maxT joint `_step_core.py:737,782`,
+  CMI redundancy). Default-on, gated by residual-signal-present (no-op on balanced targets). GATE: the goal
+  test flips xfail→pass (then REMOVE the xfail marks) + `test_feature_engineering_example_single_compound`
+  no-regress + a NEW no-noise-admission test (y = a²/b + f/5 → no new c/d/e) + biz-value suite. RISK: the
+  documented construction failure — verify r-step builds the clean `mul(log(c),sin(d))`; if not → C2.
+- [ ] **C2 — separable warp-product proposer** (only if C1's construction fails the goal test). Terminal
+  (no-fusion) proposer that builds the clean `log(c)·sin(d)` product on the residual directly. GATE: as C1.
+- Escalation residualiser (`_fe_auto_escalation.py:678-697`) is NOT the path (its held-out-corr floors
+  `fe_escalation_min_val_corr=0.15` / `pairness_margin=1.15` block a 0.13-MI signal; "admits ~nothing").
+
+## PART 4 — Deferred findings from the earlier 6 critique agents
+## (full list + dispositions in `tests/feature_selection/MRMR_AUDIT_2026_06_22.md`)
+
+All P0/P1/P2 equivalency divergences from those agents are RESOLVED (see the audit doc's RESOLVED section +
+the 2026-06-22 follow-through update). The REMAINING (invasive / low-value / parallel-session) ones:
+
+- [ ] **D1. source-name `__` split** (hidden-flaw #5). 9 sites in `_orthogonal_univariate_fe/` (`__init__.py`
+  :477,524,754-755; `_orth_pair_cross_fe.py`:202,442-444,507-508). `name.split("__",1)[0]` mis-stems a
+  one-hot source `col__value` → `uplift = emi/1e-12` → always clears the gate. FIX: carry the source col in
+  metadata instead of re-parsing. GATE: new `col__value`-named-source test + recipe round-trip tests. RISK:
+  invasive naming-convention change; preserve recipe-replay byte-exactness.
+- [ ] **D2. `y.to_numpy()` 53× hoist** in `_fit_impl_core.py` (code-quality). Hoist once (y not reassigned);
+  replace the 53 inline `y.to_numpy() if hasattr else np.asarray(y)`. GATE: grep-confirm no reassign +
+  test_mrmr_feature_engineering + biz subset. RISK: mechanical (53 sites in 9.8k file); behavior-preserving.
+- [ ] **D3. lstsq→normal-eq** in `_orth_extra_basis_fe.py` deflation (perf #8). `_deflate_sincos:336`
+  [IN PROGRESS] + the vander-poly sites `:449,589`. normal-eq solve + lstsq fallback (rank-robustness). GATE:
+  test_fe_auto_escalation + test_biz_value_mrmr_adaptive_fourier + test_biz_val_extra_basis_fe + F2 pin.
+  RISK: selection-bearing (not bit-identical), low live impact (escalation-gated).
+- [ ] **D4. `_env_truthy` env-flag DRY.** TWO helpers (`_env_opt_in` / `_env_opt_out_cuda`) — the gates have
+  divergent opt-in vs opt-out+CUDA_VISIBLE_DEVICES+MLFRAME_DISABLE_GPU logic. GATE: import smoke + gate-
+  default tests. RISK: a wrong default flips a gate; behavior-preserving.
+- [ ] **D5. ctor-defaults single-source** in `mrmr/_mrmr_class.py` — derive `__setstate__` defaults from
+  `_ctor_defaults()` (already drifted: cluster_aggregate_mode). GATE: pickle round-trip + edges-coverage.
+  RISK: legacy-pickle back-compat — keep extra legacy keys.
+- [ ] **D6. evaluation.py carve** (1144 LOC > 1000-LOC meta-test ceiling). Carve a sibling (prefill/JMIM
+  block) + re-export. GATE: test_no_file_over_1k_loc green + greedy/CMI tests. RISK: parallel-session-owned;
+  rebase carefully; verbatim move.
+- [ ] **D7. M-tier edge cases** (audit doc LOW tier, opt-in/bench-rejected paths): imbalance-MI `n_bins`
+  mismatch, MM-debias cardinality, `_class_balanced_mi` y-offset, etc. Revisit only if those paths are
+  promoted to default.
+
+## EXECUTION ORDER (agreed)
+Tier A/D perf+hygiene first (D3 in progress → D2 → G3/G6 → D4/D5 → D1/D6), then **Tier C (residual-FE) LAST**.
+One item at a time: implement → validate against its GATE → commit+push → tick the box here.
