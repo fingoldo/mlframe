@@ -692,7 +692,9 @@ def run_fe_auto_escalation(
                 if float(np.std(_r)) > 1e-9:
                     y_pair = _r
             except Exception:
-                pass
+                # No silent swallow: a failure here means we fall back to the FULL target instead of the
+                # residual, which defeats residualisation (the proposer re-proposes already-captured signal).
+                logger.debug("fe-escalation residualisation failed; using full target", exc_info=True)
         # 1) Signal-adaptive orth-poly ALS warp (higher degree + 4-basis routing).
         poly = _propose_poly(
             x_a, x_b, y_pair, degree=poly_degree, min_val_corr=min_val_corr,

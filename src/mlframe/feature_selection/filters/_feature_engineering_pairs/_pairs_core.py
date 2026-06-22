@@ -1894,7 +1894,9 @@ def check_prospective_fe_pairs(
                             f"so it cannot displace the clean operand."
                         )
             except Exception:
-                pass
+                # Load-bearing selection logic (the noise-wrap corr-collapse veto): log rather than swallow
+                # silently, so a failure that lets a noise-wrapped pair through is visible at debug level.
+                logger.debug("noise-wrap corr-collapse veto failed; pair not vetoed", exc_info=True)
 
         # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
         # to DROP -- the joint-prevalence floor declined AND both the prewarp and the
