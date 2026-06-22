@@ -200,6 +200,62 @@ def batch_triple_mi_prange(
     return out
 
 
+@njit(nogil=True, cache=True)
+def _perm_failcount_col(
+    classes_dense: np.ndarray, k: int, freqs_dense: np.ndarray, K_x: int,
+    locals_mat: np.ndarray, freqs_y: np.ndarray, n: int, npermutations: int,
+    original_mi_k: float, use_su: bool, dtype,
+) -> int:
+    """Permutation fail-count for ONE densified column ``k`` against all ``npermutations`` pre-shuffled
+    ``locals_mat[i]`` y-vectors. BIT-IDENTICAL to looping ``_relevance_from_dense(..., locals_mat[i], ...)``
+    and counting ``mi_perm >= original_mi_k`` -- same joint-count increments, same ``jf*log(jf/(px*py))``
+    accumulation order -- but (F1/F2, 2026-06-22, cProfile-driven): the column's dense codes are copied to a
+    CONTIGUOUS buffer ONCE (unit-stride vs the strided classes_dense[r,k] gather re-read per perm) and ONE
+    ``joint`` histogram is reused across perms (re-zeroed) instead of a fresh np.zeros per (perm,col). Called
+    from a prange over k, so each thread owns its column -> no cross-thread races (nfk is returned, not shared).
+    """
+    K_y = len(freqs_y)
+    col_codes = np.empty(n, dtype=classes_dense.dtype)
+    for r in range(n):
+        col_codes[r] = classes_dense[r, k]
+    joint = np.zeros((K_x, K_y), dtype=dtype)
+    inv_n = 1.0 / n
+    # SU normalisation denom is perm-invariant (depends only on freqs_dense[k] + freqs_y) -> hoist (same float).
+    su_denom = 0.0
+    if use_su:
+        h_x = 0.0
+        for a in range(K_x):
+            p = freqs_dense[k, a]
+            if p > 0:
+                h_x -= p * math.log(p)
+        h_y = 0.0
+        for b in range(K_y):
+            p = freqs_y[b]
+            if p > 0:
+                h_y -= p * math.log(p)
+        su_denom = h_x + h_y
+    nfk = 0
+    for i in range(npermutations):
+        for a in range(K_x):
+            for b in range(K_y):
+                joint[a, b] = 0
+        for r in range(n):
+            joint[col_codes[r], locals_mat[i, r]] += 1
+        mi_perm = 0.0
+        for a in range(K_x):
+            prob_x = freqs_dense[k, a]
+            for b in range(K_y):
+                jc = joint[a, b]
+                if jc != 0:
+                    jf = jc * inv_n
+                    mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
+        if use_su:
+            mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
+        if mi_perm >= original_mi_k:
+            nfk += 1
+    return nfk
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def batch_mi_with_noise_gate(
     disc_2d: np.ndarray,
@@ -320,8 +376,15 @@ def batch_mi_with_noise_gate(
     nfailed = np.zeros(K, dtype=np.int64)
     ny = classes_y_safe.shape[0]
 
+    # F1 (2026-06-22, cProfile-driven): precompute ALL npermutations shuffled y-vectors ONCE (serial; the
+    # EXACT same (base_seed, i)-seeded Fisher-Yates as parallel_mi_prange, just hoisted out of the scoring
+    # loop), then prange over COLUMNS with a serial perm-inner loop -- instead of a serial perm-outer loop
+    # re-entering an inner prange npermutations times. This removes npermutations-1 fork/join barriers and
+    # keeps all cores saturated regardless of K. Bit-identical: the shuffle arithmetic/order is unchanged;
+    # nfailed[k] is an integer count of mi_perm>=original_mi[k], so reordering the (i,k) iteration leaves
+    # each per-column count identical; each prange thread owns its own k (writes nfailed[k] privately).
+    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
     for i in range(npermutations):
-        # EXACT same per-permutation LCG seed + Fisher-Yates as parallel_mi_prange.
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
         local = classes_y_safe.copy()
         for j in range(ny - 1, 0, -1):
@@ -330,23 +393,15 @@ def batch_mi_with_noise_gate(
             tmp = local[j]
             local[j] = local[kk]
             local[kk] = tmp
+        locals_mat[i] = local
 
-        # Score ALL columns against this single shuffled y, in parallel.
-        # bench-attempt-rejected (2026-06-07): a ``if nfailed[k] >= max_failed: continue``
-        # early-exit here (skip doomed columns' remaining perm MI) is BYTE-IDENTICAL but
-        # showed NO wall win on the scene 2407x299 hard-gate (595.75s without -> 641/650s
-        # with, across 2 runs on an idle box) -- with the small default npermutations the
-        # early-exit rarely fires while the extra per-(perm,col) branch in this hot prange
-        # costs more than it saves. Do not re-add without a perm-heavy (high npermutations,
-        # low min_nonzero_confidence) workload that actually triggers the cutoff.
-        for k in prange(K):
-            if original_mi[k] <= 0.0:
-                continue
-            mi_perm = _relevance_from_dense(
-                use_su, classes_dense, k, freqs_dense, int(kx[k]), local, freqs_y, dtype,
-            )
-            if mi_perm >= original_mi[k]:
-                nfailed[k] += 1
+    for k in prange(K):
+        if original_mi[k] <= 0.0:
+            continue
+        nfailed[k] = _perm_failcount_col(
+            classes_dense, k, freqs_dense, int(kx[k]), locals_mat, freqs_y, n,
+            npermutations, original_mi[k], use_su, dtype,
+        )
 
     for k in range(K):
         om = original_mi[k]
