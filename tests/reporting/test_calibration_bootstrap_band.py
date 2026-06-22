@@ -15,6 +15,7 @@ import pstats
 import time
 
 import numpy as np
+import pytest
 
 from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
 from mlframe.reporting.charts.calibration import (
@@ -135,4 +136,9 @@ def test_cprofile_band_bounded():
     pr.disable()
     st = pstats.Stats(pr, stream=io.StringIO())
     st.sort_stats("cumulative")
+    # Wall-clock cost is unreliable under -n xdist contention (a worker can be starved for seconds), so skip the timing
+    # ceiling there and keep it only on a quiet single-process run; the band still ran to completion above either way.
+    from tests.conftest import running_under_xdist
+    if running_under_xdist():
+        pytest.skip("wall-clock band-timing assert unreliable under xdist contention")
     assert dt < 2.5, f"band took {dt:.2f}s at the cap; expected < ~1.5s (allowing CI slack to 2.5s)"
