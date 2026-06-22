@@ -2016,8 +2016,7 @@ metrics show without the tag.
 Tests: 8 new in [test_tvt_round5_4_followups.py](tests/training/test_tvt_round5_4_followups.py)
 covering config-knob defaults, gate-logic-present source-inspect, plus
 two numerical equivalence locks (DTW bincount aggregation vs Python
-loop; sliding-window batched matmul vs per-row loop -- these mirror
-the optimisations shipped to the wellbore contest repo). 78 composite/
+loop; sliding-window batched matmul vs per-row loop). 78 composite/
 ensemble regression tests green.
 
 ## 2026-05-23 — Round 5.3: dummy-floor gate + extreme-AR skip + group-aware tiny-rerank + failsafe tolerance
