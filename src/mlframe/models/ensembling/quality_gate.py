@@ -197,10 +197,12 @@ def compute_member_quality_gate(
     # silently make the threshold NaN -- pre-fix that NaN threshold then
     # made `tot_mae > rel_mae_threshold` return False for every member,
     # silently keeping members the gate was supposed to drop.
-    median_mae = float(np.nanmedian(per_member_mae))
-    median_std = float(np.nanmedian(per_member_std))
-    rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
-    rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
+    # nanmedian of an all-NaN array is NaN, which makes every `tot_mae > NaN` comparison below False -> the relative
+    # gate silently keeps every member. Disable the relative gate explicitly when no finite statistic exists.
+    median_mae = float(np.nanmedian(per_member_mae)) if np.isfinite(per_member_mae).any() else float("nan")
+    median_std = float(np.nanmedian(per_member_std)) if np.isfinite(per_member_std).any() else float("nan")
+    rel_mae_threshold = max_mae_relative * median_mae if (max_mae_relative > 0 and np.isfinite(median_mae)) else 0.0
+    rel_std_threshold = max_std_relative * median_std if (max_std_relative > 0 and np.isfinite(median_std)) else 0.0
 
     kept: list = []
     excluded: list = []

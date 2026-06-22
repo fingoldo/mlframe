@@ -153,7 +153,9 @@ try:  # pragma: no cover -- env-dependent
         for m in _numba.prange(M):
             for k_class in range(K):
                 col_m = -preds_arr[m, :, k_class]
-                order = np.argsort(col_m, kind="quicksort")
+                # Stable sort to match the numpy fallback's tie-breaking on equal probabilities (positional order on
+                # ties). numba's argsort only supports "quicksort"/"mergesort"; mergesort is the stable one.
+                order = np.argsort(col_m, kind="mergesort")
                 for n_pos in range(N):
                     rank = n_pos
                     row_idx = order[n_pos]

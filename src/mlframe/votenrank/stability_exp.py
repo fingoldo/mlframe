@@ -23,12 +23,15 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
         for repeat_idxs in range(num_repeats):
             ranks = []
             tables = []
+            # Local Generator seeded per repeat so the experiment is reproducible instead of
+            # depending on the mutable process-global np.random state.
+            rng = np.random.default_rng(repeat_idxs)
 
             for nan_number in exp_range:
                 nan_number = int(round(nan_number * lb.table.count().sum()))
                 table_nan = lb.table.copy()
 
-                nan_idxs_prod = np.random.choice(
+                nan_idxs_prod = rng.choice(
                     table_nan.shape[0] * table_nan.shape[1],
                     size=nan_number,
                     replace=False,

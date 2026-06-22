@@ -704,12 +704,15 @@ def get_feature_importances(
     if len(res) != len(current_features):
         raise ValueError(f"Feature importances length {len(res)} doesn't match current_features length {len(current_features)}")
 
+    res_arr = None
     try:
         res_arr = np.asarray(res, dtype=float)
         n_nan = int(np.isnan(res_arr).sum()) if res_arr.size else 0
     except (TypeError, ValueError):
+        # Non-numeric importances (object / mixed): NaN detection isn't meaningful, skip it.
         n_nan = 0
-    if n_nan:
+        logger.debug("get_feature_importances: skipping NaN-detection on non-numeric importances from %s.", type(model).__name__)
+    if n_nan and res_arr is not None:
         logger.warning(
             "get_feature_importances: %d / %d importance value(s) are NaN from %s.",
             n_nan, res_arr.size, type(model).__name__,
@@ -742,7 +745,7 @@ def select_appropriate_feature_importances(
                         if len(value) == possible_nfeatures:
                             fi_to_consider[key] = value
                     if fi_to_consider:
-                        print(f"using freshest FI of {possible_nfeatures} features for nfeatures={nfeatures}")
+                        logger.debug("using freshest FI of %d features for nfeatures=%d", possible_nfeatures, nfeatures)
                         break
             else:
                 fi_to_consider = {key: value for key, value in feature_importances.items() if (len(value) > nfeatures and len(value) != 1)}

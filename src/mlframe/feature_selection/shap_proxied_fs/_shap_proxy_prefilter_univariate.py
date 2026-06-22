@@ -212,12 +212,16 @@ def f_classif_chunked(
         sst = total_sumsq - correction
         ssbn = (sums * sums / n_per_class[:, None]).sum(axis=0) - correction
         sswn = sst - ssbn
-        # Constant-column detection: sst is the total sum of squares about the column mean.
-        # For a literally-constant column, sst should be 0 modulo float cancellation; we gate
-        # at a generous multiple of (eps * sumsq * N) to drop columns whose variance is pure FP
-        # drift. Without this, the F = 0/0 quotient lands on the per-platform NaN/zero/inf
-        # answer rather than the sklearn-NaN-style -inf sentinel.
-        const_mask = sst <= eps * np.abs(total_sumsq) * N
+        # Constant-column detection: sst is the CENTERED total sum of squares (total_sumsq -
+        # correction). For a literally-constant column sst is 0 modulo float cancellation, whose
+        # magnitude is bounded by eps * max(total_sumsq, correction) -- the noise floor of forming
+        # the centered quantity. Gate against that centered FP floor, NOT against the raw uncentered
+        # total_sumsq scaled by N: a large-mean low-variance column has a huge total_sumsq, so the
+        # old eps*|total_sumsq|*N threshold ballooned far above the column's genuine centered
+        # variance and silently dropped informative columns. Using the centered cancellation floor
+        # keeps such columns while still catching pure-FP-drift constants.
+        cancel_floor = eps * np.maximum(np.abs(total_sumsq), np.abs(correction))
+        const_mask = sst <= cancel_floor
         with np.errstate(divide="ignore", invalid="ignore"):
             f = (ssbn / df_between) / (sswn / df_within)
         f64 = f.astype(np.float64, copy=False)

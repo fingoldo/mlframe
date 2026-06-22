@@ -180,9 +180,14 @@ def build_risk_coverage_spec(
     coverage, accuracy, risk, aurc, full_risk, has_signal = compute_risk_coverage(
         y_true, y_score, task=task, confidence=confidence)
     is_regression = task == "regression"
-    aurc_random = full_risk  # flat risk integrated over [0,1] = full_risk.
-
+    # The random reference (constant full_risk) must be integrated over the SAME coverage domain as `aurc`
+    # (np.trapezoid over coverage in [1/n, 1]), not over [0, 1]; otherwise "AURC vs random" is biased by the
+    # domain mismatch. trapezoid of a constant c over [a, b] = c * (b - a) = full_risk * (coverage[-1] - coverage[0]).
     n = coverage.size
+    if n > 1:
+        aurc_random = full_risk * float(coverage[-1] - coverage[0])
+    else:
+        aurc_random = full_risk
 
     def _interp_at(cov_target: float) -> float:
         if n == 0 or not np.isfinite(coverage).any():

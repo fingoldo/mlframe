@@ -12,10 +12,11 @@ def preprocess_glue(glue, head=None):
         to_add = pd.Series(
             (glue["Model"][glue["Model"] == model].reset_index(drop=True).index + 1)
         ).apply(lambda x: f"_{x}")
-        glue["Model"].loc[glue["Model"] == model] += to_add.values
+        mask = glue["Model"] == model
+        glue.loc[mask, "Model"] = glue.loc[mask, "Model"] + to_add.values
 
     glue = glue.drop(columns=["Rank", "Name", "URL", "Score"]).set_index("Model")
-    glue = glue.replace("-", np.NaN)
+    glue = glue.replace("-", np.nan)
 
     double_columns = ["MRPC", "STS-B", "QQP"]
     for column in double_columns:
@@ -50,18 +51,19 @@ def preprocess_sglue(sglue):
         to_add = pd.Series(
             (sglue["Model"][sglue["Model"] == model].reset_index(drop=True).index + 1)
         ).apply(lambda x: f"_{x}")
-        sglue["Model"].loc[sglue["Model"] == model] += to_add.values
+        mask = sglue["Model"] == model
+        sglue.loc[mask, "Model"] = sglue.loc[mask, "Model"] + to_add.values
 
     sglue = sglue.drop(columns=["Rank", "Name", "URL", "Score"]).set_index("Model")
-    sglue = sglue.replace("-", np.NaN)
+    sglue = sglue.replace("-", np.nan)
 
     double_columns = ["CB", "MultiRC", "ReCoRD", "AX-g"]
     for column in double_columns:
         sglue[column + "_n1"] = sglue[column].apply(
-            lambda x: np.NaN if x != x else x.split("/")[0]
+            lambda x: np.nan if x != x else x.split("/")[0]
         )
         sglue[column + "_n2"] = sglue[column].apply(
-            lambda x: np.NaN if x != x else x.split("/")[1]
+            lambda x: np.nan if x != x else x.split("/")[1]
         )
 
     sglue = sglue.drop(columns=double_columns)

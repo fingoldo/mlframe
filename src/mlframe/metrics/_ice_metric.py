@@ -265,11 +265,11 @@ def compute_probabilistic_multiclass_error(
             if return_per_class:
                 return total_error, _ice_by_class
             return total_error
-        except Exception as _exc:
-            # Defensive: any kernel / stacking issue falls through to the
-            # legacy per-class Python loop below. Log at DEBUG so the path
-            # transition stays visible during dev but doesn't spam INFO.
-            logger.debug(
+        except (ValueError, TypeError) as _exc:
+            # Only shape/dtype mismatches fall back to the legacy per-class loop; a genuine numeric/logic bug
+            # (any other exception type) must propagate rather than be silently masked. Log at WARNING so the
+            # fallback is visible in prod, not buried at DEBUG.
+            logger.warning(
                 "_batch_per_class_ice_kernel fastpath failed (%s); falling back to per-class loop.",
                 _exc,
             )

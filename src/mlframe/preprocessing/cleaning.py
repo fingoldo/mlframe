@@ -346,7 +346,7 @@ def is_variable_truly_continuous(
         last_n_unique_fracts = 0
         fract_part, int_part = np.modf(values)
 
-        n_unique_ints = _get_nunique(vals=int_part, skip_vals=(0.0))
+        n_unique_ints = _get_nunique(vals=int_part, skip_vals=(0.0,))
         n_unique_fracts = _get_nunique(vals=fract_part, skip_vals=(0.0, 1.0))
         if n_unique_fracts == 0:
             cur_fract_digits = 1

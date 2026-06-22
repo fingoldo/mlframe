@@ -193,8 +193,8 @@ def evaluate_estimators(
 
                     X_test_test = X_test.iloc[train_indices, :]
                     X_test_val = X_test.iloc[test_indices, :]
-                    y_test_test = y_test[train_indices]
-                    y_test_val = y_test[test_indices]
+                    y_test_test = y_test.iloc[train_indices] if hasattr(y_test, "iloc") else y_test[train_indices]
+                    y_test_val = y_test.iloc[test_indices] if hasattr(y_test, "iloc") else y_test[test_indices]
 
                 if baseline_model is not None:
                     eval_set = Pool(X_test_val, y_test_val)

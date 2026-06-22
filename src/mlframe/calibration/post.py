@@ -125,6 +125,16 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
             return True
         return isinstance(calibrator, tuple(needs_2d_types)) if needs_2d_types else False
 
+    @staticmethod
+    def _is_venn_abers(calibrator) -> bool:
+        """isinstance check against VennAbersCalibrator so subclasses dispatch correctly
+        (substring matching on the class name routed subclasses to the wrong branch)."""
+        try:
+            from venn_abers import VennAbersCalibrator as _VA
+        except ImportError:
+            return False
+        return isinstance(calibrator, _VA)
+
     def _transform_probs(self, probs) -> np.ndarray:
         if probs.ndim == 2 and not self._calibrator_needs_2d_probs(self.calibrator):
             probs = probs[:, 1]
@@ -138,7 +148,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
 
         calib_probs = self._transform_probs(calib_probs)
 
-        if not "VennAbersCalibrator" in type(self.calibrator).__name__:
+        if not self._is_venn_abers(self.calibrator):
             getattr(self.calibrator, self.fit_method_name)(calib_probs, calib_target)
         else:
             self.y_cal = calib_target
@@ -156,7 +166,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     def postcalibrate_probs(self, probs) -> np.ndarray:
 
         probs = self._transform_probs(probs)
-        if not "VennAbersCalibrator" in type(self.calibrator).__name__:
+        if not self._is_venn_abers(self.calibrator):
             # Use method resolved at fit-time; fall back gracefully if fit() wasn't called.
             transform_name = getattr(self, "_resolved_transform_method_name", self.transform_method_name)
             calibrated_probs = getattr(self.calibrator, transform_name)(probs)

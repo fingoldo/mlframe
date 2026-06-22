@@ -18,13 +18,14 @@ def fine_sorted_ranking(ranking):
 def compute_iia_for_fixed_models(method, table, models_order, weights):
     result = 0
 
-    base_lb = Leaderboard(table.loc[models_order[:2]], weights)
-    method_ranking = f"{method}_ranking(gamma=95)" if method == "optimality_gap" else f"{method}_ranking()"
-    last_ranking = fine_sorted_ranking(eval(f"base_lb.{method_ranking}"))
+    ranking_kwargs = {"gamma": 95} if method == "optimality_gap" else {}
 
-    for current_models_order in range(3, len(models_order)):
+    base_lb = Leaderboard(table.loc[models_order[:2]], weights)
+    last_ranking = fine_sorted_ranking(getattr(base_lb, f"{method}_ranking")(**ranking_kwargs))
+
+    for current_models_order in range(3, len(models_order) + 1):
         current_lb = Leaderboard(table.loc[models_order[:current_models_order]], weights)
-        current_ranking = fine_sorted_ranking(eval(f"current_lb.{method_ranking}"))
+        current_ranking = fine_sorted_ranking(getattr(current_lb, f"{method}_ranking")(**ranking_kwargs))
         current_ranking_without_new_model = current_ranking.copy()
         current_ranking_without_new_model.remove(models_order[current_models_order - 1])
         result += last_ranking != current_ranking_without_new_model

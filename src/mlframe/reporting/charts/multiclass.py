@@ -483,7 +483,9 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         interpolated.append(curve)
         valid_curves.append(curve)
         labels.append(f"{classes[k]} (AP={ap:.3f})")
-        prevalence = float(bin_full) / max(1, n_valid)               # no-skill precision (full-n)
+        # No-skill precision baseline must use the SAME population the AP was computed on (the finite stratified
+        # subsample), otherwise AP-vs-baseline compares inconsistent prevalences.
+        prevalence = float(int(bin_yf.sum())) / max(1, bin_yf.size)
         baselines.append(np.full_like(x_grid, prevalence))
         baseline_labels.append("")
     n_drawn = len(draw_idx)

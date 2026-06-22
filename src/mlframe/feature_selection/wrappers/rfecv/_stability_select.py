@@ -227,10 +227,15 @@ def _fit_stability_selection(self, X, y, signature):
     self.estimators_ = {}
     self.feature_importances_ = {}
     self.selected_features_ = {}
+    # The stability path ranks features by IN-SAMPLE bootstrap selection frequency, NOT an honest
+    # held-out CV score. Exposing that frequency under ``cv_mean_perf`` (the key consumers read as a
+    # genuine OOF score in select_optimal_nfeatures_ / diagnostics) would mislabel it. Surface the
+    # frequency under its own key and leave cv_mean_perf NaN, since no held-out score is computed here.
     self.cv_results_ = {
         "nfeatures": [self.n_features_],
-        "cv_mean_perf": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
+        "cv_mean_perf": [float("nan")],
         "cv_std_perf": [0.0],
+        "selection_frequency": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
     }
     # Per-feature stability frequencies for inspection / downstream weighting, aligned with feature_names_in_.
     self.stability_selection_freq_ = selection_freq

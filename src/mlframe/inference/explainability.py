@@ -159,6 +159,9 @@ def compute_shap_on_cv(
     if do_ts_oos:
         all_true_values = np.hstack(all_true_values)
         probs = np.vstack(all_probs)
+        # Derive nclasses from the stacked probs so it is defined even when the final TS fold
+        # contributed no OOS rows (the per-fold ``nclasses = probs.shape[1]`` assignment is skipped then).
+        nclasses = probs.shape[1]
         if show_classification_report:
             classification_report_text = classification_report(all_true_values, (probs[:, 1] > 0.5).astype(np.int8), target_names=display_labels.values())
             print(classification_report_text)

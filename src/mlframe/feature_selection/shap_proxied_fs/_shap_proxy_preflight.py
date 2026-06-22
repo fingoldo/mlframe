@@ -106,11 +106,18 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
     cols = np.arange(f)
     if f > max_corr_features:
         cols = rng.choice(f, size=max_corr_features, replace=False)
-    Xc = np.nan_to_num(Xc_src.iloc[:, cols].to_numpy(dtype=np.float64))
+    # Pairwise-complete correlation: zero-filling NaN before corrcoef (the old nan_to_num path)
+    # collapses a high-missingness column's spread toward its non-missing mean, biasing |corr|
+    # toward 0 and mis-routing the redundancy gate for highly-correlated-but-missing pairs. Use
+    # pandas' pairwise-complete corr (each pair uses only rows where BOTH are present) instead.
+    Xc_df = Xc_src.iloc[:, cols]
+    if not isinstance(Xc_df, pd.DataFrame):
+        Xc_df = pd.DataFrame(np.asarray(Xc_df, dtype=np.float64))
     with np.errstate(invalid="ignore", divide="ignore"):
-        C = np.corrcoef(Xc, rowvar=False)
-    np.fill_diagonal(C, 0.0)
-    max_abs_corr = float(np.nanmax(np.abs(C))) if C.size else 0.0
+        C = Xc_df.astype(np.float64).corr(method="pearson", min_periods=1).to_numpy()
+    if C.size:
+        np.fill_diagonal(C, 0.0)
+    max_abs_corr = float(np.nanmax(np.abs(C))) if C.size and np.isfinite(C).any() else 0.0
 
     # Booster row subsample (ranking-only -- see ``max_rows`` docstring). Sampled AFTER the corr-pass
     # rng draws so the corr gate's bit-for-bit determinism vs the pre-iter25 path is preserved (the

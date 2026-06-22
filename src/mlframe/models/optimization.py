@@ -74,6 +74,9 @@ def compute_candidates_exploration_scores(search_space: Sequence, known_candidat
     """
 
     distances = np.zeros(len(search_space))  # distances to closest checked points
+    if len(known_candidates) == 0:
+        # No checked points yet -> every search-space point is maximally far; the loop below would leave r/l unbound.
+        return distances
     indices = {}
     for i, el in enumerate(search_space):
         indices[el] = i
@@ -407,16 +410,15 @@ class MBHOptimizer:
                 self.n_steps_since_greedy = 0
 
                 expected_fitness = np.abs(np.array(self.search_space) - self.best_candidate)
-                for _ in range(100):
-                    # Just pick first unchecked and unsuggested candidate with the highest fitness
-                    for best_idx in np.argsort(expected_fitness):
-                        next_candidate = self.search_space[best_idx]
-                        if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
-                            self.suggested_candidates[next_candidate] = eval_start_time
-                            logger.info(
-                                f"I became greedy! Recommending {next_candidate} that is closest unchecked to the best known so far {self.best_candidate} with eval={self.best_evaluation}"
-                            )
-                            return next_candidate
+                # Pick first unchecked and unsuggested candidate with the highest fitness.
+                for best_idx in np.argsort(expected_fitness):
+                    next_candidate = self.search_space[best_idx]
+                    if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
+                        self.suggested_candidates[next_candidate] = eval_start_time
+                        logger.info(
+                            f"I became greedy! Recommending {next_candidate} that is closest unchecked to the best known so far {self.best_candidate} with eval={self.best_evaluation}"
+                        )
+                        return next_candidate
             else:
 
                 self.n_steps_since_greedy += 1
@@ -428,6 +430,9 @@ class MBHOptimizer:
                 if len(self.known_candidates) > self.last_retrain_ninputs:
 
                     # First need to check that targets are not all the same:
+                    if len(self.known_evaluations) == 0:
+                        logger.warning("No known evaluations available; can't train the underlying process model.")
+                        return None
                     if np.all(self.known_evaluations == self.known_evaluations[0]):
                         logger.warning(f"All targets are the same! Can't train the underlying process model.")
                         return None
@@ -556,17 +561,16 @@ class MBHOptimizer:
                 # Decide on the next candidate, based on predicted fitness
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                for _ in range(100):
-                    # Just pick first unchecked and unsuggested candidate with the highest fitness
-                    for best_idx in np.argsort(expected_fitness)[::-1]:
-                        next_candidate = self.search_space[best_idx]
-                        if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
-                            if self.skip_best_candidate_prob > 0.0:
-                                # Randomly skip the best candidate, if required
-                                if self._stdlib_rng.random() < self.skip_best_candidate_prob:
-                                    continue
-                            self.suggested_candidates[next_candidate] = eval_start_time
-                            return next_candidate
+                # Pick first unchecked and unsuggested candidate with the highest fitness.
+                for best_idx in np.argsort(expected_fitness)[::-1]:
+                    next_candidate = self.search_space[best_idx]
+                    if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
+                        if self.skip_best_candidate_prob > 0.0:
+                            # Randomly skip the best candidate, if required
+                            if self._stdlib_rng.random() < self.skip_best_candidate_prob:
+                                continue
+                        self.suggested_candidates[next_candidate] = eval_start_time
+                        return next_candidate
 
     def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
 

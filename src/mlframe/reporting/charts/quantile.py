@@ -199,7 +199,12 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
     from mlframe.reporting.charts._sampling import prebin_histogram
 
     P = np.asarray(preds_NK, dtype=np.float64)
-    widths = P[:, -1] - P[:, 0]
+    # Use the column-wise span (max - min across all alpha columns) rather than last-minus-first: under quantile
+    # crossing the alphas are not monotone, so P[:, -1] - P[:, 0] can go negative and report nonsense widths.
+    if P.ndim == 2 and P.shape[1] > 1:
+        widths = np.nanmax(P, axis=1) - np.nanmin(P, axis=1)
+    else:
+        widths = np.abs(P[:, -1] - P[:, 0])
     # Degenerate: all rows have the same width (e.g. linear quantile
     # regressor that just adds a constant offset per alpha). numpy
     # raises ``Too many bins for data range`` when bins>=2 and
@@ -209,8 +214,8 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
     bins = min(30, max(1, n_unique))
     a_hi = f"{float(alphas[-1]):g}"
     a_lo = f"{float(alphas[0]):g}"
-    mean_w = float(widths.mean()) if widths.size else 0.0
-    max_w = float(widths.max()) if widths.size else 0.0
+    mean_w = float(np.nanmean(widths)) if widths.size and np.isfinite(widths).any() else 0.0
+    max_w = float(np.nanmax(widths)) if widths.size and np.isfinite(widths).any() else 0.0
     heights, centers, width = prebin_histogram(widths, bins, True)
     return HistogramPanelSpec(
         values=heights if centers is not None else widths,

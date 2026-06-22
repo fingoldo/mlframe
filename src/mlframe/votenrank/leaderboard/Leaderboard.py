@@ -81,6 +81,10 @@ class Leaderboard:
             self.ranks = self.ranks.astype(int)
             self.max_ranks = self.max_ranks.astype(int)
 
+        # Invalidate any previously materialised majority graph: it was built from a stale
+        # ranks state and reusing it would yield wrong condorcet/copeland/minimax results.
+        self.majority_graph = None
+
     def _ensure_majority_graph(self):
         """Lazy-construct the n_models x n_models majority graph. Idempotent
         once self.majority_graph is non-None for the current ranks state.
@@ -123,7 +127,7 @@ class Leaderboard:
             methods_to_choose = set(methods_to_choose) - {"mean"}
 
         for method in methods_to_choose:
-            func = eval(f"self.{method}_election")
+            func = getattr(self, f"{method}_election")
             if method in settings_dict:
                 params = ParameterGrid(METHODS_SETTINGS[method])
                 for some_params in params:
@@ -172,7 +176,7 @@ class Leaderboard:
 
         result = pd.DataFrame()
         for method in methods_to_choose:
-            func = eval(f"self.{method}_ranking")
+            func = getattr(self, f"{method}_ranking")
             if method in settings_dict:
                 params = ParameterGrid(settings_dict[method])
                 for some_params in params:
@@ -247,7 +251,7 @@ class Leaderboard:
                 self.table[tasks], weights=self.weights[tasks].to_dict()
             )
 
-            func = eval(f"sub_lb.{ranking_method}_ranking")
+            func = getattr(sub_lb, f"{ranking_method}_ranking")
             ranking_params = ranking_params or {}
             meta_table[key] = func(**ranking_params)
 
@@ -271,7 +275,7 @@ class Leaderboard:
             ranking_params,
             insert_nan=insert_nan,
         )
-        func = eval(f"meta_lb.{ranking_method}_ranking")
+        func = getattr(meta_lb, f"{ranking_method}_ranking")
         ranking_params = ranking_params or {}
         return func(**ranking_params)
 

@@ -23,6 +23,44 @@ from mlframe.utils.misc import rng_hygienic_fit
 logger = logging.getLogger(__name__)
 
 
+def _inject_operand_pairs(merged: dict, usable_pairs, name_to_phi_idx: dict, *, phi, base, y_phi, classification, metric) -> int:
+    """Inject the bare operand pair of every surviving synergistic pair into ``merged``.
+
+    ``merged`` maps a sorted phi-index tuple -> proxy loss (lower is better; the winner is the min).
+    A pair that already carries a measured proxy loss (surfaced by the augmented search / expansion
+    upstream) keeps it. A pair with NO prior entry gets its REAL additive proxy loss computed honestly
+    on its operand phi-columns via ``subset_loss``. The pre-fix bug instead stamped such pairs with
+    ``candidates[0][0]`` -- the BEST candidate's loss -- a fabricated optimistic stand-in that could
+    sort to the front of the winner list and win selection on a number it never earned.
+
+    Returns the count of pairs newly injected (those that had no prior entry).
+    """
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric, subset_loss
+
+    metric = resolve_metric(classification, metric)
+    injected = 0
+    for pair in usable_pairs:
+        col_a, col_b = pair[-2], pair[-1]
+        key = tuple(sorted((name_to_phi_idx[str(col_a)], name_to_phi_idx[str(col_b)])))
+        if key not in merged:
+            merged[key] = float(subset_loss(phi, base, y_phi, list(key), metric))
+            injected += 1
+    return injected
+
+
+def _apply_min_selected_ratio(candidates, n_proxy_cols: int, min_selected_ratio: float):
+    """Drop candidate subsets below ``min_selected_ratio`` of proxy-column width; never return empty.
+
+    Guards ``n_proxy_cols == 0`` (no proxy columns survived prescreening) so the ``len(c)/n_proxy_cols``
+    ratio cannot raise ZeroDivisionError -- in that degenerate case there is no width to ratio against
+    so the candidates pass through unfiltered.
+    """
+    if min_selected_ratio > 0 and n_proxy_cols > 0:
+        filtered = [(l, c) for l, c in candidates if len(c) / n_proxy_cols >= min_selected_ratio]
+        return filtered or candidates
+    return candidates
+
+
 class ShapProxiedFitMixin:
     """Search-dispatch + fit pipeline for :class:`ShapProxiedFS` (see module docstring)."""
 
@@ -635,9 +673,12 @@ class ShapProxiedFitMixin:
                     # Always inject the bare operand pair of EVERY surviving synergistic pair as a
                     # candidate coalition (so even when the augmented search prefers larger subsets,
                     # the minimal interacting pair is still revalidated honestly on real columns).
-                    for syn, col_a, col_b in usable_pairs:
-                        key = tuple(sorted((name_to_phi_idx[str(col_a)], name_to_phi_idx[str(col_b)])))
-                        merged.setdefault(key, float(candidates[0][0]) if candidates else 0.0)
+                    # Inject the bare operand pair of every surviving synergistic pair so honest
+                    # re-validation downstream can still revalidate the minimal interacting pair on
+                    # real columns; pairs with no measured proxy loss go in at +inf (cannot win).
+                    _inject_operand_pairs(merged, usable_pairs, name_to_phi_idx,
+                                          phi=phi, base=base, y_phi=y_phi,
+                                          classification=self.classification, metric=self.metric)
                     candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
                 report["su_seeded_interactions"] = dict(
                     applied=True,
@@ -655,9 +696,7 @@ class ShapProxiedFitMixin:
         # min_selected_ratio guard: the proxy degrades for small subsets (the <50% wall). Ratio is in
         # proxy-column space (units/pre-screened columns).
         n_proxy_cols = phi.shape[1]
-        if self.min_selected_ratio > 0:
-            filtered = [(l, c) for l, c in candidates if len(c) / n_proxy_cols >= self.min_selected_ratio]
-            candidates = filtered or candidates  # never return empty
+        candidates = _apply_min_selected_ratio(candidates, n_proxy_cols, self.min_selected_ratio)
         if not candidates:
             raise RuntimeError("ShapProxiedFS: search produced no candidate subsets.")
 

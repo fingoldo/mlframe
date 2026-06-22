@@ -174,7 +174,9 @@ def make_custom_calibration_plot(
             if type(prob_pos) != np.ndarray:
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
-            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[plot_idx], title=title, append=True, nbins=nbins)
+            show_classifier_calibration(
+                y_true, prob_pos, legend_label=var_name, ax=ax_probs if nclasses == 1 else ax_probs[plot_idx], title=title, append=True, nbins=nbins
+            )
     if skip_plotting:
         plt.close(fig)
     return fig, metrics
@@ -266,7 +268,11 @@ def show_classifier_calibration(
         ax = plt
 
     # Collect per-interval performances (previous code only returned the last interval).
+    # Initialised before the loop so the show_table / empty-all_performances return branches
+    # below never read an unbound name when nintervals == 0 (the loop body never runs).
     all_performances: list = []
+    data: list = []
+    performances: dict = {}
     for i in range(nintervals):
         if i == nintervals - 1:
             r = s
