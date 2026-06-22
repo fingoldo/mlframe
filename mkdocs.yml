@@ -1,0 +1,87 @@
+site_name: mlframe
+site_description: Production-grade machine learning framework for tabular data — training pipelines, feature engineering & selection, ensembling, calibration, ranking, and quantile regression.
+site_author: Anatoly Alexeev
+site_url: https://fingoldo.github.io/mlframe/
+repo_url: https://github.com/fingoldo/mlframe
+repo_name: fingoldo/mlframe
+copyright: Copyright &copy; Anatoly Alexeev — MIT License
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - search.suggest
+    - content.code.copy
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocs-jupyter:
+      include: ["*.ipynb"]
+      execute: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+
+# Internal / research / roadmap notes still build (so docs/README.md links keep
+# resolving) but are intentionally kept out of the navigation sidebar.
+not_in_nav: |
+  /internal/*
+  /MRMR_RESEARCH_2026_05_28.md
+  /pysr_fe_upgrade_research.md
+  /date_features_kaggle_research.md
+  /NUMERICAL_STABILITY_REPORT.md
+  /audit_2026_05_24_summary.md
+  /WAVE5_GPU_ROADMAP.md
+  /FE_MRMR_IDEAS_BACKLOG_2026-06-03.md
+
+nav:
+  - Home: README.md
+  - Examples:
+      - Overview: examples/README.md
+      - Composite targets: examples/composite_targets.md
+  - Guides:
+      - Baseline diagnostics: baseline_diagnostics_guide.md
+      - Dummy baselines: dummy_baselines_guide.md
+      - Honest diagnostics: honest_diagnostics_guide.md
+      - Calibration policy: calibration_policy.md
+      - Feature handling: feature_handling_examples.md
+      - Composite targets guide: composite_targets_guide.md
+      - Composite config reference: composite_config_reference.md
+      - Composite targets tutorial: composite_targets_tutorial.ipynb
+  - Topics:
+      - Multi-output classification: MULTI_OUTPUT.md
+      - Multi-target regression: MULTI_TARGET_REGRESSION.md
+      - Selection bias: SELECTION_BIAS.md
+      - Visualization: visualization.md
+      - Chart gallery: gallery/index.md
+      - Debugging upstream errors: DEBUGGING_UPSTREAM_ERRORS.md
