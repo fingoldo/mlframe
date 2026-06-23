@@ -88,6 +88,70 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
     return val if val > 0.0 else 0.0
 
 
+@njit(cache=True)
+def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
+    """Fused O(n) Miller-Madow-corrected joint MI ``I({X,Y}; T)`` for a CODE PAIR -- the
+    nopython equivalent of ``joint_synergy_mi(code_x, code_y, target)``, with NO
+    ``np.unique`` densify and NO ``np.add.at`` scatter.
+
+    ``code_x`` / ``code_y`` are int64 per-feature codes in ``[0, kx)`` / ``[0, ky)``; ``target``
+    is the int64 target codes in ``[0, kt)``. The (x, y) cell is the mixed-radix id
+    ``cx*ky + cy`` over the DENSE ``kx*ky`` grid; the joint table is ``(kx*ky) x kt``. MI is
+    summed over OCCUPIED cells with the SAME estimator as the numpy reference
+    (``sum p*log(p/(px*py))``), debited by the MM bias ``(occ_x-1 + occ_y-1 - (occ-1))/(2n)``
+    using OCCUPIED joint / target counts -- the identical bias ``joint_synergy_mi`` applies
+    on its renumbered occupied grid (densification is order-preserving for occupancy, so the
+    occupied counts and the MM debit are unchanged; the MI value matches to FP reduction order).
+
+    OCCUPANCY FLOOR: matches ``joint_synergy_mi`` -- the floor there compares ``n`` against
+    ``min_rows_per_cell * (occupied-joint-cardinality) * (target max code + 1)``. We count
+    occupied joint cells after the histogram pass and use the FULL target cardinality ``kt``
+    (= ``yt.max()+1``), applying the identical gate, returning 0.0 below it.
+
+    Returns ``max(0.0, mi - mm)`` (>= 0)."""
+    n = code_x.shape[0]
+    if n == 0:
+        return 0.0
+    ncells = kx * ky
+    joint = np.zeros(ncells * kt, dtype=np.float64)
+    px = np.zeros(ncells, dtype=np.float64)
+    py = np.zeros(kt, dtype=np.float64)
+    for r in range(n):
+        cell = code_x[r] * ky + code_y[r]
+        t = target[r]
+        joint[cell * kt + t] += 1.0
+        px[cell] += 1.0
+        py[t] += 1.0
+    # occupied joint-cell count == the renumbered joint cardinality the numpy ref uses for the floor.
+    occ_cells = 0
+    for c in range(ncells):
+        if px[c] > 0.0:
+            occ_cells += 1
+    occ_y = 0
+    for t in range(kt):
+        if py[t] > 0.0:
+            occ_y += 1
+    if min_rows_per_cell > 0.0 and n < min_rows_per_cell * float(occ_cells) * float(kt):
+        return 0.0
+    inv_n = 1.0 / n
+    mi = 0.0
+    occ = 0
+    for cell in range(ncells):
+        if px[cell] <= 0.0:
+            continue
+        pxc = px[cell] * inv_n
+        base = cell * kt
+        for t in range(kt):
+            cnt = joint[base + t]
+            if cnt > 0.0:
+                occ += 1
+                pj = cnt * inv_n
+                mi += pj * np.log(pj / (pxc * (py[t] * inv_n)))
+    mm = (occ_cells - 1 + occ_y - 1 - (occ - 1)) / (2.0 * n)
+    val = mi - mm
+    return val if val > 0.0 else 0.0
+
+
 def _renumber_joint_codes(code_x: np.ndarray, code_y: np.ndarray) -> tuple[np.ndarray, int]:
     """Collapse two integer code arrays into a single dense joint code array.
 

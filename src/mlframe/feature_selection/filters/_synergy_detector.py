@@ -26,7 +26,29 @@ from __future__ import annotations
 
 import numpy as np
 
-from ._fe_synergy_screen import joint_synergy_mi
+from ._fe_synergy_screen import _pair_mm_mi_njit, joint_synergy_mi  # noqa: F401
+
+
+def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray,
+                min_rows_per_cell: float = 5.0) -> float:
+    """Fused-njit equivalent of ``joint_synergy_mi(code_x, code_y, yc)``.
+
+    Builds the dense mixed-radix ``(kx*ky) x kt`` joint histogram in one O(n) pass (no
+    ``np.unique`` densify, no ``np.add.at`` scatter) and returns the SAME Miller-Madow-
+    corrected joint MI. ~9.6x faster per call at the detector's (n=4000, nbins=8) shape;
+    output matches ``joint_synergy_mi`` to FP reduction order (~5e-16), so the synergy
+    verdict is unchanged (selection-equivalent). Bench:
+    ``_benchmarks/bench_synergy_detector_pair_mi_njit.py``."""
+    cx = np.ascontiguousarray(np.asarray(code_x).astype(np.int64).ravel())
+    cy = np.ascontiguousarray(np.asarray(code_y).astype(np.int64).ravel())
+    yt = np.ascontiguousarray(np.asarray(yc).astype(np.int64).ravel())
+    n = cx.shape[0]
+    if n == 0 or cy.shape[0] != n or yt.shape[0] != n:
+        return 0.0
+    kx = int(cx.max()) + 1
+    ky = int(cy.max()) + 1
+    kt = int(yt.max()) + 1
+    return float(_pair_mm_mi_njit(cx, cy, yt, kx, ky, kt, float(min_rows_per_cell)))
 
 # kernel_tuning_cache key + conservative default multiple of the permuted-null scale.
 _TUNING_KEY = "mrmr_synergy_auto_excess_null_mult"
@@ -60,7 +82,7 @@ def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray
     rejected. Returns the max over pairs (can be <=0 when no pair is synergistic)."""
     best = -np.inf
     for i, j in pairs:
-        joint = joint_synergy_mi(codes[i], codes[j], yc)
+        joint = _pair_mm_mi(codes[i], codes[j], yc)
         exc = joint - marg[i] - marg[j]
         if exc > best:
             best = exc
@@ -110,7 +132,7 @@ def detect_synergy(
     codes = [_quantize(Xs[:, j], nbins, rng) for j in range(pp)]
     # per-feature marginal MI = joint of the column with a constant (collapses to plain MI(X;Y))
     const = np.zeros(Xs.shape[0], dtype=np.int64)
-    marg = [joint_synergy_mi(codes[j], const, yc) for j in range(pp)]
+    marg = [_pair_mm_mi(codes[j], const, yc) for j in range(pp)]
 
     # bounded random pair set
     all_pairs = [(i, j) for i in range(pp) for j in range(i + 1, pp)]
@@ -126,7 +148,7 @@ def detect_synergy(
     null_excess = 0.0
     for _ in range(int(max(1, n_null))):
         yc_perm = yc[rng.permutation(yc.size)]
-        marg_p = [joint_synergy_mi(codes[j], const, yc_perm) for j in range(pp)]
+        marg_p = [_pair_mm_mi(codes[j], const, yc_perm) for j in range(pp)]
         e = _excess_for_pairs(codes, marg_p, yc_perm, pairs)
         if e > null_excess:
             null_excess = e
