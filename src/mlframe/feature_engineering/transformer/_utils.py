@@ -11,11 +11,72 @@ All ``logger.*`` and ``print`` output here is ASCII-only by project rule; cp1251
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 import numpy as np
 
+try:
+    from numba import njit, prange
+except ImportError:  # pragma: no cover - numba is a hard dep in practice
+    prange = range
+
+    def njit(*args, **kwargs):  # no-op fallback so the module imports
+        if len(args) == 1 and callable(args[0]):
+            return args[0]
+
+        def deco(fn):
+            return fn
+
+        return deco
+
 logger = logging.getLogger(__name__)
+
+
+# Above this element count the prange thread-launch floor is amortised and the parallel counter
+# scales across cores; below it the serial kernel avoids the spawn overhead. Env-overridable per host.
+_NONFINITE_PAR_THRESHOLD = int(os.environ.get("MLFRAME_NONFINITE_PAR_THRESHOLD", "1000000"))
+
+
+@njit(cache=True)
+def _count_nonfinite_serial(Xf: np.ndarray) -> int:
+    flat = Xf.ravel()
+    total = 0
+    for i in range(flat.size):
+        v = flat[i]
+        # v - v == 0.0 holds for every finite value; NaN-NaN and (+/-inf)-(+/-inf) both yield NaN
+        # (NaN != 0.0), so this single test flags NaN AND +/-Inf without a separate isinf/isnan pass.
+        if not (v - v == 0.0):
+            total += 1
+    return total
+
+
+@njit(cache=True, parallel=True)
+def _count_nonfinite_parallel(Xf: np.ndarray) -> int:
+    flat = Xf.ravel()
+    n = flat.size
+    total = 0
+    for i in prange(n):
+        v = flat[i]
+        if not (v - v == 0.0):
+            total += 1
+    return total
+
+
+def _count_nonfinite_cells(Xf: np.ndarray) -> int:
+    """Count NaN/+/-Inf cells in a float array via a fused single-pass numba kernel.
+
+    Replaces ``int(np.count_nonzero(~np.isfinite(X)))`` which allocated TWO full N*d
+    temporaries (the ``isfinite`` bool array AND its bitwise inverse) and walked the data
+    twice. The njit counter holds no temporary at all -- a meaningful peak-RAM saving on the
+    100+ GB frames this validator runs on -- and is ~8-14x faster (bench:
+    ``_benchmarks/bench_validate_nonfinite_count.py``). Bit-identical count to the numpy form
+    (verified NaN / +inf / -inf / mixed / all-bad on f32 and f64). Size-dispatched: the
+    parallel twin is selected above ``_NONFINITE_PAR_THRESHOLD`` elements.
+    """
+    if Xf.size >= _NONFINITE_PAR_THRESHOLD:
+        return int(_count_nonfinite_parallel(Xf))
+    return int(_count_nonfinite_serial(Xf))
 
 
 # Per-process cache. ``None`` = not probed yet; True/False = probed result.
@@ -124,7 +185,7 @@ def validate_numeric_input(
         raise TypeError(f"{name} must be a numeric dtype (float / int / uint); got dtype={X.dtype}.")
     if X.dtype == np.float16 and not allow_fp16:
         raise TypeError(f"{name} dtype float16 not allowed here; convert to float32 upstream.")
-    n_bad = int(np.count_nonzero(~np.isfinite(X))) if X.dtype.kind == "f" else 0
+    n_bad = _count_nonfinite_cells(X) if X.dtype.kind == "f" else 0
     if n_bad > 0:
         raise ValueError(
             f"{name} contains {n_bad} non-finite cells (NaN or +/-Inf). Impute upstream via polars.fill_null('mean') or sklearn KNNImputer; "

@@ -438,6 +438,25 @@ def evaluate_swap_candidate(
             data_perm = state.factors_data.copy()
             member_col_orig = data_perm[:, member_idx].copy()
             target_arr_m = np.asarray(target, dtype=np.int64)
+            # Hoist the permutation-invariant H(Z) + H(Y,Z) out of the B-loop:
+            # only the member column is shuffled, so y and z stay byte-identical
+            # across all B draws and these two entropies are constant. Passing
+            # them via entropy_z= / entropy_yz= is bit-identical by construction
+            # (conditional_mi reuses the same values it would otherwise recompute
+            # B times). bench_dcd_swap_null_entropy_hoist.py: ~1.04-1.30x, p-value
+            # bit-identical across n/|z|.
+            _h_z_m = -1.0
+            _h_yz_m = -1.0
+            if S_minus_anchor:
+                from ..info_theory import entropy as _entropy_h, merge_vars as _merge_h
+                _z_arr_m = np.sort(np.array(S_minus_anchor, dtype=np.int64))
+                _, _fz_m, _ = _merge_h(state.factors_data, _z_arr_m, None,
+                                       np.asarray(state.factors_nbins, dtype=np.int64))
+                _h_z_m = float(_entropy_h(_fz_m))
+                _yz_arr_m = np.sort(np.concatenate([target_arr_m, _z_arr_m]))
+                _, _fyz_m, _ = _merge_h(state.factors_data, _yz_arr_m, None,
+                                        np.asarray(state.factors_nbins, dtype=np.int64))
+                _h_yz_m = float(_entropy_h(_fyz_m))
             n_exceed_m = 0
             for _ in range(B_):
                 shuffled = member_col_orig.copy()
@@ -451,6 +470,7 @@ def evaluate_swap_candidate(
                         z=np.array(S_minus_anchor, dtype=np.int64),
                         var_is_nominal=None,
                         factors_nbins=state.factors_nbins,
+                        entropy_z=_h_z_m, entropy_yz=_h_yz_m,
                         entropy_cache=None,
                         can_use_x_cache=False, can_use_y_cache=False,
                     ))
@@ -516,6 +536,21 @@ def evaluate_swap_candidate(
             target_arr = np.asarray(target, dtype=np.int64)
             n_exceed = 0
             data_with_rep_perm = data_with_rep.copy()
+            # Hoist permutation-invariant H(Z) + H(Y,Z) (only the appended rep
+            # column is shuffled, so y/z are fixed across draws). Bit-identical
+            # by construction; see _run_member_null + bench_dcd_swap_null_entropy_hoist.py.
+            _h_z_a = -1.0
+            _h_yz_a = -1.0
+            if S_minus_anchor:
+                from ..info_theory import entropy as _entropy_a, merge_vars as _merge_a
+                _z_arr_a = np.sort(np.array(S_minus_anchor, dtype=np.int64))
+                _, _fz_a, _ = _merge_a(data_with_rep, _z_arr_a, None,
+                                       np.asarray(nbins_with_rep, dtype=np.int64))
+                _h_z_a = float(_entropy_a(_fz_a))
+                _yz_arr_a = np.sort(np.concatenate([target_arr, _z_arr_a]))
+                _, _fyz_a, _ = _merge_a(data_with_rep, _yz_arr_a, None,
+                                        np.asarray(nbins_with_rep, dtype=np.int64))
+                _h_yz_a = float(_entropy_a(_fyz_a))
             for _ in range(B):
                 rep_shuffled = rep_binned.copy()
                 rng.shuffle(rep_shuffled)
@@ -528,6 +563,7 @@ def evaluate_swap_candidate(
                         z=np.array(S_minus_anchor, dtype=np.int64),
                         var_is_nominal=None,
                         factors_nbins=nbins_with_rep,
+                        entropy_z=_h_z_a, entropy_yz=_h_yz_a,
                         entropy_cache=None,
                         can_use_x_cache=False, can_use_y_cache=False,
                     ))
