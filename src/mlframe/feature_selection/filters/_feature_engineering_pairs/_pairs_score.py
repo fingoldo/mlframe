@@ -290,6 +290,25 @@ def _score_one_pair(
             # replay's ``_fe_mi_arr[_ci]`` lookup is correct without re-indexing.
             _fe_mi_arr = _fe_mi_by_col
         else:
+            # bench-attempt-rejected (2026-06-23, MRMR FE wall /loop iter10): the F2 100k cProfile
+            # attributes ~40s tottime to THIS function and ~6.6s to ``_safe_div``, suggesting "Python
+            # per-candidate orchestration overhead". A line_profiler pass (line-by-line, F2 100k warm)
+            # disproves that: line 310 (``final_transformed_vals[:, i] = bin_func(param_a, param_b)``)
+            # is 72.2% of the body's time, the Phase-1b ``nan_to_num`` 12.1%, GPU binning 7.4%, batch-MI
+            # dispatch 4.6% -- ALL numeric kernels (njit ufuncs / compiled div / GPU), already routed by
+            # prior iterations. The Python bookkeeping is negligible: ``_local_times`` dict 0.4%,
+            # ``_batch_candidates.append`` 0.2%, the ``binary_transformations.items()`` loop 0.2%, the
+            # per-pair-comb ``np.errstate`` 1.0%; the replay loop / ``var_pairs_perf`` dict / recipe-name
+            # building / clean-form-demotion loop are each <0.2% (sum of all Python orchestration < 2.5%).
+            # ``_safe_div`` (feature_engineering.py:738) is NOT pure-Python overhead: it IS njit-compiled
+            # in-run (4 signatures compile during the fit, incl. the float32 'A' strided-column layout this
+            # path feeds it) and its 6.6s is genuine compiled float32->float64 ratio compute over 9720
+            # 100k-row columns; cProfile attributes the dispatcher's call to the py_func code-object
+            # location, which LOOKS like a Python frame but is not. The float64 upcast inside ``_safe_div``
+            # (then downcast on the float32 store here) is a real but UNSAFE lever: a native float32 divide
+            # rounds differently from float64-divide-then-cast at ULP and this is selection-critical FE
+            # scoring, so it is NOT changed. Verdict: ``_score_one_pair`` is already lean on Python overhead
+            # -- the wall is candidate-column materialisation compute, with no safe overhead-reduction win.
             # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
             # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
             _batch_candidates = []  # (transformations_pair, bin_func_name, i, uses_pw)
