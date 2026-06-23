@@ -740,6 +740,13 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
     # small ua x ub x bn combo grid, so the GPU sees many tiny launches + per-pair H2D that swamp the
     # _pair_combo_mi_njit_table_parallel CPU kernel (cProfile tottime 0.97s, 10 calls). KTC correctly routes
     # this shape to "parallel" (CPU); the GPU path only pays off at large n_combos batched across pairs.
+    # iter16 (2026-06-23) re-confirmed: the genuine resident fix is to batch EVERY pair's candidate columns
+    # into ONE resident (n, K) matrix scored by the resident plug-in MI (the iter15 best_existing_op_mi_resident
+    # pattern), NOT per-pair. That requires restructuring the per-pair retention loop + its lazy-recompute
+    # diversity filter (_usability_aware_selection.py:230) which is tightly coupled to per-pair iteration -- a
+    # large refactor whose payoff is sub-crossover on this card (small per-pair k). Deferred to a quiet machine
+    # / capable GPU; the resident-GPU win this iter went to the maxT permutation-null floor (a single batched
+    # workload, no caller refactor) -- see _permutation_null_resident.py (1.17-1.64x, bit-identical floor).
     choice = _usability_backend_choice(n_rows, nc)
     if choice == "gpu":
         # GPU path -- gated on live cupy + the global GPU off-switch (MLFRAME_DISABLE_GPU /

@@ -203,7 +203,15 @@ def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tupl
     multiply-add into the factorize walk -- avoids the two numpy temp arrays
     (``c*mult`` and the sum) the `_renumber_joint` per-column step allocated, and
     walks the data once instead of three times. First-seen dense ids, so the
-    induced partition + nclasses match the numpy form exactly (bit-identical)."""
+    induced partition + nclasses match the numpy form exactly (bit-identical).
+
+    bench-note (iter16, 2026-06-23, resident-GPU /loop): NOT routed to GPU. The dense renumber is a
+    first-seen sequential scan -- each output id depends on the running ``seen`` table + ``nc`` counter, a
+    data-dependent sequential dependency with no parallel form that preserves the FIRST-SEEN id assignment
+    ORDER. A GPU sort+unique+searchsorted twin would assign ids in VALUE order, not first-seen order, changing
+    the dense codes (the partition is equivalent but the integer labels differ) -> downstream joint-MI bin
+    indices shift, breaking bit-identity. cProfile ~0.87s is single-pass njit already; the resident win this
+    iter went to the maxT permutation-null floor instead (see _permutation_null_resident.py)."""
     n = joint.size
     if n == 0:
         return joint, 0
