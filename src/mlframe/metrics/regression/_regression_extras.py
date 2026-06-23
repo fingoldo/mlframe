@@ -31,7 +31,7 @@ from typing import Tuple
 import numpy as np
 import numba
 
-from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
 from ._regression_metrics import fast_r2_score
 # iter592: hoist the rank_correlation import out of fast_spearman_corr's
 # body. c0103_2a635557 @100k profile attributed 140 ms of
@@ -114,6 +114,7 @@ def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     Penalises under-prediction more than over-prediction (asymmetric);
     standard in retail forecasting, energy demand, click-through rate.
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     if yt.shape[0] == 0:
@@ -188,6 +189,7 @@ def fast_mape_mean(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     is the MEAN |APE|. Sklearn-compatible (uses np.finfo.eps for
     the zero-denominator clamp).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     if yt.shape[0] == 0:
@@ -229,6 +231,7 @@ def fast_smape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Symmetric MAPE in [0, 2] (multiply by 100 for percent). Bounded
     even when y_true ~ 0; symmetric in under/over prediction (unlike MAPE).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     if yt.shape[0] == 0:
@@ -243,6 +246,7 @@ def fast_mdape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     reduction (numba's sort is no faster than numpy's for the typical
     sizes in regression reports).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     if yt.shape[0] == 0:
@@ -286,6 +290,7 @@ def fast_wmape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     ``fast_smape`` -- its kernel body has 5 ops/element (vs 2 here), so
     per-element mixed-dtype widening overhead surpasses the alloc saving
     at large n; saw 0.95x on int64+float64 @100k."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true)
     yp = np.ascontiguousarray(y_pred)
     if yt.shape[0] == 0:
@@ -329,6 +334,7 @@ def fast_mase(
     NaN when the training series has no signal to scale by
     (``y_train`` shorter than seasonality, or constant).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     ytr = np.ascontiguousarray(y_train, dtype=np.float64)
@@ -365,6 +371,7 @@ def fast_mean_bias_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     handles mixed dtypes natively. Bench n=100k: int64+float64 1.54x,
     float64+float64 1.02x (no harm), float64+float32 1.88x. Bit-equiv
     across all dtype pairs."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true)
     yp = np.ascontiguousarray(y_pred)
     if yt.shape[0] == 0:
@@ -378,6 +385,7 @@ def fast_cv_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     Unit-free relative-error metric. NaN when mean(y_true) <= 0 (the
     ratio loses meaning).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     if yt.shape[0] == 0:
@@ -430,6 +438,7 @@ def fast_nash_sutcliffe(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     mixed-dtype widening overhead dominate the alloc saving; saw
     0.91-0.98x on int+float64 paths). Pattern works on simple-body
     kernels only."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true)
     yp = np.ascontiguousarray(y_pred)
     return float(_nash_sutcliffe_kernel(yt, yp))
@@ -479,6 +488,7 @@ def fast_explained_variance(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     -- the abs+cmp+mul-add body sits at the boundary of the safe band;
     saw 0.91x on float64+float64 @100k). The huber wrapper keeps its
     upfront cast."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true)
     yp = np.ascontiguousarray(y_pred)
     return float(_explained_variance_kernel(yt, yp))
@@ -531,6 +541,7 @@ def fast_huber_loss(
     relative to MSE. Default delta=1.0; callers should set delta to the
     median |residual| of the training set for principled tuning.
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     return float(_huber_loss_kernel(yt, yp, float(delta)))
@@ -580,6 +591,7 @@ def fast_pearson_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     passes; numba dispatches on mixed-dtype signatures natively. Bench
     n=100k: int64+float64 1.07x, float64+float64 0.98x (noise band),
     float64+float32 1.12x. Bit-equiv vs scipy.stats.pearsonr."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true)
     yp = np.ascontiguousarray(y_pred)
     return float(_pearson_corr_kernel(yt, yp))
@@ -593,6 +605,7 @@ def fast_spearman_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     reduction-order) to the numpy path. On a single long series the batched paths (which parallelise across rows) buy nothing, so the within-series kernel
     is the faster default at all n -- ~1.5-2.7x over scipy across n in {5k..1M}.
     """
+    _check_equal_length(y_true, y_pred)
     if np.asarray(y_true).size < 2:
         return np.nan
     return spearmanr_scalar_dispatch(y_true, y_pred)
@@ -654,6 +667,7 @@ def fast_kendall_tau(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     equivalent for the returned scalar but unlocks the O(N log N) algorithm
     on every typical regression-metric shape.
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.asarray(y_true, dtype=np.float64)
     yp = np.asarray(y_pred, dtype=np.float64)
     if yt.shape[0] < 2:
@@ -914,6 +928,7 @@ def fast_regression_metrics_block_extended(
     1-D inputs only. For 2-D multioutput regression the caller should
     fall through to the per-output ``fast_*`` helpers.
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if yt.ndim != 1 or yp.ndim != 1:

@@ -153,7 +153,9 @@ def compute_shap_on_cv(
             values.append(shap_values)
             interaction_values.append(shap_interaction_values)
 
-        y_pred = model_instance.predict_proba(X)[:, 1]
+        _proba = np.asarray(model_instance.predict_proba(X))
+        # Binary -> positive-class column (1d); multiclass -> full (n, n_classes) matrix.
+        y_pred = _proba[:, 1] if _proba.ndim == 2 and _proba.shape[1] == 2 else _proba
         predictions.append(y_pred)
 
     if do_ts_oos:
@@ -163,7 +165,12 @@ def compute_shap_on_cv(
         # contributed no OOS rows (the per-fold ``nclasses = probs.shape[1]`` assignment is skipped then).
         nclasses = probs.shape[1]
         if show_classification_report:
-            classification_report_text = classification_report(all_true_values, (probs[:, 1] > 0.5).astype(np.int8), target_names=display_labels.values())
+            # Binary: threshold the positive-class column at 0.5; multiclass: take the argmax class.
+            if nclasses == 2:
+                hard_pred = (probs[:, 1] > 0.5).astype(np.int8)
+            else:
+                hard_pred = np.argmax(probs, axis=1).astype(np.int8)
+            classification_report_text = classification_report(all_true_values, hard_pred, target_names=display_labels.values())
             print(classification_report_text)
         show_custom_calibration_plot(
             y=all_true_values,

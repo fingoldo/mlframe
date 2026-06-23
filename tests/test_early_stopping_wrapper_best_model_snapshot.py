@@ -23,10 +23,13 @@ def _fit():
     # Large eta0 + no tolerance so weights overshoot AFTER the best iter,
     # degrading val accuracy -- exposes the live-reference bug.
     base = SGDClassifier(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=5.0)
-    m = EarlyStoppingWrapper(base, patience=50, max_iter=60)
+    # Seeded so the shuffled/stratified val fold the wrapper held out can be reproduced exactly here.
+    m = EarlyStoppingWrapper(base, patience=50, max_iter=60, random_state=0)
     m.fit(X, y)
-    nval = max(1, int(len(X) * m.validation_fraction))
-    return m, X[-nval:], y[-nval:]
+    # Reconstruct the SAME validation fold the wrapper used (deterministic given random_state),
+    # rather than assuming a last-rows holdout.
+    _, Xv, _, yv = m._split(X, y)
+    return m, Xv, yv
 
 
 def test_best_model_is_a_snapshot_not_a_live_reference():

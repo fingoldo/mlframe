@@ -94,7 +94,7 @@ def score_ensemble(
     max_ensembling_level: int = 1,
     n_features: int = None,
     n_jobs: int = None,
-    min_samples_for_parallel: int = 10_000_000,
+    min_samples_for_parallel: int = 1_000_000,
     verbose: bool = True,
     flag_degenerate_conf_subset: bool = True,
     degenerate_class_ratio: float = 0.01,

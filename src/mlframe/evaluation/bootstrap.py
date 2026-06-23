@@ -572,7 +572,7 @@ def auc_ci(
     score: np.ndarray,
     alpha: float = 0.05,
     method: str = "delong",
-    n_bootstrap: int = 2000,
+    n_bootstrap: int = 1000,
     random_state: Optional[int] = None,
 ) -> dict[str, float]:
     """Confidence interval for a single-sample ROC-AUC.
@@ -602,8 +602,10 @@ def auc_ci(
 
     Returns
     -------
-    dict ``{"auc": ..., "lo": ..., "hi": ..., "se": ..., "method": ...}``. ``se`` is ``nan`` for the
-    bootstrap path. On degenerate input the DeLong path returns ``lo=hi=nan``.
+    dict ``{"auc": ..., "point": ..., "lo": ..., "hi": ..., "se": ..., "method": ...}``. ``"point"`` is an alias
+    of ``"auc"`` so consumers that read the generic ``"point"`` key (as ``bootstrap_metric`` returns) work
+    uniformly without a KeyError. ``se`` is ``nan`` for the bootstrap path. On degenerate input the DeLong path
+    returns ``lo=hi=nan``.
 
     bench-note (2026-06-15, bench_auc_ci_delong_vs_bootstrap.py): DeLong SE/CI is a STATISTICAL WASH vs
     the qual-5 BCa bootstrap on AUC uncertainty (closer-to-truth-SD in 22/40 scenario x seed cells, coverage
@@ -620,14 +622,14 @@ def auc_ci(
             n_bootstrap=n_bootstrap, alpha=alpha, random_state=random_state,
             stratify=yt, method="bca",
         )
-        return {"auc": res["point"], "lo": res["lo"], "hi": res["hi"], "se": float("nan"), "method": "bootstrap"}
+        return {"auc": res["point"], "point": res["point"], "lo": res["lo"], "hi": res["hi"], "se": float("nan"), "method": "bootstrap"}
     if method != "delong":
         raise ValueError(f"auc_ci: method must be 'delong' or 'bootstrap'; got {method!r}")
     stats_d = auc_variance(y_true, score)
     auc = stats_d["auc"]
     se = stats_d["se"]
     if not np.isfinite(se) or not np.isfinite(auc):
-        return {"auc": auc, "lo": float("nan"), "hi": float("nan"), "se": se, "method": "delong"}
+        return {"auc": auc, "point": auc, "lo": float("nan"), "hi": float("nan"), "se": se, "method": "delong"}
     z = float(stats.norm.ppf(1.0 - alpha / 2.0))
     # Logit-scale Wald keeps the interval inside (0, 1) and is the standard remedy for the raw-scale
     # interval over-shooting 1.0 when AUC is near the ceiling (the regime where bootstrap also struggles).
@@ -637,7 +639,7 @@ def auc_ci(
     se_logit = se / (a_cl * (1.0 - a_cl))
     lo = 1.0 / (1.0 + math.exp(-(logit - z * se_logit)))
     hi = 1.0 / (1.0 + math.exp(-(logit + z * se_logit)))
-    return {"auc": auc, "lo": float(lo), "hi": float(hi), "se": se, "method": "delong"}
+    return {"auc": auc, "point": auc, "lo": float(lo), "hi": float(hi), "se": se, "method": "delong"}
 
 
 def delong_test(

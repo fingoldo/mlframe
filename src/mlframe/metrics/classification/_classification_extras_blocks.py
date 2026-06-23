@@ -31,7 +31,7 @@ from typing import Tuple
 import numba
 import numpy as np
 
-from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS
+from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS, _check_equal_length
 
 # ---------- helpers ----------
 from ._classification_extras import _confusion_counts_binary_par, _multiclass_confusion_kernel  # noqa: E402 (cycle-safe)
@@ -73,6 +73,7 @@ def fast_binary_confusion_metrics_block(
     Single pass; ~8-9x faster than 11 separate fast_* calls (see bench
     comment in this module).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     yp = np.ascontiguousarray(y_pred).astype(np.int64, copy=False)
     if yt.shape[0] >= _PARALLEL_REDUCTION_THRESHOLD:
@@ -240,6 +241,7 @@ def fast_binary_probability_metrics_block(
     ROC+PR AUC fused). Together they cover the full probabilistic-binary
     metric block in 2 passes total (1 sort-pass + 1 raw pass).
     """
+    _check_equal_length(y_true, y_score)
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     ys = np.ascontiguousarray(y_score, dtype=np.float64)
     n = yt.shape[0]
@@ -294,6 +296,7 @@ def fast_multiclass_confusion_metrics_block(
         N=500k K=10:   separate 7 calls=12.2 ms  fused=2.0 ms  (6.1x)
         N=5M K=10:     separate 7 calls=119 ms   fused=20 ms   (6.0x)
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     yp = np.ascontiguousarray(y_pred).astype(np.int64, copy=False)
     K = int(n_classes)

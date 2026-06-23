@@ -136,21 +136,26 @@ def _process_single_ensemble_method(
         # indexing the per-row test_idx / *_target / *_ensembled_predictions arrays (size N).
         predictions = (p.reshape(p.shape[0], -1) for p in _val_preds)
 
-    val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
-        *predictions,
-        ensemble_method=ensemble_method,
-        max_mae=max_mae,
-        max_std=max_std,
-        max_mae_relative=max_mae_relative,
-        max_std_relative=max_std_relative,
-        ensure_prob_limits=ensure_prob_limits,
-        uncertainty_quantile=uncertainty_quantile,
-        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-        verbose=verbose,
-        sample_weight=sample_weight,
-        rrf_k=rrf_k,
-        precomputed_weights=_slice_weights(_val_mask),
-    )
+    # No member carries this split's preds (e.g. compute_valset_metrics=False): skip the ensemble call.
+    # ensemble_probabilistic_predictions now raises on empty input, so the empty case is guarded here.
+    if len(_val_preds) == 0:
+        val_ensembled_predictions, val_confident_indices = None, None
+    else:
+        val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
+            *predictions,
+            ensemble_method=ensemble_method,
+            max_mae=max_mae,
+            max_std=max_std,
+            max_mae_relative=max_mae_relative,
+            max_std_relative=max_std_relative,
+            ensure_prob_limits=ensure_prob_limits,
+            uncertainty_quantile=uncertainty_quantile,
+            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            verbose=verbose,
+            sample_weight=sample_weight,
+            rrf_k=rrf_k,
+            precomputed_weights=_slice_weights(_val_mask),
+        )
 
     # 2026-05-13: same ``None``-guard for test_preds / test_probs.
     if not is_regression:
@@ -163,21 +168,24 @@ def _process_single_ensemble_method(
         _test_preds = [el.test_preds for el in level_models_and_predictions if el.test_preds is not None]
         predictions = (p.reshape(p.shape[0], -1) for p in _test_preds)  # preserve row axis for multi-target (see val-branch note)
 
-    test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
-        *predictions,
-        ensemble_method=ensemble_method,
-        max_mae=max_mae,
-        max_std=max_std,
-        max_mae_relative=max_mae_relative,
-        max_std_relative=max_std_relative,
-        ensure_prob_limits=ensure_prob_limits,
-        uncertainty_quantile=uncertainty_quantile,
-        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-        verbose=verbose,
-        sample_weight=sample_weight,
-        rrf_k=rrf_k,
-        precomputed_weights=_slice_weights(_test_mask),
-    )
+    if len(_test_preds) == 0:
+        test_ensembled_predictions, test_confident_indices = None, None
+    else:
+        test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
+            *predictions,
+            ensemble_method=ensemble_method,
+            max_mae=max_mae,
+            max_std=max_std,
+            max_mae_relative=max_mae_relative,
+            max_std_relative=max_std_relative,
+            ensure_prob_limits=ensure_prob_limits,
+            uncertainty_quantile=uncertainty_quantile,
+            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            verbose=verbose,
+            sample_weight=sample_weight,
+            rrf_k=rrf_k,
+            precomputed_weights=_slice_weights(_test_mask),
+        )
 
     # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer), not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
     #
@@ -230,21 +238,24 @@ def _process_single_ensemble_method(
     # order but may contain ``None`` entries when neither OOF nor train_* was available. Build the
     # alignment mask to slice precomputed_weights consistently with the per-split branches above.
     _train_mask = [(p is not None) for p in predictions] if predictions else []
-    train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
-        *predictions,
-        ensemble_method=ensemble_method,
-        max_mae=max_mae,
-        max_std=max_std,
-        max_mae_relative=max_mae_relative,
-        max_std_relative=max_std_relative,
-        ensure_prob_limits=ensure_prob_limits,
-        uncertainty_quantile=uncertainty_quantile,
-        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-        verbose=verbose,
-        sample_weight=sample_weight,
-        rrf_k=rrf_k,
-        precomputed_weights=_slice_weights(_train_mask) if _train_mask and _pcw_full is not None and len(_train_mask) == _pcw_full.shape[0] else None,
-    )
+    if not any(_train_mask):
+        train_ensembled_predictions, train_confident_indices = None, None
+    else:
+        train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
+            *predictions,
+            ensemble_method=ensemble_method,
+            max_mae=max_mae,
+            max_std=max_std,
+            max_mae_relative=max_mae_relative,
+            max_std_relative=max_std_relative,
+            ensure_prob_limits=ensure_prob_limits,
+            uncertainty_quantile=uncertainty_quantile,
+            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            verbose=verbose,
+            sample_weight=sample_weight,
+            rrf_k=rrf_k,
+            precomputed_weights=_slice_weights(_train_mask) if _train_mask and _pcw_full is not None and len(_train_mask) == _pcw_full.shape[0] else None,
+        )
 
     internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
 

@@ -553,8 +553,9 @@ def pick_best_calibrator(
     Parameters
     ----------
     probs, y
-        Optional held-out probs / labels for diagnostic-only secondary ECE; not used
-        for the selection decision (selection is OOF-only to keep test honest).
+        Optional held-out probs / labels. When both are given, the CHOSEN calibrator's ECE on this
+        slice is reported under ``secondary_ece`` in the result; this is diagnostic-only and never
+        influences the selection decision (selection stays OOF-only to keep the estimate honest).
     oof_probs, oof_y
         OOF-train probs/labels — the calibrator fit + ECE benchmark surface. Required.
     alpha
@@ -579,7 +580,8 @@ def pick_best_calibrator(
     dict
         ``{"chosen": <name>, "ece_mean": ..., "ece_ci": (lo, hi),
            "alternatives": {<name>: {"ece_mean", "ece_ci"}}, "rule": <selection-rule>,
-           "n_oof": int, "plot_path": Optional[str]}``.
+           "n_oof": int, "plot_path": Optional[str],
+           "secondary_ece": Optional[float]}`` (``secondary_ece`` is None unless ``probs``/``y`` given).
 
     selection
         ``"inner_cv"`` (default) ranks candidates by HELD-OUT ECE -- each candidate is fitted on
@@ -718,6 +720,26 @@ def pick_best_calibrator(
         else:
             selection_rule = "lowest_ece_ci_separated"
 
+    # Secondary diagnostic: if a held-out ``probs``/``y`` pair is supplied, score the CHOSEN calibrator's ECE on it.
+    # This never influences the selection above (which stays OOF-only for honesty); it is a side report so a caller can
+    # see whether the OOF-picked calibrator generalises to a separate held-out slice.
+    secondary_ece: Optional[float] = None
+    if probs is not None and y is not None:
+        try:
+            sec_p = np.asarray(probs, dtype=np.float64)
+            if sec_p.ndim == 2 and sec_p.shape[1] >= 2:
+                sec_p = sec_p[:, 1]
+            sec_p = sec_p.ravel()
+            sec_y = np.asarray(y).ravel()
+            if sec_p.shape[0] != sec_y.shape[0]:
+                raise ValueError(f"probs rows ({sec_p.shape[0]}) do not match y ({sec_y.shape[0]})")
+            chosen_apply = _fit_calibrator(chosen_name, oof_p_pos, oof_y_arr)
+            if chosen_apply is not None:
+                cal_sec = np.clip(np.asarray(chosen_apply(sec_p), dtype=np.float64).ravel(), 0.0, 1.0)
+                secondary_ece = float(_ece_score(sec_y, cal_sec, n_bins=n_bins))
+        except Exception as exc:
+            logger.warning("pick_best_calibrator: secondary-ECE diagnostic failed: %s", exc)
+
     plot_out: Optional[str] = None
     if emit_plot:
         if plot_path is None:
@@ -736,6 +758,7 @@ def pick_best_calibrator(
         "rule": selection_rule,
         "n_oof": n_oof,
         "plot_path": plot_out,
+        "secondary_ece": secondary_ece,
     }
 
 

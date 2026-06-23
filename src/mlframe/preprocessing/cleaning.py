@@ -925,17 +925,35 @@ def analyse_and_clean_features(
     )
 
 
-def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict):
-    """Apply learned features cleaning to an already cleaned dataframe MUST NOT CHANGE it.
+def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_data: bool = False):
+    """Apply learned features cleaning (learned replacements + dropping known-constant columns) and RETURN the result.
 
-    Basically it's applying learned replacements and dropping columns known as constant.
+    By default (``update_data=False``) the caller's ``df`` is NOT modified -- the replacements/drops are composed into a
+    NEW frame via ``assign`` + ``drop`` (which share the untouched columns, so peak RAM stays O(changed columns), not a
+    full ``df.copy()`` -- safe on 100GB+ frames). This matches the long-standing docstring contract ("MUST NOT CHANGE it")
+    and mirrors the ``update_data=`` knob of the sibling ``analyse_and_clean_features``. Pass ``update_data=True`` to mutate
+    the caller's frame in place (legacy behaviour). Always use the return value.
+
     Novelty detection? !TODO
     """
     head = df.head(1)
-    for col, repl_instructions in features_cleaning["features_transforms"].items():
-        df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
+    transforms = features_cleaning["features_transforms"]
+    constant_features = [col for col in features_cleaning["constant_features"] if col in head]
 
-    constant_features = features_cleaning["constant_features"].copy()
-    constant_features = [col for col in constant_features if col in head]
+    if update_data:
+        for col, repl_instructions in transforms.items():
+            df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
+        if constant_features:
+            df.drop(columns=constant_features, inplace=True)
+        return df
+
+    # Non-mutating path: compose the replacements into a new frame without touching the caller's columns.
+    replacements = {
+        col: df[col].replace(repl_instructions).astype(head[col].dtype.name)
+        for col, repl_instructions in transforms.items()
+    }
+    if replacements:
+        df = df.assign(**replacements)
     if constant_features:
-        df.drop(columns=constant_features, inplace=True)
+        df = df.drop(columns=constant_features)
+    return df

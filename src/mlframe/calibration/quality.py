@@ -289,9 +289,12 @@ def show_classifier_calibration(
             x, y, data, performances = estimate_calibration_quality_binned(
                 y_true[l:r], y_pred[l:r], nbins=nbins, indices=indices, metrics_to_show=metrics_to_show
             )
-        except Exception as e:
+        except (ValueError, ZeroDivisionError, IndexError) as e:
+            # Expected data-shape / empty-interval failures from binning: log and abort this call, returning None.
+            # Narrowed from a bare ``except Exception`` so genuinely unexpected errors (bugs, KeyboardInterrupt,
+            # programming errors) propagate instead of being silently swallowed into a None return.
             logging.exception(e)
-            return
+            return None
         all_performances.append(performances)
 
         if not skip_plotting:

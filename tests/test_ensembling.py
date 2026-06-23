@@ -74,12 +74,11 @@ def test_ensure_prob_limits_clips_results(preds):
     assert np.all((result >= 0) & (result <= 1))
 
 
-def test_empty_predictions_returns_none():
-    """Empty prediction list should return None."""
-    result, uncertainty, confident = ensemble_probabilistic_predictions(verbose=False)
-    assert result is None
-    assert uncertainty is None
-    assert confident is None
+def test_empty_predictions_raises():
+    """API27: empty prediction list is a caller error -- raise a clear ValueError at the source instead of
+    returning (None, None, None) which previously deferred the failure to a distant NoneType error."""
+    with pytest.raises(ValueError, match="no non-None member predictions"):
+        ensemble_probabilistic_predictions(verbose=False)
 
 
 def test_none_predictions_filtered():

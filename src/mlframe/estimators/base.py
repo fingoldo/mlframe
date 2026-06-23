@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,26 @@ class EstimatorWithEarlyStopping(BaseEstimator):
                 eval_set = Pool(X_val, y_val, weight=w_val)
                 fit_params_train = {"sample_weight": w_train, **fit_params}
             fitted_estimator.fit(X_train, y_train, eval_set=eval_set, plot=self.plot, **fit_params_train)
+        elif "eval_set" in inspect.signature(fitted_estimator.fit).parameters:
+            # Generic eval-set estimators (LightGBM, XGBoost, ...) honour the same split params as
+            # CatBoost; without this branch test_size/stratify/shuffle/random_state were silently dead.
+            sample_weight = fit_params.pop("sample_weight", None)
+            arrays = [X, y] if sample_weight is None else [X, y, sample_weight]
+            splits = train_test_split(
+                *arrays, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=self.stratify
+            )
+            if sample_weight is None:
+                X_train, X_val, y_train, y_val = splits
+                fit_params_train = fit_params
+            else:
+                X_train, X_val, y_train, y_val, w_train, w_val = splits
+                fit_params_train = {"sample_weight": w_train, **fit_params}
+            fitted_estimator.fit(X_train, y_train, eval_set=[(X_val, y_val)], **fit_params_train)
         else:
-            logger.warning(f"Early stopping params for estimator of type {type(self.base_estimator)} unknown.")
+            logger.warning(
+                f"Estimator of type {type(self.base_estimator)} accepts no eval_set; the early-stopping split "
+                f"params (test_size/stratify/shuffle/random_state) do not apply and are ignored for this fit."
+            )
             fitted_estimator.fit(X, y, **fit_params)
 
         self.fitted_estimator_=fitted_estimator

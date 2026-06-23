@@ -39,6 +39,17 @@ from catboost import CatBoostRegressor
 SMALL_VALUE = 1e-4
 BIG_VALUE = 1e6
 
+# Sentinel distinguishing "surrogate not yet trainable" (transient: no evaluations submitted yet, or all
+# known targets identical so the model cannot be fit) from a genuine None == "search space exhausted".
+# Callers that drive the optimizer in a loop must NOT terminate on _NOT_READY -- it means "try again after
+# submitting more evaluations", whereas None means "every candidate has been checked / suggested".
+class _SearchNotReady:
+    __slots__ = ()
+    def __repr__(self):
+        return "NOT_READY"
+
+NOT_READY = _SearchNotReady()
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Enums
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -160,7 +171,6 @@ class MBHOptimizer:
         model_name: str = "CBQ",  # actual estimator instance here? + for lgbm also the linear mode flag
         model_params: Optional[dict] = None,
         quantile: float = 0.01,
-        input_dtype=np.int32,
         # Visualisation
         plotting: OptimizationProgressPlotting = OptimizationProgressPlotting.No,
         plotting_ndim: int = 1,  # number of dimensions to use for visualisation
@@ -403,7 +413,7 @@ class MBHOptimizer:
 
             if len(self.known_candidates) == 0 or self.best_candidate is None:
                 logger.warning("suggest_candidate called before any evaluations were submitted; cannot suggest.")
-                return None
+                return NOT_READY
 
             greedy_prob = min(self.greedy_prob * min(self.n_noimproving_iters, self.n_steps_since_greedy + 1), 1.0)
             if self._stdlib_rng.random() < greedy_prob:
@@ -432,10 +442,10 @@ class MBHOptimizer:
                     # First need to check that targets are not all the same:
                     if len(self.known_evaluations) == 0:
                         logger.warning("No known evaluations available; can't train the underlying process model.")
-                        return None
+                        return NOT_READY
                     if np.all(self.known_evaluations == self.known_evaluations[0]):
                         logger.warning(f"All targets are the same! Can't train the underlying process model.")
-                        return None
+                        return NOT_READY
 
                     if not hasattr(self.model, "partial_fit"):
                         # S1 (Wave 2, 2026-05-28): dedup (x, y) by max(y) within each x.
@@ -677,20 +687,19 @@ def optimize_finite_onedimensional_search_space(
     seeded_inputs: Optional[Sequence] = None,  # seed items you want to be explored from start
     init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
     init_evaluate_ascending: bool = False,
-    init_evaluate_descending: bool = False,
+    init_evaluate_descending: bool = True,
     init_sampling_method: CandidateSamplingMethod = CandidateSamplingMethod.Equidistant,  # random, equidistant, fibo, rev_fibo?
     # EE dilemma
     exploitation_probability: float = 0.8,
     skip_best_candidate_prob: float = 0.0,  # pick the absolute best predicted candidate, or probabilistically the best
     use_distances_on_preds_collision: bool = True,
-    use_stds_for_exploitation: bool = True,
+    use_stds_for_exploitation: bool = False,
     dist_scaling_coefficient: float = 0.5,
     # self.model
     acquisition_method: str = "EE",
     model_name: str = "CBQ",  # actual estimator instance here? + for lgbm also the linear mode flag
     model_params: Optional[dict] = None,
     quantile: float = 0.01,
-    input_dtype=np.int32,
     # Visualisation
     plotting: OptimizationProgressPlotting = OptimizationProgressPlotting.No,
     plotting_ndim: int = 1,  # number of dimensions to use for visualisation
@@ -771,7 +780,6 @@ def optimize_finite_onedimensional_search_space(
         model_name=model_name,
         model_params=model_params,
         quantile=quantile,
-        input_dtype=input_dtype,
         plotting=plotting,
         plotting_ndim=plotting_ndim,
         figsize=figsize,
@@ -800,7 +808,19 @@ def optimize_finite_onedimensional_search_space(
         # get_best_dummy_score(estimator=estimator,X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
 
         next_candidate = optimizer.suggest_candidate()
-        if next_candidate is None:
+        if next_candidate is NOT_READY:
+            # Surrogate not yet trainable (no evaluations submitted, or all known targets identical).
+            # This is transient, NOT exhaustion -- fall back to any still-unchecked search-space point so
+            # the search keeps producing evaluations instead of terminating early (silent truncation).
+            checked = set(optimizer.known_candidates.tolist()) | set(optimizer.suggested_candidates.keys())
+            fallback = next((c for c in np.asarray(optimizer.search_space).tolist() if c not in checked), None)
+            if fallback is None:
+                if verbose:
+                    logger.info("Search space fully checked, quitting")
+                break
+            next_candidate = fallback
+            optimizer.suggested_candidates[fallback] = timer()
+        elif next_candidate is None:
             if verbose:
                 logger.info("Search space fully checked, quitting")
             break

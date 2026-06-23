@@ -176,6 +176,14 @@ def _iter_group_slices(
     than per-group ``y_true[group_ids == g]`` (which is O(N) per group,
     O(N * n_groups) total).
     """
+    # ``group_ids=None`` means a single group spanning all rows. This mirrors the
+    # ``_ranking_extras`` family (dcg_at_k / expected_reciprocal_rank / ...), which
+    # also treats None as one group, so the two ranking-metric families share one
+    # contract instead of one accepting None and the other crashing on len(None).
+    if group_ids is None:
+        yt = np.asarray(y_true, dtype=np.float64)
+        ys = np.asarray(y_score, dtype=np.float64)
+        return yt, ys, np.array([0, len(yt)], dtype=np.intp)
     if len(group_ids) != len(y_true) or len(group_ids) != len(y_score):
         raise ValueError(
             f"length mismatch: y_true={len(y_true)} y_score={len(y_score)} "

@@ -53,54 +53,54 @@ MRMR excluded entirely. "fix" = code fixed + a regression test that fails pre-fi
 [x] SER3 `training/neural/keras_compat.py:120` Keras model_ no __getstate__ — RESOLVED (fix+test)
 
 ## Statistical / ML methodology (SA)
-- [ ] SA-P0-1 `filters/_cmi_perm_stop.py:124-129` wrong (marginal) null vs conditional — PENDING
-- [ ] SA-P0-2 `wrappers/_knockoffs.py:204-308` W from non-neg importances, no flip-sign symmetry → no FDR — PENDING
-- [ ] SA1 `_cmi_perm_stop.py:129` naive p, no (b+1)/(B+1) — PENDING
-- [ ] SA2 `filters/fleuret.py:202-275,119` data-dependent stop p, no FWER, no add-one — PENDING
-- [ ] SA3 `wrappers/_noise_floor.py:108-134` 95th pct from n_perm=3 — PENDING
-- [ ] SA4 `filters/_interaction_information.py:84` MM design-cardinality → manufactured synergy — PENDING
-- [ ] SA5 `wrappers/rfecv/_stability_select.py:81-241` cites PFER, never enforces bound — PENDING
-- [ ] SA6 `filters/stability.py:53-194` sample_fraction=0.75, FDR-control claim false — PENDING
-- [ ] SA7 `boruta_shap/_shadow_stats.py:346-392` binomial p=0.5 vs 1/(m+1) — PENDING
-- [ ] SA8 `_univariate_ht.py:463-468` kendall tau-b no-ties variance — PENDING
-- [ ] SA9 `_univariate_ht.py:471-486` heterogeneous-n p mixed in one BY family — PENDING
-- [ ] SA10 `filters/_chao_shen.py:120-122` CS single-entropy estimator misused for MI — PENDING
-- [ ] SA11 `filters/_cat_mm_correction.py:104+` MM per-term doesn't telescope, can flip II sign — PENDING
-- [ ] SA12 `filters/_pid_decomposition.py:211-222` PID synergy plug-in bias, no correction — PENDING
-- [ ] SA13 `filters/_ksg.py:98 vs 325` open/closed neighbour convention mismatch — PENDING
-- [ ] SA14 `filters/_fastmi.py:217-223` asymmetric bias scales don't cancel — PENDING
-- [ ] SA15 `info_theory/_entropy_kernels.py:281-284` SU normalizer biased plug-in — PENDING
-- [ ] SA16 `metrics/calibration/_calibration_metrics.py:118-164` plug-in ECE default + adaptive grid — PENDING
-- [ ] SA17 `_calibration_metrics.py:43-44` calibration_coverage rounding artifact feeds ICE — PENDING
-- [ ] SA18 `calibration/policy.py:631-659` held-out point + in-sample bootstrap CI mismatch — PENDING
-- [ ] SA19 `reporting/charts/calibration.py:90-150` isotonic substitute on degenerate resamples narrows band — PENDING
-- [ ] SA20 `reporting/charts/calibration.py:580-599` DeLong normal CI under-covers near AUC≈1 — PENDING
-- [ ] SA21 `reporting/charts/calibration_drift.py:154-160` plug-in ECE on small unequal windows → trend artifact — PENDING
-- [ ] SA22 `metrics/_drift.py:39-49` near-constant ref → PSI/KL/JS=0 false no-drift — PENDING
-- [ ] SA23 `metrics/quantile.py:341-396` CRPS drops tails — PENDING
-- [ ] SA24 `metrics/_fairness_metrics.py:149-150,202` subgroup dict keyed by len(arr) collision — PENDING
-- [ ] SA25 `metrics/_ranking_extras.py:256` ERR max_grade per-sample; `:302` P@k /k deflates short queries — PENDING
-- [ ] SA26 `training/composite/discovery/_eval_waic.py:138-139` σ² from held-out fold's own residuals — PENDING
-- [ ] SA27 `training/composite/discovery/_stability.py`+screen winner's-curse, no honest holdout — PENDING
-- [ ] SA28 `training/composite/conformal.py:118-181` normalized conformal fits σ̂ on same calib residuals — PENDING
-- [ ] SA29 `training/composite/conformal.py` exchangeability unchecked on temporal data (time_ordering not plumbed) — PENDING
-- [ ] SA30 `training/baselines/_dummy_baseline_classification.py:51-58` train prevalence scored on val/test — PENDING
+[x] SA-P0-1 `filters/_cmi_perm_stop.py:124-129` wrong (marginal) null vs conditional — RESOLVED (fix+test)
+[x] SA-P0-2 `wrappers/_knockoffs.py:204-308` W from non-neg importances, no flip-sign symmetry → no FDR — RESOLVED (fix+test)
+[x] SA1 `_cmi_perm_stop.py:129` naive p, no (b+1)/(B+1) — RESOLVED (fix+test)
+[x] SA2 `filters/fleuret.py:202-275,119` data-dependent stop p, no FWER, no add-one — RESOLVED (fix+test)
+[x] SA3 `wrappers/_noise_floor.py:108-134` 95th pct from n_perm=3 — RESOLVED (fix+test)
+[x] SA4 `filters/_interaction_information.py:84` MM design-cardinality → manufactured synergy — RESOLVED (fix+test)
+[x] SA5 `wrappers/rfecv/_stability_select.py:81-241` cites PFER, never enforces bound — RESOLVED (fix+test)
+[x] SA6 `filters/stability.py:53-194` sample_fraction=0.75, FDR-control claim false — RESOLVED (fix+test)
+[x] SA7 `boruta_shap/_shadow_stats.py:346-392` binomial p=0.5 vs 1/(m+1) — RESOLVED (fix+test)
+[x] SA8 `_univariate_ht.py:463-468` kendall tau-b no-ties variance — RESOLVED (fix+test)
+[x] SA9 `_univariate_ht.py:471-486` heterogeneous-n p mixed in one BY family — RESOLVED (fix+test)
+[x] SA10 `filters/_chao_shen.py:120-122` CS single-entropy estimator misused for MI — RESOLVED (fix+test)
+[x] SA11 `filters/_cat_mm_correction.py:104+` MM per-term doesn't telescope, can flip II sign — RESOLVED (fix+test)
+[x] SA12 `filters/_pid_decomposition.py:211-222` PID synergy plug-in bias, no correction — RESOLVED (fix+test)
+[x] SA13 `filters/_ksg.py:98 vs 325` open/closed neighbour convention mismatch — RESOLVED (fix+test)
+[x] SA14 `filters/_fastmi.py:217-223` asymmetric bias scales don't cancel — RESOLVED (fix+test)
+[x] SA15 `info_theory/_entropy_kernels.py:281-284` SU normalizer biased plug-in — RESOLVED (fix+test)
+[x] SA16 `metrics/calibration/_calibration_metrics.py:118-164` plug-in ECE default + adaptive grid — RESOLVED (fix+test)
+[x] SA17 `_calibration_metrics.py:43-44` calibration_coverage rounding artifact feeds ICE — RESOLVED (fix+test)
+[x] SA18 `calibration/policy.py:631-659` held-out point + in-sample bootstrap CI mismatch — RESOLVED (fix+test)
+[x] SA19 `reporting/charts/calibration.py:90-150` isotonic substitute on degenerate resamples narrows band — RESOLVED (fix+test)
+[x] SA20 `reporting/charts/calibration.py:580-599` DeLong normal CI under-covers near AUC≈1 — RESOLVED (fix+test)
+[x] SA21 `reporting/charts/calibration_drift.py:154-160` plug-in ECE on small unequal windows → trend artifact — RESOLVED (fix+test)
+[x] SA22 `metrics/_drift.py:39-49` near-constant ref → PSI/KL/JS=0 false no-drift — RESOLVED (fix+test)
+[x] SA23 `metrics/quantile.py:341-396` CRPS drops tails — RESOLVED (fix+test)
+[x] SA24 `metrics/_fairness_metrics.py:149-150,202` subgroup dict keyed by len(arr) collision — RESOLVED (fix+test)
+[x] SA25 `metrics/_ranking_extras.py:256` ERR max_grade per-sample; `:302` P@k /k deflates short queries — RESOLVED (fix+test)
+[x] SA26 `training/composite/discovery/_eval_waic.py:138-139` σ² from held-out fold's own residuals — RESOLVED (fix+test)
+[x] SA27 `training/composite/discovery/_stability.py`+screen winner's-curse, no honest holdout — FUTURE (needs fresh holdout threaded through whole discovery pipeline; DOC note at site)
+[x] SA28 `training/composite/conformal.py:118-181` normalized conformal fits σ̂ on same calib residuals — RESOLVED (fix+test)
+[x] SA29 `training/composite/conformal.py` exchangeability unchecked on temporal data (time_ordering not plumbed) — RESOLVED (fix+test)
+[x] SA30 `training/baselines/_dummy_baseline_classification.py:51-58` train prevalence scored on val/test — RESOLVED (fix+test)
 
 ## Statistical P2 / DOC-class (SAP2)
-- [ ] SAP2-1 three inconsistent ECE binning schemes presented as "the ECE" — PENDING
-- [ ] SAP2-2 `calibration/policy.py` selection="same_oof" fit+eval-same-rows (default inner_cv) — PENDING
-- [ ] SAP2-3 `_dummy_bootstrap.py:248` percentile (not BCa) CIs; :246 no add-one; dropped resamples — PENDING
-- [ ] SAP2-4 `evaluation/bootstrap.py` AUC bootstrap ignores tie/paired (DeLong is default) — PENDING
-- [ ] SAP2-5 `_permutation_null.py:153` maxT floor from K=25 — PENDING
-- [ ] SAP2-6 `_ksg.py:138` KSG subsample to 50k; `_entropy_kernels.py:218` "scrubs bias" overstatement — PENDING
-- [ ] SAP2-7 `_eval_waic.py` mislabeled "WAIC"/"Chow"; `_eval_stats.py` BH over correlated p (should be BY) — PENDING
-- [ ] SAP2-8 `_classification_report.py` macro-avg includes absent classes; P/R/F1 pinned 0.5 on rare — PENDING
-- [ ] SAP2-9 `_drift.py` PSI eps=1e-4 drives value; KL Miller-Madow cross-term heuristic — PENDING
-- [ ] SAP2-10 `metrics/quantile.py` PIT launders crossings; coverage silent on holdout-only — PENDING
-- [ ] SAP2-11 `venn_abers.py:51-83` off-grid step-function lookup — PENDING
-- [ ] SAP2-12 `_cmi_perm_stop.py:113` z_comp modulo collision still returns verdict — PENDING
-- [ ] SAP2-13 `_shap_proxy_calibrate.py:122` non-inversion guard checked in-sample — PENDING
-- [ ] SAP2-14 `_calibration_gate.py:145` gain-vs-penalty unit mismatch — PENDING
+[x] SAP2-1 three inconsistent ECE binning schemes presented as "the ECE" — DOC (caveat added at site)
+[x] SAP2-2 `calibration/policy.py` selection="same_oof" fit+eval-same-rows (default inner_cv) — DOC (caveat added at site)
+[x] SAP2-3 `_dummy_bootstrap.py:248` percentile (not BCa) CIs; :246 no add-one; dropped resamples — RESOLVED (fix+test) + DOC
+[x] SAP2-4 `evaluation/bootstrap.py` AUC bootstrap ignores tie/paired (DeLong is default) — DOC (caveat added at site)
+[x] SAP2-5 `_permutation_null.py:153` maxT floor from K=25 — DOC (caveat added at site)
+[x] SAP2-6 `_ksg.py:138` KSG subsample to 50k; `_entropy_kernels.py:218` "scrubs bias" overstatement — DOC (caveat added at site)
+[x] SAP2-7 `_eval_waic.py` mislabeled "WAIC"/"Chow"; `_eval_stats.py` BH over correlated p (should be BY) — RESOLVED (fix+test) + DOC
+[x] SAP2-8 `_classification_report.py` macro-avg includes absent classes; P/R/F1 pinned 0.5 on rare — DOC (caveat added at site)
+[x] SAP2-9 `_drift.py` PSI eps=1e-4 drives value; KL Miller-Madow cross-term heuristic — DOC (caveat added at site)
+[x] SAP2-10 `metrics/quantile.py` PIT launders crossings; coverage silent on holdout-only — DOC (caveat added at site)
+[x] SAP2-11 `venn_abers.py:51-83` off-grid step-function lookup — DOC (caveat added at site)
+[x] SAP2-12 `_cmi_perm_stop.py:113` z_comp modulo collision still returns verdict — RESOLVED (already fixed round-1, warning present)
+[x] SAP2-13 `_shap_proxy_calibrate.py:122` non-inversion guard checked in-sample — DOC (caveat added at site)
+[x] SAP2-14 `_calibration_gate.py:145` gain-vs-penalty unit mismatch — DOC (caveat added at site)
 
 ## Complexity / performance (CPX) — measure-first, gate by bit-identity/selection-equivalence
 - [ ] CPX-P0-1 `metrics/_auc_per_group.py:54-62` public fn doesn't dispatch to O(n log n) twin — PENDING

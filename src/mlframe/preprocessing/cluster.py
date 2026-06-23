@@ -41,7 +41,7 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
     print('Estimated number of noise points: %d' % n_noise_)
     if show_metrics:
         if len(np.unique(labels))>1:print("Silhouette Coefficient: %0.3f" % metrics.silhouette_score(X, labels))
-        if true_labels:
+        if true_labels is not None:
             print("Homogeneity: %0.3f" % metrics.homogeneity_score(true_labels, labels))
             print("Completeness: %0.3f" % metrics.completeness_score(true_labels, labels))
             print("V-measure: %0.3f" % metrics.v_measure_score(true_labels, labels))
@@ -77,13 +77,13 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
             plt.title(title)
         else:
             plt.title('Estimated number of clusters: %d' % n_clusters_)
-        if true_labels:
+        if true_labels is not None:
             for i in range(len(true_labels)):
                 plt.annotate(true_labels[i],(X[i,0],X[i,1]))
         plt.axis('off')
         plt.show()
-        
-        if true_labels:
+
+        if true_labels is not None:
             if list_members: list_cluster_members(labels,true_labels)
     
     return labels

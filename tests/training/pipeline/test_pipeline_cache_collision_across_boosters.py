@@ -100,16 +100,26 @@ class TestPrepareDfForXgboostContract:
             prepare_df_for_xgboost(df)
 
     def test_pandas_input_returns_df(self):
-        """Pre-fix returned None. Now: returns the (possibly
-        dtype-mutated) df so callers can chain the same way they
-        chain prepare_df_for_catboost."""
+        """Returns the dtype-ensured df so callers can chain the same way
+        they chain prepare_df_for_catboost. Default is now non-mutating:
+        the returned frame has 'b' as Categorical but the input df keeps
+        its original object dtype (mutate-restore / assign contract)."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
         df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})
         cat_features = ["b"]
         out = prepare_df_for_xgboost(df, cat_features=cat_features)
-        assert out is df
         # 'b' should now be Categorical since ensure_categorical=True.
         assert isinstance(out["b"].dtype, pd.CategoricalDtype)
+        # Non-mutating default: the caller's df is untouched.
+        assert not isinstance(df["b"].dtype, pd.CategoricalDtype)
+
+    def test_inplace_true_mutates_caller_df(self):
+        """inplace=True restores legacy in-place dtype casting on the caller's df."""
+        from mlframe.preprocessing.transforms import prepare_df_for_xgboost
+        df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})
+        out = prepare_df_for_xgboost(df, cat_features=["b"], inplace=True)
+        assert out is df
+        assert isinstance(df["b"].dtype, pd.CategoricalDtype)
 
     def test_cat_features_none_accepted(self):
         """Pre-fix: ``var not in None`` raised TypeError. Now: coerced
@@ -120,17 +130,22 @@ class TestPrepareDfForXgboostContract:
         assert out is df
 
     def test_preexisting_categorical_auto_added_to_cat_features(self):
-        """Existing behavior preserved: pd.Categorical columns not in
-        cat_features get appended (mutation contract). Confirm the
-        fix didn't regress this."""
+        """pd.Categorical columns not in cat_features get appended. With the
+        non-mutating default the caller's list is NOT touched (the append lands
+        on the local copy); pass inplace=True for the legacy in-place append."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
         df = pd.DataFrame({
             "a": [1.0, 2.0, 3.0],
             "b": pd.Categorical(["x", "y", "x"]),
         })
+        # Default non-mutating: caller's list untouched.
         cat_features: list = []
         prepare_df_for_xgboost(df, cat_features=cat_features)
-        assert "b" in cat_features
+        assert "b" not in cat_features
+        # inplace=True: legacy append onto the caller's list.
+        cat_features_inplace: list = []
+        prepare_df_for_xgboost(df, cat_features=cat_features_inplace, inplace=True)
+        assert "b" in cat_features_inplace
 
 
 # =============================================================================

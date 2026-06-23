@@ -47,7 +47,7 @@ import os
 import numpy as np
 import numba
 
-from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
 
 # Max-error gets its own (higher) crossover: the prange ``max`` reduction carries more per-launch overhead than the ``+=``
 # reductions of MAE/MSE/R2, so it only nets positive at large n (~2-4x at 5-10M, a wash below ~1M -- bench
@@ -324,6 +324,7 @@ def fast_mean_absolute_error(
     ``multioutput`` in ``{'raw_values', 'uniform_average'}`` or an
     array of per-output weights.
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if sample_weight is not None:
@@ -362,6 +363,7 @@ def fast_mean_squared_error(
 ):
     """Drop-in for ``sklearn.metrics.mean_squared_error``. 15× faster at
     N=1M with full sample_weight + multioutput support."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if sample_weight is not None:
@@ -431,6 +433,7 @@ def fast_max_error(
     ``multioutput`` support (default ``'raw_values'`` returns per-output
     max). ``sample_weight`` does NOT apply to max-error (max is max).
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if yt.ndim == 1:
@@ -459,6 +462,7 @@ def fast_r2_score(
     """Drop-in for ``sklearn.metrics.r2_score``. 23× faster at N=1M with
     full sample_weight + multioutput support, including
     ``'variance_weighted'`` aggregation."""
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if sample_weight is not None:
@@ -762,6 +766,7 @@ def fast_regression_metrics_block(
     aggregation has a non-trivial dispatch and the speedup of fusing one
     target's pass doesn't compose cleanly across outputs.
     """
+    _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if yt.ndim != 1 or yp.ndim != 1:

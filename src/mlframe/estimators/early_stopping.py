@@ -84,6 +84,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         validation_fraction: float = 0.1,
         scoring: Callable = accuracy_score,
         warm_start_step: int = None,
+        random_state: int = None,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
@@ -105,17 +106,31 @@ class EarlyStoppingWrapper(BaseEstimator):
         return scoring
 
     def _split(self, X, y):
-        """Hold out the last ``validation_fraction`` rows as val; guard against a zero-row train/val split."""
-        # Wave 24 P0 (2026-05-20): int(len(X) * frac) could round down to 0 on small X (e.g. len=9,
-        # frac=0.1 -> int(0.9)=0); then X[:-0] is an EMPTY array and training silently collapsed. Clamp to
-        # >=1 and require at least one training row.
+        """Shuffle + (for classifiers) stratify a ``validation_fraction`` holdout; guard against a zero-row split.
+
+        Previously this held out the LAST rows with no shuffle/stratify/seed, which on data sorted by class
+        (the common case) produced a degenerate single-class validation fold and a biased early-stopping signal.
+        Mirrors ``base.SplitFitEstimator`` (shuffled, stratified, seeded train/val split) for a representative fold.
+        """
+        # int(len(X) * frac) could round down to 0 on small X (e.g. len=9, frac=0.1 -> int(0.9)=0); clamp to >=1.
         n_val_samples = max(1, int(len(X) * self.validation_fraction))
         if n_val_samples >= len(X):
             raise ValueError(
                 f"early-stopping: validation_fraction={self.validation_fraction} with len(X)={len(X)} leaves "
                 f"zero training rows (n_val_samples={n_val_samples}). Use a smaller validation_fraction or more samples."
             )
-        return X[:-n_val_samples], X[-n_val_samples:], y[:-n_val_samples], y[-n_val_samples:]
+        from sklearn.model_selection import train_test_split
+
+        # Stratify only when classification AND every class has >=2 rows (train_test_split rejects a stratify
+        # vector with a singleton class); otherwise fall back to a plain shuffled split.
+        stratify = None
+        if not self._is_regressor:
+            _, counts = np.unique(np.asarray(y), return_counts=True)
+            if counts.min() >= 2:
+                stratify = y
+        return train_test_split(
+            X, y, test_size=n_val_samples, random_state=self.random_state, shuffle=True, stratify=stratify,
+        )
 
     def _capability(self, model):
         """Return the early-stopping backend for ``model``: 'partial_fit' | 'staged' | ('warm_start', attr) | None.
@@ -253,17 +268,17 @@ class EarlyStoppingWrapper(BaseEstimator):
         # Scorer is always greater-is-better here, so the monotonic detector runs in mode="max".
         self._monotonic_stopper = MonotonicDeclineStopper(self.monotonic_decline_patience, mode="max")
 
-        # Validate the train/val split FIRST (before probing the base model) so a degenerate
-        # validation_fraction raises the clear "zero training rows" error rather than failing later
-        # inside an estimator-introspection call on an exotic base model.
-        X_train, X_val, y_train, y_val = self._split(X, y)
         # ``is_regressor`` on a base model that does not inherit ``BaseEstimator`` raises under recent
         # sklearn (no ``__sklearn_tags__`` in the MRO). The wrapper supports any duck-typed partial_fit /
         # warm_start object, so fall back to "not a regressor" (classifier scoring) when tags are absent.
+        # Determined BEFORE the split so ``_split`` can stratify on classification targets.
         try:
             self._is_regressor = is_regressor(self.base_model)
         except AttributeError:
             self._is_regressor = False
+        # Validate / build the train/val split (shuffled + stratified, see ``_split``) so a degenerate
+        # validation_fraction raises the clear "zero training rows" error rather than failing later.
+        X_train, X_val, y_train, y_val = self._split(X, y)
         scoring = self._resolve_scoring()
         if self.max_iter is None:
             raise ValueError("EarlyStoppingWrapper requires max_iter to bound the iteration / growth schedule.")

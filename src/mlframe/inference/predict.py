@@ -203,12 +203,22 @@ def read_trained_models(
 
 
 def get_models_raw_predictions(trained_models: dict, X, Y):
-    """X should already contain only right features in right order."""
+    """X should already contain only right features in right order.
+
+    For classifiers this returns PROBABILITIES (not hard labels): the positive-class column for binary,
+    the full (n, n_classes) matrix for multiclass -- consistent with ``explainability.py`` which scores on
+    ``predict_proba``. A model without ``predict_proba`` (a regressor) falls back to ``predict``.
+    """
     predictions = {}
     for model_name, model in tqdmu(trained_models.items(), desc="Getting raw predictions"):
-        prediction = model.predict(X)
+        if hasattr(model, "predict_proba"):
+            proba = np.asarray(model.predict_proba(X))
+            # Binary -> positive-class column; multiclass -> full matrix. Shape guard so a degenerate
+            # single-column proba does not crash on the [:, 1] index.
+            prediction = proba[:, 1] if proba.ndim == 2 and proba.shape[1] == 2 else proba
+        else:
+            prediction = model.predict(X)
 
-        # assert len(prediction) == cDAY_SIZE
         predictions[model_name] = prediction
 
     return predictions  # np.mean(np.array(predictions), axis=0)

@@ -234,29 +234,36 @@ def prepare_df_for_xgboost(
     df: pd.DataFrame,
     cat_features: Optional[Sequence] = None,
     ensure_categorical: bool = True,
+    inplace: bool = False,
 ) -> pd.DataFrame:
     """Ensure categorical columns are pd.CategoricalDtype for XGBoost.
 
-    Contract (fixed 2026-04-19 round 9):
+    Contract:
       - Input must be a pandas DataFrame. Polars is NOT accepted; caller
-        must convert first (use ``get_pandas_view_of_polars_df``). Pre-fix
-        the signature declared ``df: object`` and the function crashed
-        with AttributeError on polars input — misleading silent failure.
-      - ``cat_features`` is mutated in place (existing contract, kept for
-        back-compat) AND the DataFrame is also returned so callers can
-        chain calls symmetrically with ``prepare_df_for_catboost``.
-      - ``cat_features=None`` is now accepted (coerced to empty list);
-        pre-fix hit TypeError on ``var not in None``.
+        must convert first (use ``get_pandas_view_of_polars_df``).
+      - Non-mutating by default (``inplace=False``), mirroring
+        ``prepare_df_for_catboost`` ("Always use the return value"): the
+        caller's ``df`` and ``cat_features`` are left untouched and the
+        augmented values are handed back via the return value. The dtype
+        casts are applied through ``df.assign`` (a new frame that shares the
+        unchanged columns -- no full-data copy, safe on large frames).
+      - ``inplace=True`` restores the legacy behaviour: ``df`` dtype casts
+        and ``cat_features`` appends happen in place on the caller's objects.
+      - ``cat_features=None`` is accepted (coerced to empty list).
 
     Args:
         df: pandas DataFrame (polars is rejected with a clear TypeError).
-        cat_features: List of known categorical column names, MUTATED in
-            place to append auto-detected pd.CategoricalDtype columns.
+        cat_features: List of known categorical column names. Auto-detected
+            pd.CategoricalDtype columns are appended (to a local copy when
+            ``inplace=False``, to the caller's list when ``inplace=True``).
         ensure_categorical: If True, cast any column in cat_features that
             isn't yet pd.CategoricalDtype to ``category`` dtype.
+        inplace: When True, mutate the caller's ``df`` / ``cat_features`` in
+            place (legacy). Default False = leave the caller's objects alone.
 
     Returns:
-        The same DataFrame (modified in place for dtype casts).
+        The (possibly new) DataFrame with categorical dtypes ensured. Use the
+        return value; with ``inplace=False`` the input ``df`` is unchanged.
 
     Raises:
         TypeError: if ``df`` is a Polars DataFrame or Series.
@@ -273,7 +280,11 @@ def prepare_df_for_xgboost(
         )
     if cat_features is None:
         cat_features = []
+    if not inplace:
+        # Work on a local copy of the names list so the caller's collection is never appended to.
+        cat_features = list(cat_features)
     cols = set(df.columns)
+    casts: dict = {}
     for var in tqdmu(cols, desc="Processing categorical features for XGBoost...", leave=False):
         if isinstance(df[var].dtype, pd.CategoricalDtype):
             if var not in cat_features:
@@ -281,7 +292,14 @@ def prepare_df_for_xgboost(
                 cat_features.append(var)
         else:
             if var in cat_features and ensure_categorical:
-                df[var] = df[var].astype("category")
+                if inplace:
+                    df[var] = df[var].astype("category")
+                else:
+                    casts[var] = df[var].astype("category")
+    if not inplace and casts:
+        # ``assign`` returns a new frame sharing the untouched columns; only the recast columns are new arrays,
+        # so the caller's ``df`` keeps its original dtypes and peak RAM stays at O(recast columns), not O(full frame).
+        df = df.assign(**casts)
     return df
 
 

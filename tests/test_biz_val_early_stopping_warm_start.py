@@ -88,8 +88,6 @@ def _fit_es(factory, X, y, **kw):
 @pytest.mark.parametrize("name", sorted(_CLF_FACTORIES))
 def test_biz_val_warm_classifier_no_accuracy_loss(name):
     X, y = _clf_data()
-    n_val = max(1, int(len(X) * 0.15))
-    Xv, yv = X[-n_val:], y[-n_val:]
     # patience >= max count so ES evaluates the WHOLE count curve; its val-argmax snapshot is then provably
     # >= the full-grown model on that same val fold (bagging ensembles like RF/ET don't overfit with more
     # trees, so full is often the optimum -- ES must tie, never lose, by selecting it).
@@ -97,15 +95,17 @@ def test_biz_val_warm_classifier_no_accuracy_loss(name):
     # the val-argmax snapshot against the full-grown model, so BOTH ES stop signals (patience AND the
     # default-on monotonic strict-decline detector) must be disabled -- a noisy bagging val curve can
     # produce a spurious 3-strict-decline run that truncates the forest before its optimum.
-    es = _fit_es(_CLF_FACTORIES[name], X, y, patience=_MAX_N + 1, monotonic_decline_patience=None)
+    es = _fit_es(_CLF_FACTORIES[name], X, y, patience=_MAX_N + 1, monotonic_decline_patience=None, random_state=0)
     assert es.best_model_ is not None and es.best_score_ > -np.inf
+    # Reconstruct the wrapper's actual shuffled/stratified, seeded fold (no longer a last-rows holdout).
+    Xtr, Xv, ytr, yv = es._split(X, y)
     es_acc = accuracy_score(yv, es.predict(Xv))
 
     full = _CLF_FACTORIES[name]()
     full.set_params(n_estimators=_MAX_N)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        full.fit(X[:-n_val], y[:-n_val])
+        full.fit(Xtr, ytr)
     full_acc = accuracy_score(yv, full.predict(Xv))
     assert es_acc >= full_acc - 1e-9, f"{name}: ES acc {es_acc:.3f} must not be below full-grown {full_acc:.3f}"
 
@@ -113,19 +113,18 @@ def test_biz_val_warm_classifier_no_accuracy_loss(name):
 @pytest.mark.parametrize("name", sorted(_REG_FACTORIES))
 def test_biz_val_warm_regressor_no_rmse_loss(name):
     X, y = _reg_data()
-    n_val = max(1, int(len(X) * 0.15))
-    Xv, yv = X[-n_val:], y[-n_val:]
     # monotonic_decline_patience=None: full-curve no-loss comparison (see classifier test) -- disable BOTH
     # stop signals so the noisy bagging val curve isn't truncated by a spurious strict-decline run.
-    es = _fit_es(_REG_FACTORIES[name], X, y, patience=_MAX_N + 1, monotonic_decline_patience=None)
+    es = _fit_es(_REG_FACTORIES[name], X, y, patience=_MAX_N + 1, monotonic_decline_patience=None, random_state=0)
     assert es.best_model_ is not None and es.best_score_ > -np.inf
+    Xtr, Xv, ytr, yv = es._split(X, y)
     es_rmse = _rmse(yv, es.predict(Xv))
 
     full = _REG_FACTORIES[name]()
     full.set_params(n_estimators=_MAX_N)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        full.fit(X[:-n_val], y[:-n_val])
+        full.fit(Xtr, ytr)
     full_rmse = _rmse(yv, full.predict(Xv))
     assert es_rmse <= full_rmse + 1e-9, f"{name}: ES RMSE {es_rmse:.3f} must not exceed full-grown {full_rmse:.3f}"
     assert -es_rmse >= es.best_score_ - 1e-9

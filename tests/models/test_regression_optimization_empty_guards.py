@@ -11,6 +11,7 @@ import pytest
 
 from mlframe.models.optimization import (
     MBHOptimizer,
+    NOT_READY,
     compute_candidates_exploration_scores,
 )
 
@@ -41,16 +42,17 @@ def test_exploration_scores_nonempty_unchanged():
     np.testing.assert_array_equal(distances, np.abs(search_space - 5))
 
 
-def test_suggest_candidate_empty_known_evaluations_returns_none():
+def test_suggest_candidate_empty_known_evaluations_returns_not_ready():
     # Inconsistent state (candidates present, evaluations empty) must not IndexError on known_evaluations[0].
+    # Post-API23 the transient "surrogate not yet trainable" case returns the NOT_READY sentinel (NOT None),
+    # so the driving loop does not mistake it for search-space exhaustion and truncate the search.
     opt = _make_optimizer(greedy_prob=0.0)
     opt.pre_seeded_candidates = []  # skip the pre-seed shortcut so the surrogate-fit branch is reached
     opt.known_candidates = np.array([1, 2, 3])
     opt.known_evaluations = np.array([])
     opt.last_retrain_ninputs = 0
     opt.best_candidate = 1
-    # Pre-fix: IndexError at known_evaluations[0]; post-fix: returns None.
-    assert opt.suggest_candidate() is None
+    assert opt.suggest_candidate() is NOT_READY
 
 
 def test_suggest_candidate_greedy_picks_nearest_unchecked():

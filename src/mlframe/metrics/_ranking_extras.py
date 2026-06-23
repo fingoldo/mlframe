@@ -51,7 +51,10 @@ def _split_by_group(
     """
     n = y_true.shape[0]
     if n == 0:
-        return np.empty(0, dtype=np.float64)
+        # Return a consistent 3-tuple so callers' ``boundaries, yt, ys = _split_by_group(...)``
+        # unpack never raises on empty input; an empty boundaries array yields n_groups == -1
+        # which the callers' ``n_groups <= 0 -> np.nan`` guard already handles.
+        return np.empty(0, dtype=np.int64), y_true, y_score
     gids = np.ascontiguousarray(group_ids)
     diffs = np.diff(gids)
     # LTR-suite convention: rows arrive pre-sorted by group_ids. A stable argsort of an already-sorted
@@ -211,7 +214,7 @@ def dcg_at_k(
         return float(_dcg_per_group_kernel(yt, ys, int(k), bool(exp_gain)))
     boundaries, yt_s, ys_s = _split_by_group(yt, ys, group_ids)
     n_groups = boundaries.shape[0] - 1
-    if n_groups == 0:
+    if n_groups <= 0:
         return np.nan
     total, counted = _dcg_batch_kernel(boundaries, yt_s, ys_s, int(k), bool(exp_gain))
     return total / counted if counted > 0 else np.nan
@@ -274,7 +277,7 @@ def expected_reciprocal_rank(
         return float(_err_per_group_kernel(yt, ys, int(k), mg))
     boundaries, yt_s, ys_s = _split_by_group(yt, ys, group_ids)
     n_groups = boundaries.shape[0] - 1
-    if n_groups == 0:
+    if n_groups <= 0:
         return np.nan
     total, counted = _err_batch_kernel(boundaries, yt_s, ys_s, int(k), mg)
     return total / counted if counted > 0 else np.nan
@@ -338,7 +341,7 @@ def hit_at_k(
         return float(_hit_at_k_per_group_kernel(yt, ys, int(k)))
     boundaries, yt_s, ys_s = _split_by_group(yt, ys, group_ids)
     n_groups = boundaries.shape[0] - 1
-    if n_groups == 0:
+    if n_groups <= 0:
         return np.nan
     total, counted = _hit_batch_kernel(boundaries, yt_s, ys_s, int(k))
     return total / counted if counted > 0 else np.nan
@@ -363,7 +366,7 @@ def precision_at_k(
         return float(_precision_at_k_per_group_kernel(yt, ys, int(k)))
     boundaries, yt_s, ys_s = _split_by_group(yt, ys, group_ids)
     n_groups = boundaries.shape[0] - 1
-    if n_groups == 0:
+    if n_groups <= 0:
         return np.nan
     total, counted = _precision_batch_kernel(boundaries, yt_s, ys_s, int(k))
     return total / counted if counted > 0 else np.nan

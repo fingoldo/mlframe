@@ -99,7 +99,15 @@ def _fit_es(base_model, X, y):
     genuine wrapper regression fails the test rather than degrading into a green-by-skip run."""
     last_exc = None
     for X_try in (X, np.abs(X)):
-        es = EarlyStoppingWrapper(clone(base_model), patience=8, max_iter=80, validation_fraction=0.1)
+        # patience > max_iter (and monotonic detector off) so ES evaluates the WHOLE iteration curve: its
+        # val-argmax snapshot is then provably >= the fully-iterated model on the SAME val fold. With a
+        # truncating patience ES may legitimately stop before a later-peaking iterate (that is the patience
+        # trade-off, not a loss), so the no-loss guarantee is only meaningful over the full curve -- this
+        # mirrors the warm-start sibling's correct full-curve design.
+        es = EarlyStoppingWrapper(
+            clone(base_model), patience=81, max_iter=80, validation_fraction=0.1,
+            random_state=0, monotonic_decline_patience=None,
+        )
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -119,10 +127,11 @@ def _fit_es(base_model, X, y):
 @pytest.mark.parametrize("name", sorted(_CLASSIFIERS))
 def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
     X, y = _classification_data()
-    n_val = max(1, int(len(X) * 0.1))
     es, X_used = _fit_es(_CLASSIFIERS[name], X, y)
     assert es is not None, f"{name}: EarlyStoppingWrapper.fit returned no wrapper"
-    Xv, yv = X_used[-n_val:], y[-n_val:]
+    # Reconstruct the wrapper's actual (shuffled/stratified, seeded) train/val fold instead of
+    # assuming a last-rows holdout -- the wrapper now splits like base.SplitFitEstimator.
+    Xtr, Xv, ytr, yv = es._split(X_used, y)
 
     assert es.best_model_ is not None and es.best_score_ > -np.inf
     es_acc = accuracy_score(yv, es.predict(Xv))
@@ -132,7 +141,7 @@ def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for _ in range(80):
-            full.partial_fit(X_used[:-n_val], y[:-n_val], classes=classes)
+            full.partial_fit(Xtr, ytr, classes=classes)
     full_acc = accuracy_score(yv, full.predict(Xv))
 
     assert es_acc >= full_acc - 1e-9, (
@@ -150,10 +159,9 @@ def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
 @pytest.mark.parametrize("name", sorted(_REGRESSORS))
 def test_biz_val_wrapper_regressor_no_rmse_loss(name):
     X, y = _regression_data()
-    n_val = max(1, int(len(X) * 0.1))
     es, X_used = _fit_es(_REGRESSORS[name], X, y)
     assert es is not None, f"{name}: EarlyStoppingWrapper.fit returned no wrapper"
-    Xv, yv = X_used[-n_val:], y[-n_val:]
+    Xtr, Xv, ytr, yv = es._split(X_used, y)
 
     assert es.best_model_ is not None and es.best_score_ > -np.inf
     es_rmse = _rmse(yv, es.predict(Xv))
@@ -162,7 +170,7 @@ def test_biz_val_wrapper_regressor_no_rmse_loss(name):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for _ in range(80):
-            full.partial_fit(X_used[:-n_val], y[:-n_val])
+            full.partial_fit(Xtr, ytr)
     full_rmse = _rmse(yv, full.predict(Xv))
 
     assert es_rmse <= full_rmse + 1e-9, (
@@ -180,11 +188,10 @@ def test_biz_val_wrapper_regressor_no_rmse_loss(name):
 
 def test_biz_val_wrapper_classifier_best_beats_overshot_final():
     X, y = _classification_data(seed=2)
-    n_val = max(1, int(len(X) * 0.1))
-    Xv, yv = X[-n_val:], y[-n_val:]
     base = SGDClassifier(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=6.0)
-    es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1)
+    es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1, random_state=0)
     es.fit(X, y)
+    _, Xv, _, yv = es._split(X, y)
     final_acc = accuracy_score(yv, es.base_model.predict(Xv))
     best_acc = accuracy_score(yv, es.best_model_.predict(Xv))
     assert best_acc >= final_acc, f"best snapshot acc {best_acc:.3f} should beat overshot final {final_acc:.3f}"
@@ -192,12 +199,11 @@ def test_biz_val_wrapper_classifier_best_beats_overshot_final():
 
 def test_biz_val_wrapper_regressor_best_beats_overshot_final():
     X, y = _regression_data(seed=2)
-    n_val = max(1, int(len(X) * 0.1))
-    Xv, yv = X[-n_val:], y[-n_val:]
     # Constant-LR ridge-via-SGD that overshoots: ES must recover the peak iterate.
     base = SGDRegressor(penalty="l2", alpha=1e-3, max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=0.05)
-    es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1)
+    es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1, random_state=0)
     es.fit(X, y)
+    _, Xv, _, yv = es._split(X, y)
     final_rmse = _rmse(yv, es.base_model.predict(Xv))
     best_rmse = _rmse(yv, es.best_model_.predict(Xv))
     assert best_rmse <= final_rmse, f"best snapshot RMSE {best_rmse:.3f} should beat overshot final {final_rmse:.3f}"

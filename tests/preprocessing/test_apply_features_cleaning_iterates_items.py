@@ -12,5 +12,11 @@ def test_apply_features_cleaning_iterates_transforms_via_items():
         "features_transforms": {"a": {2: 20}},
         "constant_features": [],
     }
-    apply_features_cleaning(df, features_cleaning)
+    # Default is non-mutating: the replacement lands in the RETURNED frame, not the caller's df.
+    out = apply_features_cleaning(df, features_cleaning)
+    assert out["a"].tolist() == [1, 20, 3]
+    assert df["a"].tolist() == [1, 2, 3]
+    # update_data=True restores legacy in-place mutation.
+    out2 = apply_features_cleaning(df, features_cleaning, update_data=True)
     assert df["a"].tolist() == [1, 20, 3]
+    assert out2 is df

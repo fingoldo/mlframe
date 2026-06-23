@@ -71,25 +71,32 @@ def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, 
     return mi
 
 
+def _validate_bin_codes(data: np.ndarray, fn_name: str) -> np.ndarray:
+    """Ensure bin codes fit the int8 kernel range [0, 127] before the int8 cast.
+
+    The njit kernels index joint/marginal histograms with these codes under boundscheck=off, so a value
+    >127 (or <0) silently writes to the wrong cell after an int8 wraparound. Validate BEFORE the cast and
+    return a C-contiguous int8 view; honest failure beats silent corruption. Shared across grok / chatgpt /
+    deepseek so the same bad input raises consistently regardless of which kernel runs.
+    """
+    data = np.asarray(data)
+    if data.dtype != np.int8:
+        _d_min, _d_max = (int(data.min()), int(data.max())) if data.size else (0, 0)
+        if _d_min < 0 or _d_max > 127:
+            raise ValueError(
+                f"{fn_name}: input bin codes must be in [0, 127] for the int8 kernel; got range "
+                f"[{_d_min}, {_d_max}]. Re-bin with num_bins<=128 or use a wider kernel variant."
+            )
+        return np.ascontiguousarray(data, dtype=np.int8)
+    if not data.flags.c_contiguous:
+        return np.ascontiguousarray(data, dtype=np.int8)
+    return data
+
+
 @njit(parallel=True, cache=True)
-def grok_compute_mutual_information(
+def _grok_compute_mutual_information_kernel(
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:
-    """
-    MI of every specified target column against every column in `data`.
-
-    Parameters
-    ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
-    target_indices  : iterable of int column indices
-    n_bins          : number of discrete bins (default 15)
-
-    Returns
-    -------
-    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
-                      Row k = MI(target_indices[k], all columns)
-    """
-
     n_samples, n_columns = data.shape
     K = len(target_indices)
     mi_results = np.zeros((K, n_columns), dtype=out_dtype)
@@ -111,6 +118,27 @@ def grok_compute_mutual_information(
             )
 
     return mi_results
+
+
+def grok_compute_mutual_information(
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+) -> np.ndarray:
+    """
+    MI of every specified target column against every column in `data`.
+
+    Parameters
+    ----------
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    target_indices  : iterable of int column indices
+    n_bins          : number of discrete bins (default 15)
+
+    Returns
+    -------
+    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
+                      Row k = MI(target_indices[k], all columns)
+    """
+    data = _validate_bin_codes(data, "grok_compute_mutual_information")
+    return _grok_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -192,22 +220,9 @@ def chatgpt_compute_mutual_information(
     mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
                       Row k = MI(target_indices[k], all columns)
     """
-    # Safety – make sure the array is C-contiguous int8 for maximum speed.
-    # Wave 40 (2026-05-20): if caller binned with bin_dtype=Int16 + num_bins>128, the
-    # unchecked int8 cast wraps values 128+ to negative, then the numba kernel indexes
-    # joint[x[k], y[k]] with negative ints (boundscheck=off) and writes to wrong cells.
-    # Validate the input range BEFORE the cast; honest failure beats silent wraparound.
-    if data.dtype != np.int8:
-        _d_min, _d_max = int(data.min()) if data.size else 0, int(data.max()) if data.size else 0
-        if _d_min < 0 or _d_max > 127:
-            raise ValueError(
-                f"chatgpt_compute_mutual_information: input bin codes must be in [0, 127] for "
-                f"int8 kernel; got range [{_d_min}, {_d_max}]. Re-bin with num_bins<=128 or "
-                f"use a wider kernel variant."
-            )
-        data = np.ascontiguousarray(data, dtype=np.int8)
-    elif not data.flags.c_contiguous:
-        data = np.ascontiguousarray(data, dtype=np.int8)
+    # Validate the input range BEFORE the int8 cast: a bin code >127 (e.g. bin_dtype=Int16 + num_bins>128)
+    # otherwise wraps negative and the boundscheck-off njit kernel writes to wrong joint-histogram cells.
+    data = _validate_bin_codes(data, "chatgpt_compute_mutual_information")
 
     targets = np.asarray(target_indices, dtype=np.int64)
     out = np.empty((targets.size, data.shape[1]), dtype=out_dtype)
@@ -225,24 +240,9 @@ def chatgpt_compute_mutual_information(
 
 
 @njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
-def deepseek_compute_mutual_information(
+def _deepseek_compute_mutual_information_kernel(
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:
-    """
-    MI of every specified target column against every column in `data`.
-
-    Parameters
-    ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
-    target_indices  : iterable of int column indices
-    n_bins          : number of discrete bins (default 15)
-
-    Returns
-    -------
-    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
-                      Row k = MI(target_indices[k], all columns)
-    """
-
     n_samples, n_columns = data.shape
     n_targets = len(target_indices)
 
@@ -297,3 +297,24 @@ def deepseek_compute_mutual_information(
         mi_results[t_idx, feature_col] = mi
 
     return mi_results
+
+
+def deepseek_compute_mutual_information(
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+) -> np.ndarray:
+    """
+    MI of every specified target column against every column in `data`.
+
+    Parameters
+    ----------
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    target_indices  : iterable of int column indices
+    n_bins          : number of discrete bins (default 15)
+
+    Returns
+    -------
+    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
+                      Row k = MI(target_indices[k], all columns)
+    """
+    data = _validate_bin_codes(data, "deepseek_compute_mutual_information")
+    return _deepseek_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype)

@@ -95,4 +95,4 @@ class GroupTimeSeriesSplit(_BaseKFold):
             for test_group_idx in unique_groups[group_test_start : group_test_start + group_test_size]:
                 test_buf.extend(group_dict[test_group_idx])
             test_array = np.array(sorted(set(test_buf)), dtype=np.int64)
-            yield train_array.tolist(), test_array.tolist()
+            yield train_array, test_array

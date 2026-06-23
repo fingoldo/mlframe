@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
 
 
 import os as _os
@@ -363,6 +363,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
+    _check_equal_length(y_true, y_score)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     if sample_weight is not None:
         if isinstance(sample_weight, (pd.Series, pl.Series)):
@@ -436,14 +437,25 @@ def fast_numba_auc_weighted(
         return np.nan
 
 
-def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
+def fast_aucs(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> tuple[float, float]:
     """Compute both ROC AUC and PR AUC efficiently."""
+    # Unlike ``fast_roc_auc``, the fused ROC+PR kernel has no weighted variant.
+    # Raise rather than silently ignoring sample_weight (sklearn's scorer forwards
+    # it when fit with weights), which would otherwise return an unweighted score
+    # that the caller believes is weighted.
+    sample_weight = kwargs.get("sample_weight")
+    if sample_weight is not None:
+        raise NotImplementedError(
+            "fast_aucs does not support sample_weight; use fast_roc_auc(..., sample_weight=...) "
+            "for a weighted ROC AUC, or compute weighted PR AUC separately."
+        )
     if isinstance(y_true, (pd.Series, pl.Series)):
         y_true = y_true.to_numpy()
     if isinstance(y_score, (pd.Series, pl.Series)):
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
+    _check_equal_length(y_true, y_score)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     return fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
@@ -598,7 +610,15 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     of the parallel runtime exceeds the per-element gain). Parallel
     kernel above the threshold -- 7.7x faster at N=10M on an 8-thread
     runtime. Tunable via ``_PARALLEL_REDUCTION_THRESHOLD``.
+
+    Returns ``np.nan`` on out-of-[0,1] or NaN probabilities, mirroring
+    ``fast_log_loss_binary``: the kernels would otherwise square whatever
+    garbage was passed and report a plausible-looking but meaningless score.
     """
+    _check_equal_length(y_true, y_prob)
+    _prob = np.asarray(y_prob, dtype=np.float64)
+    if _prob.size and (not np.all(np.isfinite(_prob)) or _prob.min() < 0.0 or _prob.max() > 1.0):
+        return np.nan
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
         return _fast_brier_score_loss_par(y_true, y_prob)
     return _fast_brier_score_loss_seq(y_true, y_prob)

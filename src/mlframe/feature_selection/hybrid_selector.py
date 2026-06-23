@@ -148,7 +148,7 @@ class HybridSelector:
                  cooccur_weight: str = "gain", cluster_rep: str = "first",
                  mrmr_synergy_cap: int = 250,
                  hybrid_corr_max_features: int = 2000,
-                 random_state: int = 0, name: str = "hybrid"):
+                 random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid"):
         # cooccur_weight (default "gain" -- MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
         # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
@@ -236,6 +236,10 @@ class HybridSelector:
         # =False) is the better default on both beds. Kept as an option; not the fix it was meant to be.
         self.anchor_fe = anchor_fe
         self.random_state = random_state
+        # classification (default None -> sniff via type_of_target, but a 2-value FLOAT regression target sniffs as
+        # "binary" and is silently fed to LGBMClassifier). Pass classification=True/False explicitly to declare the task
+        # and skip value-sniffing entirely (mirrors hetero_vote / ShapProxiedFS which take an explicit classification=).
+        self.classification = classification
         self.name = name
 
     # ------------------------------------------------------------------ shared-once artifacts
@@ -498,15 +502,32 @@ class HybridSelector:
                 f"HybridSelector supports a single-output classification target only; got y with shape {y_arr.shape} "
                 f"(multilabel / multi-output is not supported)."
             )
-        try:
-            _ttype = type_of_target(y_arr.ravel())
-        except Exception:
-            _ttype = "unknown"
-        if _ttype not in ("binary", "multiclass", "unknown"):
+        if self.classification is False:
+            # Caller explicitly declared a regression task: HybridSelector is classification-only, so reject up front
+            # instead of value-sniffing (a 2-value float regression target would otherwise sniff as "binary" and be fed
+            # to LGBMClassifier silently). This is the whole point of the explicit knob.
             raise ValueError(
-                f"HybridSelector supports classification targets only (binary / multiclass); got a "
-                f"'{_ttype}' target. For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
+                "HybridSelector supports classification targets only; got classification=False (regression). "
+                "For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
             )
+        if self.classification is None:
+            try:
+                _ttype = type_of_target(y_arr.ravel())
+            except Exception:
+                _ttype = "unknown"
+            if _ttype not in ("binary", "multiclass", "unknown"):
+                raise ValueError(
+                    f"HybridSelector supports classification targets only (binary / multiclass); got a "
+                    f"'{_ttype}' target. For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
+                )
+            if _ttype in ("binary", "multiclass") and np.asarray(y).dtype.kind == "f":
+                # A float target that sniffs as classification (e.g. exactly 2 distinct float values) is ambiguous --
+                # it may be a low-cardinality regression target. Warn so a silent classifier-on-regression run is visible.
+                warnings.warn(
+                    "HybridSelector: target dtype is float but was value-sniffed as a classification target "
+                    f"('{_ttype}'); pass classification=True to confirm or classification=False if this is regression.",
+                    stacklevel=2,
+                )
         # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
         self.mrmr_selected_, self.artifacts_ = (self._run_mrmr(X, y) if self.use_mrmr else ([], None))

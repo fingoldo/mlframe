@@ -102,7 +102,10 @@ def ensemble_probabilistic_predictions(
         if precomputed_weights.shape[0] == len(_orig_preds):
             precomputed_weights = precomputed_weights[np.asarray(_keep_mask, dtype=bool)]
     if len(preds) == 0:
-        return None, None, None
+        raise ValueError(
+            "ensemble_probabilistic_predictions: no non-None member predictions to ensemble "
+            f"(received {len(_orig_preds)} member(s), all None). Provide at least one non-None prediction."
+        )
 
     # Materialise the (M, N, K) tensor ONCE -- the prior pattern allocated
     # this ~9x across ensemble flavours / outlier-filter / confidence paths,
@@ -212,7 +215,10 @@ def ensemble_probabilistic_predictions(
 
     if uncertainty_quantile:
 
-        std_preds = np.std(_preds_arr, axis=0)
+        # ddof=1 (sample std across members) to match the streaming path's _WelfordAccumulator.result(), which
+        # reports std = sqrt(M2 / max(n-1, 1)). Both paths now report the same Bessel-corrected member spread.
+        # With a single member (M=1) ddof=1 would divide by zero; mirror Welford's max(n-1,1) by reporting 0.
+        std_preds = np.std(_preds_arr, axis=0, ddof=1) if _preds_arr.shape[0] > 1 else np.zeros(_preds_arr.shape[1:], dtype=np.float64)
         if normalize_stds_by_mean_preds:
             mean_preds = np.mean(_preds_arr, axis=0)
             # A class whose mean prediction is ~0 would yield inf/nan from the
@@ -240,7 +246,7 @@ ENSEMBLE_STREAMING_THRESHOLD_BYTES = 500 * 1024 * 1024
 
 def ensemble_probabilistic_predictions_streaming(
     *preds,
-    ensemble_method: str = "arithm",
+    ensemble_method: str = "harm",
     ensure_prob_limits: bool = True,
     verbose: bool = True,
 ) -> tuple:
@@ -300,9 +306,13 @@ def ensemble_probabilistic_predictions_streaming(
             "rrf_ensemble directly."
         )
 
+    _n_received = len(preds)
     preds = [p for p in preds if p is not None]
     if len(preds) == 0:
-        return None, None, None
+        raise ValueError(
+            "ensemble_probabilistic_predictions_streaming: no non-None member predictions to ensemble "
+            f"(received {_n_received} member(s), all None). Provide at least one non-None prediction."
+        )
     if len(preds) > 2 and verbose:
         logger.warning(
             "ensemble_probabilistic_predictions_streaming: outlier-member "

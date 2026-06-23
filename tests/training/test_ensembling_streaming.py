@@ -52,9 +52,11 @@ def test_streaming_outlier_filter_warn(caplog):
     assert any("outlier-member filter is not applied" in rec.message for rec in caplog.records)
 
 
-def test_streaming_empty_preds_returns_nones():
-    result = ensemble_probabilistic_predictions_streaming(ensemble_method="arithm", verbose=False)
-    assert result == (None, None, None)
+def test_streaming_empty_preds_raises():
+    # API27: empty member set is a caller error -- raise a clear ValueError at the source instead of returning
+    # (None, None, None) which previously surfaced as a NoneType failure far from the cause.
+    with pytest.raises(ValueError, match="no non-None member predictions"):
+        ensemble_probabilistic_predictions_streaming(ensemble_method="arithm", verbose=False)
 
 
 def test_streaming_1d_input_preserved():

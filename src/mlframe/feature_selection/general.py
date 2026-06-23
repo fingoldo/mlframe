@@ -309,7 +309,10 @@ def run_efs(
         if columns_to_drop:
             df = df.drop(columns_to_drop)
 
-    exclude_columns.update(set(bins.columns))
+    # Build the augmented exclusion set locally instead of ``.update()``-ing the caller's argument: ``exclude_columns``
+    # is annotated ``list`` (no ``.update``) and mutating the caller's collection in place is a surprising side effect.
+    # The augmented set is handed back via the return value.
+    exclude_columns = set(exclude_columns) | set(bins.columns)
 
     clean_ram()
 

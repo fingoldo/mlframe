@@ -32,6 +32,7 @@ import pandas as pd, numpy as np
 from catboost import CatBoostRegressor
 from sklearn.dummy import DummyRegressor
 from sklearn.model_selection import cross_validate
+from sklearn.model_selection import KFold
 
 from enum import Enum, auto
 
@@ -315,7 +316,12 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
 
 def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None):
     # trained_models[cache_key]=[fitted_model,len(trials),ml_scoring,expected_performance]
-    cache_key = (experiment_name, tuple(cat_features))
+    # Include a signature of the trial feature columns (the columns the surrogate is actually fit on) in the
+    # cache key. Keying on experiment_name + cat_features alone let two callers that share an experiment name
+    # but optimise DIFFERENT param spaces (different feature columns) silently hit / overwrite each other's
+    # fitted model -- the cached model_columns would not match the new trials, producing wrong predictions.
+    feature_cols = tuple(c for c in trials.columns if c != "target")
+    cache_key = (experiment_name, tuple(cat_features), feature_cols)
     should_retrain = True
     if cache_key in trained_models:
         fitted_model, num_trials, prev_scoring, expected_score, model_columns = trained_models[cache_key]
@@ -334,11 +340,13 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
                 else:
                     logging.info("Model for experiment %s found, score was bad, but since then new trials data has arrived!", experiment_name)
 
-    y = trials.pop("target").values
+    # Do NOT mutate the caller's DataFrame: ``pop`` would drop the "target" column in place, corrupting
+    # the frame for any later reuse. Read the target as a view and build X from the remaining columns.
+    y = trials["target"].values
     if should_retrain:
         model = CatBoostRegressor(iterations=100, task_type="CPU", cat_features=cat_features, verbose=False)
 
-        X = trials
+        X = trials.drop(columns=["target"])
         model_columns = X.columns
 
         fitted_model, expected_score = justify_estimator(
@@ -368,7 +376,14 @@ def justify_estimator(
 
     logging.info(f"Checking if ML gains some predictive power already on {len(y):_} samples...")
 
-    cv_results = cross_validate(est, X, y, cv=cv, scoring=scoring)
+    # Seed the gate's CV splitter from the same RNG that seeds the refit split below, so the whole function is
+    # reproducible under one ``random_state``. An int ``cv`` would otherwise build an unseeded (shuffle=False)
+    # KFold -- deterministic only by accident of fold order, and inconsistent with the seeded refit split.
+    cv_splitter = cv
+    if isinstance(cv, int):
+        _gate_rng = np.random.default_rng(random_state)
+        cv_splitter = KFold(n_splits=cv, shuffle=True, random_state=int(_gate_rng.integers(0, 2**32 - 1)))
+    cv_results = cross_validate(est, X, y, cv=cv_splitter, scoring=scoring)
     # Wave 21 P1: use np.nanmean so a single degenerate fold (e.g. all-one-
     # class y, sklearn returns NaN) doesn't make mean_score == NaN; pre-fix
     # the >= gate then returned False and the function silently reported
@@ -409,7 +424,10 @@ def justify_estimator(
     return est, mean_score
 
 
-def create_ctr_params(GPU_ENABLED: bool = True, params: Optional[dict] = None, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> str:
+# GPU_ENABLED default is False here to match CatboostParamsOptimizer.__init__ (the primary public entry): a
+# mismatched default silently emitted GPU-only ctr vocab (FeatureFreq / FloatTargetMeanValue / Median borders)
+# into params destined for a CPU CatBoost fit, which CatBoost then rejects or silently reinterprets.
+def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> str:
     if params is None:
         params = {}
     if stdlib_rng is None:
@@ -457,7 +475,11 @@ class ParamsOptimizer:
         # and the names were undefined -- surfaced by the star-import removal.)
 
     def create_study(self, task_id: str, stydy_type: str = "ml_estimator_hyperparameters"):
-        pass
+        """STUB / no-op. Study persistence is not implemented; this method intentionally does nothing and
+        returns None. It exists as an extension point for a future persistence backend. Callers must not rely
+        on any study being created or stored."""
+        logging.warning("ParamsOptimizer.create_study is a no-op stub; no study was persisted for task_id=%s.", task_id)
+        return None
 
     def suggest_trials(
         self,
@@ -571,10 +593,11 @@ class ParamsOptimizer:
             return candidates[:n]
 
     def report_trial_results(self, objectives: dict):
-        """
-        Persists results
-        """
-        pass
+        """STUB / no-op. Result persistence is NOT implemented: the passed ``objectives`` are silently dropped.
+        This method exists as an extension point for a future persistence backend; do not rely on it to store
+        anything. A warning is emitted so callers notice the results are not being saved."""
+        logging.warning("ParamsOptimizer.report_trial_results is a no-op stub; %d objective(s) were NOT persisted.", len(objectives) if objectives else 0)
+        return None
 
 
 class CatboostParamsOptimizer(ParamsOptimizer):

@@ -255,6 +255,13 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
 
     def fit(self, X, y):
         X = check_array(X)
+        # ``nprobs`` columns are averaged in predict_proba; a value exceeding the
+        # available feature count would silently average an empty / short slice
+        # (NaN or a wrong-width mean) instead of erroring.
+        if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
+            raise ValueError(
+                f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}."
+            )
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1]
         return self
@@ -267,7 +274,10 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X):
         check_is_fitted(self)
         X = check_array(X)
-        posProbs = np.mean(X[:, : self.nprobs], axis=1).reshape(-1, 1)
+        # X carries pre-computed probability columns; clip into [0, 1] so a stray
+        # out-of-range feature does not yield negative / >1 "probabilities" (the
+        # GeomAvgClassifier sibling already clips -- keep the two consistent).
+        posProbs = np.mean(np.clip(X[:, : self.nprobs], 0.0, 1.0), axis=1).reshape(-1, 1)
         return np.concatenate([1 - posProbs, posProbs], axis=1)
 
 
@@ -277,6 +287,10 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
 
     def fit(self, X, y):
         X = check_array(X)
+        if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
+            raise ValueError(
+                f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}."
+            )
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1]
         return self
@@ -632,7 +646,27 @@ class IdentityRegressor(IdentityEstimator, RegressorMixin):
 class IdentityClassifier(IdentityEstimator, ClassifierMixin):
     def predict_proba(self, X):
         last_class_probs = self.predict(X)
-        if len(self.classes_) == 2 and last_class_probs.ndim==1:
+        if len(self.classes_) == 2 and last_class_probs.ndim == 1:
             return np.vstack([1 - last_class_probs, last_class_probs]).T
-        else:
-            return last_class_probs
+        # Multiclass: the raw feature slice is neither clipped, normalised, nor aligned
+        # to ``classes_``. Coerce it into a valid probability matrix (one column per class,
+        # in ``classes_`` order, clipped to [0, 1] and row-normalised to sum to 1) so it
+        # honours the sklearn predict_proba contract instead of returning arbitrary values.
+        probs = np.asarray(last_class_probs, dtype=np.float64)
+        if probs.ndim == 1:
+            probs = probs.reshape(-1, 1)
+        n_classes = len(self.classes_)
+        if probs.shape[1] != n_classes:
+            raise ValueError(
+                f"IdentityClassifier.predict_proba: selected feature block has "
+                f"{probs.shape[1]} columns but there are {n_classes} classes; the "
+                f"feature must carry one probability column per class in classes_ order."
+            )
+        probs = np.clip(probs, 0.0, 1.0)
+        row_sums = probs.sum(axis=1, keepdims=True)
+        # Rows that sum to 0 after clipping have no information -> fall back to uniform.
+        zero_rows = row_sums[:, 0] == 0.0
+        if zero_rows.any():
+            probs[zero_rows] = 1.0
+            row_sums = probs.sum(axis=1, keepdims=True)
+        return probs / row_sums

@@ -146,6 +146,14 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         calib_target: np.ndarray,
     ):
 
+        # sklearn ClassifierMixin tooling (CalibratedClassifierCV, cross_val_predict, check_is_fitted) expects
+        # ``classes_`` and ``n_features_in_`` after fit. We set them from the raw inputs BEFORE the prob reshape so a
+        # 2D (n, n_classes) prob matrix reports its real feature width.
+        _target_arr = np.asarray(calib_target)
+        self.classes_ = np.unique(_target_arr)
+        _probs_arr = np.asarray(calib_probs)
+        self.n_features_in_ = _probs_arr.shape[1] if _probs_arr.ndim == 2 else 1
+
         calib_probs = self._transform_probs(calib_probs)
 
         if not self._is_venn_abers(self.calibrator):
@@ -184,6 +192,11 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
             calibrated_probs = np.vstack([1 - calibrated_probs, calibrated_probs]).T
 
         return calibrated_probs
+
+    def predict_proba(self, probs) -> np.ndarray:
+        """sklearn-style alias for :meth:`postcalibrate_probs` so ClassifierMixin tooling (which calls
+        ``predict_proba``) routes to the calibrated 2D probability matrix."""
+        return self.postcalibrate_probs(probs)
 
 
 @dataclass
