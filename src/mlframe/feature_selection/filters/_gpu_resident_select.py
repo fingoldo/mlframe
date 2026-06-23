@@ -242,6 +242,30 @@ void radix_select_f32_bsearch(const float* __restrict__ data, const long long n,
 # SEPARATE kernel (bsearch/linear stay the exact fallbacks + dispatch alternatives); selected by the KTC
 # variant sweep, default = whichever is measured faster per host (bsearch remains the fallback on any
 # compile/launch failure of this variant).
+#
+# bench-attempt-rejected (2026-06-23): radix_select_f32 v4 -- v3 IS AT ITS PRACTICAL FLOOR on the GTX 1050 Ti.
+# Full CUDA-event decomposition at the production shape (n=100k, K=583, R=38, f32, threads=1024, interleaved-
+# min >=11 reps, 2x-confirmed): pure 4-pass column read = 9.66ms @ 96.5 GB/s (== the card's read-bandwidth
+# CEILING); + the per-row binary-search window-match (atomics stubbed out) = ~19ms (match adds ~9.3ms); +
+# shared atomicAdd = the full v3 28.5ms (atomics add ~9.6ms). The atomic cost is INTRINSIC Pascal shared-
+# atomic INSTRUCTION latency, NOT contention: single-pass A/B shows the worst-contention high-byte pass
+# (Wl=1, all 1024 threads -> one 256-bucket histogram) = 10.8ms vs the well-spread byte=0 pass (Wl=31) =
+# 9.4ms, i.e. contention is only ~1.4ms of the 9.6ms; the rest is paid even when atomics are fully spread.
+# Levers tried, all BIT-IDENTICAL (maxdiff 0, uniform/normal/heavy/ties/all-equal) but NO production win:
+#   L1 replicated/privatized sub-histograms (NREP=R/Wl copies, merge before scan): 0.97-1.00x -- the per-
+#      bucket merge + tid%rep dispatch eats the ~1.4ms contention saving; contention was never the bottleneck.
+#   warp-aggregated atomics (emulated __match_any, Pascal has no HW match): 0.35-0.46x (O(32) shfl/row).
+#   warp-aggregate FAST PATH (one add iff all active lanes agree on slot): real distros 0.88-0.92x (ballot/
+#      shfl per row, agreement rare since digits spread); only all-equal wins (1.37x) -- not a production shape.
+#   Wl==1 special-case compare + [w0,wlast] range-cull: 0.99-1.10x (cull adds divergence; net flat).
+#   per-thread 4/8-elem unroll + local same-slot combine: 0.65-0.69x (per-elem bsearch dominates, combine
+#      rarely hits, register pressure). L2 occupancy is already MAXED (2 blocks/SM x 1024 = 2048 = the SM
+#      thread cap; 38KB shared/block leaves 2 blocks/SM regardless). L3 (split n across blocks/column) only
+#      helps K < ~SMs*blocks_per_SM (=12); production K>=50 already fills all 6 SMs -> N/A. EARLY-TERMINATION
+#      was already proven DEAD (continuous edges need all 3-4 passes). VERDICT: the GPU radix-select branch is
+#      optimized for this hardware; the three ~9.6ms components (read floor / match / shared-atomic latency)
+#      are each architecturally irreducible on Pascal. Next real win would need a different card (faster shared
+#      atomics / HW __match_any -> warp-aggregation flips positive) or a non-histogram select algorithm.
 _RADIX_SELECT_F32_V3_SRC = r"""
 #define MAXR 64
 extern "C" __global__
