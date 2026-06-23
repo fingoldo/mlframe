@@ -213,6 +213,15 @@ def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray,
 # * Legendre  (P_n) : P_0=1,  P_1=x,  P_n = ((2n-1)*x*P_{n-1} - (n-1)*P_{n-2}) / n
 # * Chebyshev (T_n) : T_0=1,  T_1=x,  T_n = 2*x*T_{n-1} - T_{n-2}
 # * Laguerre  (L_n) : L_0=1,  L_1=1-x, L_n = ((2n-1-x)*L_{n-1} - (n-1)*L_{n-2}) / n
+#
+# Single-thread perf note (2026-06-24, bench_polyeval_single_thread_register.py):
+# These keep the per-degree array form (each fixed-coefficient inner i-loop SIMD-vectorizes), with
+# the prologue FUSED: no x.copy() (P_1 == x is read-only here) and the out[i]=c[0] + out[i]+=c[1]*x[i]
+# passes collapsed into one. Bit-identical, 1.13-1.39x over the prior form across n=500..50k.
+# bench-attempt-rejected: the register single-pass form used by the *_parallel variants (scalar
+# p_prev/p_curr, serial k-recurrence per element) is SLOWER single-thread (0.52-0.65x) -- it blocks
+# vectorization -- and not bit-identical (fma reassociation). It only wins once prange spreads it
+# across cores (the existing _parallel path). Do not re-try the register rewrite for n<50k.
 
 
 @njit(cache=True, fastmath=True)
@@ -222,14 +231,16 @@ def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     nc = c.shape[0]
     if nc == 0:
         return out
-    for i in range(n):
-        out[i] = c[0]
+    c0 = c[0]
     if nc == 1:
+        for i in range(n):
+            out[i] = c0
         return out
+    c1 = c[1]
     p_prev = np.ones(n, dtype=np.float64)
-    p_curr = x.copy()
+    p_curr = x
     for i in range(n):
-        out[i] += c[1] * p_curr[i]
+        out[i] = c0 + c1 * x[i]
     for k in range(2, nc):
         p_next = np.empty(n, dtype=np.float64)
         ck = c[k]
@@ -249,14 +260,16 @@ def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     nc = c.shape[0]
     if nc == 0:
         return out
-    for i in range(n):
-        out[i] = c[0]
+    c0 = c[0]
     if nc == 1:
+        for i in range(n):
+            out[i] = c0
         return out
+    c1 = c[1]
     p_prev = np.ones(n, dtype=np.float64)
-    p_curr = x.copy()
+    p_curr = x
     for i in range(n):
-        out[i] += c[1] * p_curr[i]
+        out[i] = c0 + c1 * x[i]
     for k in range(2, nc):
         p_next = np.empty(n, dtype=np.float64)
         ck = c[k]
@@ -278,14 +291,16 @@ def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     nc = c.shape[0]
     if nc == 0:
         return out
-    for i in range(n):
-        out[i] = c[0]
+    c0 = c[0]
     if nc == 1:
+        for i in range(n):
+            out[i] = c0
         return out
+    c1 = c[1]
     p_prev = np.ones(n, dtype=np.float64)
-    p_curr = x.copy()
+    p_curr = x
     for i in range(n):
-        out[i] += c[1] * p_curr[i]
+        out[i] = c0 + c1 * x[i]
     for k in range(2, nc):
         p_next = np.empty(n, dtype=np.float64)
         ck = c[k]
@@ -304,15 +319,18 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     nc = c.shape[0]
     if nc == 0:
         return out
-    for i in range(n):
-        out[i] = c[0]
+    c0 = c[0]
     if nc == 1:
+        for i in range(n):
+            out[i] = c0
         return out
+    c1 = c[1]
     p_prev = np.ones(n, dtype=np.float64)
     p_curr = np.empty(n, dtype=np.float64)
     for i in range(n):
-        p_curr[i] = 1.0 - x[i]
-        out[i] += c[1] * p_curr[i]
+        pc = 1.0 - x[i]
+        p_curr[i] = pc
+        out[i] = c0 + c1 * pc
     for k in range(2, nc):
         p_next = np.empty(n, dtype=np.float64)
         ck = c[k]
