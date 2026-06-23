@@ -82,6 +82,39 @@ def test_single_real_value_many_nulls_string_parity():
     )
 
 
+# ---- Fused nanmin/nanmax numeric constant-detection identity (2026-06-23 perf) --
+
+def _old_pandas_numeric_constants(df: pd.DataFrame) -> set:
+    """Pre-optimization reference: separate Series.min/max + isna().all() passes."""
+    numeric_cols = df.select_dtypes(include="number").columns
+    constant = [c for c in numeric_cols if df[c].min() == df[c].max()]
+    all_nan = [c for c in numeric_cols if c not in constant and df[c].isna().all()]
+    return set(constant) | set(all_nan)
+
+
+def test_fused_numeric_constant_detection_matches_old_reference():
+    """The fused nanmin/nanmax path must drop EXACTLY the same numeric columns as
+    the prior (min==max) + (isna().all()) union, across const / all-NaN /
+    mixed-NaN / one-value-rest-NaN / inf / int / varying columns."""
+    df = pd.DataFrame({
+        "const_float": [2.0, 2.0, 2.0, 2.0, 2.0],
+        "const_int": [7, 7, 7, 7, 7],
+        "all_nan": [np.nan, np.nan, np.nan, np.nan, np.nan],
+        "one_val_rest_nan": [1.0, np.nan, np.nan, np.nan, 1.0],
+        "varying": [1.0, 2.0, 3.0, np.nan, 5.0],
+        "two_int": [1, 1, 1, 2, 1],
+        "inf_const": [np.inf, np.inf, np.inf, np.inf, np.inf],
+        "inf_mix": [np.inf, 1.0, 1.0, 1.0, 1.0],
+    })
+    expected_dropped = _old_pandas_numeric_constants(df)
+    kept = _columns(remove_constant_columns(df, verbose=0))
+    actually_dropped = set(df.columns) - kept
+    assert actually_dropped == expected_dropped, (
+        f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n"
+        f"  reference dropped: {expected_dropped}"
+    )
+
+
 def test_single_real_value_many_nulls_categorical_parity():
     pd_df = pd.DataFrame({
         "x": [1, 2, 3, 4, 5],

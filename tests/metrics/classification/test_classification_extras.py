@@ -588,6 +588,44 @@ def test_top_k_accuracy_monotone():
         assert a <= b + 1e-12
 
 
+def test_top_k_accuracy_njit_kernel_bit_identical_to_python_loop():
+    """The njit hit-count kernel must reproduce the pure-Python double-loop
+    count EXACTLY (bit-identical) across class counts, k, dtypes, and
+    out-of-range / boundary-tie rows -- pins the perf optimization."""
+    def _python_top_k_accuracy(y_true, probs_NK, k):
+        yt = np.asarray(y_true).astype(np.int64, copy=False)
+        p = np.asarray(probs_NK, dtype=np.float64)
+        n, K = p.shape
+        if k >= K:
+            return np.nan
+        topk_idx = np.argpartition(-p, k - 1, axis=1)[:, :k]
+        hits = 0
+        for i in range(n):
+            ti = yt[i]
+            if 0 <= ti < K:
+                for j in range(k):
+                    if topk_idx[i, j] == ti:
+                        hits += 1
+                        break
+        return hits / n if n > 0 else np.nan
+
+    rng = np.random.default_rng(2026)
+    for N, K, k in [(1, 3, 1), (37, 4, 2), (1000, 10, 3), (2000, 20, 5)]:
+        p = rng.uniform(size=(N, K))
+        p /= p.sum(axis=1, keepdims=True)
+        y = rng.integers(0, K, size=N).astype(np.int64)
+        # inject out-of-range labels (the 0<=ti<K guard path)
+        if N >= 3:
+            y[0] = -1
+            y[1] = K
+        # boundary ties: a couple of rows with all-equal probabilities
+        if N >= 5:
+            p[2] = 1.0 / K
+            p[3] = 1.0 / K
+            p /= p.sum(axis=1, keepdims=True)
+        assert top_k_accuracy(y, p, k=k) == _python_top_k_accuracy(y, p, k), (N, K, k)
+
+
 # ----- Multiclass MCC -----
 
 

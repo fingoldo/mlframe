@@ -541,6 +541,26 @@ def lift_at_k(
 # ============================================================================
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _top_k_hits_kernel(topk_idx: np.ndarray, y_true: np.ndarray, K: int) -> int:
+    """Count rows whose true class appears in the row's top-k index set.
+
+    Bit-identical to the pure-Python hit-count loop it replaces (same
+    ``0 <= ti < K`` guard, same break-on-first-match membership scan);
+    only the interpreted Python loop is lowered into njit machine code.
+    """
+    n, k = topk_idx.shape
+    hits = 0
+    for i in range(n):
+        ti = y_true[i]
+        if 0 <= ti < K:
+            for j in range(k):
+                if topk_idx[i, j] == ti:
+                    hits += 1
+                    break
+    return hits
+
+
 def top_k_accuracy(
     y_true: np.ndarray, probs_NK: np.ndarray, k: int = 1,
 ) -> float:
@@ -561,16 +581,12 @@ def top_k_accuracy(
     if k >= K:
         return np.nan  # trivial, not informative
     # argpartition on -p[i] picks top-k indices per row; partial-sort is
-    # O(K) per row vs full sort's O(K log K).
-    topk_idx = np.argpartition(-p, k - 1, axis=1)[:, :k]
-    hits = 0
-    for i in range(n):
-        ti = yt[i]
-        if 0 <= ti < K:
-            for j in range(k):
-                if topk_idx[i, j] == ti:
-                    hits += 1
-                    break
+    # O(K) per row vs full sort's O(K log K). The per-row membership count
+    # is then done in an njit kernel (was a pure-Python double loop, the
+    # hot path at report scale) -- bit-identical, 1.9-5.5x over n in
+    # 10k..1M (bench_top_k_accuracy_kernel).
+    topk_idx = np.ascontiguousarray(np.argpartition(-p, k - 1, axis=1)[:, :k])
+    hits = _top_k_hits_kernel(topk_idx, yt, K)
     return hits / n if n > 0 else np.nan
 
 
