@@ -9,6 +9,19 @@ imported lazily in-body (from ..mrmr import ... etc.) since .mrmr re-imports thi
 its bottom for method binding -- a top-level import would create a hard cycle. The self-contained FE
 sub-blocks (synergy bootstrap, order-2 maxT floor, FE summary log, cluster-aggregate emission) live in
 the sibling _mrmr_fe_step_helpers module; the two small operand-pool helpers live in ._helpers.
+
+bench-note (2026-06-24, MRMR-FE wall /loop): _run_fe_step's OWN body is AT FLOOR -- it is pure
+orchestration. cProfile F2 100k full fit: this function's tottime = 0.001s (cumtime ~13s over 2 calls is
+ALL in carved-sibling callees). line_profiler over the body: glue (every getattr resolution, the
+synergy-budget dict-comp at ~300, the original_cols dict-comp at ~464, sort_dict_by_value, the prewarp/
+gate-med/rejection-ledger merge loops) sums to 0.166ms = 0.149% of the function's 11.16s; the other
+99.85% is the 9 call sites into _step_pool / _step_pairmi / _step_pairs_rank / check_prospective_fe_pairs
+/ _step_score. The remaining wall lives in (a) GPU-dispatched routes (cupy .get 2.0s,
+gpu_materialise_discretize_codes_host 2.77s cum) and (b) njit compute at CPU-optimum
+(_plugin_mi_classif_batch_njit 1.8s, _combine_factorize_njit 0.85s, _pair_combo_mi_njit_table_parallel
+0.82s, conditional_mi 0.64s) -- none in this body. No safe wall win exists at the orchestrator level; do
+not re-profile the body. Next dominant wall hotspot = the _score_one_pair / check_prospective_fe_pairs
+permutation-null + cupy-host-transfer path (already GPU-routed; iter9/11b/15).
 """
 from __future__ import annotations
 
