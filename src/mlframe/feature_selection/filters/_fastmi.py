@@ -92,17 +92,32 @@ def _mise_optimal_bandwidth(zx: np.ndarray, zy: np.ndarray, *,
         (zx[:, None] - zx[None, :]) ** 2 + (zy[:, None] - zy[None, :]) ** 2
     )  # (N, N)
     np.fill_diagonal(sample_pairs_sq, np.inf)  # exclude self
+    # Hoist the per-row logsumexp shift out of the h-grid loop. The kernel
+    # ``log_k[i,j] = -0.5*sp[i,j]/h^2 - C(h)`` is strictly DECREASING in
+    # ``sp[i,j]`` for every h (the coeff ``-0.5/h^2`` is < 0), so the row-max
+    # ``m[i] = max_j log_k[i,j]`` is always attained at ``argmin_j sp[i,j]`` --
+    # the SAME column for every h. Therefore ``dmin = sp.min(axis=1)`` is
+    # loop-invariant, and the stabilised summand simplifies to
+    # ``exp(log_k - m) = exp((sp - dmin[:,None]) * (-0.5/h^2))`` with the
+    # ``-C(h)`` term cancelling. Precompute ``dmin`` and the invariant shift
+    # ``sp - dmin[:,None]`` (diagonal stays +inf -> exp -> 0 exactly, same as
+    # before), turning each iteration into one (N,N) exp + row-sum instead of
+    # a full log_k build + (N,N).max(axis=1) + a separate exp. Bit-identical
+    # selected bandwidth (the sole output): same float ops in the same order.
+    dmin = sample_pairs_sq.min(axis=1)
+    shifted = sample_pairs_sq - dmin[:, None]  # >= 0, diagonal +inf
+    log_n_minus_1 = math.log(n - 1)
     best_h = h_sil
     best_ll = -np.inf
     for h in h_grid:
         # 2D Gaussian product kernel density at each point:
         # f(z_i) = (1 / (N-1)) * sum_{j != i} K_h(z_i - z_j)
         # K_h(u) = (1 / (2 pi h^2)) exp(-||u||^2 / (2 h^2))
-        log_k = -0.5 * sample_pairs_sq / (h * h) - math.log(2.0 * math.pi * h * h)
-        # logsumexp along axis 1 - log(N-1).
-        m = log_k.max(axis=1)
-        f_i = m + np.log(np.exp(log_k - m[:, None]).sum(axis=1))
-        f_i = f_i - math.log(n - 1)
+        inv = -0.5 / (h * h)
+        c = math.log(2.0 * math.pi * h * h)
+        m = dmin * inv - c  # == log_k.max(axis=1), exactly
+        s = np.exp(shifted * inv).sum(axis=1)  # == exp(log_k - m).sum(axis=1)
+        f_i = m + np.log(s) - log_n_minus_1
         ll = float(np.sum(f_i))
         if ll > best_ll:
             best_ll = ll

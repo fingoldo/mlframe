@@ -235,3 +235,27 @@ def test_dfa_arange_hoist_bit_identical_to_prehoist(seed):
     # once-vs-per-segment accumulation schedule may reorder FMA/reassoc by a single ULP -- a
     # reduction-order delta (~1e-15), far below anything that could move a feature decision.
     assert _new_dfa_alpha2(x) == pytest.approx(_ref_dfa_alpha2(x), rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42])
+def test_hurst_closed_form_fit_matches_lstsq(seed):
+    """The R/S log-log fit in ``compute_hurst_exponent`` uses a closed-form 2-parameter OLS
+    (covariance normal equations) instead of an SVD-based ``np.linalg.lstsq`` of an (M x 2) design
+    matrix. Both yield the same OLS slope/intercept; pin them equal to <1e-9 so a future revert to
+    lstsq (or a sign/formula slip in the closed form) trips this sensor."""
+    rng = np.random.default_rng(seed)
+    arr = np.cumsum(rng.standard_normal(512)).astype(np.float64)
+
+    h_new, c_new = compute_hurst_exponent(arr)
+
+    from mlframe.feature_engineering.hurst import precompute_hurst_exponent
+
+    ws, rs = precompute_hurst_exponent(arr=arr, min_window=5, max_window=-1, windows_log_step=0.25, take_diffs=False)
+    rs_arr = np.asarray(rs, dtype=float)
+    ws_arr = np.asarray(ws, dtype=float)
+    x = np.vstack([np.log10(ws_arr), np.ones(len(rs_arr))]).T
+    h_ref, c_ref_log = np.linalg.lstsq(x, np.log10(rs_arr), rcond=None)[0]
+    c_ref = 10 ** c_ref_log
+
+    assert abs(h_new - h_ref) < 1e-9, f"slope diverged: {h_new} vs {h_ref}"
+    assert abs(c_new - c_ref) / max(abs(c_ref), 1e-12) < 1e-9, f"intercept diverged: {c_new} vs {c_ref}"
