@@ -397,6 +397,44 @@ def test_radix_select_edges_codes_bit_identical_to_percentile(monkeypatch):
             assert maxdiff == 0, f"dt={dt.__name__} n={n} K={K} radix vs percentile code maxdiff={maxdiff}"
 
 
+def test_radix_f32_bsearch_variant_bit_identical_to_linear(monkeypatch):
+    """LEVER C: the binary-search window-match f32 radix-select variant (radix_select_f32_bsearch) must
+    produce codes BIT-IDENTICAL (maxdiff 0) to the base linear-scan radix_select_f32 -- it only replaces
+    HOW each row finds its rank window (linear scan -> branchless binary search over the sorted active-window
+    prefixes), not the order statistics. Stresses the ties/duplicates edge case (binary search must exact-
+    match a window prefix, not lower_bound onto a wrong slot) and all-equal columns alongside heavy-tailed
+    data. Both variants run via the radix edges path (MLFRAME_FE_GPU_RADIX_EDGES=1)."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters import _gpu_resident_select as S
+
+    monkeypatch.setenv("MLFRAME_FE_GPU_RADIX_EDGES", "1")
+    rng = np.random.default_rng(11)
+
+    def _codes(cand, variant):
+        S._RADIX_F32_VARIANT_OVERRIDE = variant
+        try:
+            return S._gpu_resident_discretize_codes(cand, 20)
+        finally:
+            S._RADIX_F32_VARIANT_OVERRIDE = None
+
+    for n, K in ((10_000, 257), (100_000, 96), (40_000, 1)):
+        for kind in ("heavy", "uniform", "ties", "allequal"):
+            if kind == "heavy":
+                base = ((rng.standard_normal((n, K)) ** 2) / (rng.standard_normal((n, K)) + 3.0)).astype(np.float32)
+            elif kind == "uniform":
+                base = rng.uniform(-5.0, 5.0, (n, K)).astype(np.float32)
+            elif kind == "ties":
+                base = rng.integers(0, 7, (n, K)).astype(np.float32)  # heavy duplicate values
+            else:
+                base = np.full((n, K), 2.5, np.float32)
+                if K > 1:
+                    base[:, ::3] = 1.0  # mix all-equal + two-valued columns
+            cand = cp.ascontiguousarray(cp.asarray(base))
+            cl = _codes(cand, "linear"); cb = _codes(cand, "bsearch")
+            md = int(cp.abs(cl.astype(cp.int64) - cb.astype(cp.int64)).max())
+            assert md == 0, f"n={n} K={K} {kind} bsearch vs linear radix code maxdiff={md}"
+
+
 def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
     """gpu_pairs_fe_mi (GPU binning + GPU observed-MI + analytic gate) must equal the production CPU
     _dispatch_batch_mi_with_noise_gate on its analytic branch -- this is the selection-identity contract

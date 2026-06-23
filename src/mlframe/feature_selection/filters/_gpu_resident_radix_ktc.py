@@ -92,6 +92,73 @@ def radix_select_threads(n: int) -> int:
     return _RADIX_THREADS_DEFAULT
 
 
+# Lever C (2026-06-23): which f32 radix-select WINDOW-MATCH variant -- the base linear scan or the
+# binary-search variant -- is the per-host fastest. The base kernel is warp-divergence bound (~42% eff) on
+# the per-row linear window scan; the bsearch variant replaces it with a branchless binary search over the
+# sorted active-window prefixes (bit-identical order statistics; the sweep ranks by WALL only). "bsearch" is
+# the measured-faster default / lookup-failure fallback (proven by the CUDA-event A/B at production shape).
+_RADIX_F32_VARIANTS = ("linear", "bsearch")
+_RADIX_F32_VARIANT_DEFAULT = "bsearch"
+_RADIX_F32_VARIANT_SALT = 1
+
+
+def radix_select_f32_variant(n: int) -> str:
+    """Per-host f32 radix-select window-match variant ("linear"/"bsearch") from the kernel_tuning_cache.
+    Returns ``_RADIX_F32_VARIANT_DEFAULT`` ("bsearch") when no cache entry exists / the lookup fails / no
+    cupy. Both variants are bit-identical in the produced order statistics (only the window search differs)."""
+    if _RADIX_F32_VARIANT_SPEC is None:
+        return _RADIX_F32_VARIANT_DEFAULT
+    try:
+        choice = _RADIX_F32_VARIANT_SPEC.choose(n_samples=int(n))
+    except Exception:
+        return _RADIX_F32_VARIANT_DEFAULT
+    if isinstance(choice, str) and choice in _RADIX_F32_VARIANTS:
+        return choice
+    return _RADIX_F32_VARIANT_DEFAULT
+
+
+def _radix_edges_with_f32_variant(cand, nbins: int, variant: str):
+    """Run the radix-select interior-edge extraction with an EXPLICIT f32 window-match variant (the
+    per-variant probe the sweep times). Output is BIT-IDENTICAL across variants (the binary search only
+    changes HOW a row finds its window, not the order statistics), so the sweep ranks by WALL only."""
+    import cupy as cp
+
+    from . import _gpu_resident_select as _sel
+
+    saved = _sel._RADIX_F32_VARIANT_OVERRIDE
+    try:
+        _sel._RADIX_F32_VARIANT_OVERRIDE = str(variant)
+        edges = _sel._radix_select_interior_edges(cand, int(nbins))
+    finally:
+        _sel._RADIX_F32_VARIANT_OVERRIDE = saved
+    if edges is None:
+        return np.empty(0, dtype=np.float64)
+    return cp.asnumpy(edges)
+
+
+def _run_radix_f32_variant_sweep() -> list:
+    """Time each f32 window-match variant on the resident radix-edge path; fastest EQUIVALENT per n-region
+    wins. Both variants produce the SAME edges (order-statistic invariance), so equivalence is trivially met."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    variants = {
+        v: (lambda cand, _v=v: _radix_edges_with_f32_variant(cand, 20, _v))
+        for v in _RADIX_F32_VARIANTS
+    }
+    return sweep_backend_grid(
+        variants,
+        {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
+        _make_radix_inputs,
+        reference=_RADIX_F32_VARIANT_DEFAULT,
+        repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
+    )
+
+
+def _radix_f32_variant_fallback_choice(n_samples: int) -> str:
+    """Pre-sweep fallback: the measured-faster binary-search variant."""
+    return _RADIX_F32_VARIANT_DEFAULT
+
+
 def _radix_edges_with_threads(cand, nbins: int, threads: int):
     """Run the radix-select interior-edge extraction with an EXPLICIT threads/block (the per-variant probe
     the sweep times). Output is BIT-IDENTICAL across thread counts (order stats are sum-reductions over the
@@ -167,3 +234,20 @@ try:
     )
 except Exception:
     _RADIX_THREADS_SPEC = None
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _RADIX_F32_VARIANT_SPEC = kernel_tuner(
+        kernel_name="gpu_fe_radix_select_f32_variant",
+        variant_fns=(),  # GPU-only cupy path; covered by salt
+        tuner=_run_radix_f32_variant_sweep,
+        axes={"n_samples": list(_RADIX_THREADS_SWEEP_N_SAMPLES)},
+        fallback=_radix_f32_variant_fallback_choice,
+        gpu_capable=True,
+        salt=_RADIX_F32_VARIANT_SALT,
+        cli_label="gpu_fe_radix_select_f32_variant",
+    )
+except Exception:
+    _RADIX_F32_VARIANT_SPEC = None

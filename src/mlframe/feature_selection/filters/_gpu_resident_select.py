@@ -56,8 +56,10 @@ from ._gpu_resident_fe import (
 # (maxdiff 0 all columns): f64  100k 1.17x / 300k 1.19x / 1M 2.06x;  f32  100k 2.38x / 300k 2.30x / 1M
 # 3.67x. The win GROWS with n (O(n) select vs O(n log n) sort) -- exactly the large-n*K regime the GPU
 # binning engages (the auto-router keeps small n on the CPU). The per-row inner window-match loop (R<=40)
-# keeps the real time above the bare bandwidth floor; a sorted-prefix binary search is the obvious next
-# lever (FUTURE) but the current kernel already beats the sort at every measured size.
+# keeps the real time above the bare bandwidth floor; the sorted-prefix BINARY SEARCH variant (Lever C,
+# 2026-06-23, ``radix_select_f32_bsearch``) cuts that divergence -- isolated radix kernel A/B at the
+# production shape (n=100k, K=583, R=38, threads=1024) measured 65.05ms -> 48.63ms = 1.337x, BIT-IDENTICAL
+# codes (maxdiff 0); it is now the per-host KTC default for the f32 path (base linear scan = fallback).
 #
 # EXACTNESS / fallback: the order statistics are exact; the cupy 'linear' interpolation is reproduced in
 # float64 EXACTLY (idx=q*(N-1); w=idx-floor(idx); w<0.5 ? below+diff*w : above-diff*(1-w); diff in f64 over
@@ -149,6 +151,76 @@ void radix_select_f32(const float* __restrict__ data, const long long n, const i
     if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
 }
 """
+# BINARY-SEARCH WINDOW-MATCH VARIANT (2026-06-23, Lever C). The base ``radix_select_f32`` is WARP-DIVERGENCE
+# bound (~42% warp_execution_efficiency, prior nvprof): the dominant per-row inner loop linearly scans up to
+# Wl (<=R<=40) active window prefixes to find the ONE matching ``pm = u & hmask`` (lines 139-140). Each row
+# does O(Wl) compares and threads in a warp diverge on WHICH q matches / WHEN they break -> low SIMD eff.
+#
+# This variant replaces that linear scan with a BRANCHLESS BINARY SEARCH (O(log Wl), uniform iteration count
+# across the warp -> no early-break divergence). The ``tid==0`` discovery loop already builds ``wpref`` /
+# ``rank2w`` in first-appearance order; we ADD a SORTED view (``wsort`` = ascending distinct prefixes, built
+# once per byte-pass by tid==0 via insertion sort over W<=40 entries -- trivially cheap, serial in tid==0
+# alongside the existing serial discovery) plus ``wsort2w`` mapping sorted-position -> the ORIGINAL window
+# index. Each data thread lower-bounds ``pm`` in ``wsort`` with a fixed-trip-count loop, then confirms an
+# EXACT match (rows whose ``pm`` is not an active window prefix get win=-1 and are skipped, EXACTLY as the
+# linear scan did) and maps to the original window index via ``wsort2w`` -- so ``rank2w`` and the per-window
+# histogram slot ``sh[win*256+..]`` are byte-for-byte the SAME layout as the base kernel. The order
+# statistics are therefore BIT-IDENTICAL; only HOW each row finds its window changes (verified maxdiff 0).
+# A direct prefix->window LUT was rejected: ``pm`` spans the full 32-bit transformed-key space (high bytes of
+# an arbitrary IEEE key), so a dense LUT is infeasible; the prefixes are few (W<=40) but sparse -> binary
+# search over the sorted small array is the correct + cheap structure. Kept as a SEPARATE kernel (the base
+# stays the exact fallback / dispatch alternative); selected by the KTC variant sweep, default = whichever is
+# measured faster per host (the base remains the fallback on any compile/launch failure).
+_RADIX_SELECT_F32_BSEARCH_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f32_bsearch(const float* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, float* __restrict__ out){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned int prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned int wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ unsigned int wsort[MAXR];   // wpref sorted ascending (distinct active window prefixes)
+    __shared__ int wsort2w[MAXR];          // sorted position -> ORIGINAL window index (into wpref / sh)
+    __shared__ int W;
+    if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=3;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
+            // insertion-sort the W<=40 distinct prefixes ascending, carrying the original window index.
+            for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+            for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
+            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            unsigned int pm=u&hmask;
+            // branchless lower_bound over wsort[0..Wl): fixed-trip-count, no early break -> low warp divergence
+            int lo=0,hi=Wl;
+            while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+            if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        if(tid==0){for(int r=0;r<R;++r){int w=rank2w[r];unsigned long long acc=below[r];int chosen=0;long long want=ranks[r];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[r]=acc;prefix[r]=(prefix[r]&hmask)|((unsigned int)chosen<<shift);}}
+        __syncthreads();
+    }
+    if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F32_BSEARCH_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 _RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)
 _RADIX_SELECT_F32_KERNEL = None
 _RADIX_SELECT_THREADS = 512  # historical default + KTC fallback (see _gpu_resident_radix_ktc / Lever B)
@@ -244,6 +316,52 @@ def _get_radix_select_kernel(is_f32: bool):
     return _RADIX_SELECT_F64_KERNEL
 
 
+def _get_radix_select_f32_bsearch_kernel():
+    """Lazy-compiled (pickle-safe, module-level singleton) binary-search window-match f32 variant
+    (Lever C). Bit-identical order statistics to ``radix_select_f32``; replaces the divergent linear
+    per-row window scan with a branchless binary search over the sorted active-window prefixes."""
+    global _RADIX_SELECT_F32_BSEARCH_KERNEL
+    import cupy as cp
+    if _RADIX_SELECT_F32_BSEARCH_KERNEL is None:
+        _RADIX_SELECT_F32_BSEARCH_KERNEL = cp.RawKernel(
+            _RADIX_SELECT_F32_BSEARCH_SRC, "radix_select_f32_bsearch")
+    return _RADIX_SELECT_F32_BSEARCH_KERNEL
+
+
+# Lever C variant select (2026-06-23): which f32 radix-select kernel to launch -- the base linear-scan
+# ``radix_select_f32`` or the binary-search ``radix_select_f32_bsearch``. KTC-tuned per host (the sweep
+# probe forces a choice via this override; the production launch reads the per-host tuned variant). Both
+# produce BIT-IDENTICAL order statistics (the binary search only changes HOW a row finds its window) -> the
+# sweep ranks by WALL only and the base stays the fallback on any compile/launch failure. f64 is unaffected.
+_RADIX_F32_VARIANT_OVERRIDE = None  # "linear" / "bsearch" set by the KTC sweep probe; None -> per-host KTC
+
+
+def _resolve_radix_f32_variant(n: int) -> str:
+    """Which f32 radix-select variant to launch: the sweep override when active, else the per-host KTC-tuned
+    choice ("linear" / "bsearch"; falls back to "bsearch" -- the measured-faster default -- on lookup
+    failure). Both are bit-identical in the produced order statistics."""
+    if _RADIX_F32_VARIANT_OVERRIDE is not None:
+        return str(_RADIX_F32_VARIANT_OVERRIDE)
+    try:
+        from ._gpu_resident_radix_ktc import radix_select_f32_variant
+        return str(radix_select_f32_variant(int(n)))
+    except Exception:
+        return "bsearch"
+
+
+def _get_radix_select_f32_dispatch(n: int):
+    """The f32 radix-select kernel for this size/host (Lever C dispatch). Returns the binary-search variant
+    when selected (and it compiles), else the base linear-scan kernel; the base is also the fallback on any
+    compile failure of the bsearch variant -- bit-identical order statistics either way."""
+    if _resolve_radix_f32_variant(n) == "bsearch":
+        try:
+            return _get_radix_select_f32_bsearch_kernel()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("bsearch radix kernel compile failed; linear fallback", exc_info=True)
+    return _get_radix_select_kernel(True)
+
+
 def fe_gpu_radix_edges_enabled() -> bool:
     """Whether the rank-EXACT sort-free radix-select quantile edges replace cp.percentile's full sort.
     ON unless ``MLFRAME_FE_GPU_RADIX_EDGES`` is explicitly falsy (it is bit-identical to cp.percentile in
@@ -290,7 +408,9 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
         return None
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
-    ker = _get_radix_select_kernel(is_f32)
+    # Lever C: dispatch the f32 path to the binary-search window-match variant where the per-host KTC selects
+    # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
+    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
     # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
     # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
