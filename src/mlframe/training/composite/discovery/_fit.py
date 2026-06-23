@@ -679,6 +679,16 @@ def fit(
     # Plugin MI quantises to a fixed grid, so tied mi_gain is realistic; the spec-name secondary key makes top-K deterministic across runs.
     # Known minor inconsistency: the gate above admits on mi_gain_lcb but this ranks on the point mi_gain, so under bootstrap a high-variance
     # big-point/low-LCB spec can outrank a stable better-LCB one (the lcb is not carried on the spec). Default bootstrap_n=0, so ranking is exact.
+    # WINNER'S CURSE (SA27, FUTURE): the winner is selected on the SAME mi_gain statistic that is then
+    # reported as its gain, so the top spec's reported mi_gain is optimistically biased -- the max over many
+    # candidate gains exceeds the winner's true gain (the curse grows with the candidate count). The reported
+    # gain is a SELECTION score, not an honest effect-size estimate. A proper fix needs a fresh holdout split
+    # the discovery never touched (screening, FDR gate, tiny-rerank, multi-base promotion all consume the
+    # screening sample), then re-scoring ONLY the final winner on that untouched holdout for an unbiased gain.
+    # Deferred as FUTURE rather than fixed here: threading a never-seen holdout through the whole discovery
+    # pipeline (and honouring the 100GB-frame / no-copy constraints) is an architectural change, not a local
+    # edit, and the mi_gain_lcb / FDR gate already partially de-bias the ADMISSION decision (just not the
+    # reported point gain). Treat kept_specs[*].mi_gain as a ranking key, not a calibrated generalisation gain.
     kept_specs.sort(key=lambda s: (-s.mi_gain, getattr(s, "name", "")))
     kept_specs = kept_specs[: self.config.top_k_after_mi]
 

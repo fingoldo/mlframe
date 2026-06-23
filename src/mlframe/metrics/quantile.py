@@ -206,6 +206,11 @@ def pinball_loss_per_alpha(
 def coverage(y_true, q_lo, q_hi) -> float:
     """Empirical coverage: fraction of y in [q_lo, q_hi]. In [0, 1].
 
+    HOLDOUT CONTRACT: coverage is only an honest interval-calibration check on rows the model did NOT
+    train on. Computed on training rows it is optimistically inflated (the model has seen the targets),
+    so a near-nominal in-sample coverage does NOT certify the deployed intervals. The function cannot
+    detect which rows are which -- the CALLER must pass a holdout split.
+
     iter610: dropped the unconditional ``dtype=np.float64`` cast on
     each input (same pattern as iter595-608). Kernel ``_fast_coverage``
     is two comparisons + a counter per element -- inside the iter597
@@ -279,6 +284,14 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
     - U-shape -> intervals too narrow (over-confident)
     - inverted-U -> intervals too wide
     - skew -> systematic under/over prediction
+
+    CROSSING CAVEAT: each row's K predicted quantiles are SORTED before interpolation, so a
+    quantile-crossing prediction (a higher alpha-level whose predicted value is BELOW a lower-level one,
+    a real model defect) is silently laundered into a monotone curve -- the PIT looks valid even though
+    the underlying quantile function was non-monotone. A one-line warning fires when crossings are
+    detected so the defect is not hidden; fix the predictor (post-hoc isotonic / sorted heads) rather
+    than relying on this re-sort. PIT is a HOLDOUT diagnostic: feed rows the model did not train on,
+    else the uniformity is optimistic.
     """
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
@@ -288,6 +301,18 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
             f"pit_values: shape mismatch y={y.shape}, preds={P.shape}, "
             f"alphas={a_arr.shape}"
         )
+    # Cheap crossing detector: with alphas ascending the predicted quantiles should be non-decreasing
+    # across columns. Any row with a negative consecutive diff has a quantile crossing that the per-row
+    # sort masks -- warn once with the count so the defect surfaces rather than being silently laundered.
+    if a_arr.shape[0] >= 2 and y.shape[0] > 0 and bool(np.all(np.diff(a_arr) > 0)):
+        n_crossing = int(np.count_nonzero((np.diff(P, axis=1) < 0).any(axis=1)))
+        if n_crossing:
+            import logging
+            logging.getLogger(__name__).warning(
+                "pit_values: %d/%d rows have crossing (non-monotone) predicted quantiles; the per-row "
+                "sort masks this -- fix the quantile predictor (isotonic / sorted heads).",
+                n_crossing, y.shape[0],
+            )
     if _NUMBA_AVAILABLE and y.shape[0] > 0:
         out = _fast_pit(np.ascontiguousarray(P), np.ascontiguousarray(y), a_arr)
         return np.clip(out, 0.0, 1.0)
@@ -393,6 +418,22 @@ def crps_from_quantiles(
     # Manual formula (np.trapz removed in NumPy 2; np.trapezoid only exists
     # from 2.0) keeps the kernel numpy-version-agnostic.
     integral = float(np.sum((a[1:] - a[:-1]) * (per_alpha[1:] + per_alpha[:-1]) * 0.5))
+    # Tail handling over alpha in [0, a[0]] and [a[-1], 1]. Integrating only
+    # [a[0], a[-1]] silently drops the two tails, under-estimating CRPS and
+    # breaking comparability across grids that cover the same distribution
+    # with different alpha ranges. We extend the predicted quantile function
+    # as a step beyond the outermost predicted quantiles (q(alpha)=p[:,0] for
+    # alpha<a[0]; q(alpha)=p[:,-1] for alpha>a[-1]) -- the standard constant-
+    # extrapolation tail clamp. With a fixed q, pinball(alpha, y, q) is
+    # piecewise-linear in alpha, so each tail integral is exact: the trapezoid
+    # of the per-row pinball at the tail endpoints (alpha=0 / alpha=1 use the
+    # same outermost q).
+    if a[0] > 0.0:
+        pin_lo_edge = pinball_loss(y, p[:, 0], 0.0)
+        integral += float(0.5 * a[0] * (pin_lo_edge + per_alpha[0]))
+    if a[-1] < 1.0:
+        pin_hi_edge = pinball_loss(y, p[:, -1], 1.0)
+        integral += float(0.5 * (1.0 - a[-1]) * (per_alpha[-1] + pin_hi_edge))
     return 2.0 * integral
 
 

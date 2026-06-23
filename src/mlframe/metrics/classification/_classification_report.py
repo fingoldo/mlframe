@@ -80,6 +80,15 @@ def format_classification_report(
     sklearn's multilabel-indicator input (use sklearn directly for that)
     and ``output_dict=True`` (use ``fast_classification_report`` for the
     raw arrays).
+
+    MACRO-AVG CAVEAT (matches sklearn): macro avg is the UNWEIGHTED mean of the per-class
+    precision / recall / f1 over ALL ``nclasses``, INCLUDING any class with support 0 in
+    ``y_true``. An absent class contributes its ``zero_division`` value (0 by default) to the
+    macro mean, which DEFLATES macro precision/recall/f1 on rare-event / sparse-label targets
+    where some classes never appear in this split. If you want the mean over only the classes
+    actually present, filter ``target_names`` to the observed labels before averaging, or read the
+    per-class rows directly. (weighted avg is support-weighted, so absent classes get weight 0 and
+    do not move it.)
     """
     from ..core import fast_classification_report  # lazy: see import-cycle note at module top
     hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages = (
@@ -252,7 +261,14 @@ def fast_calibration_report(
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
 
     def _degenerate_result():
-        """Empty / all-non-finite input: degenerate metrics, no crash."""
+        """Empty / all-non-finite input: degenerate metrics, no crash.
+
+        roc_auc is PINNED at 0.5 here (the no-skill / coin-flip AUC) and precision/recall/f1 at 0.0.
+        On a rare-event target whose split happens to be single-class (no positives, or no negatives)
+        the ranking AUC is genuinely undefined; the 0.5 pin is a neutral placeholder, NOT a measured
+        score -- treat a 0.5 from this path as "AUC not computable on this split", not as a real
+        random-ranking result.
+        """
         return (
             1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
             1.0, 1.0, 0.0, 0.0,            # ece, rel, res, unc

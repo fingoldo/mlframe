@@ -83,6 +83,7 @@ def waic_from_oof_residuals(
     fold_residuals: Sequence[np.ndarray],
     *,
     target_scale: Optional[float] = None,
+    fold_scale_residuals: Optional[Sequence[np.ndarray]] = None,
 ) -> WaicScore:
     """Pure WAIC-style score from per-fold out-of-fold residual arrays.
 
@@ -108,16 +109,43 @@ def waic_from_oof_residuals(
     floor so a near-perfect fold fit cannot send the log-density to ``+inf``;
     when omitted it is inferred from the pooled residual scale.
 
+    ``fold_scale_residuals[k]`` (when supplied) is the TRAIN-fold residual array
+    used to estimate fold ``k``'s Gaussian variance. Estimating ``sigma_k^2``
+    from the held-out residuals themselves self-normalises the density to each
+    transform's own held-out scale: a transform with large but well-calibrated
+    held-out errors gets the SAME per-point density as one with tiny errors, so
+    the OOF-accuracy signal cancels out and WAIC stops ranking on generalisation.
+    Estimating the variance from the train-fold residuals (a scale the held-out
+    points did not see) makes the held-out log-density actually measure how well
+    each transform predicts unseen rows. Falls back to the held-out residuals
+    only when no train-fold scale is provided (legacy callers).
+
     Returns an invalid :class:`WaicScore` (``valid=False``) when fewer than two
     folds carry any finite residual -- the across-fold penalty is undefined with
     a single fold, so the caller must not rank on it.
+
+    LABEL CAVEAT: this is NOT the canonical WAIC of Watanabe / Gelman. True WAIC needs the per-sample
+    posterior predictive density and uses ``p_waic = sum_i Var_posterior(log p(y_i))`` -- the variance of
+    the pointwise log-likelihood OVER THE POSTERIOR DRAWS. We have no posterior; this is a WAIC-FLAVOURED
+    cross-validation proxy: ``elpd`` is the mean out-of-fold Gaussian log-density and ``p_eff`` is the
+    ACROSS-FOLD dispersion of per-fold mean lpd, a coarse fold-granularity stand-in for the posterior
+    variance term. It is a useful relative tie-breaker between transforms, not a calibrated information
+    criterion -- do not compare its magnitude against a true WAIC / LOO-IC from a Bayesian fit.
     """
     clean: list[np.ndarray] = []
-    for arr in fold_residuals:
+    scale_resid: list[Optional[np.ndarray]] = []
+    have_scale = fold_scale_residuals is not None
+    for j, arr in enumerate(fold_residuals):
         a = np.asarray(arr, dtype=np.float64).ravel()
         a = a[np.isfinite(a)]
         if a.size >= 2:  # need >=2 points to estimate the fold variance.
             clean.append(a)
+            if have_scale and j < len(fold_scale_residuals):
+                sr = np.asarray(fold_scale_residuals[j], dtype=np.float64).ravel()
+                sr = sr[np.isfinite(sr)]
+                scale_resid.append(sr if sr.size >= 2 else None)
+            else:
+                scale_resid.append(None)
     if len(clean) < 2:
         return _INVALID
 
@@ -134,8 +162,11 @@ def waic_from_oof_residuals(
     for k, r in enumerate(clean):
         # Fold variance about zero (the residual mean is ~0 by construction; using
         # the raw second moment keeps a biased fold that systematically mispredicts
-        # from hiding its bias inside a re-centred variance).
-        sigma2 = max(float(np.mean(r * r)), var_floor)
+        # from hiding its bias inside a re-centred variance). The variance is
+        # estimated from the TRAIN-fold residuals when available so the held-out
+        # density is NOT self-normalised to its own scale (see docstring).
+        scale_arr = scale_resid[k] if scale_resid[k] is not None else r
+        sigma2 = max(float(np.mean(scale_arr * scale_arr)), var_floor)
         lpd = -0.5 * (_LOG_2PI + math.log(sigma2) + (r * r) / sigma2)
         per_point_lpd.append(lpd)
         fold_mean_lpd[k] = float(np.mean(lpd))
@@ -161,13 +192,16 @@ def _oof_residuals_kfold(
     n_folds: int,
     random_state: int,
     model_factory: Optional[Callable[[], object]],
-) -> list[np.ndarray]:
-    """Collect per-fold out-of-fold residuals from a cheap K-fold pass.
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Collect per-fold out-of-fold AND train-fold residuals from a cheap K-fold pass.
 
     Self-contained: builds a small model (``model_factory`` or a default tiny
-    gradient booster / ridge fallback), fits on K-1 folds, predicts the held-out
-    fold, and returns the list of per-fold residual arrays. No global state, no
-    rerank machinery -- the only dependency is sklearn's ``KFold``.
+    gradient booster / ridge fallback), fits on K-1 folds, predicts BOTH the
+    held-out fold and the train portion, and returns ``(oof_residuals,
+    train_residuals)`` aligned per fold. The train-fold residuals supply the
+    Gaussian scale for the held-out density so it is not self-normalised (see
+    :func:`waic_from_oof_residuals`). No global state, no rerank machinery -- the
+    only dependency is sklearn's ``KFold``.
     """
     from sklearn.model_selection import KFold
 
@@ -179,21 +213,24 @@ def _oof_residuals_kfold(
     y, x = y[finite], x[finite]
     n = y.size
     if n < n_folds * 4:  # too small for an honest K-fold split.
-        return []
+        return [], []
 
     factory = model_factory if model_factory is not None else _default_tiny_model
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
     residuals: list[np.ndarray] = []
+    train_residuals: list[np.ndarray] = []
     for tr, va in kf.split(x):
         try:
             model = factory()
             model.fit(x[tr], y[tr])
             pred = np.asarray(model.predict(x[va]), dtype=np.float64).ravel()
+            pred_tr = np.asarray(model.predict(x[tr]), dtype=np.float64).ravel()
         except Exception as err:  # a single fold failing must not kill the score.
             logger.debug("WAIC fold fit failed: %s", err)
             continue
         residuals.append(y[va] - pred)
-    return residuals
+        train_residuals.append(y[tr] - pred_tr)
+    return residuals, train_residuals
 
 
 def _default_tiny_model():
@@ -242,14 +279,16 @@ def compute_transform_waic(
     small for an honest fit -- the caller should then drop WAIC from this
     candidate's ranking rather than treat ``-inf`` as a real score.
     """
-    fold_residuals = _oof_residuals_kfold(
+    fold_residuals, train_fold_residuals = _oof_residuals_kfold(
         y_target, x_matrix,
         n_folds=n_folds, random_state=random_state, model_factory=model_factory,
     )
     if len(fold_residuals) < 2:
         return _INVALID
     scale = float(np.std(np.asarray(y_target, dtype=np.float64).ravel()))
-    return waic_from_oof_residuals(fold_residuals, target_scale=scale)
+    return waic_from_oof_residuals(
+        fold_residuals, target_scale=scale, fold_scale_residuals=train_fold_residuals,
+    )
 
 
 def rank_transforms_by_waic(

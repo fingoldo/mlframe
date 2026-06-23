@@ -177,6 +177,12 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
     # 100x100 pair loop stays tractable on million-row datasets. The bench
     # shows MI converges by N=20k for KSG; 50k default gives a safety margin
     # without paying the full N=1M cost.
+    #
+    # BIAS CAVEAT: sub-sampling raises the kNN-distance estimator's bias -- KSG MI bias scales
+    # ~ k/N_eff, so capping N_eff at max_input_n leaves a small positive-bias floor that the full
+    # sample would shrink further. The 20k-convergence bench above shows the residual is negligible
+    # for the screening use here; raise max_input_n (paying the runtime) when an unbiased MI on a
+    # >50k sample is required.
     if n > int(max_input_n):
         idx = rng.choice(n, size=int(max_input_n), replace=False)
         x = x[idx]

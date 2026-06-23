@@ -176,6 +176,14 @@ def pooled_permutation_null_gain_floor(
     ``quantile``-th quantile of the per-shuffle MAX corrected marginal MI over the
     pool - a gain a genuine signal exceeds and chance-max noise does not.
 
+    VARIANCE CAVEAT: the floor is the ``quantile`` (default 0.95) of the EXTREME (per-shuffle MAX) over
+    only ``n_permutations`` (default 25) shuffles. An upper-tail quantile of a max statistic estimated
+    from K=25 draws is itself high-variance, so the floor wobbles run-to-run on the same data; it is a
+    coarse chance-screen, not a calibrated significance threshold. The default stays at 25 because the
+    floor only needs to be roughly right (a genuine signal clears it comfortably) and each extra shuffle
+    pays a full pool-rescore; raise ``n_permutations`` (e.g. 100-200) when a stabler floor is required
+    -- note this MOVES the floor (selection-altering), so re-validate downstream selection if you do.
+
     Returns ``0.0`` (a no-op floor) when the pool is degenerate (n too small,
     fewer than two scorable candidates, or a constant target), so callers can
     unconditionally compare ``gain >= floor`` without special-casing.

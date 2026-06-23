@@ -131,16 +131,24 @@ def bootstrap_reliability_band(
     curves = np.empty((n_boot, n_grid), dtype=np.float64)
     idx = rng.integers(0, n, size=(n_boot, n))  # one vectorised draw of all B resample index rows
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+    n_valid = 0
     for b in range(n_boot):
         sel = idx[b]
         sb, tb = s[sel], t[sel]
-        # An all-one-class or all-equal-score resample has no monotone signal; reuse the full-sample fit for that row
-        # so a degenerate draw cannot collapse the percentile band to a flat line.
+        # An all-one-class or all-equal-score resample has no monotone signal. EXCLUDE such draws from the band
+        # rather than substituting the full-sample fit: substituting injected the (tight, true-curve) full-sample
+        # fit into the percentile pool, which artificially NARROWED the band and made noise-level miscalibration
+        # read as "significant". Dropping degenerate draws keeps the band honest (a refit per surviving resample).
         if np.unique(tb).size < 2 or sb.max() <= sb.min():
-            iso.fit(s, t)
-        else:
-            iso.fit(sb, tb)
-        curves[b] = iso.predict(grid)
+            continue
+        iso.fit(sb, tb)
+        curves[n_valid] = iso.predict(grid)
+        n_valid += 1
+    if n_valid < 2:
+        # Too few non-degenerate resamples to form a percentile band; report no significant region rather than a
+        # spuriously tight one. (Happens only on tiny / near-degenerate inputs the point curve already strains on.)
+        return None
+    curves = curves[:n_valid]
     lower = np.percentile(curves, 2.5, axis=0)
     upper = np.percentile(curves, 97.5, axis=0)
     # Significant where the whole band lies off the diagonal: either entirely above (lower > grid) or entirely below
@@ -583,11 +591,16 @@ def delong_auc_ci(
     *,
     alpha: float = 0.05,
 ) -> Tuple[float, float, float]:
-    """ROC-AUC with a two-sided ``1-alpha`` DeLong confidence interval, clipped to [0, 1].
+    """ROC-AUC with a two-sided ``1-alpha`` DeLong confidence interval, on the LOGIT scale.
 
-    Returns ``(auc, lower, upper)``. The CI is the normal-approximation interval ``auc +- z * sqrt(var)`` on the AUC
-    scale (the simple, widely-reported DeLong CI). It narrows as ``~1/sqrt(n)``, so a large-n problem gives a tight
-    bracket around the true AUC -- the property the biz_value test pins. ``(nan, nan, nan)`` when a class is empty.
+    Returns ``(auc, lower, upper)``. The interval is built on the logit-transformed AUC -- ``logit(auc) +- z *
+    sqrt(var)/(auc*(1-auc))`` (delta-method SE of the transform) -- then mapped back through the sigmoid. This is
+    the bounded-transform DeLong CI (Cortes & Mohri 2005; pROC's ``method="logit"``). The naive normal-theory
+    interval ``auc +- z*sqrt(var)`` clipped to [0,1] UNDER-COVERS near AUC≈1: the symmetric bar pokes past 1 and the
+    clip truncates the upper tail, so the realised coverage drops below ``1-alpha`` exactly where AUCs cluster in
+    practice. The logit interval is asymmetric, stays strictly inside (0,1) by construction, and never hits the
+    clip, restoring coverage near the boundary. It still narrows as ``~1/sqrt(n)``. ``(nan, nan, nan)`` when a class
+    is empty; the degenerate ``auc in {0,1}`` (zero var or undefined logit) falls back to the point.
     """
     auc, var = delong_auc_variance(y_true, y_score)
     if not np.isfinite(auc) or not np.isfinite(var):
@@ -595,8 +608,16 @@ def delong_auc_ci(
     from scipy.stats import norm
 
     z = float(norm.ppf(1.0 - alpha / 2.0))
-    half = z * float(np.sqrt(max(var, 0.0)))
-    return auc, float(np.clip(auc - half, 0.0, 1.0)), float(np.clip(auc + half, 0.0, 1.0))
+    sd = float(np.sqrt(max(var, 0.0)))
+    # logit transform is undefined / has infinite SE at auc in {0,1}; with zero spread there is no interval to form.
+    if not (0.0 < auc < 1.0) or sd == 0.0:
+        return auc, auc, auc
+    logit = float(np.log(auc / (1.0 - auc)))
+    se_logit = sd / (auc * (1.0 - auc))  # delta-method: d/dx logit(x) = 1/(x(1-x))
+    half = z * se_logit
+    lo = 1.0 / (1.0 + np.exp(-(logit - half)))
+    hi = 1.0 / (1.0 + np.exp(-(logit + half)))
+    return auc, float(lo), float(hi)
 
 
 __all__ = [

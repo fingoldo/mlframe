@@ -119,6 +119,13 @@ def fit_proxy_corrector(proxy_losses, honest_losses, cards, redunds, *, min_anch
     # its predicted ordering on the anchors is positively rank-correlated with the raw proxy ordering;
     # otherwise we fall back to identity (proxy-only, rank-preserving). This is the cheap, robust
     # monotonicity gate -- a non-inverting map by construction, with no extra anchors required.
+    #
+    # IN-SAMPLE CAVEAT: this gate checks non-inversion on the SAME anchors the Ridge was fit on, so it
+    # verifies the FITTED map does not invert on the training anchors, NOT that it generalises -- a
+    # corrector can pass here yet invert the proxy order on unseen specs. We accept the in-sample check
+    # because the alternative (a held-out anchor split) would halve the already-scarce anchors (min 12)
+    # and the fallback-to-identity on failure makes a wrong-keep strictly safer than a wrong-drop. Revisit
+    # with a held-out non-inversion check if the anchor budget ever grows large enough to split.
     pred_anchor = corr.predict(proxy, cards, redunds)
     if not _ranks_non_inverting(proxy, pred_anchor):
         return ProxyCorrector(fallback=True)

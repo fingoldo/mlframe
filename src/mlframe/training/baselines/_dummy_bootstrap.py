@@ -63,7 +63,8 @@ def _paired_bootstrap_vs_runner_up(
       ``{"runner_up": name,
          "delta": strongest_val - runner_up_val (or model_val - dummy_val),
          "delta_ci": (lo, hi),
-         "p_strongest_beats": fraction of resamples where strongest wins}``
+         "p_strongest_beats": Laplace-smoothed fraction of resamples where strongest wins,
+                              ``(#wins + 1) / (n_surviving + 2)`` (strictly inside (0, 1))}``
 
     Returns ``None`` when no runner-up exists or metric not computable.
     """
@@ -235,18 +236,40 @@ def _paired_bootstrap_vs_runner_up(
                 continue
             deltas[valid] = (v1 - v2) if minimize else (v2 - v1)
             valid += 1
+        n_dropped = n_resamples - valid
         if valid < n_resamples // 4:
             return None
+        if n_dropped:
+            # Failed / non-finite resamples were silently dropped before; log so an operator
+            # sees the surviving-sample count rather than trusting a CI computed over fewer draws.
+            logger.warning(
+                "dummy_baselines: paired bootstrap dropped %d/%d resamples (metric raised or non-finite); "
+                "CI computed over %d surviving deltas.",
+                n_dropped, n_resamples, valid,
+            )
         deltas = deltas[:valid]
 
     # For minimize metrics: strongest wins iff strongest_val < runner_up_val
     # -> delta = (strongest - runner_up) < 0. P(strongest beats) = mean(delta < 0).
     # For maximize metrics: strongest wins iff strongest > runner_up
     # -> delta = (runner_up - strongest) < 0. Same condition.
-    p_strongest_beats = float(np.mean(deltas < 0))
+    # Laplace add-one smoothing: a naive ``mean(delta < 0)`` reports the impossible 0.0 / 1.0 certainty
+    # when the strongest wins (or loses) every resample, yet the observed split is itself only one draw
+    # under the resampling distribution. ``(#wins + 1) / (n + 2)`` keeps the fraction strictly inside
+    # (0, 1) on a clean sweep at BOTH ends (a one-sided ``+1/(n+1)`` would still hit 1.0 on an all-win
+    # sweep), so a downstream "strongest beats with probability 1.0" tie-verdict is never manufactured.
+    n_deltas = deltas.shape[0]
+    n_wins = int(np.count_nonzero(deltas < 0))
+    p_strongest_beats = (n_wins + 1.0) / (n_deltas + 2.0)
     point = float(np.mean(deltas))
     lo = float(np.percentile(deltas, 2.5))
     hi = float(np.percentile(deltas, 97.5))
+
+    # NOTE: delta_ci is a raw PERCENTILE interval, not BCa. On a heavily skewed paired-log-loss
+    # delta distribution the percentile interval can under-cover (the same skew limitation BCa in
+    # evaluation/bootstrap.py corrects); it is kept here because this gate is a coarse robustness
+    # flag, not a publication-grade CI. Use evaluation.bootstrap.bootstrap_metric(method="bca") when
+    # an accurate skewed-metric CI is required.
 
     return {
         "runner_up": str(runner_up),

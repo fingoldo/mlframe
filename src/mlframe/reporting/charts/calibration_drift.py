@@ -24,7 +24,7 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe.metrics.calibration import compute_ece_and_brier_decomposition
+from mlframe.metrics.calibration import compute_ece_debiased
 from mlframe.metrics.calibration import fast_calibration_binning
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
@@ -157,7 +157,10 @@ def calibration_drift(
             continue
         yt_w = yt_sorted[lo:hi]
         ys_w = ys_sorted[lo:hi]
-        ece, _rel, _res, _unc, _bb = compute_ece_and_brier_decomposition(yt_w, ys_w, n_bins)
+        # Debiased ECE subtracts each window's per-bin Bernoulli noise floor: the plug-in ECE on small unequal
+        # windows is inflated by ~1/sqrt(n_w), so a no-drift stream with varying window sizes produced a spurious
+        # ece_trend that was purely a sample-size artifact. The bias-corrected estimator collapses that floor to ~0.
+        ece = compute_ece_debiased(yt_w.astype(np.float64), ys_w, n_bins)
         eces[w] = float(ece)
         if collect_curves:
             fp, ftr, _hits = fast_calibration_binning(yt_w, ys_w, nbins=n_bins)

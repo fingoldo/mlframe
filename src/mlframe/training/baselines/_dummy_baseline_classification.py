@@ -46,23 +46,36 @@ def _compute_classification_baselines(
     n_test = 0 if test_y is None else len(test_y)
     seed = _per_target_seed(config.random_state, target_name)
 
+    def _prior_from(y: np.ndarray | None) -> np.ndarray:
+        if y is None or len(y) == 0:
+            return train_prior
+        bc = np.bincount(np.asarray(y).astype(np.int64), minlength=n_classes).astype(np.float64)
+        return bc / bc.sum() if bc.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
+
     # Compute train priors
     train_y_int = train_y.astype(np.int64)
     bincounts = np.bincount(train_y_int, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum() if bincounts.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
 
-    # prior baseline: constant per-class prob = train prior
-    prior_probs = np.tile(train_prior, (max(n_val, 1), 1)) if n_val > 0 else np.empty((0, n_classes))
-    if n_val > 0:
-        val_probs["prior"] = prior_probs
-        test_probs["prior"] = np.tile(train_prior, (n_test, 1))
+    # No-skill prior / most_frequent baselines: scored on the EVALUATION split, so the
+    # floor must reflect that split's OWN class prevalence. Under label shift the train
+    # prevalence differs from val/test, and a train-prior floor would be biased (too
+    # optimistic or pessimistic) -- it would not represent the best no-skill predictor a
+    # practitioner could form on the eval distribution. Fall back to the train prior only
+    # when the eval split's labels are unavailable (predict-only deployment).
+    val_prior = _prior_from(val_y)
+    test_prior = _prior_from(test_y)
 
-    # most_frequent: predict argmax of prior with one-hot probs
-    most_freq_class = int(np.argmax(train_prior))
-    mf_probs_row = np.zeros(n_classes)
-    mf_probs_row[most_freq_class] = 1.0
-    val_probs["most_frequent"] = np.tile(mf_probs_row, (n_val, 1))
-    test_probs["most_frequent"] = np.tile(mf_probs_row, (n_test, 1))
+    # prior baseline: constant per-class prob = eval-split prior
+    if n_val > 0:
+        val_probs["prior"] = np.tile(val_prior, (n_val, 1))
+        test_probs["prior"] = np.tile(test_prior, (n_test, 1))
+
+    # most_frequent: predict argmax of the eval-split prior with one-hot probs
+    val_mf_row = np.zeros(n_classes); val_mf_row[int(np.argmax(val_prior))] = 1.0
+    test_mf_row = np.zeros(n_classes); test_mf_row[int(np.argmax(test_prior))] = 1.0
+    val_probs["most_frequent"] = np.tile(val_mf_row, (n_val, 1))
+    test_probs["most_frequent"] = np.tile(test_mf_row, (n_test, 1))
 
     # uniform: 1/K per row
     uniform_probs_row = np.full(n_classes, 1.0 / n_classes)

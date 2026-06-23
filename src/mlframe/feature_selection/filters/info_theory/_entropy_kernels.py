@@ -181,7 +181,10 @@ def symmetric_uncertainty(
     the cardinality of X or Y. Raw ``I(X; Y)`` is bounded by ``min(H(X), H(Y))``
     so high-cardinality features (zip codes, hash IDs, decile-binned continuous
     columns with many bins) get inflated relevance scores under the bare ``mi``
-    estimator. SU divides by the sum of marginal entropies, scrubbing the bias.
+    estimator. SU divides by the sum of marginal entropies, normalising AWAY the
+    cardinality-driven magnitude inflation. (This rescales for cardinality only --
+    it does NOT remove the finite-sample plug-in MI bias in the numerator; for that
+    use a Miller-Madow / debiased MI estimator.)
 
     Two same-entropy features keep the same MRMR ordering under SU vs MI (both
     get divided by the same denominator). Cross-cardinality comparisons are

@@ -146,9 +146,14 @@ def create_fairness_subgroups_indices(
     if group_weights is None:
         group_weights = {}
     res = {}
-    if len(val_idx) == len(test_idx):
-        logger.warning("Validation and test sets have the same size. Fairness subgroups estimation will be incorrect.")
-    for arr in (train_idx, test_idx, val_idx):
+    # Each split's partition is keyed by BOTH a stable split-name identity ("train"/"val"/"test")
+    # and the split length. The length key exists only because boosters call the eval metric on
+    # raw numpy arrays and can distinguish splits solely by ``len(y_true)`` (see robust_mlperf_metric).
+    # Pre-fix the result was keyed by length ALONE, so equal-sized val/test collided -- the second
+    # split silently overwrote the first, corrupting whichever split's partition was looked up by
+    # length. Keying by name retains both partitions; the length lookup additionally guards against a
+    # collision overwriting a NON-identical partition (different rows -> a real mis-grouping).
+    for split_name, arr in (("train", train_idx), ("test", test_idx), ("val", val_idx)):
         npoints = len(arr)
         fairness_subgroups_indices = {}
         for group_name, group_params in subgroups.items():
@@ -199,7 +204,21 @@ def create_fairness_subgroups_indices(
 
             fairness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
 
-        res[npoints] = fairness_subgroups_indices
+        # Stable identity key: both equal-sized splits are retained here, never overwritten.
+        res[split_name] = fairness_subgroups_indices
+        # Length key for the booster eval-metric path (raw-numpy callers see only len(y_true)). On an
+        # equal-length val/test collision the booster cannot tell the two apart anyway, so the
+        # length lookup is intrinsically ambiguous: keep the train partition's slot intact and warn,
+        # rather than silently overwriting it with a different split's (potentially different) rows.
+        if npoints in res and res[npoints] is not fairness_subgroups_indices:
+            logger.warning(
+                "Fairness subgroups: split '%s' has the same size (%d) as an earlier split; the "
+                "length-keyed lookup is ambiguous for boosters that distinguish splits only by row "
+                "count. Use the split-name keys ('train'/'val'/'test') for an unambiguous partition.",
+                split_name, npoints,
+            )
+        else:
+            res[npoints] = fairness_subgroups_indices
 
     return res
 

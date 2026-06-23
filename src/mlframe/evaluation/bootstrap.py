@@ -585,7 +585,9 @@ def auc_ci(
 
     ``method="bootstrap"`` is the legacy path: stratified bootstrap of ``roc_auc_score`` reduced by the
     qual-5 BCa interval (``bootstrap_metric``). Kept for callers who want a fully non-parametric interval or
-    need to match a prior bootstrap-based report.
+    need to match a prior bootstrap-based report. APPROXIMATE: resampling rows ignores the tie / placement
+    structure that the DeLong estimator handles exactly, so on tied scores or near-AUC=1 it can mis-state the
+    SE -- ``method="delong"`` (the default) is preferred for AUC uncertainty.
 
     Parameters
     ----------

@@ -26,6 +26,16 @@ import numba
 from ._numba_params import NUMBA_NJIT_PARAMS
 
 
+# Fixed graded-relevance ceiling for ERR's gain map (2**rel - 1) / 2**max_grade.
+# ERR is only comparable across queries / splits when every call uses the SAME
+# max_grade: a per-call ``y_true.max()`` makes the gain normalisation depend on
+# whichever max relevance happens to appear in that split's labels, so the same
+# ranking scores differently on train vs test. We default to the canonical TREC
+# 5-level relevance ceiling (labels 0..4 -> max_grade=4); callers with a
+# different grade scale pass ``max_grade`` explicitly.
+_DEFAULT_ERR_MAX_GRADE = 4.0
+
+
 # ----- helpers -----
 
 
@@ -247,13 +257,17 @@ def expected_reciprocal_rank(
 
     Cascade user-model metric: higher rank => more weight, AND lower
     grades early stop probability mass earlier. ``max_grade`` defaults
-    to the maximum observed relevance label.
+    to a FIXED graded-relevance ceiling (``_DEFAULT_ERR_MAX_GRADE``, the
+    canonical TREC 5-level scale) so ERR is comparable across queries and
+    splits; pass it explicitly for a different grade scale. A per-call
+    ``y_true.max()`` default would re-scale the gain map per split and make
+    train/test ERR incomparable.
     """
     if k <= 0:
         raise ValueError(f"k must be >= 1, got {k}")
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     ys = np.ascontiguousarray(y_score, dtype=np.float64)
-    mg = float(max_grade) if max_grade is not None else float(yt.max() if yt.size > 0 else 1.0)
+    mg = float(max_grade) if max_grade is not None else _DEFAULT_ERR_MAX_GRADE
     if mg <= 0:
         mg = 1.0
     if group_ids is None:
@@ -299,7 +313,12 @@ def _precision_at_k_per_group_kernel(
     for i in range(kk):
         if y_true[order[i]] > 0:
             hits += 1
-    return hits / k  # NOTE: denominator is k, not kk, by LTR convention
+    # Denominator is min(k, n): a query with fewer than k docs has no rank slots
+    # beyond position n, so dividing by k would deflate its precision for missing
+    # positions that cannot exist (a perfectly-ranked 3-doc query at k=10 would
+    # otherwise score 0.3 instead of 1.0, dragging the per-query mean down and
+    # making P@k incomparable across splits with different query-length mixes).
+    return hits / kk
 
 
 def hit_at_k(

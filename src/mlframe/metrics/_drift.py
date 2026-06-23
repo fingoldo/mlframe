@@ -23,7 +23,7 @@ from ._numba_params import NUMBA_NJIT_PARAMS
 
 
 def _safe_quantile_bins(
-    p_sample: np.ndarray, nbins: int,
+    p_sample: np.ndarray, nbins: int, fallback_sample: np.ndarray | None = None,
 ) -> np.ndarray:
     """Quantile-based bin edges from a reference sample.
 
@@ -31,6 +31,13 @@ def _safe_quantile_bins(
     drift samples still bin. Falls back to equal-width edges when the
     reference is too constant for quantile binning (otherwise the
     pd.qcut-style "Bin edges must be unique" failure mode would surface).
+
+    When the reference quantiles collapse to a single bin (a near-constant
+    reference), the bins are instead derived from the UNION of the reference
+    and ``fallback_sample`` (the drift/target sample): a real shift in the
+    target lands in its own bin so PSI/KL/JS detect it, instead of the whole
+    union collapsing to one bin and silently reporting "no drift" (=0)
+    regardless of how far the target moved.
     """
     finite = p_sample[np.isfinite(p_sample)]
     if finite.size == 0:
@@ -40,11 +47,43 @@ def _safe_quantile_bins(
     edges = np.quantile(finite, qs)
     edges[0] = -np.inf
     edges[-1] = np.inf
-    # Collapse duplicate edges (constant region in the reference). Use
-    # the unique edges as the actual binning - if everything collapses
-    # to two edges we degenerate to a single bin, which yields PSI=0.
+    # Collapse duplicate edges (constant region in the reference).
     edges = np.unique(edges)
-    if edges.shape[0] < 3:
+    # A near-constant reference yields a grid whose only finite interior edge sits
+    # at the constant value, so EVERY reference sample piles into one bin and a
+    # shifted target (binned on the same grid) lands in that SAME bin -> PSI/KL/JS
+    # == 0, a silent false "no drift". The collapse shows up either as too few
+    # unique edges OR as a grid with no interior split that the reference straddles
+    # (one populated bin). Re-grid on the pooled ref+target support in that case.
+    interior = edges[np.isfinite(edges)]
+    ref_spread = float(finite.max() - finite.min())
+    ref_collapsed = ref_spread <= 0.0 or interior.size < 1 or float(np.ptp(np.unique(finite))) == 0.0
+    if edges.shape[0] < 3 or ref_collapsed:
+        # Reference too constant to bin against itself. Re-bin on the pooled
+        # ref+target support so a shifted target still occupies a distinct bin
+        # (a single-bin grid would force PSI/KL/JS to 0 -- a silent false
+        # "no drift"). Only when even the pooled support is constant do we
+        # genuinely have no signal and degenerate to one bin.
+        if fallback_sample is not None:
+            fb = np.asarray(fallback_sample)
+            fb = fb[np.isfinite(fb)]
+            if fb.size:
+                pooled = np.concatenate([finite, fb])
+                pooled_edges = np.unique(np.quantile(pooled, qs))
+                if pooled_edges.shape[0] < 3:
+                    # Quantiles still collapse (e.g. a bimodal pooled support: a
+                    # constant reference plus a shifted spike gives only two
+                    # distinct quantile levels). Fall back to splitting at the
+                    # midpoints between the distinct pooled VALUES so every mode
+                    # lands in its own bin and the shift is detectable.
+                    uniq_vals = np.unique(pooled)
+                    if uniq_vals.shape[0] >= 2:
+                        mids = 0.5 * (uniq_vals[:-1] + uniq_vals[1:])
+                        pooled_edges = np.unique(mids)
+                if pooled_edges.shape[0] >= 1:
+                    interior = pooled_edges[np.isfinite(pooled_edges)]
+                    if interior.size >= 1:
+                        return np.concatenate([[-np.inf], interior, [np.inf]])
         edges = np.array([-np.inf, np.inf])
     return edges
 
@@ -89,6 +128,13 @@ def population_stability_index(
     uniformly populated across bins by construction); target is binned
     against the SAME edges. Empty bins are clamped to ``eps`` to avoid
     log(0).
+
+    EPS CAVEAT: when the target empties a bin the reference populated (or vice versa), that bin's PSI
+    term is ``(p - q) * log(p / q)`` with one side at the ``eps`` floor, so the DEFAULT ``eps=1e-4``
+    MATERIALLY drives the reported PSI for such a bin -- a different eps (1e-3 vs 1e-6) can shift the
+    total by an order of magnitude. PSI on a sample with empty/near-empty bins is therefore eps-sensitive
+    and not directly comparable across runs that used a different eps; coarsen ``nbins`` or fix ``eps``
+    explicitly when comparing PSI values.
     """
     # iter608: dropped the unconditional ``dtype=np.float64`` cast.
     # ``_safe_quantile_bins`` / ``_bin_counts`` already produce float64
@@ -99,7 +145,7 @@ def population_stability_index(
     tgt = np.asarray(target)
     if ref.size == 0 or tgt.size == 0:
         return np.nan
-    edges = _safe_quantile_bins(ref, int(nbins))
+    edges = _safe_quantile_bins(ref, int(nbins), fallback_sample=tgt)
     p = _bin_counts(ref, edges); p /= p.sum() if p.sum() > 0 else 1.0
     q = _bin_counts(tgt, edges); q /= q.sum() if q.sum() > 0 else 1.0
     return float(_psi_kernel(p, q, float(eps)))
@@ -153,7 +199,7 @@ def kl_divergence(
         if p.shape != q.shape:
             raise ValueError(f"shape mismatch p={p.shape}, q={q.shape}")
         return float(_kl_kernel(p, q, float(eps)))
-    edges = _safe_quantile_bins(q, int(nbins))
+    edges = _safe_quantile_bins(q, int(nbins), fallback_sample=p)
     pc = _bin_counts(p, edges); qc = _bin_counts(q, edges)
     np_tot = pc.sum(); nq_tot = qc.sum()
     pn = pc / (np_tot if np_tot > 0 else 1.0)
@@ -167,7 +213,14 @@ def kl_divergence(
 def _kl_mm_bias(
     pc: np.ndarray, qc: np.ndarray, np_tot: float, nq_tot: float,
 ) -> float:
-    """Miller-Madow leading-order bias of the binned plug-in KL: (Kp-1)/(2 np) + (Kq-1)/(2 nq)."""
+    """Miller-Madow leading-order bias of the binned plug-in KL: (Kp-1)/(2 np) + (Kq-1)/(2 nq).
+
+    HEURISTIC: only the ``-H(P)`` term is a textbook Miller-Madow entropy-bias correction. The cross
+    term ``-H(P, Q_hat)`` does not have a clean closed-form MM bias (its bias depends on the joint P/Q
+    occupancy, not just Kq); the ``(Kq-1)/(2 nq)`` piece is a same-form APPROXIMATION applied by analogy,
+    not an exact second-order correction. It removes the bulk of the finite-sample inflation but is not
+    guaranteed unbiased -- treat ``bias_correction=True`` as a strong heuristic, not an exact debiaser.
+    """
     kp = float(np.count_nonzero(pc)); kq = float(np.count_nonzero(qc))
     bias = 0.0
     if np_tot > 0 and kp > 1.0:

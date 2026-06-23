@@ -70,6 +70,36 @@ def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
 _CONFORMAL_SIGMA_NBINS = 20
 
 
+def _conformal_internal_split(n_cal: int, time_ordering=None) -> tuple[np.ndarray, np.ndarray]:
+    """Two-way calibration split for the normalized score's sigma_hat fit / calibrate halves.
+
+    Returns ``(fit_idx, cal_idx)`` -- positional indices into the calibration rows.
+    ``fit_idx`` fits sigma_hat; ``cal_idx`` computes the calibrated normalized scores.
+
+    Random by default (exchangeable cross-sectional data). When ``time_ordering`` is
+    truthy the split is BLOCKED in time: the earlier time-block fits sigma_hat and the
+    later block calibrates, so the calibration never uses a future fold's scale to judge
+    a past row (which a random split would, breaking the >= 1-alpha guarantee on temporally
+    drifting data). ``time_ordering`` may be a 1-D sort key (rows are ordered by it) or
+    ``True`` to take the rows as already time-ordered.
+    """
+    half = n_cal // 2
+    if time_ordering is None or time_ordering is False:
+        rng = np.random.default_rng(0)
+        perm = rng.permutation(n_cal)
+        return perm[:half], perm[half:]
+    if time_ordering is True:
+        order = np.arange(n_cal)
+    else:
+        key = np.asarray(time_ordering).ravel()
+        if key.shape[0] != n_cal:
+            raise ValueError(
+                f"time_ordering has {key.shape[0]} entries but {n_cal} calibration rows were expected"
+            )
+        order = np.argsort(key, kind="mergesort")  # stable: ties keep input order
+    return order[:half], order[half:]
+
+
 def _fit_sigma_model(y_pred_cal: np.ndarray, abs_res_cal: np.ndarray, n_bins: int = _CONFORMAL_SIGMA_NBINS):
     """Non-parametric conditional residual-scale model: mean |residual| per yhat-bin.
 
@@ -115,7 +145,7 @@ def _sigma_for(edges: np.ndarray, sigma: np.ndarray, y_pred: np.ndarray) -> np.n
     return sigma[idx]
 
 
-def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized"):
+def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_ordering=None):
     """Fit the split-conformal radius from a held-out calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on
@@ -123,6 +153,17 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized"):
     calibration rows being exchangeable with the test rows, which in-sample
     rows are not. Stores ``self._conformal_q_[round(alpha, 6)]`` and returns
     ``self`` (sklearn-style).
+
+    ``time_ordering`` (1-D array of a sort key, or ``True`` to take the rows
+    as already time-ordered) flags TEMPORAL calibration data. Exchangeability
+    -- the assumption the >= 1-alpha guarantee rests on -- is broken by
+    temporal drift, and a RANDOM internal split (used by the normalized score
+    to keep sigma_hat independent of the calibrated scores) leaks future-fold
+    information into the sigma_hat fit, under-covering. When set, the internal
+    split becomes a BLOCKED one (the earlier time-block fits sigma_hat, the
+    later block calibrates), so the calibration honours the arrow of time. It
+    defaults on automatically when the estimator was fit on data flagged
+    temporal (``self._is_temporal_`` / a stored ``time_ordering``).
 
     ``alpha`` may be a scalar or an iterable of levels; each is calibrated and
     cached so ``predict_interval`` can serve any pre-calibrated level cheaply.
@@ -166,8 +207,30 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized"):
     if not hasattr(self, "_conformal_sigma_") or self._conformal_sigma_ is None:
         self._conformal_sigma_ = {}
     if score == "normalized":
-        edges, sigma, sig_rows = _fit_sigma_model(y_pred, np.abs(residuals))
-        scores = residuals / sig_rows
+        # Split the calibration set: fit sigma_hat on one half, compute the
+        # normalized scores on the OTHER half. Fitting sigma_hat on the same
+        # residuals it then normalizes makes the score artificially small in
+        # well-fit bins (sigma_hat already saw those residuals), so the quantile
+        # under-covers -- the band is anti-conservative. A clean two-way split
+        # keeps sigma_hat and the calibrated scores independent, restoring the
+        # exchangeability the >= 1-alpha guarantee rests on.
+        n_cal = residuals.shape[0]
+        # Default the temporal flag on when the fitted estimator carries one, so a
+        # temporal model does not silently get a random (exchangeability-breaking) split.
+        time_ord = time_ordering
+        if time_ord is None:
+            time_ord = getattr(self, "_is_temporal_", None) or getattr(self, "_time_ordering_", None)
+        fit_idx, cal_idx = _conformal_internal_split(n_cal, time_ord)
+        half = fit_idx.size
+        if half >= 2 and cal_idx.size >= 1:
+            edges, sigma, _ = _fit_sigma_model(y_pred[fit_idx], np.abs(residuals[fit_idx]))
+            sig_rows = _sigma_for(edges, sigma, y_pred[cal_idx])
+            scores = residuals[cal_idx] / sig_rows
+        else:
+            # Too few calibration rows to split; fall back to the pooled fit (the
+            # tiny-n band is uninformative-but-valid via conformal_quantile's inf rank).
+            edges, sigma, sig_rows = _fit_sigma_model(y_pred, np.abs(residuals))
+            scores = residuals / sig_rows
         for a in alphas:
             key = round(float(a), 6)
             self._conformal_q_[key] = conformal_quantile(scores, float(a))

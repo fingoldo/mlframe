@@ -38,10 +38,15 @@ def calibration_metrics_from_freqs(
     use_sqrt_weighting: bool = False,
     use_power_weighting: bool = True,
 ):
-    # Rounding precision must be >= 1 decimal place even for small nbins (previously
-    # int(np.log10(5)) == 0 meant integer-rounding, collapsing all bins together).
-    _round_prec = max(1, int(np.ceil(np.log10(max(nbins, 2)))))
-    calibration_coverage = len(set(np.round(freqs_predicted, _round_prec))) / nbins
+    # Coverage = fraction of the nbins grid that actually carries predictions. This is a stable structural
+    # quantity (a populated bin stays populated under tiny score perturbations), unlike the prior measure
+    # (distinct values of ``round(freqs_predicted, prec)`` / nbins), which was a float-rounding artifact: a
+    # perturbation of ~10**-prec across a bin boundary flipped two pockets into one and jumped the value.
+    populated = 0
+    for _b in range(len(hits)):
+        if hits[_b] > 0:
+            populated += 1
+    calibration_coverage = populated / nbins
     if len(hits) > 0:
         diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:
@@ -81,7 +86,7 @@ def compute_ece_and_brier_decomposition(
     y_pred: np.ndarray,
     nbins: int,
 ):
-    """ECE plus Murphy 1973 Brier score decomposition.
+    """Plug-in ECE plus Murphy 1973 Brier score decomposition on a FIXED [0,1] grid.
 
     Returns ``(ece, reliability, resolution, uncertainty, brier_binned)``.
 
@@ -90,21 +95,29 @@ def compute_ece_and_brier_decomposition(
         REL = sum_k (n_k / N) * (p_mean_k - acc_k)^2
         RES = sum_k (n_k / N) * (acc_k - base_rate)^2
         UNC = base_rate * (1 - base_rate)
-    where p_mean_k is the *mean predicted probability* in bin k (NOT the bin
-    centre), acc_k is the observed positive rate in bin k, base_rate is the
-    overall positive rate.
+    where p_mean_k is the *mean predicted probability* in bin k (NOT the bin centre), acc_k is the observed
+    positive rate in bin k, base_rate is the overall positive rate.
 
-    The kernel does its own binning over [min(y_pred), max(y_pred)] using the
-    same data-adaptive grid as fast_calibration_binning - so ECE/REL bin
-    boundaries match CMAEW exactly. Per-bin p_mean (not bin centre) is used so
-    the Murphy identity ``BinnedBrier == REL - RES + UNC`` holds exactly to fp
-    precision; this matters for the test asserting the identity, and for users
-    checking REL when they care about absolute magnitude. Raw Brier (computed
-    by ``fast_brier_score_loss``) differs from BinnedBrier by the within-bin
-    variance of predictions; that gap shrinks with finer binning.
+    These are the PLUG-IN estimators: ``acc_k`` is a noisy finite-sample bin mean, so even a perfectly calibrated
+    model reports a positive ECE/REL noise floor that grows with nbins. The bias-corrected twins
+    ``compute_ece_debiased`` / ``compute_brier_decomposition_debiased`` are the DEFAULT headline path in
+    ``fast_calibration_report`` (``ece_debiased`` / ``brier_debiased`` default True); this kernel remains the
+    explicit ``ece_debiased=False`` opt-out and the exact-identity reference.
 
-    Returns 1.0/1.0/0.0/0.0/1.0 on empty input - mirrors degenerate handling
-    elsewhere in the calibration pipeline.
+    Binning uses a FIXED ``[0, 1]`` equal-width grid (probabilities live on ``[0,1]``), NOT the old data-adaptive
+    ``[min(y_pred), max(y_pred)]`` grid. The data-adaptive grid keyed on the sample min/max made the bin
+    boundaries -- and hence ECE/REL/RES -- non-comparable across datasets and across bootstrap/per-window
+    resamples (each draw had different extrema), silently biasing those comparisons. The fixed grid restores
+    comparability. Per-bin p_mean (not bin centre) keeps the Murphy identity ``BinnedBrier == REL - RES + UNC``
+    exact to fp precision.
+
+    Cross-module ECE note: this ECE shares the EQUAL-WIDTH-[0,1] partition with
+    ``calibration/policy._ece_score`` but still differs from the EQUAL-MASS (equal-count) ECE in
+    ``calibration/quality.estimate_calibration_quality_binned``, which argsorts predictions into
+    equal-population pockets. Equal-mass and equal-width ECE are NOT comparable on the same inputs --
+    compare ECE only within one binning scheme.
+
+    Returns 1.0/1.0/0.0/0.0/1.0 on empty input - mirrors degenerate handling elsewhere in the calibration pipeline.
     """
     n = len(y_true)
     if n == 0:
@@ -115,35 +128,22 @@ def compute_ece_and_brier_decomposition(
         base_rate += y_true[i]
     base_rate /= n
 
-    # Min/max span - same data-adaptive grid as fast_calibration_binning.
-    min_val = 1.0
-    max_val = 0.0
-    for i in range(n):
-        p = y_pred[i]
-        if p > max_val:
-            max_val = p
-        if p < min_val:
-            min_val = p
-    span = max_val - min_val
-
     pred_sum = np.zeros(nbins, dtype=np.float64)
     true_sum = np.zeros(nbins, dtype=np.float64)
     counts = np.zeros(nbins, dtype=np.int64)
 
-    if span > 0:
-        multiplier = (nbins - 1) / span
-        for i in range(n):
-            p = y_pred[i]
-            ind = int(floor((p - min_val) * multiplier))
-            counts[ind] += 1
-            pred_sum[ind] += p
-            true_sum[ind] += y_true[i]
-    else:
-        # All predictions identical - one bin holds everything.
-        for i in range(n):
-            counts[0] += 1
-            pred_sum[0] += y_pred[i]
-            true_sum[0] += y_true[i]
+    # Fixed [0,1] grid: bin index = floor(p * nbins), clamped so p == 1.0 lands in the last bin. Comparable across
+    # datasets / resamples because the boundaries do not depend on the sample's observed min/max.
+    for i in range(n):
+        p = y_pred[i]
+        ind = int(floor(p * nbins))
+        if ind >= nbins:
+            ind = nbins - 1
+        elif ind < 0:
+            ind = 0
+        counts[ind] += 1
+        pred_sum[ind] += p
+        true_sum[ind] += y_true[i]
 
     ece = 0.0
     reliability = 0.0
@@ -184,41 +184,29 @@ def compute_ece_debiased(
     keep the raw gap. This removes the noise floor so a calibrated model scores ~0 rather than a positive
     artefact, without changing the verdict on a genuinely miscalibrated model (the true-gap term dominates).
 
-    Uses the SAME data-adaptive equal-width binning grid as ``compute_ece_and_brier_decomposition`` so the
-    debiased and plug-in estimates are directly comparable. Returns 1.0 on empty input (degenerate handling
-    mirrors the rest of the calibration pipeline).
+    Uses the SAME fixed ``[0, 1]`` equal-width binning grid as ``compute_ece_and_brier_decomposition`` so the
+    debiased and plug-in estimates are directly comparable AND comparable across datasets / resamples (the grid
+    does not depend on the sample's observed min/max). Returns 1.0 on empty input (degenerate handling mirrors
+    the rest of the calibration pipeline).
     """
     n = len(y_true)
     if n == 0:
         return 1.0
 
-    min_val = 1.0
-    max_val = 0.0
-    for i in range(n):
-        p = y_pred[i]
-        if p > max_val:
-            max_val = p
-        if p < min_val:
-            min_val = p
-    span = max_val - min_val
-
     pred_sum = np.zeros(nbins, dtype=np.float64)
     true_sum = np.zeros(nbins, dtype=np.float64)
     counts = np.zeros(nbins, dtype=np.int64)
 
-    if span > 0:
-        multiplier = (nbins - 1) / span
-        for i in range(n):
-            p = y_pred[i]
-            ind = int(floor((p - min_val) * multiplier))
-            counts[ind] += 1
-            pred_sum[ind] += p
-            true_sum[ind] += y_true[i]
-    else:
-        for i in range(n):
-            counts[0] += 1
-            pred_sum[0] += y_pred[i]
-            true_sum[0] += y_true[i]
+    for i in range(n):
+        p = y_pred[i]
+        ind = int(floor(p * nbins))
+        if ind >= nbins:
+            ind = nbins - 1
+        elif ind < 0:
+            ind = 0
+        counts[ind] += 1
+        pred_sum[ind] += p
+        true_sum[ind] += y_true[i]
 
     ece = 0.0
     inv_n = 1.0 / n
@@ -269,8 +257,9 @@ def compute_brier_decomposition_debiased(
 
     Returns ``(reliability_debiased, resolution_debiased, uncertainty, brier_binned)``. ``uncertainty`` is unchanged
     from the plug-in; ``brier_binned`` is recomputed from the debiased terms (equals the plug-in BinnedBrier when no
-    REL bin clamps). Uses the SAME data-adaptive equal-width grid as ``compute_ece_and_brier_decomposition`` so the
-    debiased and plug-in decompositions are directly comparable. Returns 1.0/0.0/0.0/1.0 on empty input.
+    REL bin clamps). Uses the SAME fixed ``[0, 1]`` equal-width grid as ``compute_ece_and_brier_decomposition`` so the
+    debiased and plug-in decompositions are directly comparable AND comparable across datasets / resamples. Returns
+    1.0/0.0/0.0/1.0 on empty input.
     """
     n = len(y_true)
     if n == 0:
@@ -281,33 +270,20 @@ def compute_brier_decomposition_debiased(
         base_rate += y_true[i]
     base_rate /= n
 
-    min_val = 1.0
-    max_val = 0.0
-    for i in range(n):
-        p = y_pred[i]
-        if p > max_val:
-            max_val = p
-        if p < min_val:
-            min_val = p
-    span = max_val - min_val
-
     pred_sum = np.zeros(nbins, dtype=np.float64)
     true_sum = np.zeros(nbins, dtype=np.float64)
     counts = np.zeros(nbins, dtype=np.int64)
 
-    if span > 0:
-        multiplier = (nbins - 1) / span
-        for i in range(n):
-            p = y_pred[i]
-            ind = int(floor((p - min_val) * multiplier))
-            counts[ind] += 1
-            pred_sum[ind] += p
-            true_sum[ind] += y_true[i]
-    else:
-        for i in range(n):
-            counts[0] += 1
-            pred_sum[0] += y_pred[i]
-            true_sum[0] += y_true[i]
+    for i in range(n):
+        p = y_pred[i]
+        ind = int(floor(p * nbins))
+        if ind >= nbins:
+            ind = nbins - 1
+        elif ind < 0:
+            ind = 0
+        counts[ind] += 1
+        pred_sum[ind] += p
+        true_sum[ind] += y_true[i]
 
     reliability = 0.0
     resolution = 0.0

@@ -139,6 +139,13 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     Standard ECE: ``sum_b (|B_b| / N) * |acc(B_b) - conf(B_b)|`` over equal-width
     confidence bins on ``[0, 1]``. Returns nan when ``p_pred`` is empty or all-nan.
 
+    Binning scheme is EQUAL-WIDTH on the fixed ``[0, 1]`` grid (bin index ``int(p * n_bins)``). This
+    differs from the EQUAL-MASS scheme in ``calibration/quality.estimate_calibration_quality_binned``
+    and the data-adaptive [min,max]-span scheme in
+    ``metrics/calibration/_calibration_metrics.compute_ece_and_brier_decomposition``; the three ECE
+    numbers are NOT comparable across schemes on the same inputs (different axis partitions), so
+    compare ECE only within one scheme.
+
     iter309 (2026-05-26): numba single-pass reduction kernel. The
     iter308 ``np.bincount`` rewrite was 3.38x faster than the per-bin
     Python loop; this numba kernel is another ~12-15x faster than the
@@ -399,11 +406,14 @@ def _heldout_ece_inner_cv(
     oof_y: np.ndarray,
     folds: Sequence[np.ndarray],
     n_bins: int,
-) -> Optional[float]:
-    """Mean held-out ECE for ``name``: fit on each fold's complement, score on the held-out fold.
+) -> Optional[tuple[float, list[float]]]:
+    """Mean held-out ECE for ``name`` plus the per-fold held-out ECEs: fit on each fold's complement, score on the
+    held-out fold.
 
-    Returns ``None`` when the candidate cannot be fitted (missing optional dep), so the caller drops it; a single
-    failed fold is skipped and the remaining folds still average.
+    Returns ``(mean_heldout_ece, per_fold_eces)`` -- the per-fold list lets the caller build a CI from the SAME
+    held-out resampling that produced the point estimate, instead of an in-sample bootstrap CI that does not bracket
+    the held-out number. Returns ``None`` when the candidate cannot be fitted (missing optional dep), so the caller
+    drops it; a single failed fold is skipped and the remaining folds still average.
     """
     n = oof_y.shape[0]
     all_idx = np.arange(n)
@@ -429,7 +439,28 @@ def _heldout_ece_inner_cv(
             scores.append(float(v))
     if not scores:
         return None
-    return float(np.mean(scores))
+    return float(np.mean(scores)), scores
+
+
+def _heldout_ece_ci(point: float, fold_eces: Sequence[float], alpha: float) -> tuple[float, float]:
+    """CI for the mean held-out ECE from the per-fold held-out distribution.
+
+    Built from the SAME held-out resampling as ``point`` so the interval brackets the reported number (the prior
+    code paired this held-out point with an in-sample bootstrap CI that did not). With few folds we use the normal
+    interval ``mean +- z * SE`` where ``SE = std(fold_eces, ddof=1)/sqrt(k)``; a single fold has no spread so the CI
+    degenerates to the point. The interval is centred on the per-fold mean (== ``point``), guaranteeing containment.
+    """
+    arr = np.asarray(list(fold_eces), dtype=np.float64)
+    k = arr.size
+    mean = float(np.mean(arr))
+    if k < 2:
+        return (mean, mean)
+    from scipy.stats import norm
+
+    se = float(np.std(arr, ddof=1)) / np.sqrt(k)
+    z = float(norm.ppf(1.0 - alpha / 2.0))
+    half = z * se
+    return (max(0.0, mean - half), mean + half)
 
 
 def _emit_reliability_plot(
@@ -578,6 +609,16 @@ def pick_best_calibrator(
     """
     if selection not in ("inner_cv", "same_oof"):
         raise ValueError(f"pick_best_calibrator: selection must be 'inner_cv' or 'same_oof'; got {selection!r}")
+    if selection == "same_oof":
+        # same_oof fits AND ECE-scores every candidate on the SAME OOF rows: a flexible calibrator
+        # (Isotonic) interpolates its in-sample ECE toward ~0 and is selected ~100% of the time, with a
+        # reported ECE optimistic by ~0.006 vs fresh data. Prefer selection="inner_cv" for an honest
+        # held-out estimate; same_oof is kept only for replay / A-B against the legacy path.
+        logger.warning(
+            "pick_best_calibrator: selection='same_oof' fits and scores candidates on the same OOF rows "
+            "-- the reported ECE is optimistically biased (Isotonic-favouring). Use selection='inner_cv' "
+            "for an honest held-out estimate."
+        )
     oof_p = np.asarray(oof_probs, dtype=np.float64)
     if oof_p.ndim == 2 and oof_p.shape[1] >= 2:
         oof_p_pos = oof_p[:, 1]
@@ -634,14 +675,18 @@ def pick_best_calibrator(
             continue
         # ``rank_ece`` drives selection: held-out (honest) for inner_cv, same-OOF (legacy) otherwise.
         rank_ece = float(ci["point"])
+        ece_ci = (float(ci["lo"]), float(ci["hi"]))
         if inner_folds is not None:
             ho = _heldout_ece_inner_cv(name, oof_p_pos, oof_y_arr, inner_folds, n_bins)
             if ho is None:
                 continue
-            rank_ece = ho
+            rank_ece, fold_eces = ho
+            # CI from the SAME held-out resampling as the point estimate, so the reported interval brackets the
+            # reported number. The in-sample bootstrap CI above was paired with a held-out point and did not.
+            ece_ci = _heldout_ece_ci(rank_ece, fold_eces, alpha)
         results[name] = {
             "ece_mean": rank_ece,
-            "ece_ci": (float(ci["lo"]), float(ci["hi"])),
+            "ece_ci": ece_ci,
             "calibrated_probs": cal_oof,
         }
 

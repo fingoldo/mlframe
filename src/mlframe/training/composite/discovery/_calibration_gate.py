@@ -173,6 +173,15 @@ def calibration_adjusted_score(
     See module docstring for the no-leakage contract: ``oof_residuals`` are
     held-out only. This is a PURE function -- safe to call (or not) per spec; it
     mutates nothing and copies no frame.
+
+    UNIT CAVEAT: ``gain`` is an MI-gain (nats) while ``penalty`` is DIMENSIONLESS -- a sum of a
+    scale-normalised bias (``|mean residual| / robust_scale``) and a unit-free spread ratio
+    (``|oof_iqr / infold_iqr - 1|``). The subtraction ``gain - penalty_weight * penalty`` is therefore
+    only meaningful because ``penalty_weight`` carries the implicit nats-per-penalty-unit conversion: it
+    is a TUNED trade-off knob, not a physically commensurate subtraction. The default ``penalty_weight``
+    was calibrated so a fully-miscalibrated spec is docked on the order of a typical gain; if you change
+    the gain UNIT (e.g. switch the MI estimator's base or normalise gain) you MUST re-tune
+    ``penalty_weight`` -- the two terms are not on the same scale by construction.
     """
     penalty, bias, var_miscal = calibration_penalty(
         oof_residuals, infold_residuals,

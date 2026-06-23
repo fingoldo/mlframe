@@ -8,9 +8,11 @@ threshold. The concerns living here:
 * :func:`bootstrap_gain_p_value` -- a one-sided bootstrap p-value for the null
   ``mi_gain <= 0`` from the already-computed bootstrap gain replicates, used as
   the per-spec input to family-wise FDR control.
-* :func:`benjamini_hochberg_reject` / :func:`apply_fdr_control_to_candidates` --
-  the Benjamini-Hochberg step-up procedure and its application over the whole
-  candidate family at a target FDR level.
+* :func:`benjamini_hochberg_reject` / :func:`benjamini_yekutieli_reject` /
+  :func:`apply_fdr_control_to_candidates` -- the Benjamini-Hochberg step-up procedure, its
+  Benjamini-Yekutieli arbitrary-dependence variant, and their application over the whole
+  candidate family at a target FDR level. The candidate p-values are CORRELATED (specs share
+  base columns and bootstrap resample structure), so the family control uses BY, not BH.
 * :func:`apply_alpha_drift_gate` -- the rolling-origin alpha-drift Chow test for
   ``linear_residual`` specs, lifted from ``_fit`` to keep that file small.
 
@@ -37,8 +39,9 @@ def apply_fdr_control_to_candidates(
     returns; each carries a ``bootstrap_p_value`` (NaN when no bootstrap ran).
     A per-spec bootstrap CI controls only that spec's OWN error rate, so testing
     a whole family of (base, transform) specs in one sweep inflates the chance
-    that a noise spec spuriously "beats baseline". This runs Benjamini-Hochberg
-    over the per-spec one-sided p-values (H0 ``mi_gain <= 0``) and stamps
+    that a noise spec spuriously "beats baseline". This runs Benjamini-Yekutieli
+    (BH under arbitrary dependence) over the per-spec one-sided p-values (H0 ``mi_gain <= 0``)
+    and stamps
     ``fdr_dropped=True`` + a ``reason`` on every spec BH does NOT reject at the
     target family FDR ``alpha``; the caller then skips those before the eps gate.
 
@@ -56,20 +59,20 @@ def apply_fdr_control_to_candidates(
     p_values = np.array(
         [float(e["bootstrap_p_value"]) for e in scored], dtype=np.float64,
     )
-    reject = benjamini_hochberg_reject(p_values, alpha)
+    reject = benjamini_yekutieli_reject(p_values, alpha)
     n_dropped = 0
     for entry, is_rejected in zip(scored, reject):
         if not is_rejected:
             entry["fdr_dropped"] = True
             entry["reason"] = (
-                f"BH-FDR: bootstrap p={float(entry['bootstrap_p_value']):.4g} "
+                f"BY-FDR: bootstrap p={float(entry['bootstrap_p_value']):.4g} "
                 f"not significant at family FDR alpha={alpha:.3f} "
                 f"({len(scored)} specs tested)"
             )
             n_dropped += 1
     if n_dropped:
         logger.info(
-            "[CompositeTargetDiscovery] BH-FDR dropped %d/%d bootstrapped specs "
+            "[CompositeTargetDiscovery] BY-FDR dropped %d/%d bootstrapped specs "
             "as not significant at family alpha=%.3f.",
             n_dropped, len(scored), alpha,
         )
@@ -218,6 +221,43 @@ def benjamini_hochberg_reject(p_values, alpha: float) -> np.ndarray:
     return out
 
 
+def benjamini_yekutieli_reject(p_values, alpha: float) -> np.ndarray:
+    """Benjamini-Yekutieli step-up: BH valid under ARBITRARY dependence among the p-values.
+
+    Identical to :func:`benjamini_hochberg_reject` except the per-rank threshold is divided by the
+    harmonic number ``c(m) = sum_{i=1..m} 1/i``: reject the largest rank k with
+    ``p_(k) <= (k / (m * c(m))) * alpha``. BH controls FDR only under independence or positive
+    regression dependence (PRDS); the candidate bootstrap p-values here are correlated through shared
+    base columns and resample structure, where BH can over-reject. BY pays a ``c(m)`` (log m) stricter
+    threshold to guarantee FDR control with no dependence assumption. Returns a boolean array aligned
+    to the INPUT order; NaN p-values are non-rejectable; an empty input returns an empty array.
+    """
+    p = np.asarray(p_values, dtype=np.float64)
+    m = p.size
+    out = np.zeros(m, dtype=bool)
+    if m == 0:
+        return out
+    a = float(alpha)
+    finite = np.isfinite(p)
+    n_test = int(finite.sum())
+    if n_test == 0:
+        return out
+    idx_finite = np.flatnonzero(finite)
+    p_fin = p[idx_finite]
+    order = np.argsort(p_fin, kind="stable")
+    ranks = np.arange(1, n_test + 1, dtype=np.float64)
+    c_m = float(np.sum(1.0 / ranks))  # harmonic number; the arbitrary-dependence penalty.
+    thresh = ranks * a / (n_test * c_m)
+    sorted_p = p_fin[order]
+    below = sorted_p <= thresh
+    if not below.any():
+        return out
+    k = int(np.flatnonzero(below).max())
+    cutoff = sorted_p[k]
+    out[idx_finite] = p_fin <= cutoff
+    return out
+
+
 def apply_alpha_drift_gate(
     self,
     kept_specs: list,
@@ -232,7 +272,10 @@ def apply_alpha_drift_gate(
 
     Fits the OLS slope on the first and second halves of train, computes a
     Chow-style z-score on ``|alpha_1 - alpha_2|`` using a residual-based pooled
-    SE, and records it in ``self._alpha_drift_flags``. When
+    SE, and records it in ``self._alpha_drift_flags``. ("Chow-style" only: this is a two-half
+    slope-stability z-test, NOT the classic Chow F-test for a structural break -- it tests the single
+    intercept/slope coefficient across one fixed midpoint split, with no F-statistic or pooled-vs-split
+    SSR comparison.) When
     ``reject_on_alpha_drift`` is set, specs whose z exceeds
     ``alpha_drift_z_threshold`` are dropped. Returns the (possibly filtered)
     ``kept_specs`` list; a no-op (returns the input unchanged) when the feature

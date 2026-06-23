@@ -90,8 +90,12 @@ def _entry(name: str, p_value: float, mi_gain: float = 0.01) -> dict:
 
 
 def test_apply_fdr_drops_noise_specs_and_keeps_signal() -> None:
-    """``apply_fdr_control_to_candidates`` stamps ``fdr_dropped`` on specs BH does
-    not reject and leaves the clearly-significant ones untouched."""
+    """``apply_fdr_control_to_candidates`` stamps ``fdr_dropped`` on specs Benjamini-Yekutieli
+    does not reject and leaves the clearly-significant ones untouched.
+
+    The candidate p-values are correlated (shared base columns + resample structure), so the family
+    control uses BY (arbitrary-dependence FDR), not BH -- the stricter BY threshold still keeps the
+    clearly-significant sig_a / sig_b and drops the noise."""
     candidates = [
         _entry("sig_a", 1e-5),
         _entry("sig_b", 1e-4),
@@ -104,7 +108,7 @@ def test_apply_fdr_drops_noise_specs_and_keeps_signal() -> None:
     assert not by_name["sig_a"].get("fdr_dropped")
     assert not by_name["sig_b"].get("fdr_dropped")
     assert by_name["noise_10"].get("fdr_dropped")
-    assert by_name["noise_10"]["reason"].startswith("BH-FDR")
+    assert by_name["noise_10"]["reason"].startswith("BY-FDR")
 
 
 def test_apply_fdr_is_noop_without_pvalues() -> None:

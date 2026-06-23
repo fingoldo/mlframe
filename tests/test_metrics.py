@@ -591,10 +591,8 @@ class TestCalibration:
     def test_ece_matches_textbook_formula_tiny_example(self):
         """Hand-rolled ECE on a 4-bin example must match the kernel.
 
-        Bin assignment uses ``ind = floor((p - min) * multiplier)`` with
-        ``multiplier = (nbins - 1) / span``. With min=0.0, max=1.0,
-        span=1.0, multiplier=3.0 - bin 0 covers [0, 1/3), bin 1 [1/3, 2/3),
-        bin 2 [2/3, 1.0), bin 3 = {1.0}.
+        Bin assignment uses the FIXED ``[0,1]`` grid ``ind = clamp(floor(p * nbins), 0, nbins-1)``: bin 0 covers
+        [0, 0.25), bin 1 [0.25, 0.5), bin 2 [0.5, 0.75), bin 3 [0.75, 1.0] (p==1.0 clamps into the last bin).
         """
         y_pred = np.array(
             [0.0, 0.05, 0.4, 0.5, 0.7, 0.8, 1.0, 1.0],
@@ -604,12 +602,13 @@ class TestCalibration:
         ece, _rel, _res, _unc, _ = compute_ece_and_brier_decomposition(
             y_true=y_true, y_pred=y_pred, nbins=4,
         )
-        # Hand-roll: 4 bins of 2 samples each, weight = 2/8 = 0.25 per bin.
-        # bin 0: pred_mean=(0.0+0.05)/2=0.025, acc=0     -> diff=0.025
-        # bin 1: pred_mean=(0.4+0.5)/2=0.45,   acc=0.5   -> diff=0.05
-        # bin 2: pred_mean=(0.7+0.8)/2=0.75,   acc=1     -> diff=0.25
-        # bin 3: pred_mean=(1.0+1.0)/2=1.0,    acc=1     -> diff=0
-        expected = 0.25 * (0.025 + 0.05 + 0.25 + 0.0)
+        # Fixed [0,1] grid, N=8, y=[0,0,0,1,1,1,1,1]. floor(p*4): 0.0,0.05->bin0; 0.4->bin1; 0.5,0.7->bin2; 0.8,1,1->bin3.
+        # bin 0 (n=2): pred_mean=0.025, acc=0 -> diff=0.025,   w=2/8
+        # bin 1 (n=1): pred_mean=0.4,   acc=0 -> diff=0.4,     w=1/8
+        # bin 2 (n=2): pred_mean=0.6,   acc=1 -> diff=0.4,     w=2/8
+        # bin 3 (n=3): pred_mean=(0.8+1+1)/3, acc=1 -> diff=1-2.8/3, w=3/8
+        b3_pred = (0.8 + 1.0 + 1.0) / 3.0
+        expected = (2 / 8) * 0.025 + (1 / 8) * 0.4 + (2 / 8) * 0.4 + (3 / 8) * abs(b3_pred - 1.0)
         assert abs(ece - expected) < 1e-9, f"got {ece}, expected {expected}"
 
     def test_ece_kernel_handles_empty_input(self):

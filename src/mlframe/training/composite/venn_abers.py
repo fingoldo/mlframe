@@ -151,6 +151,14 @@ def _lookup_interval(self, scores: np.ndarray):
     grid point (searchsorted), then read off the precomputed p0 / p1 arrays. Scores
     below / above the calibration range clip to the boundary grid values (the
     ``out_of_bounds="clip"`` isotonic convention), so prediction is total.
+
+    OFF-GRID CAVEAT: a test score strictly BETWEEN two calibration grid points does NOT interpolate --
+    ``searchsorted(side="right") - 1`` reads the LEFT (last grid point <= s) envelope value, a piecewise
+    -constant step. This is the correct IVAP semantics (the augmented isotonic fit is constant between
+    consecutive calibration scores), so it is by design, not an approximation; but it means the calibrated
+    probability is locally flat across each inter-grid gap and the resolution is bounded by the calibration
+    set's score granularity. A score exactly on a grid point reads that point; a tie at the grid boundary
+    inherits the left bin (right-continuous).
     """
     va = getattr(self, "_venn_abers_", None)
     if not va:

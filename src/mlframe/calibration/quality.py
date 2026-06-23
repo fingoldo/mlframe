@@ -223,6 +223,12 @@ def estimate_calibration_quality_binned(
     indices: np.array | None = None,
     metrics_to_show: dict = METRICS_TO_SHOW,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    # ECE binning scheme here is EQUAL-MASS (equal-count): predictions are argsorted and split into
+    # ``nbins`` equal-population pockets (see ``bin_predictions``). This is NOT comparable to the
+    # equal-width-[0,1] ECE in ``calibration/policy._ece_score`` nor the data-adaptive
+    # [min,max]-span ECE in ``metrics/calibration/_calibration_metrics.compute_ece_and_brier_decomposition``:
+    # the three schemes partition the score axis differently, so their ECE numbers differ on the same
+    # (y_true, y_pred) and must not be cross-compared -- compare only within one scheme.
     if indices is None:
         indices = np.argsort(y_pred)
     pockets_predicted, pockets_true, data = bin_predictions(y_true=y_true, y_pred=y_pred, indices=indices, nbins=nbins)

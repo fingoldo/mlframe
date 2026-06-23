@@ -712,6 +712,7 @@ _GATE_MARKERS: tuple[tuple[str, str], ...] = (
     ("constant_or_near_constant", "constant"),
     ("forbidden_base_corr", "leak-guard"),
     ("BH-FDR", "fdr"),
+    ("BY-FDR", "fdr"),
     ("bootstrap p", "fdr"),
     ("mi_gain", "mi-gain"),
     ("eps", "mi-gain"),

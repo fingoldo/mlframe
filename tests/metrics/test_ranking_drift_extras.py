@@ -208,11 +208,13 @@ def test_ranking_extras_stable_tiebreak_matches_input_order():
     dcg_ref = sum(((2.0 ** rel[stable_order[i]]) - 1.0) / np.log2(i + 2.0) for i in range(score.shape[0]))
     assert dcg_at_k(rel, score, g, k=12) == pytest.approx(dcg_ref)
 
-    mg = rel.max()
+    # max_grade is now a FIXED comparability scale, not the per-call rel.max(); pass it explicitly
+    # so this invariant pins the stable tie-break, not the (corrected) default scale.
+    mg = 4.0
     err_ref = 0.0
     p_remain = 1.0
     for i in range(score.shape[0]):
         R = ((2.0 ** rel[stable_order[i]]) - 1.0) / (2.0 ** mg)
         err_ref += p_remain * R / (i + 1.0)
         p_remain *= (1.0 - R)
-    assert expected_reciprocal_rank(rel, score, g, k=12) == pytest.approx(err_ref)
+    assert expected_reciprocal_rank(rel, score, g, k=12, max_grade=mg) == pytest.approx(err_ref)
