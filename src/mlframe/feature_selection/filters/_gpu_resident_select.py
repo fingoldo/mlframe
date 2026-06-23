@@ -155,6 +155,65 @@ _RADIX_SELECT_THREADS = 512  # measured sweet spot on GTX 1050 Ti (256/512/1024)
 _RADIX_SELECT_MAXR = 64      # must match MAXR in the kernel sources
 
 
+# COALESCED TILED TRANSPOSE (2026-06-23, nsys-driven Lever A). The radix-select kernel reads its input
+# COLUMN-MAJOR (data[col*n+i], coalesced over the dominant n-loop -- see _radix_select_interior_edges),
+# so the (n,K) row-major candidate buffer was transposed to (K,n) C-order via cp.ascontiguousarray(cand.T).
+# nsys (isolated KTC, F2 100k, one fit): that transpose-copy = cupy_copy__float32_float32 28 calls /
+# 1889ms = 99% of ALL f32->f32 copy time and ~18% of the whole fit's GPU kernel time -- and it ran at only
+# ~3.5GB/s because cupy's generic strided-copy for a transposed view is uncoalesced on BOTH read+write.
+# This shared-memory TILED transpose (32x32 tiles, +1 pad column to kill the shared bank conflict on the
+# transposed write) reads the (n,K) buffer coalesced and writes the (K,n) buffer coalesced. MEASURED at the
+# production size (n=100k, K=583, 233MB): cp.ascontiguousarray(x.T) 42.6ms -> this kernel 6.2ms = 6.9x,
+# BIT-IDENTICAL (maxdiff 0). It MOVES the same bytes into the same (K,n) C-order layout the radix kernel
+# already consumes -> the order statistics, edges, and codes are byte-for-byte unchanged. Falls back to
+# cp.ascontiguousarray(cand.T) on any kernel failure (compile/launch) -- bit-identical either way.
+_TRANSPOSE_F32_SRC = r"""
+extern "C" __global__
+void transpose_f32(const float* __restrict__ in, float* __restrict__ out,
+                   const long long n, const int K) {
+    __shared__ float tile[32][33];               // +1 pad column: no shared-bank conflict on the write
+    long long row = (long long)blockIdx.y * 32 + threadIdx.y;   // index into n (rows of the (n,K) input)
+    int col = blockIdx.x * 32 + threadIdx.x;                    // index into K
+    if (row < n && col < K) tile[threadIdx.y][threadIdx.x] = in[row * (long long)K + col];
+    __syncthreads();
+    int orow = blockIdx.x * 32 + threadIdx.y;                   // index into K (rows of the (K,n) output)
+    long long ocol = (long long)blockIdx.y * 32 + threadIdx.x;  // index into n
+    if (orow < K && ocol < n) out[(long long)orow * n + ocol] = tile[threadIdx.x][threadIdx.y];
+}
+"""
+_TRANSPOSE_F32_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
+
+
+def _get_transpose_f32_kernel():
+    global _TRANSPOSE_F32_KERNEL
+    if _TRANSPOSE_F32_KERNEL is None:
+        import cupy as cp
+        _TRANSPOSE_F32_KERNEL = cp.RawKernel(_TRANSPOSE_F32_SRC, "transpose_f32")
+    return _TRANSPOSE_F32_KERNEL
+
+
+def _transpose_to_cm(cand_gpu):
+    """Return a (K, n) C-contiguous (== column-major over the original (n,K)) copy of the row-major f32
+    ``cand_gpu`` via the coalesced tiled-transpose kernel (6.9x faster than cp.ascontiguousarray(cand.T)
+    at the production size; bit-identical bytes). Used ONLY for f32 C-contiguous input; falls back to
+    cp.ascontiguousarray(cand.T) for any other dtype/layout or on any kernel failure (bit-identical)."""
+    import cupy as cp
+
+    n, K = cand_gpu.shape
+    if cand_gpu.dtype != cp.float32 or not cand_gpu.flags.c_contiguous:
+        return cp.ascontiguousarray(cand_gpu.T)
+    try:
+        out = cp.empty((K, n), dtype=cp.float32)
+        grid = ((K + 31) // 32, int((n + 31) // 32))
+        _get_transpose_f32_kernel()((grid[0], grid[1]), (32, 32),
+                                    (cand_gpu, out, np.int64(n), np.int32(K)))
+        return out
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("tiled transpose kernel failed; cp.ascontiguousarray(.T) fallback", exc_info=True)
+        return cp.ascontiguousarray(cand_gpu.T)
+
+
 def _get_radix_select_kernel(is_f32: bool):
     global _RADIX_SELECT_F64_KERNEL, _RADIX_SELECT_F32_KERNEL
     import cupy as cp
@@ -219,7 +278,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
     # (data[col*n+i]) -- one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
-    data_cm = cp.ascontiguousarray(cand_gpu.T)   # (K, n) C-order = column-major
+    data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
     ker((K,), (_RADIX_SELECT_THREADS,),
         (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
