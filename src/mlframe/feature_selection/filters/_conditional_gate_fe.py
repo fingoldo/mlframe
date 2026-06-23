@@ -160,6 +160,23 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     names = list(names)
+    # MANDATE-2 (2026-06-23): resident-GPU candidate-gen + MI route. The candidate columns are built on the
+    # device + scored by the resident plug-in MI (NO host round-trip), engaged ONLY where the per-host KTC
+    # crossover (_resident_candidate_mi_ktc) measured it faster than the host njit batch-MI below. On the dev
+    # GTX 1050 Ti the gate's k is small (k = m + 4*C(m,2) + 2|3; m=3 -> k=14, sub-crossover) so this stays
+    # CPU here; it engages for large-k / stronger GPUs. Selection-equivalent (percentile-edge vs rank binning,
+    # the approved FE-PAIR trade); on any failure / no-cupy it returns None and the exact njit path runs.
+    _m = len(names)
+    _k = _m + 4 * (_m * (_m - 1) // 2) + (3 if _m >= 3 else 2)
+    try:
+        from ._resident_candidate_mi_ktc import rescand_use_resident
+        if rescand_use_resident(int(np.asarray(arrs[names[0]]).shape[0]), _k):
+            from ._resident_candidate_mi import best_existing_op_mi_resident
+            _r = best_existing_op_mi_resident(arrs, names, yi, nbins)
+            if _r is not None:
+                return _r
+    except Exception:
+        pass
     cols_arr = [np.asarray(arrs[c], dtype=np.float64) for c in names]
     cands = list(cols_arr)
     for i in range(len(names)):
