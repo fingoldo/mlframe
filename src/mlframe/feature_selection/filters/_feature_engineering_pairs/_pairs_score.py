@@ -308,45 +308,139 @@ def _score_one_pair(
             # (then downcast on the float32 store here) is a real but UNSAFE lever: a native float32 divide
             # rounds differently from float64-divide-then-cast at ULP and this is selection-critical FE
             # scoring, so it is NOT changed. Verdict: ``_score_one_pair`` is already lean on Python overhead
-            # -- the wall is candidate-column materialisation compute, with no safe overhead-reduction win.
+            # -- the wall IS candidate-column materialisation COMPUTE. iter11 (2026-06-23) RESOLVES that wall:
+            # the line-310 CPU ``bin_func`` materialise is now routed to the GPU FUSED materialise+bin
+            # (the GPU-fused branch directly below), measured F2 100k 83.8s -> 30.0s (2.8x), selection
+            # bit-identical -- so the "no win" tail of the iter10 verdict is SUPERSEDED for this path.
             # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
             # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
             _batch_candidates = []  # (transformations_pair, bin_func_name, i, uses_pw)
-            for transformations_pair in combs:
-                if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
-                    continue
-                param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-                param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-                _uses_pw = (
-                    transformations_pair[0][1] == _PREWARP_UNARY
-                    or transformations_pair[1][1] == _PREWARP_UNARY
-                )
-                # Same wide errstate scope as the original per-pair-comb path.
-                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                    for bin_func_name, bin_func in binary_transformations.items():
-                        start = timer()
-                        try:
-                            final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                        except Exception:
-                            logger.error(f"Error when performing {bin_func}")
-                        else:
-                            # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
-                            # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
-                            # K tiny 50k-element isposinf/isneginf calls per pair -> profiled at
-                            # 16.5s / 5834 calls on the 5-feat x 50000-row repro, pure serial
-                            # numpy dispatch with the cores idle). ``nan_to_num`` is elementwise
-                            # so scrubbing the whole [:, :i] block at once is byte-identical to
-                            # scrubbing each column as it is written, and runs one C loop over a
-                            # contiguous (n x K) buffer instead of K strided ones.
-                            _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
-                            _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
-                            i += 1
+            _disc_2d = None  # set by the GPU FUSED materialise+bin path below; None -> CPU Phase 2 bins it
 
-            # Phase 1b: ONE vectorised NaN/inf scrub over every materialised column
-            # [:, :i] (replaces the per-column ``nan_to_num`` removed above). Elementwise
-            # -> byte-identical to the per-column scrub; one contiguous-block C pass.
-            if i > 0:
-                np.nan_to_num(final_transformed_vals[:, :i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            # GPU FUSED PER-PAIR MATERIALISE+BIN (2026-06-23, MRMR FE wall /loop iter11). The CPU
+            # ``bin_func`` strided materialise (the line ``final_transformed_vals[:, i] = bin_func(param_a,
+            # param_b)`` below) is the per-pair FE-scan WALL: on the F2 100k fit it is 71.9% of
+            # ``_score_one_pair`` (line_profiler 45.8s of 63.7s). The chunk path already routes its
+            # materialise to the GPU FUSED ``gpu_materialise_discretize_codes_host`` (4.40x vs CPU
+            # njit-mat+CPU-bin / 2.03x vs CPU njit-mat+GPU-bin, GTX 1050 Ti n=100k), but it only fires
+            # when a chunk holds >1 pair (``_chunk_buffer`` allocated); at the canonical 100k fit the
+            # RAM-budgeted chunk width is barely one pair wide (chunkmax~3561 vs pairwidth 1944), so
+            # ``_chunk_buffer`` stays None and EVERY pair falls to THIS per-pair CPU path -- 100% of
+            # candidate materialise (measured: F2 seed-7 = 58320/58320 cols on the CPU line below).
+            # So we route the per-pair materialise through the SAME fused GPU kernel here. It builds the
+            # (n,K) float candidate matrix on-device from (a_cols, b_cols, op_codes), fills the host buffer
+            # (``out_cand`` -- the downstream survivor/usability/ext-val stages still read the continuous
+            # columns) AND bins it RESIDENT, returning ``_disc_2d`` so the separate Phase-2 binning is
+            # skipped. BIT-IDENTICAL selection: ``gpu_materialise_discretize_codes_host`` mirrors
+            # ``_materialise_chunk_njit`` (maxdiff 0), which is itself bit-identical to the numpy
+            # ``bin_func`` (the chunk-batch invariant), and the inline kernel nan-scrub == the per-column
+            # ``np.nan_to_num`` below. PER-OP GATE: routed only when ``_njit_binary_op_codes`` covers EVERY
+            # op in the registry (None -> any hypot/scipy.special op -> stay on the bit-safe CPU loop). Gated
+            # by the dedicated GPU-binning crossover (if binning wins, the fused mat+bin certainly wins) +
+            # the ``MLFRAME_FE_GPU_MATERIALISE`` escape hatch (same knob the chunk path uses). Any GPU
+            # failure falls through to the CPU loop below (never a regression).
+            _gpu_fused_done = False
+            try:
+                import os as _os
+                _gpu_mat_on = _os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in (
+                    "0", "false", "no", "off",
+                )
+                # Probe K (candidate count for this pair) without materialising, to size the binning gate.
+                if _gpu_mat_on:
+                    from ._pairs_materialise import _njit_binary_op_codes as _njit_op_codes_fn
+                    _op_code_arr = _njit_op_codes_fn(binary_transformations)
+                else:
+                    _op_code_arr = None
+                if _op_code_arr is not None:
+                    # Build candidate specs + per-candidate (a_col, b_col, op_code) in the SAME
+                    # (combs x bin_func) order the CPU path produces -> identical buffer index ``i``.
+                    _name_list = list(binary_transformations.keys())
+                    _a_cols: list = []
+                    _b_cols: list = []
+                    _ops: list = []
+                    _gpu_cands = []
+                    for transformations_pair in combs:
+                        if (transformations_pair[0] not in vars_transformations) or (
+                            transformations_pair[1] not in vars_transformations
+                        ):
+                            continue
+                        _ai = vars_transformations[transformations_pair[0]]
+                        _bi = vars_transformations[transformations_pair[1]]
+                        _uses_pw = (
+                            transformations_pair[0][1] == _PREWARP_UNARY
+                            or transformations_pair[1][1] == _PREWARP_UNARY
+                        )
+                        for _opn, bin_func_name in enumerate(_name_list):
+                            _a_cols.append(_ai)
+                            _b_cols.append(_bi)
+                            _ops.append(int(_op_code_arr[_opn]))
+                            _gpu_cands.append((transformations_pair, bin_func_name, i, _uses_pw))
+                            i += 1
+                    _K = i
+                    from ._pairs_core import _fe_gpu_binning_enabled
+                    if _K > 0 and _fe_gpu_binning_enabled(final_transformed_vals.shape[0], _K):
+                        _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)
+                        _start = timer()
+                        from .._gpu_resident_fe import gpu_materialise_discretize_codes_host
+                        _disc_2d = gpu_materialise_discretize_codes_host(
+                            transformed_vars,
+                            np.asarray(_a_cols, dtype=np.int64),
+                            np.asarray(_b_cols, dtype=np.int64),
+                            np.asarray(_ops, dtype=np.int8),
+                            int(quantization_nbins),
+                            dtype=_code_dtype,
+                            out_cand=final_transformed_vals[:, :_K],
+                        )
+                        _batch_candidates = _gpu_cands
+                        # Attribute the fused materialise time across the bin_funcs (one event per pair).
+                        _dt_each = (timer() - _start) / max(1, len(_name_list))
+                        for bin_func_name in _name_list:
+                            _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + _dt_each
+                        _gpu_fused_done = True
+            except Exception:
+                logger.debug("FE per-pair GPU fused materialise+bin failed; CPU materialise", exc_info=True)
+                _gpu_fused_done = False
+                _disc_2d = None
+                _batch_candidates = []
+                i = 0
+
+            if not _gpu_fused_done:
+                for transformations_pair in combs:
+                    if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
+                        continue
+                    param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
+                    param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+                    _uses_pw = (
+                        transformations_pair[0][1] == _PREWARP_UNARY
+                        or transformations_pair[1][1] == _PREWARP_UNARY
+                    )
+                    # Same wide errstate scope as the original per-pair-comb path.
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        for bin_func_name, bin_func in binary_transformations.items():
+                            start = timer()
+                            try:
+                                final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                            except Exception:
+                                logger.error(f"Error when performing {bin_func}")
+                            else:
+                                # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
+                                # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
+                                # K tiny 50k-element isposinf/isneginf calls per pair -> profiled at
+                                # 16.5s / 5834 calls on the 5-feat x 50000-row repro, pure serial
+                                # numpy dispatch with the cores idle). ``nan_to_num`` is elementwise
+                                # so scrubbing the whole [:, :i] block at once is byte-identical to
+                                # scrubbing each column as it is written, and runs one C loop over a
+                                # contiguous (n x K) buffer instead of K strided ones.
+                                _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
+                                _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
+                                i += 1
+
+                # Phase 1b: ONE vectorised NaN/inf scrub over every materialised column
+                # [:, :i] (replaces the per-column ``nan_to_num`` removed above). Elementwise
+                # -> byte-identical to the per-column scrub; one contiguous-block C pass.
+                # SKIPPED on the GPU fused path (the kernel scrubs NaN/inf inline -- bit-identical).
+                if i > 0:
+                    np.nan_to_num(final_transformed_vals[:, :i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
             # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
             # Bit-identical to per-column ``discretize_array(method='quantile')`` -- the
@@ -375,23 +469,26 @@ def _score_one_pair(
                         logger.debug("FE GPU pair-MI failed; falling back to CPU", exc_info=True)
                         _fe_mi_arr = None
                 if _fe_mi_arr is None:
-                    _disc_2d = None
+                    # ``_disc_2d`` may ALREADY be the codes from the GPU FUSED materialise+bin path
+                    # (Phase 1 above) -- in that case skip re-binning (the fused kernel produced the
+                    # SAME codes ``gpu_discretize_codes_host`` would). Only bin here when it is None.
                     # GPU BINNING (2026-06-23): the per-pair Phase-2 binning gets the SAME dedicated
                     # binning crossover the chunk path now uses. ``gpu_discretize_codes_host`` is
                     # bit-identical to the CPU njit binning (verified maxdiff 0) and 17-24x faster at
                     # n=100k; it was previously reachable here ONLY through the full ``gpu_pairs_fe_mi``
                     # path (declined on the non-analytic branch -> CPU njit). Any GPU failure falls back
                     # to the CPU discretise below (never a regression; selection bit-identical).
-                    try:
-                        from ._pairs_core import _fe_gpu_binning_enabled
-                        if _fe_gpu_binning_enabled(final_transformed_vals.shape[0], i):
-                            from .._gpu_resident_fe import gpu_discretize_codes_host
-                            _disc_2d = gpu_discretize_codes_host(
-                                final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype
-                            )
-                    except Exception:
-                        logger.debug("FE per-pair GPU binning failed; CPU discretise", exc_info=True)
-                        _disc_2d = None
+                    if _disc_2d is None:
+                        try:
+                            from ._pairs_core import _fe_gpu_binning_enabled
+                            if _fe_gpu_binning_enabled(final_transformed_vals.shape[0], i):
+                                from .._gpu_resident_fe import gpu_discretize_codes_host
+                                _disc_2d = gpu_discretize_codes_host(
+                                    final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype
+                                )
+                        except Exception:
+                            logger.debug("FE per-pair GPU binning failed; CPU discretise", exc_info=True)
+                            _disc_2d = None
                     if _disc_2d is None:
                         _disc_2d = discretize_2d_quantile_batch(
                             final_transformed_vals[:, :i], n_bins=quantization_nbins,
