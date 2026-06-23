@@ -334,10 +334,11 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
 
     # Layer-95 periodic/modular kernel (warm all three op codes).
     try:
-        from ._periodic_fe import _modular_njit
+        from ._periodic_fe import _modular_njit, _modular_all_ops_njit
         _warm_mod = np.array([1.5, -2.5, np.nan, np.inf], dtype=np.float64)
         for _oc in (0, 1, 2):
             _ = _modular_njit(_warm_mod, 7.0, _oc)
+        _ = _modular_all_ops_njit(_warm_mod, 7.0)
     except Exception:
         pass
 

@@ -90,6 +90,36 @@ def _modular_njit(arr: np.ndarray, p: float, op_code: int) -> np.ndarray:
         out[i] = val if np.isfinite(val) else 0.0
     return out
 
+@njit(cache=True)
+def _modular_all_ops_njit(arr: np.ndarray, p: float):
+    """Fused single-pass kernel emitting all three modular ops (mod / sin / cos) for one ``(col, period)``.
+
+    The residue ``r = v - p*floor(v/p)`` and the phase ``k*r`` are computed ONCE per element and reused for all three
+    outputs, instead of three separate passes (one per :func:`apply_modular` call) that each recompute the residue and
+    re-walk the array. Bit-identical to three back-to-back ``_modular_njit`` calls (same residue formula, same NaN/inf
+    -> 0 scrub, same ``sin``/``cos`` of the same phase). Returns ``(mod, sin, cos)`` float64 arrays."""
+    n = arr.size
+    out_mod = np.empty(n, dtype=np.float64)
+    out_sin = np.empty(n, dtype=np.float64)
+    out_cos = np.empty(n, dtype=np.float64)
+    k = 2.0 * math.pi / p
+    for i in range(n):
+        v = arr[i]
+        if not np.isfinite(v):
+            out_mod[i] = 0.0
+            out_sin[i] = 0.0
+            out_cos[i] = 0.0
+            continue
+        r = v - p * math.floor(v / p)
+        out_mod[i] = r if np.isfinite(r) else 0.0
+        kr = k * r
+        s = math.sin(kr)
+        c = math.cos(kr)
+        out_sin[i] = s if np.isfinite(s) else 0.0
+        out_cos[i] = c if np.isfinite(c) else 0.0
+    return out_mod, out_sin, out_cos
+
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -181,10 +211,13 @@ def generate_modular_features(
     periods = tuple(float(p) for p in periods if float(p) > 0.0)
     out: dict[str, np.ndarray] = {}
     for c in cols:
-        x = X[c].to_numpy()
+        arr = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
         for p in periods:
-            for op in _VALID_OPS:
-                out[engineered_name_modular(c, p, op)] = apply_modular(x, p, op)
+            # Fused single pass: residue computed once, all three ops emitted (vs three apply_modular passes).
+            mod_v, sin_v, cos_v = _modular_all_ops_njit(arr, p)
+            out[engineered_name_modular(c, p, "mod")] = mod_v
+            out[engineered_name_modular(c, p, "sin")] = sin_v
+            out[engineered_name_modular(c, p, "cos")] = cos_v
     return pd.DataFrame(out, index=X.index)
 
 

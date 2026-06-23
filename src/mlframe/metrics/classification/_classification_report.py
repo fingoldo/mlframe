@@ -41,6 +41,7 @@ from ..calibration._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
     compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,
+    compute_ece_brier_full_and_debiased,
     compute_ece_debiased,
     integral_calibration_error_from_metrics,
 )
@@ -314,28 +315,35 @@ def fast_calibration_report(
     # Always compute ECE + Brier decomposition. Same data-adaptive bin grid as
     # CMAEW (kernel re-bins internally so it can capture per-bin pred_means,
     # which fast_calibration_binning doesn't expose). Cost is one short pass.
-    ece, brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_ece_and_brier_decomposition(
-        y_true=y_true, y_pred=y_pred, nbins=nbins,
-    )
-    # Headline ECE defaults to the bias-corrected estimator: the plug-in binned ECE positively overstates
-    # miscalibration by the per-bin Bernoulli sampling noise (a perfectly calibrated model reports a spurious
-    # positive ECE growing with nbins). compute_ece_debiased subtracts that noise floor; bench_ece_debiased
-    # shows it more than halves the bias-vs-truth on calibrated scenarios and wins ~80% of (scenario,seed) cells
-    # across nbins 10/15/20. Set ece_debiased=False to recover the legacy plug-in value. The Brier decomposition
-    # REL/RES/UNC is left on the plug-in grid so the Murphy identity REL-RES+UNC==BinnedBrier still holds exactly.
-    if ece_debiased:
-        ece = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    # Headline Brier reliability/resolution default to the bias-corrected decomposition: REL and RES carry the
-    # same per-bin Bernoulli noise floor that inflates the plug-in ECE (a perfectly calibrated model reports a
-    # spurious positive REL growing with nbins). compute_brier_decomposition_debiased subtracts Var(acc_b) from BOTH
-    # REL and RES (Broecker 2009), so REL-RES, UNC and BinnedBrier are all preserved exactly -- the Murphy identity
-    # still holds. bench_brier_decomp_debiased shows it more than halves the REL bias-vs-truth on
-    # calibrated scenarios and wins the majority of (scenario,seed) cells. Set brier_debiased=False for the legacy
-    # plug-in REL/RES.
-    if brier_debiased:
-        brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_brier_decomposition_debiased(
+    #
+    # Headline ECE/Brier default to the bias-corrected estimators (ece_debiased / brier_debiased): the plug-in
+    # binned ECE/REL positively overstate miscalibration by the per-bin Bernoulli sampling noise (a perfectly
+    # calibrated model reports a spurious positive value growing with nbins). compute_ece_debiased /
+    # compute_brier_decomposition_debiased subtract that noise floor (Kumar et al. NeurIPS 2019; Broecker 2009);
+    # bench_ece_debiased / bench_brier_decomp_debiased show they more than halve the bias-vs-truth on calibrated
+    # scenarios. brier debiasing subtracts Var(acc_b) from BOTH REL and RES, so REL-RES, UNC and BinnedBrier are
+    # all preserved exactly (Murphy identity still holds). Set ece_debiased / brier_debiased False for the legacy
+    # plug-in values.
+    #
+    # When both debiased flags are on (the default), the plug-in decomposition + both debiased estimators share
+    # the IDENTICAL counts/pred_sum/true_sum binning histogram -- so compute_ece_brier_full_and_debiased bins ONCE
+    # and emits every reduction (bit-identical to three separate kernels by construction; ~2.7-3x faster, see
+    # bench_fused_ece_brier_calibration). The split-kernel path stays for the opt-out combinations.
+    if ece_debiased and brier_debiased:
+        (
+            _ece_plugin, _rel_plugin, _res_plugin, brier_uncertainty, _brier_binned_plugin,
+            ece, brier_reliability, brier_resolution, _brier_binned,
+        ) = compute_ece_brier_full_and_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    else:
+        ece, brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_ece_and_brier_decomposition(
             y_true=y_true, y_pred=y_pred, nbins=nbins,
         )
+        if ece_debiased:
+            ece = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
+        if brier_debiased:
+            brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_brier_decomposition_debiased(
+                y_true=y_true, y_pred=y_pred, nbins=nbins,
+            )
 
     _auc_desc_order = None
     _ks_fused = None

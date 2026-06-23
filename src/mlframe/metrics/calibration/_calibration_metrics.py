@@ -312,6 +312,100 @@ def compute_brier_decomposition_debiased(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def compute_ece_brier_full_and_debiased(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int,
+):
+    """Fused single-pass plug-in + debiased ECE / Brier decomposition on the shared fixed ``[0,1]`` grid.
+
+    Returns ``(ece_plugin, rel_plugin, res_plugin, unc, brier_binned_plugin,
+               ece_debiased, rel_debiased, res_debiased, brier_binned_debiased)``.
+
+    The default ``fast_calibration_report`` headline path needs BOTH the plug-in decomposition
+    (``compute_ece_and_brier_decomposition``) AND the two debiased estimators (``compute_ece_debiased``,
+    ``compute_brier_decomposition_debiased``). Those three kernels each rebuild the IDENTICAL
+    ``counts``/``pred_sum``/``true_sum`` histogram from the same ``y_true``/``y_pred`` -- three O(n) binning
+    passes where one suffices. This kernel bins ONCE and emits every reduction; it is bit-identical to calling
+    the three kernels separately BY CONSTRUCTION (same binning arithmetic, same per-bin formulas, same
+    ``base_rate``/``inv_n``). The report dispatches here when both debiased flags are on; the standalone
+    kernels remain for the opt-out paths and other callers.
+
+    Returns the empty-input sentinels of all three kernels on ``n == 0``.
+    """
+    n = len(y_true)
+    if n == 0:
+        return 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0
+
+    base_rate = 0.0
+    for i in range(n):
+        base_rate += y_true[i]
+    base_rate /= n
+
+    pred_sum = np.zeros(nbins, dtype=np.float64)
+    true_sum = np.zeros(nbins, dtype=np.float64)
+    counts = np.zeros(nbins, dtype=np.int64)
+
+    for i in range(n):
+        p = y_pred[i]
+        ind = int(floor(p * nbins))
+        if ind >= nbins:
+            ind = nbins - 1
+        elif ind < 0:
+            ind = 0
+        counts[ind] += 1
+        pred_sum[ind] += p
+        true_sum[ind] += y_true[i]
+
+    ece = 0.0
+    reliability = 0.0
+    resolution = 0.0
+    ece_db = 0.0
+    rel_db = 0.0
+    res_db = 0.0
+    inv_n = 1.0 / n
+    for k in range(nbins):
+        nk = counts[k]
+        if nk == 0:
+            continue
+        w = nk * inv_n
+        p_mean = pred_sum[k] / nk
+        acc = true_sum[k] / nk
+        diff = p_mean - acc
+        # Plug-in terms (compute_ece_and_brier_decomposition).
+        ece += w * abs(diff)
+        reliability += w * diff * diff
+        res_term_plugin = (acc - base_rate) ** 2
+        resolution += w * res_term_plugin
+        # Debiased terms (compute_ece_debiased + compute_brier_decomposition_debiased).
+        rel_term = diff * diff
+        res_term = res_term_plugin
+        if nk >= 2:
+            var_acc = acc * (1.0 - acc) / (nk - 1)
+            # ECE debiased.
+            corrected = diff * diff - var_acc
+            if corrected < 0.0:
+                corrected = 0.0
+            ece_db += w * np.sqrt(corrected)
+            # Brier REL/RES debiased.
+            rel_term -= var_acc
+            if rel_term < 0.0:
+                rel_term = 0.0
+            res_term -= var_acc
+        else:
+            ece_db += w * abs(diff)
+        rel_db += w * rel_term
+        res_db += w * res_term
+    uncertainty = base_rate * (1.0 - base_rate)
+    brier_binned = reliability - resolution + uncertainty
+    brier_binned_db = rel_db - res_db + uncertainty
+    return (
+        ece, reliability, resolution, uncertainty, brier_binned,
+        ece_db, rel_db, res_db, brier_binned_db,
+    )
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
