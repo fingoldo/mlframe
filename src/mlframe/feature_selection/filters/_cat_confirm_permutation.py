@@ -810,6 +810,17 @@ def _confirm_pairs_via_permutation(
             n_samples_local = factors_data.shape[0]
             use_full_cond = bool(getattr(cfg, "enable_full_conditional_perm", False))
             n_x1_classes = int(cls_x1.max()) + 1 if cls_x1.size else 1
+            # I(X1; Y) is loop-INVARIANT under the conditional null: only X2 is
+            # shuffled inside the loop; cls_x1 / fq_x1 / classes_y / freqs_y are
+            # never mutated. So compute it ONCE here instead of re-running a full
+            # length-n MI pass every permutation. Bit-identical by construction
+            # (same args -> same float). Bench: _benchmarks/bench_cat_confirm_
+            # conditional_hoist_x1_mi.py (3-8% e2e on the conditional branch at
+            # n_perms 50-500; the per-perm i_x1 MI alone drops 32-524x).
+            i_x1_p = compute_mi_from_classes(
+                classes_x=cls_x1, freqs_x=fq_x1,
+                classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+            )
             for _perm in range(n_perms):
                 # Per-(survivor, perm) seed off the stable confirmation base so the conditional null is reproducible run-to-run without touching numpy's global RNG.
                 _cond_seed = _CAT_CONFIRM_BASE_SEED + int(j) * 1000003 + _perm
@@ -839,11 +850,10 @@ def _confirm_pairs_via_permutation(
                     classes_x=cls_joint_perm, freqs_x=fq_joint_perm,
                     classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
                 )
-                # Marginals are PRESERVED by conditional shuffle -- use the originals from the loop entry. (We still subtract the same marginals as the observed II.)
-                i_x1_p = compute_mi_from_classes(
-                    classes_x=cls_x1, freqs_x=fq_x1,
-                    classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
-                )
+                # I(X1; Y) marginal is PRESERVED by the conditional shuffle (X1 is
+                # never touched) -- ``i_x1_p`` was hoisted above the loop as it is
+                # bit-identical across permutations. (We still subtract the same
+                # marginal as the observed II.)
                 # I(X2_shuffled; Y) -- per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
                 fq_x2_perm = np.bincount(
                     classes_x2_safe.astype(np.int64), minlength=int(classes_x2_safe.max()) + 1
