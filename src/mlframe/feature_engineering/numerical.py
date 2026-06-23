@@ -321,48 +321,99 @@ def get_basic_feature_names(
     return res
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fused_nunique_modes_quantiles_kernel(s: np.ndarray, q: np.ndarray, max_modes: int):  # pragma: no cover
+    """Single-pass njit core: from the SORTED array ``s`` derive nunique, mode stats and the
+    median_unbiased quantiles in one compiled traversal, replacing the per-row stack of numpy
+    temporaries (``boundary``/``nonzero``/``diff``/``append``/``clip``/``floor``/``astype``).
+
+    Returns ``(nuniques, modes_min, modes_max, modes_mean, modes_qty, quantiles)``. Mode selection
+    is bit-identical to the prior ``np.lexsort((vals, -counts))`` path: the global-max count defines
+    the modes, ties broken by ascending value, capped at ``max_modes`` (``s`` ascending => the lowest
+    values are kept first, matching the lexsort value-tiebreak). Quantile interp uses the same
+    Hyndman-Fan type-8 virtual index as the numpy code, so the result matches to <=1 ULP.
+    """
+    n = s.size
+
+    # First pass: nunique + global max run-length (the mode count).
+    nuniques = 1
+    max_count = 1
+    cur_count = 1
+    for i in range(1, n):
+        if s[i] != s[i - 1]:
+            nuniques += 1
+            if cur_count > max_count:
+                max_count = cur_count
+            cur_count = 1
+        else:
+            cur_count += 1
+    if cur_count > max_count:
+        max_count = cur_count
+
+    if max_count == 1:
+        modes_min = np.nan
+        modes_max = np.nan
+        modes_mean = np.nan
+        modes_qty = np.nan
+    else:
+        # Second pass: collect up to max_modes lowest-valued uniques whose run-length == max_count.
+        modes_min = np.inf
+        modes_max = -np.inf
+        modes_sum = 0.0
+        modes_qty_i = 0
+        cur_count = 1
+        i = 1
+        while i <= n:
+            at_end = i == n
+            if at_end or s[i] != s[i - 1]:
+                if cur_count == max_count and modes_qty_i < max_modes:
+                    v = s[i - 1]
+                    if v < modes_min:
+                        modes_min = v
+                    if v > modes_max:
+                        modes_max = v
+                    modes_sum += v
+                    modes_qty_i += 1
+                cur_count = 1
+            else:
+                cur_count += 1
+            i += 1
+        modes_mean = modes_sum / modes_qty_i
+        modes_qty = float(modes_qty_i)
+
+    # median_unbiased (Hyndman-Fan type 8): virtual index h = (n + 1/3)*p + 1/3, clamp to [1, n], linear interp.
+    quantiles = np.empty(q.size, dtype=np.float64)
+    nf = float(n)
+    for k in range(q.size):
+        h = (nf + 1.0 / 3.0) * q[k] + 1.0 / 3.0
+        if h < 1.0:
+            h = 1.0
+        elif h > nf:
+            h = nf
+        fl = np.floor(h)
+        lo = int(fl) - 1
+        hi = lo + 1
+        if hi > n - 1:
+            hi = n - 1
+        g = h - fl
+        quantiles[k] = s[lo] * (1.0 - g) + s[hi] * g
+
+    return float(nuniques), modes_min, modes_max, modes_mean, modes_qty, quantiles
+
+
 def _fused_nunique_modes_quantiles(arr: np.ndarray, q: np.ndarray, quantile_method: str, max_modes: int) -> tuple:
     """All-finite fast path for ``compute_nunique_modes_quantiles_numpy``: one ``np.sort`` feeds the sorted-unique
     values + counts AND the ``median_unbiased`` quantiles, replacing the independent ``np.unique`` sort and
     ``np.nanquantile`` partition. Caller guarantees ``arr`` is 1-D, all-finite, ``len>=2``, method=median_unbiased.
+
+    The boundary-detection + counts + mode-pick + quantile-interp are fused into a single njit pass
+    (``_fused_nunique_modes_quantiles_kernel``) to drop the per-row numpy-temporary churn.
     """
     s = np.sort(arr)
-    n = s.size
-
-    boundary = np.empty(n, dtype=bool)
-    boundary[0] = True
-    np.not_equal(s[1:], s[:-1], out=boundary[1:])
-    idx = np.nonzero(boundary)[0]
-    vals = s[idx]
-    counts = np.diff(np.append(idx, n))
-
-    max_modes = min(max_modes, len(counts))
-    modes_indices = np.lexsort((vals, -counts))[:max_modes]
-    first_mode_count = counts[modes_indices[0]]
-    if first_mode_count == 1:
-        modes_min, modes_max, modes_mean, modes_qty = np.nan, np.nan, np.nan, np.nan
-    else:
-        best_modes = [vals[modes_indices[0]]]
-        for i in range(1, max_modes):
-            next_idx = modes_indices[i]
-            if counts[next_idx] < first_mode_count:
-                break
-            best_modes.append(vals[next_idx])
-        best_modes = np.asarray(best_modes)
-        modes_min = best_modes.min()
-        modes_max = best_modes.max()
-        modes_mean = best_modes.mean()
-        modes_qty = len(best_modes)
-
-    res = (len(vals), modes_min, modes_max, modes_mean, modes_qty)
-
-    # median_unbiased (Hyndman-Fan type 8): virtual index h = (n + 1/3)*p + 1/3, clamp to [1, n], linear interp.
-    h = (n + 1.0 / 3.0) * q + 1.0 / 3.0
-    np.clip(h, 1.0, float(n), out=h)
-    lo = np.floor(h).astype(np.intp) - 1
-    hi = np.minimum(lo + 1, n - 1)
-    g = h - np.floor(h)
-    quantiles = s[lo] * (1.0 - g) + s[hi] * g
+    nuniques, modes_min, modes_max, modes_mean, modes_qty, quantiles = _fused_nunique_modes_quantiles_kernel(
+        s, q, max_modes
+    )
+    res = (nuniques, modes_min, modes_max, modes_mean, modes_qty)
     res = res + tuple(quantiles)
     res = res + tuple(compute_ncrossings(arr=arr, marks=quantiles))
     return res

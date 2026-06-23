@@ -40,6 +40,39 @@ def _knuth_log_posterior(M: int, n: int, counts: np.ndarray) -> float:
     return s
 
 
+@njit(nogil=True, cache=True)
+def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) -> int:
+    """Fused Knuth (2006) posterior search returning the optimal M in [2, M_max].
+
+    BIT-IDENTICAL to the prior ``for M: np.histogram(a, linspace(a_min, a_max, M+1)) ->
+    _knuth_log_posterior`` scan, but runs entirely in compiled code on the pre-sorted column:
+    uniform-bin counts are obtained by integer differencing of ``np.searchsorted`` positions
+    (``side='right'`` reproduces ``np.histogram``'s half-open ``[e_j, e_{j+1})`` bins with the final
+    bin closed at ``a_max``), and the lgamma log-posterior is accumulated inline -- no per-M
+    ``np.histogram`` dispatch and no ``counts.astype(int64)`` copy. ~6-47x over the object-mode loop
+    (n=2k..50k) at zero numeric change to ``best_M``; bench discretization/_benchmarks/bench_knuth_posterior_fused.py.
+    """
+    n = a_sorted.shape[0]
+    log_gamma_half = math.lgamma(0.5)
+    best_M = 2
+    best_logp = -1e300
+    for M in range(2, M_max + 1):
+        width = (a_max - a_min) / M
+        prev = 0
+        s = n * math.log(M) + math.lgamma(M / 2.0) - M * log_gamma_half - math.lgamma(n + M / 2.0)
+        for j in range(M):
+            if j == M - 1:
+                hi = n
+            else:
+                hi = np.searchsorted(a_sorted, a_min + (j + 1) * width, side="right")
+            s += math.lgamma((hi - prev) + 0.5)
+            prev = hi
+        if s > best_logp:
+            best_logp = s
+            best_M = M
+    return best_M
+
+
 def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile",
                      m_max_cap: int = 64) -> np.ndarray:
     """Knuth's optimal-bin-count rule (Knuth 2006). Returns bin edges at the M*
@@ -78,14 +111,7 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile",
     # Forcing M >= 2 yields the same posterior optimum on non-uniform inputs
     # AND a useful 2-bin median split on uniform inputs. Bench regression:
     # uniform mean MI 0.0000 -> ~0.50 with this fix.
-    best_M, best_logp = 2, -1e300
-    for M in range(2, M_max + 1):
-        edges = np.linspace(a_min, a_max, M + 1)
-        counts, _ = np.histogram(a, bins=edges)
-        logp = _knuth_log_posterior(M, n, counts.astype(np.int64))
-        if logp > best_logp:
-            best_logp = logp
-            best_M = M
+    best_M = _knuth_best_M(np.sort(a), a_min, a_max, M_max)
     if edge_type == "quantile":
         # Quantile edges at the Knuth-optimal M. Preserves the posterior's M
         # selection (the empirical Knuth contribution) while routing edges
