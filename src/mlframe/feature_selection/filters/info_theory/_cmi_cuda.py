@@ -283,9 +283,24 @@ def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:  # noqa: C901
     except Exception as _exc:  # noqa: BLE001
         logger.debug("cmi_cuda: kernel_tuning_cache unavailable (%s); hand fallback", _exc)
 
-    # Hand bootstrap heuristic (cache-miss only): the batched launch amortizes its host<->device
+    # MANDATE-1 (2026-06-23): per-host KTC-derived crossover (sibling _cmi_cuda_ktc). The legacy "FS
+    # kernel_tuning_cache singleton" lookup above is a manual cache; this adds the SWEPT crossover the repo
+    # rule mandates -- a kernel_tuner that benches CPU vs CUDA on the real (n, p) conditional-MI shapes and
+    # records the faster backend per region. On a measured hit it IS the gate; the hardcoded heuristic below
+    # survives ONLY as the un-tuned (pre-sweep / no-cupy / lookup-failure) bootstrap default, per the rule.
+    try:
+        from ._cmi_cuda_ktc import cmi_use_cuda as _ktc_cmi_use_cuda
+
+        _decision = _ktc_cmi_use_cuda(n, p)
+        if _decision is not None:
+            return bool(_decision)
+    except Exception as _exc:  # noqa: BLE001
+        logger.debug("cmi_cuda: KTC crossover unavailable (%s); hand fallback", _exc)
+
+    # Hand bootstrap heuristic (un-tuned default ONLY): the batched launch amortizes its host<->device
     # transfer + launch overhead once p and n are both sizable. Measured crossover (GTX 1050 Ti,
-    # bench_cmi_cuda): CUDA wins from roughly n*p >= ~1e6 with p >= ~100.
+    # bench_cmi_cuda): CUDA wins from roughly n*p >= ~1e6 with p >= ~100. KEPT as the safe default for
+    # un-tuned hosts; superseded per-host by the swept crossover above once the sweep has run.
     return (n * p) >= 1_000_000 and p >= 64
 
 
