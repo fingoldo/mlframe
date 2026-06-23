@@ -227,6 +227,20 @@ def build_usability_candidate_pool(
     # Contract preserved: every recipe that reaches the returned pool is replayable by ``transform()``.
     _combo_replay_ok: dict[tuple, bool] = {}
 
+    # bench-attempt-rejected (iter17, 2026-06-23): GPU-RESIDENT batched pair-combo MI TABLE. The MI-table
+    # computation IS cleanly separable from this retention/diversity bookkeeping (the loop only reads
+    # ``mis[j]`` per pair), and a resident batched-across-pairs table was built + gated
+    # (``_usability_pool_resident.py`` + ``_usability_pool_resident_ktc.py``, kept for a capable card).
+    # NOT WIRED IN, for TWO independent reasons measured here: (1) it LOSES on the dev GTX 1050 Ti -- n=100k
+    # npairs=4 nc=1734/pair CUDA-event A/B: 29.6s resident vs 14.7s CPU njit = 0.50x, because the bit-faithful
+    # ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi`` do a per-row device->host scalar sync (~14k tiny syncs)
+    # the 6-SM card cannot hide (HW-bound regime). (2) MORE IMPORTANTLY it is NOT selection-equivalent: the
+    # table is bit-faithful to ~6e-15, but the downstream STABLE MI-sort + greedy ``_abscorr`` diversity
+    # filter is ULP-sensitive at MI ties -- a 6e-15 reassociation flips the tie ORDER, changing which of two
+    # near-equal-MI combos is retained (verified: a 125-form structured pool had ~6 retained forms DIFFER,
+    # e.g. mul(invsquared(a),neg(b)) vs mul(invsquared(a),identity(b))). Selection must stay byte-identical on
+    # this path, so the resident MI is not fed in. NEEDS-X to ship: a BIT-EXACT (not just bit-faithful) GPU MI
+    # matching the njit reduction order, AND a row-vectorised sync-free bin+MI kernel, AND a card where it wins.
     for n1, n2 in pairs:
         x1 = _f64(_scrub(X_df[n1].to_numpy()))
         x2 = _f64(_scrub(X_df[n2].to_numpy()))
