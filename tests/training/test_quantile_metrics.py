@@ -48,6 +48,18 @@ class TestPinballLoss:
         for j, a in enumerate(alphas):
             assert abs(per_a[a] - mean_pinball_loss(y, preds[:, j], alpha=a)) < 1e-12
 
+    def test_per_alpha_fused_bit_identical_to_per_column(self):
+        # The fused row-major kernel must be bit-identical to scoring each alpha
+        # on its own column via pinball_loss (the pre-fusion per-column path).
+        rng = np.random.default_rng(7)
+        for n, k in ((5000, 9), (50000, 19)):
+            y = np.ascontiguousarray(rng.standard_normal(n))
+            preds = np.ascontiguousarray(rng.standard_normal((n, k)))
+            alphas = list(np.linspace(0.05, 0.95, k))
+            per_a = pinball_loss_per_alpha(y, preds, alphas)
+            for j, a in enumerate(alphas):
+                assert per_a[float(a)] == pinball_loss(y, preds[:, j], a)
+
     def test_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="shape"):
             pinball_loss(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0]), 0.5)

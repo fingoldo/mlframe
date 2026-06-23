@@ -67,6 +67,33 @@ if _NUMBA_AVAILABLE:
         return s / n
 
     @numba.njit(**_NJIT_KW)
+    def _fast_pinball_per_alpha(y: np.ndarray, P: np.ndarray, alphas: np.ndarray) -> np.ndarray:
+        """Mean pinball loss for every alpha in ONE row-major pass over the
+        C-contiguous (N, K) ``P``. Replaces K separate ``_fast_pinball`` calls
+        each on a strided ``P[:, j]`` column copy: column access on a C-major
+        matrix is cache-unfriendly and forces a length-N contiguous copy per
+        alpha, while this walks each row's K predictions contiguously. Returns
+        the per-alpha means (length K). Bit-identical to the per-column path
+        (same per-element accumulation order)."""
+        n = P.shape[0]
+        k = P.shape[1]
+        out = np.zeros(k, dtype=np.float64)
+        if n == 0:
+            return out
+        for i in range(n):
+            yi = y[i]
+            for j in range(k):
+                e = yi - P[i, j]
+                a = alphas[j]
+                if e > 0:
+                    out[j] += a * e
+                else:
+                    out[j] += (a - 1.0) * e
+        for j in range(k):
+            out[j] /= n
+        return out
+
+    @numba.njit(**_NJIT_KW)
     def _fast_coverage(y: np.ndarray, q_lo: np.ndarray, q_hi: np.ndarray) -> float:
         n = y.shape[0]
         if n == 0:
@@ -152,6 +179,11 @@ else:
         e = y - q
         return float(np.mean(np.maximum(alpha * e, (alpha - 1.0) * e)))
 
+    def _fast_pinball_per_alpha(y, P, alphas):
+        e = y[:, None] - P
+        out = np.maximum(alphas[None, :] * e, (alphas[None, :] - 1.0) * e)
+        return out.mean(axis=0)
+
     def _fast_coverage(y, q_lo, q_hi):
         return float(np.mean((y >= q_lo) & (y <= q_hi)))
 
@@ -199,10 +231,13 @@ def pinball_loss_per_alpha(
         raise ValueError(
             f"preds_NK.shape[1]={P.shape[1]} != len(alphas)={len(alphas)}"
         )
-    return {
-        float(a): float(_fast_pinball(y, np.ascontiguousarray(P[:, j]), float(a)))
-        for j, a in enumerate(alphas)
-    }
+    # One fused row-major pass over the C-contiguous (N, K) matrix scores every
+    # alpha at once -- avoids K strided ``P[:, j]`` column copies + K JIT-call
+    # boundaries (up to ~19x faster at K=19/N=200k, bit-identical). See
+    # _benchmarks/bench_pinball_per_alpha_fused.py.
+    alphas_arr = np.ascontiguousarray(np.asarray(alphas, dtype=np.float64))
+    means = _fast_pinball_per_alpha(y, P, alphas_arr)
+    return {float(a): float(means[j]) for j, a in enumerate(alphas)}
 
 
 def coverage(y_true, q_lo, q_hi) -> float:

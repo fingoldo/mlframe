@@ -162,8 +162,9 @@ def compute_extra_aggregates(
 ) -> dict[str, np.ndarray]:
     """Compute richer per-query aggregates that the fused stage-4 kernel doesn't emit.
 
-    Implemented at numpy level (not njit) because these are simple per-query reductions and at our k (32-128) the Python loop overhead is negligible. Adding
-    them to the fused kernel would balloon the RawKernel source for marginal speedup.
+    Implemented at numpy level (not njit): the softmax-weight recompute, ``y_skew``, and ``x_centroid_dist`` are fixed-k batched reductions vectorised over all
+    queries with a single gather + einsum/broadcast; ``y_iqr`` keeps a per-query argsort + cumulative-weight interp. Adding these to the fused kernel would balloon
+    the RawKernel source for marginal speedup.
 
     Supported aggregate names (subset of):
         - ``y_iqr``           - interquartile range of weighted neighbour targets (uncertainty proxy)
@@ -176,24 +177,20 @@ def compute_extra_aggregates(
     its native features. These three aggregates are NOT in CatBoost's internal feature set and capture different aspects of the kNN neighbourhood structure.
     """
     n_queries, k_count = topk_ids.shape
-    head_dim = q_proj.shape[1]
 
-    # Recompute softmax weights from the same logits the fused kernel used (cosine similarity / softmax_temp). This is duplicated work vs the fused kernel but at
-    # n_queries * k complexity it's negligible.
-    weights = np.empty((n_queries, k_count), dtype=np.float32)
-    for q in range(n_queries):
-        ids_q = topk_ids[q]
-        logits_q = (k_proj[ids_q] @ q_proj[q]) / softmax_temp
-        m = float(logits_q.max())
-        if not np.isfinite(m):
-            weights[q] = 1.0 / k_count
-            continue
-        exps = np.exp(logits_q - m)
-        s = float(exps.sum())
-        if s <= 0.0 or not np.isfinite(s):
-            weights[q] = 1.0 / k_count
-        else:
-            weights[q] = exps / s
+    # Recompute softmax weights from the same logits the fused kernel used (cosine similarity / softmax_temp). Vectorised gather + einsum + row-wise stable softmax
+    # over all queries at once: at n_queries up to 100k (validation-fold size, called once per head per fold) the per-query Python loop dominated this function.
+    # The non-finite-logit and degenerate-sum fallbacks to a uniform 1/k row are preserved; einsum reorders the float32 reduction so weights differ by <=1 ULP.
+    gathered = k_proj[topk_ids]                                          # (n_queries, k, head_dim)
+    logits = np.einsum("qkd,qd->qk", gathered, q_proj) / softmax_temp
+    row_max = logits.max(axis=1, keepdims=True)
+    exps = np.exp(logits - row_max)
+    s = exps.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        weights = (exps / s[:, None]).astype(np.float32, copy=False)
+    degenerate = (~np.isfinite(row_max[:, 0])) | (s <= 0.0) | (~np.isfinite(s))
+    if degenerate.any():
+        weights[degenerate] = np.float32(1.0 / k_count)
 
     out: dict[str, np.ndarray] = {}
 
@@ -213,31 +210,25 @@ def compute_extra_aggregates(
         out["y_iqr"] = y_iqr
 
     if "y_skew" in aggregates:
-        # Weighted skewness (biased): E[(y - mean)^3] / std^3.
-        y_skew = np.empty(n_queries, dtype=np.float32)
-        for q in range(n_queries):
-            y_q = y_train[topk_ids[q]]
-            w_q = weights[q]
-            mean = float((w_q * y_q).sum())
-            d = y_q - mean
-            var = float((w_q * d * d).sum())
-            if var <= 1e-12:
-                y_skew[q] = 0.0
-                continue
-            std = np.sqrt(var)
-            m3 = float((w_q * d * d * d).sum())
-            y_skew[q] = m3 / (std ** 3)
+        # Weighted skewness (biased): E[(y - mean)^3] / std^3, vectorised over all queries (fixed k).
+        y_nbr = y_train[topk_ids]                                        # (n_queries, k)
+        mean = (weights * y_nbr).sum(axis=1, keepdims=True)
+        d = y_nbr - mean
+        wd2 = weights * d * d
+        var = wd2.sum(axis=1)
+        m3 = (wd2 * d).sum(axis=1)
+        std = np.sqrt(var)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            y_skew = np.where(var <= 1e-12, np.float32(0.0), m3 / (std ** 3)).astype(np.float32, copy=False)
         out["y_skew"] = y_skew
 
     if "x_centroid_dist" in aggregates:
         # Distance from query projection to weighted centroid of neighbour projections. Larger = query lives further from the cluster centroid =
         # outlier-ish neighbourhood, smaller = query sits inside a dense cluster.
-        x_centroid_dist = np.empty(n_queries, dtype=np.float32)
-        for q in range(n_queries):
-            neighbours = k_proj[topk_ids[q]]  # (k, head_dim)
-            centroid = (weights[q][:, None] * neighbours).sum(axis=0)
-            diff = q_proj[q] - centroid
-            x_centroid_dist[q] = float(np.linalg.norm(diff))
+        neighbours = k_proj[topk_ids]                                   # (n_queries, k, head_dim)
+        centroid = (weights[:, :, None] * neighbours).sum(axis=1)       # (n_queries, head_dim)
+        diff = q_proj - centroid
+        x_centroid_dist = np.sqrt((diff * diff).sum(axis=1)).astype(np.float32, copy=False)
         out["x_centroid_dist"] = x_centroid_dist
 
     return out
