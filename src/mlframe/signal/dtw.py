@@ -127,6 +127,18 @@ def dtw_cuda(
     sequences this can be slower than the CPU path. ``dtw_dispatch``
     handles that via a size threshold.
     """
+    # bench-attempt-FUTURE (2026-06-23, CPX-P0-2): the cost matrix is allocated
+    # full (n+1)x(m+1) although only the Sakoe-Chiba band (2*window+1 diagonals)
+    # is ever live, and the sweep launches one kernel PER anti-diagonal
+    # (n+m launches, each ~50us). A banded buffer of shape (n+1, 2*window+1) in
+    # (i, j-i+window) coordinates would cut the device allocation from O(n*m) to
+    # O(n*window) (e.g. 6.5K x 3K, window=200 -> 81MB -> 5.4MB) and a single
+    # wavefront kernel could fuse the launches. DEFERRED: this box has no
+    # validatable CUDA path (cupy reports "CUDA path could not be detected"), so
+    # the GPU rewrite cannot be measured/parity-checked here per the measure-
+    # first + no-unvalidated-GPU-change rules; the CPU backend (dtaidistance C
+    # kernel) already uses an internal banded representation, so there is no
+    # CPU-side full-matrix allocation to band. Re-do on a CUDA-capable box.
     if not _HAS_NB_CUDA:
         raise ImportError(
             "dtw_cuda requires numba.cuda + a CUDA-capable GPU."
@@ -218,6 +230,14 @@ def dtw_cupy(
     """
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
+    # bench-attempt-FUTURE (2026-06-23, CPX-P0-2): same banded-buffer +
+    # launch-fusion win as dtw_cuda (see its note) -- cost_d is full (n+1)x(m+1)
+    # though only 2*window+1 diagonals are live, and the loop below launches one
+    # RawKernel per anti-diagonal. A (n+1, 2*window+1) banded buffer in
+    # (i, j-i+window) coords + a single wavefront kernel would cut device RAM
+    # O(n*m)->O(n*window) and the n+m launches to ~1. Deferred: no validatable
+    # CUDA path on this box (cupy can't detect CUDA), so the rewrite cannot be
+    # measured/parity-checked here; re-do on a CUDA-capable host.
     kernel = _get_cupy_kernel()
     n = len(x)
     m = len(y)

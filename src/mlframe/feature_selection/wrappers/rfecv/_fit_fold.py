@@ -6,6 +6,8 @@ Behavioural equivalence: the body is the verbatim pre-carve body. The signature 
 """
 from __future__ import annotations
 
+import functools
+import inspect
 import logging
 import threading
 from contextlib import nullcontext
@@ -38,6 +40,22 @@ logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 # them as a logical group; an explicit lock makes each fold's commit of its results atomic w.r.t. other
 # folds so a reader (or a concurrent committer) never observes a half-written fold.
 _FOLD_STATE_LOCK = threading.Lock()
+
+
+@functools.lru_cache(maxsize=256)
+def _fit_accepts_sample_weight(fit_func) -> bool:
+    """Whether an estimator's ``fit`` accepts ``sample_weight`` (explicit param or **kwargs).
+
+    ``inspect.signature`` was being re-introspected per estimator per fold per elimination step even
+    though the answer depends only on the estimator class. Cache on the unbound fit function so every
+    fold/step reuses one signature parse. Returns False on un-introspectable callables (matches the
+    prior try/except (TypeError, ValueError) -> skip behaviour exactly)."""
+    try:
+        sig = inspect.signature(fit_func)
+    except (TypeError, ValueError):
+        return False
+    params = sig.parameters
+    return "sample_weight" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 def _eval_fold_body(
@@ -246,13 +264,12 @@ def _eval_fold_body(
         # Build per-call fit kwargs: only attach sample_weight when the estimator's fit signature accepts it. CatBoost / LGBM / sklearn estimators all accept it; some custom shims may not, so introspect.
         _per_est_fit_params = dict(temp_fit_params)
         if _fold_train_sw is not None and "sample_weight" not in _per_est_fit_params:
-            try:
-                import inspect as _inspect
-                _sig = _inspect.signature(_fitted.fit)
-                if "sample_weight" in _sig.parameters or any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
-                    _per_est_fit_params["sample_weight"] = _fold_train_sw
-            except (TypeError, ValueError):
-                pass
+            # Key the cached signature lookup on the UNBOUND fit function (same per estimator class); the bound
+            # method object differs per fold instance and would never cache-hit. Fall back to introspecting the
+            # bound method directly if __func__ is unavailable (C-level / functools-wrapped callables).
+            _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
+            if _fit_accepts_sample_weight(_fit_key):
+                _per_est_fit_params["sample_weight"] = _fold_train_sw
         with _ctx:
             _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
         # Scorer-side: forward fold-test sample_weight when sklearn scorer accepts it. make_scorer-wrapped callables expose sample_weight via _BaseScorer.__call__; bare callables may not.

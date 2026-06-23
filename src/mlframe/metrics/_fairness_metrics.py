@@ -322,8 +322,21 @@ def compute_fairness_metrics(
                     unique_bins = bins.unique()
                 else:
                     unique_bins = np.unique(bins)
+            # Factorize the bins ONCE into integer codes instead of rescanning ``bins == bin_name`` (a full
+            # O(N) string/object equality) for every bin -> O(N*B). The per-bin boolean masks then come from
+            # cheap int-code comparisons; row positions are preserved so each y_true[idx]/y_pred[idx] subset is
+            # bit-identical. ~10-28x faster on string bins at N=50k-200k (bench_fairness_bin_masks.py).
+            _bins_arr = np.asarray(bins)
+            _codes, _code_uniques = pd.factorize(_bins_arr)
+            _code_of = {u: i for i, u in enumerate(_code_uniques)}
+            # A bin_name absent from factorize uniques (e.g. NaN, which factorize codes as -1) never matched
+            # under the old ``bins == bin_name`` either -> empty mask, skipped below. Match that exactly.
+            _masks = {
+                bn: (_codes == _code_of[bn]) if bn in _code_of else np.zeros(_codes.shape, dtype=bool)
+                for bn in unique_bins
+            }
             for bin_name in unique_bins:
-                idx = np.asarray(bins == bin_name)
+                idx = _masks[bin_name]
                 n_points = idx.sum()
                 if n_points:
                     npoints.append(n_points)

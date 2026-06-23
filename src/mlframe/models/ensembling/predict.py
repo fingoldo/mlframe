@@ -36,6 +36,78 @@ from .base import (
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
+# CPX17: the outlier-member gate (cross-member median + per-member MAE/STD + threshold decision) is flavour-INVARIANT --
+# it depends only on the member-prediction array + the four thresholds, NOT on ``ensemble_method``. ``score_ensemble`` fans
+# this function over n_flavours per split, so the same gate was recomputed n_flavours times (median+MAE measured at ~55% of
+# the per-call wall on a 50k x 16 split). Memoise the gate per process keyed on the member-array identities + thresholds so
+# the second..n-th flavour for a given split reuses the first flavour's decision. The cache holds the member arrays alive,
+# so ``id()`` cannot be reused for a different array while the entry is live. Bounded to the last few member sets (3 splits
+# x a couple of in-flight ensembles); cleared on demand for tests.
+_GATE_CACHE_MAXSIZE = 16
+_gate_cache: "dict[tuple, tuple]" = {}
+_gate_cache_order: list = []
+
+
+def _clear_gate_cache() -> None:
+    _gate_cache.clear()
+    _gate_cache_order.clear()
+
+
+def _compute_outlier_gate(
+    preds: list,
+    preds_arr: np.ndarray,
+    max_mae: float,
+    max_std: float,
+    max_mae_relative: float,
+    max_std_relative: float,
+) -> tuple:
+    """Flavour-invariant outlier-member gate. Returns (skipped_indices: frozenset, median_mae, median_std, rel_mae_threshold,
+    rel_std_threshold, per_member_mae, per_member_std). Memoised on the member-array identities + thresholds (CPX17)."""
+    key = (
+        tuple(id(p) for p in preds),
+        float(max_mae), float(max_std), float(max_mae_relative), float(max_std_relative),
+    )
+    cached = _gate_cache.get(key)
+    if cached is not None:
+        # Retained refs (cached[0]) keep the arrays alive so the id()-key cannot alias a freed-then-reused array.
+        return cached[1]
+
+    # Cross-member median used as outlier-filter anchor: median along the MEMBER axis (axis=0 of (M, N, K)). ``sample_weight``
+    # is a per-ROW vector so it is meaningless on this member-axis reduction (the member axis is uniformly weighted by
+    # construction) -- intentionally unweighted here. ``np.median`` (dedicated C reduction) over ``np.quantile(q=0.5)`` --
+    # bit-identical for the unweighted member-axis median, ~1.4x faster on the ensemble anchor shape.
+    median_preds = np.median(preds_arr, axis=0)
+    # Vectorised per-member MAE/STD over (K, N, ...); dispatched to a numba kernel for big inputs via _per_member_mae_std.
+    per_member_mae, per_member_std = _per_member_mae_std(preds_arr, median_preds)
+
+    # Relative thresholds resolved against the MEDIAN across members (robust to a single outlier; mean would let one bad
+    # member drag the threshold up and shield itself).
+    median_mae = float(np.median(per_member_mae))
+    median_std = float(np.median(per_member_std))
+    rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
+    rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
+
+    skipped: set = set()
+    for i in range(len(preds)):
+        tot_mae = float(per_member_mae[i])
+        tot_std = float(per_member_std[i])
+        abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
+        rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
+        if abs_violation or rel_violation:
+            skipped.add(i)
+
+    result = (
+        frozenset(skipped),
+        median_mae, median_std, rel_mae_threshold, rel_std_threshold,
+        per_member_mae, per_member_std,
+    )
+    _gate_cache[key] = (preds, result)  # hold ``preds`` so the id()-key stays valid for the entry's lifetime.
+    _gate_cache_order.append(key)
+    if len(_gate_cache_order) > _GATE_CACHE_MAXSIZE:
+        _gate_cache.pop(_gate_cache_order.pop(0), None)
+    return result
+
+
 def ensemble_probabilistic_predictions(
     *preds,
     ensemble_method="harm",
@@ -135,42 +207,32 @@ def ensemble_probabilistic_predictions(
         # via this anchor. Document the choice here so downstream readers don't re-add the broken
         # weighted-quantile call. The downstream per-member MAE in ``_per_member_mae_std`` still
         # weights rows when sample_weight is propagated via ``_ensembling_quality_gate``.
-        # ``np.median`` (dedicated C reduction) over ``np.quantile(q=0.5)`` (slow generic partition + lerp path) -- bit-identical for the unweighted
-        # member-axis median (verified 0.0 max-abs diff on (M, N, K)), ~1.4x faster on the (3, 180k, 2) ensemble anchor shape. Same iter119 rationale.
-        median_preds = np.median(_preds_arr, axis=0)
+        # CPX17: median + per-member MAE/STD + threshold decision are flavour-invariant; computed once per member-set and
+        # memoised so the n_flavours fan-out in ``score_ensemble`` reuses one gate per split instead of recomputing it.
+        (
+            _gate_skipped,
+            median_mae, median_std, rel_mae_threshold, rel_std_threshold,
+            per_member_mae, per_member_std,
+        ) = _compute_outlier_gate(preds, _preds_arr, max_mae, max_std, max_mae_relative, max_std_relative)
+        skipped_preds_indices = set(_gate_skipped)
 
-        # Vectorised per-member MAE/STD over (K, N, ...). LOOP-MAE: prior implementation
-        # iterated over members in Python; the broadcast formulation eliminates the K-sized
-        # loop and is dispatched to a numba kernel for big inputs via _per_member_mae_std.
-        per_member_mae, per_member_std = _per_member_mae_std(_preds_arr, median_preds)
-
-        # Resolve the relative thresholds against the **median across
-        # members** (robust to a single outlier; using mean would let one
-        # bad member drag the threshold up and shield itself).
-        median_mae = float(np.median(per_member_mae))
-        median_std = float(np.median(per_member_std))
-        rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
-        rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
-
-        for i in range(len(preds)):
-            tot_mae = float(per_member_mae[i])
-            tot_std = float(per_member_std[i])
-            abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
-            rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
-            if abs_violation or rel_violation:
-                if verbose:
-                    reason_parts = []
-                    if abs_violation:
-                        reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
-                    if rel_violation:
-                        reason_parts.append(
-                            f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
-                        )
-                    logger.info(
-                        "ens member %d excluded due to high distance from the median: mae=%.4f, std=%.4f [%s]",
-                        i, tot_mae, tot_std, "; ".join(reason_parts),
+        if verbose and skipped_preds_indices:
+            for i in sorted(skipped_preds_indices):
+                tot_mae = float(per_member_mae[i])
+                tot_std = float(per_member_std[i])
+                abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
+                rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
+                reason_parts = []
+                if abs_violation:
+                    reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
+                if rel_violation:
+                    reason_parts.append(
+                        f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
                     )
-                skipped_preds_indices.add(i)
+                logger.info(
+                    "ens member %d excluded due to high distance from the median: mae=%.4f, std=%.4f [%s]",
+                    i, tot_mae, tot_std, "; ".join(reason_parts),
+                )
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds):
                 _kept_mask = np.array([i not in skipped_preds_indices for i in range(len(preds))], dtype=bool)

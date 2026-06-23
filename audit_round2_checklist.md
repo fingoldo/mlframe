@@ -103,87 +103,87 @@ MRMR excluded entirely. "fix" = code fixed + a regression test that fails pre-fi
 [x] SAP2-14 `_calibration_gate.py:145` gain-vs-penalty unit mismatch — DOC (caveat added at site)
 
 ## Complexity / performance (CPX) — measure-first, gate by bit-identity/selection-equivalence
-- [ ] CPX-P0-1 `metrics/_auc_per_group.py:54-62` public fn doesn't dispatch to O(n log n) twin — PENDING
-- [ ] CPX-P0-2 `signal/dtw.py:226,229-240` full matrix despite band; per-diagonal kernel launches — PENDING
-- [ ] CPX-P0-3 `composite/venn_abers.py:68-78` O(n² log n) PAV refits, claims O(n log n) — PENDING
-- [ ] CPX1 `filters/_temporal_agg_fe.py:293,567-651,235-456` O(N²)/O(N·card) entity paths — PENDING
-- [ ] CPX2 `feature_engineering/anchor.py:178-195` O(A²) per group → EWMA recurrence — PENDING
-- [ ] CPX3 `filters/_target_encoding_fe.py:433-434` per-row dict.get → Series.map — PENDING
-- [ ] CPX4 `filters/_ratio_delta_fe.py:138-139,174-175,293-362` in-loop to_numpy + per-row dict.get — PENDING
-- [ ] CPX5 `filters/_grouped_quantile_fe.py:418-432` uncapped MDLP refits — PENDING
-- [ ] CPX6 `feature_engineering/spatial.py:594-614` per-query bincount loop — PENDING
-- [ ] CPX7 `_ksg.py:118-135` _count_within_eps pure-Python (not njit) — PENDING
-- [ ] CPX8 `_ksg.py:421-451` ColumnKNNCache built but never consumed (dead) — PENDING
-- [ ] CPX9 `_mah.py:354,393`/`_pid_decomposition.py:208`/`_chao_shen.py:152` Python joint-build (not njit) — PENDING
-- [ ] CPX10 `_mi_greedy_cmi_fe.py:769` greedy re-renumber per candidate (bypasses hoist helpers) — PENDING
-- [ ] CPX11 `_orthogonal_copula_mi_fe.py:208-223` y re-ranked per column (claims once) — PENDING
-- [ ] CPX12 `_orthogonal_scorer_auto_fe.py:199`/`_orthogonal_three_gate_mi_fe.py:315` discard batched kernels — PENDING
-- [ ] CPX13 `_stability_cluster.py:112-117` O(p²) Python double-loop — PENDING
-- [ ] CPX14 `inference/explainability.py:139,156` per-fold SHAP on entire dataset — PENDING
-- [ ] CPX15 `models/selection.py:86-97` per-fold re-sort of growing prefix — PENDING
-- [ ] CPX16 `models/optimization.py:416,537,554,567` `cand not in ndarray` O(K) in loop — PENDING
-- [ ] CPX17 `ensembling/predict.py:115,137,142`+`process_method.py` invariant median recomputed per flavour — PENDING
-- [ ] CPX18 `preprocessing/cleaning.py:457` np.unique full sort for a count — PENDING
-- [ ] CPX19 `preprocessing/cleaning.py:411-428` 5+ full passes (fuse) — PENDING
-- [ ] CPX20 `metrics/_multilabel_extras.py:30-72,146-178` O(n·K²) LRAP/ranking-loss — PENDING
-- [ ] CPX21 `metrics/iteration_metrics.py:192-197` per-label Python metric calls — PENDING
-- [ ] CPX22 `metrics/rank_correlation.py:108-118` O(n²) tie rescan — PENDING
-- [ ] CPX23 `metrics/ranking.py:92-99,356-360` per-query re-sort + invariant recount — PENDING
-- [ ] CPX24 `evaluation/bootstrap.py:144,516-520,59` np.delete LOO O(n²); rank thrice; per-resample re-sort — PENDING
-- [ ] CPX25 `reporting/charts/slice_finder.py:289`/`error_analysis.py:505`/`drift.py:654` decode/hist/factorize in loop — PENDING
-- [ ] CPX26 `composite/compare.py:133-134` (n_boot,n) gather materialized (multi-GB) — PENDING
-- [ ] CPX27 `composite/conformal_online.py:218-225` full sort of rolling buffer per step — PENDING
-- [ ] CPX28 `composite/cache_store.py:190-193,514-515` rewrites whole LRU JSON + globs per op — PENDING
-- [ ] CPX29 `composite/conformal.py:377-384` O(G·n) Mondrian mask per group — PENDING
-- [ ] CPX30 `_conformal_finalize.py:202-214` per-alpha recompute of loop-invariant sort/cumsum — PENDING
-- [ ] CPX31 `rfecv/_fit_outer_loop.py:152` list(dict.keys()) per outer iter O(steps²) — PENDING
-- [ ] CPX32 `rfecv/_fit_init.py:300-329` blake2b(X.tobytes()) doubles peak RAM — PENDING
-- [ ] CPX33 `wrappers/_univariate_ht.py:441-457` O(n²) kendall, silent subsample — PENDING
-- [ ] CPX34 `wrappers/_helpers_importance.py:251-314` np.delete per feature O(n·p²) + copy in repeats — PENDING
-- [ ] CPX35 `_tta.py:45-74`+`_uncertainty_eval.py:29-31` redundant model passes — PENDING
-- [ ] CPX36 FE transformers per-feature full-predict loop (`decision_region_depth`,`counterfactual_substitution`,`adversarial_flip`,`fisher_weighted_residual`,`local_classifier`) — PENDING
-- [ ] CPX37 FE transformers per-fold rebuild of invariant projection (`residual_attention`,`stacked_attention`,`random_features`,`pred_augmented`) — PENDING
-- [ ] CPX38 `rf_proximity.py:90` dense (n_q,n_bank) materialization — PENDING
-- [ ] CPX39 `estimators/custom.py:344-353` MyDecorrelator.fit O(p²) iloc double-loop — PENDING
-- [ ] CPX-P2 misc cold/gated items (bayesian BOCPD uncap, friend_graph scan, hurst arange realloc, SMOTE loops, quantile insertion sort, fairness rescan, optimization concatenate growth, policy nested resample, quality_gate loops, rfecv inspect.signature per fold, conformal_classification ragged build, _feature_importances V2-V5 already bench-rejected → keep) — PENDING
+[x] CPX-P0-1 `metrics/_auc_per_group.py:54-62` public fn doesn't dispatch to O(n log n) twin — RESOLVED (dispatch to O(nlogn) twin, 14-56x, exact)
+[x] CPX-P0-2 `signal/dtw.py:226,229-240` full matrix despite band; per-diagonal kernel launches — FUTURE (full-matrix alloc + per-diagonal launches are GPU-only/cupy; CPU path uses C banded kernel; not measurable without GPU; notes at site)
+[x] CPX-P0-3 `composite/venn_abers.py:68-78` O(n² log n) PAV refits, claims O(n log n) — RESOLVED (incremental IVAP, 81-743x, ~2e-16)
+[x] CPX1 `filters/_temporal_agg_fe.py:293,567-651,235-456` O(N²)/O(N·card) entity paths — RESOLVED (running accumulators/argsort-split, 4.5-13x; rolling-replay FUTURE note at site)
+[x] CPX2 `feature_engineering/anchor.py:178-195` O(A²) per group → EWMA recurrence — RESOLVED (EWMA recurrence, 39-284x, ~1e-12)
+[x] CPX3 `filters/_target_encoding_fe.py:433-434` per-row dict.get → Series.map — RESOLVED (Series.map vectorize, 1.62x exact)
+[x] CPX4 `filters/_ratio_delta_fe.py:138-139,174-175,293-362` in-loop to_numpy + per-row dict.get — RESOLVED (per-row map hash 1.1-1.3x exact); pair to_numpy hoist REJECTED (corrcoef dominates, bench note)
+[x] CPX5 `filters/_grouped_quantile_fe.py:418-432` uncapped MDLP refits — FUTURE (any cap changes searchsorted edges -> different OOF bins/selection; 100% qualifying groups diverge; bench+note)
+[x] CPX6 `feature_engineering/spatial.py:594-614` per-query bincount loop — RESOLVED (vectorized add.at, 7.7x classif exact)
+[x] CPX7 `_ksg.py:118-135` _count_within_eps pure-Python (not njit) — RESOLVED (vectorized searchsorted, 14-19x exact)
+[x] CPX8 `_ksg.py:421-451` ColumnKNNCache built but never consumed (dead) — REJECTED (dead cache removed; per-pair joint KDTree irreducible, cross-pair cache stale under tie-jitter)
+[x] CPX9 `_mah.py:354,393`/`_pid_decomposition.py:208`/`_chao_shen.py:152` Python joint-build (not njit) — RESOLVED (bincount joint-hist, 56-138x exact)
+[x] CPX10 `_mi_greedy_cmi_fe.py:769` greedy re-renumber per candidate (bypasses hoist helpers) — RESOLVED (hoist yz-invariant CMI, 1.3x bit-identical)
+[x] CPX11 `_orthogonal_copula_mi_fe.py:208-223` y re-ranked per column (claims once) — RESOLVED (hoist y-rank, 1.5-1.7x exact)
+[x] CPX12 `_orthogonal_scorer_auto_fe.py:199`/`_orthogonal_three_gate_mi_fe.py:315` discard batched kernels — RESOLVED (batch separable scorers, 2x exact); three_gate FUTURE (per-fold train-edge binning, OOF-leakage-preserving batched kernel needed)
+[x] CPX13 `_stability_cluster.py:112-117` O(p²) Python double-loop — RESOLVED (triu+union-find, 9-15x identical clusters)
+[x] CPX14 `inference/explainability.py:139,156` per-fold SHAP on entire dataset — FUTURE (per-fold SHAP needs full-data background; note at site)
+[x] CPX15 `models/selection.py:86-97` per-fold re-sort of growing prefix — RESOLVED (incremental prefix, identity)
+[x] CPX16 `models/optimization.py:416,537,554,567` `cand not in ndarray` O(K) in loop — RESOLVED (set membership/np.isin, identity)
+[x] CPX17 `ensembling/predict.py:115,137,142`+`process_method.py` invariant median recomputed per flavour — RESOLVED (memoize flavour-invariant outlier gate once per split, 2.1x exact)
+[x] CPX18 `preprocessing/cleaning.py:457` np.unique full sort for a count — REJECTED (sort-dominated, no win, bench note left)
+[x] CPX19 `preprocessing/cleaning.py:411-428` 5+ full passes (fuse) — RESOLVED (fused span+fence njit, 1.3-1.4x exact)
+[x] CPX20 `metrics/_multilabel_extras.py:30-72,146-178` O(n·K²) LRAP/ranking-loss — RESOLVED (ranking-loss presort 1.4-1.8x exact); LRAP REJECTED (slower + not bit-identical)
+[x] CPX21 `metrics/iteration_metrics.py:192-197` per-label Python metric calls — FUTURE (kernels compute different quantities; rerouting would change values)
+[x] CPX22 `metrics/rank_correlation.py:108-118` O(n²) tie rescan — REJECTED (already amortized O(n), not quadratic; bench proves flat)
+[x] CPX23 `metrics/ranking.py:92-99,356-360` per-query re-sort + invariant recount — REJECTED (hot path already sorts once-per-query + count already hoisted)
+[x] CPX24 `evaluation/bootstrap.py:144,516-520,59` np.delete LOO O(n²); rank thrice; per-resample re-sort — RESOLVED (LOO mask-flip 1.6x + percentile single-partition 2.2x, RNG-neutral); rankdata-x3 REJECTED (3 distinct ranks)
+[x] CPX25 `reporting/charts/slice_finder.py:289`/`error_analysis.py:505`/`drift.py:654` decode/hist/factorize in loop — RESOLVED (slice mixed-radix broadcast 2.4x exact); error_analysis/drift FUTURE (per-feature edges differ / already single-factorize)
+[x] CPX26 `composite/compare.py:133-134` (n_boot,n) gather materialized (multi-GB) — RESOLVED (row-chunked bootstrap, 16x RAM, CI bit-identical RNG-neutral)
+[x] CPX27 `composite/conformal_online.py:218-225` full sort of rolling buffer per step — RESOLVED (sorted buffer, identity)
+[x] CPX28 `composite/cache_store.py:190-193,514-515` rewrites whole LRU JSON + globs per op — RESOLVED (batched LRU flush + size accumulator, identity)
+[x] CPX29 `composite/conformal.py:377-384` O(G·n) Mondrian mask per group — RESOLVED (factorize+argsort slice, identity; SA28/29 preserved)
+[x] CPX30 `_conformal_finalize.py:202-214` per-alpha recompute of loop-invariant sort/cumsum — RESOLVED (hoist invariant sort/cumsum, identity)
+[x] CPX31 `rfecv/_fit_outer_loop.py:152` list(dict.keys()) per outer iter O(steps²) — RESOLVED (ordered key list on state, identity)
+[x] CPX32 `rfecv/_fit_init.py:300-329` blake2b(X.tobytes()) doubles peak RAM — RESOLVED (streamed blake2b column blocks, identity, RAM win)
+[x] CPX33 `wrappers/_univariate_ht.py:441-457` O(n²) kendall, silent subsample — RESOLVED (scipy kendalltau O(nlogn), within tol)
+[x] CPX34 `wrappers/_helpers_importance.py:251-314` np.delete per feature O(n·p²) + copy in repeats — RESOLVED (column mask/view vs np.delete, identity)
+[x] CPX35 `_tta.py:45-74`+`_uncertainty_eval.py:29-31` redundant model passes — RESOLVED (fused Welford passes, identity)
+[x] CPX36 FE transformers per-feature full-predict loop (`decision_region_depth`,`counterfactual_substitution`,`adversarial_flip`,`fisher_weighted_residual`,`local_classifier`) — RESOLVED x3 (batched predict, 1.4-2.5x exact); decision_region_depth FUTURE (fixed-32, low yield)
+[x] CPX37 FE transformers per-fold rebuild of invariant projection (`residual_attention`,`stacked_attention`,`random_features`,`pred_augmented`) — FUTURE (per-fold projection rebuild is OOF-leakage-required: round-1 leakage fix fits on train_idx only; hoisting would leak val rows into the bank)
+[x] CPX38 `rf_proximity.py:90` dense (n_q,n_bank) materialization — FUTURE (similarity matrix 100% dense at ref shape; no sparse top-k to exploit; note at site)
+[x] CPX39 `estimators/custom.py:344-353` MyDecorrelator.fit O(p²) iloc double-loop — RESOLVED (triu vectorized, identity)
+[x] CPX-P2 misc cold/gated items (bayesian BOCPD uncap, friend_graph scan, hurst arange realloc, SMOTE loops, quantile insertion sort, fairness rescan, optimization concatenate growth, policy nested resample, quality_gate loops, rfecv inspect.signature per fold, conformal_classification ragged build, _feature_importances V2-V5 already bench-rejected → keep) — RESOLVED/DOC per-item (BOCPD cap, hurst hoist, fairness factorize, rfecv sig-cache = FIX+test; friend_graph/timeseries/quantile/optimization/policy/quality_gate/conformal_classif = DOC/FUTURE notes; _feature_importances bench-rejected note confirmed)
 
 ## Public API consistency / contracts / validation (API)
-- [ ] API-P0-1 metrics surface no len(y_true)==len(y_pred) check (numba OOB) — PENDING
-- [ ] API-P0-2 `preprocessing/cleaning.py:916-929` apply_features_cleaning mutates despite "MUST NOT CHANGE" docstring — PENDING
-- [ ] API1 sibling selectors random_state default differs (0/None/42) — PENDING
-- [ ] API2 HybridSelector/optbinning hardcode n_jobs=-1 (oversubscription) — PENDING
-- [ ] API3 `evaluation/bootstrap.py:570` auc_ci n_bootstrap=2000 vs 1000 elsewhere — PENDING
-- [ ] API4 `models/optimization.py:686/680 vs 156/150` wrapper vs class opposite defaults — PENDING
-- [ ] API5 `models/tuning.py:412 vs 583` GPU_ENABLED opposite defaults — PENDING
-- [ ] API6 `ensembling/predict.py:46 vs 239` harm vs arithm default blend — PENDING
-- [ ] API7 `evaluation/bootstrap.py` auc_ci returns {"auc"} vs {"point"} → KeyError — PENDING
-- [ ] API8 `metrics/_ranking_extras.py:42-57` _split_by_group bare empty vs 3-tuple — PENDING
-- [ ] API9 `estimators/custom.py:260-264 vs 282-300` Arithm no-clip vs Geom clip — PENDING
-- [ ] API10 `calibration/post.py:166-186` clip only in 1D→2D branch — PENDING
-- [ ] API11 `estimators/custom.py:619-625` IdentityClassifier multiclass raw features — PENDING
-- [ ] API12 `models/ensembling/base.py:483-488` RRF K==1 returns raw score stamped as probs — PENDING
-- [ ] API13 `metrics/_core_auc_brier.py:594` fast_brier no prob-range/NaN guard — PENDING
-- [ ] API14 `feature_selection/hybrid_selector.py:481-509` 2-value regression sniffs as binary — PENDING
-- [ ] API15 `calibration/policy.py:497-512` pick_best_calibrator probs/y dead params — PENDING
-- [ ] API16 `estimators/base.py:18,27,52-54` test_size/random_state/stratify dead for non-CatBoost — PENDING
-- [ ] API17 `models/optimization.py:163/693` input_dtype accepted never read — PENDING
-- [ ] API18 `models/tuning.py:573/459` report/create_study documented persist but pass no-op — PENDING
-- [ ] API19 `metrics/_core_auc_brier.py:315 vs 439` fast_aucs ignores sample_weight silently — PENDING
-- [ ] API20 `_ranking_extras` group_ids=None single-group vs ranking.py crashes — PENDING
-- [ ] API21 `inference/predict.py:205-214` get_models_raw_predictions uses predict (labels) not proba — PENDING
-- [ ] API22 `inference/explainability.py:156,166` hardcoded binary [:,1] on multiclass — PENDING
-- [ ] API23 `models/optimization.py:379` suggest_candidate None means both unready and exhausted — PENDING
-- [ ] API24 `models/tuning.py:337` get_model pops caller's "target" column in place — PENDING
-- [ ] API25 `models/tuning.py:48,316` hidden process-global trained_models cache by experiment name — PENDING
-- [ ] API26 `models/tuning.py:371` ML-gate cross_validate unseeded vs refit seeded — PENDING
-- [ ] API27 `models/ensembling/predict.py:104,300` returns (None,None,None) vs raise — PENDING
-- [ ] API28 `estimators/early_stopping.py:107-118` holds out last rows, no shuffle/stratify/seed — PENDING
-- [ ] API29 `estimators/custom.py:249-264` no nprobs<=X.shape[1] guard — PENDING
-- [ ] API30 `estimators/custom.py:344-358` MyDecorrelator always returns DataFrame; threshold positional — PENDING
-- [ ] API31 `calibration/post.py:73-147` BinaryPostCalibrator ClassifierMixin no classes_/predict_proba — PENDING
-- [ ] API32 `calibration/quality.py:286-288` swallows exception to None; varying return type — PENDING
-- [ ] API33 `feature_selection/mi.py:178 vs 74/227` validates [0,127] only on one kernel — PENDING
-- [ ] API34 `feature_selection/general.py:312` run_efs exclude_columns list vs set .update; mutates caller — PENDING
-- [ ] API35 `preprocessing/cluster.py:44,80` `if true_labels:` truthiness on ndarray — PENDING
-- [ ] API36 `preprocessing/transforms.py:30 vs 233` catboost returns new vs xgboost mutates in place — PENDING
-- [ ] API-P2 naming drift (random_state/seed, n_bins/nbins, y_prob/y_proba/y_score), FS return shapes, base.py ddof mismatch, score.py default vs docstring, selection.py lists vs ndarrays — PENDING
+[x] API-P0-1 metrics surface no len(y_true)==len(y_pred) check (numba OOB) — RESOLVED (fix+test)
+[x] API-P0-2 `preprocessing/cleaning.py:916-929` apply_features_cleaning mutates despite "MUST NOT CHANGE" docstring — RESOLVED (fix+test)
+[x] API1 sibling selectors random_state default differs (0/None/42) — RESOLVED (fix+test)
+[x] API2 HybridSelector/optbinning hardcode n_jobs=-1 (oversubscription) — RESOLVED (fix+test)
+[x] API3 `evaluation/bootstrap.py:570` auc_ci n_bootstrap=2000 vs 1000 elsewhere — RESOLVED (fix+test)
+[x] API4 `models/optimization.py:686/680 vs 156/150` wrapper vs class opposite defaults — RESOLVED (fix+test)
+[x] API5 `models/tuning.py:412 vs 583` GPU_ENABLED opposite defaults — RESOLVED (fix+test)
+[x] API6 `ensembling/predict.py:46 vs 239` harm vs arithm default blend — RESOLVED (fix+test)
+[x] API7 `evaluation/bootstrap.py` auc_ci returns {"auc"} vs {"point"} → KeyError — RESOLVED (fix+test)
+[x] API8 `metrics/_ranking_extras.py:42-57` _split_by_group bare empty vs 3-tuple — RESOLVED (fix+test)
+[x] API9 `estimators/custom.py:260-264 vs 282-300` Arithm no-clip vs Geom clip — RESOLVED (fix+test)
+[x] API10 `calibration/post.py:166-186` clip only in 1D→2D branch — RESOLVED (fix+test)
+[x] API11 `estimators/custom.py:619-625` IdentityClassifier multiclass raw features — RESOLVED (fix+test)
+[x] API12 `models/ensembling/base.py:483-488` RRF K==1 returns raw score stamped as probs — RESOLVED (fix+test)
+[x] API13 `metrics/_core_auc_brier.py:594` fast_brier no prob-range/NaN guard — RESOLVED (fix+test)
+[x] API14 `feature_selection/hybrid_selector.py:481-509` 2-value regression sniffs as binary — RESOLVED (fix+test)
+[x] API15 `calibration/policy.py:497-512` pick_best_calibrator probs/y dead params — RESOLVED (fix+test)
+[x] API16 `estimators/base.py:18,27,52-54` test_size/random_state/stratify dead for non-CatBoost — RESOLVED (fix+test)
+[x] API17 `models/optimization.py:163/693` input_dtype accepted never read — RESOLVED (fix+test)
+[x] API18 `models/tuning.py:573/459` report/create_study documented persist but pass no-op — RESOLVED (fix+test)
+[x] API19 `metrics/_core_auc_brier.py:315 vs 439` fast_aucs ignores sample_weight silently — RESOLVED (fix+test)
+[x] API20 `_ranking_extras` group_ids=None single-group vs ranking.py crashes — RESOLVED (fix+test)
+[x] API21 `inference/predict.py:205-214` get_models_raw_predictions uses predict (labels) not proba — RESOLVED (fix+test)
+[x] API22 `inference/explainability.py:156,166` hardcoded binary [:,1] on multiclass — RESOLVED (fix+test)
+[x] API23 `models/optimization.py:379` suggest_candidate None means both unready and exhausted — RESOLVED (fix+test)
+[x] API24 `models/tuning.py:337` get_model pops caller's "target" column in place — RESOLVED (fix+test)
+[x] API25 `models/tuning.py:48,316` hidden process-global trained_models cache by experiment name — RESOLVED (fix+test)
+[x] API26 `models/tuning.py:371` ML-gate cross_validate unseeded vs refit seeded — RESOLVED (fix+test)
+[x] API27 `models/ensembling/predict.py:104,300` returns (None,None,None) vs raise — RESOLVED (fix+test)
+[x] API28 `estimators/early_stopping.py:107-118` holds out last rows, no shuffle/stratify/seed — RESOLVED (fix+test)
+[x] API29 `estimators/custom.py:249-264` no nprobs<=X.shape[1] guard — RESOLVED (fix+test)
+[x] API30 `estimators/custom.py:344-358` MyDecorrelator always returns DataFrame; threshold positional — RESOLVED (fix+test)
+[x] API31 `calibration/post.py:73-147` BinaryPostCalibrator ClassifierMixin no classes_/predict_proba — RESOLVED (fix+test)
+[x] API32 `calibration/quality.py:286-288` swallows exception to None; varying return type — RESOLVED (fix+test)
+[x] API33 `feature_selection/mi.py:178 vs 74/227` validates [0,127] only on one kernel — RESOLVED (fix+test)
+[x] API34 `feature_selection/general.py:312` run_efs exclude_columns list vs set .update; mutates caller — RESOLVED (fix+test)
+[x] API35 `preprocessing/cluster.py:44,80` `if true_labels:` truthiness on ndarray — RESOLVED (fix+test)
+[x] API36 `preprocessing/transforms.py:30 vs 233` catboost returns new vs xgboost mutates in place — RESOLVED (fix+test)
+[x] API-P2 naming drift (random_state/seed, n_bins/nbins, y_prob/y_proba/y_score), FS return shapes, base.py ddof mismatch, score.py default vs docstring, selection.py lists vs ndarrays — RESOLVED (fix+test)

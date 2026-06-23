@@ -670,6 +670,11 @@ class MBHOptimizer:
                 )
 
         if new_candidates_batch:
+            # FUTURE: this concatenate re-copies the full history every submit -> O(n^2) over a run. A capacity-doubling
+            # buffer (len counter + amortized append) measured only 2-3.5x on the bookkeeping ITSELF (bench_optimizer_history_growth.py:
+            # 15ms vs 5ms at 2000 submits) and is <0.1% of an optimization run dominated by the per-iteration GP fit, while
+            # forcing every known_candidates/known_evaluations reader (~15 sites: reshape, [-n:] slicing, .tolist(), np.all) to
+            # slice the filled prefix. Not worth the risk/complexity at current scales; revisit if histories reach 10^5+.
             self.known_candidates = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
             self.known_evaluations = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])
 

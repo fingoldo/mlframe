@@ -91,6 +91,38 @@ def engineered_name_lagged_diff(value_col: str, period: int) -> str:
     return f"lagged_diff_{value_col}__period{int(period)}"
 
 
+def _map_group_keys(
+    keys, lookup: dict, global_value: float,
+) -> np.ndarray:
+    """Map each row key through ``lookup`` (str-keyed), unseen -> ``global_value``.
+
+    Bit-identical to the per-row ``[lookup.get(str(k), global) for k in keys]``
+    listcomp it replaces, but resolves the mapping with pandas' HASH-based
+    ``Series.map`` instead of a Python per-row loop. The group keys arrive as an
+    object-string array (from ``group_key_strings``); a sort-based
+    ``np.unique`` gather is ~7x SLOWER on object strings than the per-row loop
+    (it sorts n strings), so we hash-join here -- ~2x faster than the loop at
+    n=200k (microbench). The ``str()`` is a no-op on the already-string keys
+    (kept for parity with callers that pass raw labels).
+
+    Unseen keys -> ``global_value``; a key PRESENT with a NaN stored value keeps
+    that NaN (matching ``dict.get``), so we fill only the genuinely-absent rows
+    rather than blanket ``fillna`` (which would also overwrite present-NaN).
+    """
+    keys = np.asarray(keys)
+    # Keys arrive as object strings from group_key_strings; only cast the rare
+    # non-string carrier (str(k) is a no-op on already-string keys, matching the
+    # original per-row str()).
+    if keys.dtype != object:
+        keys = keys.astype(str)
+    s = pd.Series(keys, copy=False)
+    out = s.map(lookup).to_numpy(dtype=np.float64)
+    absent = ~s.isin(lookup.keys()).to_numpy()
+    if absent.any():
+        out[absent] = global_value
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Pairwise ratio: a / (sign(b) * max(|b|, eps))
 # ---------------------------------------------------------------------------
@@ -129,6 +161,10 @@ def pairwise_ratio_features(
     if len(X) == 0:
         raise ValueError("pairwise_ratio_features: X is empty")
     cols_present = [c for c in cols if c in X.columns]
+    # bench-attempt-rejected (2026-06-23): hoisting per-column to_numpy() into an
+    # outer dict to avoid the in-loop re-extract was 0.98x (13.3s->13.6s, p=40
+    # n=100k) -- the O(p^2) _passes_redundancy corrcoef dominates the loop, the
+    # to_numpy() re-extract is noise. Bench: _benchmarks/bench_ratio_delta_fe.py.
     encoded: dict[str, np.ndarray] = {}
     accepted: list[tuple[str, str]] = []
     for a in cols_present:
@@ -165,6 +201,9 @@ def pairwise_log_ratio_features(
     if len(X) == 0:
         raise ValueError("pairwise_log_ratio_features: X is empty")
     cols_present = [c for c in cols if c in X.columns]
+    # bench-attempt-rejected (2026-06-23): per-column to_numpy() hoist was 1.00x
+    # here too (16.8s, p=40 n=100k) -- corrcoef redundancy gate dominates, not
+    # the re-extract. See pairwise_ratio_features note + bench_ratio_delta_fe.py.
     encoded: dict[str, np.ndarray] = {}
     accepted: list[tuple[str, str]] = []
     for a in cols_present:
@@ -290,14 +329,8 @@ def grouped_delta_features(
         )
         global_std = global_std_raw if global_std_raw > 0.0 else 1.0
         # Build the engineered columns.
-        per_row_mean = np.array(
-            [lookup_mean.get(str(_k), global_mean) for _k in g.values],
-            dtype=np.float64,
-        )
-        per_row_std = np.array(
-            [lookup_std.get(str(_k), global_std) for _k in g.values],
-            dtype=np.float64,
-        )
+        per_row_mean = _map_group_keys(g.values, lookup_mean, global_mean)
+        per_row_std = _map_group_keys(g.values, lookup_std, global_std)
         delta = x - per_row_mean
         zscore = delta / per_row_std
         delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0)
@@ -348,18 +381,12 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         )
     g_vals = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
-    per_row_mean = np.array(
-        [lookup_mean.get(str(_k), global_mean) for _k in g_vals],
-        dtype=np.float64,
-    )
+    per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean)
     delta = x - per_row_mean
     if op == "minus_mean":
         out = delta
     elif op == "div_std":
-        per_row_std = np.array(
-            [lookup_std.get(str(_k), global_std) for _k in g_vals],
-            dtype=np.float64,
-        )
+        per_row_std = _map_group_keys(g_vals, lookup_std, global_std)
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
         out = delta / per_row_std
     else:

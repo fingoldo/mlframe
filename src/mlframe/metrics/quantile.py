@@ -115,6 +115,8 @@ if _NUMBA_AVAILABLE:
                 sa[j] = a_arr[j]
             # Insertion sort by quantile value (stable, matches argsort tie order for
             # the small K used in PIT diagrams); carry the paired alpha along.
+            # O(K^2), but K is the number of predicted quantile levels in a PIT diagram (typically <=20, often <10),
+            # so K^2 is tiny and an njit argsort here would not pay -- left as the simple stable insertion sort.
             for j in range(1, k):
                 vq = sq[j]
                 va = sa[j]

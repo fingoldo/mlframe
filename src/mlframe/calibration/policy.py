@@ -304,6 +304,12 @@ def _build_resample_indices(
     _class_offsets[1:] = np.cumsum(_class_sizes)
     _total_n = int(_class_sizes.sum())
     out = np.empty((n_bootstrap, _total_n), dtype=np.int64)
+    # FUTURE: this stratified resample nests a Python loop over (n_bootstrap x n_classes) with a per-class
+    # rng.integers + fancy-index gather. A fully vectorized rewrite (draw all per-class random offsets in one
+    # rng.integers call shaped (n_bootstrap, _sz), gather without the per-bootstrap Python loop) is possible but
+    # changes the rng draw ORDER -> different bootstrap indices -> not bit-identical to the current per-(b,c) draw
+    # sequence, which downstream ECE bootstrap CIs are pinned to. Deferred: the win is a one-time resample-table
+    # build (not a per-candidate hot path), and the identity risk on the seeded draw order is not worth it here.
     for b in range(n_bootstrap):
         for _c in range(_class_sizes.shape[0]):
             _sz = int(_class_sizes[_c])

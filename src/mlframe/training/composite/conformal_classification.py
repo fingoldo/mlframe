@@ -209,4 +209,9 @@ def predict_set(self, X, alpha=0.1, score: str = "lac"):
             top = proba.argmax(axis=1)
             mask[empty, top[empty]] = True
     classes = self.classes_
+    # FUTURE: this builds a per-row RAGGED prediction set (each row's set has a different length), so the output is a
+    # Python list of variable-length arrays -- inherently resistant to a single dense vectorized form. The boolean
+    # ``mask`` is already computed vectorized; only this final ragged materialization is per-row Python. A flat
+    # (row_idx, class_idx) COO via np.nonzero + np.split would move the loop into C but yields the same Python list of
+    # arrays and complicates the empty-set / argmax-fallback semantics. Deferred as not worth the readability cost.
     return [classes[mask[i]] for i in range(proba.shape[0])]

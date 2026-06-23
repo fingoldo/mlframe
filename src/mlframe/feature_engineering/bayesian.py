@@ -47,15 +47,21 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_FASTMATH)
     def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
-                     out_p_change, out_expected_rl, out_max_rl):
+                     out_p_change, out_expected_rl, out_max_rl, max_run_length):
         T = seg.size
-        # Preallocate to max possible run length T+1; track cur_len.
-        mu = np.empty(T + 1, dtype=np.float64); mu[0] = mu0
-        kappa = np.empty(T + 1, dtype=np.float64); kappa[0] = kappa0
-        alpha = np.empty(T + 1, dtype=np.float64); alpha[0] = alpha0
-        beta = np.empty(T + 1, dtype=np.float64); beta[0] = beta0
-        rl_probs = np.empty(T + 1, dtype=np.float64); rl_probs[0] = 1.0
-        log_pred = np.empty(T + 1, dtype=np.float64)
+        # Run-length posterior grows by 1 per step (O(T) state, O(T^2) total). ``max_run_length`` caps it: when
+        # cur_len would exceed the cap, the (lowest-probability) tail of large run lengths is dropped and the
+        # surviving head [0:cap] is renormalised. cap<=0 disables the cap (legacy uncapped behaviour). With a cap
+        # at least as large as the stream's true max run length, output is unchanged.
+        cap = T + 1
+        if max_run_length > 0 and max_run_length + 1 < cap:
+            cap = max_run_length + 1
+        mu = np.empty(cap, dtype=np.float64); mu[0] = mu0
+        kappa = np.empty(cap, dtype=np.float64); kappa[0] = kappa0
+        alpha = np.empty(cap, dtype=np.float64); alpha[0] = alpha0
+        beta = np.empty(cap, dtype=np.float64); beta[0] = beta0
+        rl_probs = np.empty(cap, dtype=np.float64); rl_probs[0] = 1.0
+        log_pred = np.empty(cap, dtype=np.float64)
         cur_len = 1
         for t in range(T):
             x = seg[t]
@@ -64,15 +70,17 @@ if _NUMBA_AVAILABLE:
                 cp_mass = 0.0
                 for r in range(cur_len):
                     cp_mass += rl_probs[r] * hazard
-                # shift suff stats right (prepend prior)
-                for r in range(cur_len, 0, -1):
+                # shift suff stats right (prepend prior); shift_top clamps the highest written index to cap-1 so a
+                # full vector drops its (lowest-probability) largest-run-length tail instead of overflowing.
+                shift_top = cur_len if cur_len < cap else cap - 1
+                for r in range(shift_top, 0, -1):
                     mu[r] = mu[r - 1]; kappa[r] = kappa[r - 1]
                     alpha[r] = alpha[r - 1]; beta[r] = beta[r - 1]
                     rl_probs[r] = rl_probs[r - 1] * (1.0 - hazard)
                 mu[0] = mu0; kappa[0] = kappa0
                 alpha[0] = alpha0; beta[0] = beta0
                 rl_probs[0] = cp_mass
-                cur_len += 1
+                cur_len = shift_top + 1
                 total = 0.0
                 for r in range(cur_len):
                     total += rl_probs[r]
@@ -97,8 +105,10 @@ if _NUMBA_AVAILABLE:
                 cp = 0.0
                 for r in range(cur_len):
                     cp += rl_probs[r] * math.exp(log_pred[r] - log_pred_max) * hazard
-                # Update suff stats (right-shift, prepend prior).
-                for r in range(cur_len, 0, -1):
+                # Update suff stats (right-shift, prepend prior); shift_top clamps the highest written index to cap-1
+                # so a full vector drops its (lowest-probability) largest-run-length tail instead of overflowing.
+                shift_top = cur_len if cur_len < cap else cap - 1
+                for r in range(shift_top, 0, -1):
                     pr = r - 1
                     mu[r] = (kappa[pr] * mu[pr] + x) / (kappa[pr] + 1.0)
                     kappa[r] = kappa[pr] + 1.0
@@ -108,7 +118,7 @@ if _NUMBA_AVAILABLE:
                 mu[0] = mu0; kappa[0] = kappa0
                 alpha[0] = alpha0; beta[0] = beta0
                 rl_probs[0] = cp
-                cur_len += 1
+                cur_len = shift_top + 1
                 total = 0.0
                 for r in range(cur_len):
                     total += rl_probs[r]
@@ -176,20 +186,20 @@ if _NUMBA_AVAILABLE:
     @_numba.njit(cache=True)
     def _bocpd_groups_serial(obs_sorted, starts, ends, hazard,
                              mu0, kappa0, alpha0, beta0,
-                             out_p, out_ex, out_max):
+                             out_p, out_ex, out_max, max_run_length):
         for g in range(starts.size):
             s = starts[g]; e = ends[g]
             _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0,
-                         out_p[s:e], out_ex[s:e], out_max[s:e])
+                         out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
 
     @_numba.njit(parallel=True, cache=True)
     def _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
                                mu0, kappa0, alpha0, beta0,
-                               out_p, out_ex, out_max):
+                               out_p, out_ex, out_max, max_run_length):
         for g in _numba.prange(starts.size):
             s = starts[g]; e = ends[g]
             _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0,
-                         out_p[s:e], out_ex[s:e], out_max[s:e])
+                         out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
 
     @_numba.njit(cache=True)
     def _oblr_groups_serial(y_sorted, X_sorted, starts, ends,
@@ -648,6 +658,7 @@ def bocpd_features(
     kappa0: float = 1.0,
     alpha0: float = 1.0,
     beta0: float = 1.0,
+    max_run_length: int = 1000,
 ) -> dict:
     """Adams & MacKay (2007) online Bayesian change-point detection.
 
@@ -662,6 +673,15 @@ def bocpd_features(
     Use cases: regime detection in finance (vol regime switches),
     epi (R_t breakpoints), sensor failures, fraud onset.
     `expected_run_length` is a natural "time-since-last-shift" feature.
+
+    ``max_run_length`` caps the run-length posterior vector. The Adams-MacKay recursion otherwise grows the run-length
+    distribution by one element per observation -- O(T) state and O(T^2) total work -- which is unbounded on long /
+    streaming inputs. The cap truncates the (lowest-probability) tail of large run lengths each step and renormalises
+    the surviving head, bounding state to O(max_run_length) and per-step work likewise. The default 1000 is far above
+    the run lengths that carry meaningful posterior mass under realistic hazards (e.g. hazard=1/250 -> typical runs in
+    the hundreds), so for typical streams the output is unchanged vs uncapped; pass ``max_run_length<=0`` to disable
+    the cap entirely (legacy uncapped behaviour). Note: this caps the run-length VECTOR; the returned ``max_run_length``
+    dict key is the per-row MAP run length and is unrelated to this argument.
     """
     obs = np.ascontiguousarray(observations, dtype=np.float64)
     n = obs.size
@@ -679,7 +699,7 @@ def bocpd_features(
             seg_ex = np.empty(T, dtype=np.float64)
             seg_max = np.empty(T, dtype=np.float64)
             _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
-                         seg_p, seg_ex, seg_max)
+                         seg_p, seg_ex, seg_max, max_run_length)
             out_p_change[idx_seg] = seg_p
             out_expected_rl[idx_seg] = seg_ex
             out_max_rl[idx_seg] = seg_max
@@ -701,6 +721,11 @@ def bocpd_features(
                 kappa = np.concatenate(([kappa0], kappa))
                 alpha = np.concatenate(([alpha0], alpha))
                 beta = np.concatenate(([beta0], beta))
+                if max_run_length > 0 and rl_probs.size > max_run_length:
+                    rl_probs = rl_probs[:max_run_length]
+                    rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
+                    mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
+                    alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
                 out_p_change[idx_seg[t]] = rl_probs[0]
                 rl_idx = np.arange(rl_probs.size, dtype=np.float64)
                 out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
@@ -731,6 +756,11 @@ def bocpd_features(
             mu = mu_new; kappa = kappa_new
             alpha = alpha_new; beta = beta_new
             rl_probs = rl_probs_new
+            if max_run_length > 0 and rl_probs.size > max_run_length:
+                rl_probs = rl_probs[:max_run_length]
+                rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
+                mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
+                alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
             out_p_change[idx_seg[t]] = float(rl_probs[0])
             rl_idx = np.arange(rl_probs.size, dtype=np.float64)
             out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
@@ -751,10 +781,10 @@ def bocpd_features(
         backend = dispatch_recursion_backend("fe_bocpd", n, int(starts.size))
         if backend == "parallel":
             _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
-                                   mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s)
+                                   mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
         else:
             _bocpd_groups_serial(obs_sorted, starts, ends, hazard,
-                                 mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s)
+                                 mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
         out_p_change[sort_idx] = p_s
         out_expected_rl[sort_idx] = ex_s
         out_max_rl[sort_idx] = max_s

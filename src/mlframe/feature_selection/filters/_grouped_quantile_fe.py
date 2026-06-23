@@ -414,6 +414,17 @@ def generate_target_aware_group_bins(
                 if finite_all.size else np.array([], dtype=np.float64)
 
             # ---- OOF bin assignment for leak-safe MI scoring ----
+            # bench-attempt-FUTURE (2026-06-23): capping the n_folds x n_groups MDLP refits below
+            # (e.g. refit only groups above a higher min-count, route the rest to global_edges)
+            # changes OOF bin edges => NOT identity-safe and NOT selection-equivalent. _benchmarks/
+            # bench_grouped_quantile_fe.py measured 100% of qualifying groups (n=100k, n_groups
+            # 50/100/200) having per-group MDLP edges that DIFFER from the pooled global edges, so
+            # any group rerouted to the global fallback gets a different searchsorted bin index for
+            # every one of its rows => different oof_bin values => different MI(bin;y) => possibly
+            # different downstream feature selection. Per-group divergence from global IS the whole
+            # point of target-aware bins (within-group signal global edges miss), so the cap cannot
+            # be made identity-preserving. Uncapped cost is bounded (0.36-0.48s @ n=100k here); revisit
+            # only for pathologically high group counts, and then with a SIZE/COUNT gate, never a blanket cap.
             oof_bin = np.zeros(n, dtype=np.float64)
             for f in range(n_folds):
                 train_mask = fold_ids != f

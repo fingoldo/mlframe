@@ -230,10 +230,11 @@ def dfa_alpha(x: np.ndarray) -> float:
         s = sizes[k]
         m = n // s
         var_sum = 0.0
+        # ``t`` (and its mean ``tm``) depend only on the loop-invariant segment length ``s``; hoist out of the per-segment ``j`` loop.
+        t = np.arange(s).astype(np.float64)
+        tm = t.mean()
         for j in range(m):
             seg = y[j * s:(j + 1) * s]
-            t = np.arange(s).astype(np.float64)
-            tm = t.mean()
             sm = seg.mean()
             num = 0.0
             den = 0.0
@@ -494,36 +495,40 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
         s = sizes[k]
         m = n // s
         var_sum = 0.0
+        # ``t`` and the normal-equation design moments (S0..S4, the 3x3 matrix and its inverse cofactors) depend only on the loop-invariant segment length ``s``; hoist out of the per-segment ``j`` loop. Only Sy/Sty/St2y and the residuals depend on ``seg``.
+        t = np.arange(s).astype(np.float64)
+        # Quadratic fit via normal equations.
+        S0 = float(s)
+        S1 = t.sum()
+        S2 = (t * t).sum()
+        S3 = (t * t * t).sum()
+        S4 = (t * t * t * t).sum()
+        # Solve [[S0,S1,S2],[S1,S2,S3],[S2,S3,S4]] [a,b,c] = [Sy,Sty,St2y]
+        # via explicit 3x3 inverse (numba can't call linalg.solve robustly).
+        M00 = S0; M01 = S1; M02 = S2
+        M11 = S2; M12 = S3
+        M22 = S4
+        det = (M00 * (M11 * M22 - M12 * M12)
+               - M01 * (M01 * M22 - M12 * M02)
+               + M02 * (M01 * M12 - M11 * M02))
+        if abs(det) < 1e-12:
+            # Design matrix degenerate for this scale (depends only on ``s``): every segment would have been skipped, so f_s collapses to 0 -- matches the pre-hoist per-segment ``continue``.
+            log_s[k] = np.log(s)
+            log_f[k] = np.log(1e-12)
+            continue
+        # Cofactors / adjugate solve
+        inv_det = 1.0 / det
+        c00 = (M11 * M22 - M12 * M12) * inv_det
+        c01 = -(M01 * M22 - M12 * M02) * inv_det
+        c02 = (M01 * M12 - M11 * M02) * inv_det
+        c11 = (M00 * M22 - M02 * M02) * inv_det
+        c12 = -(M00 * M12 - M01 * M02) * inv_det
+        c22 = (M00 * M11 - M01 * M01) * inv_det
         for j in range(m):
             seg = y[j * s:(j + 1) * s]
-            t = np.arange(s).astype(np.float64)
-            # Quadratic fit via normal equations.
-            S0 = float(s)
-            S1 = t.sum()
-            S2 = (t * t).sum()
-            S3 = (t * t * t).sum()
-            S4 = (t * t * t * t).sum()
             Sy = seg.sum()
             Sty = (t * seg).sum()
             St2y = (t * t * seg).sum()
-            # Solve [[S0,S1,S2],[S1,S2,S3],[S2,S3,S4]] [a,b,c] = [Sy,Sty,St2y]
-            # via explicit 3x3 inverse (numba can't call linalg.solve robustly).
-            M00 = S0; M01 = S1; M02 = S2
-            M11 = S2; M12 = S3
-            M22 = S4
-            det = (M00 * (M11 * M22 - M12 * M12)
-                   - M01 * (M01 * M22 - M12 * M02)
-                   + M02 * (M01 * M12 - M11 * M02))
-            if abs(det) < 1e-12:
-                continue
-            # Cofactors / adjugate solve
-            inv_det = 1.0 / det
-            c00 = (M11 * M22 - M12 * M12) * inv_det
-            c01 = -(M01 * M22 - M12 * M02) * inv_det
-            c02 = (M01 * M12 - M11 * M02) * inv_det
-            c11 = (M00 * M22 - M02 * M02) * inv_det
-            c12 = -(M00 * M12 - M01 * M02) * inv_det
-            c22 = (M00 * M11 - M01 * M01) * inv_det
             a = c00 * Sy + c01 * Sty + c02 * St2y
             b = c01 * Sy + c11 * Sty + c12 * St2y
             cq = c02 * Sy + c12 * Sty + c22 * St2y
@@ -593,10 +598,11 @@ def multifractal_dfa(
             continue
         # Variance per sub-segment (linear-detrended).
         var_per_seg = np.empty(m)
+        # ``t`` (and its mean ``tm``) depend only on the loop-invariant segment length ``s``; hoist out of the per-segment ``j`` loop.
+        t = np.arange(s).astype(np.float64)
+        tm = t.mean()
         for j in range(m):
             seg = y[j * s:(j + 1) * s]
-            t = np.arange(s).astype(np.float64)
-            tm = t.mean()
             sm = seg.mean()
             num = 0.0
             den = 0.0

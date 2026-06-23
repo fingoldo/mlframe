@@ -429,9 +429,16 @@ def apply_target_encoding(
     cats = _column_to_str(col_series)
     lookup: dict = recipe["lookup"]
     global_mean: float = float(recipe["global_mean"])
-    out = np.empty(len(cats), dtype=np.float64)
-    for i, c in enumerate(cats):
-        out[i] = lookup.get(c, global_mean)
+    # Vectorized lookup: pd.Series.map resolves the dict once per row in C, with
+    # unseen categories -> NaN -> global_mean, replacing the per-row Python
+    # dict.get loop. Bit-identical (same key -> same value; the str-keyed lookup
+    # and NaN-fill reproduce the dict.get(default) semantics exactly).
+    out = (
+        pd.Series(cats, copy=False)
+        .map(lookup)
+        .fillna(global_mean)
+        .to_numpy(dtype=np.float64)
+    )
     return out
 
 

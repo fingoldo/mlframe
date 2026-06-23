@@ -872,6 +872,11 @@ def general_acf(
                 num=windows_params.get("nsteps", 100),
             )
 
+            # Each window_size re-walks window_var_values from the right (find_next_cumsum_left_index) to carve the
+            # flexible cumsum windows -- an O(L) rescan per scale, O(L * nsteps) overall. Not trivially cacheable: the
+            # window boundaries are a function of window_size (which varies per iteration) AND the running right anchor,
+            # so the partition is different every step and no prefix-sum table reuses across scales without changing
+            # the carved windows. Left as-is; revisit only if this becomes a measured hotspot on real flexible-window FE.
             for window_size in tqdmu(window_sizes, desc=window_var):
                 dependent_vals: list = []
                 independent_vals: list = []

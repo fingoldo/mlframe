@@ -114,6 +114,11 @@ def compute_member_quality_gate(
                 _group_w_mean = _w_sum / _safe_count
                 if arr.ndim == 2:
                     # Sample-weight-aware per-group prediction average: sum(p*sw) / sum(sw).
+                    # FUTURE: the per-member Python loop + np.add.at (unbuffered scatter-add, the slow numpy path) here
+                    # and in the 3-D branch below could become a single segment-sum (e.g. np.add.at on a flattened
+                    # (member,group) index, or a bincount per member). Deferred: arr.shape[0] is the ensemble member
+                    # count (typically <10), so the outer Python loop is short; this runs once per quality-gate call,
+                    # not per row. Revisit only if member counts or a measured profile make it a hotspot.
                     _wsum = np.zeros((arr.shape[0], _G), dtype=np.float64)
                     for _mi in range(arr.shape[0]):
                         np.add.at(_wsum[_mi], _inv, arr[_mi] * _sw)

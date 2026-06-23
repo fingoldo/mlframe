@@ -130,8 +130,17 @@ def _paired_bootstrap_ci(
     mean. Returns (ci_low, ci_high, p_value) on the loss-difference
     scale (champion_loss - challenger_loss)."""
     n = diff.shape[0]
-    idx = rng.integers(0, n, size=(n_boot, n))
-    boot_means = diff[idx].mean(axis=1)
+    # Row-chunk the bootstrap: drawing the (n_boot, n) index matrix + the
+    # diff[idx] gather in one shot materialises two n_boot*n temporaries
+    # (~16 GB at n_boot=1000, n=1e6). numpy fills rng.integers row-major,
+    # so drawing the resamples in contiguous BLOCKS consumes the RNG stream
+    # in the EXACT same order as the monolithic call -> bit-identical means.
+    boot_means = np.empty(n_boot, dtype=np.float64)
+    block = 64
+    for start in range(0, n_boot, block):
+        stop = min(start + block, n_boot)
+        idx_blk = rng.integers(0, n, size=(stop - start, n))
+        boot_means[start:stop] = diff[idx_blk].mean(axis=1)
     lo = float(np.quantile(boot_means, alpha / 2.0))
     hi = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
     obs = float(diff.mean())

@@ -439,6 +439,8 @@ def build_friend_graph(
         if edges_skipped:
             klass[i] = "yellow"
             continue
+        # Per-suspect neighbor scan below runs only when the edge pass was not skipped, i.e. len(sel) <= max_nodes (200);
+        # above that, edges_skipped short-circuits every node here, so this scan is already bounded to <=200 suspects.
         degree = len(neighbors[i])
         if degree >= garbage_min_degree:
             # sum_j I(Y; X_j | X_i) via the chain rule (shared helper).
