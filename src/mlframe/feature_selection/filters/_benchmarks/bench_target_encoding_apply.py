@@ -58,20 +58,33 @@ def main():
     n = 500_000
     card = 300
     col = "cat"
-    # ~10% of test rows hit unseen categories -> global_mean fallback path.
-    cats = rng.integers(0, card + 30, size=n)
-    X_test = pd.DataFrame({col: cats})
     lookup = {str(k): float(rng.normal(0.3, 0.1)) for k in range(card)}
     recipe = {"lookup": lookup, "global_mean": 0.275}
 
-    old = old_mod.apply_target_encoding(X_test, col, recipe)
-    new = new_mod.apply_target_encoding(X_test, col, recipe)
-    assert np.array_equal(old, new), f"values differ: max|d|={np.max(np.abs(old-new))}"
+    print("=== apply_target_encoding (OLD=HEAD .map, NEW=worktree per-unique fused int fast-path) ===")
 
-    t_old = _median_time(lambda: old_mod.apply_target_encoding(X_test, col, recipe))
-    t_new = _median_time(lambda: new_mod.apply_target_encoding(X_test, col, recipe))
-    print("=== apply_target_encoding CPX3 (OLD=HEAD per-row, NEW=worktree map) ===")
-    print(f"n={n} card={card}: OLD {t_old*1e3:8.2f} ms -> NEW {t_new*1e3:8.2f} ms  ({t_old/t_new:.2f}x)  identity=exact")
+    # INT source column (fast path): ~10% unseen -> global_mean fallback.
+    cats_int = rng.integers(0, card + 30, size=n)
+    X_int = pd.DataFrame({col: cats_int})
+    old = old_mod.apply_target_encoding(X_int, col, recipe)
+    new = new_mod.apply_target_encoding(X_int, col, recipe)
+    assert np.array_equal(old, new), f"int values differ: max|d|={np.max(np.abs(old-new))}"
+    t_old = _median_time(lambda: old_mod.apply_target_encoding(X_int, col, recipe))
+    t_new = _median_time(lambda: new_mod.apply_target_encoding(X_int, col, recipe))
+    print(f"int    n={n} card={card}: OLD {t_old*1e3:8.2f} ms -> NEW {t_new*1e3:8.2f} ms  ({t_old/t_new:.2f}x)  identity=exact")
+
+    # OBJECT (string) source column (unchanged path): must stay neutral, identity exact.
+    toks = np.array([f"c{k}" for k in range(card + 30)], dtype=object)
+    cats_obj = toks[rng.integers(0, card + 30, size=n)]
+    lookup_obj = {f"c{k}": float(rng.normal(0.3, 0.1)) for k in range(card)}
+    recipe_obj = {"lookup": lookup_obj, "global_mean": 0.275}
+    X_obj = pd.DataFrame({col: cats_obj})
+    old_o = old_mod.apply_target_encoding(X_obj, col, recipe_obj)
+    new_o = new_mod.apply_target_encoding(X_obj, col, recipe_obj)
+    assert np.array_equal(old_o, new_o), f"obj values differ: max|d|={np.max(np.abs(old_o-new_o))}"
+    t_old_o = _median_time(lambda: old_mod.apply_target_encoding(X_obj, col, recipe_obj))
+    t_new_o = _median_time(lambda: new_mod.apply_target_encoding(X_obj, col, recipe_obj))
+    print(f"object n={n} card={card}: OLD {t_old_o*1e3:8.2f} ms -> NEW {t_new_o*1e3:8.2f} ms  ({t_old_o/t_new_o:.2f}x)  identity=exact (unchanged path)")
 
 
 if __name__ == "__main__":

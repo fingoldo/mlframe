@@ -426,9 +426,31 @@ def apply_target_encoding(
             f"apply_target_encoding: X_test must be a DataFrame with "
             f"named columns; got {type(X_test).__name__}"
         )
-    cats = _column_to_str(col_series)
     lookup: dict = recipe["lookup"]
     global_mean: float = float(recipe["global_mean"])
+    # Integer / unsigned / bool source columns (the common high-cardinality
+    # categorical case: user_id / merchant_id / device fingerprint) never hold
+    # None/NaN, so ``_column_to_str`` would materialise a length-n OBJECT array of
+    # canonical string tokens purely so the str-keyed ``lookup`` can be ``.map``-ed
+    # per row -- two passes over n rows (build-tokens + per-row hash). Fuse them:
+    # canonicalise + resolve the lookup once PER DISTINCT integer value (a few
+    # hundred), then gather via the ``np.unique`` inverse codes. The int ``np.unique``
+    # is cheap (object ``np.unique`` is NOT -- hence this fast path is gated to the
+    # integral kinds only; object/mixed columns keep the ``_column_to_str`` + ``.map``
+    # path). Bit-identical to the ``.map`` path BY CONSTRUCTION: the per-unique
+    # ``canonical_group_token`` is the exact token ``_column_to_str`` emits for the
+    # same value, and ``lookup.get(token, global_mean)`` reproduces map->NaN->fillna.
+    _arr = col_series.to_numpy() if hasattr(col_series, "to_numpy") else np.asarray(col_series)
+    if _arr.dtype.kind in ("i", "u", "b"):
+        from ._internals import canonical_group_token
+
+        uniq, inv = np.unique(_arr, return_inverse=True)
+        vals = np.array(
+            [lookup.get(canonical_group_token(u), global_mean) for u in uniq],
+            dtype=np.float64,
+        )
+        return vals[inv]
+    cats = _column_to_str(col_series)
     # Vectorized lookup: pd.Series.map resolves the dict once per row in C, with
     # unseen categories -> NaN -> global_mean, replacing the per-row Python
     # dict.get loop. Bit-identical (same key -> same value; the str-keyed lookup

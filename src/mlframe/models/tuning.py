@@ -294,16 +294,24 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
     already_sampled = {col: set(trials[col].unique().tolist()) for col in cat_features}
     newly_seen = {col: set() for col in cat_features}
 
+    # Iterate cat_features directly instead of walking every candidate key and testing ``param in cat_features``
+    # (a list -> O(len(cat_features)) membership per key). Candidates also carry many numeric params the
+    # favorization ignores, so the old per-key scan was pure waste. Bit-identical: same first-occurrence-wins
+    # order, same multiplicative factor, same favorized_items count gating normalize_probs.
+    _MISS = object()
     favorized_items = []
     for i in range(len(probs)):
         candidate = candidates[i]
         novel_factor = 1.0
-        for param, value in candidate.items():
-            if param in cat_features:
-                if value not in already_sampled[param] and value not in newly_seen[param]:
-                    novel_factor *= 2.0
-                    favorized_items.append({param: value})
-                    newly_seen[param].add(value)
+        for param in cat_features:
+            value = candidate.get(param, _MISS)
+            if value is _MISS:
+                continue
+            seen = newly_seen[param]
+            if value not in already_sampled[param] and value not in seen:
+                novel_factor *= 2.0
+                favorized_items.append({param: value})
+                seen.add(value)
         if novel_factor > 1.0:
             probs[i] *= novel_factor
 
