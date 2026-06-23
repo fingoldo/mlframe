@@ -602,6 +602,22 @@ def _linear_residual_grouped_fit(
     per_group_betas: dict[str, float] = {}
     group_sizes: dict[str, int] = {}
     unique_groups, inverse_idx = np.unique(groups, return_inverse=True)
+    # Sort rows once by group label so each group is a contiguous segment, instead
+    # of re-scanning the whole length-n ``inverse_idx`` with a boolean mask per
+    # group (the historic ``inverse_idx == i`` pattern is O(K*n) -- 13x slower at
+    # K=2000/n=200k, see _benchmarks/bench_grouped_fit_segment.py). A STABLE argsort
+    # preserves the original ascending row order within each group, so the per-group
+    # ``y_g`` / ``base_g`` views are the SAME arrays (same values, same order) the
+    # mask path produced -> the per-group OLS (lstsq) result is bit-identical.
+    n_groups = unique_groups.size
+    _order = np.argsort(inverse_idx, kind="stable")
+    _y_sorted = np.asarray(y)[_order]
+    _base_sorted = np.asarray(base)[_order]
+    _sw_sorted = np.asarray(sample_weight)[_order] if sample_weight is not None else None
+    _counts = np.bincount(inverse_idx, minlength=n_groups)
+    _offsets = np.empty(n_groups + 1, dtype=np.int64)
+    _offsets[0] = 0
+    np.cumsum(_counts, out=_offsets[1:])
 
     # Cache residual squared sum across all groups to estimate σ² for
     # James-Stein. Computed against the per-group OLS predictions (the
@@ -625,8 +641,7 @@ def _linear_residual_grouped_fit(
     base_mean_for_shrink: dict[str, float] = {}
 
     for i, g in enumerate(unique_groups):
-        g_mask = (inverse_idx == i)
-        n_g = int(g_mask.sum())
+        n_g = int(_counts[i])
         # Canonical key so int<->float dtype drift between fit and predict cannot
         # silently miss every group and collapse to the global alpha/beta.
         g_key = _canonical_group_key(g)
@@ -636,9 +651,10 @@ def _linear_residual_grouped_fit(
             per_group_alphas[g_key] = alpha_global
             per_group_betas[g_key] = beta_global
             continue
-        y_g = y[g_mask]
-        base_g = base[g_mask]
-        sw_g = sample_weight[g_mask] if sample_weight is not None else None
+        _lo, _hi = int(_offsets[i]), int(_offsets[i + 1])
+        y_g = _y_sorted[_lo:_hi]
+        base_g = _base_sorted[_lo:_hi]
+        sw_g = _sw_sorted[_lo:_hi] if _sw_sorted is not None else None
         try:
             params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
             a_g = float(params_g["alpha"])
