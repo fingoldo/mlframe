@@ -45,7 +45,7 @@ MRMR excluded entirely. "fix" = code fixed + a regression test that fails pre-fi
 [x] MEM2 `wrappers/_helpers_importance.py:259,297` X.copy() inside p×n_repeats loop — RESOLVED (fix+test)
 [x] MEM3 `preprocessing/cleaning.py:539` df.copy() exactly when RAM already >50% — RESOLVED (fix+test)
 [x] MEM4 `estimators/custom.py:358` MyDecorrelator.transform full frame wrap — RESOLVED (fix+test) (P2)
-[x] MEM5 `feature_selection/boruta_shap/_fit_explain.py:375` triple X/y copy retained — DOC (unavoidable shadow copy, documented at site) (P2)
+[x] MEM5 `feature_selection/boruta_shap/_fit_explain.py:375` triple X/y copy retained — RESOLVED (3 copies->1: y+starting_X are references, only the shadow working copy remains; selection byte-identical, caller not mutated) (P2)
 
 ## Serialization / pickle / state (SER)
 [x] SER1 `training/neural/ranker.py:844,790` MLPRanker live Trainer, no __getstate__ (P0) — RESOLVED (fix+test)
@@ -91,7 +91,7 @@ MRMR excluded entirely. "fix" = code fixed + a regression test that fails pre-fi
 [x] SAP2-2 `calibration/policy.py` selection="same_oof" fit+eval-same-rows (default inner_cv) — DOC (caveat added at site)
 [x] SAP2-3 `_dummy_bootstrap.py:248` percentile (not BCa) CIs; :246 no add-one; dropped resamples — RESOLVED (fix+test) + DOC
 [x] SAP2-4 `evaluation/bootstrap.py` AUC bootstrap ignores tie/paired (DeLong is default) — DOC (caveat added at site)
-[x] SAP2-5 `_permutation_null.py:153` maxT floor from K=25 — DOC (caveat added at site)
+[x] SAP2-5 `_permutation_null.py:153` maxT floor from K=25 — RESOLVED (K 25->200, floor std 2.2x lower, bench+test)
 [x] SAP2-6 `_ksg.py:138` KSG subsample to 50k; `_entropy_kernels.py:218` "scrubs bias" overstatement — DOC (caveat added at site)
 [x] SAP2-7 `_eval_waic.py` mislabeled "WAIC"/"Chow"; `_eval_stats.py` BH over correlated p (should be BY) — RESOLVED (fix+test) + DOC
 [x] SAP2-8 `_classification_report.py` macro-avg includes absent classes; P/R/F1 pinned 0.5 on rare — DOC (caveat added at site)
@@ -104,7 +104,7 @@ MRMR excluded entirely. "fix" = code fixed + a regression test that fails pre-fi
 
 ## Complexity / performance (CPX) — measure-first, gate by bit-identity/selection-equivalence
 [x] CPX-P0-1 `metrics/_auc_per_group.py:54-62` public fn doesn't dispatch to O(n log n) twin — RESOLVED (dispatch to O(nlogn) twin, 14-56x, exact)
-[x] CPX-P0-2 `signal/dtw.py:226,229-240` full matrix despite band; per-diagonal kernel launches — FUTURE (full-matrix alloc + per-diagonal launches are GPU-only/cupy; CPU path uses C banded kernel; not measurable without GPU; notes at site)
+[x] CPX-P0-2 `signal/dtw.py:226,229-240` full matrix despite band; per-diagonal kernel launches — RESOLVED (GPU banded buffer, 24.9x device mem, 1.13-1.23x, bit-identical vs full-matrix + CPU parity)
 [x] CPX-P0-3 `composite/venn_abers.py:68-78` O(n² log n) PAV refits, claims O(n log n) — RESOLVED (incremental IVAP, 81-743x, ~2e-16)
 [x] CPX1 `filters/_temporal_agg_fe.py:293,567-651,235-456` O(N²)/O(N·card) entity paths — RESOLVED (running accumulators/argsort-split, 4.5-13x; rolling-replay FUTURE note at site)
 [x] CPX2 `feature_engineering/anchor.py:178-195` O(A²) per group → EWMA recurrence — RESOLVED (EWMA recurrence, 39-284x, ~1e-12)
