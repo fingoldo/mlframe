@@ -350,9 +350,7 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *,
     K_y = int(yb.max()) + 1
     if K_x < 2 or K_y < 2:
         return initial_inner
-    joint = np.zeros((K_x, K_y), dtype=np.float64)
-    for i in range(n):
-        joint[xb[i], yb[i]] += 1.0
+    joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)
     _, row_merges, _ = _greedy_merge_with_history(joint)
     # Map row merges to drop the swallowed X edges.
     return _apply_merges_to_edges(initial_inner, row_merges)
@@ -390,9 +388,7 @@ def mah_mi(x: np.ndarray, y: np.ndarray, *,
     K_y = int(yb.max()) + 1
     if K_x < 2 or K_y < 2:
         return 0.0
-    joint = np.zeros((K_x, K_y), dtype=np.float64)
-    for i in range(n):
-        joint[xb[i], yb[i]] += 1.0
+    joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)
     merged, _, _ = _greedy_merge_with_history(joint)
     if return_sci:
         sci_joint = _stochastic_complexity(merged.ravel())

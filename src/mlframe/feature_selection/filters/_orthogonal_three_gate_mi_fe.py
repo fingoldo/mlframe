@@ -312,6 +312,16 @@ def score_features_by_kfold_oof_mi(
         # whenever the true MI is zero (E[max(0, noisy)] > 0). We clip
         # the K-fold AVERAGE below, which is the correct unbiased OOF
         # estimator.
+        # bench-attempt FUTURE (2026-06-23, CPX12): cannot batch this per-column
+        # loop through the _mi_classif_batch / _quantile_bin_batched siblings.
+        # Those fit quantile edges on the FULL column passed in; here edges are
+        # fitted on TRAIN rows only and applied to TEST (_bin_with_train_edges)
+        # to keep the K-fold OOF estimate leakage-free. Routing test rows through
+        # the full-frame quantile kernel would (a) leak test data into the bin
+        # edges and (b) change the OOF MI values -- semantics differ, not a safe
+        # drop-in. A leakage-preserving batched train-edge binner (np.quantile
+        # over train cols with axis=0 + batched searchsorted) is the real win but
+        # is a new kernel, not the existing sibling. Deferred.
         raw_mi_k = np.zeros(len(raw_cols), dtype=np.float64)
         for j in range(len(raw_cols)):
             _, test_bin = _bin_with_train_edges(

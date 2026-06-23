@@ -109,12 +109,17 @@ def cluster_stability_selection(
             parent[i] = parent[parent[i]]
             i = parent[i]
         return i
-    for i in range(p):
-        for j in range(i + 1, p):
-            if _num_ok[i] and _num_ok[j] and C[i, j] >= float(corr_threshold):
-                ri, rj = _find(i), _find(j)
-                if ri != rj:
-                    parent[ri] = rj
+    # Vectorise edge discovery: build the upper-triangular |corr|>=thr adjacency
+    # (numeric columns only) in C, then union-find only over the actual edges.
+    # Same single-linkage result as the prior O(p^2) Python double loop, but the
+    # quadratic scan runs in C instead of the interpreter.
+    if p > 1:
+        adj = (C >= float(corr_threshold)) & _num_ok[:, None] & _num_ok[None, :]
+        ii, jj = np.where(np.triu(adj, k=1))
+        for i, j in zip(ii.tolist(), jj.tolist()):
+            ri, rj = _find(i), _find(j)
+            if ri != rj:
+                parent[ri] = rj
     # Compact ids.
     raw_ids = np.array([_find(i) for i in range(p)], dtype=np.int64)
     uniq = np.unique(raw_ids)

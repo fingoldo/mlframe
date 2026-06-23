@@ -173,9 +173,7 @@ def chao_shen_mi(x_binned: np.ndarray, y: np.ndarray) -> float:
     K_y = int(y_b.max()) + 1 if y_b.size else 1
     if K_x < 1 or K_y < 1:
         return 0.0
-    joint = np.zeros((K_x, K_y), dtype=np.int64)
-    for i in range(x_b.size):
-        joint[x_b[i], y_b[i]] += 1
+    joint = np.bincount(x_b * K_y + y_b, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.int64)
     return float(_joint_chao_shen_mi_njit(joint))
 
 

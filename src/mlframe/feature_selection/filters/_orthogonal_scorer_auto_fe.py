@@ -196,20 +196,61 @@ def _compute_per_scorer_rank_table(
             )
         raise ValueError(f"unknown scorer name: {name!r}")
 
+    # Batch the column-separable scorers (plug-in MI, copula MI) across all
+    # columns in one kernel call instead of one _mi_classif_batch / copula call
+    # per column (each rebuilds the same dispatch + per-column quantile). The
+    # per-column reshape(-1,1)/out[0] path the siblings used is bit-identical to
+    # the full-frame batch (per-column quantile is independent; verified 0.0
+    # diff). Non-separable scorers (ksg/dcor/hsic carry a per-call random_state
+    # subsample) stay per-column via _call.
+    _BATCHABLE = {"plug_in", "copula"}
+    _batch_scorers = [s for s in scorers if s in _BATCHABLE]
+
+    def _batch_scores(frame: pd.DataFrame, cols: list) -> dict:
+        """{scorer: np.ndarray aligned to ``cols``} for the batchable scorers."""
+        if not _batch_scorers or not cols:
+            return {}
+        Xmat = frame[cols].to_numpy(dtype=np.float64)
+        res: dict = {}
+        for s in _batch_scorers:
+            if s == "plug_in":
+                from ._orthogonal_univariate_fe import _mi_classif_batch
+                y_mi = y_arr
+                if not np.issubdtype(y_mi.dtype, np.integer):
+                    uniq = np.unique(
+                        y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
+                    if uniq.size <= 32:
+                        y_mi = y_mi.astype(np.int64)
+                res[s] = np.asarray(
+                    _mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
+            elif s == "copula":
+                from ._orthogonal_copula_mi_fe import _copula_mi_batch
+                res[s] = np.asarray(
+                    _copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)),
+                    dtype=np.float64)
+        return res
+
+    raw_batched = _batch_scores(raw_X, raw_cols)
     baseline_per_source: dict = {}
-    for src in raw_cols:
+    for ci, src in enumerate(raw_cols):
         x_full = raw_X[src].to_numpy(dtype=np.float64)
         baseline_per_source[src] = {
-            s: float(_call(s, x_full, y_arr)) for s in scorers
+            s: (float(raw_batched[s][ci]) if s in _batch_scorers
+                else float(_call(s, x_full, y_arr)))
+            for s in scorers
         }
 
+    eng_batched = _batch_scores(engineered_X, eng_cols)
     rows = []
-    for eng_name in eng_cols:
+    for ci, eng_name in enumerate(eng_cols):
         src = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         x_full = engineered_X[eng_name].to_numpy(dtype=np.float64)
         row = {"engineered_col": eng_name, "source_col": src}
         for s in scorers:
-            row[f"score_{s}"] = float(_call(s, x_full, y_arr))
+            if s in _batch_scorers:
+                row[f"score_{s}"] = float(eng_batched[s][ci])
+            else:
+                row[f"score_{s}"] = float(_call(s, x_full, y_arr))
         rows.append(row)
     score_table = pd.DataFrame(rows)
 

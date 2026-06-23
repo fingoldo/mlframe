@@ -204,6 +204,14 @@ def _copula_mi_batch(
         X_arr = X_arr.reshape(-1, 1)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     y_finite = np.isfinite(y_arr)
+    y_all_finite = bool(y_finite.all())
+    # Hoist the constant y rank transform out of the per-column loop. When a
+    # column has no extra NaNs (the common case), the masked y subset equals the
+    # full y, so its uniformisation is identical across all such columns -- the
+    # docstring's "uniformise y once" promise the loop previously broke by
+    # re-ranking O(n log n) per column. Columns whose own NaNs force a different
+    # mask still re-rank the subset (unavoidable, mask-dependent).
+    v_full = _rank_to_uniform(y_arr) if y_all_finite else None
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     for j in range(X_arr.shape[1]):
         col = X_arr[:, j]
@@ -212,7 +220,7 @@ def _copula_mi_batch(
         finite = y_finite & np.isfinite(col)
         if finite.all():
             u = _rank_to_uniform(col)
-            v = _rank_to_uniform(y_arr)
+            v = v_full
         elif finite.sum() >= 2:
             u = _rank_to_uniform(col[finite])
             v = _rank_to_uniform(y_arr[finite])

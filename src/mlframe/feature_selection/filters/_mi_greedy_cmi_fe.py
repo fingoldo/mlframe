@@ -758,6 +758,17 @@ def greedy_cmi_fe_construct(
         effective_floor = max(float(min_cmi_gain), cur_floor)
         best_name = None
         best_cmi = -1.0
+        # Hoist the y/z-invariant CMI block out of the per-candidate scan: y_bin
+        # and z_joint are fixed across the inner loop, so H(Y,Z) / H(Z) and their
+        # renumberings are recomputed-and-discarded once per candidate by the
+        # plain ``_cmi_from_binned``. When Z is non-empty, precompute them once
+        # per step and score candidates via ``cmi_from_binned_fixed_yz`` (same
+        # arithmetic, x-block only). Marginal (empty-Z) step keeps the original
+        # path since the hoist helpers assume a present Z.
+        _have_z = z_joint is not None and z_joint.size > 0
+        if _have_z:
+            _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(
+                y_bin, z_joint)
         for name in remaining:
             # Skip candidates that are monotone-equivalent (bin-pattern-
             # identical) to an already-picked winner. Important when Z
@@ -766,7 +777,11 @@ def greedy_cmi_fe_construct(
             # otherwise.
             if cand_fp[name] in winner_fps:
                 continue
-            cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
+            if _have_z:
+                cmi = cmi_from_binned_fixed_yz(
+                    cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n)
+            else:
+                cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
             if cmi > best_cmi:
                 best_cmi = cmi
                 best_name = name

@@ -237,9 +237,12 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
             f"x2.max()={int(x2.max())} K_x2={K_x2}, "
             f"y.max()={int(y.max())} K_y={K_y}."
         )
-    joint = np.zeros((int(K_x1), int(K_x2), int(K_y)), dtype=np.float64)
-    for i in range(n):
-        joint[x1[i], x2[i], y[i]] += 1.0
+    K_x2_i = int(K_x2)
+    K_y_i = int(K_y)
+    flat_idx = (x1 * K_x2_i + x2) * K_y_i + y
+    joint = np.bincount(
+        flat_idx, minlength=int(K_x1) * K_x2_i * K_y_i
+    ).reshape(int(K_x1), K_x2_i, K_y_i).astype(np.float64)
     # I_ccs redundancy.
     r = float(_i_ccs_redundancy_njit(joint))
     # I(X_1; Y) and I(X_2; Y) via marginal joint.

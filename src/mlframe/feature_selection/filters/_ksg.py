@@ -20,8 +20,6 @@ Optimization pattern (per README.md methodology):
 - ``sklearn.neighbors.KDTree`` for the spatial queries (C-backed, beats any
   njit re-impl at N <= 1e6).
 - ``@njit`` for the digamma aggregation hot loop.
-- Per-column KDTree caching via ``ColumnKNNCache`` so that 100x100 pair MI
-  calls in MRMR don't rebuild the same tree 99 extra times.
 - ``cupy`` fallback path (``mixed_ksg_mi_gpu``) for N >= ``_KSG_GPU_THRESHOLD``
   where H2D bandwidth pays back.
 
@@ -119,20 +117,18 @@ def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
     """For each point i, count other points j with ``|x_j - x_i| < eps[i]``.
     Uses sorted array + binary search; O(N log N) total."""
     arr = arr_1d.astype(np.float64).ravel()
-    sorter = np.argsort(arr)
-    sorted_arr = arr[sorter]
-    # For each i: count of j != i with abs(arr[j] - arr[i]) < eps[i]
-    counts = np.empty(arr.size, dtype=np.int64)
-    n = arr.size
-    for i in range(n):
-        lo = arr[i] - eps[i] + 1e-12
-        hi = arr[i] + eps[i] - 1e-12
-        # Number of points in [lo, hi] inclusive of self.
-        lo_idx = np.searchsorted(sorted_arr, lo, side="left")
-        hi_idx = np.searchsorted(sorted_arr, hi, side="right")
-        # Subtract 1 for self if it lies in the band (it always does).
-        counts[i] = max(0, (hi_idx - lo_idx) - 1)
-    return counts
+    sorted_arr = np.sort(arr)
+    # Fully vectorised: searchsorted accepts the whole bound array at once, so
+    # the per-point band query becomes two O(N log N) C-level calls instead of
+    # 2*N Python-level searchsorted calls. Bit-identical to the prior loop:
+    # same lo/hi bounds, same left/right sides, same self-subtraction + clamp.
+    lo = arr - eps + 1e-12
+    hi = arr + eps - 1e-12
+    lo_idx = np.searchsorted(sorted_arr, lo, side="left")
+    hi_idx = np.searchsorted(sorted_arr, hi, side="right")
+    counts = (hi_idx - lo_idx) - 1  # subtract 1 for self (always in band)
+    np.maximum(counts, 0, out=counts)
+    return counts.astype(np.int64)
 
 
 def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
@@ -425,41 +421,18 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
 
 
 # =============================================================================
-# Per-column KDTree cache (for MRMR's 100x100 pair workload)
+# (removed) ColumnKNNCache
+# -----------------------------------------------------------------------------
+# A per-column ``np.sort`` cache was removed 2026-06-23: it was never consumed
+# (no caller in the tree) and was unwireable into the actual hot path without
+# changing MI values. The pair MI cost is dominated by the JOINT (x, y) KDTree,
+# which is irreducibly per-pair and not cacheable per column. The only
+# per-column structure it cached was ``np.sort`` of a column for
+# ``_count_within_eps`` -- but (a) that sort is now ~1.5 ms after the CPX7
+# vectorisation (negligible vs the joint tree), and (b) mixed_ksg_mi jitters
+# tied columns with fresh per-call noise, so a cross-pair cached sort would be
+# stale and produce DIFFERENT counts. Dead code, removed rather than wired.
 # =============================================================================
-
-
-class ColumnKNNCache:
-    """Per-column KDTree + sorted-array cache so that MRMR's pair MI loop
-    doesn't rebuild O(p) identical structures for each of O(p^2) pair queries.
-
-    Usage::
-        cache = ColumnKNNCache(X, k=5)
-        for j1 in range(p):
-            for j2 in range(j1+1, p):
-                mi = cache.mi_pair(j1, j2, estimator='mixed_ksg')
-    """
-    def __init__(self, X: np.ndarray, k: int = 5):
-        self.X = np.asarray(X, dtype=np.float64)
-        if self.X.ndim != 2:
-            raise ValueError(f"ColumnKNNCache: X must be 2-D; got {self.X.shape}")
-        self.k = int(k)
-        self._sorted_cols: dict = {}
-
-    def _sorted(self, j: int) -> np.ndarray:
-        if j not in self._sorted_cols:
-            self._sorted_cols[j] = np.sort(self.X[:, j])
-        return self._sorted_cols[j]
-
-    def mi_pair(self, j1: int, j2: int, estimator: str = "mixed_ksg",
-                alpha: float = 0.65) -> float:
-        x = self.X[:, j1]
-        y = self.X[:, j2]
-        if estimator == "mixed_ksg":
-            return mixed_ksg_mi(x, y, k=self.k)
-        if estimator == "ksg_lnc":
-            return ksg_lnc_mi(x, y, k=self.k, alpha=alpha)
-        raise ValueError(f"unknown estimator {estimator!r}")
 
 
 # =============================================================================
@@ -547,5 +520,5 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5,
 
 __all__ = [
     "mixed_ksg_mi", "ksg_lnc_mi", "mixed_ksg_mi_gpu",
-    "ksg_mi_dispatch", "ColumnKNNCache",
+    "ksg_mi_dispatch",
 ]
