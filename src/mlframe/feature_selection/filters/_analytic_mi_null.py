@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 
 import numpy as np
+from numba import njit
 
 try:  # scipy is a hard mlframe dep, but keep the import defensive so an env without it degrades.
     from scipy.stats import chi2 as _chi2
@@ -129,6 +130,39 @@ def analytic_mi_null(original_mi: float, n_rows: int, n_bins_x: int, n_bins_y: i
     return null_mean, p_value
 
 
+@njit(nogil=True, cache=True)
+def _occupied_bins_per_col(disc_2d: np.ndarray) -> np.ndarray:
+    """Count OCCUPIED (distinct, non-negative) bin codes per column in one O(n*K) pass.
+
+    Exact replacement for the per-column ``np.unique(disc_2d[:, k]).size`` loop, which sorted each
+    length-n column (O(K * n log n)) only to count distinct codes. Candidate codes are low-cardinality
+    non-negative integer bin labels, so a per-column presence array sized to ``max_code+1`` counts the
+    occupied bins directly. Returns int64[K] of per-column occupied-bin counts (identical to np.unique).
+    """
+    n, K = disc_2d.shape
+    out = np.zeros(K, dtype=np.int64)
+    if n == 0:
+        return out
+    # Global max code -> one (K, M+1) presence matrix, walked in C-contiguous row-major order so the
+    # single fused pass is cache-friendly (disc_2d[i, k] strides naturally on the inner k loop).
+    gmax = -1
+    for i in range(n):
+        for k in range(K):
+            v = int(disc_2d[i, k])
+            if v > gmax:
+                gmax = v
+    if gmax < 0:
+        return out
+    seen = np.zeros((K, gmax + 1), dtype=np.bool_)
+    for i in range(n):
+        for k in range(K):
+            v = int(disc_2d[i, k])
+            if v >= 0 and not seen[k, v]:
+                seen[k, v] = True
+                out[k] += 1
+    return out
+
+
 def analytic_batch_noise_gate(
     disc_2d: np.ndarray,
     observed_mi: np.ndarray,
@@ -151,12 +185,15 @@ def analytic_batch_noise_gate(
     fe_mi = observed.copy()
     alpha_reject = 1.0 - float(min_nonzero_confidence)  # reject when analytic p >= this
     by = int(np.unique(np.asarray(classes_y)).size)     # occupied y categories
+    # Per-column occupied-bin counts in one O(n*K) njit pass (was O(K * n log n): a np.unique sort per
+    # column just to count distinct codes). Bit-identical for non-negative bin codes -- see _occupied_bins_per_col.
+    bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d))
     for k in range(K):
         mi_k = float(fe_mi[k])
         if mi_k <= 0.0:
             fe_mi[k] = 0.0
             continue
-        bx = int(np.unique(disc_2d[:, k]).size)         # occupied x bins for this candidate
+        bx = int(bx_per_col[k])                          # occupied x bins for this candidate
         _nm, p = analytic_mi_null(mi_k, int(n_rows), bx, by)
         if p >= alpha_reject:
             fe_mi[k] = 0.0
@@ -169,4 +206,5 @@ __all__ = [
     "analytic_null_enabled",
     "analytic_null_min_n",
     "analytic_null_applicable",
+    "_occupied_bins_per_col",
 ]
