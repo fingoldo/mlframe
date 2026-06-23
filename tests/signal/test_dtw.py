@@ -87,6 +87,95 @@ class TestDtwGpuBackends:
         assert path_nb[0] == path_cp[0]
 
 
+class TestDtwBandedGpuBuffer:
+    """CPX-P0-2: the GPU paths store only the 2*window+1 live Sakoe-Chiba
+    diagonals (O(n*window) device RAM) instead of the full (n+1)x(m+1) cost
+    matrix. The banded buffer must produce a BIT-IDENTICAL distance + path to the
+    pre-fix full-matrix sweep AND match the dtaidistance CPU reference, including
+    band-boundary windows."""
+
+    def _full_matrix_cupy(self, x, y, window):
+        """The retained pre-CPX-P0-2 full-matrix cupy sweep (regression baseline)."""
+        from mlframe.signal.dtw import dtw_cupy_full
+        return dtw_cupy_full(x, y, window=window)
+
+    @pytest.mark.parametrize(
+        "n,m,window",
+        [
+            (500, 500, 200),   # square, ample band
+            (1000, 800, 250),  # rectangular, band > |n-m|
+            (600, 400, 200),   # window == |n-m| (band-boundary: endpoint exactly on the edge)
+            (500, 500, 499),   # near-full band
+            (400, 400, 30),    # narrow band
+        ],
+    )
+    def test_banded_cupy_bit_identical_to_full_matrix(self, n, m, window):
+        """Banded distance + warping path == pre-fix full-matrix GPU path, exactly."""
+        pytest.importorskip("cupy")
+        from mlframe.signal.dtw import dtw_cupy_banded
+        rng = np.random.default_rng(n * 7 + m * 13 + window)
+        x = rng.standard_normal(n).astype(np.float32)
+        y = rng.standard_normal(m).astype(np.float32)
+        d_full, p_full = self._full_matrix_cupy(x, y, window)
+        d_band, p_band = dtw_cupy_banded(x, y, window=window)
+        assert d_band == d_full, f"banded {d_band} != full {d_full}"
+        assert p_band == p_full, "banded warping path diverged from full-matrix path"
+
+    @pytest.mark.parametrize("n,m,window", [(500, 500, 200), (800, 600, 250)])
+    def test_banded_cupy_matches_cpu_reference(self, n, m, window):
+        """Banded GPU distance matches the dtaidistance CPU reference (fp32 tol)."""
+        pytest.importorskip("cupy")
+        pytest.importorskip("dtaidistance")
+        from mlframe.signal.dtw import dtw_cupy_banded, dtw_cpu
+        rng = np.random.default_rng(n + m + window)
+        x = rng.standard_normal(n).astype(np.float32)
+        y = rng.standard_normal(m).astype(np.float32)
+        d_band, _ = dtw_cupy_banded(x, y, window=window)
+        d_cpu, _ = dtw_cpu(x, y, window=window)
+        rel = abs(d_band - d_cpu) / max(d_cpu, 1e-9)
+        assert rel < 1e-4, f"banded vs CPU rel gap {rel:.2e}"
+
+    def test_banded_cupy_allocates_only_band_sized_device_buffer(self):
+        """The banded path must allocate O(n*window) device RAM, not O(n*m). Measure
+        the actual peak cupy pool growth so a revert to the full-matrix cost buffer
+        (which would allocate >= n*m*4 bytes) trips this regression sensor."""
+        import cupy as cp
+        from mlframe.signal.dtw import dtw_cupy_banded
+        n, m, window = 2000, 2000, 100
+        rng = np.random.default_rng(1)
+        x = rng.standard_normal(n).astype(np.float32)
+        y = rng.standard_normal(m).astype(np.float32)
+        dtw_cupy_banded(x[:200], y[:200], window=window)  # warm kernel compile
+        mp = cp.get_default_memory_pool()
+        mp.free_all_blocks()
+        base = mp.total_bytes()
+        d_band, _ = dtw_cupy_banded(x, y, window=window)
+        peak = mp.total_bytes() - base
+        full_bytes = (n + 1) * (m + 1) * 4
+        band_bytes = (n + 1) * (2 * window + 1) * 4
+        # Peak growth must be far below the full matrix (allow slack for x/y + pool
+        # rounding); a full-matrix revert allocates ~16 MB here vs the band's ~1.6 MB.
+        assert peak < full_bytes // 2, f"peak {peak} >= half the full matrix {full_bytes}"
+        assert peak < band_bytes * 6, f"peak {peak} far exceeds band buffer {band_bytes}"
+        assert np.isfinite(d_band) and d_band > 0
+
+    def test_banded_numba_cuda_matches_banded_cupy(self):
+        """The numba.cuda banded path agrees with the cupy banded path to fp32 tol."""
+        pytest.importorskip("numba")
+        from numba import cuda
+        if not cuda.is_available():
+            pytest.skip("no CUDA device")
+        pytest.importorskip("cupy")
+        from mlframe.signal.dtw import dtw_cuda, dtw_cupy
+        rng = np.random.default_rng(99)
+        x = rng.standard_normal(700).astype(np.float32)
+        y = rng.standard_normal(500).astype(np.float32)
+        d_nb, p_nb = dtw_cuda(x, y, window=250)
+        d_cp, p_cp = dtw_cupy(x, y, window=250)
+        np.testing.assert_allclose(d_nb, d_cp, rtol=1e-4, atol=1e-3)
+        assert p_nb == p_cp
+
+
 class TestDispatcher:
     def test_small_n_routes_to_cpu(self, monkeypatch, tmp_path):
         """Below the threshold the FALLBACK routes to CPU. ``set_dtw_dispatch_threshold``

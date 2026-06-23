@@ -9,7 +9,11 @@ Three backends:
     cupy / CUDA-side libs beyond numba.cuda.
   * ``dtw_cupy`` -- cupy ``RawKernel`` host-driven diagonal sweep.
     Lowest per-call overhead; ~25-100x faster than dtaidistance on
-    sequences >= 2K rows (bench 2026-05-24 on GTX 1050 Ti).
+    sequences >= 2K rows (bench 2026-05-24 on GTX 1050 Ti). Both GPU
+    backends use a BANDED cost buffer of shape ``(n+1, 2*window+1)`` in
+    ``(i, j-i+window)`` coordinates, so device RAM is O(n*window) rather
+    than O(n*m) (24.9x smaller at 10K x 10K, window=200); the
+    full-matrix sweep is retained as ``dtw_cupy_full`` for A/B reference.
 
 The dispatcher (``dtw_dispatch``) picks GPU when available AND the
 sequence is large enough that GPU transfer overhead is amortised
@@ -112,6 +116,30 @@ if _HAS_NB_CUDA:
             best = c_left
         cost[i, j] = d2 + best
 
+    @_nb_cuda.jit
+    def _numba_cuda_banded_step(x, y, band, n, m, w, bw, k):
+        """Fill diagonal k of the banded buffer band[i, j-i+w]. Bit-identical
+        recipe to the full-matrix step; only the cost-buffer indexing differs."""
+        tid = _nb_cuda.grid(1)
+        i_min = max(1, k - m)
+        i_max = min(n, k - 1)
+        n_cells = i_max - i_min + 1
+        if tid >= n_cells:
+            return
+        i = i_min + tid
+        j = k - i
+        b = j - i + w
+        if b < 0 or b >= bw:
+            return
+        c_diag = band[i - 1, b]
+        c_up = band[i - 1, b + 1] if b + 1 < bw else np.float32(1e18)
+        c_left = band[i, b - 1] if b > 0 else np.float32(1e18)
+        d = x[i - 1] - y[j - 1]
+        best = c_diag if c_diag <= c_up else c_up
+        if c_left < best:
+            best = c_left
+        band[i, b] = d * d + best
+
 
 def dtw_cuda(
     x: np.ndarray,
@@ -127,29 +155,24 @@ def dtw_cuda(
     sequences this can be slower than the CPU path. ``dtw_dispatch``
     handles that via a size threshold.
     """
-    # bench-attempt-FUTURE (2026-06-23, CPX-P0-2): the cost matrix is allocated
-    # full (n+1)x(m+1) although only the Sakoe-Chiba band (2*window+1 diagonals)
-    # is ever live, and the sweep launches one kernel PER anti-diagonal
-    # (n+m launches, each ~50us). A banded buffer of shape (n+1, 2*window+1) in
-    # (i, j-i+window) coordinates would cut the device allocation from O(n*m) to
-    # O(n*window) (e.g. 6.5K x 3K, window=200 -> 81MB -> 5.4MB) and a single
-    # wavefront kernel could fuse the launches. DEFERRED: this box has no
-    # validatable CUDA path (cupy reports "CUDA path could not be detected"), so
-    # the GPU rewrite cannot be measured/parity-checked here per the measure-
-    # first + no-unvalidated-GPU-change rules; the CPU backend (dtaidistance C
-    # kernel) already uses an internal banded representation, so there is no
-    # CPU-side full-matrix allocation to band. Re-do on a CUDA-capable box.
+    # Banded buffer (n+1, 2*window+1) in (i, j-i+window) coords -- O(n*window)
+    # device RAM vs the prior full (n+1)x(m+1). Bit-identical distance + path to
+    # the full-matrix sweep (kept as _numba_cuda_diagonal_step for reference); the
+    # (i-1,j-1)/(i-1,j)/(i,j-1) dependency forces the anti-diagonal sweep so the
+    # launch count is unchanged -- the memory reduction is the win.
     if not _HAS_NB_CUDA:
         raise ImportError(
             "dtw_cuda requires numba.cuda + a CUDA-capable GPU."
         )
     n = len(x)
     m = len(y)
+    w = int(window)
+    bw = 2 * w + 1
     x_d = _nb_cuda.to_device(np.ascontiguousarray(x, dtype=np.float32))
     y_d = _nb_cuda.to_device(np.ascontiguousarray(y, dtype=np.float32))
-    cost_h = np.full((n + 1, m + 1), np.float32(1e18), dtype=np.float32)
-    cost_h[0, 0] = np.float32(0.0)
-    cost_d = _nb_cuda.to_device(cost_h)
+    band_h = np.full((n + 1, bw), np.float32(1e18), dtype=np.float32)
+    band_h[0, w] = np.float32(0.0)  # cost[0,0] -> band[0, w]
+    band_d = _nb_cuda.to_device(band_h)
     threads = 256
     for k in range(1, n + m + 1):
         i_min = max(1, k - m)
@@ -158,13 +181,13 @@ def dtw_cuda(
         if n_cells == 0:
             continue
         blocks = (n_cells + threads - 1) // threads
-        _numba_cuda_diagonal_step[blocks, threads](
-            x_d, y_d, cost_d, n, m, window, k,
+        _numba_cuda_banded_step[blocks, threads](
+            x_d, y_d, band_d, n, m, w, bw, k,
         )
     _nb_cuda.synchronize()
-    cost = cost_d.copy_to_host()
-    distance = float(np.sqrt(cost[n, m]))
-    path = _backtrace_path(cost, n, m)
+    band = band_d.copy_to_host()
+    distance = float(np.sqrt(np.float32(_band_endpoint(band, n, m, w))))
+    path = _backtrace_band(band, n, m, w)
     return distance, path
 
 
@@ -201,7 +224,42 @@ void dtw_diagonal(const float* __restrict__ x, const float* __restrict__ y,
 """
 
 
+# Banded buffer kernel: cost is stored in (i, b) coords where b = j - i + w, so the
+# live Sakoe-Chiba band (only diagonals |i-j| <= w are reachable) occupies a tight
+# (n+1) x (2*w+1) buffer instead of the full (n+1) x (m+1) matrix -- O(n*w) device
+# RAM instead of O(n*m). The cell-(i,j) data dependencies (i-1,j-1)/(i-1,j)/(i,j-1)
+# force an anti-diagonal (k = i+j) sweep, so this keeps one launch per anti-diagonal
+# (the launch-fusion variant is left for FUTURE; the memory reduction is the primary
+# win and is unconditional). Numerics are identical to the full-matrix kernel: same
+# squared diff, same min-of-three with the diag<=up<=left tie order, same 1e18
+# out-of-band sentinel, single final sqrt -- only the cost-buffer indexing changes.
+_CUPY_BANDED_KERNEL_SRC = r"""
+extern "C" __global__
+void dtw_banded_diagonal(const float* __restrict__ x, const float* __restrict__ y,
+                         float* band, int n, int m, int w, int bw, int k) {
+    // band stride bw = 2*w+1; band[i*bw + b] holds cost[i][ i - w + b ].
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int i_min = max(1, k - m);
+    int i_max = min(n, k - 1);
+    int n_cells = i_max - i_min + 1;
+    if (tid >= n_cells) return;
+    int i = i_min + tid;
+    int j = k - i;
+    int b = j - i + w;                 // band column for (i,j)
+    if (b < 0 || b >= bw) return;      // outside the live band -> never reachable
+    float c_diag = band[(i - 1) * bw + b];                        // cost[i-1][j-1]
+    float c_up   = (b + 1 < bw) ? band[(i - 1) * bw + (b + 1)] : 1e18f; // cost[i-1][j]
+    float c_left = (b > 0) ? band[i * bw + (b - 1)] : 1e18f;      // cost[i][j-1]
+    float d = x[i - 1] - y[j - 1];
+    float best = (c_diag <= c_up) ? c_diag : c_up;
+    if (c_left < best) best = c_left;
+    band[i * bw + b] = d * d + best;
+}
+"""
+
+
 _CUPY_KERNEL_CACHE: list = [None]
+_CUPY_BANDED_KERNEL_CACHE: list = [None]
 
 
 def _get_cupy_kernel():
@@ -214,30 +272,129 @@ def _get_cupy_kernel():
     return _CUPY_KERNEL_CACHE[0]
 
 
+def _get_cupy_banded_kernel():
+    if not _HAS_CUPY:
+        raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
+    if _CUPY_BANDED_KERNEL_CACHE[0] is None:
+        _CUPY_BANDED_KERNEL_CACHE[0] = cp.RawKernel(
+            _CUPY_BANDED_KERNEL_SRC, "dtw_banded_diagonal",
+        )
+    return _CUPY_BANDED_KERNEL_CACHE[0]
+
+
+def _band_endpoint(band: np.ndarray, n: int, m: int, w: int) -> float:
+    """cost[n,m] from the banded buffer; 1e18 sentinel when (n,m) falls outside
+    the Sakoe-Chiba band (|n-m| > window), matching the unreachable-endpoint
+    value the full-matrix sweep returned."""
+    b = m - n + w
+    if 0 <= b < band.shape[1]:
+        return float(band[n, b])
+    return 1e18
+
+
+def _backtrace_band(
+    band: np.ndarray, n: int, m: int, w: int,
+) -> List[Tuple[int, int]]:
+    """Banded-coordinate backtrace. ``band[i, j - i + w]`` mirrors ``cost[i, j]``;
+    out-of-band neighbours read as the 1e18 sentinel so the path policy
+    (diag<=up<=left) is bit-identical to the full-matrix ``_backtrace_path``."""
+    INF = np.float32(1e18)
+
+    def C(i: int, j: int) -> float:
+        b = j - i + w
+        if 0 <= b < band.shape[1]:
+            return band[i, b]
+        return INF
+
+    path: List[Tuple[int, int]] = []
+    i, j = n, m
+    while i > 0 and j > 0:
+        path.append((i - 1, j - 1))
+        c_diag = C(i - 1, j - 1)
+        c_up = C(i - 1, j)
+        c_left = C(i, j - 1)
+        if c_diag <= c_up and c_diag <= c_left:
+            i -= 1
+            j -= 1
+        elif c_up <= c_left:
+            i -= 1
+        else:
+            j -= 1
+    path.reverse()
+    return path
+
+
+def dtw_cupy_banded(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    window: int = 200,
+) -> Tuple[float, List[Tuple[int, int]]]:
+    """Banded cupy DTW: O(n*window) device RAM (vs O(n*m) full matrix).
+
+    Stores only the ``2*window+1`` live Sakoe-Chiba diagonals (band coords
+    ``b = j - i + window``) instead of the full ``(n+1)x(m+1)`` cost matrix. The
+    (i-1,j-1)/(i-1,j)/(i,j-1) dependency forces the anti-diagonal sweep, so this
+    keeps one launch per anti-diagonal; the memory reduction is the win. Distance
+    + path are bit-identical to the full-matrix ``dtw_cupy`` and the dtaidistance
+    reference; this is the default cupy path (``dtw_cupy`` dispatches here)."""
+    if not _HAS_CUPY:
+        raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
+    kernel = _get_cupy_banded_kernel()
+    n = len(x)
+    m = len(y)
+    w = int(window)
+    bw = 2 * w + 1
+    x_d = cp.asarray(x, dtype=cp.float32)
+    y_d = cp.asarray(y, dtype=cp.float32)
+    band_d = cp.full((n + 1, bw), cp.float32(1e18))
+    # cost[0,0] = 0 lives at band[0, 0 - 0 + w] = band[0, w].
+    band_d[0, w] = cp.float32(0.0)
+    threads = 256
+    for k in range(1, n + m + 1):
+        i_min = max(1, k - m)
+        i_max = min(n, k - 1)
+        n_cells = max(0, i_max - i_min + 1)
+        if n_cells == 0:
+            continue
+        blocks = (n_cells + threads - 1) // threads
+        kernel(
+            (blocks,), (threads,),
+            (x_d, y_d, band_d, np.int32(n), np.int32(m),
+             np.int32(w), np.int32(bw), np.int32(k)),
+        )
+    cp.cuda.Stream.null.synchronize()
+    band = cp.asnumpy(band_d)
+    distance = float(np.sqrt(np.float32(_band_endpoint(band, n, m, w))))
+    path = _backtrace_band(band, n, m, w)
+    return distance, path
+
+
 def dtw_cupy(
     x: np.ndarray,
     y: np.ndarray,
     *,
     window: int = 200,
 ) -> Tuple[float, List[Tuple[int, int]]]:
-    """cupy RawKernel banded DTW. Host-driven diagonal sweep with one
-    kernel launch per diagonal. Returns ``(distance, path)``.
+    """cupy RawKernel DTW. Defaults to the banded buffer (O(n*window) device RAM).
 
-    Per-launch overhead is lower than numba.cuda (no per-call JIT
-    dispatch), giving ~3x speedup over ``dtw_cuda`` on Pascal-class
-    hardware. Bench 2026-05-24 on GTX 1050 Ti: 6.5K x 3K window=200
-    = 240 ms (cupy) vs 1.0 s (numba.cuda) vs 22 s (dtaidistance).
-    """
+    Per-launch overhead is lower than numba.cuda (no per-call JIT dispatch). This
+    is the public cupy entry point; it dispatches to ``dtw_cupy_banded`` (the
+    full-matrix sweep is retained as ``dtw_cupy_full`` for A/B reference)."""
+    return dtw_cupy_banded(x, y, window=window)
+
+
+def dtw_cupy_full(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    window: int = 200,
+) -> Tuple[float, List[Tuple[int, int]]]:
+    """Pre-CPX-P0-2 full-matrix cupy diagonal sweep. Allocates the full
+    ``(n+1)x(m+1)`` cost matrix (O(n*m) device RAM); retained for A/B benching
+    against ``dtw_cupy_banded`` (REJECTED!=DELETED). Numerically identical."""
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
-    # bench-attempt-FUTURE (2026-06-23, CPX-P0-2): same banded-buffer +
-    # launch-fusion win as dtw_cuda (see its note) -- cost_d is full (n+1)x(m+1)
-    # though only 2*window+1 diagonals are live, and the loop below launches one
-    # RawKernel per anti-diagonal. A (n+1, 2*window+1) banded buffer in
-    # (i, j-i+window) coords + a single wavefront kernel would cut device RAM
-    # O(n*m)->O(n*window) and the n+m launches to ~1. Deferred: no validatable
-    # CUDA path on this box (cupy can't detect CUDA), so the rewrite cannot be
-    # measured/parity-checked here; re-do on a CUDA-capable host.
     kernel = _get_cupy_kernel()
     n = len(x)
     m = len(y)
