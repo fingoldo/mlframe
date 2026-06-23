@@ -385,7 +385,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     min_nonzero_confidence: float,
     use_su: bool,
     dtype: type = np.int32,
-    threads_per_block: int = 128,
+    threads_per_block: "int | None" = None,
     d_disc_resident=None,
 ) -> np.ndarray:
     """FULL-GPU-RESIDENT noise gate: batched histogram (all perms, one launch) -> GPU MI kernel -> only
@@ -404,7 +404,8 @@ def batch_mi_with_noise_gate_cuda_resident(
     if use_su:
         return batch_mi_with_noise_gate_cuda(
             disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
-            base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block,
+            base_seed, min_nonzero_confidence, use_su, dtype,
+            128 if threads_per_block is None else threads_per_block,
         )
     global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_MI_KERNEL
     if not _CUDA_AVAIL:
@@ -423,6 +424,17 @@ def batch_mi_with_noise_gate_cuda_resident(
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
+    # Lever C (2026-06-23): HW-aware + KTC-tuned threads/block for the batched-hist launch (default 128 left
+    # the SM ~1/16 occupied; the row-loop parallelises across threads). When the caller did not pin a count
+    # (threads_per_block is None) look the per-host tuned count up from the kernel_tuning_cache (candidate set
+    # derived from device occupancy); falls back to 128 on any failure. Block size NEVER changes the integer
+    # counts -> MI + gate decision bit-identical. The KTC probe passes an explicit count (skips the lookup).
+    if threads_per_block is None:
+        try:
+            from ._gpu_resident_histgate_ktc import histgate_threads
+            threads_per_block = int(histgate_threads(n))
+        except Exception:
+            threads_per_block = 128
     K_y = int(freqs_y.shape[0])
     nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
     per_col_size = nbins_arr * K_y
