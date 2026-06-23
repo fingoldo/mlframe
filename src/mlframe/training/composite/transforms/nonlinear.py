@@ -107,11 +107,36 @@ if _HAS_NUMBA:
                     lag_sum += weights_batch[s, k_idx] * anchor
                 out[s, i] = (t_batch[s, i] - lag_sum) * inv_w0
         return out
+    @_numba.njit(cache=True, parallel=True)
+    def _quantile_assign_bins_kernel(base_f: np.ndarray, inner_edges: np.ndarray, n_bins: int) -> np.ndarray:
+        """Parallel linear-scan equivalent of ``np.clip(np.searchsorted(inner_edges, base_f, "right"), 0, n_bins-1)``.
+
+        ``inner_edges`` (the n_bins-1 ascending cut points) is tiny, so a branch-light forward count beats a per-element binary search and avoids the separate ``np.clip`` pass; ``prange`` then scales it across cores. Bit-identical to searchsorted including the NaN edge (NaN sorts as +inf -> top bin) and +/-inf. Bench: 3.9x@10k / 6.6x@200k / 8.9x@1M (bench_quantile_assign_bins_searchsorted.py).
+        """
+        n = base_f.size
+        out = np.empty(n, dtype=np.intp)
+        m = inner_edges.size
+        for i in _numba.prange(n):
+            x = base_f[i]
+            if x != x:  # NaN: np.searchsorted sorts it as +inf -> top bin after clip
+                out[i] = n_bins - 1
+                continue
+            b = 0
+            for j in range(m):
+                if inner_edges[j] <= x:
+                    b += 1
+                else:
+                    break
+            if b > n_bins - 1:
+                b = n_bins - 1
+            out[i] = b
+        return out
 else:
     _ewma_kernel = None  # type: ignore
     _ewma_kernel_njit_par_batched = None  # type: ignore
     _frac_diff_inverse_kernel = None  # type: ignore
     _frac_diff_inverse_kernel_njit_par_batched = None  # type: ignore
+    _quantile_assign_bins_kernel = None  # type: ignore
 
 
 # Soft-cap MAD floor: when MAD(T_train) is below ``_MAD_FLOOR_FRAC * std(y_train)``, substitute the latter to keep the soft-cap bound numerically meaningful even if the transform produced a degenerate (near-constant) T on train. Without this, logratio's MAD-cap collapses to zero on degenerate train and every prediction inverts to ``base * exp(0) = base`` silently.
@@ -335,6 +360,10 @@ def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.nd
     if n_bins <= 1:
         return np.zeros(base_f.size, dtype=np.intp)
     # ``edges[1:-1]`` are the INNER cut points; searchsorted returns 0..n_bins.
+    if _HAS_NUMBA:
+        return _quantile_assign_bins_kernel(
+            np.ascontiguousarray(base_f), np.ascontiguousarray(edges[1:-1]), n_bins,
+        )
     bin_idx = np.searchsorted(edges[1:-1], base_f, side="right")
     return np.clip(bin_idx, 0, n_bins - 1)
 def _quantile_residual_forward(

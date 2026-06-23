@@ -147,6 +147,32 @@ def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
     return np.abs(arr[:, iu] - arr[:, ju])
 
 
+def _bin_counts(arr: np.ndarray, n_bins: int) -> np.ndarray:
+    """Per-row equal-width histogram counts over ``[row_min - eps, row_max + eps]``.
+
+    Shared by ``predictor_consensus_entropy`` and ``predictor_top2_mode_gap`` so the
+    builder computes the (identical) binning + scatter exactly once instead of twice.
+    """
+    lo = arr.min(axis=1, keepdims=True) - 1e-9
+    hi = arr.max(axis=1, keepdims=True) + 1e-9
+    span = (hi - lo) + 1e-12
+    binned = np.clip(
+        ((arr - lo) / span * n_bins).astype(np.int32),
+        0, n_bins - 1,
+    )
+    return _row_bin_histogram_njit(np.ascontiguousarray(binned), n_bins)
+
+
+def _entropy_from_counts(counts: np.ndarray) -> np.ndarray:
+    probs = counts / counts.sum(axis=1, keepdims=True)
+    return -np.sum(probs * np.log(probs + 1e-12), axis=1)
+
+
+def _top2_gap_from_counts(counts: np.ndarray, k: int) -> np.ndarray:
+    sorted_counts = -np.sort(-counts, axis=1)
+    return (sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k)
+
+
 def predictor_consensus_entropy(
     preds: np.ndarray, n_bins: int = 5,
 ) -> np.ndarray:
@@ -158,17 +184,7 @@ def predictor_consensus_entropy(
     consensus on a narrow range.
     """
     arr = _coerce_preds(preds)
-    n, k = arr.shape
-    lo = arr.min(axis=1, keepdims=True) - 1e-9
-    hi = arr.max(axis=1, keepdims=True) + 1e-9
-    span = (hi - lo) + 1e-12
-    binned = np.clip(
-        ((arr - lo) / span * n_bins).astype(np.int32),
-        0, n_bins - 1,
-    )
-    counts = _row_bin_histogram_njit(np.ascontiguousarray(binned), n_bins)
-    probs = counts / counts.sum(axis=1, keepdims=True)
-    return -np.sum(probs * np.log(probs + 1e-12), axis=1)
+    return _entropy_from_counts(_bin_counts(arr, n_bins))
 
 
 def predictor_top2_mode_gap(
@@ -181,17 +197,7 @@ def predictor_top2_mode_gap(
     (high consensus); small = two bins tied (multimodal disagreement).
     """
     arr = _coerce_preds(preds)
-    n, k = arr.shape
-    lo = arr.min(axis=1, keepdims=True) - 1e-9
-    hi = arr.max(axis=1, keepdims=True) + 1e-9
-    span = (hi - lo) + 1e-12
-    binned = np.clip(
-        ((arr - lo) / span * n_bins).astype(np.int32),
-        0, n_bins - 1,
-    )
-    counts = _row_bin_histogram_njit(np.ascontiguousarray(binned), n_bins)
-    sorted_counts = -np.sort(-counts, axis=1)
-    return (sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k)
+    return _top2_gap_from_counts(_bin_counts(arr, n_bins), arr.shape[1])
 
 
 def predictor_weighted_consensus(
@@ -355,12 +361,13 @@ def predictor_disagreement_features(
         ])
     """
     arr = _coerce_preds(preds)
+    counts = _bin_counts(arr, n_bins)  # shared by entropy + top2_gap; identical binning, computed once
     out = {
         "mean": predictor_consensus_mean(arr),
         "iqr": predictor_disagreement_iqr(arr),
         "var": predictor_disagreement_var(arr),
-        "entropy": predictor_consensus_entropy(arr, n_bins=n_bins),
-        "top2_gap": predictor_top2_mode_gap(arr, n_bins=n_bins),
+        "entropy": _entropy_from_counts(counts),
+        "top2_gap": _top2_gap_from_counts(counts, arr.shape[1]),
     }
     if emit_pairs:
         out["pairs"] = predictor_pairwise_abs_diffs(arr)
