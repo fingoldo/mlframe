@@ -180,6 +180,21 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
             cb = _mi_classif_batch_balanced(X, y, class_w, nbins=nbins)
             if cb is not None:
                 return cb
+    # bench-attempt-rejected (2026-06-23, GTX 1050 Ti, F2 100k MRMR wall /loop "drive CPU share -> 0"):
+    # tried routing this CPU njit batch-MI (the #1 mlframe CPU-compute kernel: cProfile tottime 3.05s of a
+    # 34.8s warm F2 100k fit, 157 calls via plugin_mi_classif_batch_dispatch, callers = _conditional_gate_fe
+    # best_existing_op_mi / _gate_grid_mi ~2.1s + _pairwise_modular_fe._mi 0.35s + _unified_fe_gate, each
+    # building a FRESH host candidate matrix one-shot) to its GPU twin _plugin_mi_classif_batch_cuda.
+    # ISOLATED A/B (fresh-host-array, WITH H2D) at n=100k showed GPU ~2-3x FASTER (k=14 45.8->20.1ms,
+    # k=5 28.5->8.1ms, k=30 106->39ms) -- but END-TO-END is a LOSS: MLFRAME_MI_BACKEND=cuda (forces every
+    # batch dispatch to GPU) measured 34.8s -> 36.0s wall. The per-call H2D of each freshly-built host
+    # matrix + GPU contention with the already-resident pair kernels eats the isolated speedup (the classic
+    # "isolated-kernel microbench lies" trap; see plugin_mi_classif_batch_dispatch ground-truth note).
+    # Selection WAS byte-identical under the force (F2 100k recipe hash 962a4c7b / produced e92339f7 both
+    # match njit -- the percentile-edge GPU binning is selection-equivalent here despite ~1e-4 ULP MI drift),
+    # so the ONLY blocker is the wall regression. A real win needs the candidate matrices GPU-RESIDENT
+    # (eliminating the per-call H2D the microbench omits) -- the matrix-native FE replatform, tracked
+    # separately; a dispatch flag alone cannot win.
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)

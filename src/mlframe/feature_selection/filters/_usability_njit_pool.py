@@ -734,6 +734,12 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
     n_rows = int(x1.shape[0])
     args = (x1, x2, y_codes, float(h_y), int(k_y), qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b)
 
+    # bench-attempt-rejected (2026-06-23, GTX 1050 Ti, F2 100k MRMR wall /loop): forcing this pair-combo
+    # MI table to the GPU twin (MLFRAME_USABILITY_POOL_BACKEND=gpu) is a 3x LOSS end-to-end -- F2 100k wall
+    # 34.8s -> 102.5s (selection byte-identical, recipe hash 962a4c7b). The per-PAIR invocation enumerates a
+    # small ua x ub x bn combo grid, so the GPU sees many tiny launches + per-pair H2D that swamp the
+    # _pair_combo_mi_njit_table_parallel CPU kernel (cProfile tottime 0.97s, 10 calls). KTC correctly routes
+    # this shape to "parallel" (CPU); the GPU path only pays off at large n_combos batched across pairs.
     choice = _usability_backend_choice(n_rows, nc)
     if choice == "gpu":
         # GPU path -- gated on live cupy + the global GPU off-switch (MLFRAME_DISABLE_GPU /
