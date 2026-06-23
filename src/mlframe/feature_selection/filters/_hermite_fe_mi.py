@@ -348,6 +348,33 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # MLFRAME_FE_GPU_BINNING_DTYPE path. Full-chain f32 also FLIPPED the argmax at n=300k among the
     # equivalent a**2/b spellings (div(id,sqrt) -> mul(sqr,reciproc), a tie-cluster reorder) -- selection
     # instability for no math speedup. (proto D:/Temp/_bench_mi_dtype*.py)
+    #
+    # bit-exact-attempt-rejected (2026-06-23, GTX 1050 Ti cc6.1): goal was to make this resident MI
+    # BYTE-IDENTICAL (maxdiff EXACTLY 0) to _plugin_mi_classif_njit by matching njit's serial row-major
+    # nat-sum order on the GPU (an ordered per-candidate reduction) instead of the cp.sum tree reduction.
+    # MEASURED that this CANNOT reach 0 vs the SHIPPED njit reference, for TWO independent reasons, NEITHER
+    # of which is the reduction-order tree-vs-serial gap the iter18 note hypothesised:
+    #   (1) BINNING (dominant, ~1e-3): njit bins RANK-based (_quantile_bin_njit: argsort -> first base+1
+    #       ranks = bin 0 ...), this path bins percentile-EDGE-based (cp.percentile + searchsorted). On any
+    #       column with DUPLICATE values the two disagree for THOUSANDS of rows (probe: a rounded col put
+    #       895/4000 rows in the same bin -> MI maxdiff 6.3e-3). This is the already-approved edge-vs-rank
+    #       trade documented at the binning block above; an ordered nat-sum does NOTHING for it. On no-tie
+    #       (all-distinct) columns the binning IS identical and this term vanishes.
+    #   (2) fastmath FLOOR (~3.4e-16, even on no-tie cols): njit's reference is @njit(fastmath=True), which
+    #       itself reorders/contracts the CPU nat-sum. Decomposition on no-tie cols (n=4000,k=8,nbins=20):
+    #         GPU ordered-serial vs a NON-fastmath python-libm same-order reference = 3.5e-18 (~exact: the
+    #           reduction order IS matchable on GPU AND the device float64 log is sub-ULP vs libm here -- log
+    #           is NOT the blocker),
+    #         njit(fastmath) vs that same-order python reference = 3.4e-16 (this IS the floor),
+    #         GPU ordered-serial vs njit(fastmath) = 3.4e-16 (floored by fastmath, not by order/log).
+    #       So even a perfectly njit-order-matched GPU kernel floors at the fastmath gap; reaching 0 would
+    #       require dropping fastmath from the shipped njit kernel (a numeric change to the reference -- out
+    #       of scope, and it would shift every existing njit MI value).
+    # VERDICT: exact-0 is impossible without re-binning rank-based on GPU AND removing njit fastmath. The
+    # resident MI stays SELECTION-EQUIVALENT (not byte-identical) with the documented tie-flip caveat; the
+    # downstream stable-sort + diversity filter is robust to it (engineered-replay + canonical subset pass).
+    # The residual is dominated by the approved edge-vs-rank binning (~1e-3 on tie cols), NOT reduction order
+    # (~3.4e-16 fastmath floor on no-tie cols). Do NOT re-attempt an ordered-reduction kernel for byte-identity.
     log_n = math.log(n)
     if _fe_gpu_fuse_mi_enabled():
         # FUSED per-cell contribution: ONE elementwise launch over the big (k,nb,nc) array instead of the
