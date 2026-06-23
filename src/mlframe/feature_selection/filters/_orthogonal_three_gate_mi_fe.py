@@ -61,6 +61,7 @@ NOT wired into ``MRMR.fit`` by default -- opt-in via
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional, Sequence
 
 import numpy as np
@@ -77,6 +78,19 @@ from ._mi_greedy_cmi_fe import (
 )
 
 logger = logging.getLogger(__name__)
+
+# CPX12b (2026-06-23): the batched-across-columns train-edge binner
+# (_bin_with_train_edges_batched) shares one np.quantile partition per fold across
+# all columns. Measured (bench_oof_three_gate_train_edge_binning.py): a clean win at
+# small/mid per-fold train sizes (2.23x @ n=2k/p=50, 1.29x @ n=5k/p=100) that fades
+# to neutral by ~16k train rows and turns into a slight regression (~0.93x @ 50k/100)
+# as the batched quantile loses the per-column cache locality of the scalar path.
+# We therefore GATE on per-fold TRAIN-row count: batch below the threshold, fall back
+# to the bit-identical scalar per-column path above it. Override via env var for
+# hardware retuning.
+_OOF_BATCH_BINNING_MAX_TRAIN_ROWS = int(
+    os.environ.get("MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS", "16000")
+)
 
 __all__ = [
     "score_features_by_kfold_oof_mi",
@@ -155,6 +169,83 @@ def _bin_with_train_edges(
     train_bins = np.searchsorted(edges, train, side="right").astype(np.int64)
     test_bins = np.searchsorted(edges, test, side="right").astype(np.int64)
     return train_bins, test_bins
+
+
+def _bin_with_train_edges_batched(
+    train_arr: np.ndarray, test_arr: np.ndarray, nbins: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Batched-across-columns equivalent of :func:`_bin_with_train_edges`.
+
+    For a single fold, fit equi-frequency quantile edges on the TRAIN rows of
+    ALL columns at once via one ``np.quantile(train_arr, qs, axis=0)`` call,
+    then apply those train-fitted edges (per-column ``np.searchsorted``) to both
+    the train and test rows of every column. The edges depend ONLY on the train
+    rows -- test rows never influence a cut boundary -- so this is the SAME
+    leakage-free K-fold OOF binning the scalar per-column path produces, just
+    vectorised across columns (one quantile partition for the batch instead of
+    ``p`` separate calls).
+
+    Bit-identical to looping :func:`_bin_with_train_edges` over columns: the inner
+    quantile cuts ``qs = linspace(0, 1, nbins+1)[1:-1]``, the per-column
+    ``np.unique`` edge dedup, and the ``side='right'`` searchsorted convention all
+    match exactly, including the degenerate empty-edges (constant column -> bin 0)
+    and empty-quantile (nbins<=1) cases.
+
+    Parameters
+    ----------
+    train_arr, test_arr : (n_train, p) / (n_test, p) float arrays
+        Positionally column-aligned. Edges are fitted on ``train_arr`` only.
+    """
+    train = np.ascontiguousarray(train_arr, dtype=np.float64)
+    test = np.ascontiguousarray(test_arr, dtype=np.float64)
+    n_train = train.shape[0]
+    p = train.shape[1] if train.ndim == 2 else 0
+    n_test = test.shape[0]
+    train_bins = np.zeros((n_train, p), dtype=np.int64)
+    test_bins = np.zeros((n_test, p), dtype=np.int64)
+    qs = np.linspace(0.0, 1.0, int(nbins) + 1)[1:-1]
+    if qs.size == 0 or n_train == 0 or p == 0:
+        return train_bins, test_bins
+    # One batched quantile partition for all columns -> (qs.size, p). This is the
+    # whole point: amortise the partition-based selector across columns instead of
+    # p separate np.quantile calls, while keeping the edges train-row-only.
+    edges_all = np.quantile(train, qs, axis=0)  # shape (qs.size, p)
+    for j in range(p):
+        edges = np.unique(edges_all[:, j])  # per-column dedup, matches scalar path
+        if edges.size == 0:
+            continue
+        train_bins[:, j] = np.searchsorted(edges, train[:, j], side="right")
+        test_bins[:, j] = np.searchsorted(edges, test[:, j], side="right")
+    return train_bins, test_bins
+
+
+def _fold_test_bins(
+    arr: np.ndarray,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    n_cols: int,
+    nbins: int,
+) -> np.ndarray:
+    """Test-row bin codes for all columns of one fold, train-edges only.
+
+    Dispatches between the batched-across-columns binner (small/mid folds, a
+    measured win) and the scalar per-column path (large folds, where the batched
+    quantile loses cache locality). Both paths fit edges on the fold's TRAIN rows
+    only and are bit-identical -- the gate only affects performance, never the
+    OOF MI values. See :data:`_OOF_BATCH_BINNING_MAX_TRAIN_ROWS`.
+    """
+    if train_idx.size <= _OOF_BATCH_BINNING_MAX_TRAIN_ROWS:
+        _, test_bins = _bin_with_train_edges_batched(
+            arr[train_idx, :], arr[test_idx, :], nbins=nbins,
+        )
+        return test_bins
+    test_bins = np.zeros((test_idx.size, n_cols), dtype=np.int64)
+    for j in range(n_cols):
+        _, tb = _bin_with_train_edges(
+            arr[train_idx, j], arr[test_idx, j], nbins=nbins,
+        )
+        test_bins[:, j] = tb
+    return test_bins
 
 
 def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool = True) -> float:
@@ -312,31 +403,37 @@ def score_features_by_kfold_oof_mi(
         # whenever the true MI is zero (E[max(0, noisy)] > 0). We clip
         # the K-fold AVERAGE below, which is the correct unbiased OOF
         # estimator.
-        # bench-attempt FUTURE (2026-06-23, CPX12): cannot batch this per-column
-        # loop through the _mi_classif_batch / _quantile_bin_batched siblings.
-        # Those fit quantile edges on the FULL column passed in; here edges are
-        # fitted on TRAIN rows only and applied to TEST (_bin_with_train_edges)
-        # to keep the K-fold OOF estimate leakage-free. Routing test rows through
-        # the full-frame quantile kernel would (a) leak test data into the bin
-        # edges and (b) change the OOF MI values -- semantics differ, not a safe
-        # drop-in. A leakage-preserving batched train-edge binner (np.quantile
-        # over train cols with axis=0 + batched searchsorted) is the real win but
-        # is a new kernel, not the existing sibling. Deferred.
-        raw_mi_k = np.zeros(len(raw_cols), dtype=np.float64)
-        for j in range(len(raw_cols)):
-            _, test_bin = _bin_with_train_edges(
-                raw_arr[train_idx, j], raw_arr[test_idx, j], nbins=nbins,
-            )
-            raw_mi_k[j] = _mi_from_binned_xy(test_bin, y_test_bin, clip_zero=False)
+        #
+        # CPX12b (2026-06-23): bin every column for this fold via a single,
+        # train-row-only quantile partition shared across COLUMNS (gated on
+        # per-fold train size -- see _OOF_BATCH_BINNING_MAX_TRAIN_ROWS). The edges
+        # are still fitted on TRAIN rows only (leakage-free K-fold OOF) and the
+        # output is bit-identical to the prior per-column _bin_with_train_edges
+        # loop; only the quantile partition is shared. Above the threshold the
+        # batched quantile loses cache locality, so we keep the scalar fallback.
+        raw_test_bins = _fold_test_bins(
+            raw_arr, train_idx, test_idx, len(raw_cols), nbins,
+        )
+        raw_mi_k = np.array(
+            [
+                _mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False)
+                for j in range(len(raw_cols))
+            ],
+            dtype=np.float64,
+        )
         raw_fold_mis.append(raw_mi_k)
 
         # Engineered columns (same per-fold non-clipping rule).
-        eng_mi_k = np.zeros(len(eng_cols), dtype=np.float64)
-        for j in range(len(eng_cols)):
-            _, test_bin = _bin_with_train_edges(
-                eng_arr[train_idx, j], eng_arr[test_idx, j], nbins=nbins,
-            )
-            eng_mi_k[j] = _mi_from_binned_xy(test_bin, y_test_bin, clip_zero=False)
+        eng_test_bins = _fold_test_bins(
+            eng_arr, train_idx, test_idx, len(eng_cols), nbins,
+        )
+        eng_mi_k = np.array(
+            [
+                _mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False)
+                for j in range(len(eng_cols))
+            ],
+            dtype=np.float64,
+        )
         eng_fold_mis.append(eng_mi_k)
 
     if not raw_fold_mis:
