@@ -47,9 +47,18 @@ __all__ = [
 ]
 
 import logging
+import os
 from typing import Any, Callable, Iterator, Tuple
 
 import numpy as np
+
+# per_group_cum_reduce(op="count"): use the vectorized within-group-rank path only
+# when the average group size is at or below this (i.e. many small groups). Above it,
+# the trivial Python loop beats the full-length repeat/rank temporaries. Crossover
+# measured at avg~=64-100 (bench_per_group_cum_count_vectorized_iter135.py): avg<=50
+# wins 1.2-1.7x, avg=20 -> 1.9x, avg=10 -> 2.9x; avg>=100 ties/loses. Default 64 sits
+# on the safe side of the crossover. Env-overridable per host.
+_COUNT_VECTORIZE_MAX_AVG = int(os.environ.get("MLFRAME_GROUPED_COUNT_VECTORIZE_MAX_AVG", "64"))
 
 try:
     from numba import njit
@@ -319,6 +328,14 @@ def per_group_shift(
     values_arr = np.ascontiguousarray(values)
     out = np.full(values_arr.size, fill_value, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
+    # bench-attempt-rejected (2026-06-23): a fully-vectorized rewrite (within-group
+    # rank via np.repeat(starts, seg_lens), masked gather/scatter, no per-group loop)
+    # is bit-identical but NOT faster -- it allocates several full-length intp arrays
+    # (arange + repeat + rank + valid mask + masked index sets) so it is memory-
+    # bandwidth bound, while the dominant cost (iter_group_segments' sort) is shared.
+    # Measured best-of-5 (bench_per_group_shift_vectorized_iter135.py): 10M/200k groups
+    # 1.10x (lag) / 0.96x (lead); 1M/20k 1.02x / 0.96x; 1M/5-groups 0.43x / 0.37x. The
+    # few-groups case regresses 2.3x. Net no-win + uglier; loop kept.
     for s, e in zip(starts, ends):
         seg_idx = sort_idx[s:e]
         seg_len = seg_idx.size
@@ -365,6 +382,26 @@ def per_group_cum_reduce(
         n = group_ids.size if hasattr(group_ids, "size") else len(group_ids)
         out = np.empty(n, dtype=output_dtype)
         sort_idx, starts, ends = iter_group_segments(group_ids)
+        nseg = starts.size
+        # Gated vectorization: the within-group 0-based rank of every sorted row is
+        # ``arange(n) - repeat(starts, seg_lens)`` in one pass, so count = rank+1
+        # (or seg_len-rank when reverse) needs NO Python per-group loop and NO
+        # per-group arange allocation. Bit-identical. But the full-length repeat/rank
+        # temporaries make it ~2x SLOWER than the trivial loop when groups are large;
+        # it wins (1.2-1.9x, measured @ many-small-groups incl. the 10M/200k prof
+        # shape) only when the average group is small. Gate on avg group size
+        # (bench_per_group_cum_count_vectorized_iter135.py: avg<=64 wins, avg>=100
+        # ties/loses) via ``n <= nseg * _COUNT_VECTORIZE_MAX_AVG``.
+        if nseg and n <= nseg * _COUNT_VECTORIZE_MAX_AVG:
+            seg_lens = (ends - starts).astype(np.intp)
+            rank = np.arange(n, dtype=np.intp) - np.repeat(starts, seg_lens)
+            if reverse:
+                seg_len_per_pos = np.repeat(seg_lens, seg_lens)
+                vals = (seg_len_per_pos - rank).astype(output_dtype)
+            else:
+                vals = (rank + 1).astype(output_dtype)
+            out[sort_idx] = vals
+            return out
         for s, e in zip(starts, ends):
             seg_idx = sort_idx[s:e]
             arange = np.arange(1, seg_idx.size + 1, dtype=output_dtype)

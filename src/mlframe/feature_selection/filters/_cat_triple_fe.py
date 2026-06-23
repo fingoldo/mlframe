@@ -537,23 +537,38 @@ def apply_cat_triple_cross(
             f"apply_cat_triple_cross: X_test must be a DataFrame; got "
             f"{type(X_test).__name__}"
         )
-    cats_a = _column_to_str(X_test[cat_a])
-    cats_b = _column_to_str(X_test[cat_b])
-    cats_c = _column_to_str(X_test[cat_c])
+    cats_a = np.asarray(_column_to_str(X_test[cat_a]))
+    cats_b = np.asarray(_column_to_str(X_test[cat_b]))
+    cats_c = np.asarray(_column_to_str(X_test[cat_c]))
     n = len(cats_a)
     sentinel = len(mapping)
-    if encoding == "target":
-        lookup = te_lookup or {}
-        out = np.empty(n, dtype=np.float64)
-        for r in range(n):
-            code = mapping.get((cats_a[r], cats_b[r], cats_c[r]))
-            if code is None:
-                out[r] = global_mean
-            else:
-                out[r] = float(lookup.get(code, global_mean))
-        return out
-    out = np.empty(n, dtype=np.float64)
-    for r in range(n):
-        code = mapping.get((cats_a[r], cats_b[r], cats_c[r]), sentinel)
-        out[r] = float(code)
-    return out
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    lookup = te_lookup or {}
+    is_target = encoding == "target"
+    # Vectorized replay: factorize the three string columns (O(n) hashtable each, no sort), pack into a single joint
+    # key, then resolve the (val_a, val_b, val_c) -> output value ONCE per DISTINCT joint cell and gather by code.
+    # Bit-identical to the per-row mapping.get loop (same mapping/sentinel/te_lookup/global_mean per distinct triple).
+    # Mirrors the count/freq/cat_num factorize replay paths; _column_to_str maps NaN -> "__nan__" so factorize never
+    # emits its -1 sentinel here.
+    codes_a, uniq_a = pd.factorize(cats_a)
+    codes_b, uniq_b = pd.factorize(cats_b)
+    codes_c, uniq_c = pd.factorize(cats_c)
+    nb = len(uniq_b)
+    nc = len(uniq_c)
+    joint = (codes_a.astype(np.int64) * (nb * nc) + codes_b.astype(np.int64) * nc + codes_c.astype(np.int64))
+    cell_codes, joint_uniques = pd.factorize(joint)
+    vals = np.empty(len(joint_uniques), dtype=np.float64)
+    for i, k in enumerate(joint_uniques):
+        k = int(k)
+        ia = k // (nb * nc)
+        rem = k % (nb * nc)
+        ib = rem // nc
+        ic = rem % nc
+        triple = (uniq_a[ia], uniq_b[ib], uniq_c[ic])
+        if is_target:
+            code = mapping.get(triple)
+            vals[i] = global_mean if code is None else float(lookup.get(code, global_mean))
+        else:
+            vals[i] = float(mapping.get(triple, sentinel))
+    return vals[cell_codes]
