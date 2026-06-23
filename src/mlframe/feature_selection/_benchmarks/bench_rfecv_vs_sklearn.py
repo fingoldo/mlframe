@@ -26,7 +26,7 @@ import json
 import time
 import warnings
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -273,7 +273,7 @@ def main(seeds: tuple[int, ...] = (0, 1, 2), out_dir: Optional[Path] = None) -> 
     out_path = out_dir / f"h2h_{timestamp}.json"
     summary = _aggregate(rows)
     payload = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "problems": [asdict(p) for p in PROBLEMS],
         "seeds": list(seeds),
         "has_catboost": HAS_CATBOOST,

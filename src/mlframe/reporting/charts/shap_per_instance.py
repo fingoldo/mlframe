@@ -207,41 +207,48 @@ def _render(
     k = len(worst_idx)
     ncol = min(k, 2) if k > 1 else 1
     nrow = int(np.ceil(k / ncol))
+    figs_before = set(plt.get_fignums())
     fig, axes = plt.subplots(nrow, ncol, figsize=(7.0 * ncol, 3.4 * nrow), squeeze=False)
-    flat = axes.ravel()
+    try:
+        flat = axes.ravel()
 
-    for ax in flat[k:]:
-        ax.axis("off")
+        for ax in flat[k:]:
+            ax.axis("off")
 
-    for i, orig in enumerate(worst_idx):
-        ax = flat[i]
-        contrib = contributions[i][:_TOP_FEATURES_PER_INSTANCE]
-        labels = [nm for nm, _ in contrib][::-1]
-        vals = [v for _, v in contrib][::-1]
-        colors = ["#d62728" if v >= 0 else "#1f77b4" for v in vals]
-        ax.barh(range(len(vals)), vals, color=colors)
-        ax.set_yticks(range(len(vals)))
-        ax.set_yticklabels(labels, fontsize=8)
-        ax.axvline(0.0, color="0.4", lw=0.8)
-        ax.set_xlabel("signed SHAP (impact on model output)", fontsize=8)
-        yt = y_true[int(orig)]
-        ys = float(y_score[int(orig)])
-        if binary:
-            title = f"row {int(orig)}: pred prob={ys:.3f}  true={int(yt)}  |err|={severities[i]:.3f}"
+        for i, orig in enumerate(worst_idx):
+            ax = flat[i]
+            contrib = contributions[i][:_TOP_FEATURES_PER_INSTANCE]
+            labels = [nm for nm, _ in contrib][::-1]
+            vals = [v for _, v in contrib][::-1]
+            colors = ["#d62728" if v >= 0 else "#1f77b4" for v in vals]
+            ax.barh(range(len(vals)), vals, color=colors)
+            ax.set_yticks(range(len(vals)))
+            ax.set_yticklabels(labels, fontsize=8)
+            ax.axvline(0.0, color="0.4", lw=0.8)
+            ax.set_xlabel("signed SHAP (impact on model output)", fontsize=8)
+            yt = y_true[int(orig)]
+            ys = float(y_score[int(orig)])
+            if binary:
+                title = f"row {int(orig)}: pred prob={ys:.3f}  true={int(yt)}  |err|={severities[i]:.3f}"
+            else:
+                title = f"row {int(orig)}: pred={ys:.4g}  true={yt:.4g}  |err|={severities[i]:.4g}"
+            ax.set_title(title, fontsize=9)
+
+        if no_errors:
+            fig.suptitle("Per-instance SHAP -- worst predictions (NOTE: no misclassifications; showing largest residuals)", fontsize=11)
         else:
-            title = f"row {int(orig)}: pred={ys:.4g}  true={yt:.4g}  |err|={severities[i]:.4g}"
-        ax.set_title(title, fontsize=9)
+            fig.suptitle("Per-instance SHAP attribution -- top-K most-confident-wrong predictions", fontsize=11)
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
 
-    if no_errors:
-        fig.suptitle("Per-instance SHAP -- worst predictions (NOTE: no misclassifications; showing largest residuals)", fontsize=11)
-    else:
-        fig.suptitle("Per-instance SHAP attribution -- top-K most-confident-wrong predictions", fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-
-    paths: List[str] = []
-    if plot_file:
-        paths = _save(fig, plot_file, plot_outputs)
-    return fig, paths
+        paths: List[str] = []
+        if plot_file:
+            paths = _save(fig, plot_file, plot_outputs)
+        return fig, paths
+    finally:
+        # The figure is rendered to disk, not displayed; leaving it open leaks it into matplotlib's global registry on
+        # every call. Mirror shap_panels: close every figure opened since entry (incl. the saved one and any mid-flow leak).
+        leaked = [plt.figure(num) for num in plt.get_fignums() if num not in figs_before]
+        _close_figs(leaked)
 
 
 def _save(fig: Any, plot_file: str, plot_outputs: Optional[str]) -> List[str]:

@@ -594,7 +594,7 @@ def auc_ci(
     method: str = "delong",
     n_bootstrap: int = 1000,
     random_state: Optional[int] = None,
-) -> dict[str, float]:
+) -> dict[str, float | str]:
     """Confidence interval for a single-sample ROC-AUC.
 
     ``method="delong"`` (DEFAULT) is the closed-form DeLong Wald interval ``AUC +/- z * SE`` on the

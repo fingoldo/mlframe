@@ -9,6 +9,15 @@ on the next training run without any sidecar gate. This module unifies the
 sidecar pattern so every ``pickle.load`` in the package goes through the same
 verified path.
 
+THREAT MODEL CAVEAT (read before relying on this for untrusted inputs): the sha256 sidecar is a CORRUPTION / INTEGRITY check, NOT an
+authenticity / tamper-resistance control. An attacker who can WRITE to the directory holding the payload can trivially rewrite BOTH the
+payload and its ``.sha256`` sidecar so the digest matches again -- the load then succeeds and arbitrary pickle executes. The sidecar only
+defends against accidental corruption (truncated copy, mid-rename crash, bit-rot) and against a payload swapped WITHOUT a matching sidecar
+rewrite. It buys nothing against an adversary with write access to the same directory. Callers that must load pickles from a directory an
+untrusted party can write to need a KEYED integrity control instead -- an HMAC (sidecar = ``HMAC-SHA256(secret_key, payload)``) or a
+detached cryptographic signature whose key the attacker does not hold. This module deliberately does not implement that: the keying / key
+distribution is the caller's responsibility and out of scope here.
+
 Public surface:
 
 * :func:`verify_sidecar` -- given a path, returns True iff the ``.sha256`` sidecar

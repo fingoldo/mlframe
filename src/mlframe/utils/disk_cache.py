@@ -286,7 +286,9 @@ class DiskCache:
             self.misses += 1
             return None
         try:
-            value = safe_load(str(path), allow_unverified=True)
+            # Fail CLOSED by default: a cache file with no .sha256 sidecar is refused so a payload planted in the cache dir is never
+            # unpickled silently. The MLFRAME_ALLOW_UNVERIFIED_PICKLE env var remains the only opt-in to the legacy permissive path.
+            value = safe_load(str(path))
         except PickleVerificationError as exc:
             # Sidecar digest mismatch -- payload bytes diverged from the
             # hash recorded at put-time. Treat as a corrupt cache entry

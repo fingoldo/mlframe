@@ -196,7 +196,7 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         y_arr = _to_1d_numpy(y)
         base = _extract_base(X, self.base_column)
         if base.shape[0] != y_arr.shape[0]:
-            raise ValueError("base column and y length mismatch.")
+            raise ValueError(f"base column and y length mismatch: base has {base.shape[0]} rows, y has {y_arr.shape[0]}.")
 
         kf = KFold(n_splits=self.n_folds, shuffle=self.shuffle, random_state=self.random_state)
 

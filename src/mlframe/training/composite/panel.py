@@ -163,7 +163,7 @@ class CompositePanelEstimator(BaseEstimator, RegressorMixin):
         """
         alpha = float(self.shrinkage_alpha)
         if alpha < 0:
-            raise ValueError("CompositePanelEstimator: shrinkage_alpha must be >= 0.")
+            raise ValueError(f"CompositePanelEstimator: shrinkage_alpha must be >= 0; got {alpha}.")
         global_mean = float(y.mean())
         # Group sums + counts via a single argsort-free dict reduction (entity counts are
         # typically << n, so a Python dict reduction is cheaper than building a full index).

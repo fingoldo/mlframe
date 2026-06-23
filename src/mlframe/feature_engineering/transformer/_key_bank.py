@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+
+from mlframe.utils.safe_pickle import safe_dump, safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +170,7 @@ def try_load_key_bank(
         projections = np.load(projections_path)
         k_proj = np.load(k_proj_path)
         y_train = np.load(y_train_path)
-        with metadata_path.open("rb") as fh:
-            metadata = pickle.load(fh)
+        metadata = safe_load(str(metadata_path))
         bank = KeyBank(
             projections=projections,
             k_proj=k_proj,
@@ -192,8 +192,7 @@ def try_load_key_bank(
             from ._row_attention_ann import _AnnIndex
             try:
                 if str(idx_path).endswith(".pkl"):
-                    with idx_path.open("rb") as fh:
-                        ann_indices.append(pickle.load(fh))
+                    ann_indices.append(safe_load(str(idx_path)))
                 else:
                     # Legacy hnswlib path.
                     import hnswlib
@@ -238,26 +237,33 @@ def save_key_bank(
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    np.save(tmp_dir / "projections.npy", bank.projections)
-    np.save(tmp_dir / "k_proj.npy", bank.k_proj)
-    np.save(tmp_dir / "y_train.npy", bank.y_train)
-    metadata = {
-        "seed": bank.seed,
-        "standardiser": bank.standardiser,
-        "ann_space": ann_space,
-        "ann_backend": ann_backend,
-    }
-    with (tmp_dir / "metadata.pkl").open("wb") as fh:
-        pickle.dump(metadata, fh)
-    for h, idx in enumerate(bank.ann_indices):
-        # _AnnIndex wraps either a pynndescent NNDescent (pickle-friendly) or an hnswlib Index (needs .save_index). Detect by the .backend attribute.
-        backend = getattr(idx, "backend", "pynndescent")
-        if backend == "hnswlib":
-            inner = getattr(idx, "obj", idx)
-            inner.save_index(str(tmp_dir / f"ann_h{h}.bin"))
-        else:
-            with (tmp_dir / f"ann_h{h}.pkl").open("wb") as fh:
-                pickle.dump(idx, fh)
+    # Any failure mid-write (disk full, pickling error, save_index raising) must not leave the multi-hundred-MB tmp dir
+    # orphaned -- it would never be reclaimed (the next save uses a fresh UUID dir). Mirror io.atomic_write_bytes: wipe
+    # the scratch dir on any error before re-raising. The happy path is unchanged.
+    try:
+        np.save(tmp_dir / "projections.npy", bank.projections)
+        np.save(tmp_dir / "k_proj.npy", bank.k_proj)
+        np.save(tmp_dir / "y_train.npy", bank.y_train)
+        metadata = {
+            "seed": bank.seed,
+            "standardiser": bank.standardiser,
+            "ann_space": ann_space,
+            "ann_backend": ann_backend,
+        }
+        # sha256-sidecar the pickles so the loader's safe_load gate accepts them; a tampered cache file is then refused.
+        safe_dump(metadata, str(tmp_dir / "metadata.pkl"))
+        for h, idx in enumerate(bank.ann_indices):
+            # _AnnIndex wraps either a pynndescent NNDescent (pickle-friendly) or an hnswlib Index (needs .save_index). Detect by the .backend attribute.
+            backend = getattr(idx, "backend", "pynndescent")
+            if backend == "hnswlib":
+                inner = getattr(idx, "obj", idx)
+                inner.save_index(str(tmp_dir / f"ann_h{h}.bin"))
+            else:
+                safe_dump(idx, str(tmp_dir / f"ann_h{h}.pkl"))
+    except BaseException:
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
     final_dir = cache_dir / fingerprint
     # Wave 48 (2026-05-20): rmtree+rename was a TOCTOU race -- two writers could
     # both wipe final_dir and the loser's rename would fail. Wrap both in

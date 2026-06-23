@@ -15,6 +15,8 @@ from pyutilz.system import tqdmu
 from pyutilz.logging import init_logging
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 def sample_random_variable(
     kind: str = "cat",
@@ -72,7 +74,7 @@ def sample_random_variable(
     # Report if taking too long
     if size > 0:
         if (end - start) * 10_000 / size > max_time_per10k:
-            logging.warning(f"Sampling {size} from {dist_name} took {end-start:,.0f} sec.")
+            logger.warning("Sampling %s from %s took %s sec.", size, dist_name, f"{end-start:,.0f}")
 
     return dist_name.replace("_", "-"), data
     

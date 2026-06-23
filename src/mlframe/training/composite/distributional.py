@@ -228,7 +228,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         """
         self._check_fitted()
         if n <= 0:
-            raise ValueError("CompositeDistributionEstimator.sample: n must be > 0.")
+            raise ValueError(f"CompositeDistributionEstimator.sample: n must be > 0; got {n}.")
         rng = (
             random_state if isinstance(random_state, np.random.Generator)
             else np.random.default_rng(random_state)

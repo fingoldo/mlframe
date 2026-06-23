@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Any, Sequence, List, Optional, Callable, Dict
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 def read_glove_embeddings(
     embeddings_dict: Optional[Dict[str, "Any"]] = None,
@@ -31,5 +33,5 @@ def read_glove_embeddings(
             except (ValueError, TypeError):
                 continue
             embeddings_dict[word] = coefs
-    logging.debug("Total %s word vectors.", len(embeddings_dict))
+    logger.debug("Total %s word vectors.", len(embeddings_dict))
     return embeddings_dict

@@ -74,7 +74,10 @@ def _validate_sample_weight(
             f"meta-stacker: sample_weight length {sw.shape[0]} != OOF matrix rows {n_rows}."
         )
     if not np.all(np.isfinite(sw)) or (sw < 0).any():
-        raise ValueError("meta-stacker: sample_weight must be finite and non-negative.")
+        raise ValueError(
+            f"meta-stacker: sample_weight must be finite and non-negative; got "
+            f"{int((~np.isfinite(sw)).sum())} non-finite and {int((sw < 0).sum())} negative entries (min={float(np.nanmin(sw))})."
+        )
     return sw[finite]
 
 

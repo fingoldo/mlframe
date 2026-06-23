@@ -232,7 +232,7 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=np.array([],
     return np.array(uniqueValues, np.int32), np.array(uniqueValuesIndices, np.int32), argsorted
 
 
-def topk_by_partition(input: np.ndarray, k: int, axis: int = None, ascending: bool = False) -> tuple:
+def topk_by_partition(input: np.ndarray, k: int, axis: int | None = None, ascending: bool = False) -> tuple:
     """Returns indices and values of TOP-k elements of an array.
 
     Does NOT mutate the caller's array (previous implementation did `input *= -1` in place).

@@ -421,7 +421,11 @@ def _score_one_pair(
                             try:
                                 final_transformed_vals[:, i] = bin_func(param_a, param_b)
                             except Exception:
-                                logger.error(f"Error when performing {bin_func}")
+                                # The transform raised AFTER (or instead of) writing column ``i``; the buffer slot may
+                                # still hold a prior column's data. Overwrite with NaN so the failed column is never
+                                # scored against stale/garbage values, and skip recording it as a candidate.
+                                logger.exception("Error when performing %s", bin_func)
+                                final_transformed_vals[:, i] = np.nan
                             else:
                                 # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
                                 # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
@@ -596,7 +600,11 @@ def _score_one_pair(
                             _col_buf_1d[:] = bin_func(param_a, param_b)
                             _col_view = _col_buf_1d
                     except Exception:
-                        logger.error(f"Error when performing {bin_func}")
+                        # Failed transform: the buffer slot may still hold a prior column's data. Null it so it is
+                        # never scored, and skip the scoring ``else`` (no candidate recorded for this bin_func).
+                        logger.exception("Error when performing %s", bin_func)
+                        if final_transformed_vals is not None:
+                            final_transformed_vals[:, i] = np.nan
                     else:
                         np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 

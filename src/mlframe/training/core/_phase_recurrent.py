@@ -608,8 +608,8 @@ def train_recurrent_models(
                             model_clone.fit(**_fit_kwargs)
                         else:
                             raise
-                except Exception as e:
-                    logger.error("Failed to train %s for %s: %s", recurrent_model_name, cur_target_name, e)
+                except Exception:
+                    logger.exception("Failed to train %s for %s", recurrent_model_name, cur_target_name)
                     continue
 
                 if ctx is None:

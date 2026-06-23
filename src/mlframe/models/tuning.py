@@ -175,7 +175,7 @@ def generate_valid_candidates(
     random_state: Union[int, np.random.Generator, None] = None,
 ):
     rng = np.random.default_rng(random_state)
-    logging.info("Generating %s valid candidates...", n)
+    logger.info("Generating %s valid candidates...", n)
     approved = []
     attempts = 0
     inner_n = n
@@ -213,7 +213,7 @@ def preprocess_df(df, cat_features):
 
 
 def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.DataFrame:
-    logging.info("Getting trials for experiment %s...", experiment_name)
+    logger.info("Getting trials for experiment %s...", experiment_name)
     res = []
     for id, node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):
         if objective_name in results:
@@ -266,15 +266,16 @@ def objective_to_sampling_weights(predictions: np.ndarray, y: np.ndarray, minimi
         if minimize:
             desired_objective = y.min() + (y.max() - y.min()) * improving_by_atleast
             bad_indices = np.where(predictions >= desired_objective)[0]
-            logging.info(
+            logger.info(
                 "Best and worst observed trial's objectives: %s, %s. Skipping %s candidates with predicted objective over %s",
                 y.min(), y.max(), len(bad_indices), desired_objective,
             )
         else:
             desired_objective = y.max() - (y.max() - y.min()) * improving_by_atleast
             bad_indices = np.where(predictions <= desired_objective)[0]
-            logging.info(
-                f"Best and worst observed trial's objectives: {y.max()}, {y.min()}. Skipping {len(bad_indices)} candidates with predicted objective under {desired_objective}"
+            logger.info(
+                "Best and worst observed trial's objectives: %s, %s. Skipping %s candidates with predicted objective under %s",
+                y.max(), y.min(), len(bad_indices), desired_objective,
             )
         probs[bad_indices] = 0.0
 
@@ -288,7 +289,7 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
     if len(cat_features) == 0 or len(trials) == 0:
         return
 
-    logging.info(f"Favorizing unexplored trials...")
+    logger.info("Favorizing unexplored trials...")
 
     already_sampled = {col: set(trials[col].unique().tolist()) for col in cat_features}
     newly_seen = {col: set() for col in cat_features}
@@ -309,9 +310,9 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
     if len(favorized_items) > 0:
         normalize_probs(probs)
         if len(favorized_items) < 5:
-            logging.info(f"Favorized {len(favorized_items):_} previously unexplored candidates: {favorized_items}")
+            logger.info("Favorized %s previously unexplored candidates: %s", f"{len(favorized_items):_}", favorized_items)
         else:
-            logging.info(f"Favorized {len(favorized_items):_} previously unexplored candidates")
+            logger.info("Favorized %s previously unexplored candidates", f"{len(favorized_items):_}")
 
 
 def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None):
@@ -329,16 +330,16 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
 
             if expected_score >= min_score:
                 if len(trials) - num_trials > max_new_trials:
-                    logging.info("Model for experiment %s found, but it needs updating with new data", experiment_name)
+                    logger.info("Model for experiment %s found, but it needs updating with new data", experiment_name)
                 else:
-                    logging.info("Passing model for experiment %s found ;-)", experiment_name)
+                    logger.info("Passing model for experiment %s found ;-)", experiment_name)
                     should_retrain = False
             else:
                 if len(trials) == num_trials:
-                    logging.info("Model for experiment %s found, but score was bad, and since then no new trials data arrived (", experiment_name)
+                    logger.info("Model for experiment %s found, but score was bad, and since then no new trials data arrived (", experiment_name)
                     should_retrain = False
                 else:
-                    logging.info("Model for experiment %s found, score was bad, but since then new trials data has arrived!", experiment_name)
+                    logger.info("Model for experiment %s found, score was bad, but since then new trials data has arrived!", experiment_name)
 
     # Do NOT mutate the caller's DataFrame: ``pop`` would drop the "target" column in place, corrupting
     # the frame for any later reuse. Read the target as a view and build X from the remaining columns.
@@ -374,7 +375,7 @@ def justify_estimator(
     early_stopping_rounds: Optional[int] = 50,
 ):
 
-    logging.info(f"Checking if ML gains some predictive power already on {len(y):_} samples...")
+    logger.info("Checking if ML gains some predictive power already on %s samples...", f"{len(y):_}")
 
     # Seed the gate's CV splitter from the same RNG that seeds the refit split below, so the whole function is
     # reproducible under one ``random_state``. An int ``cv`` would otherwise build an unseeded (shuffle=False)
@@ -391,7 +392,7 @@ def justify_estimator(
     _test_scores = np.asarray(cv_results["test_score"], dtype=float)
     _n_nan = int(np.sum(~np.isfinite(_test_scores)))
     if _n_nan > 0:
-        logging.warning(
+        logger.warning(
             "ml_check_min_dataset_size: %d/%d CV folds returned non-finite "
             "scores; using nanmean over surviving folds. If most folds are "
             "degenerate, the gate may still reject; check for class "
@@ -400,9 +401,9 @@ def justify_estimator(
     mean_score = float(np.nanmean(_test_scores))
 
     if mean_score >= min_score:
-        logging.info("OOS mean %s=%s, so ML can be used.", scoring, mean_score)
+        logger.info("OOS mean %s=%s, so ML can be used.", scoring, mean_score)
         if refit:
-            logging.info(f"Fitting a model")
+            logger.info("Fitting a model")
 
             is_catboost = isinstance(est, (CatBoostRegressor,)) or "catboost" in est.__class__.__module__.lower()
             if is_catboost:
@@ -419,7 +420,7 @@ def justify_estimator(
         else:
             est = None
     else:
-        logging.info("OOS mean %s=%s, so ML can't be used (yet).", scoring, mean_score)
+        logger.info("OOS mean %s=%s, so ML can't be used (yet).", scoring, mean_score)
         est = None
     return est, mean_score
 
@@ -478,7 +479,7 @@ class ParamsOptimizer:
         """STUB / no-op. Study persistence is not implemented; this method intentionally does nothing and
         returns None. It exists as an extension point for a future persistence backend. Callers must not rely
         on any study being created or stored."""
-        logging.warning("ParamsOptimizer.create_study is a no-op stub; no study was persisted for task_id=%s.", task_id)
+        logger.warning("ParamsOptimizer.create_study is a no-op stub; no study was persisted for task_id=%s.", task_id)
         return None
 
     def suggest_trials(
@@ -540,7 +541,7 @@ class ParamsOptimizer:
                 candidates = get_n_cands(n=max(n * search_space_multiplier, search_space_minsize))
 
                 if len(candidates) <= 1:
-                    logging.warning(f"Nothing to sample for experiment {experiment_name}")
+                    logger.warning("Nothing to sample for experiment %s", experiment_name)
                     return candidates
 
                 probs = np.ones(len(candidates), np.float64) / len(candidates)
@@ -596,7 +597,7 @@ class ParamsOptimizer:
         """STUB / no-op. Result persistence is NOT implemented: the passed ``objectives`` are silently dropped.
         This method exists as an extension point for a future persistence backend; do not rely on it to store
         anything. A warning is emitted so callers notice the results are not being saved."""
-        logging.warning("ParamsOptimizer.report_trial_results is a no-op stub; %d objective(s) were NOT persisted.", len(objectives) if objectives else 0)
+        logger.warning("ParamsOptimizer.report_trial_results is a no-op stub; %d objective(s) were NOT persisted.", len(objectives) if objectives else 0)
         return None
 
 

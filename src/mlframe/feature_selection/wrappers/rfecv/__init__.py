@@ -699,6 +699,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                 _fd_adopted = True  # fdopen returned -> the with-block owns fd
                 pickle.dump(state, fh, protocol=pickle.HIGHEST_PROTOCOL)
             os.replace(tmp, path)
+            # Write the sha256 sidecar so _load_checkpoint's safe_load round-trips. The sidecar is an integrity/corruption gate, not an
+            # authenticity control: an attacker with write access to checkpoint_path rewrites both payload and sidecar (see safe_pickle docs).
+            from mlframe.utils.safe_pickle import write_sidecar
+            write_sidecar(path)
         except Exception:
             if not _fd_adopted:
                 try:
@@ -726,10 +730,18 @@ class RFECV(BaseEstimator, TransformerMixin):
         # with concurrent RFECV runs sharing checkpoint_path (or an external cleanup
         # cron); FileNotFoundError/OSError would propagate uncaught and abort the fit.
         # Drop the redundant exists check; add OSError/FileNotFoundError to the except.
+        from mlframe.utils.safe_pickle import PickleVerificationError, safe_load
         try:
-            with open(path, "rb") as fh:
-                state = pickle.load(fh)
+            # Route the caller-supplied resume checkpoint through the sidecar-gated loader: a missing/mismatched .sha256 fails closed
+            # (refuse to unpickle, start fresh) rather than running arbitrary pickle from a tampered checkpoint file.
+            state = safe_load(path)
         except FileNotFoundError:
+            return None
+        except PickleVerificationError as exc:
+            logger.warning(
+                "RFECV: checkpoint at %s failed sha256 sidecar verification (%s); starting from scratch.",
+                path, exc,
+            )
             return None
         except (pickle.PickleError, EOFError, AttributeError, TypeError, ValueError, OSError) as exc:
             logger.warning(

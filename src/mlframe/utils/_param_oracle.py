@@ -764,7 +764,7 @@ class ParamOracle:
         rss_delta = (rss_after - rss_before) if (rss_before is not None and rss_after is not None) else None
         obj = self.objective_fn(out, elapsed, rss_delta)
         if not isinstance(obj, dict):
-            raise TypeError("objective_fn must return a dict[str, float]")
+            raise TypeError(f"objective_fn must return a dict[str, float]; got {type(obj).__name__}")
         # Always ensure elapsed_s is present for cheaper-tie-break.
         obj.setdefault("elapsed_s", elapsed)
         return obj, out

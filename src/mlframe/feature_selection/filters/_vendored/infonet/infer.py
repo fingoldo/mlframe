@@ -50,7 +50,14 @@ def load_model(config_path, checkpoint_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config = load_config(config_path)
     model = create_model(config)
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    # weights_only=True restricts the unpickler to plain tensors/state-dicts, blocking arbitrary-code execution if the Google-Drive
+    # checkpoint is tampered with. The checkpoint here is a pure state_dict, so the restriction is sound. torch <1.13 lacks the kwarg;
+    # fall back to the legacy call there (those versions also predate the unpickler-restriction feature, so nothing safer is available).
+    try:
+        state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    except TypeError:
+        state_dict = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state_dict)
     model.eval()
     return model
 

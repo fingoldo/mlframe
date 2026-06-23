@@ -18,7 +18,7 @@ import os
 import time
 import warnings
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -235,7 +235,7 @@ def main(scale: str = "small"):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"pr4_methods_{timestamp}.json"
     payload = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "rows": rows,
         "summary": summary.reset_index().to_dict(orient="records"),
     }

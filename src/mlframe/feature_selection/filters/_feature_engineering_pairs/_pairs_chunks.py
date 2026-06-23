@@ -306,7 +306,10 @@ def _compute_one_fe_chunk(
                         try:
                             chunk_buffer[:, col] = bin_func(param_a, param_b)
                         except Exception:
-                            logger.error(f"Error when performing {bin_func}")
+                            # Failed transform: the buffer slot may still hold a prior column's data. Null it so it is
+                            # never scored, and skip recording it as a candidate (``col`` is not advanced here).
+                            logger.exception("Error when performing %s", bin_func)
+                            chunk_buffer[:, col] = np.nan
                             continue
                         # NaN/inf scrub DEFERRED to one vectorised pass over chunk_buffer[:, :col]
                         # below (was a per-column ``nan_to_num`` here -- the same per-column serial

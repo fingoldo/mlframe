@@ -75,6 +75,7 @@ def _load_features_file(features_file: str):
         logger.error("sha256 mismatch for features file %s; refusing to load", features_file)
         return None
 
+    # Trusts the sha256 sidecar verified just above: an integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).
     features = joblib.load(features_file)
     if isinstance(features, pd.core.indexes.base.Index):
         # ``.to_list()`` is the pandas-modern path (handles nullable dtypes); ``.values.tolist()`` round-trips through ndarray needlessly.
@@ -173,6 +174,7 @@ def read_trained_models(
                 "for %s: %s; proceeding with load.", model_file, _meta_e,
             )
         try:
+            # Trusts the sha256 sidecar verified above: integrity/corruption gate, NOT authenticity (dir-write attacker rewrites payload+sidecar).
             model = joblib.load(model_file)
         except Exception as e:
             logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)

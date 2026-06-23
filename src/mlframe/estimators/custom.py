@@ -63,7 +63,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         func=None,
         inverse_func=None,
         check_inverse=True,
-        es_fit_param_name:str=None,
+        es_fit_param_name:str | None=None,
     ):
         # Wave 56 (2026-05-20): forward to parent __init__ so any new sklearn
         # TransformedTargetRegressor attrs (e.g. validate_inverse, _n_features_out)
@@ -390,13 +390,13 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
     """We can't created such estimator directly, as y_true is never passed during predict().
     So this helper func is just for train set.
     """
-    # Wave 31 (2026-05-20): assert -> ValueError so -O doesn't strip the
-    # check. Pre-fix invalid strategy slipped past + ``y_pred`` was
-    # never assigned, causing UnboundLocalError far from root.
-    if strategy not in ("constant_lag", "adaptive_lag"):
+    # Only "constant_lag" is implemented; accepting "adaptive_lag" would leave ``y_pred`` unassigned -> UnboundLocalError at return.
+    if strategy != "constant_lag":
         raise ValueError(
-            f"strategy must be 'constant_lag' or 'adaptive_lag'; got {strategy!r}."
+            f"strategy must be 'constant_lag'; got {strategy!r}."
         )
+    if y_true.size == 0:
+        raise ValueError("y_true is empty; cannot compute a median-imputed lagged prediction.")
     if strategy == "constant_lag":
         if y_true.ndim == 1:
             shift_params = lag
@@ -411,7 +411,7 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
             elif y_true.ndim == 2:
                 cval = np.median(y_true.flatten(), axis=0)
         else:
-            cval = np.NaN
+            cval = np.nan
 
         y_pred = shift(y_true, shift=shift_params, cval=cval)
 
@@ -456,7 +456,7 @@ def soft_winsorize(
     rel_upper_limit: float,
     distribution: str = "quantile",
     inplace: bool = False,
-) -> None:
+) -> np.ndarray:
     """Analog of np.clip, but soft: does not lose SO much information.
     Instead of simple clipping, applies linear transformation so that max datapoint (subject to clipping to upper_clipping_threshold otherwise)
     becomes upper_clipping_threshold+rel_upper_limit.
@@ -475,15 +475,15 @@ def soft_winsorize(
 
     rel_max_real_diff = np.max(data) - abs_upper_threshold
     rel_min_real_diff = abs_lower_threshold - np.min(data)
-    if rel_max_real_diff < 0:
+    if rel_max_real_diff <= 0:
         raise ValueError(
-            f"abs_upper_threshold={abs_upper_threshold} is above the data max "
-            f"({np.max(data)}); no data to winsorize above."
+            f"abs_upper_threshold={abs_upper_threshold} is at or above the data max "
+            f"({np.max(data)}); no data to winsorize above (zero span would divide by zero)."
         )
-    if rel_min_real_diff < 0:
+    if rel_min_real_diff <= 0:
         raise ValueError(
-            f"abs_lower_threshold={abs_lower_threshold} is below the data min "
-            f"({np.min(data)}); no data to winsorize below."
+            f"abs_lower_threshold={abs_lower_threshold} is at or below the data min "
+            f"({np.min(data)}); no data to winsorize below (zero span would divide by zero)."
         )
 
     if inplace:
@@ -598,7 +598,7 @@ class IdentityEstimator(BaseEstimator):
     Note: `predict` returns the raw feature slice — it is NOT sklearn-standard label-from-argmax behaviour.
     """
 
-    def __init__(self,feature_names:list=None,feature_indices:list=None):
+    def __init__(self,feature_names:list | None=None,feature_indices:list | None=None):
         self.feature_names=feature_names
         self.feature_indices=feature_indices
 

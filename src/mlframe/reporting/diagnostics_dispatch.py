@@ -62,20 +62,25 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
 
     Mirrors the matplotlib renderer's on-disk name so ``build_combined_html_report`` can stitch it. Returns True on success.
     """
-    if "png" not in (plot_outputs or "").lower():
-        return False
+    # ``plt.close`` MUST run on every exit (early non-png return, savefig failure, success); otherwise a builder that
+    # hands us a Figure on a non-png run -- or whose savefig raises -- leaks it into matplotlib's global registry,
+    # which grows unbounded across the per-split/per-target hot path. Hence the close lives in ``finally``.
     try:
-        fig.savefig(base_path + ".png", bbox_inches="tight")
+        if "png" not in (plot_outputs or "").lower():
+            return False
+        try:
+            fig.savefig(base_path + ".png", bbox_inches="tight")
+            return True
+        except Exception:
+            logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
+            return False
+    finally:
         try:
             import matplotlib.pyplot as plt
 
             plt.close(fig)
         except Exception:
             pass
-        return True
-    except Exception:
-        logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
-        return False
 
 
 def _column_names(frame: Any) -> Optional[List[str]]:

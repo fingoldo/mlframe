@@ -423,8 +423,8 @@ class _PredictMixin:
                         e_cpu, e,
                     )
                     raise
-        except Exception as e:
-            logger.error(f"Prediction failed: {e}")
+        except Exception:
+            logger.exception("Prediction failed")
             raise
 
         self.trainer = None

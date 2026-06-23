@@ -47,7 +47,7 @@ def get_sd_for_dist_percentage(dist_percentage: float, dist: norm_gen = norm, **
 
 @lru_cache
 def get_tukey_fences_multiplier_for_quantile(
-    quantile: float, sd_sigma: float = 2.7, nonoutlying_dist_percentage: float = None, dist: norm_gen = norm, **dist_kwargs
+    quantile: float, sd_sigma: float = 2.7, nonoutlying_dist_percentage: float | None = None, dist: norm_gen = norm, **dist_kwargs
 ) -> float:
     """Compute Tukey fences [https://en.wikipedia.org/wiki/John_Tukey] multiplier for a desired quantile or nonoutlying dist coverage percent.
 

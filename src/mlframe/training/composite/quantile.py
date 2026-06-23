@@ -242,7 +242,7 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         q = self.quantiles if self.quantiles is not None else _DEFAULT_QUANTILES
         q_arr = np.asarray(q, dtype=np.float64).reshape(-1)
         if q_arr.size == 0:
-            raise ValueError("CompositeQuantileEstimator: quantiles is empty.")
+            raise ValueError(f"CompositeQuantileEstimator: quantiles is empty; got {self.quantiles!r}.")
         if np.any((q_arr <= 0.0) | (q_arr >= 1.0)):
             raise ValueError(
                 "CompositeQuantileEstimator: quantiles must be strictly in (0, 1); "

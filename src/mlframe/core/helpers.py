@@ -112,11 +112,12 @@ def get_model_best_iter(model: object) -> int | None:
     return None
 
 
-def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = True) -> bool:
+def ensure_no_infinity(df: pd.DataFrame | pl.DataFrame, num_cols_only: bool = True) -> pd.DataFrame | pl.DataFrame | None:
     if isinstance(df, pd.DataFrame):
         return ensure_no_infinity_pd(df=df, num_cols_only=num_cols_only)
     elif isinstance(df, pl.DataFrame):
         return ensure_no_infinity_pl(df=df, num_cols_only=num_cols_only)
+    raise TypeError(f"ensure_no_infinity expects a pandas or polars DataFrame; got {type(df).__name__}.")
 
 
 def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pl.DataFrame:
