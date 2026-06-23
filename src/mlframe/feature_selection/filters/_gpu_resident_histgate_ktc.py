@@ -96,8 +96,15 @@ def _make_histgate_inputs(dims: dict):
     """Synthetic resident-gate inputs at ``dims['n_rows']`` rows. K is PRODUCTION-SCALE (a candidate chunk is
     ~500-600 columns): the threads/block ranking is K-SENSITIVE here because the per-launch H2D wall (which a
     tiny K lets dominate and MASK the kernel win) shrinks relative to the (K, P)-block kernel time as K grows.
-    A K=512 probe makes the kernel the wall (as in production) so the sweep ranks the kernel, not the H2D --
-    measured at K=583 the kernel is 2.7x faster at 1024 vs 128 threads, a win a K=96 probe missed entirely."""
+    A K=512 probe makes the kernel the wall (as in production) so the sweep ranks the kernel, not the H2D.
+
+    CORRECTION (2026-06-23, contention-robust re-sweep + CUDA-event back-to-back A/B at THIS K=512 probe shape):
+    the earlier "1024 is 2.7x faster than 128 at K=583" claim was a measurement ARTIFACT (different probe shape /
+    contention-distorted A/B). The definitive interleaved-min CUDA-event A/B on the GTX 1050 Ti at K=512 gives,
+    per single launch: n=50k 128=58ms vs 1024=88ms; n=100k 128=110ms vs 1024=174ms (1.57x SLOWER at 1024);
+    n=300k 128=800ms vs 1024=535ms (1024 wins only here). So 128 IS the true-fastest at <=100k and the
+    contention-robust sweep correctly keeps th_128 there + th_1024 at >=300k -- there is NO ~1.28s MI-gate win to
+    materialise; forcing 1024 at 100k would REGRESS the kernel ~1.5x. The KTC pick now matches the measured floor."""
     rng = np.random.default_rng(0)
     n = int(dims["n_rows"])
     K = 512
