@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal, Optional
 
+import numba
 import numpy as np
 import polars as pl
 
@@ -44,32 +45,51 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
-def _ks_and_wasserstein(y_neighbors: np.ndarray, y_global_sorted: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """For each query row (= row of y_neighbors), compute KS and W1 against global y CDF.
-
-    Vectorised: for each row, sort local-y, interpolate both CDFs on the union of sample points, compute sup and integrated abs diff.
-    """
-    n_q, k = y_neighbors.shape
+@numba.njit(cache=True, fastmath=True, parallel=True)
+def _ks_w1_kernel(y_local_sorted: np.ndarray, y_global_sorted: np.ndarray, ks_out: np.ndarray, w1_out: np.ndarray) -> None:
+    n_q, k = y_local_sorted.shape
     n_g = y_global_sorted.shape[0]
+    inv_k = np.float32(1.0) / np.float32(k)
+    inv_ng = np.float32(1.0) / np.float32(n_g)
+    for i in numba.prange(n_q):
+        ks = np.float32(0.0)
+        w1 = np.float32(0.0)
+        prev = y_local_sorted[i, 0]
+        for j in range(k):
+            v = y_local_sorted[i, j]
+            # searchsorted side="right": count of global samples <= v, via binary search on the monotone global array.
+            lo = 0
+            hi = n_g
+            while lo < hi:
+                mid = (lo + hi) >> 1
+                if y_global_sorted[mid] <= v:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            g_rank = np.float32(lo) * inv_ng
+            cdf_local = np.float32(j + 1) * inv_k
+            d = abs(cdf_local - g_rank)
+            if d > ks:
+                ks = d
+            # Wasserstein-1: integrate |CDF_local - CDF_global| over the sorted-local sample intervals (width 0 at the first point, mirroring np.diff(prepend=local[0])).
+            width = (v - prev) if j > 0 else np.float32(0.0)
+            w1 += d * width
+            prev = v
+        ks_out[i] = ks
+        w1_out[i] = w1
+
+
+def _ks_and_wasserstein(y_neighbors: np.ndarray, y_global_sorted: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """For each query row (= row of y_neighbors), compute KS sup-distance and Wasserstein-1 against the global y CDF.
+
+    Per row: sort local-y, evaluate the global CDF at each local sample (searchsorted side='right'), then KS = sup|F_local - F_global| and
+    W1 = sum of |F_local - F_global| * sample-interval-width. An njit(prange) kernel fuses the searchsorted + sup + integral with no per-row temporaries.
+    """
+    n_q = y_neighbors.shape[0]
+    y_local_sorted = np.sort(y_neighbors, axis=1).astype(np.float32, copy=False)
     ks_out = np.zeros(n_q, dtype=np.float32)
     w1_out = np.zeros(n_q, dtype=np.float32)
-    # Pre-sort local rows.
-    y_local_sorted = np.sort(y_neighbors, axis=1)
-    cdf_local = (np.arange(k) + 1).astype(np.float32) / k  # CDF heights at sorted-local positions
-    # For each query, evaluate global CDF at local sample points (right-side counts).
-    # searchsorted on sorted global array gives the global rank at each local sample.
-    for i in range(n_q):
-        local = y_local_sorted[i]
-        # Global CDF evaluated at each local sample.
-        global_ranks = np.searchsorted(y_global_sorted, local, side="right").astype(np.float32) / n_g
-        # KS: max over sample points of |local_cdf - global_cdf|.
-        diff = np.abs(cdf_local - global_ranks)
-        ks_out[i] = diff.max()
-        # Wasserstein-1: integrate |CDF_local - CDF_global| over y. For piecewise CDFs,
-        # this is sum over sample intervals of |local_height - global_height| * (sample_right - sample_left).
-        # Use trapezoidal approximation on sorted local samples.
-        widths = np.diff(local, prepend=local[0])
-        w1_out[i] = (diff * widths).sum()
+    _ks_w1_kernel(y_local_sorted, y_global_sorted.astype(np.float32, copy=False), ks_out, w1_out)
     return ks_out, w1_out
 
 

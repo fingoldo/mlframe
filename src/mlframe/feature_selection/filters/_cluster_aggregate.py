@@ -502,8 +502,20 @@ def run_cluster_aggregate_step(
                 ).astype(np.dtype(_q_local["dtype"]))
             else:
                 binned = apply_recipe(recipe, X)
-            agg_mi = float(mi(np.column_stack([data, binned.astype(data.dtype)]), np.array([data.shape[1]], dtype=np.int64),
-                              target, np.concatenate([np.asarray(nbins), [int(quantization_nbins)]]).astype(np.int64), dtype=dtype))
+            # ``mi`` reads ONLY columns x (the binned aggregate) and y (``target``)
+            # via ``merge_vars``; the rest of ``data`` is copied-then-discarded.
+            # Stack just the target columns + the binned aggregate into a compact
+            # (n, |target|+1) matrix and remap x/y into it -> bit-identical MI
+            # (merge_vars depends only on the read columns' per-sample values + their
+            # nbins, not on column position), skipping the full (n, n_features) copy
+            # that was rebuilt EVERY method-iteration. ~25-89x on this score at
+            # realistic shapes (bench: _benchmarks/bench_cluster_aggregate_mi_compact_stack.py).
+            _tcols = np.asarray(target, dtype=np.int64)
+            _compact = np.column_stack([data[:, _tcols], binned.astype(data.dtype)])
+            _n_t = _tcols.shape[0]
+            _compact_nbins = np.concatenate([np.asarray(nbins)[_tcols], [int(quantization_nbins)]]).astype(np.int64)
+            agg_mi = float(mi(_compact, np.array([_n_t], dtype=np.int64),
+                              np.arange(_n_t, dtype=np.int64), _compact_nbins, dtype=dtype))
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 
