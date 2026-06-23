@@ -260,6 +260,59 @@ def test_worst_k_table_pruned_pull_matches_full_matrix():
         assert np.array_equal(res.table[names[j]].to_numpy(), mat[sel, j]), f"col {names[j]} diverged"
 
 
+def test_error_bias_pruned_pull_matches_full_matrix():
+    """Column-pruned pull (only ``max_features`` cols) is bit-identical to densifying the whole matrix.
+
+    Pins the optimization that ``error_bias_per_feature`` no longer builds+discards the full dense feature matrix when
+    the overlay touches only a few columns. Covers default selection AND a named subset that includes a string column,
+    so the label-encoding path matches the full-matrix encoder; a NaN column exercises the finite filter.
+    """
+    from mlframe.reporting.charts.error_analysis import (
+        _resolve_feature_matrix, _signed_error, _tag_error_groups,
+        DEFAULT_TAIL_FRACTION, DEFAULT_OVERLAY_BINS,
+    )
+
+    rng = np.random.default_rng(11)
+    n, cols = 4000, 40
+    data = {f"f{j}": rng.standard_normal(n) for j in range(cols)}
+    data["f0"] = rng.choice(["a", "bb", "ccc"], n)
+    X = pd.DataFrame(data)
+    X.loc[X.index[:30], "f1"] = np.nan
+    yt = rng.standard_normal(n)
+    yp = yt + rng.standard_normal(n) * 0.4
+
+    for features in (None, ["f5", "f12", "f0"]):
+        res = error_bias_per_feature(X, yt, yp, features=features)
+
+        mat, names = _resolve_feature_matrix(X, None)
+        masks = _tag_error_groups(_signed_error(yt, yp), DEFAULT_TAIL_FRACTION)
+        if features is not None:
+            sel = [names.index(f) for f in features if f in names]
+        else:
+            sel = list(range(min(4, mat.shape[1])))
+
+        expected = {}
+        for j in sel:
+            col = mat[:, j]
+            finite = np.isfinite(col)
+            if col[finite].size == 0:
+                continue
+            edges = np.histogram_bin_edges(col[finite], bins=DEFAULT_OVERLAY_BINS)
+            for g in ("OVER", "UNDER", "MAJORITY"):
+                dens, _ = np.histogram(col[masks[g] & finite], bins=edges, density=True)
+                expected[(names[j], g)] = dens
+
+        got = {}
+        for row in res.figure.panels:
+            for p in row:
+                if p is None or not hasattr(p, "series_labels"):
+                    continue
+                for lab, y in zip(p.series_labels, p.y):
+                    got[(p.xlabel, lab)] = y
+        for key, dens in expected.items():
+            assert np.array_equal(got[key], dens, equal_nan=True), f"series {key} diverged"
+
+
 def test_worst_k_classification_uses_loss(reg_clean):
     X, _, _ = reg_clean
     rng = np.random.default_rng(3)

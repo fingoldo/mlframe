@@ -67,6 +67,18 @@ def _softmax_with_temp(scores: np.ndarray, temp: float) -> np.ndarray:
     return e / e.sum(axis=-1, keepdims=True)
 
 
+def _squared_dists(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """Pairwise squared euclidean distance, (len(A), len(B)), via the ``||a||^2 - 2 a.b + ||b||^2`` GEMM
+    decomposition. Avoids the (len(A), len(B), d) broadcast cube that ``((A[:, None, :] - B[None, :, :]) ** 2).sum(axis=-1)``
+    materialises; only the (len(A), len(B)) result is allocated. Differs from the subtraction form by float32 reduction
+    order (~2e-7 relative on the downstream softmax), selection-equivalent for these attention features."""
+    a_sq = np.einsum("ij,ij->i", A, A)[:, None]
+    b_sq = np.einsum("ij,ij->i", B, B)[None, :]
+    d = a_sq - 2.0 * (A @ B.T) + b_sq
+    np.maximum(d, 0.0, out=d)
+    return d
+
+
 def _stage_a_anchor_to_train(
     anchors: np.ndarray,
     X_train: np.ndarray,
@@ -78,8 +90,7 @@ def _stage_a_anchor_to_train(
     Anchor scores over train: anchor_m · x_i (could use cosine or negative-distance; here negative-Euclidean for softmax-attention-like behavior).
     """
     # Use negative squared distance (standardised) so closer train rows get higher score.
-    diffs = anchors[:, None, :] - X_train[None, :, :]  # (M, N, d)
-    sq = (diffs ** 2).sum(axis=-1)  # (M, N)
+    sq = _squared_dists(anchors, X_train)  # (M, N)
     scores = -sq  # closer → higher score
     weights = _softmax_with_temp(scores, temp=temp)  # (M, N) — softmax over N for each anchor
     # Anchor's pooled y_mean and y_std.
@@ -95,8 +106,7 @@ def _stage_b_query_to_anchor(
     temp: float,
 ) -> np.ndarray:
     """Stage B: query→anchor softmax. Returns weights of shape (n_query, M)."""
-    diffs = queries[:, None, :] - anchors[None, :, :]  # (n_q, M, d)
-    sq = (diffs ** 2).sum(axis=-1)  # (n_q, M)
+    sq = _squared_dists(queries, anchors)  # (n_q, M)
     scores = -sq
     return _softmax_with_temp(scores, temp=temp)  # (n_q, M)
 

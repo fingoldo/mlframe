@@ -113,6 +113,14 @@ def _resolve_feature_matrix(
     return mat, names
 
 
+def _row_count(X: Any) -> int:
+    """Row count of ``X`` (frame ``len`` / ndarray first axis) without materialising it."""
+    if _is_frame(X):
+        return len(X)
+    arr = np.asarray(X)
+    return arr.shape[0] if arr.ndim >= 1 else 0
+
+
 def _is_frame(X: Any) -> bool:
     """True when ``X`` is a pandas / polars frame (has ``columns`` and is indexable) rather than an ndarray."""
     return hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray)
@@ -540,14 +548,20 @@ def error_bias_per_feature(
     """
     import pandas as pd
 
-    mat, names = _resolve_feature_matrix(X, feature_names)
+    names = _resolve_feature_names(X, feature_names)
     signed = _signed_error(y_true, y_pred)
     masks = _tag_error_groups(signed, tail_fraction)
 
     if features is not None:
         sel = [names.index(f) for f in features if f in names]
     else:
-        sel = list(range(min(max_features, mat.shape[1])))
+        sel = list(range(min(max_features, len(names))))
+
+    # Densify ONLY the selected columns over all rows -- the overlay touches at most ``max_features`` (default 4) of
+    # what can be a several-hundred-column frame, so building the whole dense matrix here just to discard all but
+    # ``sel`` is wasted O(n*cols) work. Column pull is bit-identical to ``_resolve_feature_matrix(X)[:, j]``.
+    all_rows = np.arange(_row_count(X), dtype=np.int64)
+    col_vals = _pull_columns_at_rows(X, sel, all_rows)
 
     group_colors = {"OVER": "#d62728", "UNDER": "#1f77b4", "MAJORITY": "#7f7f7f"}
     panels: List[PanelSpec] = []
@@ -555,7 +569,7 @@ def error_bias_per_feature(
     feat_index: List[str] = []
 
     for j in sel:
-        col = mat[:, j]
+        col = col_vals[j]
         finite = np.isfinite(col)
         cf = col[finite]
         if cf.size == 0:
