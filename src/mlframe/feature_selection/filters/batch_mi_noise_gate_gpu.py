@@ -32,7 +32,9 @@ reproduces ``_relevance_from_dense`` exactly given the integer counts.
 """
 from __future__ import annotations
 
+import os
 import time
+import logging
 
 import numpy as np
 
@@ -57,6 +59,7 @@ from ._batch_mi_noise_gate_kernels import (
     _cuda_hist_kernel_factory,
     _cuda_hist_kernel_batched_factory,
     _cuda_hist_kernel_batched_shared_factory,
+    _cuda_hist_kernel_batched_shared_cm_factory,
     _cuda_shared_mem_per_block,
 )
 
@@ -343,6 +346,7 @@ def batch_mi_with_noise_gate_cupy(
 # sibling build on first use; the public functions assign into these via ``global``).
 _CUDA_HIST_KERNEL: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED_SHARED: "object | None" = None
+_CUDA_HIST_KERNEL_BATCHED_SHARED_CM: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
 
 # Device shuffled-y matrix cache (2026-06-21): y_all = [classes_y; nperm Fisher-Yates shuffles] is
@@ -407,13 +411,15 @@ def batch_mi_with_noise_gate_cuda_resident(
             base_seed, min_nonzero_confidence, use_su, dtype,
             128 if threads_per_block is None else threads_per_block,
         )
-    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_MI_KERNEL
+    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
     if not _CUDA_AVAIL:
         raise RuntimeError("numba.cuda is not available on this host")
     if _CUDA_HIST_KERNEL_BATCHED is None:
         _CUDA_HIST_KERNEL_BATCHED = _cuda_hist_kernel_batched_factory()
     if _CUDA_HIST_KERNEL_BATCHED_SHARED is None:
         _CUDA_HIST_KERNEL_BATCHED_SHARED = _cuda_hist_kernel_batched_shared_factory()
+    if _CUDA_HIST_KERNEL_BATCHED_SHARED_CM is None:
+        _CUDA_HIST_KERNEL_BATCHED_SHARED_CM = _cuda_hist_kernel_batched_shared_cm_factory()
     if _CUDA_MI_KERNEL is None:
         _CUDA_MI_KERNEL = _cuda_mi_from_counts_kernel_factory()
     if _CUDA_HIST_KERNEL_BATCHED is None or _CUDA_MI_KERNEL is None:
@@ -481,6 +487,24 @@ def batch_mi_with_noise_gate_cuda_resident(
     _sh_bytes = _max_hist * 4
     _sh_budget = _cuda_shared_mem_per_block()
     _use_shared = (_CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75))
+
+    # COLUMN-MAJOR coalesced disc (2026-06-23): the shared-mem hist kernel is LOAD-bound (CUDA-event
+    # decomposition: per-row shared atomics ~3% of the kernel, ~12 GB/s << ~96 GB/s read peak), throttled
+    # by the stride-K ``disc_2d[r, k]`` read (~1/8 coalesced). Reading the SAME values from a (K, n) C-order
+    # buffer is fully coalesced -> 12.55x kernel-only (147 GB/s), 5.59x NET with a fresh transpose folded in
+    # at n=100k/K=583/P=26 (this corrects the 2026-06-21 "shared-atomic-bound" rejection). The transpose is
+    # paid ONCE (all P y-vectors share the one (K, n) disc). Counts are layout-invariant -> BIT-IDENTICAL
+    # (verified maxdiff 0). Gated ON; ``MLFRAME_FE_GPU_HISTGATE_CM=0`` forces the row-major kernel; any
+    # transpose/compile failure falls back to it too, so CPU / no-CUDA is byte-unchanged.
+    _cm_on = os.environ.get("MLFRAME_FE_GPU_HISTGATE_CM", "1").strip().lower() in ("1", "true", "on", "yes")
+    _d_disc_cm = None
+    if _use_shared and _cm_on and _CUDA_HIST_KERNEL_BATCHED_SHARED_CM is not None:
+        try:
+            import cupy as _cp_cm
+            _d_disc_cm = _cp_cm.ascontiguousarray(_cp_cm.asarray(d_disc).T)  # (K, n) C-order, coalesced disc load
+        except Exception:
+            logging.getLogger(__name__).debug("histgate column-major transpose failed; row-major fallback", exc_info=True)
+            _d_disc_cm = None
     # The shared kernel OVERWRITES every counts slot (flushes its full [off:off+nb_k*K_y] slice), so the
     # host zeroing is redundant there; the global-atomic kernel needs the zeroed buffer.
     if not _use_shared:
@@ -494,7 +518,11 @@ def batch_mi_with_noise_gate_cuda_resident(
     with _warnings.catch_warnings():
         if _NbPerfWarn is not None:
             _warnings.simplefilter("ignore", _NbPerfWarn)
-        if _use_shared:
+        if _use_shared and _d_disc_cm is not None:
+            _CUDA_HIST_KERNEL_BATCHED_SHARED_CM[(K, P), threads_per_block, 0, _sh_bytes](
+                _d_disc_cm, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
+            )
+        elif _use_shared:
             _CUDA_HIST_KERNEL_BATCHED_SHARED[(K, P), threads_per_block, 0, _sh_bytes](
                 d_disc, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
             )

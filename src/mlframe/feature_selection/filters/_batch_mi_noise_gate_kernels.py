@@ -426,6 +426,60 @@ def _cuda_hist_kernel_batched_shared_factory():
     return _kernel_bs
 
 
+def _cuda_hist_kernel_batched_shared_cm_factory():
+    """COLUMN-MAJOR (K, n) variant of the shared-mem privatized batched joint-histogram ``_kernel_bs``.
+
+    bench-CORRECTION (2026-06-23): the 2026-06-21 note on ``_kernel_bs`` claimed the shared kernel is
+    "shared-atomic-bound (n counts/block), not disc-load-bound" and rejected the column-major layout.
+    A CUDA-event component decomposition at the real gate shape (n=100k, K=583, P=26, nbins=K_y=20,
+    128 threads) DISPROVES that: the per-row shared atomics are only ~3% of the kernel (34ms of 1031ms;
+    a loads-only no-atomic probe ran 997ms), warp-private sub-histogram replication gave ~1.0x, and the
+    kernel runs at ~12 GB/s << the ~96 GB/s read peak -- it is LOAD-bound, throttled by the stride-K
+    ``disc_2d[r, k]`` read (consecutive threads read rows = K*itemsize apart -> ~1/8 coalesced). Reading
+    the SAME values from a (K, n) C-order buffer (``disc_cm[k, r]`` = consecutive threads read consecutive
+    memory) is fully coalesced: kernel-only 1036ms -> 82ms = 12.55x at 147 GB/s, and with a fresh
+    per-call cupy transpose folded in the NET is 5.59x (1031ms -> 184ms). Counts are summed over the same
+    column values regardless of layout -> BIT-IDENTICAL (verified maxdiff 0 vs ``_kernel_bs``). The
+    transpose is paid ONCE per gate launch (all P y-vectors share the one (K, n) disc); the original
+    ``_kernel_bs`` stays the fallback (compile/transpose failure) so CPU / no-CUDA is byte-unchanged."""
+    if not _CUDA_AVAIL:
+        return None
+
+    from numba import int32 as _i32
+
+    @_nb_cuda.jit
+    def _kernel_bs_cm(disc_cm, col_offsets, nbins_col, y_all, counts_flat, n, K_y, total_size):
+        k = _nb_cuda.blockIdx.x
+        p = _nb_cuda.blockIdx.y
+        if k >= disc_cm.shape[0]:
+            return
+        nb_k = nbins_col[k]
+        hsize = nb_k * K_y
+        sh = _nb_cuda.shared.array(0, _i32)  # dynamic; bytes set by launch config (same as _kernel_bs)
+        tid = _nb_cuda.threadIdx.x
+        nthreads = _nb_cuda.blockDim.x
+        i = tid
+        while i < hsize:
+            sh[i] = 0
+            i += nthreads
+        _nb_cuda.syncthreads()
+        # COALESCED disc load: disc_cm[k, r] -> consecutive threads (r=tid, tid+1, ...) read consecutive
+        # memory (vs the (n, K) row-major disc_2d[r, k] stride-K read = ~1/8 coalesced). 12.55x kernel-only
+        # at this shape (load-bound; atomics ~3%). Counts are layout-invariant -> BIT-IDENTICAL.
+        for r in range(tid, n, nthreads):
+            cx = disc_cm[k, r]
+            cy = y_all[p, r]
+            _nb_cuda.atomic.add(sh, cx * K_y + cy, 1)
+        _nb_cuda.syncthreads()
+        off = col_offsets[k] + p * total_size
+        i = tid
+        while i < hsize:
+            counts_flat[off + i] = sh[i]
+            i += nthreads
+
+    return _kernel_bs_cm
+
+
 _CUDA_SHARED_BYTES_PER_BLOCK: int = -1
 
 

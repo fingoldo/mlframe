@@ -206,3 +206,29 @@ def test_cupy_bincount_known_size_byte_identical(size, flatlen):
     ref2 = cp.asnumpy(cp.bincount(d_idx2, minlength=size)[:size])
     got2 = cp.asnumpy(_cupy_bincount_known_size(d_idx2, size))
     assert np.array_equal(got2, ref2)
+
+
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda unavailable")
+@pytest.mark.parametrize("n,K,nbins", [(500, 13, 6), (2407, 64, 10)])
+@pytest.mark.parametrize("npermutations", [0, 5])
+def test_histgate_column_major_bit_identical(monkeypatch, n, K, nbins, npermutations):
+    """The coalesced column-major shared-hist kernel (_kernel_bs_cm, default ON, 5.59x net at the gate
+    shape) must produce a BIT-IDENTICAL fe_mi to the row-major kernel (_kernel_bs) -- counts are summed
+    over the same column values regardless of (n,K) vs (K,n) layout. MLFRAME_FE_GPU_HISTGATE_CM toggles
+    the path; both must equal the CPU reference (the histogram is load-layout-invariant)."""
+    disc_2d, classes_y, freqs_y = _make_frame(n, K, nbins, seed=99 + n + K)
+    factors_nbins = np.full(K, nbins, dtype=np.int64)
+    ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, npermutations, 0.99, False)
+
+    def _run():
+        return batch_mi_with_noise_gate_cuda(
+            disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y,
+            npermutations, np.uint64(0), 0.99, False, np.int32,
+        )
+
+    monkeypatch.setenv("MLFRAME_FE_GPU_HISTGATE_CM", "1")
+    cm = _run()
+    monkeypatch.setenv("MLFRAME_FE_GPU_HISTGATE_CM", "0")
+    row = _run()
+    assert np.array_equal(cm, row), f"CM vs row-major mismatch n={n} K={K} nperm={npermutations}\n cm={cm}\n row={row}"
+    assert np.array_equal(cm, ref), f"CM vs CPU mismatch n={n} K={K} nperm={npermutations}"
