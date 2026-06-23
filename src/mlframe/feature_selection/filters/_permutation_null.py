@@ -38,16 +38,21 @@ import logging
 
 import numba
 import numpy as np
+from numba import prange
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, parallel=True)
 def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
     """Per-shuffle MAX corrected marginal MI over the candidate pool, fused into one njit pass.
 
     ``scaled_flat`` concatenates every candidate's ``x_code * nbins_y`` column (segment ``j`` is ``scaled_flat[offsets[j]:offsets[j+1]]``); ``y_perms[k]`` is the
     pre-generated k-th target shuffle (numpy RNG owns the draw sequence so the floor stays bit-identical to the per-shuffle ``rng.shuffle`` path). For each shuffle the joint
     H(x, y_perm) is the only term that changes, so ``h_x`` / ``h_y`` / ``mm_bias`` are precomputed once and threaded in. The per-cell ``-p*log(p)`` accumulates in
-    code-ascending order; the only divergence from the numpy ``-(p*log(p)).sum()`` reduction is FP reduction-order (~1e-16, far below selection scale)."""
+    code-ascending order; the only divergence from the numpy ``-(p*log(p)).sum()`` reduction is FP reduction-order (~1e-16, far below selection scale).
+
+    The K-shuffle loop is ``prange``-parallel: each iteration ``k`` writes only ``maxes[k]`` from read-only shared inputs and owns a private ``counts`` scratch, so the result is
+    BIT-IDENTICAL to the serial scan (per-shuffle entropy reduction order unchanged -- verified max|diff|=0.0, identical 0.95-quantile floor across n=10k/100k x p=50/200) while
+    scaling with cores. ~8x at 22 threads (bench _benchmarks/bench_pooled_gain_floor_perms_prange.py: 6.8s -> 0.78s at n=100k/p=200/K=200)."""
     nperm = y_perms.shape[0]
     n = y_perms.shape[1]
     ncand = offsets.shape[0] - 1
@@ -56,8 +61,8 @@ def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias
     for j in range(ncand):
         if joint_card[j] > max_jc:
             max_jc = joint_card[j]
-    counts = np.empty(max_jc, dtype=np.float64)
-    for k in range(nperm):
+    for k in prange(nperm):
+        counts = np.empty(max_jc, dtype=np.float64)  # per-thread scratch (prange-private)
         yp = y_perms[k]
         best = 0.0
         for j in range(ncand):

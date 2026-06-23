@@ -49,10 +49,14 @@ def _gradient(model, X: np.ndarray, is_binary: bool, eps: float) -> np.ndarray:
     n, d = X.shape
     p_base = _predict(model, X, is_binary)
     grad = np.zeros((n, d), dtype=np.float32)
+    # Perturb one column in place + restore from a saved copy, instead of copying the
+    # whole (n,d) matrix per column. The probe matrix the model sees is bit-identical
+    # (col j holds X[:,j]+eps, all other entries untouched), so gradients are unchanged.
     for j in range(d):
-        X_plus = X.copy()
-        X_plus[:, j] += eps
-        p_plus = _predict(model, X_plus, is_binary)
+        col = X[:, j].copy()
+        X[:, j] = col + eps
+        p_plus = _predict(model, X, is_binary)
+        X[:, j] = col
         grad[:, j] = (p_plus - p_base) / eps
     return grad
 
