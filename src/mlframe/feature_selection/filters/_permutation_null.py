@@ -156,7 +156,7 @@ def pooled_permutation_null_gain_floor(
     candidate_indices: np.ndarray,
     y_index: int,
     *,
-    n_permutations: int = 25,
+    n_permutations: int = 200,
     quantile: float = 0.95,
     cardinality_bias_correction: bool = True,
     random_seed: int | None = None,
@@ -176,13 +176,15 @@ def pooled_permutation_null_gain_floor(
     ``quantile``-th quantile of the per-shuffle MAX corrected marginal MI over the
     pool - a gain a genuine signal exceeds and chance-max noise does not.
 
-    VARIANCE CAVEAT: the floor is the ``quantile`` (default 0.95) of the EXTREME (per-shuffle MAX) over
-    only ``n_permutations`` (default 25) shuffles. An upper-tail quantile of a max statistic estimated
-    from K=25 draws is itself high-variance, so the floor wobbles run-to-run on the same data; it is a
-    coarse chance-screen, not a calibrated significance threshold. The default stays at 25 because the
-    floor only needs to be roughly right (a genuine signal clears it comfortably) and each extra shuffle
-    pays a full pool-rescore; raise ``n_permutations`` (e.g. 100-200) when a stabler floor is required
-    -- note this MOVES the floor (selection-altering), so re-validate downstream selection if you do.
+    The floor is the ``quantile`` (default 0.95) of the EXTREME (per-shuffle MAX) over ``n_permutations``
+    shuffles. The default is 200 (not 25): a 95th-percentile order statistic places only ~K*(1-q) draws
+    above it, so K=25 leaves ~1.25 draws in the estimated tail and the floor wobbles badly run-to-run
+    (high quantile-estimator variance); K=200 puts ~10 draws in the tail and the run-to-run std of the
+    floor drops several-fold on a fixed null (see _benchmarks/bench_maxt_floor_stability.py). A lower-
+    variance null floor is the correct behavior, so the default favors floor stability over the marginally
+    cheaper rescore -- each extra shuffle pays a full pool-rescore, but the floor is computed once per
+    screen and 200 stays sub-second at production widths. Drop ``n_permutations`` to the legacy 25 only to
+    reproduce a pre-2026-06 floor (note the floor MOVES with K, so re-validate downstream selection).
 
     Returns ``0.0`` (a no-op floor) when the pool is degenerate (n too small,
     fewer than two scorable candidates, or a constant target), so callers can

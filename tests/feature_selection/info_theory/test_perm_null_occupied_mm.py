@@ -142,6 +142,7 @@ def test_njit_gain_floor_bit_identical_to_legacy_python_body():
             fnb[j] = nb
         ci = np.arange(p)
         seed = int(rng.integers(0, 1000))
-        ref = _legacy_gain_floor_python(fd, fnb, ci, p, random_seed=seed)
-        got = pooled_permutation_null_gain_floor(fd, fnb, ci, p, random_seed=seed)
+        # Pin K explicitly on BOTH paths: the reference and the njit floor must use the same permutation count for the bit-identity comparison (the function default is 200).
+        ref = _legacy_gain_floor_python(fd, fnb, ci, p, n_permutations=200, random_seed=seed)
+        got = pooled_permutation_null_gain_floor(fd, fnb, ci, p, n_permutations=200, random_seed=seed)
         assert abs(ref - got) <= 1e-12, f"n={n} p={p}: legacy {ref:.15g} vs njit {got:.15g}"

@@ -190,8 +190,10 @@ def screen_predictors(
     # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool
     # like sklearn diabetes (nbins_y=10 but ~3.3 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (~25-50 rows per joint cell)
     # fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See ``target_oversplit_floor_applies`` in
-    # ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables.
-    screen_fdr_null_permutations: int = 25,
+    # ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th percentile of a per-shuffle MAX, an
+    # extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the floor several-fold run-to-run
+    # (bench ``_benchmarks/bench_maxt_floor_stability.py``) -- a lower-variance noise floor is the correct behavior, the rescore cost stays sub-second at production widths.
+    screen_fdr_null_permutations: int = 200,
     screen_fdr_null_quantile: float = 0.95,
     screen_fdr_min_features: int = 30,
     screen_fdr_target_oversplit_ratio: float = 1.0,

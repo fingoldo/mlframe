@@ -374,13 +374,17 @@ def fit(self, X, y):
         warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
-        # ``starting_X`` is an unavoidable shadow copy: ``self.X`` has its object/category columns
-        # ordinal-encoded IN PLACE below, so the original raw dtypes cannot be recovered from it.
-        # ``Subset()`` (__init__.py) returns accepted columns on this original-dtype frame, so a
-        # pre-encoding snapshot is required. Kept separate from ``self.X`` deliberately.
-        self.starting_X = X.copy()
+        # Memory: frames here can be 100+ GB, so the algorithm keeps exactly ONE full-frame copy. ``self.X``
+        # is that single mutable working frame -- BorutaShap ordinal-encodes its object/category columns,
+        # drops rejected columns, and appends shadow features into it. ``self.X = X.copy()`` makes that copy
+        # independent of the caller, so neither the encode nor the drops mutate the caller's ``X``.
+        # ``starting_X`` keeps the ORIGINAL-dtype frame for ``Subset()`` (__init__.py): since encoding now
+        # happens only on the independent ``self.X`` copy, the untouched caller ``X`` already IS that
+        # snapshot, so we reference it rather than taking a second copy. ``self.y`` is never mutated (only
+        # read for splits / model fit), so it is referenced, not copied.
+        self.starting_X = X
         self.X = X.copy()
-        self.y = y.copy()
+        self.y = y
         # Duplicate column names make ``df[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises in the object-col encoder below, and break the column -> accepted-feature mapping. Surface a clear error before the encoder runs.
         if hasattr(self.X, "columns") and self.X.columns.has_duplicates:
             dup_names = self.X.columns[self.X.columns.duplicated()].unique().tolist()
