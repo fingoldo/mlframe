@@ -585,6 +585,127 @@ def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
         return None
 
 
+# ------------------------------------------------------------------------------------------------
+# FE BINNING backend (2026-06-23) -- decoupled from the full ``fe_gpu_pairs_mi`` analytic path.
+#
+# The chunk / per-pair FE candidate BINNING (``discretize_2d_quantile_batch`` -- _quantile_edges_2d_njit
+# + _searchsorted_2d_right_njit_parallel) is the #1 WALL hotspot of a GPU-mode F2 100k fit: a full-fit
+# cProfile (n=100k, GPU 0% idle) showed ``discretize_2d_quantile_batch`` cumtime 116.5s of a 228s wall
+# (_quantile_edges_2d_njit 72.9s tottime + _searchsorted_2d_right_njit_parallel 43.6s). The GPU binning
+# (``gpu_discretize_codes_host``) is BIT-IDENTICAL (verified maxdiff 0) and 17-24x faster at n=100k
+# (1508ms->63ms at K=256; 27305ms->1531ms at K=3888), so it should run on the GPU at these sizes.
+#
+# WHY IT WAS ON THE CPU: the binning was gated by ``_fe_gpu_discretize_enabled`` -> the
+# ``fe_gpu_pairs_mi`` KTC sweep, which times the FULL analytic pair-MI path (binning + GPU observed-MI +
+# chi2 gate). That full path's per-host crossover cached "cpu" for the n_rows<=100000 region (the extra
+# GPU MI/chi2 overhead lost a noisy A/B at exactly that band), which WRONGLY disabled the cheap,
+# bit-identical GPU BINNING too. The binning is a strictly simpler op than the full MI path; it has its
+# own crossover and must not inherit the full path's verdict. So the chunk + score-phase binning now
+# routes through THIS dedicated binning-only backend choice (its own KTC kernel + per-host sweep that
+# times ONLY discretize), leaving the full ``gpu_pairs_fe_mi`` MI path on its own gate.
+def _fe_gpu_binning_fallback_choice(n_rows: int, n_cols: int) -> str:
+    """Pre-sweep crossover for the GPU FE BINNING path. The GPU binning amortises its H2D once the work
+    size ``n_rows * n_cols`` is large; CPU below. Conservative default so a tiny fit is never regressed
+    until the per-host sweep refines it. Env override ``MLFRAME_FE_GPU_BINNING_MIN_NK`` (default 1e6 --
+    lower than the full MI path's 2e6: the binning is a cheaper op with no GPU-MI/chi2 overhead, so it
+    crosses to a GPU win earlier; at n=100k that is K>=10)."""
+    try:
+        min_nk = int(os.environ.get("MLFRAME_FE_GPU_BINNING_MIN_NK", "1000000"))
+    except ValueError:
+        min_nk = 1_000_000
+    return "gpu" if int(n_rows) * int(n_cols) >= min_nk else "cpu"
+
+
+def _make_fe_gpu_binning_inputs(dims: dict) -> tuple:
+    """Synthetic (cand_matrix, nbins) for the binning crossover sweep -- a fixed-width candidate block at
+    the swept n_rows so both backends pay the same realistic discretize work + (GPU) H2D."""
+    n = int(dims["n_rows"])
+    rng = np.random.default_rng(0)
+    cand = np.ascontiguousarray(rng.uniform(0.1, 5.0, (n, 256)).astype(np.float32))
+    np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return (cand, 10)
+
+
+def _run_fe_gpu_binning_sweep() -> list:
+    """Per-host CPU-vs-GPU crossover sweep for the FE candidate BINNING -> backend_choice regions keyed on
+    n_rows. Times ONLY the discretize (the chunk-path op), NOT the downstream MI: ``gpu_discretize_codes_host``
+    (GPU) vs ``discretize_2d_quantile_batch`` (CPU njit). The GPU variant is bit-identical (verified maxdiff
+    0) so equivalence holds at a tight tol. Skips silently (-> []) when CUDA is unavailable."""
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        if not is_cuda_available():
+            return []
+    except Exception:
+        return []
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+    from .discretization import discretize_2d_quantile_batch
+    from ._gpu_resident_select import gpu_discretize_codes_host
+
+    def _cpu(cand, nbins):
+        return discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
+
+    def _gpu(cand, nbins):
+        return gpu_discretize_codes_host(cand, nbins, dtype=np.int8)
+
+    return sweep_backend_grid(
+        {"cpu": _cpu, "gpu": _gpu},
+        {"n_rows": [20_000, 50_000, 100_000, 300_000]},
+        _make_fe_gpu_binning_inputs,
+        reference="cpu", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,  # bit-identical int codes
+    )
+
+
+def _fe_gpu_binning_code_version():
+    try:
+        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # lazy: cross-sibling
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        return compute_code_version(gpu_discretize_codes_host, _gpu_resident_discretize_codes)
+    except Exception:
+        return None
+
+
+def fe_gpu_binning_backend_choice(n_rows: int, n_cols: int) -> str:
+    """Per-host 'gpu' or 'cpu' for the FE candidate BINNING via the shared get_or_tune orchestrator
+    (per-host cache, code-version checked, background sweep, measurement-backed fallback). Never blocks
+    the fit: async_sweep tunes off the hot path; the conservative fallback routes meanwhile."""
+    try:
+        from ._fe_deadline import fe_budget_active
+        if fe_budget_active():
+            return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        res = KernelTuningCache.load_or_create().get_or_tune(
+            "fe_gpu_binning",
+            dims={"n_rows": int(n_rows)},
+            tuner=_run_fe_gpu_binning_sweep,
+            axes=["n_rows"],
+            fallback={"backend_choice": _fe_gpu_binning_fallback_choice(n_rows, n_cols)},
+            code_version=_fe_gpu_binning_code_version(),
+            async_sweep=True,
+        )
+        bc = res if isinstance(res, str) else str((res or {}).get("backend_choice", "cpu"))
+        return bc if bc in ("cpu", "gpu") else "cpu"
+    except Exception:
+        return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
+
+
+def ensure_fe_gpu_binning_tuning(force: bool = False):
+    """Force-run + persist the FE binning CPU-vs-GPU crossover sweep for this host (CLI refresh hook)."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        cache = KernelTuningCache.load_or_create()
+        if not force:
+            existing = cache.get_regions("fe_gpu_binning")
+            if existing:
+                return existing
+        regions = _run_fe_gpu_binning_sweep()
+        if regions:
+            cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions,
+                         code_version=_fe_gpu_binning_code_version())
+        return regions
+    except Exception:
+        return None
+
+
 def grand_fused_pair_mi(
     a, b, y_codes, classes_y_safe, freqs_y, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,

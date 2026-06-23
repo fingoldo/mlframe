@@ -356,18 +356,36 @@ def _score_one_pair(
                         logger.debug("FE GPU pair-MI failed; falling back to CPU", exc_info=True)
                         _fe_mi_arr = None
                 if _fe_mi_arr is None:
-                    _disc_2d = discretize_2d_quantile_batch(
-                        final_transformed_vals[:, :i], n_bins=quantization_nbins,
-                        dtype=_code_dtype,
-                        # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
-                        # gate as the chunk + marginal-uplift discretise -- byte-identical
-                        # column-prange twin when serial_main_thread (no joblib nest).
-                        parallel=_fe_use_parallel_kernels(i, serial_main_thread),
-                        # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
-                        # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
-                        # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
-                        assume_finite=True,
-                    )
+                    _disc_2d = None
+                    # GPU BINNING (2026-06-23): the per-pair Phase-2 binning gets the SAME dedicated
+                    # binning crossover the chunk path now uses. ``gpu_discretize_codes_host`` is
+                    # bit-identical to the CPU njit binning (verified maxdiff 0) and 17-24x faster at
+                    # n=100k; it was previously reachable here ONLY through the full ``gpu_pairs_fe_mi``
+                    # path (declined on the non-analytic branch -> CPU njit). Any GPU failure falls back
+                    # to the CPU discretise below (never a regression; selection bit-identical).
+                    try:
+                        from ._pairs_core import _fe_gpu_binning_enabled
+                        if _fe_gpu_binning_enabled(final_transformed_vals.shape[0], i):
+                            from .._gpu_resident_fe import gpu_discretize_codes_host
+                            _disc_2d = gpu_discretize_codes_host(
+                                final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype
+                            )
+                    except Exception:
+                        logger.debug("FE per-pair GPU binning failed; CPU discretise", exc_info=True)
+                        _disc_2d = None
+                    if _disc_2d is None:
+                        _disc_2d = discretize_2d_quantile_batch(
+                            final_transformed_vals[:, :i], n_bins=quantization_nbins,
+                            dtype=_code_dtype,
+                            # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
+                            # gate as the chunk + marginal-uplift discretise -- byte-identical
+                            # column-prange twin when serial_main_thread (no joblib nest).
+                            parallel=_fe_use_parallel_kernels(i, serial_main_thread),
+                            # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
+                            # buffer slice, so the per-call ``np.isnan().any()`` scan inside the discretiser
+                            # is guaranteed-False wasted work; skip it (bit-identical on a NaN-free buffer).
+                            assume_finite=True,
+                        )
 
                 # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
                 # columns in ONE kernel call. Bit-identical to the per-candidate

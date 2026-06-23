@@ -79,6 +79,41 @@ def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
         return False
 
 
+def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
+    """Whether to run the FE candidate BINNING (``discretize_2d_quantile_batch``) on the GPU.
+
+    DECOUPLED (2026-06-23) from ``_fe_gpu_discretize_enabled`` / the full ``fe_gpu_pairs_mi`` analytic
+    path. The binning alone (``gpu_discretize_codes_host``) is BIT-IDENTICAL to the CPU njit binning
+    (verified maxdiff 0) and 17-24x faster at n=100k -- but the FULL pair-MI sweep cached "cpu" for the
+    n_rows<=100000 region (its extra GPU MI/chi2 overhead lost a noisy A/B there), which wrongly forced
+    the cheap binning back onto the CPU njit path (the #1 wall hotspot: 116s of a 228s GPU-mode F2 100k
+    fit). The binning is a strictly simpler op with its own crossover, so it routes through its own
+    dedicated KTC backend choice here. Selection is unchanged either way (bit-identical codes).
+
+    ``MLFRAME_FE_GPU_BINNING`` tri-state: ``0/false`` forces CPU; ``1/true`` forces GPU when CUDA is
+    present; unset/``auto`` (default) routes per-host via kernel_tuning_cache. ``MLFRAME_FE_GPU_DISCRETIZE=0``
+    still forces CPU for BOTH (a global FE-GPU kill switch), so existing CPU-only configs are unchanged."""
+    _env_all = os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "auto").strip().lower()
+    if _env_all in ("0", "false", "no", "off"):
+        return False  # global FE-GPU kill switch also disables binning
+    _env = os.environ.get("MLFRAME_FE_GPU_BINNING", "auto").strip().lower()
+    if _env in ("0", "false", "no", "off"):
+        return False
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        if not is_cuda_available():
+            return False
+    except Exception:
+        return False
+    if _env in ("1", "true", "yes", "on"):
+        return True
+    try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
+        from .._gpu_resident_fe import fe_gpu_binning_backend_choice
+        return fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu"
+    except Exception:
+        return False
+
+
 def check_prospective_fe_pairs(
     prospective_pairs,
     X,

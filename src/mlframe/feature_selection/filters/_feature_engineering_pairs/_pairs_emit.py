@@ -289,19 +289,34 @@ def _emit_pair_features(
                                 for valid_bin_func in _ev_bin_funcs:
                                     _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
                                     _ev_col += 1
-                    _ev_disc = discretize_2d_quantile_batch(
-                        _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
-                        dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
-                        # OPT-A extension (2026-06-07): the marginal-uplift gate's
-                        # discretise ran the SERIAL searchsorted kernel on the main
-                        # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
-                        # the other cores sat idle. ``check_prospective_fe_pairs`` carries
-                        # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
-                        # dispatch, so the same OPT-A predicate that already gates the
-                        # main chunk's discretise (line ~907) safely selects the
-                        # byte-identical column-prange twin here too (no joblib nest).
-                        parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
-                    )
+                    _ev_disc = None
+                    # GPU BINNING (2026-06-23): the ext-val survivor binning (full n) gets the same
+                    # dedicated binning crossover -- bit-identical to the CPU njit binning (maxdiff 0)
+                    # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
+                    _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
+                    try:
+                        from ._pairs_core import _fe_gpu_binning_enabled
+                        if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
+                            from .._gpu_resident_fe import gpu_discretize_codes_host
+                            _ev_disc = gpu_discretize_codes_host(
+                                _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype
+                            )
+                    except Exception:
+                        _ev_disc = None
+                    if _ev_disc is None:
+                        _ev_disc = discretize_2d_quantile_batch(
+                            _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
+                            dtype=_ev_code_dtype,
+                            # OPT-A extension (2026-06-07): the marginal-uplift gate's
+                            # discretise ran the SERIAL searchsorted kernel on the main
+                            # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
+                            # the other cores sat idle. ``check_prospective_fe_pairs`` carries
+                            # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
+                            # dispatch, so the same OPT-A predicate that already gates the
+                            # main chunk's discretise (line ~907) safely selects the
+                            # byte-identical column-prange twin here too (no joblib nest).
+                            parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
+                        )
                     _ev_mi = _dispatch_batch_mi_with_noise_gate(
                         disc_2d=_ev_disc,
                         quantization_nbins=quantization_nbins,

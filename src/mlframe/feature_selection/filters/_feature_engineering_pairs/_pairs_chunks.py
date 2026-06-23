@@ -350,8 +350,12 @@ def _compute_one_fe_chunk(
     # failure falls back to the CPU discretise (never a regression).
     if disc_2d is None:
         try:
-            from ._pairs_core import _fe_gpu_discretize_enabled
-            if _fe_gpu_discretize_enabled(chunk_buffer.shape[0], col):
+            # Route the standalone binning through the DEDICATED binning crossover (2026-06-23): the
+            # bit-identical GPU binning is 17-24x faster at n=100k but was wrongly disabled by the full
+            # ``fe_gpu_pairs_mi`` sweep's "cpu" verdict at the n<=100k band. The binning has its own gate
+            # so the cheap, bit-identical op is no longer held hostage to the full MI path's crossover.
+            from ._pairs_core import _fe_gpu_binning_enabled
+            if _fe_gpu_binning_enabled(chunk_buffer.shape[0], col):
                 from .._gpu_resident_fe import gpu_discretize_codes_host
                 disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
         except Exception:
