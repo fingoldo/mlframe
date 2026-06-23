@@ -64,11 +64,14 @@ def _gaussian_kde_log(X_query: np.ndarray, X_train_subset: np.ndarray, h: float,
     out = np.zeros(n_q, dtype=np.float32)
     h_sq = max(h * h, 1e-9)
     log_N = np.log(n_t)
+    # |x - y|^2 = |x|^2 + |y|^2 - 2 x.y^T computed via one BLAS sgemm per chunk; avoids the (chunk, n_t, d) broadcast temporary the naive form materialises.
+    t_sq = np.einsum("ij,ij->i", X_train_subset, X_train_subset)  # |y|^2, (n_t,)
     for start in range(0, n_q, chunk):
         end = min(start + chunk, n_q)
         Xq = X_query[start:end]
-        # pairwise squared distances (Xq, X_train_subset)
-        d2 = ((Xq[:, None, :] - X_train_subset[None, :, :]) ** 2).sum(axis=2)  # (chunk, n_t)
+        q_sq = np.einsum("ij,ij->i", Xq, Xq)  # |x|^2, (chunk,)
+        d2 = q_sq[:, None] + t_sq[None, :] - 2.0 * (Xq @ X_train_subset.T)  # (chunk, n_t)
+        np.maximum(d2, 0.0, out=d2)  # clamp tiny negatives from float cancellation before negating
         logits = -d2 / (2.0 * h_sq)  # (chunk, n_t)
         # log-sum-exp for numerical stability
         m = logits.max(axis=1, keepdims=True)

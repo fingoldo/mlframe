@@ -66,6 +66,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -164,6 +165,37 @@ def _per_bin_mean_std(
     )
 
 
+@njit(cache=True, nogil=True)
+def _zscore_from_bins_njit(
+    xi: np.ndarray,
+    codes_j: np.ndarray,
+    bin_mean: np.ndarray,
+    bin_std: np.ndarray,
+    floor: float,
+) -> np.ndarray:
+    """Single-pass conditional z-score. Reproduces the numpy multi-pass body of
+    ``_zscore_from_bins`` (clip codes + gather mean/std + floor-std + masked
+    divide) bit-for-bit -- the per-row op sequence (one subtract, one divide) is
+    identical and per-element independent, so there is no reduction-order delta."""
+    n = xi.shape[0]
+    nb = bin_mean.shape[0]
+    z = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        v = xi[i]
+        if not np.isfinite(v):
+            continue
+        c = codes_j[i]
+        if c < 0:
+            c = 0
+        elif c >= nb:
+            c = nb - 1
+        s = bin_std[c]
+        if s < floor:
+            s = 1.0
+        z[i] = (v - bin_mean[c]) / s
+    return z
+
+
 def _zscore_from_bins(
     xi: np.ndarray,
     codes_j: np.ndarray,
@@ -172,17 +204,21 @@ def _zscore_from_bins(
 ) -> np.ndarray:
     """Closed-form conditional z-score ``(x_i - mu_hat_bin) / sigma_hat_bin``.
     NaN ``x_i`` rows emit 0.0 (no deviation information). Std is already floored
-    to ``global_std`` in degenerate bins, so the divide is always finite."""
-    codes_j = np.clip(codes_j, 0, bin_mean.size - 1)
-    per_row_mean = bin_mean[codes_j]
-    per_row_std = bin_std[codes_j]
-    per_row_std = np.where(
-        per_row_std >= _DISPERSION_SIGMA_FLOOR, per_row_std, 1.0,
+    to ``global_std`` in degenerate bins, so the divide is always finite.
+
+    Fused into a single njit pass (``_zscore_from_bins_njit``): the prior numpy
+    body did 5 full-n passes (clip / two gathers / where-floor / isfinite / masked
+    divide). The njit loop is BIT-IDENTICAL (per-element independent float ops in
+    the same order) and ~3.5-6.2x faster at n=10k..1M -- this is the top tottime
+    frame in ``generate_conditional_dispersion_features``, called once per ordered
+    (x_i, x_j) pair. Bench: ``_benchmarks/bench_dispersion_zscore_njit.py``."""
+    return _zscore_from_bins_njit(
+        np.ascontiguousarray(xi, dtype=np.float64),
+        np.ascontiguousarray(codes_j),
+        np.ascontiguousarray(bin_mean, dtype=np.float64),
+        np.ascontiguousarray(bin_std, dtype=np.float64),
+        _DISPERSION_SIGMA_FLOOR,
     )
-    finite_i = np.isfinite(xi)
-    z = np.zeros_like(xi, dtype=np.float64)
-    z[finite_i] = (xi[finite_i] - per_row_mean[finite_i]) / per_row_std[finite_i]
-    return z
 
 
 def _emit_kind(z: np.ndarray, kind: str) -> np.ndarray:
