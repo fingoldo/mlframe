@@ -195,6 +195,32 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
     # so the ONLY blocker is the wall regression. A real win needs the candidate matrices GPU-RESIDENT
     # (eliminating the per-call H2D the microbench omits) -- the matrix-native FE replatform, tracked
     # separately; a dispatch flag alone cannot win.
+    # residency-blocker quantified (2026-06-23, MRMR FE wall /loop iter14 -- "complete end-to-end GPU
+    # residency for the dominant CPU MI"): the FE-PAIR path is ALREADY fully resident (verified: 47/47
+    # _dispatch_batch_mi_with_noise_gate calls hit take_resident_codes -> batch_mi_with_noise_gate_cuda_-
+    # resident with device codes in place, 0 H2D), so the pair-MI is NOT the remaining CPU cost. The #1 CPU
+    # kernel _plugin_mi_classif_batch_njit (2.94s tottime / 34.7s wall, 157 calls) is UNROUTABLE to a resident
+    # GPU MI for TWO independent structural reasons, measured this iter:
+    #   (1) NO DEVICE CODES TO HAND OFF. Every one of the 157 candidate matrices is built on the HOST with
+    #       numpy (best_existing_op_mi: u*v / u-v / u/(|v|+eps) / u+v / stack.max|min|sum via np.column_stack;
+    #       _gate_grid_mi / cheap_conditional_gate_scan likewise). The candidates were NEVER on the GPU, so
+    #       there is no resident handoff to extend -- "residency" presupposes device data this path doesn't
+    #       have. Making it resident = porting the host numpy candidate GENERATION to cupy, a far larger change
+    #       than the pair path's (which already binned on-device).
+    #   (2) CALL SHAPE IS BELOW THE GPU CROSSOVER even at ZERO transfer cost. Measured k-distribution of the
+    #       157 calls (warm F2 100k seed-7): k=1 x96 (0.33s, the partial-NaN per-column fallback), k<=18 x53
+    #       (1.15s, 21.7ms/call), k<=40 x4 (0.29s), k>40 x4 (1.17s: k=306 x1, k=527 x2, k=80 x1). The resident
+    #       GPU MI crossover on this HW is k>=100 @ n=100k (see _gpu_resident_fe BENCH). So 153/157 calls
+    #       (1.77s of the 2.94s) are sub-crossover -- a per-call GPU launch+sync would LOSE on them regardless
+    #       of H2D. Only the 4 large-k calls (1.17s, 40%) are GPU-favorable, and those are exactly the
+    #       host-built orth-univariate candidates of (1) AND the shapes the flag-route A/B above already
+    #       benched to a 34.8->36.0s end-to-end LOSS (per-call H2D + same-GPU contention with the resident pair
+    #       kernels). NET: there is no resident-MI win available here; the only lever would be a from-scratch
+    #       cupy candidate-generation replatform of the orth-univariate FE families (the matrix-native FE work,
+    #       tracked separately), and even then only the ~4 large-k calls could win. The 2.94s is irreducible
+    #       CPU on this path absent that replatform. cProfile remainder (34.7s wall): _plugin_mi 2.94s,
+    #       gpu_materialise_discretize_codes_host 1.12s (GPU launch/sync, already resident), _pair_combo_mi
+    #       1.03s, permutation-null/CMI njit ~1.9s (orchestration), the rest one-time JIT + cuda driver.
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
