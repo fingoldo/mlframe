@@ -151,8 +151,26 @@ void radix_select_f32(const float* __restrict__ data, const long long n, const i
 """
 _RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)
 _RADIX_SELECT_F32_KERNEL = None
-_RADIX_SELECT_THREADS = 512  # measured sweet spot on GTX 1050 Ti (256/512/1024); FUTURE: kernel_tuning_cache
+_RADIX_SELECT_THREADS = 512  # historical default + KTC fallback (see _gpu_resident_radix_ktc / Lever B)
 _RADIX_SELECT_MAXR = 64      # must match MAXR in the kernel sources
+# Lever B (2026-06-23): threads/block is now KTC-TUNED per host (radix_select_f32 was the biggest kernel,
+# 512 under-utilised the card -- 512->1024 = 1.20x at n=100k/K=583 on the GTX 1050 Ti). The sweep probe
+# forces a specific count via this override (set/reset by _gpu_resident_radix_ktc._radix_edges_with_threads);
+# the production launch reads it when set, else looks the tuned count up from the kernel_tuning_cache. Block
+# size NEVER changes the order statistics (sum-reduction over the same values) -> edges/codes bit-identical.
+_RADIX_THREADS_OVERRIDE = None  # int set by the KTC sweep probe; None -> use the per-host KTC lookup
+
+
+def _resolve_radix_threads(n: int) -> int:
+    """Threads/block for the radix-select launch: the sweep override when one is active (during the KTC
+    timing probe), else the per-host tuned count from the kernel_tuning_cache (falls back to 512)."""
+    if _RADIX_THREADS_OVERRIDE is not None:
+        return int(_RADIX_THREADS_OVERRIDE)
+    try:
+        from ._gpu_resident_radix_ktc import radix_select_threads
+        return int(radix_select_threads(int(n)))
+    except Exception:
+        return _RADIX_SELECT_THREADS
 
 
 # COALESCED TILED TRANSPOSE (2026-06-23, nsys-driven Lever A). The radix-select kernel reads its input
@@ -279,7 +297,8 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     # (data[col*n+i]) -- one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
     data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
-    ker((K,), (_RADIX_SELECT_THREADS,),
+    threads = _resolve_radix_threads(n)    # Lever B: per-host KTC-tuned block size (bit-identical edges)
+    ker((K,), (threads,),
         (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
     # the cupy_percentile_weightnening elementwise kernel (U=float64; below/above promoted; w in float64).
