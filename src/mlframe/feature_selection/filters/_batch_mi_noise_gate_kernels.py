@@ -195,7 +195,17 @@ def _cuda_mi_from_counts_kernel_factory():
     matches the CPU entropy to fp round-off (selection-equivalent -- the FE perf bar). This is the last
     CPU step of the noise gate; keeping it on-device lets the whole (orig + perms) gate run from resident
     counts with only the small (P, K) MI matrix coming back. ``ref_mi`` masks perm columns whose original
-    MI is <= 0 (exactly the CPU loop's perm-skip)."""
+    MI is <= 0 (exactly the CPU loop's perm-skip).
+
+    coalescing-audit (2026-06-23): NOT A LEVER -- at floor. CUDA-event A/B at the production gate shape
+    (n=100k, K=583, P=26, K_y=20, nbins=10, GTX 1050 Ti): the whole MI reduction = 4.15ms, reading the
+    SMALL resident counts buffer (P*total_size = ~3M int64 = 24.3MB) -- vs the hist kernel ~184ms (post the
+    5.59x cm fix) and the materialise ~70ms. Even a perfect coalescing of the per-(k,p) ``counts_flat`` read
+    would save <4ms of the fit and the buffer is tiny; the per-thread reduction over one column's joint
+    histogram (nb_k*K_y contiguous int64) is already the natural layout. The ``y_all[p, r]`` re-reads the
+    iter7 note flagged live in the HIST kernel, NOT here, and are ALREADY coalesced: ``y_all`` is (P, n)
+    C-order so ``y_all[p, r]`` over consecutive r=tid is consecutive memory (the disc load was the strided
+    one, fixed by ``_kernel_bs_cm``). Do not re-audit."""
     if not _CUDA_AVAIL:
         return None
 

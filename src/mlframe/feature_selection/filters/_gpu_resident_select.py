@@ -400,6 +400,31 @@ def _transpose_to_cm(cand_gpu):
         return cp.ascontiguousarray(cand_gpu.T)
 
 
+def _transpose_cm_to_rm(cm_gpu):
+    """Inverse of ``_transpose_to_cm``: return an (n, K) row-major C-contiguous copy of the (K, n) C-order
+    ``cm_gpu`` via the coalesced tiled-transpose kernel (the kernel transposes any (R, C) C-order input to
+    (C, R) C-order -- here R=K, C=n). f32 only; falls back to ``cp.ascontiguousarray(cm_gpu.T)`` (bit-
+    identical) for non-f32 / any kernel failure. Used to bring the column-major fe_materialise result back to
+    the (n, K) layout the downstream binning + float D2H expect."""
+    import cupy as cp
+
+    Kr, nc = cm_gpu.shape  # (K, n)
+    if cm_gpu.dtype != cp.float32 or not cm_gpu.flags.c_contiguous:
+        return cp.ascontiguousarray(cm_gpu.T)
+    try:
+        out = cp.empty((nc, Kr), dtype=cp.float32)             # (n, K)
+        # The kernel treats the input as (n_rows=Kr, K_cols=nc); grid.x spans the K_cols (=nc), grid.y the
+        # n_rows (=Kr) -- mirror _transpose_to_cm's ((K+31)//32, (n+31)//32) with n:=Kr, K:=nc.
+        grid = ((nc + 31) // 32, int((Kr + 31) // 32))
+        _get_transpose_f32_kernel()((grid[0], grid[1]), (32, 32),
+                                    (cm_gpu, out, np.int64(Kr), np.int32(nc)))
+        return out
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("tiled cm->rm transpose kernel failed; cp.ascontiguousarray(.T) fallback", exc_info=True)
+        return cp.ascontiguousarray(cm_gpu.T)
+
+
 def _get_radix_select_kernel(is_f32: bool):
     global _RADIX_SELECT_F64_KERNEL, _RADIX_SELECT_F32_KERNEL
     import cupy as cp
@@ -570,6 +595,13 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
 # = count of edges <= value = EXACTLY cp.searchsorted(.., side='right')), and writes the int32 code
 # directly -- coalesced cand/out (row-major) + coalesced strided edge reads (consecutive threads = adjacent
 # columns). BIT-IDENTICAL to the per-column searchsorted; one launch, no int64 intermediate.
+#
+# coalescing-audit (2026-06-23): ALREADY COALESCED -- at floor. CUDA-event A/B at the production shape
+# (n=100k, K=583, nbins=10, GTX 1050 Ti): 11.96ms (thread ``idx`` reads cand[idx] coalesced, col=idx%K, and
+# writes out[idx] coalesced). A (K,n) column-major-input variant was tried (to mirror the materialise/radix
+# wins): 70.3ms = 5.9x SLOWER -- the (n,K) row-major OUTPUT write out[row*K+col] becomes stride-K
+# uncoalesced when threads are laid out column-major. The row-major layout is the coalesced one for BOTH the
+# value read and the code write here; do not re-audit.
 # Edges are ALWAYS float64 (cp.percentile and the radix-select both produce f64 edges). The value is
 # promoted to double for the compare -- EXACTLY what cp.searchsorted(f64_edges, f32_value) does (it
 # upcasts the value to the edges' dtype). Comparing in the value's f32 instead would 1-off at boundaries
@@ -778,6 +810,116 @@ def _get_fe_materialise_kernel():
     return _FE_MATERIALISE_KERNEL
 
 
+# COALESCED COLUMN-MAJOR fe_materialise (2026-06-23, coalescing audit -- the SAME stride-uncoalesced-read
+# lever that won 5.59x on the noise-gate hist kernel, applied to the materialise). CUDA-event decomposition
+# at the production block shape (n=100k, K=1200, n_operands=64, GTX 1050 Ti) showed the row-major kernel
+# above runs at only ~20 GB/s vs the card's ~94 GB/s coalesced floor (write-only baseline 5.1ms @ 94 GB/s
+# vs the full kernel 72ms): with thread ``tid -> (i = tid//K, k = tid%K)`` consecutive threads share row
+# ``i`` and read ``tv[i*n_operands + a_cols[k]]`` -- a SCATTERED per-candidate operand-column gather (each
+# warp touches 32 unrelated operand columns of the same row) -> ~1/5 effective bandwidth.
+#
+# This variant flips the thread mapping to ``tid -> (k = tid//n, i = tid%n)`` and reads from a COLUMN-MAJOR
+# operand table ``tv_cm`` (n_operands, n): consecutive threads (consecutive ``i`` within a fixed candidate
+# ``k``) read ``tv_cm[ai*n + i]`` = CONSECUTIVE memory -> fully coalesced operand loads, and write the
+# (K, n) column-major output ``out[k*n + i]`` coalesced too. The per-element math (op-code table, float64-
+# promoted div/ratio_abs, NaN/inf scrub) is BYTE-FOR-BYTE the row-major kernel's (verified array_equal vs
+# fe_materialise across n in {3k,10k,40k} x K in {1,50,257,583} incl. zeros/negatives/+-inf). Caller
+# transposes the (n, K) operand table to (K=n_operands, n) ONCE per step (cached, ~0.7ms at n=100k) and
+# transposes the (K, n) result back to the (n, K) row-major layout the downstream bin/D2H expect via the
+# coalesced tiled-transpose kernel. NET (interleaved-min CUDA-event A/B, 2x-confirmed, GTX 1050 Ti):
+# n=100k K=583 36.1->18.4ms = 1.96x; n=100k K=1200 73.5->36.1ms = 2.03x (incl. the tv-transpose + the
+# result transpose-back). Gated ON; ``MLFRAME_FE_GPU_MATERIALISE_CM=0`` forces the row-major kernel; any
+# transpose/compile/launch failure falls back to it -> CPU / no-CUDA path byte-unchanged.
+_FE_MATERIALISE_CM_SRC = r"""
+extern "C" __global__
+void fe_materialise_cm(const float* __restrict__ tv_cm,
+                       const long long* __restrict__ a_cols,
+                       const long long* __restrict__ b_cols,
+                       const signed char* __restrict__ ops,
+                       const long long n, const long long n_operands, const int K,
+                       float* __restrict__ out) {
+    long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (tid >= total) return;
+    long long k = tid / n;                 // candidate index (consecutive threads share k)
+    long long i = tid - k * n;             // row index (consecutive -> coalesced over n)
+    long long ai = a_cols[k];
+    long long bi = b_cols[k];
+    float a = tv_cm[ai * n + i];           // COLUMN-MAJOR: consecutive threads read consecutive memory
+    float b = tv_cm[bi * n + i];
+    int op = (int)ops[k];
+    float v;
+    if (op == 0) {            // mul
+        v = a * b;
+    } else if (op == 1) {     // add
+        v = a + b;
+    } else if (op == 2) {     // sub
+        v = a - b;
+    } else if (op == 3) {     // div = _safe_div (exact x/y for y!=0, eps floor only on exact-zero)
+        v = (float)((double)a / ((b == 0.0f) ? 1e-9 : (double)b));
+    } else if (op == 4) {     // max = np.maximum (nan-propagating)
+        if (a != a || b != b) v = a + b; else v = (a > b) ? a : b;
+    } else if (op == 5) {     // min = np.minimum (nan-propagating)
+        if (a != a || b != b) v = a + b; else v = (a < b) ? a : b;
+    } else if (op == 6) {     // abs_diff = |a - b|
+        v = fabsf(a - b);
+    } else if (op == 7) {     // signed = sign(a)*|b| (nan-propagating)
+        if (a != a || b != b) {
+            v = a + b;
+        } else {
+            float sgn = (a == 0.0f) ? 0.0f : ((a > 0.0f) ? 1.0f : -1.0f);
+            v = sgn * fabsf(b);
+        }
+    } else {                  // op == 8: ratio_abs = float64-promoted a/(|b|+1)
+        v = (float)((double)a / ((double)fabsf(b) + 1.0));
+    }
+    if (isnan(v) || isinf(v)) v = 0.0f;
+    out[k * n + i] = v;                     // COLUMN-MAJOR (K, n) output -> coalesced
+}
+"""
+_FE_MATERIALISE_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
+
+# tv -> (n_operands, n) column-major copy cache (weakref-identity, mirrors _OPERAND_TABLE_CACHE): the
+# operand table is the SAME device array across a step's blocks/chunks, so transpose it ONCE per step.
+_OPERAND_TABLE_CM_CACHE: dict = {"ref": None, "cm": None}
+
+
+def fe_gpu_materialise_cm_enabled() -> bool:
+    """Whether the COALESCED column-major fe_materialise (coalescing audit, ~2x net) is active. DEFAULT ON
+    (opt-out ``MLFRAME_FE_GPU_MATERIALISE_CM=0``). Bit-identical (array_equal) to the row-major kernel; the
+    row-major kernel stays the fallback on any transpose/compile/launch failure (CPU / no-CUDA unchanged)."""
+    return os.environ.get("MLFRAME_FE_GPU_MATERIALISE_CM", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _get_fe_materialise_cm_kernel():
+    global _FE_MATERIALISE_CM_KERNEL
+    if _FE_MATERIALISE_CM_KERNEL is None:
+        import cupy as cp
+        _FE_MATERIALISE_CM_KERNEL = cp.RawKernel(_FE_MATERIALISE_CM_SRC, "fe_materialise_cm")
+    return _FE_MATERIALISE_CM_KERNEL
+
+
+def _operand_table_cm(cp, tv_gpu):
+    """(n_operands, n) column-major (= C-contiguous transpose of the (n, n_operands) row-major ``tv_gpu``)
+    copy, cached by weakref identity of ``tv_gpu`` so the transpose is paid ONCE per step (the operand table
+    is the same device object across the step's materialise blocks). Uses the coalesced tiled-transpose
+    kernel; falls back to ``cp.ascontiguousarray(tv_gpu.T)`` (bit-identical) for non-f32 / non-contiguous /
+    any kernel failure."""
+    import weakref
+    c = _OPERAND_TABLE_CM_CACHE
+    ref = c["ref"]
+    if ref is not None and ref() is tv_gpu and c["cm"] is not None:
+        return c["cm"]
+    cm = _transpose_to_cm(tv_gpu)  # (n_operands, n) C-order
+    try:
+        c["ref"] = weakref.ref(tv_gpu)
+        c["cm"] = cm
+    except TypeError:
+        c["ref"] = None
+        c["cm"] = None
+    return cm
+
+
 def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
     """Generate the (n, len(ops_block)) float32 candidate matrix for the given column blocks in ONE kernel
     launch, RESIDENT on the GPU. ``tv_gpu`` is the (n, n_operands) row-major float32 operand table already
@@ -792,10 +934,28 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
     a_g = cp.asarray(a_cols_block, dtype=cp.int64)
     b_g = cp.asarray(b_cols_block, dtype=cp.int64)
     ops_g = cp.asarray(ops_block, dtype=cp.int8)
-    out = cp.empty((n, K), dtype=cp.float32)
     total = n * K
     threads = 256
     blocks = (total + threads - 1) // threads
+
+    # COALESCED column-major path (coalescing audit, ~2x net): materialise into a (K, n) column-major buffer
+    # from the (n_operands, n) column-major operand table (coalesced operand gathers + coalesced write), then
+    # transpose the result back to the (n, K) row-major layout the downstream bin/D2H expect. Bit-identical
+    # (array_equal) to the row-major kernel; falls back to it on any transpose/compile/launch failure.
+    if fe_gpu_materialise_cm_enabled() and n > 0 and K > 0:
+        try:
+            tv_cm = _operand_table_cm(cp, tv_gpu)                 # (n_operands, n) C-order, once/step (cached)
+            cm_out = cp.empty((K, n), dtype=cp.float32)
+            _get_fe_materialise_cm_kernel()(
+                (blocks,), (threads,),
+                (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
+            )
+            return _transpose_cm_to_rm(cm_out)                   # (K, n) -> (n, K) row-major (coalesced)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("column-major fe_materialise failed; row-major fallback", exc_info=True)
+
+    out = cp.empty((n, K), dtype=cp.float32)
     _get_fe_materialise_kernel()(
         (blocks,), (threads,),
         (tv_gpu, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), out),

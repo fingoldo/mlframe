@@ -573,3 +573,36 @@ def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
             pytest.fail(f"_gpu_apply_prewarp NameError on basis {basis!r}: {e}")
         except Exception:
             pass  # incomplete minimal spec may raise KeyError/ValueError downstream -- not the bug under test
+
+
+def test_fe_materialise_cm_bit_identical():
+    """Coalescing audit (2026-06-23): the COALESCED column-major fe_materialise (``fe_materialise_cm`` +
+    tv-transpose + result transpose-back, ~2x net) must be BIT-IDENTICAL (array_equal) to the row-major
+    ``fe_materialise`` kernel and return the SAME (n, K) row-major layout the downstream bin/D2H expect.
+    Covers all op-codes (0..8 incl. float64-promoted div/ratio_abs + nan-propagating max/min/signed),
+    zeros / negatives / +-inf operands, and K==1. The row-major kernel is the gated fallback."""
+    cp = pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters._gpu_resident_select as M
+
+    rng = np.random.RandomState(13)
+    for (n, K, nop) in [(3000, 50, 16), (10000, 257, 32), (40000, 583, 64), (2048, 1, 8)]:
+        tv = rng.standard_normal((n, nop)).astype(np.float32)
+        tv[::97, :] = 0.0
+        tv[2, 0] = 1e30
+        tv[3, 0] = -1e30
+        a = rng.randint(0, nop, K).astype(np.int64)
+        b = rng.randint(0, nop, K).astype(np.int64)
+        ops = rng.randint(0, 9, K).astype(np.int8)  # exercise every op-code 0..8
+        tvg = cp.asarray(tv)
+
+        M._OPERAND_TABLE_CM_CACHE["ref"] = None  # avoid a stale cm cache from a prior shape
+        import os
+        os.environ["MLFRAME_FE_GPU_MATERIALISE_CM"] = "0"
+        o_rm = M._fe_materialise_block_gpu(tvg, a, b, ops)
+        os.environ["MLFRAME_FE_GPU_MATERIALISE_CM"] = "1"
+        M._OPERAND_TABLE_CM_CACHE["ref"] = None
+        o_cm = M._fe_materialise_block_gpu(tvg, a, b, ops)
+        os.environ.pop("MLFRAME_FE_GPU_MATERIALISE_CM", None)
+
+        assert o_cm.shape == (n, K) == o_rm.shape
+        assert bool(cp.array_equal(o_rm, o_cm)), f"cm materialise differs at n={n} K={K} nop={nop}"
