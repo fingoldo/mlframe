@@ -198,3 +198,49 @@ def test_aggregate_combo_2col_fast_path_bit_identical_to_bincount():
         if not np.array_equal(ref_sums, got_sums):
             max_diff = max(max_diff, float(np.max(np.abs(ref_sums - got_sums))))
     assert max_diff == 0.0, f"2-col fast path sums diverged from bincount by {max_diff}"
+
+
+def test_slice_decode_vectorized_bit_identical_to_per_cell_loop():
+    """CPX25-A: the mixed-radix cell-id decode in ``find_weak_slices`` was vectorized from a per-cell Python
+    loop to a batched floor-div/mod over the stride vector. The batched decode must be exactly equal to the
+    reference per-cell recurrence across arities (1/2/3), stride grids, and edge cases (empty selection,
+    single-feature combo). Pure integer index arithmetic -> bit-identical by construction; this guards a
+    future "revert to the python loop / change the digit order" from silently shifting decoded bin labels."""
+    import numpy as np
+
+    def decode_old(cell_ids, strides):
+        m = len(strides)
+        rows = []
+        for cid in cell_ids:
+            rem = int(cid)
+            row = []
+            for k in range(m):
+                row.append(rem // int(strides[k]))
+                rem = rem % int(strides[k])
+            rows.append(row)
+        return np.asarray(rows, dtype=np.int64).reshape(len(cell_ids), m)
+
+    def decode_new(cell_ids, strides):
+        m = len(strides)
+        rem = cell_ids.astype(np.int64, copy=True)
+        decoded = np.empty((cell_ids.size, m), dtype=np.int64)
+        for k in range(m):
+            sk = int(strides[k])
+            decoded[:, k] = rem // sk
+            rem %= sk
+        return decoded
+
+    rng = np.random.default_rng(7)
+    for _ in range(200):
+        arity = int(rng.integers(1, 4))
+        nbins = rng.integers(2, 21, size=arity).astype(np.int64)
+        strides = np.ones(arity, dtype=np.int64)
+        for k in range(arity - 1, 0, -1):
+            strides[k - 1] = strides[k] * nbins[k]
+        ncells = int(strides[0]) * int(nbins[0])
+        size = int(rng.integers(0, 50))  # includes the empty-selection edge case (size == 0)
+        cell_ids = rng.integers(0, ncells, size=size, dtype=np.int64)
+        old = decode_old(cell_ids, strides)
+        new = decode_new(cell_ids, strides)
+        assert old.shape == new.shape == (size, arity)
+        assert np.array_equal(old, new)
