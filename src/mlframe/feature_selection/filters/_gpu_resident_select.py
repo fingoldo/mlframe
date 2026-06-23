@@ -427,6 +427,72 @@ def _transpose_cm_to_rm(cm_gpu):
         return cp.ascontiguousarray(cm_gpu.T)
 
 
+# COALESCED TILED TRANSPOSE for the int8/int16 DISC CODES (2026-06-24, nsys-driven int8-copy lever). The
+# resident-codes noise gate's column-major hist kernel needs the (n,K) int codes as a (K,n) C-order buffer
+# and built it with ``cp.ascontiguousarray(d_disc.T)`` -- exactly the uncoalesced strided-copy pattern the
+# f32 transpose above replaced. nsys (isolated KTC, F2 100k, one fit) charged that int8 transpose-copy as
+# cupy_copy__int8_int8 = 46 calls / 1776ms = 29.5% of ALL GPU-kernel time, run at only ~3-4 GB/s (cupy's
+# generic strided copy is uncoalesced on both read+write for a transposed view). This shared-memory TILED
+# transpose (32x32 tiles, +1 pad column to kill the shared-bank conflict on the transposed write) reads the
+# (n,K) buffer coalesced and writes the (K,n) buffer coalesced -- BIT-IDENTICAL bytes (same values, same
+# (K,n) C-order layout the hist kernel already consumes -> counts byte-for-byte unchanged). Falls back to
+# cp.ascontiguousarray(disc.T) on any failure. The char body is dtype-agnostic for any 1-byte code (int8);
+# a separate int16 kernel covers nbins>128 (the gate accepts itemsize<=2 narrow codes).
+_TRANSPOSE_I8_SRC = r"""
+extern "C" __global__
+void transpose_i8(const signed char* __restrict__ in, signed char* __restrict__ out,
+                  const long long n, const int K) {
+    __shared__ signed char tile[32][33];           // +1 pad column: no shared-bank conflict on the write
+    long long row = (long long)blockIdx.y * 32 + threadIdx.y;   // index into n (rows of the (n,K) input)
+    int col = blockIdx.x * 32 + threadIdx.x;                    // index into K
+    if (row < n && col < K) tile[threadIdx.y][threadIdx.x] = in[row * (long long)K + col];
+    __syncthreads();
+    int orow = blockIdx.x * 32 + threadIdx.y;                   // index into K (rows of the (K,n) output)
+    long long ocol = (long long)blockIdx.y * 32 + threadIdx.x;  // index into n
+    if (orow < K && ocol < n) out[(long long)orow * n + ocol] = tile[threadIdx.x][threadIdx.y];
+}
+"""
+_TRANSPOSE_I16_SRC = _TRANSPOSE_I8_SRC.replace("signed char", "short").replace("transpose_i8", "transpose_i16")
+_TRANSPOSE_I8_KERNEL = None   # module-level singletons (lazy-compiled; pickle-safe)
+_TRANSPOSE_I16_KERNEL = None
+
+
+def _get_transpose_int_kernel(itemsize: int):
+    global _TRANSPOSE_I8_KERNEL, _TRANSPOSE_I16_KERNEL
+    import cupy as cp
+    if itemsize == 1:
+        if _TRANSPOSE_I8_KERNEL is None:
+            _TRANSPOSE_I8_KERNEL = cp.RawKernel(_TRANSPOSE_I8_SRC, "transpose_i8")
+        return _TRANSPOSE_I8_KERNEL
+    if _TRANSPOSE_I16_KERNEL is None:
+        _TRANSPOSE_I16_KERNEL = cp.RawKernel(_TRANSPOSE_I16_SRC, "transpose_i16")
+    return _TRANSPOSE_I16_KERNEL
+
+
+def transpose_codes_to_cm(disc_gpu):
+    """Return a (K, n) C-contiguous (== column-major over the original (n,K)) copy of the row-major narrow
+    int ``disc_gpu`` (int8 / int16 bin codes) via the coalesced tiled-transpose kernel -- the int analogue
+    of ``_transpose_to_cm``, replacing ``cp.ascontiguousarray(disc.T)`` (uncoalesced) for the resident
+    noise-gate's column-major hist load. BIT-IDENTICAL bytes. Falls back to ``cp.ascontiguousarray(disc.T)``
+    for any non-1/2-byte int / non-C-contiguous input or on any kernel failure (bit-identical either way)."""
+    import cupy as cp
+
+    n, K = disc_gpu.shape
+    itemsize = disc_gpu.dtype.itemsize
+    if itemsize not in (1, 2) or not disc_gpu.flags.c_contiguous:
+        return cp.ascontiguousarray(disc_gpu.T)
+    try:
+        out = cp.empty((K, n), dtype=disc_gpu.dtype)
+        grid = ((K + 31) // 32, int((n + 31) // 32))
+        _get_transpose_int_kernel(itemsize)((grid[0], grid[1]), (32, 32),
+                                            (disc_gpu, out, np.int64(n), np.int32(K)))
+        return out
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("tiled int-codes transpose kernel failed; cp.ascontiguousarray(.T) fallback", exc_info=True)
+        return cp.ascontiguousarray(disc_gpu.T)
+
+
 def _get_radix_select_kernel(is_f32: bool):
     global _RADIX_SELECT_F64_KERNEL, _RADIX_SELECT_F32_KERNEL
     import cupy as cp

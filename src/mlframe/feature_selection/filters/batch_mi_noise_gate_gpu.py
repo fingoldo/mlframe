@@ -514,7 +514,12 @@ def batch_mi_with_noise_gate_cuda_resident(
     if _use_shared and _cm_on and _CUDA_HIST_KERNEL_BATCHED_SHARED_CM is not None:
         try:
             import cupy as _cp_cm
-            _d_disc_cm = _cp_cm.ascontiguousarray(_cp_cm.asarray(d_disc).T)  # (K, n) C-order, coalesced disc load
+            from ._gpu_resident_select import transpose_codes_to_cm as _transpose_codes_to_cm
+            # COALESCED tiled int-codes transpose (2026-06-24): cp.ascontiguousarray(disc.T) was an
+            # uncoalesced strided copy -- nsys charged it cupy_copy__int8_int8 46 calls / 1776ms / 29.5% of
+            # GPU-kernel time @F2 100k. The tiled kernel reads (n,K) + writes (K,n) coalesced, BIT-IDENTICAL
+            # (same values, same (K,n) C-order layout -> counts unchanged); falls back to ascontiguousarray.
+            _d_disc_cm = _transpose_codes_to_cm(_cp_cm.asarray(d_disc))  # (K, n) C-order, coalesced disc load
         except Exception:
             logging.getLogger(__name__).debug("histgate column-major transpose failed; row-major fallback", exc_info=True)
             _d_disc_cm = None
