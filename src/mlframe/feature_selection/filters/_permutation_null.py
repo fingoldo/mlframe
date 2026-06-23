@@ -294,6 +294,30 @@ def pooled_permutation_null_gain_floor(
     return float(np.quantile(maxes, float(quantile)))
 
 
+@numba.njit(cache=True)
+def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
+    """njit twin of :func:`_pairwise_occupied_joint_k`: counts the SAME distinct joint
+    codes ``a*nbins_b + b`` per pair via a flat boolean ``seen`` buffer of length
+    ``nbins_a*nbins_b`` instead of a Python ``set``. BIT-IDENTICAL by construction (it
+    enumerates the identical code per row and counts first-occurrences). ~90-240x faster
+    than the interpreter set-per-pair loop (bench bench_pairwise_occupied_joint_k.py)."""
+    n = factors_data.shape[0]
+    n_pairs = pair_a.shape[0]
+    out = np.empty(n_pairs, dtype=np.int64)
+    for p in range(n_pairs):
+        a = pair_a[p]; b = pair_b[p]
+        nb_a = nbins[a]; nb_b = nbins[b]
+        seen = np.zeros(nb_a * nb_b, dtype=np.uint8)
+        cnt = 0
+        for i in range(n):
+            code = factors_data[i, a] * nb_b + factors_data[i, b]
+            if seen[code] == 0:
+                seen[code] = 1
+                cnt += 1
+        out[p] = cnt
+    return out
+
+
 def _pairwise_occupied_joint_k(
     factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray,
 ) -> np.ndarray:
@@ -304,18 +328,16 @@ def _pairwise_occupied_joint_k(
     precomputed ONCE and reused across all shuffles. Returns an ``int64`` array of
     length ``len(pair_a)``; entry ``k`` is ``#{distinct (a*nbins_b + b) codes}`` for
     pair ``k``. Used to subtract the per-pair Miller-Madow MI bias term consistently
-    from BOTH the floor's per-shuffle joint MIs AND the gate's observed ``pair_mi``."""
-    n = int(factors_data.shape[0])
-    n_pairs = int(pair_a.shape[0])
-    out = np.empty(n_pairs, dtype=np.int64)
-    for p in range(n_pairs):
-        a = int(pair_a[p]); b = int(pair_b[p])
-        nb_b = int(nbins[b])
-        seen = set()
-        for i in range(n):
-            seen.add(int(factors_data[i, a]) * nb_b + int(factors_data[i, b]))
-        out[p] = len(seen)
-    return out
+    from BOTH the floor's per-shuffle joint MIs AND the gate's observed ``pair_mi``.
+
+    Delegates to the njit boolean-seen kernel (bit-identical distinct-count, ~90-240x
+    over the prior Python set-per-pair loop). Only the index/bin arrays are normalised
+    to int64; ``factors_data`` keeps its native (typically int32) dtype so a wide
+    screening matrix is NOT int64-copied (RAM rule) -- numba indexes it directly."""
+    pa = np.ascontiguousarray(pair_a, dtype=np.int64)
+    pb = np.ascontiguousarray(pair_b, dtype=np.int64)
+    nb = np.ascontiguousarray(nbins, dtype=np.int64)
+    return _pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb)
 
 
 def pooled_pair_permutation_null_joint_mi_floor(
