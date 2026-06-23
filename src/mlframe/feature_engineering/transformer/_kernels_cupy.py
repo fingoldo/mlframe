@@ -48,6 +48,18 @@ _PINNED_BUFFERS_LOCK = threading.Lock()
 _PINNED_BUFFERS_MAX = 32
 
 
+def clear_pinned_buffers() -> int:
+    """Release the pooled page-locked host buffers so pinned memory is freed (e.g. at fit completion).
+
+    Page-locked (pinned) host memory is a scarce OS resource that otherwise stays allocated for the life
+    of the process. Call this when the GPU FE stage is done. Returns the number of buffers released.
+    """
+    with _PINNED_BUFFERS_LOCK:
+        n = len(_PINNED_BUFFERS)
+        _PINNED_BUFFERS.clear()
+        return n
+
+
 def _ensure_kernels_inited() -> None:
     """Build the ``RawKernel`` for stage-4 row-attention if not already built. Idempotent under the lock."""
     global _KERNELS_INITED, row_attention_stage4_raw_kernel

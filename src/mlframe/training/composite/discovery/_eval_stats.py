@@ -221,7 +221,7 @@ def benjamini_hochberg_reject(p_values, alpha: float) -> np.ndarray:
     return out
 
 
-def benjamini_yekutieli_reject(p_values, alpha: float) -> np.ndarray:
+def benjamini_yekutieli_reject(p_values: np.ndarray, alpha: float) -> np.ndarray:
     """Benjamini-Yekutieli step-up: BH valid under ARBITRARY dependence among the p-values.
 
     Identical to :func:`benjamini_hochberg_reject` except the per-rank threshold is divided by the

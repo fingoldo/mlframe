@@ -130,6 +130,12 @@ def heterogeneous_relevance_vote(
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X, dtype=float)
     yv = np.asarray(y)
     P = Xv.shape[1]
+    if P == 0:
+        # No columns -> the shadow ``np.column_stack([])`` raises an opaque ValueError; an empty feature set is a valid all-relevant verdict (nothing to accept).
+        return [], {"vote_fraction": {}, "n_models": 0, "model_weights": {}}
+    if classification and np.unique(yv).size < 2:
+        # The main vote path fits LogisticRegression, which raises an opaque "needs >= 2 classes" deep in the panel loop; reject single-class y at entry with a clear message.
+        raise ValueError(f"heterogeneous_relevance_vote requires y with >= 2 classes for classification; got {np.unique(yv).size}.")
     panel = models if models is not None else _default_panel(classification)
     # The shadow seed (random_state + tr) is model-INDEPENDENT, so every panel member redraws the same
     # n_shadow_trials shadow matrices from scratch. Build each [X | shadow] once and reuse across the panel:

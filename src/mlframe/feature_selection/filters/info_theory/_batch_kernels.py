@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import os
+from typing import Callable
 
 import numpy as np
 from numba import njit, prange
@@ -663,7 +664,7 @@ def _batch_mi_kernel_fallback_choice(n_rows: int, n_cols: int) -> str:
     return "v2"
 
 
-def select_batch_mi_kernel(n_rows: int, n_cols: int):
+def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
     """Return the batched FE-candidate MI kernel (``batch_mi_with_noise_gate`` v1 or the fused v2) for this
     (n_rows, n_cols) on this host. Routed through ``pyutilz.system.kernel_tuning_cache`` (per-host cache,
     code-version checked, async background sweep, measurement-backed fallback) -- NOT a hardcoded threshold.

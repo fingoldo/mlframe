@@ -199,6 +199,9 @@ def compare_selectors(
         raise ValueError("`selectors` is empty")
 
     feature_names = [str(c) for c in X.columns]
+    if not feature_names:
+        # With no columns every selector trivially "agrees" (Jaccard of empty vs empty == 1.0), silently reporting full agreement on nothing; reject at entry.
+        raise ValueError("compare_selectors requires X with >= 1 column; got an empty feature set.")
     fit_kwargs = dict(fit_kwargs or {})
 
     selected_by: dict[str, list[str]] = {}

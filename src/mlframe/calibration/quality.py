@@ -231,6 +231,13 @@ def estimate_calibration_quality_binned(
     # (y_true, y_pred) and must not be cross-compared -- compare only within one scheme.
     if indices is None:
         indices = np.argsort(y_pred)
+    # With n_samples < nbins the equal-mass bin_size = s // nbins is 0, so every non-final pocket is an empty
+    # slice and np.nanmean fills the (avg_x, avg_y) pairs with NaN -> silently NaN-laden ECE/CRPS. Cap nbins
+    # to the sample count so each pocket holds at least one row.
+    n_samples = len(y_pred)
+    if n_samples == 0:
+        raise ValueError("estimate_calibration_quality_binned: empty y_pred")
+    nbins = min(nbins, n_samples)
     pockets_predicted, pockets_true, data = bin_predictions(y_true=y_true, y_pred=y_pred, indices=indices, nbins=nbins)
     # r2 = np.corrcoef(pockets_predicted, pockets_true)[0, 1] ** 2
 
@@ -266,6 +273,9 @@ def show_classifier_calibration(
     skip_plotting: bool = False,
 ) -> dict | list | pd.DataFrame | None:
 
+    if nintervals < 1:
+        raise ValueError(f"show_classifier_calibration: nintervals must be >= 1, got {nintervals}")
+
     s = len(y_true)
     step = s // nintervals
     l = 0
@@ -293,7 +303,7 @@ def show_classifier_calibration(
             # Expected data-shape / empty-interval failures from binning: log and abort this call, returning None.
             # Narrowed from a bare ``except Exception`` so genuinely unexpected errors (bugs, KeyboardInterrupt,
             # programming errors) propagate instead of being silently swallowed into a None return.
-            logging.exception(e)
+            logger.exception("estimate_calibration_quality_binned failed for slice [%d:%d]", l, r)
             return None
         all_performances.append(performances)
 
@@ -524,6 +534,10 @@ def anderson_darling_statistic(pit_values: np.ndarray) -> float:
 
 def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     """Calculate the Chi-Square statistic for PIT values."""
+    # Empty pit_values gives all-zero observed AND expected counts, and chisquare then returns silent NaN
+    # (0/0); mirror the n==0 guard in anderson_darling_statistic and surface NaN explicitly.
+    if len(pit_values) == 0:
+        return float("nan")
     observed, bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
     expected = np.ones_like(observed) * len(pit_values) / bins
     chi2_stat, _ = chisquare(f_obs=observed, f_exp=expected)

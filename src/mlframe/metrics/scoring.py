@@ -106,4 +106,9 @@ def ProbaScoreProxy(y_true, y_probs, class_idx, proxied_func, **kwargs):
 
     Passes column ``class_idx`` of ``y_probs`` to ``proxied_func(y_true, ...)``.
     """
+    p = np.asarray(y_probs)
+    if p.ndim != 2 or not (0 <= class_idx < p.shape[1]):
+        raise ValueError(
+            f"ProbaScoreProxy: y_probs must be 2-D with class_idx in range; got shape {p.shape}, class_idx={class_idx}"
+        )
     return proxied_func(y_true, y_probs[:, class_idx], **kwargs)

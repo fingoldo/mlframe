@@ -333,7 +333,7 @@ def take_resident_codes(host_codes):
     return None
 
 
-def clear_resident_codes_handoff(host_codes=None) -> None:
+def clear_resident_codes_handoff(host_codes: np.ndarray | None = None) -> None:
     """Drop the resident-codes handoff + the deferred host-fill record so device memory is not pinned past
     the dispatch that produced it, and a stale entry can never satisfy a later, unrelated dispatch. Called
     by ``_dispatch_batch_mi_with_noise_gate`` in a finally after it has decided the consumer.

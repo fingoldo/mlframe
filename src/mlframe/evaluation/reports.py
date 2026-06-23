@@ -322,7 +322,8 @@ def evaluate_estimators(
                         if confusion_matrix_file:
                             plt.savefig(confusion_matrix_file, dpi=dpi, bbox_inches="tight")
 
-                        plt.show()
+                        # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
+                        plt.close(getattr(disp, "figure_", None) or plt.gcf())
 
                     if show_calibration_plot:
 
@@ -354,7 +355,8 @@ def evaluate_estimators(
                                 ax2.legend(loc="upper center", ncol=2)
 
                                 plt.tight_layout()
-                                plt.show()
+                                # Close instead of show: library code must not leak per-class figures nor block.
+                                plt.close()
                         else:
                             fig, _cal_metrics = make_custom_calibration_plot(
                                 y=y_test_test,
@@ -367,7 +369,8 @@ def evaluate_estimators(
                                 X=X_test_test,
                             )
                             if fig is not None:
-                                fig.show()
+                                # Close instead of show: library code must not leak the calibration figure nor block.
+                                plt.close(fig)
 
     return pipe, classification_report_text, classification_report_dict, cm
 
@@ -527,6 +530,10 @@ def plot_pr_curve(
 
     y = np.asarray(y)
     preds = np.asarray(preds, dtype=float)
+
+    # A single-class y makes PR/ROC degenerate (prevalence 0 or 1, undefined AUC) and the baseline misleading. Refuse explicitly.
+    if np.unique(y).size < 2:
+        raise ValueError(f"plot_pr_curve: y must contain both classes; got a single class {np.unique(y).tolist()}.")
 
     precision, recall, _ = precision_recall_curve(y, preds)
     recall, precision = _decimate_curve_vertices((recall, precision))

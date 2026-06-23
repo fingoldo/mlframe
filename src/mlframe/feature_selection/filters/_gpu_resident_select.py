@@ -984,6 +984,17 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
 _PINNED_D2H_TLS = threading.local()
 
 
+def clear_pinned_d2h() -> bool:
+    """Release the calling thread's pinned D2H staging buffer so page-locked host memory is freed (e.g. at fit completion).
+
+    The staging buffer is thread-local; this clears only the current thread's allocation (the only one it can safely
+    reach). Returns True if a buffer was present and dropped, False otherwise.
+    """
+    had = getattr(_PINNED_D2H_TLS, "buf", None) is not None
+    _PINNED_D2H_TLS.buf = None
+    return had
+
+
 def _pinned_view(n_bytes: int, shape, dtype):
     """A pinned-host numpy view of at least ``n_bytes``, reshaped to ``shape`` (``dtype``). Reuses a
     THREAD-LOCAL pinned allocation, growing it on demand. Lets ``cupy.ndarray.get(out=...)`` DMA at full

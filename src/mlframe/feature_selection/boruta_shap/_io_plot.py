@@ -86,11 +86,11 @@ def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_fe
     self.check_if_which_features_is_correct(which_features)
     data = options[which_features.lower()]
 
-    self.box_plot(data=data, X_rotation=X_rotation, X_size=X_size, y_scale=y_scale, figsize=figsize)
+    fig = self.box_plot(data=data, X_rotation=X_rotation, X_size=X_size, y_scale=y_scale, figsize=figsize)
     if display:
         plt.show()
-    else:
-        plt.close()
+    # Always close the figure handle so the box-plot figure is not leaked (matters under test runs / repeated calls); display path also closes after show.
+    plt.close(fig)
 
 
 def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
@@ -103,7 +103,7 @@ def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
     my_palette = self.create_mapping_of_features_to_attribute(maps=["yellow", "red", "green", "blue"])
 
     # Use a color palette
-    plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize)
     ax = sns.boxplot(x=data["Methods"], y=data["value"], order=order, palette=my_palette)
 
     if y_scale == "log":
@@ -112,6 +112,7 @@ def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
     ax.set_title("Feature Importance")
     ax.set_ylabel("Z-Score")
     ax.set_xlabel("Features")
+    return fig
 
 
 def create_mapping_of_features_to_attribute(self, maps=None):

@@ -39,6 +39,10 @@ def get_binningprocess_featureselectors(
     if iv_kwargs is None:
         iv_kwargs = {"min": 0.02, "strategy": "highest"}
     all_cols = features.columns.tolist()
+    if len(set(all_cols)) != len(all_cols):
+        # Duplicate names break the category-drop ``nocat_cols.remove(col)`` (removes only the first match -> stale category column or ValueError) and BinningProcess variable selection.
+        dups = sorted({c for c in all_cols if all_cols.count(c) > 1})
+        raise ValueError(f"get_binningprocess_featureselectors requires unique column names; duplicates: {dups}.")
 
     bp_withcats_fs = Pipeline(
         [

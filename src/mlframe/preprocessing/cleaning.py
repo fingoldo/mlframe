@@ -362,6 +362,15 @@ def is_variable_truly_continuous(
             "datetime-typed; got non-numeric non-datetime data."
         )
 
+    # Degenerate columns: an empty column divides by len(values)==0 below, and an all-NaN column makes np.nanmin/np.nanmax
+    # raise (empty-slice) or propagate NaN into a meaningless continuity decision. Short-circuit both to discrete + 0 outliers.
+    if len(values) == 0:
+        logger.warning("is_variable_truly_continuous: empty column%s; treating as discrete with 0 outliers.", f" {variable_name!r}" if variable_name else "")
+        return False, 0.0
+    if var_is_numeric and not np.isfinite(np.asarray(values, dtype=float)).any():
+        logger.warning("is_variable_truly_continuous: all-NaN/non-finite column%s; treating as discrete with 0 outliers.", f" {variable_name!r}" if variable_name else "")
+        return False, 0.0
+
     if var_is_datetime:
         # Normalize any pandas datetime carrier (tz-aware Series / DatetimeArray) to a tz-naive numpy datetime64 array up front.
         # The resolution probe + quantile/span arithmetic below all assume numpy: np.nanquantile / the q-diff yield pandas
@@ -568,8 +577,9 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_q
         n_more_r = (idx_r).sum()
         idx = (~idx_l) & (~idx_r)
 
-    if var:
-        print(
+    if logger.isEnabledFor(logging.DEBUG) and var:
+        # Lazy guard: the four nanmin/nanmax scans only run when DEBUG is on (was an eager print of all four every call).
+        logger.debug(
             f"{var}: from {np.nanmin(values):_.2f} to {np.nanmax(values):_.2f}, outliers: l={n_less_l:_}, r={n_more_r:_}, after cleaning: from {np.nanmin(values[idx]):_.2f} to {np.nanmax(values[idx]):_.2f}"
         )
 

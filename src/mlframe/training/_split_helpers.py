@@ -45,6 +45,23 @@ def _stratified_split(
     if stratify_y.ndim == 1:
         from sklearn.model_selection import StratifiedShuffleSplit
 
+        # Singleton classes (e.g. rare_1pct on a small frame) make sklearn raise the opaque "least populated class has only 1
+        # member" deep inside the splitter. Pre-check and fall back to a non-stratified shuffle split with a clear warning,
+        # matching the graceful degradation of the group / 3-way paths.
+        _classes, _counts = np.unique(stratify_y, return_counts=True)
+        if _counts.min() < 2:
+            _singleton = _classes[np.argmin(_counts)]
+            logger.warning(
+                "Stratified split requested but class %r has only %d member(s); a stratified split needs >=2 per class. "
+                "Falling back to a non-stratified random split.",
+                _singleton, int(_counts.min()),
+            )
+            from sklearn.model_selection import ShuffleSplit
+
+            splitter = ShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+            left_pos, right_pos = next(splitter.split(np.zeros(len(indices))))
+            return indices[left_pos], indices[right_pos]
+
         splitter = StratifiedShuffleSplit(
             n_splits=1, test_size=test_size, random_state=random_state,
         )

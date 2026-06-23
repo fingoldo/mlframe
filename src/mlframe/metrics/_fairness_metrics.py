@@ -105,7 +105,9 @@ def create_fairness_subgroups(
         # qcut; everything else uses the value_counts categorical path below.
         if pd.api.types.is_numeric_dtype(feature_vals):
             if len(val_cnts) > cont_nbins:
-                feature_vals = pd.qcut(feature_vals, q=cont_nbins, labels=None)  # use qcut for equipopulated binning
+                # duplicates="drop" so tie-heavy / zero-inflated features (non-unique quantile edges) collapse to fewer
+                # bins instead of raising the opaque "Bin edges must be unique" ValueError deep in pandas.
+                feature_vals = pd.qcut(feature_vals, q=cont_nbins, labels=None, duplicates="drop")  # use qcut for equipopulated binning
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now
 
         # use categories as natural bins. ensure that low-populated cats are merged if possible (merge_lowpop_cats)

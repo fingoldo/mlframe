@@ -74,6 +74,10 @@ def ewma(x, alpha: float, adjust: bool = False) -> np.ndarray:
     alpha : float {0 <= alpha <= 1}
     adjust : bool — if True, use pandas' default adjusted formula; else recurrence.
     """
+    alpha = float(alpha)
+    # alpha is the smoothing weight; outside [0, 1] (or NaN) the recurrence diverges / poisons every output with no error.
+    if not (0.0 <= alpha <= 1.0):
+        raise ValueError(f"ewma: alpha must be in [0, 1] and not NaN; got {alpha!r}.")
     x = np.ascontiguousarray(x)
     if adjust:
         return _ewma_numba_adjust(x, float(alpha))

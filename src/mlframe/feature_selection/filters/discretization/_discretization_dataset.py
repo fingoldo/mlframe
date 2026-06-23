@@ -119,9 +119,9 @@ def create_redundant_continuous_factor(
     noise_percent: float = 5.0,
     dist: object = None,
     dist_args: tuple = (),
-    name: str = None,
+    name: str | None = None,
     sep: str = "_",
-    random_state=None,
+    random_state: int | np.random.RandomState | None = None,
 ) -> None:
     """Out of a few continuous factors, craft a new factor with known relationship and amount of redundancy. Used by tests / benchmark harnesses, not by ``MRMR`` directly.
 

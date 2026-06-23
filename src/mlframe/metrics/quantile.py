@@ -303,6 +303,11 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
             f"pit_values: shape mismatch y={y.shape}, preds={P.shape}, "
             f"alphas={a_arr.shape}"
         )
+    # K==0 (empty alphas) makes the per-row interpolation read sq[0]/sq[k-1] out of bounds; with numba
+    # boundscheck off this returns garbage rather than raising. A PIT diagram needs >=2 quantile levels
+    # to interpolate at all, so reject K<2 with a clear message.
+    if a_arr.shape[0] < 2:
+        raise ValueError(f"pit_values: need at least 2 quantile levels (K>=2), got K={a_arr.shape[0]}")
     # Cheap crossing detector: with alphas ascending the predicted quantiles should be non-decreasing
     # across columns. Any row with a negative consecutive diff has a quantile crossing that the per-row
     # sort masks -- warn once with the count so the defect surfaces rather than being silently laundered.
@@ -346,14 +351,22 @@ def quantile_summary(
     """
     pinball = pinball_loss_per_alpha(y_true, preds_NK, alphas)
     out: Dict[str, Any] = {"pinball_per_alpha": pinball}
+    p = np.asarray(preds_NK)
+    if p.ndim != 2:
+        raise ValueError(f"quantile_summary: preds_NK must be 2-D (N, K), got shape {p.shape}")
     a_arr = list(alphas)
     for lo_a, hi_a in coverage_pairs:
         if lo_a not in a_arr or hi_a not in a_arr:
             continue
         col_lo = a_arr.index(lo_a)
         col_hi = a_arr.index(hi_a)
-        q_lo = preds_NK[:, col_lo]
-        q_hi = preds_NK[:, col_hi]
+        if col_lo >= p.shape[1] or col_hi >= p.shape[1]:
+            raise ValueError(
+                f"quantile_summary: coverage column index out of range for pair ({lo_a}, {hi_a}): "
+                f"col_lo={col_lo}, col_hi={col_hi}, preds_NK has {p.shape[1]} columns"
+            )
+        q_lo = p[:, col_lo]
+        q_hi = p[:, col_hi]
         # Nominal miscoverage = 1 - nominal-coverage = 1 - (hi_a - lo_a).
         # E.g. (0.1, 0.9) -> 80% nominal coverage -> miscov = 0.2.
         nominal_miscov_winkler = max(1e-12, 1.0 - (hi_a - lo_a))

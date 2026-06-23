@@ -688,7 +688,7 @@ def fe_gpu_binning_backend_choice(n_rows: int, n_cols: int) -> str:
         return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
 
 
-def ensure_fe_gpu_binning_tuning(force: bool = False):
+def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
     """Force-run + persist the FE binning CPU-vs-GPU crossover sweep for this host (CLI refresh hook)."""
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache

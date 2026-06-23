@@ -63,7 +63,10 @@ def carve_calib_conformal_temporal(
     idx = np.asarray(train_idx)
     n = idx.size
     if time_values is not None:
-        order = np.argsort(np.asarray(time_values), kind="stable")
+        time_values = np.asarray(time_values)
+        if time_values.shape[0] != n:
+            raise ValueError(f"time_values {time_values.shape} must align with train_idx ({n},)")
+        order = np.argsort(time_values, kind="stable")
         idx = idx[order]
     n_calib, n_conf = _resolve_counts(n, calib_frac, conformal_frac)
     purge = max(0, int(purge))
@@ -101,6 +104,11 @@ def carve_calib_conformal_grouped(
     g = uniq.size
     n_g_conf = int(np.floor(conformal_frac * g)) if conformal_frac and conformal_frac > 0 else 0
     n_g_calib = int(np.floor(calib_frac * g)) if calib_frac and calib_frac > 0 else 0
+    # A non-zero requested fraction that floors to 0 groups silently produces an empty calib/conformal slice (too few groups for the fraction).
+    if conformal_frac and conformal_frac > 0 and n_g_conf == 0:
+        raise ValueError(f"conformal_frac={conformal_frac} over {g} group(s) floors to 0 conformal groups; need more groups or a larger fraction.")
+    if calib_frac and calib_frac > 0 and n_g_calib == 0:
+        raise ValueError(f"calib_frac={calib_frac} over {g} group(s) floors to 0 calib groups; need more groups or a larger fraction.")
     if n_g_conf + n_g_calib >= g:
         raise ValueError(f"calib+conformal groups ({n_g_calib}+{n_g_conf}) leave no fit groups out of {g}")
     rng = np.random.default_rng(seed)

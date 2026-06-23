@@ -234,6 +234,9 @@ def select_from_pareto(
     sign_better = -1.0 if direction == "min" else 1.0
     for idx in frontier_indices:
         scores = np.asarray(iter_shard_scores[idx], dtype=float)
+        # An iteration with no shard scores has no defined risk quantile (np.quantile([]) warns + returns NaN); skip it rather than poison the comparison.
+        if scores.size == 0:
+            continue
         q = float(risk_quantile) if direction == "min" else 1.0 - float(risk_quantile)
         risk_score = float(np.quantile(scores, q))
         if best_score is None or sign_better * (risk_score - best_score) > 0:

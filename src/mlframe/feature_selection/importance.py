@@ -170,6 +170,9 @@ def plot_feature_importance(
         indexed by feature name.
     """
     sorted_idx = np.argsort(feature_importances)
+    if len(columns) not in (0, len(feature_importances)):
+        # A partial-length ``columns`` (1..n-1) would index past its end at ``np.array(columns)[sorted_idx]`` with an opaque IndexError; require it empty or aligned.
+        raise ValueError(f"plot_feature_importance: len(columns)={len(columns)} must be 0 or len(feature_importances)={len(feature_importances)}.")
     if len(columns) == 0:
         columns = np.arange(len(feature_importances))
     sorted_columns = np.array(columns)[sorted_idx]

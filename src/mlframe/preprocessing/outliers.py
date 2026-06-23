@@ -177,6 +177,9 @@ def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.n
         X_train = X_train.reshape(-1, 1)
     if X_test.ndim == 1:
         X_test = X_test.reshape(-1, 1)
+    # The njit kernel indexes train mins/maxs by X_test's feature columns; a feature-count mismatch reads out-of-bounds and returns silent garbage.
+    if X_train.shape[1] != X_test.shape[1]:
+        raise ValueError(f"compute_naive_outlier_score: X_train has {X_train.shape[1]} features but X_test has {X_test.shape[1]}; feature counts must match.")
     if _HAS_NUMBA:
         mins, maxs = _nanminmax_cols(X_train)
     else:
