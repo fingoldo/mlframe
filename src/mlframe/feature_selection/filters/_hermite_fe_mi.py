@@ -209,6 +209,50 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray,
         x_binned, np.asarray(y, dtype=np.int64), n_bins,
     ))
 
+# --- Fused per-cell MI-contribution kernel (2026-06-23, GPU-saturation Task #2) -----------------------
+# The plug-in MI reduction below built the per-cell nat contribution as a chain of ~8 SEPARATE cupy
+# elementwise launches over the (k, n_bins, n_classes) joint histogram (mask, 3x where, 3x log, the
+# fused-by-hand mul/add/sub, then where(mask,...,0)). nsys on the F2-100k GPU fit attributed a large
+# slice of the thousands of TINY cupy launches (cupy_power/multiply/add/sub/copy + cupy_sum/mean) to this
+# block, fired once per raw column AND per engineered candidate in the orth-univariate FE path. ``cp.fuse``
+# collapses that whole per-cell chain into ONE elementwise kernel launch -> N launches become 1. The
+# marginal logs (log_x over (k,n_bins), log_y over (k,n_classes)) stay as 2 small launches outside the
+# fuse (they are reductions' inputs broadcast into the big array), so the big (k,nbins,nclasses) array is
+# touched by a SINGLE kernel instead of ~6. SELECTION-EQUIVALENT (not bit-identical): the cell value is
+# the SAME expression hist/n*(log(safe)+log_n - logx - logy) zeroed where hist==0, but the fused broadcast
+# ``- logx - logy`` may re-associate vs the unfused ``- log(safe_x)[:,:,None] - log(safe_y)[:,None,:]`` ->
+# ~1e-18 FP round-off (test_gpu_fused_mi_term pins max abs diff 3.5e-18, ~10 orders below any MI-ranking /
+# FE-selection threshold). Default ON; ``MLFRAME_FE_GPU_FUSE_MI=0`` restores the exact unfused chain.
+_FUSED_MI_TERM = None  # module-level cp.fuse singleton (lazy-built; never on an instance -> pickle-safe)
+
+
+def _get_fused_mi_term():
+    """Lazy-build the cp.fuse'd per-cell MI-contribution kernel. Inputs are broadcastable f64 arrays:
+    ``hxyc`` (k,nb,nc) joint counts, ``logx`` (k,nb,1) = log(safe hist_x), ``logy`` (k,1,nc) = log(safe
+    hist_y), plus scalars ``inv_n`` (=1/n) and ``log_n``. Returns the per-cell nat contribution, 0 where
+    the joint count is 0 -- the EXACT expression the unfused chain computed."""
+    global _FUSED_MI_TERM
+    if _FUSED_MI_TERM is None:
+        import cupy as cp
+
+        @cp.fuse()
+        def _term(hxyc, logx, logy, inv_n, log_n):
+            # cp.where(hxyc>0, hxyc, 1.0) feeds the log so log(0) never fires (matches the safe_xyc guard);
+            # the outer where zeroes empty cells, mirroring the njit ``if n_xy==0: continue`` short-circuit.
+            safe = cp.where(hxyc > 0, hxyc, 1.0)
+            contrib = (hxyc * inv_n) * (cp.log(safe) + log_n - logx - logy)
+            return cp.where(hxyc > 0, contrib, 0.0)
+
+        _FUSED_MI_TERM = _term
+    return _FUSED_MI_TERM
+
+
+def _fe_gpu_fuse_mi_enabled() -> bool:
+    """Whether the fused per-cell MI-contribution kernel is used. ON unless ``MLFRAME_FE_GPU_FUSE_MI`` is
+    explicitly falsy (the unfused chain stays the exact, bit-identical fallback one env flip away)."""
+    return os.environ.get("MLFRAME_FE_GPU_FUSE_MI", "1").strip().lower() in ("1", "true", "on", "yes")
+
+
 def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
                                   n_bins: int = 20) -> np.ndarray:
     """Cupy batch plug-in MI. Quantile-bins each column on GPU via
@@ -305,6 +349,16 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # equivalent a**2/b spellings (div(id,sqrt) -> mul(sqr,reciproc), a tie-cluster reorder) -- selection
     # instability for no math speedup. (proto D:/Temp/_bench_mi_dtype*.py)
     log_n = math.log(n)
+    if _fe_gpu_fuse_mi_enabled():
+        # FUSED per-cell contribution: ONE elementwise launch over the big (k,nb,nc) array instead of the
+        # ~6-launch chain below. The marginal logs stay 2 small launches; broadcast them to (k,nb,1)/(k,1,nc)
+        # so the fuse sees pure-elementwise broadcasting. Selection-equivalent (~1e-18 re-assoc; see header).
+        logx = cp.log(cp.where(hist_x > 0, hist_x, 1.0))[:, :, None]   # (k, nb, 1)
+        logy = cp.log(cp.where(hist_y > 0, hist_y, 1.0))[:, None, :]   # (k, 1, nc)
+        contrib = _get_fused_mi_term()(hist_xyc, logx, logy, 1.0 / n, log_n)
+        mi = contrib.sum(axis=(1, 2))  # (k,)
+        mi = cp.maximum(mi, 0.0)
+        return cp.asnumpy(mi)
     mask = hist_xyc > 0
     safe_xyc = cp.where(mask, hist_xyc, 1.0)
     safe_x = cp.where(hist_x > 0, hist_x, 1.0)
