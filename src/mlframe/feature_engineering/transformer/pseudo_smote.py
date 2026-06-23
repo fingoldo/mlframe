@@ -55,17 +55,24 @@ def _smote_synthesize_intra(X_minority: np.ndarray, n_synthetic: int, k_neighbor
     nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
     _dists, ids = nn.kneighbors(X_minority)
     rng = np.random.default_rng(seed)
-    out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
+    # Draw (src, nbr, alpha) in the exact interleaved per-iteration order the PCG64 stream produced before,
+    # then gather + convex-interpolate as one vectorized pass — bit-identical to the row loop. The draw order
+    # is load-bearing: batching the draws would change WHICH neighbours interpolate and break selection downstream.
+    src = np.empty(n_synthetic, dtype=np.int64)
+    nbr = np.empty(n_synthetic, dtype=np.int64)
+    alpha = np.empty(n_synthetic, dtype=np.float32)
     for i in range(n_synthetic):
-        src_idx = rng.integers(0, n_min)
-        candidates = ids[src_idx, 1:k_used]
+        s = rng.integers(0, n_min)
+        candidates = ids[s, 1:k_used]
+        src[i] = s
         if candidates.size == 0:
-            out[i] = X_minority[src_idx]
+            nbr[i] = s
+            alpha[i] = np.float32(0.0)
             continue
-        nbr_idx = candidates[rng.integers(0, candidates.size)]
-        alpha = rng.random()
-        out[i] = X_minority[src_idx] + alpha * (X_minority[nbr_idx] - X_minority[src_idx])
-    return out.astype(np.float32)
+        nbr[i] = candidates[rng.integers(0, candidates.size)]
+        alpha[i] = rng.random()
+    x_src = X_minority[src]
+    return (x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32)
 
 
 def _fit_aux_lgb_and_filter(X_train: np.ndarray, y_train: np.ndarray, virtuals: np.ndarray, task: str, seed: int, threshold: float, n_estimators: int = 200, max_depth: int = 4) -> np.ndarray:

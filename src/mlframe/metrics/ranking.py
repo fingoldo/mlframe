@@ -230,17 +230,10 @@ def ndcg_at_k(
     n_groups = len(group_starts) - 1
     if n_groups == 0:
         return float("nan")
-    accum = 0.0
-    n_valid = 0
-    for i in range(n_groups):
-        s, e = group_starts[i], group_starts[i + 1]
-        v = _ndcg_one_query(sorted_y_true[s:e], sorted_y_score[s:e], k)
-        if not np.isnan(v):
-            accum += v
-            n_valid += 1
-    if n_valid == 0:
-        return float("nan")
-    return accum / n_valid
+    # One batched prange kernel dispatch instead of n_groups Python->numba
+    # transitions (matches the _ranking_extras / compute_ranking_summary form).
+    vals = _per_query_ndcg_kernel(sorted_y_true, sorted_y_score, group_starts, k)
+    return _nan_mean(vals)
 
 
 def map_at_k(
@@ -256,17 +249,8 @@ def map_at_k(
     n_groups = len(group_starts) - 1
     if n_groups == 0:
         return float("nan")
-    accum = 0.0
-    n_valid = 0
-    for i in range(n_groups):
-        s, e = group_starts[i], group_starts[i + 1]
-        v = _map_one_query(sorted_y_true[s:e], sorted_y_score[s:e], k)
-        if not np.isnan(v):
-            accum += v
-            n_valid += 1
-    if n_valid == 0:
-        return float("nan")
-    return accum / n_valid
+    vals = _per_query_map_kernel(sorted_y_true, sorted_y_score, group_starts, k)
+    return _nan_mean(vals)
 
 
 def mrr(
@@ -283,17 +267,8 @@ def mrr(
     n_groups = len(group_starts) - 1
     if n_groups == 0:
         return float("nan")
-    accum = 0.0
-    n_valid = 0
-    for i in range(n_groups):
-        s, e = group_starts[i], group_starts[i + 1]
-        v = _mrr_one_query(sorted_y_true[s:e], sorted_y_score[s:e])
-        if not np.isnan(v):
-            accum += v
-            n_valid += 1
-    if n_valid == 0:
-        return float("nan")
-    return accum / n_valid
+    vals = _per_query_mrr_kernel(sorted_y_true, sorted_y_score, group_starts)
+    return _nan_mean(vals)
 
 
 @numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
@@ -527,6 +502,56 @@ def _lift_curve_kernel(
             lift_sums[kpos] += lift_chunks[c, kpos]
             counts[kpos] += count_chunks[c, kpos]
     return lift_sums, counts
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
+def _per_query_map_kernel(
+    sorted_y_true: np.ndarray,
+    sorted_y_score: np.ndarray,
+    group_starts: np.ndarray,
+    k: int,
+) -> np.ndarray:
+    """Per-group MAP@k over the sorted-groups layout from ``_iter_group_slices``.
+
+    Returns an (n_groups,) float64 array; NaN marks degenerate groups (empty or
+    no relevant item). One batched dispatch replaces n_groups Python->numba
+    transitions; each prange iteration writes only its own slot so the parallel
+    pass is race-free. Inner per-query logic is bit-exact to ``_map_one_query``.
+    """
+    n_groups = len(group_starts) - 1
+    out = np.full(n_groups, np.nan, dtype=np.float64)
+    for i in prange(n_groups):
+        s = group_starts[i]
+        e = group_starts[i + 1]
+        if e > s:
+            out[i] = _map_one_query(sorted_y_true[s:e], sorted_y_score[s:e], k)
+    return out
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _nan_mean_seq(vals: np.ndarray) -> float:
+    """NaN-aware mean BIT-IDENTICAL to the prior per-group Python reduction
+    ``accum=0.0; for v in vals: if not isnan(v): accum+=v; n_valid+=1``.
+
+    Uses the SAME sequential ascending-index ``+=`` accumulation as the old
+    loop (NOT ``np.sum``'s pairwise reduction), so the float64 summation order
+    matches exactly -- the public metric stays byte-for-byte unchanged while
+    the per-group dispatch collapses into one batched kernel. Returns NaN when
+    every entry is NaN."""
+    accum = 0.0
+    n_valid = 0
+    for i in range(vals.shape[0]):
+        v = vals[i]
+        if not np.isnan(v):
+            accum += v
+            n_valid += 1
+    if n_valid == 0:
+        return np.nan
+    return accum / n_valid
+
+
+def _nan_mean(vals: np.ndarray) -> float:
+    return float(_nan_mean_seq(vals))
 
 
 def compute_ranking_summary(
