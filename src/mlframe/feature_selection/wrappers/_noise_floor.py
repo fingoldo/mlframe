@@ -62,15 +62,21 @@ def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curv
     star_idx = G - 1
     found = False
     for i in range(G):
-        best_excess, best_rg, best_env = -np.inf, -np.inf, 0.0
-        for j in range(i + 1, G):
-            rg = real_curve[j] - real_curve[i]
-            env = float(np.percentile(perm_curves[:, j] - perm_curves[:, i], pct))
-            if (rg - env) > best_excess:
-                best_excess, best_rg, best_env = rg - env, rg, env
-        remaining_gain[i] = best_rg if i < G - 1 else 0.0
-        remaining_env[i] = best_env
-        if i < G - 1 and best_excess <= 0 and not found:
+        if i == G - 1:
+            remaining_gain[i] = 0.0
+            remaining_env[i] = 0.0
+            break
+        # Vectorize the inner j-loop: the noise envelope for ALL larger j is one column-wise percentile over the perm
+        # axis (np.percentile along axis 0 == the scalar version applied per column), replacing ~G scalar percentile
+        # dispatches per i with a single call. Bit-identical (same draws, same pct, same default linear interpolation).
+        rg_all = real_curve[i + 1:] - real_curve[i]
+        env_all = np.percentile(perm_curves[:, i + 1:] - perm_curves[:, i:i + 1], pct, axis=0)
+        excess = rg_all - env_all
+        k = int(np.argmax(excess))
+        best_excess = float(excess[k])
+        remaining_gain[i] = float(rg_all[k])
+        remaining_env[i] = float(env_all[k])
+        if best_excess <= 0 and not found:
             star_idx = i
             found = True
     return n_grid[star_idx], star_idx, remaining_gain, remaining_env

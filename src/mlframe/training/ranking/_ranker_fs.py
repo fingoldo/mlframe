@@ -46,6 +46,15 @@ def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
     x, y = x[fin], y[fin]
     if np.ptp(x) == 0.0 or np.ptp(y) == 0.0:
         return 0.0
+    # Hot path: called n_features * n_groups times (cProfile: np.quantile dominates the
+    # full group_aware_relevance wall via per-call dispatch on tiny ~25-row query groups).
+    # bench-attempt-rejected (2026-06-23): np.add.at -> np.bincount joint histogram was
+    # 0.98x (SLOWER) on the real small-group mix (bincount alloc+reshape overhead exceeds
+    # add.at below ~n=1000; only wins 2.66x at n=1000 which never occurs here). A full @njit
+    # _binned_mi (to kill the np.quantile dispatch) needs a manual linear-interp quantile
+    # whose edges diverge ~1e-16 from np.quantile -> can flip searchsorted bins on ties ->
+    # selection-altering in an FS selector; fails the identity gate. See
+    # _benchmarks/bench_binned_mi_group_relevance.py. Left as-is.
     xe = np.unique(np.quantile(x, np.linspace(0, 1, bins + 1)))
     ye = np.unique(np.quantile(y, np.linspace(0, 1, bins + 1)))
     if xe.size < 2 or ye.size < 2:
