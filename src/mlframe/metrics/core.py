@@ -16,13 +16,25 @@ import numpy as np, pandas as pd, polars as pl
 from sklearn.metrics import log_loss, average_precision_score
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.io import write_image
-
 from collections import defaultdict
 from pyutilz.pythonlib import sort_dict_by_value
 from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
+
+
+def _require_plotly():
+    """Return the plotly modules used by the interactive plotting paths, or raise an actionable error.
+
+    plotly ships only in the ``viz`` extra, while ``mlframe.metrics.core`` is a public deep-import that must
+    work on a bare ``pip install mlframe``. Plotly-backed plotting is therefore loaded lazily here so importing
+    this module never pulls plotly, and a caller that actually requests a plotly chart gets a clear install hint.
+    """
+    try:
+        import plotly.express as px
+        import plotly.graph_objects as go
+        from plotly.io import write_image
+    except ImportError as exc:
+        raise ImportError("plotly is required for interactive plotting; install it with `pip install mlframe[viz]`.") from exc
+    return px, go, write_image
 
 # NUMBA_NJIT_PARAMS lives in ``._numba_params`` so split-out sibling modules
 # (``_calibration_plot.py``, etc.) can import the same object without

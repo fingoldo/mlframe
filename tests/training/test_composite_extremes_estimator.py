@@ -181,8 +181,10 @@ def test_q_out_of_range_raises():
 
 
 def test_predict_before_fit_raises():
+    from sklearn.exceptions import NotFittedError
+
     est = TailCompositeEstimator(base_estimator=_ZeroBase())
-    with pytest.raises(RuntimeError):
+    with pytest.raises(NotFittedError):
         est.predict(_frame(1))
 
 

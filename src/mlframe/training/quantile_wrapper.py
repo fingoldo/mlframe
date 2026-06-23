@@ -135,7 +135,9 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
         n_jobs: int | str = "auto",
     ):
         self.base_estimator = base_estimator
-        self.alphas = tuple(alphas)
+        # sklearn contract: store params verbatim (no tuple() transform) so clone / get_params round-trip the value as passed.
+        # alphas is materialised to a tuple where iterated (fit / predict) instead.
+        self.alphas = alphas
         self.crossing_fix = crossing_fix
         self.n_jobs = n_jobs
 
@@ -152,8 +154,9 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
                 f"_QuantileMultiOutputWrapper expects 1-D y; got shape {y_raw.shape}"
             )
         y_arr = y_raw
+        alphas = tuple(self.alphas)
         alpha_param = _probe_alpha_param_name(self.base_estimator)
-        n_jobs = _resolve_n_jobs(self.n_jobs, len(self.alphas))
+        n_jobs = _resolve_n_jobs(self.n_jobs, len(alphas))
 
         from joblib import Parallel, delayed
 
@@ -175,8 +178,8 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
                 est.fit(X, y_arr)
             return est
 
-        if n_jobs == 1 or len(self.alphas) <= 1:
-            self.estimators_ = [_fit_one(a) for a in self.alphas]
+        if n_jobs == 1 or len(alphas) <= 1:
+            self.estimators_ = [_fit_one(a) for a in alphas]
         else:
             # Use Parallel as a context manager so the worker pool is torn
             # down deterministically when fit returns. backend="threading"
@@ -189,7 +192,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
             # (validation, attribute stamping) are short.
             with Parallel(n_jobs=n_jobs, backend="threading") as par:
                 self.estimators_ = par(
-                    delayed(_fit_one)(a) for a in self.alphas
+                    delayed(_fit_one)(a) for a in alphas
                 )
         # sklearn convention: expose feature info from the first fitted
         # estimator (all are fit on identical X).
@@ -199,13 +202,15 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
 
     def predict(self, X) -> np.ndarray:
         if not hasattr(self, "estimators_") or not self.estimators_:
-            raise RuntimeError(
+            from sklearn.exceptions import NotFittedError
+
+            raise NotFittedError(
                 "_QuantileMultiOutputWrapper.predict called before fit."
             )
         cols = [est.predict(X) for est in self.estimators_]
         # Each predict returns (N,); stack into (N, K).
         out = np.column_stack(cols)
-        return fix_quantile_crossing(out, self.alphas, mode=self.crossing_fix)
+        return fix_quantile_crossing(out, tuple(self.alphas), mode=self.crossing_fix)
 
     # ------------------------------------------------------------------
     # sklearn introspection

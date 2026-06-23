@@ -51,6 +51,13 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
     feature-names-out machinery entirely while keeping pickle / clone /
     sklearn-tags semantics intact via BaseEstimator+TransformerMixin."""
 
+    def __sklearn_tags__(self):
+        # This transformer casts dtype only and forwards NaN/Inf untouched, so upstream check_array must not
+        # reject non-finite input (sklearn's default tags forbid NaN, which would fail validate_data here).
+        tags = super().__sklearn_tags__()
+        tags.input_tags.allow_nan = True
+        return tags
+
     def fit(self, X, y=None):  # noqa: ARG002 -- sklearn signature
         # Stamp the standard fitted attributes so ``check_is_fitted`` succeeds
         # AND sklearn's pipeline name-tracker (which calls
@@ -97,6 +104,12 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
     perturb the pipeline's ``n_features_in_`` input-width contract.
     Surfaced by fuzz (inject_inf_nan=True + fix_infinities=False + linear/mlp).
     """
+
+    def __sklearn_tags__(self):
+        # Converts +/-inf -> NaN and passes NaN through, so upstream check_array must accept non-finite input.
+        tags = super().__sklearn_tags__()
+        tags.input_tags.allow_nan = True
+        return tags
 
     def fit(self, X, y=None):  # noqa: ARG002 -- sklearn signature
         import numpy as _np
@@ -147,17 +160,26 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
     """
 
     def __init__(self, inner, cat_features):
+        # sklearn contract: store constructor params VERBATIM so clone / get_params round-trip (``cat_features=None``
+        # must come back as ``None``, not ``[]``). The ``list(... or [])`` coercion is deferred to ``_num_cols`` / fit.
         self.inner = inner
-        self.cat_features = list(cat_features or [])
+        self.cat_features = cat_features
 
     def _num_cols(self, X):
         import pandas as _pd
-        named = set(self.cat_features)
+        named = set(self.cat_features or [])
         # Route ONLY numeric columns to the inner imputer/scaler. Categoricals -- whether explicitly named OR raw object/category/string columns
         # that arrive when the suite didn't thread cat_features (requires_encoding off) -- must pass THROUGH untouched so the estimator's own
         # factorizer/embedding handles them; feeding a string column to StandardScaler raises "could not convert string to float".
         return [c for c in X.columns
                 if c not in named and getattr(X[c], "ndim", 1) == 1 and _pd.api.types.is_numeric_dtype(X[c])]
+
+    def __sklearn_tags__(self):
+        # Routes numerics to an imputer/scaler and passes categoricals through; NaN/Inf survive to the inner
+        # imputer, so upstream check_array must accept non-finite input.
+        tags = super().__sklearn_tags__()
+        tags.input_tags.allow_nan = True
+        return tags
 
     def fit(self, X, y=None):
         import numpy as _np

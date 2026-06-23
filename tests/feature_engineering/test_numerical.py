@@ -26,6 +26,13 @@ from mlframe.feature_engineering.numerical import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _seed_global_numpy_rng():
+    """Tests build fixtures via bare ``np.random.*`` (legacy global RNG). Seed it before each test
+    so results are deterministic regardless of collection order under ``-p randomly``."""
+    np.random.seed(0)
+
+
 # =============================================================================
 # TEST FIXTURES
 # =============================================================================

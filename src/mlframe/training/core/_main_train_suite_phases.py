@@ -470,7 +470,7 @@ def export_votenrank_leaderboards(
                         _frames.append(_frame)
                 if _frames:
                     _all_lb = _pd.concat(_frames, ignore_index=True)
-                    _all_lb.to_csv(_csv_path, index=False)
+                    _all_lb.to_csv(_csv_path, index=False, encoding="utf-8")
                     if verbose:
                         logger.info("votenrank leaderboard exported: %s (%d rows)", _csv_path, len(_all_lb))
             except (OSError, ValueError, ImportError) as _csv_err:

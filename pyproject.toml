@@ -59,7 +59,7 @@ dependencies = [
     "portalocker>=2.7",
     "dill>=0.3.6",
     "orjson>=3.9",
-    "numba>=0.56",
+    "numba>=0.59",  # numpy-2-compatible floor (numba <0.59 is built against the numpy 1.x ABI)
     "psutil>=5.9",
     "matplotlib>=3.7",
     # The four below are imported UNCONDITIONALLY at module load time across
@@ -83,6 +83,10 @@ dependencies = [
     # The version specifier below works once pyutilz is published; until then,
     # pip needs to resolve pyutilz from the user's environment (already installed).
     "pyutilz>=1.0.0",
+    # numpy<2 on Python 3.9 only: the sole 3.9-compatible astropy (5.x, pulled by [signal]/[all]) is built
+    # against the numpy 1.x ABI and no numpy-2-ready astropy supports 3.9, so numpy 2.x there breaks every
+    # astropy C-extension import. Mirrored in [tool.uv].override-dependencies so plain pip honours it too.
+    "numpy<2.0; python_version < '3.10'",
 ]
 
 # uv-specific resolver overrides. Honored by `uv pip install` (verified with
@@ -183,7 +187,6 @@ feature_engineering = [
 # Resampling, encoding, stratification.
 sampling = [
     "imbalanced-learn>=0.11",
-    "category-encoders>=2.6",
     "iterative-stratification>=0.1.7",
 ]
 
@@ -202,7 +205,6 @@ polars_ext = [
 # failing on ``ModuleNotFoundError: No module named 'ipywidgets'`` inside
 # ``catboost/widget/ipythonwidget.py``.
 viz = [
-    "matplotlib>=3.7",
     "plotly>=5.15",
     "seaborn>=0.13",
     "altair>=5.0",

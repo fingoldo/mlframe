@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 # Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
+import copy
+
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -106,7 +108,9 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         use_learnable_cat_embeddings: bool = True,
         categorical_embed_dim: int | None = None,
     ) -> None:
-        self.config = config or RecurrentConfig()
+        # Store ``config`` VERBATIM (None stays None) so sklearn clone() round-trips the exact constructor arg. fit() never mutates this; it
+        # mutates a fit-local deepcopy resolved via ``_cfg`` instead, so the shared module-level default RecurrentConfig() is never mutated.
+        self.config = config
         self.random_state = random_state
         # ``use_learnable_cat_embeddings`` (default True): when fit() receives ``cat_features`` and the input_mode keeps a tabular block
         # (HYBRID / FEATURES_ONLY), factorize those raw cat columns to integer codes at the fit boundary and learn an ``nn.Embedding`` per cat
@@ -127,6 +131,19 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         self._cat_cols_: list | None = None
         self._cat_cardinalities_: list[int] | None = None
         self._n_cat_features_: int = 0
+
+    @property
+    def _cfg(self) -> RecurrentConfig:
+        """Effective config: the fit-local deepcopy once resolved, else a fresh fallback from the verbatim ``self.config`` (never the shared default).
+
+        Reads route here so fit-time mutations (num_classes, early_stopping_monitor) land on an instance-owned copy, leaving ``self.config``
+        (the verbatim clone-source) and the module-level default RecurrentConfig() untouched. predict() before fit() resolves a fresh copy too.
+        """
+        resolved = getattr(self, "_cfg_resolved", None)
+        if resolved is None:
+            resolved = copy.deepcopy(self.config) if self.config is not None else RecurrentConfig()
+            self._cfg_resolved = resolved
+        return resolved
 
     def __getstate__(self) -> dict:
         # ``trainer`` is a live ``lightning.pytorch.Trainer`` (references a WarningCache the
@@ -156,7 +173,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         sequences: list[np.ndarray] | None,
     ) -> None:
         """Validate inputs match the configured input mode."""
-        mode = self.config.input_mode
+        mode = self._cfg.input_mode
 
         if mode == InputMode.FEATURES_ONLY and features is None:
             raise ValueError("features required for FEATURES_ONLY mode")
@@ -175,7 +192,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         """Create dataset with proper preprocessing."""
         processed_seqs = None
         if sequences is not None:
-            mode = getattr(self.config, "sequence_preprocessing", "none")
+            mode = getattr(self._cfg, "sequence_preprocessing", "none")
             if mode == "none":
                 # Fast-path: cast to float32 and pass through unchanged.
                 processed_seqs = [np.asarray(s, dtype=np.float32) for s in sequences]
@@ -289,7 +306,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # them as multilabel suppresses the stratified sampler for what is
         # actually a stratifiable single-label classification dataset.
         _is_multilabel_ds = (dataset.labels.ndim == 2 and dataset.labels.shape[1] >= 2)
-        if shuffle and self.config.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
+        if shuffle and self._cfg.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
             labels = dataset.labels.numpy()
             # np.bincount needs non-negative contiguous integer labels and
             # silently misreports for non-contiguous label sets ({0,5} ->
@@ -325,17 +342,17 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # "pin_memory is set as true but no accelerator is found" per batch.
         _pin_memory = (
             torch.cuda.is_available()
-            and self.config.accelerator in ("auto", "gpu", "cuda")
+            and self._cfg.accelerator in ("auto", "gpu", "cuda")
         )
         return DataLoader(
             dataset,
-            batch_size=batch_size or self.config.batch_size,
+            batch_size=batch_size or self._cfg.batch_size,
             shuffle=shuffle,
             sampler=sampler,
-            num_workers=self.config.num_workers,
+            num_workers=self._cfg.num_workers,
             collate_fn=recurrent_collate_fn,
             pin_memory=_pin_memory,
-            persistent_workers=self.config.num_workers > 0,
+            persistent_workers=self._cfg.num_workers > 0,
             generator=_gen_dl,
         )
 
@@ -349,7 +366,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         weight_tensor = None
         if class_weight and not self._is_regression:
             weight_tensor = torch.tensor(
-                [class_weight.get(i, 1.0) for i in range(self.config.num_classes)],
+                [class_weight.get(i, 1.0) for i in range(self._cfg.num_classes)],
                 dtype=torch.float32,
             )
 
@@ -359,7 +376,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # factorized (or SEQUENCE_ONLY, where there is no aux block). The embedding lives BEFORE the shared MLPHead output, target-type-agnostic.
         _cat_cards = list(self._cat_cardinalities_) if self._cat_cardinalities_ else None
         return RecurrentTorchModel(
-            config=self.config,
+            config=self._cfg,
             seq_input_size=seq_input_size,
             aux_input_size=aux_input_size,
             class_weight=weight_tensor,
@@ -371,11 +388,11 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
 
     def _auto_precision(self) -> str:
         from ._recurrent_perf import auto_precision
-        return auto_precision(self.config.precision)
+        return auto_precision(self._cfg.precision)
 
     def _maybe_enable_cudnn_rnn_autotune(self) -> None:
         from ._recurrent_perf import maybe_enable_cudnn_rnn_autotune
-        maybe_enable_cudnn_rnn_autotune(self.config.rnn_type)
+        maybe_enable_cudnn_rnn_autotune(self._cfg.rnn_type)
 
     def _create_trainer(self, has_validation: bool, plot: bool) -> tuple[L.Trainer, Any]:
         """Create Lightning Trainer with callbacks."""
@@ -383,13 +400,13 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         checkpoint_callback = None
 
         if has_validation:
-            monitor = self.config.early_stopping_monitor
+            monitor = self._cfg.early_stopping_monitor
             mode = _monitor_mode(monitor)
 
             callbacks.append(
                 L.pytorch.callbacks.EarlyStopping(
                     monitor=monitor,
-                    patience=self.config.early_stopping_patience,
+                    patience=self._cfg.early_stopping_patience,
                     mode=mode,
                 )
             )
@@ -409,9 +426,9 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # back to SWA-as-EMA (with constant swa_lrs = config.learning_rate
         # so no LR-restart phase) when WeightAveraging is unavailable in
         # the installed Lightning (<2.5).
-        if getattr(self.config, "use_ema", False):
+        if getattr(self._cfg, "use_ema", False):
             from torch.optim.swa_utils import get_ema_avg_fn
-            _ema_decay = getattr(self.config, "ema_decay", 0.999)
+            _ema_decay = getattr(self._cfg, "ema_decay", 0.999)
             try:
                 from lightning.pytorch.callbacks import WeightAveraging
                 callbacks.append(
@@ -421,7 +438,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
                 from lightning.pytorch.callbacks import StochasticWeightAveraging
                 callbacks.append(
                     StochasticWeightAveraging(
-                        swa_lrs=self.config.learning_rate,
+                        swa_lrs=self._cfg.learning_rate,
                         swa_epoch_start=0.5,
                         avg_fn=get_ema_avg_fn(decay=_ema_decay),
                     )
@@ -430,18 +447,18 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # CUDA-broken-host guard: probe a tiny allocation before Lightning
         # opens its CUDA strategy. On hosts with CUDA libs but a broken
         # runtime (CURAND init failure, illegal memory access on first
-        # ``model_to_device``), the bare ``accelerator=self.config.accelerator``
+        # ``model_to_device``), the bare ``accelerator=self._cfg.accelerator``
         # path crashes during ``Trainer.fit``. Resolving via ``safe_accelerator``
         # downgrades ``cuda`` / ``gpu`` / ``auto`` to ``cpu`` when the probe
         # fails so the recurrent ensemble member finishes its fit instead of
         # poisoning the whole composite ensemble.
         from ._base_tensor_helpers import safe_accelerator
         trainer = L.Trainer(
-            max_epochs=self.config.max_epochs,
-            accelerator=safe_accelerator(self.config.accelerator),
+            max_epochs=self._cfg.max_epochs,
+            accelerator=safe_accelerator(self._cfg.accelerator),
             precision=self._auto_precision(),
             callbacks=callbacks,
-            gradient_clip_val=self.config.gradient_clip_val,
+            gradient_clip_val=self._cfg.gradient_clip_val,
             enable_progress_bar=True,
             enable_model_summary=False,
             logger=plot,
@@ -467,7 +484,8 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
 
         from dataclasses import fields
 
-        _cfg = self.config
+        # Serialise the EFFECTIVE (fit-resolved) config, not the verbatim ``self.config`` -- fit-time mutations (num_classes, monitor) must survive load.
+        _cfg = self._cfg
         config_dict: dict[str, Any] = {}
         for f in fields(_cfg):
             v = getattr(_cfg, f.name)
@@ -606,6 +624,20 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         if labels is None:
             raise ValueError("labels is required")
 
+        # Resolve a fresh fit-local config copy: every mutation below lands here, leaving the verbatim ``self.config`` (clone source) untouched.
+        self._cfg_resolved = copy.deepcopy(self.config) if self.config is not None else RecurrentConfig()
+
+        # Record the label set so predict/predict_proba map argmax positions back to the ORIGINAL labels (sklearn ClassifierMixin contract).
+        # Single-label targets are also ENCODED to contiguous 0..k-1 positions before training: the CrossEntropy head indexes by position, so a
+        # raw label like 9 with a 3-output head would be out-of-bounds. predict() inverts the mapping via ``classes_``.
+        _labels_arr = np.asarray(labels)
+        _is_single_label = not (hasattr(labels, "ndim") and _labels_arr.ndim == 2 and _labels_arr.shape[1] >= 2)
+        if _is_single_label:
+            self.classes_ = np.unique(_labels_arr)
+            labels = np.searchsorted(self.classes_, _labels_arr).astype(np.int64)
+            # Size the output head to the observed class count so the CrossEntropy positions are always in range.
+            self._cfg.num_classes = int(self.classes_.shape[0])
+
         # Factorize tabular cat columns to int codes (reordered leading) BEFORE the scaler fit + dataset build, so the learnable aux
         # CategoricalEmbedding can index them and the scaler skips the code columns. Scopes to ``features`` only; sequences are untouched.
         features = self._factorize_cats_fit(features, cat_features)
@@ -624,18 +656,21 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         if self._is_multilabel:
             self._n_labels = int(np.asarray(labels).shape[1])
             # Override config.num_classes to match label count so the MLP head builds the right number of output units.
-            self.config.num_classes = self._n_labels
+            self._cfg.num_classes = self._n_labels
 
         self._validate_inputs(features, sequences)
         self._clear_cache()
 
-        if self.config.scale_features and features is not None:
+        if self._cfg.scale_features and features is not None:
             # Numeric-only scaler fit: skips the leading cat-code columns (scaling embedding indices would corrupt them).
             self._scaler_fit_numeric_only(features)
 
         L.seed_everything(self.random_state, workers=True)
 
         train_dataset = self._create_dataset(sequences, features, labels, sample_weight)
+        # Encode the eval_set labels through the same ``classes_`` mapping so the val CrossEntropy head sees in-range 0..k-1 positions too.
+        if eval_set is not None and _is_single_label:
+            eval_set = (*eval_set[:-1], np.searchsorted(self.classes_, np.asarray(eval_set[-1])).astype(np.int64))
         val_dataset = self._create_eval_dataset(eval_set) if eval_set else None
 
         train_loader = self._create_dataloader(train_dataset, shuffle=True)
@@ -662,7 +697,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             try:
                 self.model = RecurrentTorchModel.load_from_checkpoint(
                     checkpoint_callback.best_model_path,
-                    config=self.config,
+                    config=self._cfg,
                     seq_input_size=self._seq_input_size,
                     aux_input_size=self._aux_input_size,
                     is_regression=False,
@@ -719,7 +754,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         loader = self._create_dataloader(dataset, shuffle=False, batch_size=batch_size)
 
         predict_trainer = L.Trainer(
-            accelerator=self.config.accelerator,
+            accelerator=self._cfg.accelerator,
             precision=self._auto_precision(),
             logger=False,
             enable_progress_bar=False,
@@ -748,15 +783,14 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             (n_samples,) array of predictions
         """
         proba = self.predict_proba(features, sequences)
-        # Wave 40 (2026-05-20): argmax returns 0..(n_classes-1); int8 wraps class 128 -> -128
-        # silently mis-classifying any class id > 127. Use the range-aware ladder shared by
-        # extractors.intize_targets() instead of the hardcoded int8.
-        classes = proba.argmax(axis=1)
-        cmax = int(classes.max()) if classes.size else 0
-        for _dt in (np.int8, np.int16, np.int32, np.int64):
-            if cmax <= np.iinfo(_dt).max:
-                return classes.astype(_dt)
-        return classes
+        positions = proba.argmax(axis=1)
+        # Map argmax POSITIONS back through ``classes_`` so the returned labels are the original ones (sklearn ClassifierMixin contract); a raw
+        # argmax would return 0..(k-1) positional indices, mislabelling any non-0..k-1 label set and breaking cross_val_predict / CalibratedClassifierCV / Stacking.
+        classes_ = getattr(self, "classes_", None)
+        if classes_ is None:
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("Model not trained. Call fit() first.")
+        return np.asarray(classes_)[positions]
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -773,23 +807,6 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
     _estimator_type = "regressor"
     _is_regression = True
-
-    def __init__(
-        self,
-        config: RecurrentConfig | None = None,
-        random_state: int = 42,
-        use_learnable_cat_embeddings: bool = True,
-        categorical_embed_dim: int | None = None,
-    ) -> None:
-        super().__init__(
-            config,
-            random_state,
-            use_learnable_cat_embeddings=use_learnable_cat_embeddings,
-            categorical_embed_dim=categorical_embed_dim,
-        )
-        # Override early_stopping_monitor for regression
-        if self.config.early_stopping_monitor == "val_auprc":
-            self.config.early_stopping_monitor = "val_loss"
 
     def fit(
         self,
@@ -822,13 +839,19 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         if labels is None:
             raise ValueError("labels is required")
 
+        # Resolve a fresh fit-local config copy: mutations below land here, leaving the verbatim ``self.config`` (clone source) untouched.
+        self._cfg_resolved = copy.deepcopy(self.config) if self.config is not None else RecurrentConfig()
+        # Regression has no AUPRC; redirect the classification default monitor to val_loss on the fit-local copy (never the verbatim config).
+        if self._cfg.early_stopping_monitor == "val_auprc":
+            self._cfg.early_stopping_monitor = "val_loss"
+
         # Factorize tabular cat columns to int codes (reordered leading) BEFORE the scaler fit + dataset build (sequences untouched).
         features = self._factorize_cats_fit(features, cat_features)
 
         self._validate_inputs(features, sequences)
         self._clear_cache()
 
-        if self.config.scale_features and features is not None:
+        if self._cfg.scale_features and features is not None:
             self._scaler_fit_numeric_only(features)
 
         L.seed_everything(self.random_state, workers=True)
@@ -860,7 +883,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
             try:
                 self.model = RecurrentTorchModel.load_from_checkpoint(
                     checkpoint_callback.best_model_path,
-                    config=self.config,
+                    config=self._cfg,
                     seq_input_size=self._seq_input_size,
                     aux_input_size=self._aux_input_size,
                     is_regression=True,
@@ -917,7 +940,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         loader = self._create_dataloader(dataset, shuffle=False, batch_size=batch_size)
 
         predict_trainer = L.Trainer(
-            accelerator=self.config.accelerator,
+            accelerator=self._cfg.accelerator,
             precision=self._auto_precision(),
             logger=False,
             enable_progress_bar=False,

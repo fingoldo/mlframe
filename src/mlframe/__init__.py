@@ -8,7 +8,7 @@ The top-level ``mlframe`` namespace intentionally exports ONLY ``__version__`` a
     from mlframe.training.composite import CompositeTargetEstimator
     from mlframe.feature_selection import MRMR, RFECV
     from mlframe.metrics.core import expected_calibration_error
-    from mlframe.calibration.quality import pick_best_calibrator
+    from mlframe.calibration.policy import pick_best_calibrator
     from mlframe.models.ensembling import score_ensemble
     from mlframe.inference.predict import predict_from_models
     from mlframe.evaluation.bootstrap import bootstrap_metric, delong_test
@@ -27,7 +27,7 @@ would (a) bloat ``mlframe`` import time by eagerly resolving every subpackage,
 authoritative ``__all__`` lists already maintained at the subpackage level. The CI
 smoke step (``.github/workflows/ci.yml`` ``build.smoke``) confirms the deep-import
 pattern works on a built wheel by importing ``mlframe.training``, ``mlframe.metrics.core``,
-``mlframe.models.ensembling``, and ``mlframe.calibration.quality`` directly.
+``mlframe.models.ensembling``, and ``mlframe.calibration.policy`` directly.
 """
 
 from __future__ import annotations
@@ -190,10 +190,56 @@ def _disable_broken_cupy() -> None:
         sys.modules["cupy"] = None  # type: ignore[assignment]
 
 
-_autoconfigure_cuda_home()  # kept importable (not del'd) for the unit test
+_gpu_runtime_configured = False
 
-_disable_broken_cupy()
-del _disable_broken_cupy
+
+def _ensure_gpu_runtime_configured() -> None:
+    """Run the CUDA env autoconfig + broken-cupy guard once, on first GPU-path use.
+
+    These two routines mutate ``os.environ`` (CUDA_HOME/CUDA_PATH) and import cupy + run a CUDA reduction
+    kernel. Doing that at ``import mlframe`` time is hostile to the majority of users who never touch a GPU
+    path: it probes the GPU and rewrites their environment on every import. Both are therefore deferred to the
+    first time a GPU dispatcher asks ``is_cuda_available()`` (see the wrapper installed below), so a plain
+    ``import mlframe`` neither mutates the environment nor imports cupy. The opt-out env vars
+    (MLFRAME_NO_CUDA_AUTOCONFIG / MLFRAME_KEEP_BROKEN_CUPY) are still honoured inside each routine.
+    """
+    global _gpu_runtime_configured
+    if _gpu_runtime_configured:
+        return
+    _gpu_runtime_configured = True
+    _autoconfigure_cuda_home()
+    _disable_broken_cupy()
+
+
+def _install_gpu_runtime_lazy_trigger() -> None:
+    """Wrap ``pyutilz.system.gpu_dispatch.is_cuda_available`` so the GPU runtime is configured on first probe.
+
+    Every mlframe GPU dispatcher routes its CUDA-availability check through this single pyutilz function, so
+    wrapping it is the one deferral point that covers all GPU paths without importing cupy at ``import mlframe``
+    time. The wrap is a pure reference swap -- it touches neither ``os.environ`` nor cupy until a GPU path
+    actually calls it. If pyutilz is unavailable for any reason, GPU autoconfig simply stays deferred.
+    """
+    try:
+        from pyutilz.system import gpu_dispatch as _gd
+    except Exception:
+        return
+    _orig = getattr(_gd, "is_cuda_available", None)
+    if _orig is None or getattr(_orig, "_mlframe_gpu_runtime_wrapped", False):
+        return
+
+    import functools
+
+    @functools.wraps(_orig)
+    def _is_cuda_available(*args, **kwargs):
+        _ensure_gpu_runtime_configured()
+        return _orig(*args, **kwargs)
+
+    _is_cuda_available._mlframe_gpu_runtime_wrapped = True  # type: ignore[attr-defined]
+    _gd.is_cuda_available = _is_cuda_available
+
+
+_install_gpu_runtime_lazy_trigger()
+del _install_gpu_runtime_lazy_trigger
 
 
 from mlframe.version import __version__

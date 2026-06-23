@@ -87,5 +87,7 @@ def test_clone_roundtrip():
 def test_predict_before_fit_raises():
     est = CompositeOrRawStacker(base_estimator=LinearRegression(), base_column="base")
     X, _ = _make_diff_data(n=10)
-    with pytest.raises(RuntimeError):
+    from sklearn.exceptions import NotFittedError
+
+    with pytest.raises(NotFittedError):
         est.predict(X)

@@ -132,11 +132,11 @@ estimator, delegates `feature_importances_` / `get_booster()` / other attributes
 transparently, and pins cross-version behaviour in CI.
 
 ```python
-from sklearn.linear_model import Ridge
+from sklearn.ensemble import RandomForestRegressor
 from mlframe.training.composite import CompositeTargetEstimator
 
 est = CompositeTargetEstimator(
-    base_estimator=Ridge(),
+    base_estimator=RandomForestRegressor(),
     transform_name="linear_residual",
     base_column="y_prev",
 )

@@ -223,7 +223,13 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         _fit_inner_with_init_score(
             self.estimator_, X_inner, y_enc, base_margin, self.n_classes_, sample_weight,
         )
-        self.n_features_in_ = X_inner.shape[1]
+        # ``n_features_in_`` reflects the full X seen at fit, identical across the base_margin_column and
+        # base_margin_estimator paths (the dropped margin column is plumbing, not a learned feature dimension).
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        else:
+            self.n_features_in_ = int(X.shape[1])
         return self
 
     def decision_function(self, X: Any) -> np.ndarray:
@@ -239,6 +245,9 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         return base_margin + _inner_raw_margin(self.estimator_, X_inner)
 
     def predict_proba(self, X: Any) -> np.ndarray:
+        if not hasattr(self, "estimator_"):
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("CompositeClassificationEstimator.predict_proba called before fit.")
         margin = self.decision_function(X)
         if self.n_classes_ <= 2:
             p1 = _sigmoid(np.asarray(margin, dtype=np.float64).reshape(-1))

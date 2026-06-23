@@ -39,7 +39,7 @@ def test_pairwise_fallback_fit_predict_finite():
     scores = est.predict(X, group=g)
     assert scores.shape == (len(y),)
     assert np.isfinite(scores).all()
-    assert est._kind == "pairwise"
+    assert est.kind_ == "pairwise"
 
 
 def test_ndcg_finite_and_beats_base_only_pairwise():
@@ -154,7 +154,7 @@ def test_lambdarank_inner_importorskip():
     # Default inner picks LGBMRanker(lambdarank) when lightgbm is present.
     est = CompositeRankEstimator("base")
     est.fit(X, y, g)
-    assert est._kind == "lambdarank"
+    assert est.kind_ == "lambdarank"
     scores = est.predict(X, group=g)
     assert np.isfinite(scores).all()
     nd = ndcg_at_k(y, scores, g, k=5)

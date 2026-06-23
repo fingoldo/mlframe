@@ -373,17 +373,20 @@ class TestLogLossPerformance:
         _ = fast_log_loss(y_true[:1000], y_score[:1000])
         _ = fast_log_loss(y_true, y_score)
 
-        # Time custom (10 iterations)
-        start = time.perf_counter()
-        for _ in range(10):
-            custom_result = fast_log_loss(y_true, y_score)
-        custom_time = time.perf_counter() - start
+        # Best-of-N per arm: a single wall measurement of a sub-ms kernel is noise-dominated
+        # (one scheduler hiccup flips the sign). Take the fastest of several trials so the
+        # comparison reflects steady-state cost rather than a transient stall.
+        def _best_time(fn) -> float:
+            best = float("inf")
+            for _ in range(5):
+                start = time.perf_counter()
+                for _ in range(10):
+                    res = fn(y_true, y_score)
+                best = min(best, time.perf_counter() - start)
+            return best, res
 
-        # Time sklearn (10 iterations)
-        start = time.perf_counter()
-        for _ in range(10):
-            sklearn_result = sklearn_log_loss(y_true, y_score)
-        sklearn_time = time.perf_counter() - start
+        custom_time, custom_result = _best_time(fast_log_loss)
+        sklearn_time, sklearn_result = _best_time(sklearn_log_loss)
 
         print(f"\nCustom log_loss: {custom_time:.4f}s, sklearn: {sklearn_time:.4f}s")
         print(f"Speedup: {sklearn_time/custom_time:.1f}x")
@@ -391,11 +394,12 @@ class TestLogLossPerformance:
         # Verify correctness
         np.testing.assert_allclose(custom_result, sklearn_result, rtol=1e-6)
 
-        # Should be significantly faster
-        from tests.conftest import running_under_xdist
-        if running_under_xdist():
-            pytest.skip("wall-clock comparison flakes under -n contention; correctness asserted above")
-        assert custom_time < sklearn_time
+        # Floor relaxes under -n contention via the conftest helper; best-of-N already removes
+        # single-shot noise so the floor proves the fast path is genuinely not slower.
+        from tests.conftest import perf_speedup_floor
+        speedup = sklearn_time / custom_time
+        floor = perf_speedup_floor(1.0)
+        assert speedup >= floor, f"fast_log_loss speedup {speedup:.2f}x below floor {floor:.2f}x"
 
 
 # =============================================================================

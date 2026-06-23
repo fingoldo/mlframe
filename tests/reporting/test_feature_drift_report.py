@@ -173,9 +173,7 @@ class TestFeatureDriftSensor:
         """When ROBUST_MLP_OVERRIDES_UNDER_DRIFT is populated (2026-05-22
         sweep result), the report surfaces those keys at the actual default."""
         from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
-        if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
-            import pytest
-            pytest.skip("sweep constant not yet populated in this build")
+        assert ROBUST_MLP_OVERRIDES_UNDER_DRIFT, "sweep constant must be populated"
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
             train, val, test,
@@ -336,8 +334,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assumes."""
         import torch
         from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
-        if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
-            pytest.skip("sweep constant not yet populated")
+        assert ROBUST_MLP_OVERRIDES_UNDER_DRIFT, "sweep constant must be populated"
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
         )
@@ -398,8 +395,7 @@ class TestFeatureDriftAutoActionWireIn:
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
             translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
         )
-        if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
-            pytest.skip("sweep constant not populated")
+        assert ROBUST_MLP_OVERRIDES_UNDER_DRIFT, "sweep constant must be populated"
 
         _orig_mlp_kwargs = {
             "network_params": {"use_layernorm": False, "first_layer_num_neurons": 128},

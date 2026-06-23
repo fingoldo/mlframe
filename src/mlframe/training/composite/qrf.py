@@ -519,6 +519,11 @@ class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
         ref_names = getattr(inner, "feature_names_in_", None)
         if ref_names is not None:
             self.feature_names_in_ = list(ref_names)
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+            self.n_features_in_ = int(X.shape[1])
         return self
 
     def _check_fitted(self) -> None:

@@ -18,6 +18,13 @@ from mlframe.models.ensembling import (
 from unittest.mock import MagicMock
 
 
+@pytest.fixture(autouse=True)
+def _seed_global_numpy_rng():
+    """Many tests here build fixtures via bare ``np.random.*`` (legacy global RNG). Seed it before
+    each test so results are deterministic regardless of collection order under ``-p randomly``."""
+    np.random.seed(0)
+
+
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Strategies
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import inspect
 import re
-import sys
 
 import pytest
 from pydantic import BaseModel
@@ -131,14 +130,11 @@ def test_every_docstring_parameter_is_a_real_field():
         )
 
 
-def test_documented_field_count_consistency_warning():
-    """Warning-only check: configs with a Parameters section should have
-    fields covered roughly proportionally. A dramatic mismatch (e.g. 5
-    docstring params vs 20 fields) signals incomplete documentation.
-
-    Doesn't fail — too judgement-call to police strictly. Just emits a
-    summary on stderr so it shows up in pytest output.
-    """
+def test_documented_field_count_consistency():
+    """Configs that carry a Parameters section must document at least half their fields. A config
+    that opts into documentation (has a Parameters block) but covers <50% of its >=4 fields is
+    incomplete documentation that drifts further every time a field is added without a doc line.
+    Fails on the incomplete set so the meta-test can actually go red."""
     classes = _config_classes()
     incomplete: list[str] = []
     for cls in classes:
@@ -146,17 +142,13 @@ def test_documented_field_count_consistency_warning():
         if not params:
             continue  # No Parameters section — no claim made.
         actual = set(cls.model_fields.keys())
-        # Keep it actionable: only flag when ≤ 50% of fields are documented.
         documented_pct = len(set(params) & actual) / max(len(actual), 1)
         if documented_pct < 0.5 and len(actual) >= 4:
             incomplete.append(
                 f"{cls.__name__}: {len(set(params) & actual)}/{len(actual)} "
                 f"fields documented ({documented_pct:.0%})"
             )
-    if incomplete:
-        # Print summary; don't fail the test.
-        sys.stderr.write(
-            "\n[test_documented_field_count_consistency_warning] "
-            f"{len(incomplete)} config(s) have Parameters sections but "
-            f"document <50% of fields:\n  " + "\n  ".join(incomplete) + "\n"
-        )
+    assert not incomplete, (
+        f"{len(incomplete)} config(s) have a Parameters section but document <50% of their "
+        f"fields -- complete the docstring:\n  " + "\n  ".join(incomplete)
+    )

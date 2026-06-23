@@ -242,8 +242,11 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         # Best-effort feature names passthrough (sklearn convention).
         try:
             self.feature_names_in_ = list(X.columns)
+            self.n_features_in_ = len(X.columns)
         except AttributeError:
-            pass
+            n_feat = getattr(self.composite_, "n_features_in_", None)
+            if n_feat is not None:
+                self.n_features_in_ = n_feat
         return self
 
     # ------------------------------------------------------------------

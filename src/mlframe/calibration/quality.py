@@ -318,10 +318,12 @@ def show_classifier_calibration(
             else:
                 ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
             l = r
+    # Derived from title only; needed by the show_table branch too, so it must be bound even when
+    # skip_plotting short-circuits the plotting block below.
+    is_profit = "profit" in title.lower()
     if not skip_plotting:
         x_min, x_max = np.min(x), np.max(x)
         # y_min, y_max = np.min(y), np.max(y)
-        is_profit = "profit" in title.lower()
         ax.legend(loc="lower right")
         if not append:
             # Set general params for the first time
@@ -564,7 +566,11 @@ def entropy_calibration_index(pit_values: np.ndarray, bins: int = 10, miller_mad
         k_obs = int(np.count_nonzero(counts))
         observed_entropy = observed_entropy + (k_obs - 1) / (2.0 * total)
     eci = uniform_entropy - observed_entropy
-    return eci
+    # The Miller-Madow correction can push observed_entropy above log(bins) on a
+    # genuinely-calibrated (near-uniform) input, driving eci negative below its
+    # perfect-calibration floor of 0, which is meaningless for a "calibration index".
+    # Clamp at 0 (mirrors how _drift.py clamps MM-corrected KL/JS divergences).
+    return max(eci, 0.0)
 
 
 def mean_squared_deviation(pit_values: np.ndarray) -> float:

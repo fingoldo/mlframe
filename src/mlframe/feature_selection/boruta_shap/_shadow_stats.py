@@ -219,7 +219,7 @@ def feature_importance(self, normalize):
         Shadow_feature_import = vals[len(self.X.columns) :]
 
     elif _measure == "gini":
-        feature_importances_ = np.abs(self.model.feature_importances_)
+        feature_importances_ = np.abs(self.model_.feature_importances_)
 
         if normalize:
             feature_importances_ = self.calculate_Zscore(feature_importances_)
@@ -242,7 +242,7 @@ def feature_importance(self, normalize):
         else:
             X_perm, y_perm = self.X_boruta, self.y
         pi = permutation_importance(
-            self.model, X_perm, y_perm, n_repeats=self.permutation_n_repeats,
+            self.model_, X_perm, y_perm, n_repeats=self.permutation_n_repeats,
             random_state=self.random_state, n_jobs=-1,
         )
         feature_importances_ = np.clip(pi.importances_mean, 0.0, None)

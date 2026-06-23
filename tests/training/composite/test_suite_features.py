@@ -118,7 +118,9 @@ def test_transform_without_final_fit_raises():
         spec=_make_spec(), base_estimator=LinearRegression(), fit_final_on_all=False
     )
     gen.fit(df, y)
-    with pytest.raises(RuntimeError):
+    from sklearn.exceptions import NotFittedError
+
+    with pytest.raises(NotFittedError):
         gen.transform(df)
 
 

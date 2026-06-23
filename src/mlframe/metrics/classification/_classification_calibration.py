@@ -118,14 +118,33 @@ def accuracy_ratio(y_true: np.ndarray, y_score: np.ndarray) -> float:
     n_pos = int(yt.sum())
     if n_pos == 0 or n_pos == n:
         return np.nan  # CAP undefined when only one class is present
-    # Sort by descending score - ties broken arbitrarily; equal-score rows
-    # contribute the same amount to the area regardless of intra-tie
-    # ordering by symmetry of the cumulative process.
-    order = np.argsort(-ys, kind="quicksort")
-    yt_s = yt[order]
+    # Sort by descending score. Within any block of equal scores the CAP curve
+    # is order-dependent unless we tie-fold: a naive cumsum makes the area depend
+    # on arbitrary intra-tie row order, so the result is NOT row-permutation-invariant
+    # and drifts off the AR == 2*AUC-1 identity on tied data. We replace each tied
+    # block's running cumulative-TP with the block MEAN (the same tie-averaging
+    # fast_roc_auc applies via the Mann-Whitney mid-rank), making the area independent
+    # of intra-tie ordering and restoring AR == 2*AUC-1 exactly on ties.
+    order = np.argsort(-ys, kind="stable")
+    yt_s = yt[order].astype(np.float64)
+    ys_s = ys[order]
+    # Tie-fold the per-row TP contribution: within each equal-score block, spread the
+    # block's positives uniformly across its rows (each row -> block_positives/block_size)
+    # so the cumulative-TP curve is a straight chord across the block. Folding the raw
+    # cumsum's intra-block partial sums (their mean) is NOT order-invariant because the
+    # partial sums themselves depend on intra-tie order; spreading the contribution first
+    # is. This mirrors the mid-rank tie-averaging fast_roc_auc uses, so the CAP area no
+    # longer depends on arbitrary intra-tie ordering and AR == 2*AUC-1 holds exactly on ties.
+    block_start = 0
+    for k in range(1, n + 1):
+        if k == n or ys_s[k] != ys_s[block_start]:
+            m = k - block_start
+            if m > 1:
+                yt_s[block_start:k] = yt_s[block_start:k].sum() / m
+            block_start = k
     # CAP curve y-axis: cumulative true positive ratio (TP_k / n_pos)
     # x-axis: cumulative population (k/n). Trapezoidal area in (x, y) space.
-    cum_tp = np.cumsum(yt_s).astype(np.float64) / n_pos
+    cum_tp = np.cumsum(yt_s) / n_pos
     cum_pop = (np.arange(1, n + 1, dtype=np.float64)) / n
     # Prepend (0, 0) so the trapezoid starts at the origin.
     cum_pop = np.concatenate(([0.0], cum_pop))

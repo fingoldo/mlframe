@@ -43,6 +43,7 @@ from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.exceptions import NotFittedError
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,24 @@ def _is_polars_df(x: Any) -> bool:
 
 def _to_1d_numpy(y: Any) -> np.ndarray:
     return np.asarray(y, dtype=np.float64).ravel()
+
+
+def _n_features(X: Any) -> int:
+    """Robust column count for pandas / polars / 2-D ndarray.
+
+    ``getattr(X, 'shape', (0, 0))[1]`` returns 0 for any carrier whose ``shape`` is 1-D or absent (e.g. a list of dicts);
+    prefer the named-column length when present so ``n_features_in_`` reflects the real feature count for the sklearn contract.
+    """
+    cols = getattr(X, "columns", None)
+    if cols is not None:
+        try:
+            return len(cols)
+        except TypeError:
+            pass
+    shape = getattr(X, "shape", None)
+    if shape is not None and len(shape) >= 2:
+        return int(shape[1])
+    return 0
 
 
 def _extract_entity(X: Any, entity_column: str) -> np.ndarray:
@@ -208,13 +227,12 @@ class CompositePanelEstimator(BaseEstimator, RegressorMixin):
         self.inner_ = clone(self.inner_estimator)
         self.inner_.fit(X_inner, y_within)
 
-        self.n_features_in_ = getattr(X_inner, "shape", (0, 0))[1]
-        self._fitted = True
+        self.n_features_in_ = _n_features(X_inner)
         return self
 
     def predict(self, X: Any, entity_id: Optional[Any] = None) -> np.ndarray:
-        if not getattr(self, "_fitted", False):
-            raise RuntimeError("CompositePanelEstimator: call fit before predict.")
+        if not hasattr(self, "inner_"):
+            raise NotFittedError("CompositePanelEstimator: call fit before predict.")
         n = getattr(X, "shape", (0, 0))[0]
         ids = _resolve_entity_ids(X, self.entity_column, entity_id, n)
         offsets = self._lookup_offsets(ids)  # global-mean fallback for unseen entities

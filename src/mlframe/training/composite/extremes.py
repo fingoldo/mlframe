@@ -55,7 +55,7 @@ from typing import Any
 
 import numpy as np
 from scipy import stats
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator
 
@@ -224,7 +224,7 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
             )
 
         self.body_estimator_ = CompositeTargetEstimator(
-            base_estimator=self.base_estimator,
+            base_estimator=clone(self.base_estimator) if self.base_estimator is not None else None,
             transform_name=self.transform_name,
             base_column=self.base_column,
             base_columns=self.base_columns,
@@ -280,6 +280,11 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
                 self.feature_names_in_ = list(names)
             except Exception:  # pragma: no cover
                 pass
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+            self.n_features_in_ = int(X.shape[1])
         return self
 
     # -- predict -------------------------------------------------------------
@@ -345,6 +350,8 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
 
     def _check_fitted(self) -> None:
         if not hasattr(self, "body_estimator_"):
-            raise RuntimeError(
+            from sklearn.exceptions import NotFittedError
+
+            raise NotFittedError(
                 "TailCompositeEstimator is not fitted; call fit() first."
             )

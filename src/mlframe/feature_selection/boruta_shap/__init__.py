@@ -204,12 +204,11 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.classification = classification
         self.model = model
 
-        # Use a private rng so the suite's global numpy RNG state is not mutated by
-        # BorutaShap construction. Prior code seeded np.random globally, leaking the
-        # seed into every downstream consumer (data augmentation, FE) of the same
-        # process and violating the suite's determinism contract.
+        # sklearn contract: __init__ stores params verbatim and derives nothing. The private RNG
+        # (``_rng``) and the resolved-model (``model_``) are built in ``fit``/``check_model`` instead, so
+        # ``get_params``/``clone`` round-trip the constructor args unchanged and a fitted instance still
+        # reports ``model=None`` when None was passed.
         self.random_state = random_state
-        self._rng = np.random.default_rng(random_state)
 
         self.n_trials = n_trials
         # Canonical Boruta extends the system by AT LEAST ``shadow_min_pad`` shadow attributes even when the real
@@ -281,8 +280,11 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     def _resolve_auto_importance_measure(self, X, y) -> None:
         """When ``importance_measure='auto'``, probe (X, y) ONCE and pin the concrete driver for this
         fit into ``_resolved_importance_measure_`` (+ diagnostics in ``auto_dispatch_diagnostics_``).
-        permutation needs a holdout to be the honest noise-leader, so auto also pins train_or_test to
-        'test' for that branch (only when the user left the default 'train'). Explicit measures untouched."""
+        permutation needs a holdout to be the honest noise-leader, so auto also pins the resolved
+        ``_train_or_test_`` to 'test' for that branch (only when the user left the default 'train'); the
+        constructor param ``train_or_test`` itself is never mutated (sklearn clone contract). Explicit measures untouched."""
+        # Resolved working copy of the train/test choice. Never mutate the verbatim ``self.train_or_test`` param.
+        self._train_or_test_ = str(self.train_or_test)
         if str(self.importance_measure).lower() != "auto":
             self._resolved_importance_measure_ = str(self.importance_measure).lower()
             self.auto_dispatch_diagnostics_ = None
@@ -297,7 +299,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # Honest held-out permutation requires the 30% holdout; only override the *default* 'train'.
         if measure == "permutation" and str(self.train_or_test).lower() == "train":
             self._auto_forced_test_split_ = True
-            self.train_or_test = "test"
+            self._train_or_test_ = "test"
         if self.verbose:
             logger.info(
                 "BorutaShap importance_measure='auto' -> '%s' (n/p=%.1f, oob_gap=%.3f, shadow_gap=%.3f; %s)",
@@ -307,19 +309,16 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
     def check_model(self):
         """
-        Checks that a model object has been passed as a parameter when intiializing the BorutaShap class.
-
-        Returns
-        -------
-        Model Object
-            If no model specified then a base Random Forest will be returned otherwise the specifed model will
-            be returned.
+        Resolve the working surrogate model into the learned attribute ``self.model_`` (sklearn contract:
+        the constructor param ``self.model`` is stored verbatim and NEVER mutated, so ``get_params`` on a
+        fitted instance still returns the value the caller passed -- ``None`` stays ``None`` -- and ``clone``
+        reconstructs from the original args). When ``self.model is None`` the default RandomForest surrogate
+        is built into ``model_``; otherwise the caller-supplied estimator is used as-is.
 
         Raises
         ------
-        AttirbuteError
-             If the model object does not have the required attributes.
-
+        AttributeError
+             If the supplied model object does not have the required attributes.
         """
 
         check_fit = hasattr(self.model, "fit")
@@ -337,11 +336,11 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             # The default surrogate is refit every trial and the tree fit is ~82% of wall (profiled); sklearn's
             # default n_jobs=None runs it single-threaded. n_jobs=-1 parallelizes the independent trees across
             # cores -- selection is bit-identical (fixed random_state makes the forest deterministic regardless
-            # of worker count). Caller-supplied models are untouched.
+            # of worker count). Resolved into ``model_`` so the verbatim ``self.model`` param stays None.
             if self.classification:
-                self.model = RandomForestClassifier(n_jobs=-1, random_state=self.random_state)
+                self.model_ = RandomForestClassifier(n_jobs=-1, random_state=self.random_state)
             else:
-                self.model = RandomForestRegressor(n_jobs=-1, random_state=self.random_state)
+                self.model_ = RandomForestRegressor(n_jobs=-1, random_state=self.random_state)
 
         elif check_fit is False and check_predict is False:
             raise AttributeError("Model must contain both the fit() and predict() methods")
@@ -350,7 +349,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             raise AttributeError("Model must contain the feature_importances_ method to use Gini try Shap instead")
 
         else:
-            pass
+            self.model_ = self.model
 
     @staticmethod
     def _ordinal_encode_object_cols_inplace(df: pd.DataFrame) -> list[str]:
@@ -442,7 +441,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         models_to_check = ("xgb", "catboost", "lgbm", "lightgbm")
 
-        model_name = str(type(self.model)).lower()
+        model_name = str(type(self.model_)).lower()
         if X_missing or Y_missing:
             if any([x in model_name for x in models_to_check]):
                 logger.warning("There are missing values in your data !")
@@ -464,14 +463,18 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         if self.stratify is not None and not self.classification:
             raise ValueError("Cannot take a strtified sample from continuos variable please bucket the variable and try again !")
 
-        if self.train_or_test.lower() == "test":
+        # Read the RESOLVED working copy (``_train_or_test_``), not the verbatim param: 'auto' importance may
+        # pin it to 'test' for held-out permutation without mutating the clone-able constructor arg. Falls back
+        # to the param for direct helper calls that bypass ``_resolve_auto_importance_measure``.
+        train_or_test = getattr(self, "_train_or_test_", None) or self.train_or_test
+        if train_or_test.lower() == "test":
             # keeping the same naming convenetion as to not add complexit later on
             self.X_boruta_train, self.X_boruta_test, self.y_train, self.y_test = train_test_split(
                 self.X_boruta, self.y, test_size=0.3, random_state=self.random_state, stratify=self.stratify
             )
             self.Train_model(self.X_boruta_train, self.y_train)
 
-        elif self.train_or_test.lower() == "train":
+        elif train_or_test.lower() == "train":
             # model will be trained and evaluated on the same data
             self.Train_model(self.X_boruta, self.y)
 
@@ -497,15 +500,15 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         """
 
-        if "catboost" in str(type(self.model)).lower():
-            self.model.fit(X, y, cat_features=self.X_categorical, verbose=False, **(self.fit_params or {}))
+        if "catboost" in str(type(self.model_)).lower():
+            self.model_.fit(X, y, cat_features=self.X_categorical, verbose=False, **(self.fit_params or {}))
 
         else:
             try:
-                self.model.fit(X, y, verbose=False, **(self.fit_params or {}))
+                self.model_.fit(X, y, verbose=False, **(self.fit_params or {}))
 
             except TypeError:
-                self.model.fit(X, y, **(self.fit_params or {}))
+                self.model_.fit(X, y, **(self.fit_params or {}))
 
 
     def transform(
@@ -533,6 +536,23 @@ class BorutaShap(BaseEstimator, TransformerMixin):
                 "BorutaShap.transform called before fit. Call fit_transform "
                 "or fit + transform before using the selector.",
             )
+        # sklearn contract: validate the transform-time feature space against what fit saw. A width mismatch
+        # (n_features_in_) or, for named frames, a column-name mismatch means the caller is transforming a frame
+        # the selector was not fitted on -- name-based selection would then silently pull the wrong / missing columns.
+        n_in = getattr(self, "n_features_in_", None)
+        _width = X.shape[1] if getattr(X, "ndim", 1) >= 2 else None
+        if n_in is not None and _width is not None and _width != n_in:
+            raise ValueError(
+                f"BorutaShap.transform: X has {_width} features, but the selector was fitted on {n_in}."
+            )
+        names_in = getattr(self, "feature_names_in_", None)
+        if names_in is not None and hasattr(X, "columns"):
+            missing = [c for c in self.selected_features_ if c not in set(X.columns)]
+            if missing:
+                raise ValueError(
+                    f"BorutaShap.transform: X is missing {len(missing)} selected feature(s) "
+                    f"present at fit time, e.g. {missing[:5]}."
+                )
         selected = list(self.selected_features_)
         if hasattr(X, "loc"):
             return X.loc[:, selected]

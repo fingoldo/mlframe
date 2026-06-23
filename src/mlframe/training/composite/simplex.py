@@ -283,10 +283,19 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
             inner.fit(X, z[:, j])
             self.estimators_.append(inner)
         self.n_outputs_ = k
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+            self.n_features_in_ = int(X.shape[1])
         return self
 
     def predict_coordinates(self, X: Any) -> np.ndarray:
         """Predict the ``(n, K-1)`` log-ratio coordinates (the unconstrained scale)."""
+        if not hasattr(self, "estimators_"):
+            from sklearn.exceptions import NotFittedError
+
+            raise NotFittedError("CompositeSimplexEstimator: call fit before predict.")
         cols = [np.asarray(est.predict(X), dtype=np.float64).ravel() for est in self.estimators_]
         return np.column_stack(cols)
 

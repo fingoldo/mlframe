@@ -140,6 +140,11 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
         if y is None:
             raise ValueError("CompositeFeatureGenerator.fit requires y for OOF prediction.")
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+            self.n_features_in_ = int(X.shape[1])
         self.column_name_ = self._resolve_column_name()
         self.oof_feature_ = composite_oof_predictions(
             self._make_wrapper,
@@ -173,7 +178,9 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
     def transform(self, X: Any) -> Any:
         """Attach the composite feature to NEW data via the all-train fitted wrapper (honest out-of-sample)."""
         if getattr(self, "estimator_", None) is None:
-            raise RuntimeError(
+            from sklearn.exceptions import NotFittedError
+
+            raise NotFittedError(
                 "CompositeFeatureGenerator.transform: no fitted all-train estimator "
                 "(fit_final_on_all=False or fit not called). Use fit_transform for the "
                 "training column, or set fit_final_on_all=True to enable transform on new data."

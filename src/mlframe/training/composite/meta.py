@@ -195,14 +195,23 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
         self.raw_ = self._make_raw()
         self.raw_.fit(X, y_arr)
 
-        self.n_features_in_ = getattr(self.composite_, "n_features_in_", None)
+        n_feat = getattr(self.composite_, "n_features_in_", None)
+        if n_feat is None:
+            cols = getattr(X, "columns", None)
+            if cols is not None:
+                n_feat = len(cols)
+            elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+                n_feat = int(X.shape[1])
+        self.n_features_in_ = n_feat
         return self
 
     # -- predict ------------------------------------------------------------
 
     def predict(self, X: Any) -> np.ndarray:
         if not hasattr(self, "weights_"):
-            raise RuntimeError("CompositeOrRawStacker is not fitted; call fit first.")
+            from sklearn.exceptions import NotFittedError
+
+            raise NotFittedError("CompositeOrRawStacker is not fitted; call fit first.")
         comp_pred = np.asarray(self.composite_.predict(X), dtype=float).reshape(-1)
         raw_pred = np.asarray(self.raw_.predict(X), dtype=float).reshape(-1)
         w_c, w_r = self.weights_

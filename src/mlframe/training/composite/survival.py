@@ -270,6 +270,11 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         names = getattr(self.inner_, "feature_names_in_", None)
         if names is not None:
             self.feature_names_in_ = list(names)
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+            self.n_features_in_ = int(X.shape[1])
         return self
 
     def _fit_aware(self, X: Any, time: np.ndarray, ev: np.ndarray, base_log: np.ndarray) -> Any:

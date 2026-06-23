@@ -310,6 +310,11 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         ref_names = getattr(ref_head, "feature_names_in_", None)
         if ref_names is not None:
             self.feature_names_in_ = list(ref_names)
+        cols = getattr(X, "columns", None)
+        if cols is not None:
+            self.n_features_in_ = len(cols)
+        elif getattr(X, "shape", None) is not None and len(X.shape) >= 2:
+            self.n_features_in_ = int(X.shape[1])
         return self
 
     def predict_quantile(
@@ -334,6 +339,13 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
 
             raise NotFittedError(
                 "CompositeQuantileEstimator.predict_quantile called before fit."
+            )
+        n_in = getattr(self, "n_features_in_", None)
+        cols = getattr(X, "columns", None)
+        n_x = len(cols) if cols is not None else (int(X.shape[1]) if getattr(X, "shape", None) is not None and len(X.shape) >= 2 else None)
+        if n_in is not None and n_x is not None and n_x != n_in:
+            raise ValueError(
+                f"CompositeQuantileEstimator.predict_quantile: X has {n_x} features, but the estimator was fit with {n_in}."
             )
         if quantiles is None:
             req = self.quantiles_

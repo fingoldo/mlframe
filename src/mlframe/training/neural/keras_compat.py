@@ -105,8 +105,7 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         validation_split: float = 0.1,
         verbose: int = 0,
     ):
-        if not _HAS_TF:
-            raise ImportError(_INSTALL_MSG)
+        # The _HAS_TF check belongs in fit(), not here: sklearn constructs estimators freely (clone) and must never raise just to instantiate.
         self.num_layers = num_layers
         self.num_neurons = num_neurons
         self.activation = activation
@@ -117,7 +116,6 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         self.batch_size = batch_size
         self.validation_split = validation_split
         self.verbose = verbose
-        self.model_ = None
 
     def __getstate__(self) -> dict:
         # A live Keras ``Sequential`` is not reliably dill/joblib-picklable (it
@@ -146,6 +144,8 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         self.model_.set_weights(weights)
 
     def fit(self, X, y):
+        if not _HAS_TF:
+            raise ImportError(_INSTALL_MSG)
         X = np.asarray(X, dtype=np.float32)
         y = np.asarray(y, dtype=np.float32)
         self.model_ = build_keras_mlp(
@@ -168,7 +168,7 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
-        if self.model_ is None:
+        if getattr(self, "model_", None) is None:
             from sklearn.exceptions import NotFittedError as _NFE
             raise _NFE("KerasCompatibleMLP has not been fitted yet.")
         X = np.asarray(X, dtype=np.float32)

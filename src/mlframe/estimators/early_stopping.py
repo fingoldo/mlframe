@@ -48,7 +48,8 @@ import time
 from typing import Callable
 
 import numpy as np
-from sklearn.base import BaseEstimator, is_regressor
+from sklearn.base import BaseEstimator, is_regressor, clone
+from sklearn.utils.validation import check_is_fitted
 from sklearn.metrics import accuracy_score
 from sklearn.linear_model import SGDClassifier
 
@@ -193,9 +194,9 @@ class EarlyStoppingWrapper(BaseEstimator):
             if time.monotonic() > deadline:
                 logger.info("Early stopping (max_runtime) at iteration %d", i)
                 break
-            self.base_model.partial_fit(X_train, y_train, **pf_kwargs)
-            score = scoring(y_val, self.base_model.predict(X_val))
-            if i >= self.start_iter and self._consider(score, lambda: self.base_model):
+            self.estimator_.partial_fit(X_train, y_train, **pf_kwargs)
+            score = scoring(y_val, self.estimator_.predict(X_val))
+            if i >= self.start_iter and self._consider(score, lambda: self.estimator_):
                 logger.info("Early stopping at iteration %d", i)
                 break
 
@@ -208,18 +209,18 @@ class EarlyStoppingWrapper(BaseEstimator):
         """
         # Grow to the full budget first: staged_predict yields one prediction per existing stage, so the
         # estimator must be built with max_iter stages for the curve to span the whole search range.
-        if "n_estimators" in self.base_model.get_params():
-            self.base_model.set_params(n_estimators=self.max_iter)
-        self.base_model.fit(X_train, y_train)
-        if not self._is_regressor and hasattr(self.base_model, "staged_predict_proba"):
-            classes = self.base_model.classes_
-            stages = (classes[np.argmax(p, axis=1)] for p in self.base_model.staged_predict_proba(X_val))
+        if "n_estimators" in self.estimator_.get_params():
+            self.estimator_.set_params(n_estimators=self.max_iter)
+        self.estimator_.fit(X_train, y_train)
+        if not self._is_regressor and hasattr(self.estimator_, "staged_predict_proba"):
+            classes = self.estimator_.classes_
+            stages = (classes[np.argmax(p, axis=1)] for p in self.estimator_.staged_predict_proba(X_val))
         else:
-            stages = self.base_model.staged_predict(X_val)
+            stages = self.estimator_.staged_predict(X_val)
         best_stage = 0
         for stage, y_pred in enumerate(stages, start=1):
             score = scoring(y_val, y_pred)
-            stop = stage >= self.start_iter and self._consider(score, lambda: self.base_model)
+            stop = stage >= self.start_iter and self._consider(score, lambda: self.estimator_)
             if self.no_improvement_count_ == 0:
                 best_stage = stage
             if stop:
@@ -235,11 +236,11 @@ class EarlyStoppingWrapper(BaseEstimator):
         ``warm_start=True`` makes each ``fit`` continue from the previous one (adds trees / runs more
         iterations) instead of starting over, so the loop costs ~one full fit of incremental work total.
         """
-        self.base_model.set_params(warm_start=True)
+        self.estimator_.set_params(warm_start=True)
         step = self.warm_start_step
         if step is None:
             try:
-                base_n = int(self.base_model.get_params().get(n_attr) or 0)
+                base_n = int(self.estimator_.get_params().get(n_attr) or 0)
             except Exception:
                 base_n = 0
             step = max(1, base_n // 10) if base_n else 10
@@ -251,16 +252,23 @@ class EarlyStoppingWrapper(BaseEstimator):
                 break
             i += 1
             n = min(self.max_iter, i * step)
-            self.base_model.set_params(**{n_attr: n})
-            self.base_model.fit(X_train, y_train)
-            score = scoring(y_val, self.base_model.predict(X_val))
-            if i >= self.start_iter and self._consider(score, lambda: self.base_model):
+            self.estimator_.set_params(**{n_attr: n})
+            self.estimator_.fit(X_train, y_train)
+            score = scoring(y_val, self.estimator_.predict(X_val))
+            if i >= self.start_iter and self._consider(score, lambda: self.estimator_):
                 logger.info("Early stopping at count %d", n)
                 break
 
     # ------------------------------------------------------------------ public API
 
     def fit(self, X, y):
+        # sklearn contract: never mutate the caller-supplied ``base_model``. Under clone / GridSearchCV every
+        # clone shares the SAME ``base_model`` object, so fitting it in place would train an already-fitted
+        # estimator on a later fold (and leave the user's instance fitted). Operate on a fresh clone instead.
+        self.estimator_ = clone(self.base_model)
+        _shape = getattr(X, "shape", None)
+        if _shape is not None and len(_shape) >= 2:
+            self.n_features_in_ = int(_shape[1])
         self.best_score_ = -np.inf
         self.best_model_ = None
         self.no_improvement_count_ = 0
@@ -273,7 +281,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         # warm_start object, so fall back to "not a regressor" (classifier scoring) when tags are absent.
         # Determined BEFORE the split so ``_split`` can stratify on classification targets.
         try:
-            self._is_regressor = is_regressor(self.base_model)
+            self._is_regressor = is_regressor(self.estimator_)
         except AttributeError:
             self._is_regressor = False
         # Validate / build the train/val split (shuffled + stratified, see ``_split``) so a degenerate
@@ -284,7 +292,7 @@ class EarlyStoppingWrapper(BaseEstimator):
             raise ValueError("EarlyStoppingWrapper requires max_iter to bound the iteration / growth schedule.")
         deadline = self._deadline()
 
-        cap = self._capability(self.base_model)
+        cap = self._capability(self.estimator_)
         if cap == "partial_fit":
             self._fit_partial(X_train, y_train, X_val, y_val, y, scoring, deadline)
         elif cap == "staged":
@@ -293,7 +301,7 @@ class EarlyStoppingWrapper(BaseEstimator):
             self._fit_warm(X_train, y_train, X_val, y_val, scoring, cap[1], deadline)
         else:
             raise TypeError(
-                f"{type(self.base_model).__name__} cannot be early-stopped: it exposes neither partial_fit, nor "
+                f"{type(self.estimator_).__name__} cannot be early-stopped: it exposes neither partial_fit, nor "
                 f"staged_predict, nor a warm_start flag with an incremental count attribute "
                 f"({' / '.join(_WARM_START_N_ATTRS)})."
             )
@@ -301,13 +309,15 @@ class EarlyStoppingWrapper(BaseEstimator):
         if self.best_model_ is None:
             # No iteration produced a finite score (e.g. max_iter exhausted before start_iter, or all-NaN scores).
             # Fall back to the last-fit model so predict() still works rather than raising on a None snapshot.
-            self.best_model_ = copy.deepcopy(self.base_model)
+            self.best_model_ = copy.deepcopy(self.estimator_)
         return self
 
     def predict(self, X):
+        check_is_fitted(self, "best_model_")
         return self.best_model_.predict(X)
 
     def predict_proba(self, X):
+        check_is_fitted(self, "best_model_")
         return self.best_model_.predict_proba(X)
 
 

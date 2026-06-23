@@ -48,6 +48,7 @@ from typing import Any, Sequence
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.utils.validation import check_is_fitted
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,10 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         return np.asarray(X, dtype=np.float64)
 
     # -- sklearn API ------------------------------------------------------------
-    def fit(self, X: Any, y: Any, group: Any) -> "CompositeRankEstimator":
+    def fit(self, X: Any, y: Any, group: Any | None = None) -> "CompositeRankEstimator":
+        # ``group`` keyword with a None default so ``clone(est).fit(X, y)`` works (sklearn's clone/check path calls fit positionally with X, y only).
+        if group is None:
+            raise ValueError("CompositeRankEstimator.fit requires the per-item ``group`` argument.")
         if self.residual_mode not in ("diff", "rank"):
             raise ValueError(
                 f"CompositeRankEstimator: residual_mode must be 'diff' or 'rank', "
@@ -357,33 +361,34 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
             gains = _residual_to_gains(res, group_arr)[sort_idx]
             Xsorted = _take_rows(Xfeat, sort_idx)
             inner.fit(Xsorted, gains, group=sizes)
-            self._kind = "lambdarank"
+            self.kind_ = "lambdarank"
         else:
             Xnum = self._numify(self._inner_features(X) if self.drop_base_feature else X)
             P, lab = self._build_pairs(Xnum, res, group_arr)
             if P.shape[0] == 0 or len(np.unique(lab)) < 2:
                 # Degenerate (single-group all-tied / no informative pair): inner score
                 # collapses to 0, the base alone drives the order.
-                self._pairwise_w = np.zeros(Xnum.shape[1], dtype=np.float64)
-                self._pairwise_b = 0.0
+                self.pairwise_w_ = np.zeros(Xnum.shape[1], dtype=np.float64)
+                self.pairwise_b_ = 0.0
             else:
                 inner.fit(P, lab)
                 # Linear decision direction => per-item score is ``w . x``.
-                self._pairwise_w = np.asarray(inner.coef_, dtype=np.float64).reshape(-1)
-                self._pairwise_b = 0.0
-            self._kind = "pairwise"
+                self.pairwise_w_ = np.asarray(inner.coef_, dtype=np.float64).reshape(-1)
+                self.pairwise_b_ = 0.0
+            self.kind_ = "pairwise"
 
-        self._inner = inner
-        self._fitted_residual_mode = self.residual_mode
+        self.inner_ = inner
+        self.fitted_residual_mode_ = self.residual_mode
         return self
 
     def inner_score(self, X: Any) -> np.ndarray:
         """Per-item residual-reranking score from the fitted inner (no base added)."""
-        if self._kind == "lambdarank":
+        check_is_fitted(self, "kind_")
+        if self.kind_ == "lambdarank":
             Xfeat = self._inner_features(X)
-            return np.asarray(self._inner.predict(Xfeat), dtype=np.float64).reshape(-1)
+            return np.asarray(self.inner_.predict(Xfeat), dtype=np.float64).reshape(-1)
         Xnum = self._numify(self._inner_features(X) if self.drop_base_feature else X)
-        return Xnum @ self._pairwise_w + self._pairwise_b
+        return Xnum @ self.pairwise_w_ + self.pairwise_b_
 
     def predict(self, X: Any, group: Any | None = None) -> np.ndarray:
         """Combined ranking score ``base_weight * z(base) + z(inner)``.

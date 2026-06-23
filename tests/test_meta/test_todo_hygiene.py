@@ -75,9 +75,16 @@ def test_every_todo_marker_has_attribution():
         )
 
 
-def test_todo_marker_count_summary_warning():
-    """Warning-only — print marker totals so the curation prompt stays
-    visible regardless of strict-test pass/fail. Output goes to stderr."""
+# Total marker budget across all production mlframe files. The strict attribution test polices
+# marker QUALITY (every marker is owned); this ceiling polices marker VOLUME so attributed-but-
+# unbounded TODO accumulation fails the meta-test instead of sliding by as a stderr note. Lower
+# the budget as markers are drained; raise it only with a deliberate decision.
+_MARKER_BUDGET = 20
+
+
+def test_todo_marker_count_within_budget():
+    """Real assert (not a warning): total TODO/FIXME/XXX/HACK markers must stay within the budget.
+    Still prints the per-marker / per-file breakdown so the curation prompt stays visible."""
     counts: dict[str, int] = {kw: 0 for kw in _MARKERS}
     by_file: dict[str, int] = {}
     total = 0
@@ -86,14 +93,15 @@ def test_todo_marker_count_summary_warning():
         rel = path.relative_to(MLFRAME_DIR).as_posix()
         by_file[rel] = by_file.get(rel, 0) + 1
         total += 1
-    if total == 0:
-        return
     top = sorted(by_file.items(), key=lambda kv: -kv[1])[:5]
-    sys.stderr.write(
-        f"\n[test_todo_marker_count_summary_warning] {total} marker(s) "
-        f"across {len(by_file)} file(s); breakdown: "
+    summary = (
+        f"{total} marker(s) across {len(by_file)} file(s); breakdown: "
         + ", ".join(f"{k}={v}" for k, v in counts.items() if v)
         + ". Top files: "
         + ", ".join(f"{p} ({n})" for p, n in top)
-        + "\n"
+    )
+    sys.stderr.write(f"\n[test_todo_marker_count_within_budget] {summary}\n")
+    assert total <= _MARKER_BUDGET, (
+        f"TODO-marker volume {total} exceeds budget {_MARKER_BUDGET}; drain markers or "
+        f"raise the budget deliberately. {summary}"
     )

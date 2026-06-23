@@ -11,6 +11,13 @@ from mlframe.feature_engineering.mps import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _seed_global_numpy_rng():
+    """Tests build fixtures via bare ``np.random.*`` (legacy global RNG). Seed it before each test
+    so results are deterministic regardless of collection order under ``-p randomly``."""
+    np.random.seed(0)
+
+
 @given(st.lists(st.floats(min_value=1, max_value=1000, allow_nan=False, allow_infinity=False), min_size=3, max_size=100))
 @settings(max_examples=50, deadline=None)
 def test_mps_positions_valid(prices):

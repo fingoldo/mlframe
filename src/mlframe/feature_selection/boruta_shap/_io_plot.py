@@ -40,7 +40,7 @@ def results_to_csv(self, filename="feature_importance"):
     features["Decision"] = features["Features"].map(decision_mapper)
     features = features.sort_values(by="Average Feature Importance", ascending=False)
 
-    features.to_csv(filename + ".csv", index=False)
+    features.to_csv(filename + ".csv", index=False, encoding="utf-8")
 
 
 def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_features="all", display=True):

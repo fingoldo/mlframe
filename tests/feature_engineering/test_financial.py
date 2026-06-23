@@ -11,6 +11,13 @@ from mlframe.feature_engineering.financial import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _seed_global_numpy_rng():
+    """Tests build fixtures via bare ``np.random.*`` (legacy global RNG). Seed it before each test
+    so results are deterministic regardless of collection order under ``-p randomly``."""
+    np.random.seed(0)
+
+
 def create_sample_ohlcv(n_rows: int) -> pl.DataFrame:
     """Create sample OHLCV data for testing."""
     np.random.seed(42)

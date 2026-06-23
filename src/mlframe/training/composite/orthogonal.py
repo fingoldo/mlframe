@@ -42,6 +42,7 @@ from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
@@ -99,6 +100,20 @@ def _drop_base_column(X: Any, base_column: str) -> Any:
     if hasattr(X, "columns"):
         return X.drop(columns=[base_column]) if base_column in X.columns else X
     return X
+
+
+def _n_features(X: Any) -> int:
+    """Robust feature count for pandas / polars / 2-D ndarray (named-column length first, then ``shape[1]``)."""
+    cols = getattr(X, "columns", None)
+    if cols is not None:
+        try:
+            return len(cols)
+        except TypeError:
+            pass
+    shape = getattr(X, "shape", None)
+    if shape is not None and len(shape) >= 2:
+        return int(shape[1])
+    return 0
 
 
 def _to_1d_numpy(y: Any) -> np.ndarray:
@@ -232,13 +247,12 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         self.inner_ = clone(self.inner_estimator)
         self.inner_.fit(X_inner, residual)
 
-        self.n_features_in_ = base.shape[0] and getattr(X, "shape", (0, 0))[1]
-        self._fitted = True
+        self.n_features_in_ = _n_features(X)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
-        if not getattr(self, "_fitted", False):
-            raise RuntimeError("OrthogonalizedCompositeEstimator: call fit before predict.")
+        if not hasattr(self, "inner_"):
+            raise NotFittedError("OrthogonalizedCompositeEstimator: call fit before predict.")
         base = _extract_base(X, self.base_column)
         X_inner = _drop_base_column(X, self.base_column)
         inner_pred = _to_1d_numpy(self.inner_.predict(X_inner))

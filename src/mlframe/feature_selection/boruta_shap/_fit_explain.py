@@ -567,13 +567,13 @@ def explain(self):
         ValueError:
             if no model type has been specified tree as default
     """
-    est_name = type(self.model).__name__
+    est_name = type(self.model_).__name__
     if est_name == "TransformedTargetRegressor":
-        explainer_base = self.model.regressor
+        explainer_base = self.model_.regressor
     elif est_name == "Pipeline":
-        explainer_base = get_pipeline_last_element(self.model)
+        explainer_base = get_pipeline_last_element(self.model_)
     else:
-        explainer_base = self.model
+        explainer_base = self.model_
     # perf note (2026-06-08): profiled on n=2407/p=120/LGBM-50tree/n_trials=30, a SHAP-driven fit is 98%
     # third-party -- model .fit ~69%, TreeSHAP ~29% (TreeExplainer.__init__ ~1.35s reading the just-refit model
     # + shap_values ~6.76s of C++ tree traversal). Both are intrinsic per-trial: the model is REFIT every trial,

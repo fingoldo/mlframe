@@ -9,21 +9,25 @@
 
 from __future__ import annotations
 
-import inspect
-
 import numpy as np
 
 from mlframe.calibration import quality
 
 
-def test_performances_and_data_initialised_before_loop():
-    # `data` and `performances` are read in the show_table / empty-all_performances return
-    # branches; they must be bound before the per-interval loop so neither branch can hit a
-    # NameError when the loop produced no iteration result. Pin the initialisation in source.
-    src = inspect.getsource(quality.show_classifier_calibration)
-    pre_loop = src.split("for i in range(nintervals):")[0]
-    assert "data: list = []" in pre_loop
-    assert "performances: dict = {}" in pre_loop
+def test_show_table_path_returns_dataframe_without_unbound_name():
+    # `data` / `performances` are read in the show_table / empty-all_performances return
+    # branches; before the fix they were bound only inside the per-interval loop body, so the
+    # show_table return branch (which reads `data`) hit a NameError. Exercise that exact branch
+    # and assert a DataFrame comes back rather than a NameError.
+    rng = np.random.default_rng(0)
+    y_pred = rng.uniform(0.01, 0.99, size=500)
+    y_true = (rng.uniform(size=500) < y_pred).astype(np.int8)
+    res = quality.show_classifier_calibration(
+        y_true, y_pred, title="t", nbins=5, nintervals=1, show_table=True, skip_plotting=True
+    )
+    import pandas as pd
+
+    assert isinstance(res, pd.DataFrame)
 
 
 def test_show_classifier_calibration_returns_dict_normal_path():
@@ -36,11 +40,27 @@ def test_show_classifier_calibration_returns_dict_normal_path():
     assert isinstance(res, dict)
 
 
-def test_competing_probs_branch_mirrors_nclasses_guard():
-    # Pin the source-level fix: the competing-probs show_classifier_calibration call uses the
-    # same `ax_probs if nclasses == 1 else ax_probs[plot_idx]` guard as the primary call, so a
-    # single-class plot (ax_probs is a single Axes, not an array) does not index-crash.
-    src = inspect.getsource(quality.make_custom_calibration_plot)
-    # There must be at least two guarded ax selections of this shape (primary + competing).
-    guarded = src.count("ax_probs if nclasses == 1 else ax_probs[plot_idx]")
-    assert guarded >= 2, "competing_probs branch must mirror the nclasses==1 ax guard"
+def test_competing_probs_single_class_does_not_index_crash():
+    # The competing-probs branch indexed ax_probs[plot_idx] without the nclasses==1 guard the
+    # primary call uses. With a single class and skip_plotting=True, ax_probs is None, so the
+    # unguarded ax_probs[plot_idx] was `None[0]` -> TypeError. The guarded branch passes ax_probs
+    # straight through. Drive the actual competing path and assert it completes without crashing.
+    rng = np.random.default_rng(0)
+    n = 400
+    probs = rng.uniform(0.01, 0.99, size=(n, 1))
+    y = (rng.uniform(size=n) < probs[:, 0]).astype(np.int8)
+    import pandas as pd
+
+    competing_col = "p_competitor"
+    X = pd.DataFrame({competing_col: rng.uniform(0.01, 0.99, size=n)})
+
+    fig, metrics = quality.make_custom_calibration_plot(
+        y,
+        probs,
+        nclasses=1,
+        nbins=5,
+        competing_probs=[[competing_col]],
+        X=X,
+        skip_plotting=True,
+    )
+    assert isinstance(metrics, dict)

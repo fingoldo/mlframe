@@ -85,6 +85,8 @@ class EnsembleLeaderboard:
 
     def to_csv(self, path: str, **kwargs) -> None:
         # Persist the underlying score table; the rank-method table can be re-derived from it.
+        # Force utf-8 so non-ASCII metric/flavour labels survive on Windows (cp1252 default mojibakes them).
+        kwargs.setdefault("encoding", "utf-8")
         self.table.to_csv(path, **kwargs)
 
 

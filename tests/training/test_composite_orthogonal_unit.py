@@ -119,5 +119,7 @@ def test_missing_base_column_raises():
 def test_predict_before_fit_raises():
     X, _ = _make_frame()
     est = OrthogonalizedCompositeEstimator(base_column="base", inner_estimator=Ridge())
-    with pytest.raises(RuntimeError):
+    from sklearn.exceptions import NotFittedError
+
+    with pytest.raises(NotFittedError):
         est.predict(X)

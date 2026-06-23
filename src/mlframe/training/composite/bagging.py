@@ -163,15 +163,8 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         self.vary_inner_random_state = vary_inner_random_state
         self.random_state = random_state
         self.n_jobs = n_jobs
-        if aggregation not in ("trimmed_mean", "mean", "median"):
-            raise ValueError(
-                f"BaggedCompositeEstimator: aggregation must be one of "
-                f"'trimmed_mean' / 'mean' / 'median'; got {aggregation!r}."
-            )
-        if not (0.0 <= trim_fraction < 0.5):
-            raise ValueError(
-                f"BaggedCompositeEstimator: trim_fraction must be in [0, 0.5); got {trim_fraction!r}."
-            )
+        # sklearn contract: __init__ only stores params verbatim (no validation / no transformation), so set_params round-trips and
+        # clone reconstructs faithfully. aggregation / trim_fraction are validated in fit instead.
         # ``trimmed_mean`` (symmetric 20% trim) is the default point-estimate aggregator: on heavy-tailed / outlier-contaminated
         # targets it lowers honest-holdout RMSE+MAE materially while costing only a fraction of a percent under clean Gaussian
         # noise. The 0.2 trim (vs the earlier 0.1) is the robust knee from the trim-fraction sweep (bench bench_bagging_trim_fraction_qual17):
@@ -234,6 +227,15 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         not accept it ignore it). ``**fit_kwargs`` forward to every member.
         Returns ``self``.
         """
+        if self.aggregation not in ("trimmed_mean", "mean", "median"):
+            raise ValueError(
+                f"BaggedCompositeEstimator: aggregation must be one of "
+                f"'trimmed_mean' / 'mean' / 'median'; got {self.aggregation!r}."
+            )
+        if not (0.0 <= self.trim_fraction < 0.5):
+            raise ValueError(
+                f"BaggedCompositeEstimator: trim_fraction must be in [0, 0.5); got {self.trim_fraction!r}."
+            )
         if self.base_estimator is None:
             raise ValueError(
                 "BaggedCompositeEstimator: base_estimator must not be None."

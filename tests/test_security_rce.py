@@ -23,8 +23,12 @@ def test_torch_load_rejects_malicious_pickle(tmp_path):
     with open(bad_path, "wb") as f:
         pickle.dump({"state_dict": _Exploit()}, f)
 
-    with pytest.raises(Exception):
+    # weights_only=True refuses any non-tensor global; torch raises pickle.UnpicklingError
+    # (subclass) whose message names the blocked global / the weights_only restriction.
+    with pytest.raises(pickle.UnpicklingError) as exc:
         torch.load(str(bad_path), map_location="cpu", weights_only=True)
+    msg = str(exc.value).lower()
+    assert "weights_only" in msg or "system" in msg or "global" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -58,8 +62,12 @@ def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
     buf2 = io.BytesIO()
     dill.dump(_Bad(), buf2)
     buf2.seek(0)
-    with pytest.raises(Exception):
+    # The allowlist refuses os.system via the module-prefix gate -> dill.UnpicklingError
+    # whose message names the blocked global.
+    with pytest.raises(dill.UnpicklingError) as exc:
         _SafeUnpickler(buf2).load()
+    msg = str(exc.value)
+    assert "blocked by _SafeUnpickler" in msg and "system" in msg
 
 
 # ---------------------------------------------------------------------------

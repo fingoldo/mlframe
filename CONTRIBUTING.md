@@ -63,7 +63,7 @@ Every bug fix needs a regression test that **fails on pre-fix code** and **passe
 
 ## sklearn compatibility
 
-The composite-target wrapper surface (`mlframe.training.composite`, `mlframe.training.composite_estimator`) is tested across scikit-learn 1.5, 1.6, 1.7, 1.8 by the `sklearn-matrix` workflow. When touching that surface, expect that workflow to run and stay green.
+The composite-target wrapper surface (`mlframe.training.composite`, `mlframe.training.composite.estimator`) is tested across scikit-learn 1.5, 1.6, 1.7, 1.8 by the `sklearn-matrix` workflow. When touching that surface, expect that workflow to run and stay green.
 
 ## Commits
 

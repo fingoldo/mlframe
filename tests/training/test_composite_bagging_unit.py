@@ -107,10 +107,12 @@ def test_aggregation_param_defaults_and_validation():
     cloned = clone(BaggedCompositeEstimator(base_estimator=_make_composite_proto(), aggregation="median", trim_fraction=0.15))
     assert cloned.aggregation == "median"
     assert cloned.trim_fraction == 0.15
+    # sklearn contract: __init__ stores params verbatim; aggregation / trim_fraction are validated at fit, not construction.
+    X, y = _make_composite_data()
     with pytest.raises(ValueError):
-        BaggedCompositeEstimator(aggregation="bogus")
+        BaggedCompositeEstimator(base_estimator=_make_composite_proto(), aggregation="bogus").fit(X, y)
     with pytest.raises(ValueError):
-        BaggedCompositeEstimator(trim_fraction=0.5)
+        BaggedCompositeEstimator(base_estimator=_make_composite_proto(), trim_fraction=0.5).fit(X, y)
 
 
 def test_pickle_replay_legacy_model_aggregates_by_mean():
