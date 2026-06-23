@@ -50,9 +50,22 @@ def _fit_kmeans(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
     return km.cluster_centers_.astype(np.float32, copy=False)
 
 
+def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
+    """Per-row squared euclidean distance to each anchor, (n_rows, n_anchors), via the
+    ``||x||^2 - 2 x.a + ||a||^2`` GEMM decomposition. Avoids the (n_rows, n_anchors, d) broadcast
+    cube that ``np.sum((X[:,None,:]-anchors[None,:,:])**2, axis=2)`` materialises; only the
+    (n_rows, n_anchors) result is allocated. Differs from the subtraction form by float32 reduction
+    order (~1e-5 on the downstream softmax), selection-equivalent for these FE features."""
+    x_sq = np.einsum("ij,ij->i", X, X)[:, None]
+    a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
+    d = x_sq - 2.0 * (X @ anchors.T) + a_sq
+    np.maximum(d, 0.0, out=d)
+    return d
+
+
 def _softmax_similarity(X: np.ndarray, anchors: np.ndarray, softmax_temp: float) -> np.ndarray:
     """Per-row softmax over anchor distances. Returns (n_rows, n_anchors)."""
-    dists = np.sum((X[:, None, :] - anchors[None, :, :]) ** 2, axis=2)
+    dists = _squared_dists(X, anchors)
     logits = -dists / (softmax_temp + 1e-9)
     logits -= logits.max(axis=1, keepdims=True)
     e = np.exp(logits)
@@ -74,7 +87,7 @@ def _compute_class_anchor_features(
     # Combined sim mass: how much of the query's similarity mass goes to positive-class anchors vs negative.
     # Compute under a UNIFIED softmax over all 2K anchors.
     all_anchors = np.concatenate([anchors_pos, anchors_neg], axis=0)
-    dists_all = np.sum((X_query_std[:, None, :] - all_anchors[None, :, :]) ** 2, axis=2)
+    dists_all = _squared_dists(X_query_std, all_anchors)
     logits_all = -dists_all / (softmax_temp + 1e-9)
     logits_all -= logits_all.max(axis=1, keepdims=True)
     w_all = np.exp(logits_all)

@@ -29,22 +29,30 @@ def extract_sequences(
 
     n_rows = len(df)
 
-    # Convert each column's per-row list to a numpy array once. The previous
-    # implementation did n_rows * n_cols Python list-lookups in a comprehension
-    # then column_stack'd per row, materialising n_rows separate small (k, n_cols)
-    # arrays via Python-level loops. Casting per column first lets each row's
-    # stack use ndarray slicing rather than nested-list indexing.
-    col_arrays: list[list[np.ndarray]] = [
-        [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
-        for col in columns
-    ]
-
-    result: list[np.ndarray] = [
-        np.stack([col_arrays[j][i] for j in range(len(columns))], axis=-1)
-        for i in range(n_rows)
-    ]
-
-    return result
+    # Equal-length fast path (the aligned light-curve layout: every column's per-row
+    # list has the same length within a row): convert each column's whole list-of-lists
+    # to one (n_rows, seq_len) ndarray in a single np.asarray, stack the columns once
+    # into (n_rows, seq_len, k), and slice out the rows. This avoids the per-cell
+    # np.asarray (n_rows * n_cols Python calls) and the n_rows separate np.stack calls
+    # the row-wise path makes. Ragged input (unequal per-row lengths) raises on the
+    # bulk np.asarray; we catch it and fall back to the exact per-row stack -- the two
+    # paths are bit-identical (same float32 cast, same column order).
+    n_cols = len(columns)
+    try:
+        col_mats = [np.asarray(df[col].to_list(), dtype=np.float32) for col in columns]
+        if any(m.ndim != 2 for m in col_mats):
+            raise ValueError("ragged sequence lengths")
+        stacked = np.stack(col_mats, axis=-1)  # (n_rows, seq_len, k)
+        return [stacked[i] for i in range(n_rows)]
+    except ValueError:
+        col_arrays: list[list[np.ndarray]] = [
+            [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
+            for col in columns
+        ]
+        return [
+            np.stack([col_arrays[j][i] for j in range(n_cols)], axis=-1)
+            for i in range(n_rows)
+        ]
 
 
 def extract_sequences_chunked(
