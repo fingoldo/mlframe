@@ -49,12 +49,10 @@ def _shrunk_covariance(X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         return X.mean(axis=0) if X.shape[0] > 0 else np.zeros(d, dtype=np.float32), np.eye(d, dtype=np.float32)
     lw = LedoitWolf().fit(X)
     mean = X.mean(axis=0).astype(np.float32)
-    try:
-        inv_cov = np.linalg.inv(lw.covariance_).astype(np.float32)
-    except np.linalg.LinAlgError:
-        # Degenerate; add ridge regularisation and retry.
-        cov = lw.covariance_ + np.eye(X.shape[1]) * 1e-3
-        inv_cov = np.linalg.inv(cov).astype(np.float32)
+    # pinv tolerates near-singular Ledoit-Wolf covariance without raising; a
+    # merely ill-conditioned (not exactly singular) cov would slip past an
+    # inv()+LinAlgError guard and yield exploded / non-finite distances.
+    inv_cov = np.linalg.pinv(lw.covariance_).astype(np.float32)
     return mean, inv_cov
 
 

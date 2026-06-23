@@ -89,25 +89,25 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     try:
         _ = _shuffle_and_compute_three_mis(
             classes_pair, freqs_pair, classes_x1, freqs_x1,
-            classes_x2, freqs_x2, classes_y_safe.copy(), freqs_y, dtype,
+            classes_x2, freqs_x2, classes_y_safe.copy(), freqs_y, 0, dtype,
         )
     except Exception:
         pass
 
     # Conditional permutation shuffles.
     try:
-        _conditional_shuffle_within_strata(classes_y_safe.copy(), classes_y, K_y)
+        _conditional_shuffle_within_strata(classes_y_safe.copy(), classes_y, K_y, 0)
     except Exception:
         pass
     try:
         _full_conditional_shuffle_ipf(
-            classes_y_safe.copy(), classes_x1, classes_y, K_x, K_y,
+            classes_y_safe.copy(), classes_x1, classes_y, K_x, K_y, 0,
         )
     except Exception:
         pass
     try:
         groups = rng.integers(0, 4, n).astype(np.int32)
-        _group_aware_shuffle(classes_y_safe.copy(), groups, 4)
+        _group_aware_shuffle(classes_y_safe.copy(), groups, 4, 0)
     except Exception:
         pass
 

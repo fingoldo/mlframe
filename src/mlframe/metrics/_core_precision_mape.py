@@ -27,7 +27,10 @@ def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, ze
             allpreds[predicted_class] += 1
             if predicted_class == true_class:
                 hits[predicted_class] += 1
-    precisions = hits / allpreds
+    precisions = np.zeros(nclasses, dtype=np.float64)
+    for c in range(nclasses):
+        if allpreds[c] > 0:
+            precisions[c] = hits[c] / allpreds[c]
     return precisions[-1]
 
 
@@ -79,9 +82,17 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     else:
         balanced_accuracy = 0.0
 
-    recalls = hits / supports
-    precisions = hits / allpreds
-    f1s = 2 * (precisions * recalls) / (precisions + recalls)
+    recalls = np.zeros(nclasses, dtype=np.float64)
+    precisions = np.zeros(nclasses, dtype=np.float64)
+    f1s = np.zeros(nclasses, dtype=np.float64)
+    for c in range(nclasses):
+        if supports[c] > 0:
+            recalls[c] = hits[c] / supports[c]
+        if allpreds[c] > 0:
+            precisions[c] = hits[c] / allpreds[c]
+        pr_denom = precisions[c] + recalls[c]
+        if pr_denom > 0:
+            f1s[c] = 2.0 * (precisions[c] * recalls[c]) / pr_denom
 
     # Weighted averages must divide by supports.sum() (== number of labeled samples with
     # in-range class ids), NOT len(y_true): out-of-range labels were dropped above, so

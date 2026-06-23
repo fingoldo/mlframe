@@ -111,9 +111,11 @@ def _confirm_pairs_bandit_ucb1(
         """One shuffle for pair j. Updates nfailed, nshuf in place."""
         cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[j]
         classes_y_safe = classes_y.copy()
+        # Per-(pair, shuffle-index) seed so each Phase-2 shuffle is distinct yet reproducible run-to-run, without touching numpy's global RNG.
+        _step_seed = int(_phase1_base_seed) + (j + 1) * 0x9E3779B1 + nshuf[j]
         i_pair, i_x1, i_x2 = _shuffle_and_compute_three_mis(
             cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
-            classes_y_safe, freqs_y, dtype,
+            classes_y_safe, freqs_y, _step_seed, dtype,
         )
         if (i_pair - i_x1 - i_x2) >= ii_obs:
             nfailed[j] += 1

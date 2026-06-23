@@ -216,10 +216,14 @@ class PdOrdinalEncoder(OrdinalEncoder):
                 "encoded_missing_value=np.nan but transform unconditionally casts to int32. "
                 "Either keep encoded_missing_value=-1 (default) or change dtype contract."
             )
+        # Cast the ndarray first (copy=False reuses the buffer when it is already int32),
+        # only wrapping into a DataFrame when the caller passed named columns. The prior
+        # ``pd.DataFrame(X).astype(np.int32)`` forced a full broadcast-copy on every call.
+        X = np.asarray(X).astype(np.int32, copy=False)
         if col_names:
-            return pd.DataFrame(data=X, columns=col_names).astype(np.int32)
+            return pd.DataFrame(data=X, columns=col_names, copy=False)
         else:
-            return X.astype(np.int32)
+            return X
 
 
 class PdKBinsDiscretizer(KBinsDiscretizer):
@@ -237,10 +241,13 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
         # KBinsDiscretizer with encode='onehot' returns sparse; densify for pandas path
         if hasattr(X, "toarray"):
             X = X.toarray()
+        # Cast in place first (copy=False reuses an already-int32 buffer); wrap only when
+        # named columns are needed, avoiding the broadcast-copy of the prior DataFrame path.
+        X = np.asarray(X).astype(np.int32, copy=False)
         if col_names:
-            return pd.DataFrame(data=X, columns=col_names).astype(np.int32)
+            return pd.DataFrame(data=X, columns=col_names, copy=False)
         else:
-            return X.astype(np.int32)
+            return X
 
 class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, nprobs):
@@ -355,7 +362,13 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None, **kwargs):
         check_is_fitted(self)
-        return (pd.DataFrame(X)).drop(labels=self.correlated_features_, axis=1)
+        # Drop correlated columns without wrapping the whole input into a fresh DataFrame
+        # on every call: a DataFrame already supports ``.drop`` directly, and an ndarray's
+        # columns are dropped by integer index, avoiding the broadcast-copy of the wrap.
+        if isinstance(X, pd.DataFrame):
+            return X.drop(labels=self.correlated_features_, axis=1)
+        keep = [j for j in range(np.asarray(X).shape[1]) if j not in self.correlated_features_]
+        return np.asarray(X)[:, keep]
 
 
 def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constant_lag", lag: int = 1) -> np.ndarray:

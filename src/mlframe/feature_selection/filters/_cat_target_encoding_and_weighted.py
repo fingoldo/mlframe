@@ -228,10 +228,13 @@ def _pair_search_kernel_weighted_njit(
 
 @njit(cache=True)
 def _group_aware_shuffle(
-    classes_y_safe: np.ndarray, groups: np.ndarray, n_groups: int,
+    classes_y_safe: np.ndarray, groups: np.ndarray, n_groups: int, base_seed: int,
 ) -> None:
     """Shuffle classes_y_safe in place, restricting to between-group permutations. For each group, all rows get the SAME (shuffled) Y representative (the group's first
     row's Y, after shuffling group ordering). Implementation: shuffle group representatives, then broadcast each group's shuffled Y to all its rows.
+
+    The group-representative Fisher-Yates uses a seeded inline LCG (PCG-style step) so the permutation is reproducible at a fixed ``base_seed`` and never touches numpy's
+    process-global RNG (the prior ``np.random.randint`` was unseeded and mutated numba's global stream).
     """
     n = len(classes_y_safe)
     # Find each group's first-occurrence Y value
@@ -241,8 +244,10 @@ def _group_aware_shuffle(
         if group_y[g] < 0:
             group_y[g] = classes_y_safe[i]
     # Shuffle the group_y array
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for i in range(n_groups - 1, 0, -1):
-        j = np.random.randint(0, i + 1)
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        j = int(state >> np.uint64(33)) % (i + 1)
         tmp = group_y[i]
         group_y[i] = group_y[j]
         group_y[j] = tmp

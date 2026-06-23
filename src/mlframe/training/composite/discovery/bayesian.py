@@ -107,7 +107,12 @@ def bayesian_alpha_fit(
     # OLS point estimate.
     XtX = X.T @ X
     try:
-        XtX_inv = np.linalg.inv(XtX)
+        # lstsq against the identity yields a least-squares pseudo-inverse that
+        # stays finite on near-singular (ill-conditioned, not exactly singular)
+        # design where inv() would not raise but would explode the posterior.
+        XtX_inv = np.linalg.lstsq(XtX, np.eye(XtX.shape[0], dtype=XtX.dtype), rcond=None)[0]
+        if not np.all(np.isfinite(XtX_inv)):
+            raise np.linalg.LinAlgError("non-finite pseudo-inverse")
     except np.linalg.LinAlgError:
         # Degenerate design (constant base). Return a wide-but-finite posterior.
         from .. import _linear_residual_fit

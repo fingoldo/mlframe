@@ -119,6 +119,32 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         self.verbose = verbose
         self.model_ = None
 
+    def __getstate__(self) -> dict:
+        # A live Keras ``Sequential`` is not reliably dill/joblib-picklable (it
+        # carries TF graph + optimizer state that the generic pickle path mangles).
+        # Serialise it structurally via get_config() + get_weights() and rebuild in
+        # __setstate__ so a fitted KerasCompatibleMLP round-trips with identical predictions.
+        state = self.__dict__.copy()
+        model = state.pop("model_", None)
+        if model is not None:
+            state["_keras_config_"] = model.get_config()
+            state["_keras_weights_"] = model.get_weights()
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        config = state.pop("_keras_config_", None)
+        weights = state.pop("_keras_weights_", None)
+        self.__dict__.update(state)
+        if config is None:
+            self.model_ = None
+            return
+        try:
+            from tensorflow.keras.models import Sequential
+        except ModuleNotFoundError:
+            from keras.models import Sequential
+        self.model_ = Sequential.from_config(config)
+        self.model_.set_weights(weights)
+
     def fit(self, X, y):
         X = np.asarray(X, dtype=np.float32)
         y = np.asarray(y, dtype=np.float32)

@@ -66,7 +66,10 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
 # at most train/val/test/df are live in one per-target iteration; weakrefs are NOT used (polars
 # DataFrames don't support weakref because they are pyo3-backed) so we rely on the explicit cap
 # + an id() key that the caller's strong reference keeps alive for the duration of the call.
-_TO_PANDAS_BASELINE_CACHE: "OrderedDict[int, pd.DataFrame]" = None  # type: ignore[assignment]
+# Maps id(X) -> (cols, shape, pandas_view). The id() can recycle onto a different polars frame after GC, so
+# the hit is CO-VALIDATED against the live X's columns + shape before reuse (a recycled id with a different
+# frame fails the check and falls through to a fresh bridge call rather than returning a stale wrong view).
+_TO_PANDAS_BASELINE_CACHE: "OrderedDict[int, tuple]" = None  # type: ignore[assignment]
 
 
 def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
@@ -98,15 +101,24 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
             from collections import OrderedDict as _OD
             _TO_PANDAS_BASELINE_CACHE = _OD()
         key = id(X)
+        try:
+            _cols = tuple(X.columns) if hasattr(X, "columns") else None
+        except Exception:
+            _cols = None
+        _shape = getattr(X, "shape", None)
         cached = _TO_PANDAS_BASELINE_CACHE.get(key)
         if cached is not None:
-            return cached
+            _c_cols, _c_shape, _c_view = cached
+            if _c_cols == _cols and _c_shape == _shape:
+                return _c_view
+            # id() recycled onto a different frame -> stale entry, drop and rebuild.
+            _TO_PANDAS_BASELINE_CACHE.pop(key, None)
         # Lazy import: utils.py pulls in _nan_processing which has its own
         # transitive cycle with this module's callers; importing at module
         # scope risks circular-load.
         from ..utils import get_pandas_view_of_polars_df
         view = get_pandas_view_of_polars_df(X)
-        _TO_PANDAS_BASELINE_CACHE[key] = view
+        _TO_PANDAS_BASELINE_CACHE[key] = (_cols, _shape, view)
         # Bound cache to 4 entries (train / val / test / scratch).
         while len(_TO_PANDAS_BASELINE_CACHE) > 4:
             _TO_PANDAS_BASELINE_CACHE.popitem(last=False)

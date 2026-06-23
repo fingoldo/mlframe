@@ -144,9 +144,15 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
         _dtypes_sig = None
 
     _id = id(X)
-    # Stage 1: id match
+    # Stage 1: id match, CO-VALIDATED by the content key (cols + shape + dtypes). The id() alone can recycle
+    # onto an unrelated frame after GC; requiring cols/shape/dtypes to also match makes an id false-hit
+    # return a pool that is genuinely compatible (or fall through to the stage-2 content match / miss).
     for key, pool in _CB_VAL_POOL_CACHE.items():
         if key[0] == _id and key[1] == _cols and key[2] == _shape_sig:
+            if _dtypes_sig is not None:
+                cached_dtypes = getattr(pool, "_mlframe_dtypes_sig", None)
+                if cached_dtypes is not None and cached_dtypes != _dtypes_sig:
+                    continue
             return pool
     # Stage 2: content fallback
     if _shape_sig is not None and _dtypes_sig is not None:

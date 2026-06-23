@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import time
 import logging
+from collections import OrderedDict
 
 import numpy as np
 
@@ -354,27 +355,39 @@ _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
 # ALL ~30 noise-gate dispatches of a fit, so this (P, n) int32 matrix was rebuilt (njit) AND re-uploaded
 # (H2D, ~14MB total) every dispatch. Cache the device matrix by WEAKREF IDENTITY of classes_y + the
 # scalar key: built+uploaded once per fit, reused thereafter. Bit-identical (same shuffle stream).
-_DY_DEVICE_CACHE: dict = {"ref": None, "key": None, "d_y": None}
+# Per-key device cache (was a single slot, which two concurrent noise-gate dispatches with different targets
+# clobbered: dispatch B's d_y overwrote A's, so A read B's shuffled-y matrix). Keyed on
+# (id(classes_y), base_seed, nperm, n, P) with a co-validating weakref so an id-recycle onto a different
+# target array can never false-hit. Bounded FIFO so distinct targets across a long fit don't grow it.
+_DY_DEVICE_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
+_DY_DEVICE_CACHE_MAX = 8
 
 
 def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
-    """Device (P, n) int32 [orig y; nperm shuffles], cached by weakref(classes_y)+(base_seed,nperm,n).
-    Built + uploaded once per fit (the target is constant across noise-gate dispatches)."""
+    """Device (P, n) int32 [orig y; nperm shuffles], cached by (id+weakref(classes_y), base_seed, nperm, n, P).
+    Built + uploaded once per (target, key); reused across a fit's noise-gate dispatches for the same target."""
     import weakref
     c = _DY_DEVICE_CACHE
-    key = (int(base_seed), int(nperm), int(n), int(P))
-    ref = c["ref"]
-    if ref is not None and ref() is classes_y and c["key"] == key and c["d_y"] is not None:
-        return c["d_y"]
+    key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
+    hit = c.get(key)
+    if hit is not None:
+        ref, d_y = hit
+        if ref() is classes_y and d_y is not None:
+            c.move_to_end(key)
+            return d_y
+        c.pop(key, None)  # weakref dead (id recycled onto a different target) -> drop the stale entry
     y_all = np.empty((P, n), dtype=np.int32)
     y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
     if nperm > 0:
         y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
     d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
     try:
-        c["ref"] = weakref.ref(classes_y); c["key"] = key; c["d_y"] = d_y
+        c[key] = (weakref.ref(classes_y), d_y)
+        c.move_to_end(key)
+        while len(c) > _DY_DEVICE_CACHE_MAX:
+            c.popitem(last=False)
     except TypeError:
-        c["ref"] = None; c["d_y"] = None
+        c.pop(key, None)
     return d_y
 
 

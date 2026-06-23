@@ -128,6 +128,28 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         self._cat_cardinalities_: list[int] | None = None
         self._n_cat_features_: int = 0
 
+    def __getstate__(self) -> dict:
+        # ``trainer`` is a live ``lightning.pytorch.Trainer`` (references a WarningCache the
+        # mlframe save_load ``_SafeUnpickler`` allowlist blocks) and ``_prediction_cache``
+        # holds per-call numpy arrays keyed by content hash -- both are runtime-only. Drop
+        # them on serialise (the cache rebuilds lazily on the next predict, the trainer on
+        # the next fit) and move the torch model to CPU so no CUDA tensor reaches the pickle.
+        state = self.__dict__.copy()
+        state["trainer"] = None
+        state["_prediction_cache"] = {}
+        model = state.get("model")
+        if model is not None:
+            try:
+                model.cpu()
+            except Exception:
+                pass
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self.trainer = None
+        self._prediction_cache = {}
+
     def _validate_inputs(
         self,
         features: np.ndarray | None,

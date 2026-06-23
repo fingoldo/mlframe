@@ -605,6 +605,26 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # query set where the 32x averaging shifts the loss surface).
         self.accumulate_grad_batches = max(1, int(accumulate_grad_batches))
 
+    def __getstate__(self) -> dict:
+        # ``trainer_`` is a live ``lightning.pytorch.Trainer`` that references a
+        # ``WarningCache`` the mlframe save_load ``_SafeUnpickler`` allowlist blocks,
+        # so a downstream joblib.dump of a fitted MLPRanker would lose the model.
+        # Drop the trainer (rebuilt by the next fit) and move the LightningModule's
+        # parameters to CPU so the pickled state never carries a CUDA tensor.
+        state = self.__dict__.copy()
+        state["trainer_"] = None
+        module = state.get("module_")
+        if module is not None:
+            try:
+                module.cpu()
+            except Exception:
+                pass
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self.trainer_ = None
+
     def _x_to_array(self, X) -> np.ndarray:
         if isinstance(X, pd.DataFrame):
             # Defence-in-depth: caller should already have removed qid/target columns.

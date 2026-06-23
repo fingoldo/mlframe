@@ -262,7 +262,7 @@ def _vectorized_bootstrap_logloss_samples(
     p: np.ndarray,
     n_resamples: int,
     seed: int,
-    eps: float = 1e-15,
+    eps: float = 1e-12,
 ) -> np.ndarray | None:
     """Vectorised bootstrap log-loss; handles 1D binary and 2D multilabel-macro.
 
@@ -302,7 +302,9 @@ def _vectorized_bootstrap_logloss_samples(
         # (A) / (B): same-shape elementwise BCE.
         p_clip = np.clip(p, eps, 1.0 - eps)
         log_p = np.log(p_clip)
-        log_1mp = np.log(1.0 - p_clip)
+        # log1p(-p) preserves precision near p->1 where 1.0 - p_clip cancels
+        # catastrophically; with eps=1e-12 in float64, 1-(1-eps) keeps ~4 digits.
+        log_1mp = np.log1p(-p_clip)
         is_pos = y > 0.5
         elem_n = -np.where(is_pos, log_p, log_1mp)
         idx = rng.integers(0, n, size=(n_resamples, n))
@@ -406,7 +408,7 @@ def _bootstrap_ci_for_strongest(
                     eps = 1e-15
                     p_clip = np.clip(p_arr, eps, 1.0 - eps)
                     point = float(np.mean(
-                        -np.where(y_int == 1, np.log(p_clip), np.log(1.0 - p_clip))
+                        -np.where(y_int == 1, np.log(p_clip), np.log1p(-p_clip))
                     ))
                     if not np.isfinite(point):
                         return None
@@ -438,7 +440,7 @@ def _bootstrap_ci_for_strongest(
                 eps = 1e-15
                 p_clip = np.clip(p, eps, 1.0 - eps)
                 is_pos = y > 0.5
-                elem = -np.where(is_pos, np.log(p_clip), np.log(1.0 - p_clip))
+                elem = -np.where(is_pos, np.log(p_clip), np.log1p(-p_clip))
                 if y.ndim == 1:
                     point = float(np.mean(elem))
                 elif y.ndim == 2:

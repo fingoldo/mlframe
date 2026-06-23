@@ -339,9 +339,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             # cores -- selection is bit-identical (fixed random_state makes the forest deterministic regardless
             # of worker count). Caller-supplied models are untouched.
             if self.classification:
-                self.model = RandomForestClassifier(n_jobs=-1)
+                self.model = RandomForestClassifier(n_jobs=-1, random_state=self.random_state)
             else:
-                self.model = RandomForestRegressor(n_jobs=-1)
+                self.model = RandomForestRegressor(n_jobs=-1, random_state=self.random_state)
 
         elif check_fit is False and check_predict is False:
             raise AttributeError("Model must contain both the fit() and predict() methods")

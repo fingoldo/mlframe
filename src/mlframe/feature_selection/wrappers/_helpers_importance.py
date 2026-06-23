@@ -248,6 +248,10 @@ def _conditional_permutation_importance(
         _n = max(int(mask.sum()) if hasattr(mask, "sum") else len(col), 1)
         return uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n
 
+    # Copy the matrix ONCE; every iteration mutates only column j and restores it in a
+    # try/finally so the buffer re-enters each iteration identical to X_arr. The prior
+    # per-repeat ``X_arr.copy()`` allocated a full p-column copy on every (j x repeat).
+    X_perm = X_arr.copy()
     for j in range(p):
         Xj = X_arr[:, j]
         Xnotj = np.delete(X_arr, j, axis=1)
@@ -255,13 +259,16 @@ def _conditional_permutation_importance(
         if Xnotj.shape[1] == 0:
             # Single-feature case: no conditioning set; fall back to vanilla shuffle.
             score_losses = []
-            for _ in range(n_repeats):
-                X_perm = X_arr.copy()
-                X_perm[:, j] = rng.permutation(X_arr[:, j])
-                X_for_score = (
-                    pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-                )
-                score_losses.append(baseline - float(model.score(X_for_score, y)))
+            orig_col = X_arr[:, j].copy()
+            try:
+                for _ in range(n_repeats):
+                    X_perm[:, j] = rng.permutation(orig_col)
+                    X_for_score = (
+                        pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
+                    )
+                    score_losses.append(baseline - float(model.score(X_for_score, y)))
+            finally:
+                X_perm[:, j] = orig_col
             importances[j] = float(np.mean(score_losses))
             continue
 
@@ -293,24 +300,28 @@ def _conditional_permutation_importance(
             continue
 
         score_losses = []
-        for _ in range(n_repeats):
-            X_perm = X_arr.copy()
-            for leaf_id in np.unique(leaves):
-                in_leaf = np.where(leaves == leaf_id)[0]
-                if in_leaf.size <= 1:
-                    continue
-                shuffled_positions = rng.permutation(in_leaf)
-                X_perm[in_leaf, j] = X_arr[shuffled_positions, j]
-            X_for_score = (
-                pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-            )
-            # E11 ext: wrap model.score in try/except so a custom scorer crash
-            # on the permuted X doesn't kill the whole CPI loop. NaN signals
-            # the failure to the consumer.
-            try:
-                score_losses.append(baseline - float(model.score(X_for_score, y)))
-            except Exception:
-                score_losses.append(np.nan)
+        orig_col = X_arr[:, j].copy()
+        unique_leaves = np.unique(leaves)
+        try:
+            for _ in range(n_repeats):
+                for leaf_id in unique_leaves:
+                    in_leaf = np.where(leaves == leaf_id)[0]
+                    if in_leaf.size <= 1:
+                        continue
+                    shuffled_positions = rng.permutation(in_leaf)
+                    X_perm[in_leaf, j] = orig_col[shuffled_positions]
+                X_for_score = (
+                    pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
+                )
+                # E11 ext: wrap model.score in try/except so a custom scorer crash
+                # on the permuted X doesn't kill the whole CPI loop. NaN signals
+                # the failure to the consumer.
+                try:
+                    score_losses.append(baseline - float(model.score(X_for_score, y)))
+                except Exception:
+                    score_losses.append(np.nan)
+        finally:
+            X_perm[:, j] = orig_col
         importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else 0.0
 
     return importances

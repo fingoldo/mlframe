@@ -7,6 +7,7 @@ Behavioural equivalence: the body is the verbatim pre-carve body. The signature 
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import nullcontext
 from typing import Any
 
@@ -30,6 +31,13 @@ from .._helpers import (
 
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
+
+# Folds run concurrently under joblib(prefer="threads", require="sharedmem") in _fit_outer_loop; they all
+# mutate the SAME shared containers (scores / feature_importances / fitted_estimators / dummy_scores) plus
+# self._signed_importances. Individual list.append / dict-set are GIL-atomic, but a fold does several of
+# them as a logical group; an explicit lock makes each fold's commit of its results atomic w.r.t. other
+# folds so a reader (or a concurrent committer) never observes a half-written fold.
+_FOLD_STATE_LOCK = threading.Lock()
 
 
 def _eval_fold_body(
@@ -208,8 +216,9 @@ def _eval_fold_body(
             "trainset_aging_limit interactions.",
             nfold, _x_n, _y_n,
         )
-        scores.append(np.nan)
-        feature_importances[f"{len(current_features)}_{nfold}"] = {}
+        with _FOLD_STATE_LOCK:
+            scores.append(np.nan)
+            feature_importances[f"{len(current_features)}_{nfold}"] = {}
         return None
     # Multi-estimator: fit ALL estimators (singular case is a len-1 list). Score per fold = mean across estimators; FI runs stored under separate keys ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi) so the voting layer treats each estimator's importances as an independent run.
     _est_scores = []
@@ -310,9 +319,11 @@ def _eval_fold_body(
                         _signed = _signed_full
                     _store = getattr(self, "_signed_importances", None)
                     if _store is not None:
-                        _store[_key] = _signed
+                        with _FOLD_STATE_LOCK:
+                            _store[_key] = _signed
         if keep_estimators:
-            fitted_estimators[_key] = _fitted
+            with _FOLD_STATE_LOCK:
+                fitted_estimators[_key] = _fitted
 
     # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge; worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
     if _est_scores:
@@ -320,10 +331,11 @@ def _eval_fold_body(
         score = float(np.min(valid_scores)) if valid_scores else float("nan")
     else:
         score = float("nan")
-    scores.append(score)
-    # Persist every estimator's FI run.
-    for _k, _fi in _est_fi_runs:
-        feature_importances[_k] = _fi
+    with _FOLD_STATE_LOCK:
+        scores.append(score)
+        # Persist every estimator's FI run.
+        for _k, _fi in _est_fi_runs:
+            feature_importances[_k] = _fi
 
     if 0 not in evaluated_scores_mean:
 
@@ -331,8 +343,9 @@ def _eval_fold_body(
         if not self.nofeatures_dummy_scoring:
             # Sign-direction-agnostic "worse than model" placeholder. ``score/10`` silently put the dummy ABOVE the model when _sign==+1 and score was negative (e.g. R^2 < 0). Subtracting a positive number always makes the score worse under both sklearn conventions; use a magnitude-relative fudge so it scales with the metric in play (log-loss ~0.5, MSE ~1e6, R^2 ~1).
             fudge = max(abs(score), 1e-3) * 9.0
-            dummy_scores.append(score - fudge)
+            _dummy = score - fudge
         else:
-            dummy_scores.append(
-                get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
-            )
+            # Computed OUTSIDE the lock (it can be slow); only the append is guarded.
+            _dummy = get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
+        with _FOLD_STATE_LOCK:
+            dummy_scores.append(_dummy)

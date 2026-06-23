@@ -115,16 +115,16 @@ class Leaderboard:
             methods_to_choose = list(use_methods.keys())
             settings_dict = use_methods.copy()
         else:
-            methods_to_choose = set(ELECTION_METHODS)
+            methods_to_choose = list(ELECTION_METHODS)
             settings_dict = METHODS_SETTINGS
 
+        # Order-preserving filters (no ``set``): set iteration order is PYTHONHASHSEED-dependent, which would make the assembled DataFrame's row order non-reproducible.
         if self.is_partial:
-            methods_to_choose = set(methods_to_choose).intersection(
-                set(PARTIAL_METHODS)
-            )
+            _partial = set(PARTIAL_METHODS)
+            methods_to_choose = [m for m in methods_to_choose if m in _partial]
 
         if drop_mean:
-            methods_to_choose = set(methods_to_choose) - {"mean"}
+            methods_to_choose = [m for m in methods_to_choose if m != "mean"]
 
         for method in methods_to_choose:
             func = getattr(self, f"{method}_election")
@@ -161,16 +161,16 @@ class Leaderboard:
             methods_to_choose = list(use_methods.keys())
             settings_dict = use_methods.copy()
         else:
-            methods_to_choose = set(RANKING_METHODS)
+            methods_to_choose = list(RANKING_METHODS)
             settings_dict = METHODS_SETTINGS
 
+        # Order-preserving filters (no ``set``): set iteration order is PYTHONHASHSEED-dependent, which would make the assembled ranking DataFrame's column order non-reproducible.
         if self.is_partial:
-            methods_to_choose = set(methods_to_choose).intersection(
-                set(PARTIAL_METHODS)
-            )
+            _partial = set(PARTIAL_METHODS)
+            methods_to_choose = [m for m in methods_to_choose if m in _partial]
 
         if drop_mean:
-            methods_to_choose = set(methods_to_choose) - {"mean"}
+            methods_to_choose = [m for m in methods_to_choose if m != "mean"]
 
         tie_numbers = {}
 

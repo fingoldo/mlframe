@@ -18,6 +18,8 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import sys
+import threading
+from collections import OrderedDict
 from typing import Any
 
 import numpy as np
@@ -38,8 +40,12 @@ row_attention_stage4_raw_kernel: Any = None
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 _KERNELS_INITED = False
 
-# Reusable host-pinned buffer pool. Allocating pinned memory is expensive (~100 us per MB on first call) so we keep a small pool that grows monotonically.
-_PINNED_BUFFERS: dict[tuple[str, tuple[int, ...], np.dtype], Any] = {}
+# Reusable host-pinned buffer pool. Allocating pinned memory is expensive (~100 us per MB on first call) so we keep a small pool and reuse across calls.
+# PER-THREAD keying (the key includes the requesting thread's id): two threads sharing one pinned buffer would clobber each other's in-flight DMA staging.
+# Guarded by a lock (dict mutation + alloc are not atomic) and bounded by an LRU cap so distinct (thread, name, shape, dtype) keys can't grow it without bound.
+_PINNED_BUFFERS: "OrderedDict[tuple, Any]" = OrderedDict()
+_PINNED_BUFFERS_LOCK = threading.Lock()
+_PINNED_BUFFERS_MAX = 32
 
 
 def _ensure_kernels_inited() -> None:
@@ -162,14 +168,19 @@ def _get_pinned_buffer(name: str, shape: tuple[int, ...], dtype: np.dtype):
     ``_GpuBufferPool`` pattern in ``feature_selection.filters.gpu``.
     """
     import cupy as cp
-    key = (name, tuple(shape), np.dtype(dtype))
-    cached = _PINNED_BUFFERS.get(key)
-    if cached is not None and cached.shape == tuple(shape) and cached.dtype == np.dtype(dtype):
-        return cached
-    mem = cp.cuda.alloc_pinned_memory(int(np.prod(shape)) * np.dtype(dtype).itemsize)
-    arr = np.frombuffer(mem, dtype=np.dtype(dtype), count=int(np.prod(shape))).reshape(shape)
-    _PINNED_BUFFERS[key] = arr
-    return arr
+    key = (threading.get_ident(), name, tuple(shape), np.dtype(dtype))
+    with _PINNED_BUFFERS_LOCK:
+        cached = _PINNED_BUFFERS.get(key)
+        if cached is not None and cached.shape == tuple(shape) and cached.dtype == np.dtype(dtype):
+            _PINNED_BUFFERS.move_to_end(key)
+            return cached
+        mem = cp.cuda.alloc_pinned_memory(int(np.prod(shape)) * np.dtype(dtype).itemsize)
+        arr = np.frombuffer(mem, dtype=np.dtype(dtype), count=int(np.prod(shape))).reshape(shape)
+        _PINNED_BUFFERS[key] = arr
+        _PINNED_BUFFERS.move_to_end(key)
+        while len(_PINNED_BUFFERS) > _PINNED_BUFFERS_MAX:
+            _PINNED_BUFFERS.popitem(last=False)
+        return arr
 
 
 def rff_matmul_cupy(

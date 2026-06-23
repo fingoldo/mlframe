@@ -91,8 +91,10 @@ def _solve_weighted_linreg(X_local: np.ndarray, y_local: np.ndarray, w: np.ndarr
     Wx = w_safe[:, None] * X_aug
     A = X_aug.T @ Wx + ridge * np.eye(d + 1, dtype=np.float32)
     b = X_aug.T @ (w_safe * y_local)
+    # lstsq tolerates an ill-conditioned local Hessian A (collinear neighbours)
+    # that solve() either rejects or solves into exploded coefficients.
     try:
-        beta = np.linalg.solve(A, b)
+        beta = np.linalg.lstsq(A, b, rcond=None)[0]
     except np.linalg.LinAlgError:
         beta = np.zeros(d + 1, dtype=np.float32)
     x_query_aug = np.concatenate([[1.0], x_query]).astype(np.float32)

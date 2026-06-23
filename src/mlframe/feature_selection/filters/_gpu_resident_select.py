@@ -16,6 +16,8 @@ behavior changed.
 from __future__ import annotations
 
 import os
+import threading
+from collections import OrderedDict
 
 import numpy as np
 
@@ -976,21 +978,26 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
 # bench-attempt-rejected (2026-06-21, prior): DEFERRING the float D2H entirely (out_cand=None + downstream
 # recompute) was a 0.98x fit-level WASH because removing an overlapped transfer cuts no wall -- but here we
 # do NOT remove it, we make the SAME bytes move faster (pinned DMA), which DOES cut the blocking-sync wall.
-_PINNED_D2H_BUF = None  # cupy pinned-memory allocation (raw); reused/grown across chunks
+# Thread-local so two concurrent GPU callers never share (and clobber each other's) the same pinned DMA
+# staging buffer: each thread DMAs into its OWN pinned allocation. A single module-level singleton would
+# have two threads' ``get(out=view)`` writing the same host bytes, corrupting both transfers.
+_PINNED_D2H_TLS = threading.local()
 
 
 def _pinned_view(n_bytes: int, shape, dtype):
     """A pinned-host numpy view of at least ``n_bytes``, reshaped to ``shape`` (``dtype``). Reuses a
-    module-level pinned allocation, growing it on demand. Lets ``cupy.ndarray.get(out=...)`` DMA at full
-    pinned PCIe bandwidth instead of cp.asnumpy's pageable bounce-buffer path. Module-level (not on an
+    THREAD-LOCAL pinned allocation, growing it on demand. Lets ``cupy.ndarray.get(out=...)`` DMA at full
+    pinned PCIe bandwidth instead of cp.asnumpy's pageable bounce-buffer path. Thread-local (not a shared
+    singleton) so concurrent GPU callers don't clobber each other's staging; module-level (not on an
     estimator instance) -> never reachable from pickled state."""
-    global _PINNED_D2H_BUF
     import cupy as cp
 
-    if _PINNED_D2H_BUF is None or _PINNED_D2H_BUF.mem.size < n_bytes:
-        _PINNED_D2H_BUF = cp.cuda.alloc_pinned_memory(int(n_bytes))
+    buf = getattr(_PINNED_D2H_TLS, "buf", None)
+    if buf is None or buf.mem.size < n_bytes:
+        buf = cp.cuda.alloc_pinned_memory(int(n_bytes))
+        _PINNED_D2H_TLS.buf = buf
     count = int(np.prod(shape))
-    return np.frombuffer(_PINNED_D2H_BUF, dtype=dtype, count=count).reshape(shape)
+    return np.frombuffer(buf, dtype=dtype, count=count).reshape(shape)
 
 
 # Operand-table H2D cache (2026-06-21): the FE step's operand table ``transformed_vars`` is the SAME
@@ -1000,7 +1007,12 @@ def _pinned_view(n_bytes: int, shape, dtype):
 # (the weakref breaks). NOT keyed on id() -- id reuse after free would false-hit on a different table.
 # Pickle-safe (module-global, never on an instance). The data is identical -> candidates/codes/MI/
 # selection bit-identical; this only moves the H2D from per-chunk to once-per-step.
-_OPERAND_TABLE_CACHE: dict = {"ref": None, "gpu": None}
+# Per-host-object device cache (was a single slot, which two interleaved steps clobbered: step B's upload
+# overwrote step A's device table, so A's still-running chunks read B's bytes). Keyed by id() but each entry
+# carries a WEAKREF to the host array, so an id-recycle after free can never false-hit (the weakref must
+# resolve to the SAME live object). Bounded FIFO so distinct operand tables across a long fit don't grow it.
+_OPERAND_TABLE_CACHE: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host), gpu)
+_OPERAND_TABLE_CACHE_MAX = 8
 
 
 # GPU-RESIDENT OPERAND TABLE (2026-06-21, phase 1 of the 100%-GPU-resident MRMR FE rewrite, gated).
@@ -1017,7 +1029,11 @@ _OPERAND_TABLE_CACHE: dict = {"ref": None, "gpu": None}
 # weakref-identity of the host ``transformed_vars`` so ``_resident_operand_table`` returns it WITHOUT the
 # H2D. Module-global -> never reachable from pickled estimator state. Gated OFF by default
 # (``MLFRAME_FE_GPU_RESIDENT_OPERANDS``) until proven 11-green; the CPU / no-CUDA path is unchanged.
-_PREBUILT_OPERAND_TABLE: dict = {"ref": None, "gpu": None}
+# Per-host-object prebuilt-mirror registry (was a single slot, clobbered when two concurrent steps each
+# registered their own GPU-resident mirror). Keyed by id() with a co-validating weakref so an id-recycle
+# can't return a stale/wrong-table mirror; bounded FIFO. ``device_table=None`` clears the entry for that host.
+_PREBUILT_OPERAND_TABLE: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host), gpu)
+_PREBUILT_OPERAND_TABLE_MAX = 8
 
 
 def fe_gpu_resident_operands_enabled() -> bool:
@@ -1037,16 +1053,17 @@ def register_prebuilt_operand_table(transformed_vars, device_table) -> None:
     shape (the layout ``_fe_materialise_block_gpu``'s kernel addresses); a mismatch is ignored at lookup."""
     import weakref
     c = _PREBUILT_OPERAND_TABLE
+    key = id(transformed_vars)
     if device_table is None:
-        c["ref"] = None
-        c["gpu"] = None
+        c.pop(key, None)
         return
     try:
-        c["ref"] = weakref.ref(transformed_vars)
-        c["gpu"] = device_table
+        c[key] = (weakref.ref(transformed_vars), device_table)
+        c.move_to_end(key)
+        while len(c) > _PREBUILT_OPERAND_TABLE_MAX:
+            c.popitem(last=False)
     except TypeError:
-        c["ref"] = None
-        c["gpu"] = None
+        c.pop(key, None)
 
 
 def _prebuilt_operand_table(transformed_vars):
@@ -1054,12 +1071,12 @@ def _prebuilt_operand_table(transformed_vars):
     weakref identity AND shape (n, n_operands); else None. Shape guard so a stale/mismatched mirror can
     never feed the materialise kernel a wrong-width table (out-of-bounds operand-column reads)."""
     c = _PREBUILT_OPERAND_TABLE
-    ref = c["ref"]
-    if ref is None or c["gpu"] is None:
+    hit = c.get(id(transformed_vars))
+    if hit is None:
         return None
-    if ref() is not transformed_vars:
+    ref, g = hit
+    if g is None or ref() is not transformed_vars:
         return None
-    g = c["gpu"]
     if tuple(g.shape) != tuple(transformed_vars.shape):
         return None
     return g
@@ -1076,16 +1093,22 @@ def _resident_operand_table(cp, transformed_vars):
     if pre is not None:
         return pre
     c = _OPERAND_TABLE_CACHE
-    ref = c["ref"]
-    if ref is not None and ref() is transformed_vars and c["gpu"] is not None:
-        return c["gpu"]
+    key = id(transformed_vars)
+    hit = c.get(key)
+    if hit is not None:
+        ref, g = hit
+        if ref() is transformed_vars and g is not None:
+            c.move_to_end(key)
+            return g
+        c.pop(key, None)  # weakref dead (id recycled onto a different object) -> drop the stale entry
     g = cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32))
     try:
-        c["ref"] = weakref.ref(transformed_vars)
-        c["gpu"] = g  # drops the prior step's device table (refcount -> freed)
+        c[key] = (weakref.ref(transformed_vars), g)
+        c.move_to_end(key)
+        while len(c) > _OPERAND_TABLE_CACHE_MAX:
+            c.popitem(last=False)
     except TypeError:
-        c["ref"] = None
-        c["gpu"] = None
+        c.pop(key, None)
     return g
 
 

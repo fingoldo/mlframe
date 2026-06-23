@@ -490,7 +490,11 @@ def get_pandas_view_of_polars_df(
     # place to look for the bug.
     if not self_destruct:
         sh = getattr(df, "shape", None)
-        _id_key = (id(df), sh if sh is not None else (None,))
+        # Co-validate column names alongside id()+shape: id() recycles after GC, so a different frame with
+        # the SAME shape could otherwise false-hit and return a stale pandas view; the column tuple is a cheap
+        # extra discriminator that catches the common same-shape-different-columns recycle.
+        _cols = tuple(df.columns) if hasattr(df, "columns") else None
+        _id_key = (id(df), sh if sh is not None else (None,), _cols)
         _cached = _PD_VIEW_LAST_CACHE.get("id_key")
         if _cached == _id_key:
             _result = _PD_VIEW_LAST_CACHE.get("result")
@@ -800,10 +804,11 @@ def get_pandas_view_of_polars_df(
     if not self_destruct:
         try:
             sh = getattr(df, "shape", None)
+            _cols = tuple(df.columns) if hasattr(df, "columns") else None
             # Publish result BEFORE key so a torn read on this unlocked single-slot memo can only see an OLD key (miss -> recompute), never a NEW id_key
-            # paired with a stale pandas view from a prior different df.
+            # paired with a stale pandas view from a prior different df. Key co-validates id()+shape+columns (see the read site).
             _PD_VIEW_LAST_CACHE["result"] = pandas_df
-            _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,))
+            _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,), _cols)
         except Exception:
             # Memo population is best-effort; never fail the conversion
             # because of a cache-write hiccup.

@@ -62,10 +62,9 @@ def _fisher_lda(X_pos: np.ndarray, X_neg: np.ndarray) -> Tuple[np.ndarray, float
         return diff, float(diff @ (0.5 * (mu_pos + mu_neg)))
     lw = LedoitWolf().fit(pooled)
     cov = lw.covariance_ + np.eye(d) * 1e-4  # ridge for stability
-    try:
-        cov_inv = np.linalg.inv(cov).astype(np.float32)
-    except np.linalg.LinAlgError:
-        cov_inv = np.linalg.pinv(cov).astype(np.float32)
+    # pinv handles near-singular cov that does not raise from inv() but whose
+    # explicit inverse would amplify noise into the projection direction w.
+    cov_inv = np.linalg.pinv(cov).astype(np.float32)
     w = (cov_inv @ diff).astype(np.float32)
     # Normalize w so its scale is comparable across folds.
     w_norm = np.linalg.norm(w) + 1e-9

@@ -530,10 +530,22 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_q
 
     return idx
 
+# Above this frame byte-size the defragmenting ``df.copy()`` would double peak RAM
+# (a 100+ GB prod frame OOMs the host); skip the copy and keep working on the original.
+_DEFRAG_COPY_MAX_BYTES = 2 * 1024 ** 3
+
+
 def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, max_increase_percent: float = 0.5) -> tuple:
     new_mem_usage = get_own_memory_usage()
     if prev_mem_usage:
         if new_mem_usage >= prev_mem_usage * (1 + max_increase_percent):
+            try:
+                df_bytes = int(df.memory_usage(deep=True).sum())
+            except Exception:
+                df_bytes = 0
+            if df_bytes > _DEFRAG_COPY_MAX_BYTES:
+                # Copying a multi-GB frame to defragment would double peak RAM; not worth it.
+                return df, prev_mem_usage
             logger.warning("Trying to deframgent dataframe %s as RAM usage increased from %s to %s", df.columns.name, prev_mem_usage, new_mem_usage)
             collect()
             return df.copy(), prev_mem_usage

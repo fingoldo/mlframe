@@ -53,6 +53,7 @@ def _full_conditional_shuffle_ipf(
     classes_y: np.ndarray,
     n_x1_classes: int,
     n_y_classes: int,
+    base_seed: int,
 ) -> None:
     """Full conditional permutation via IPF-style double-stratification. Shuffle X2 within strata of (X1, Y) so that P(X2 | X1, Y) is preserved on average across
     permutations -- the strictest synergy null that holds both marginals fixed while breaking X1-X2 conditional dependence.
@@ -60,8 +61,11 @@ def _full_conditional_shuffle_ipf(
     Reference: Patefield 1981 (R x C contingency tables with fixed marginals); Anderson & ter Braak 2003 (multi-factorial permutation).
 
     Implementation: for each unique (X1, Y) stratum, Fisher-Yates shuffle classes_x2_safe restricted to rows in that stratum.
+    The Fisher-Yates RNG is a seeded inline LCG (same PCG-style step as ``_count_nfailed_joint_indep_prange``) so the permutation is reproducible at a fixed
+    ``base_seed`` and never touches numpy's process-global RNG.
     """
     n = len(classes_y)
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for cx1 in range(n_x1_classes):
         for cy in range(n_y_classes):
             # Gather indices in this (X1, Y) stratum
@@ -73,7 +77,8 @@ def _full_conditional_shuffle_ipf(
                     pos_count += 1
             # Fisher-Yates within stratum
             for idx in range(pos_count - 1, 0, -1):
-                j = np.random.randint(0, idx + 1)
+                state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+                j = int(state >> np.uint64(33)) % (idx + 1)
                 a = positions[idx]
                 b = positions[j]
                 tmp = classes_x2_safe[a]
@@ -86,6 +91,7 @@ def _conditional_shuffle_within_strata(
     classes_x2_safe: np.ndarray,
     classes_y: np.ndarray,
     n_y_classes: int,
+    base_seed: int,
 ) -> None:
     """Conditional permutation: shuffle ``classes_x2_safe`` IN PLACE, restricting the shuffle to within each stratum of ``classes_y``.
 
@@ -98,8 +104,12 @@ def _conditional_shuffle_within_strata(
     unchanged under the shuffle, but the conditional ``I(X1; X2 | Y)``
     is broken. The orchestrator combines this with three-MI calls
     above to compute II_perm under the conditional null.
+
+    The Fisher-Yates RNG is a seeded inline LCG (same PCG-style step as ``_count_nfailed_joint_indep_prange``) so the permutation is reproducible at a fixed
+    ``base_seed`` and never touches numpy's process-global RNG.
     """
     n = len(classes_y)
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     # For each Y class, gather positions and Fisher-Yates within the slice.
     for c in range(n_y_classes):
         # Collect indices manually (numba doesn't support boolean masks
@@ -112,7 +122,8 @@ def _conditional_shuffle_within_strata(
                 pos_count += 1
         # Fisher-Yates shuffle within the stratum
         for idx in range(pos_count - 1, 0, -1):
-            j = np.random.randint(0, idx + 1)
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            j = int(state >> np.uint64(33)) % (idx + 1)
             a = positions[idx]
             b = positions[j]
             tmp = classes_x2_safe[a]
@@ -341,6 +352,7 @@ def _shuffle_and_compute_three_mis(
     freqs_x2: np.ndarray,
     classes_y_safe: np.ndarray,
     freqs_y: np.ndarray,
+    base_seed: int,
     dtype,
 ) -> tuple:
     """Shuffle classes_y_safe in place (Fisher-Yates) and compute three MIs against the shuffled Y in a SINGLE pass over N rows.
@@ -359,9 +371,12 @@ def _shuffle_and_compute_three_mis(
     the accumulator win. Documented "no actionable speedup" so the next
     profile pass doesn't re-flag it - the seq form below is the winner."""
     n = len(classes_y_safe)
-    # Fisher-Yates shuffle in place
+    # Fisher-Yates shuffle in place. Seeded inline LCG (same PCG-style step as the bulk/prange kernels) -- reproducible at a fixed ``base_seed`` and isolated from numpy's
+    # process-global RNG (the prior ``np.random.randint`` was unseeded AND mutated numba's global stream for every downstream caller).
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for i in range(n - 1, 0, -1):
-        j = np.random.randint(0, i + 1)
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        j = int(state >> np.uint64(33)) % (i + 1)
         tmp = classes_y_safe[i]
         classes_y_safe[i] = classes_y_safe[j]
         classes_y_safe[j] = tmp
@@ -795,15 +810,17 @@ def _confirm_pairs_via_permutation(
             n_samples_local = factors_data.shape[0]
             use_full_cond = bool(getattr(cfg, "enable_full_conditional_perm", False))
             n_x1_classes = int(cls_x1.max()) + 1 if cls_x1.size else 1
-            for _ in range(n_perms):
+            for _perm in range(n_perms):
+                # Per-(survivor, perm) seed off the stable confirmation base so the conditional null is reproducible run-to-run without touching numpy's global RNG.
+                _cond_seed = _CAT_CONFIRM_BASE_SEED + int(j) * 1000003 + _perm
                 if use_full_cond:
                     _full_conditional_shuffle_ipf(
                         classes_x2_safe, classes_x1_arr, classes_y,
-                        n_x1_classes, n_y_classes,
+                        n_x1_classes, n_y_classes, _cond_seed,
                     )
                 else:
                     _conditional_shuffle_within_strata(
-                        classes_x2_safe, classes_y, n_y_classes,
+                        classes_x2_safe, classes_y, n_y_classes, _cond_seed,
                     )
                 # Re-merge X1 with the shuffled X2 to get the conditional-null joint. We materialise a 2-col array on the fly.
                 local_data = np.empty((n_samples_local, 2), dtype=dtype)

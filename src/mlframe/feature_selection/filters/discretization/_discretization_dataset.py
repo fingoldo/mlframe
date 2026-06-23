@@ -121,8 +121,16 @@ def create_redundant_continuous_factor(
     dist_args: tuple = (),
     name: str = None,
     sep: str = "_",
+    random_state=None,
 ) -> None:
-    """Out of a few continuous factors, craft a new factor with known relationship and amount of redundancy. Used by tests / benchmark harnesses, not by ``MRMR`` directly."""
+    """Out of a few continuous factors, craft a new factor with known relationship and amount of redundancy. Used by tests / benchmark harnesses, not by ``MRMR`` directly.
+
+    ``random_state`` seeds the fallback uniform noise (and is passed to ``dist.rvs`` when ``dist`` supports it) so the crafted factor is reproducible without disturbing
+    numpy's process-global RNG.
+    """
+    from sklearn.utils import check_random_state
+
+    rng = check_random_state(random_state)
     if dist:
         rvs = dist.rvs
         # Wave 31 (2026-05-20): assert -> AttributeError.
@@ -130,9 +138,9 @@ def create_redundant_continuous_factor(
             raise AttributeError(
                 f"dist must have a callable .rvs method; got {dist!r}."
             )
-        noise = rvs(*dist_args, size=len(df))
+        noise = rvs(*dist_args, size=len(df), random_state=rng)
     else:
-        noise = np.random.random(len(df))
+        noise = rng.random(len(df))
 
     val_min, val_max = noise.min(), noise.max()
     if np.isclose(val_max, val_min):

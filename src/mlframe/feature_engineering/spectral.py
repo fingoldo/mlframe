@@ -143,7 +143,7 @@ def rolling_spectral_entropy(
         if detrend:
             wins = _detrend_zero_mean(wins)
         spec = np.abs(np.fft.rfft(wins, axis=1)) ** 2
-        spec_norm = spec / (spec.sum(axis=1, keepdims=True) + 1e-12)
+        spec_norm = spec / np.maximum(spec.sum(axis=1, keepdims=True), 1e-9)
         # -sum p log p; clip avoids log(0) (NaN under div-by-zero).
         ent = -np.sum(spec_norm * np.log(spec_norm + 1e-12), axis=1)
         out[write_idx] = ent

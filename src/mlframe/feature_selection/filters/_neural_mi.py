@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -218,6 +219,10 @@ _INFONET_CACHE_DIR = Path(os.environ.get(
     str(Path.home() / ".cache" / "mlframe" / "infonet"),
 ))
 _INFONET_MODEL_CACHE = {}
+# Guards the lazy double-checked init of the neural-MI model / calibration caches below: without it two
+# threads missing concurrently both run the (slow, side-effectful) load/calibration and race the dict write.
+# Reentrant because the calibration path acquires it and then calls _get_mist_hf_model, which re-acquires.
+_NEURAL_MI_CACHE_LOCK = threading.RLock()
 
 
 def _get_infonet_model(device: str = "auto"):
@@ -226,32 +231,35 @@ def _get_infonet_model(device: str = "auto"):
     cache_key = device
     if cache_key in _INFONET_MODEL_CACHE:
         return _INFONET_MODEL_CACHE[cache_key]
-    ckpt_path = _INFONET_CACHE_DIR / "infonet_pretrained.pt"
-    if not ckpt_path.exists():
-        raise RuntimeError(
-            f"InfoNet checkpoint not found at {ckpt_path}. "
-            f"Download via: python -c \"import gdown; gdown.download_folder("
-            f"'https://drive.google.com/drive/folders/1R7ah_ymD3M9Fp9EegyJrWNo5hI6Z5gZ7', "
-            f"output='{ckpt_path.parent}')\""
-        )
-    # Locate vendored config relative to this module.
-    pkg_root = Path(__file__).resolve().parent
-    config_path = pkg_root / "_vendored" / "infonet" / "configs" / "config.yaml"
-    if not config_path.exists():
-        raise RuntimeError(
-            f"InfoNet vendored config missing at {config_path}. "
-            f"Run the vendor copy step from the InfoNet setup script."
-        )
-    # Use the vendored infer module via sys.path injection (it has relative-style imports
-    # inside the model directory).
-    import sys
-    vendored = str(pkg_root / "_vendored" / "infonet")
-    if vendored not in sys.path:
-        sys.path.insert(0, vendored)
-    from infer import load_model  # type: ignore
-    model = load_model(str(config_path), str(ckpt_path))
-    _INFONET_MODEL_CACHE[cache_key] = model
-    return model
+    with _NEURAL_MI_CACHE_LOCK:
+        if cache_key in _INFONET_MODEL_CACHE:
+            return _INFONET_MODEL_CACHE[cache_key]
+        ckpt_path = _INFONET_CACHE_DIR / "infonet_pretrained.pt"
+        if not ckpt_path.exists():
+            raise RuntimeError(
+                f"InfoNet checkpoint not found at {ckpt_path}. "
+                f"Download via: python -c \"import gdown; gdown.download_folder("
+                f"'https://drive.google.com/drive/folders/1R7ah_ymD3M9Fp9EegyJrWNo5hI6Z5gZ7', "
+                f"output='{ckpt_path.parent}')\""
+            )
+        # Locate vendored config relative to this module.
+        pkg_root = Path(__file__).resolve().parent
+        config_path = pkg_root / "_vendored" / "infonet" / "configs" / "config.yaml"
+        if not config_path.exists():
+            raise RuntimeError(
+                f"InfoNet vendored config missing at {config_path}. "
+                f"Run the vendor copy step from the InfoNet setup script."
+            )
+        # Use the vendored infer module via sys.path injection (it has relative-style imports
+        # inside the model directory).
+        import sys
+        vendored = str(pkg_root / "_vendored" / "infonet")
+        if vendored not in sys.path:
+            sys.path.insert(0, vendored)
+        from infer import load_model  # type: ignore
+        model = load_model(str(config_path), str(ckpt_path))
+        _INFONET_MODEL_CACHE[cache_key] = model
+        return model
 
 
 def infonet_mi(x: np.ndarray, y: np.ndarray, *,
@@ -341,18 +349,21 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
     cache_key = (loss, device)
     if cache_key in _MIST_MODEL_CACHE:
         return _MIST_MODEL_CACHE[cache_key]
-    try:
-        from mist_statinf import MISTForHF
-    except ImportError as exc:
-        raise ImportError(
-            "MIST not installed. `pip install mist-statinf`."
-        ) from exc
-    repo = "grgera/MIST-QR" if loss == "qr" else "grgera/MIST"
-    model = MISTForHF.from_pretrained(repo).eval()
-    dev = _resolve_device(device)
-    model = model.to(dev)
-    _MIST_MODEL_CACHE[cache_key] = model
-    return model
+    with _NEURAL_MI_CACHE_LOCK:
+        if cache_key in _MIST_MODEL_CACHE:
+            return _MIST_MODEL_CACHE[cache_key]
+        try:
+            from mist_statinf import MISTForHF
+        except ImportError as exc:
+            raise ImportError(
+                "MIST not installed. `pip install mist-statinf`."
+            ) from exc
+        repo = "grgera/MIST-QR" if loss == "qr" else "grgera/MIST"
+        model = MISTForHF.from_pretrained(repo).eval()
+        dev = _resolve_device(device)
+        model = model.to(dev)
+        _MIST_MODEL_CACHE[cache_key] = model
+        return model
 
 
 _MIST_CALIBRATION_CACHE = {}
@@ -384,6 +395,15 @@ def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42,
     cache_key = (device, y_kind)
     if cache_key in _MIST_CALIBRATION_CACHE:
         return _MIST_CALIBRATION_CACHE[cache_key]
+    with _NEURAL_MI_CACHE_LOCK:
+        if cache_key in _MIST_CALIBRATION_CACHE:
+            return _MIST_CALIBRATION_CACHE[cache_key]
+        return _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind)
+
+
+def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind) -> tuple:
+    """Heavy calibration body for ``_calibrate_mist``; called under ``_NEURAL_MI_CACHE_LOCK`` on a cache miss
+    (double-checked), so it runs exactly once per (device, y_kind) even under concurrent first-callers."""
     model = _get_mist_hf_model(loss="mse", device=device)
     rng = np.random.default_rng(int(seed))
     raw_truth_pairs: list = []

@@ -183,6 +183,8 @@ def _fast_mae_weighted_seq(y_true, y_pred, w):
     for i in range(n):
         s += abs(y_true[i] - y_pred[i]) * w[i]
         wsum += w[i]
+    if wsum <= 0.0:
+        return np.nan
     return s / wsum
 
 
@@ -194,6 +196,8 @@ def _fast_mae_weighted_par(y_true, y_pred, w):
     for i in numba.prange(n):
         s += abs(y_true[i] - y_pred[i]) * w[i]
         wsum += w[i]
+    if wsum <= 0.0:
+        return np.nan
     return s / wsum
 
 
@@ -206,6 +210,8 @@ def _fast_mse_weighted_seq(y_true, y_pred, w):
         d = y_true[i] - y_pred[i]
         s += d * d * w[i]
         wsum += w[i]
+    if wsum <= 0.0:
+        return np.nan
     return s / wsum
 
 
@@ -218,6 +224,8 @@ def _fast_mse_weighted_par(y_true, y_pred, w):
         d = y_true[i] - y_pred[i]
         s += d * d * w[i]
         wsum += w[i]
+    if wsum <= 0.0:
+        return np.nan
     return s / wsum
 
 
@@ -229,6 +237,8 @@ def _fast_r2_score_weighted_seq(y_true, y_pred, w):
     for i in range(n):
         ymean += y_true[i] * w[i]
         wsum += w[i]
+    if wsum <= 0.0:
+        return np.nan
     ymean /= wsum
     ss_res = 0.0
     ss_tot = 0.0
@@ -250,6 +260,8 @@ def _fast_r2_score_weighted_par(y_true, y_pred, w):
     for i in numba.prange(n):
         ymean += y_true[i] * w[i]
         wsum += w[i]
+    if wsum <= 0.0:
+        return np.nan
     ymean /= wsum
     ss_res = 0.0
     ss_tot = 0.0

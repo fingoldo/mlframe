@@ -58,6 +58,7 @@ exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXAC
 from __future__ import annotations
 
 import os
+from collections import OrderedDict
 
 import numpy as np
 
@@ -251,7 +252,13 @@ def fe_gpu_defer_host_codes_enabled() -> bool:
 # producer to dispatch in the same synchronous call, so the id is stable + alive). Shape/dtype are also
 # matched as a guard. Module-level singleton (NOT on an estimator instance) -> never reachable from pickled
 # state. Cleared after consumption / on any mismatch so stale device memory is not pinned.
-_RESIDENT_CODES_HANDOFF: tuple | None = None  # (id(host_codes), device_codes cupy array, shape, dtype) | None
+# Per-host-array handoff (was a single slot, which two concurrent fits clobbered: producer B's stash
+# overwrote producer A's, so A's consumer read B's device codes or missed entirely). Keyed by id() of the
+# EXACT host array the producer returns (stable + alive across the synchronous producer->consumer call);
+# shape/dtype guard at lookup. Bounded FIFO so interleaved fits don't grow it; entries cleared after the
+# dispatch consumes them (clear_resident_codes_handoff). Module-level -> never reachable from pickled state.
+_RESIDENT_CODES_HANDOFF: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (device_codes, shape, dtype)
+_RESIDENT_CODES_HANDOFF_MAX = 8
 
 
 # DEFERRED HOST-CODES FILL (2026-06-21). When the resident-codes path is on, the (n, K) host int codes are
@@ -266,13 +273,18 @@ _RESIDENT_CODES_HANDOFF: tuple | None = None  # (id(host_codes), device_codes cu
 # consumes the device codes. BIT-IDENTICAL: the host buffer, if ever filled, is ``device_codes.get()`` --
 # the exact bytes the eager D2H produced -> selection unchanged. Keyed on ``id(out)`` like the handoff (same
 # host array flows producer -> dispatch synchronously). Module-level singleton -> never on pickled state.
-_DEFERRED_HOST_FILL: tuple | None = None  # (id(host_codes), host_codes ndarray, device_codes, shape, dtype, filled[list[bool]]) | None
+# Per-host-array deferred fill (was a single slot; see _RESIDENT_CODES_HANDOFF). Keyed by id(host_codes).
+_DEFERRED_HOST_FILL: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (host_codes, device_codes, shape, dtype, filled[list[bool]])
+_DEFERRED_HOST_FILL_MAX = 8
 
 
 def _stash_resident_codes(host_codes, device_codes) -> None:
     """Record the resident device codes for the host array ``host_codes`` (keyed on its id)."""
-    global _RESIDENT_CODES_HANDOFF
-    _RESIDENT_CODES_HANDOFF = (id(host_codes), device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype))
+    c = _RESIDENT_CODES_HANDOFF
+    c[id(host_codes)] = (device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype))
+    c.move_to_end(id(host_codes))
+    while len(c) > _RESIDENT_CODES_HANDOFF_MAX:
+        c.popitem(last=False)
 
 
 def _stash_deferred_host_fill(host_codes, device_codes) -> None:
@@ -280,8 +292,11 @@ def _stash_deferred_host_fill(host_codes, device_codes) -> None:
     when the producer skips the eager codes D2H because the resident gate will likely consume the device
     copy. ``ensure_host_codes_filled`` performs the fill on demand; ``clear_resident_codes_handoff`` drops
     the record so device memory is not pinned past the dispatch."""
-    global _DEFERRED_HOST_FILL
-    _DEFERRED_HOST_FILL = (id(host_codes), host_codes, device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), [False])
+    c = _DEFERRED_HOST_FILL
+    c[id(host_codes)] = (host_codes, device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), [False])
+    c.move_to_end(id(host_codes))
+    while len(c) > _DEFERRED_HOST_FILL_MAX:
+        c.popitem(last=False)
 
 
 def ensure_host_codes_filled(host_codes) -> None:
@@ -290,11 +305,11 @@ def ensure_host_codes_filled(host_codes) -> None:
     for this array (it was filled eagerly, or is an unrelated array). Called by the dispatch on every
     host-codes-reading path (analytic gate / CPU njit kernel / non-resident GPU path) so the codes D2H is
     paid exactly when -- and only when -- a host consumer reads them. Bit-identical to the eager fill."""
-    h = _DEFERRED_HOST_FILL
+    h = _DEFERRED_HOST_FILL.get(id(host_codes))
     if h is None:
         return
-    _id, host, dev, shape, dtype, filled = h
-    if _id != id(host_codes) or tuple(host_codes.shape) != shape or np.dtype(host_codes.dtype) != dtype:
+    host, dev, shape, dtype, filled = h
+    if tuple(host_codes.shape) != shape or np.dtype(host_codes.dtype) != dtype:
         return
     if filled[0]:
         return
@@ -309,22 +324,28 @@ def take_resident_codes(host_codes):
     The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch -- e.g. the
     analytic gate that runs after this pop -- can still trigger the deferred host fill from the same device
     codes); the dispatch clears everything via ``clear_resident_codes_handoff`` in its finally."""
-    h = _RESIDENT_CODES_HANDOFF
+    h = _RESIDENT_CODES_HANDOFF.get(id(host_codes))
     if h is None:
         return None
-    _id, dev, shape, dtype = h
-    if _id == id(host_codes) and tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
+    dev, shape, dtype = h
+    if tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
         return dev
     return None
 
 
-def clear_resident_codes_handoff() -> None:
+def clear_resident_codes_handoff(host_codes=None) -> None:
     """Drop the resident-codes handoff + the deferred host-fill record so device memory is not pinned past
     the dispatch that produced it, and a stale entry can never satisfy a later, unrelated dispatch. Called
-    by ``_dispatch_batch_mi_with_noise_gate`` in a finally after it has decided the consumer."""
-    global _RESIDENT_CODES_HANDOFF, _DEFERRED_HOST_FILL
-    _RESIDENT_CODES_HANDOFF = None
-    _DEFERRED_HOST_FILL = None
+    by ``_dispatch_batch_mi_with_noise_gate`` in a finally after it has decided the consumer.
+
+    When ``host_codes`` is given, drops ONLY that host array's entries (so a concurrent fit's in-flight
+    handoff is not wiped); when None, clears all (legacy whole-cache reset)."""
+    if host_codes is not None:
+        _RESIDENT_CODES_HANDOFF.pop(id(host_codes), None)
+        _DEFERRED_HOST_FILL.pop(id(host_codes), None)
+        return
+    _RESIDENT_CODES_HANDOFF.clear()
+    _DEFERRED_HOST_FILL.clear()
 
 
 # GPU-RESIDENT BINNING DTYPE (2026-06-20). The FE candidate buffer is ALREADY float32 (the njit/CUDA

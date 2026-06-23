@@ -372,6 +372,10 @@ def fit(self, X, y):
         warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
+        # ``starting_X`` is an unavoidable shadow copy: ``self.X`` has its object/category columns
+        # ordinal-encoded IN PLACE below, so the original raw dtypes cannot be recovered from it.
+        # ``Subset()`` (__init__.py) returns accepted columns on this original-dtype frame, so a
+        # pre-encoding snapshot is required. Kept separate from ``self.X`` deliberately.
         self.starting_X = X.copy()
         self.X = X.copy()
         self.y = y.copy()

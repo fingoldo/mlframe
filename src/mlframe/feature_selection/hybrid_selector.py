@@ -555,7 +555,10 @@ class HybridSelector:
             # survivor set still over the cap: keep the engineered + MRMR cols (must survive) and top-FI raw fill.
             must = [c for c in cluster_cols if c in engineered or c in mrmr_set_pre]
             rest = [c for c in cluster_cols if c not in engineered and c not in mrmr_set_pre]
-            rest = sorted(rest, key=lambda c: self.fi_.get(c, 0.0), reverse=True)[: max(cap - len(must), 0)]
+            # Full sort key (-fi, col) so ties on importance break deterministically by column name instead of
+            # depending on the input order -- otherwise two equal-FI columns at the cap boundary could be kept
+            # or dropped non-reproducibly across runs / platforms.
+            rest = sorted(rest, key=lambda c: (-self.fi_.get(c, 0.0), c))[: max(cap - len(must), 0)]
             cluster_cols = [c for c in cols if c in set(must) | set(rest)]   # preserve original column order
         self._cluster_cols_ = cluster_cols
         X_cluster = X_aug[cluster_cols] if len(cluster_cols) != len(cols) else X_aug

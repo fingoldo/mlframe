@@ -215,7 +215,11 @@ def ensemble_probabilistic_predictions(
         std_preds = np.std(_preds_arr, axis=0)
         if normalize_stds_by_mean_preds:
             mean_preds = np.mean(_preds_arr, axis=0)
-            uncertainty = (std_preds / mean_preds).mean(axis=1)
+            # A class whose mean prediction is ~0 would yield inf/nan from the
+            # division and poison the quantile threshold + confident-index
+            # selection for every row; treat its relative spread as 0 instead.
+            rel_std = np.where(np.abs(mean_preds) > 1e-12, std_preds / np.where(np.abs(mean_preds) > 1e-12, mean_preds, 1.0), 0.0)
+            uncertainty = rel_std.mean(axis=1)
         else:
             uncertainty = std_preds.mean(axis=1)
 
