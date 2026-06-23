@@ -211,6 +211,11 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     KNOCKOFF j, returns the difference. Real features driving y will have
     W_j >> 0; noise features have W_j ~ N(0, sigma) symmetric around 0.
 
+    Sign-symmetry (required for the Barber-Candes FDR guarantee): each feature's real and knockoff columns are placed in a
+    RANDOM order (fair per-feature coin), so under the null the sign of W_j = imp(real) - imp(knockoff) is symmetric even when
+    the importance source is non-negative (|SHAP| / gain). Without this swap, a non-negative importance gives no negative W_j,
+    the FDR threshold's negative reference set is empty, and the procedure provides NO real control.
+
     L3 (Wave 5, 2026-05-28): ``w_statistic`` chooses the importance source for
     the W computation:
         - 'auto'   : tree models -> TreeSHAP mean(|shap|), else coef_ / FI (legacy default).
@@ -243,11 +248,35 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
         current_features = list(X.columns) if is_df else list(range(p))
 
     X_tilde = make_gaussian_knockoffs(X_arr, random_state=random_state)
-    X_joint = np.hstack([X_arr, X_tilde])
-    real_names = [f"_real_{i}" for i in range(p)]
-    fake_names = [f"_fake_{i}" for i in range(p)]
+
+    # Flip-sign antisymmetry (Barber-Candes 2015, eq. for the swap statistic). The importance-difference W_j = imp(X_j) - imp(X_tilde_j)
+    # only yields a valid FDR guarantee if W is ANTISYMMETRIC under swapping a null feature with its knockoff: swapping must flip the sign
+    # of W_j. With real/knockoff in FIXED column positions and a NON-NEGATIVE importance source (|SHAP| / gain), imp(real) - imp(fake) is
+    # NOT sign-symmetric under the null -- there is no mechanism producing negative W_j, so the (1 + #neg)/#pos threshold has an empty
+    # negative reference set and gives no real control. We restore antisymmetry by drawing an independent fair coin per feature that
+    # decides which of the two adjacent columns carries the REAL value and which carries the knockoff; the model cannot tell them apart,
+    # so under the null the sign of (imp at real-slot - imp at knockoff-slot) is symmetric -> W is sign-symmetric as the theory requires.
+    swap_rng = np.random.default_rng(random_state)
+    swapped = swap_rng.random(p) < 0.5  # True -> real and knockoff columns are swapped for this feature
+    # Column 2*i holds the value placed first, 2*i+1 the value placed second; ``swapped[i]`` records whether first==knockoff.
+    cols = []
+    for i in range(p):
+        if swapped[i]:
+            cols.append(X_tilde[:, i])
+            cols.append(X_arr[:, i])
+        else:
+            cols.append(X_arr[:, i])
+            cols.append(X_tilde[:, i])
+    X_joint = np.column_stack(cols)
+    # Slot names are position-based (_slotA_i / _slotB_i); which slot is real depends on swapped[i].
+    real_names = [f"_slotA_{i}" for i in range(p)]
+    fake_names = [f"_slotB_{i}" for i in range(p)]
+    joint_names = []
+    for i in range(p):
+        joint_names.append(real_names[i])
+        joint_names.append(fake_names[i])
     if is_df:
-        X_joint_df = pd.DataFrame(X_joint, columns=real_names + fake_names, index=X.index)
+        X_joint_df = pd.DataFrame(X_joint, columns=joint_names, index=X.index)
     else:
         X_joint_df = X_joint
 
@@ -280,7 +309,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
             if _arr.ndim > 2:
                 _arr = np.abs(_arr).mean(axis=tuple(range(2, _arr.ndim)))
             fi_vals = np.abs(_arr).mean(axis=0)
-            fi = {n: float(v) for n, v in zip(real_names + fake_names, fi_vals)}
+            fi = {n: float(v) for n, v in zip(joint_names, fi_vals)}
         except Exception as _exc:
             raise RuntimeError(
                 f"TreeSHAP W-statistic failed for {type(model).__name__}: {_exc}. "
@@ -288,22 +317,29 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
             ) from _exc
     elif _w == "gain":
         fi = _get_feature_importances(
-            model=model, current_features=real_names + fake_names,
+            model=model, current_features=joint_names,
             data=X_joint_df, target=y, importance_getter="feature_importances_",
         )
     elif _w == "coef":
         fi = _get_feature_importances(
-            model=model, current_features=real_names + fake_names,
+            model=model, current_features=joint_names,
             data=X_joint_df, target=y, importance_getter="coef_",
         )
     else:
         fi = _get_feature_importances(
-            model=model, current_features=real_names + fake_names,
+            model=model, current_features=joint_names,
             data=X_joint_df, target=y, importance_getter=importance_getter,
         )
     W = {}
     for i, fname in enumerate(current_features):
-        imp_real = float(fi.get(f"_real_{i}", 0.0))
-        imp_fake = float(fi.get(f"_fake_{i}", 0.0))
+        imp_slotA = float(fi.get(f"_slotA_{i}", 0.0))
+        imp_slotB = float(fi.get(f"_slotB_{i}", 0.0))
+        # ``swapped[i]`` True -> slotA was the knockoff, slotB the real value. W_j = imp(real) - imp(knockoff). The per-feature coin
+        # flip is what makes the sign of W_j symmetric under the null (Barber-Candes swap antisymmetry), so the FDR threshold's
+        # negative reference set is well-defined.
+        if swapped[i]:
+            imp_real, imp_fake = imp_slotB, imp_slotA
+        else:
+            imp_real, imp_fake = imp_slotA, imp_slotB
         W[fname] = imp_real - imp_fake
     return W

@@ -65,6 +65,54 @@ def test_select_features_noise_floor_cuts_overselected_ranking():
     assert {"inf_0", "inf_1"} <= set(out["selected"])
 
 
+# --------------------------------------------------------------------- SA3: noise-envelope estimated from too few permutations
+def _envelope_max_excess(n_perm: int, seed: int, pct: float = 95.0, G: int = 6) -> float:
+    """The per-grid-point noise envelope is ``percentile(perm[:,j]-perm[:,i], pct)``. Reproduce its seed-variance directly:
+    with a tiny n_perm the ``pct`` percentile is an extreme order statistic (n_perm=3 -> MAX of 3 draws) and swings wildly.
+    """
+    rng = np.random.default_rng(seed)
+    perm = 0.5 + 0.02 * rng.standard_normal((n_perm, G))
+    return max(float(np.percentile(perm[:, j] - perm[:, 0], pct)) for j in range(1, G))
+
+
+def test_noise_floor_envelope_stable_at_default_unstable_at_three():
+    """SA3: at the OLD default n_perm=3 the 95th-percentile envelope is a high-variance sample maximum; at the raised
+    default it is a low-variance interior order statistic. Pin that the envelope std shrinks markedly with more perms."""
+    env3 = np.array([_envelope_max_excess(3, s) for s in range(24)])
+    env50 = np.array([_envelope_max_excess(50, s) for s in range(24)])
+    assert env50.std() < 0.5 * env3.std(), (
+        f"noise envelope must be more stable at n_perm=50 than n_perm=3: std3={env3.std():.4f} std50={env50.std():.4f}"
+    )
+
+
+def test_select_features_noise_floor_default_nperm_is_defensible():
+    """The default n_perm must be large enough that the 95th percentile is not a sample maximum (>=20 for pct=95)."""
+    import inspect
+    sig = inspect.signature(select_features_noise_floor)
+    default_n_perm = sig.parameters["n_perm"].default
+    assert default_n_perm >= 20, f"default n_perm={default_n_perm} is too small for a 95th-percentile envelope"
+
+
+def test_select_features_noise_floor_warns_below_floor(caplog):
+    """A too-small n_perm must emit the order-statistic warning so callers aren't silently handed an unstable floor."""
+    import logging
+    from sklearn.linear_model import LogisticRegression
+    import pandas as pd
+    rng = np.random.default_rng(0)
+    n = 300
+    z = rng.standard_normal((n, 2))
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(z @ np.array([1.8, -1.5]))))).astype(int)
+    X = pd.DataFrame({"a": z[:, 0], "b": z[:, 1], "c": rng.standard_normal(n)})
+    with caplog.at_level(logging.WARNING):
+        select_features_noise_floor(
+            lambda: LogisticRegression(max_iter=300), X, pd.Series(y), ["a", "b", "c"],
+            n_grid=[1, 2, 3], cv=3, n_perm=3, random_state=0,
+        )
+    assert any("noise floor" in r.message.lower() or "percentile" in r.message.lower() for r in caplog.records), (
+        "expected a warning that n_perm=3 is too small for the 95th-percentile noise floor"
+    )
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v", "--no-cov", "-p", "no:randomly", "-p", "no:cacheprovider"]))

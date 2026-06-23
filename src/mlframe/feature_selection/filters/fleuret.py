@@ -36,7 +36,7 @@ from numba.core import types
 
 from pyutilz.numbalib import python_dict_2_numba_dict
 
-from .permutation import distribute_permutations
+from .permutation import distribute_permutations, _perm_pvalue
 from ._internals import LARGE_CONST
 from .evaluation import evaluate_gain
 from .info_theory import use_su_normalization
@@ -115,8 +115,19 @@ def get_fleuret_criteria_confidence_parallel(
     if nfailed >= max_failed:
         bootstrapped_gain = 0.0
 
-    # Guard against empty result aggregation (nchecked == 0).
-    confidence = (1 - nfailed / nchecked) if nchecked > 0 else 0.0
+    # Permutation p-value for this candidate via the canonical ``_perm_pvalue`` estimator, which applies BOTH:
+    #   1. Add-one (Davison & Hinkley 1997; Phipson & Smyth 2010): ``(1 + nfailed) / (1 + budget)`` -- the observed gain
+    #      is itself one draw under the null, so the Monte-Carlo p can never be exactly 0; a naive ``nfailed/nchecked``
+    #      returns 0 on a null feature that never fails, spuriously reporting p=0 / confidence=1.
+    #   2. ``full_budget`` de-biasing of the ``max_failed`` early-stop: the worker loop breaks as soon as ``nfailed``
+    #      reaches ``max_failed``, so ``nchecked`` is data-dependent and the stopped ratio overstates the failure rate
+    #      (it stops precisely where failures cluster). Passing the full ``npermutations`` budget as the denominator
+    #      makes the reported p independent of WHERE the early break fired -- an honest (conservative) estimate.
+    # NOTE (multiple testing): this p-value is computed independently PER CANDIDATE over the whole greedy path with NO
+    # family-wise / FDR correction. The reported confidence is therefore an UNCORRECTED per-candidate significance;
+    # callers needing a calibrated false-discovery rate should apply a BH/BY correction across the candidate family.
+    p_value = _perm_pvalue(nfailed, nchecked, full_budget=int(npermutations))
+    confidence = 1.0 - p_value
 
     return bootstrapped_gain, confidence, entropy_cache
 

@@ -83,9 +83,6 @@ def conditional_permutation_test(
     # (1 + #{null >= observed}) / (B + 1) continuity correction (Phipson & Smyth 2010): the observed
     # statistic is itself one realisation under the null, so a Monte-Carlo permutation p-value can
     # never be exactly 0. The naive ``mean(null >= observed)`` can return 0 and overstate significance.
-    # (1 + #{null >= observed}) / (B + 1) continuity correction (Phipson & Smyth 2010): the observed
-    # statistic is itself one realisation under the null, so a Monte-Carlo permutation p-value can
-    # never be exactly 0. The naive ``mean(null >= observed)`` can return 0 and overstate significance.
     n_exceed = int(np.count_nonzero(null_dist >= observed))
     p_value = (1.0 + n_exceed) / (int(n_permutations) + 1.0)
     return observed, p_value

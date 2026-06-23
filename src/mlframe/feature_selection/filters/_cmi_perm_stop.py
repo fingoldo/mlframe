@@ -119,14 +119,26 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
     observed = _cmi_plugin_njit(x_int, y_int, z_comp, K_x, K_y, K_z)
     if n_permutations <= 0:
         return True, float(observed), 1.0
-    # Permutation null.
+    # Conditional permutation null: to test H_0: X ⊥ Y | Z we must permute X *within each Z-stratum*, preserving
+    # the X|Z distribution (Berrett et al. 2020). An UNCONDITIONAL ``rng.permutation(n)`` tests the wrong (marginal)
+    # null H_0: X ⊥ Y, which over-selects candidates that are merely redundant with the already-selected Z (exactly
+    # the regime this stop is meant to catch). Group indices by stratum once, then shuffle X within each stratum.
+    strata: dict[int, np.ndarray] = {}
+    for zv in np.unique(z_comp):
+        strata[int(zv)] = np.flatnonzero(z_comp == zv)
     null_dist = np.empty(int(n_permutations), dtype=np.float64)
     for p in range(int(n_permutations)):
-        perm = rng.permutation(n)
-        x_perm = x_int[perm]
+        x_perm = x_int.copy()
+        for idx_arr in strata.values():
+            if idx_arr.size <= 1:
+                continue
+            x_perm[idx_arr] = x_int[rng.permutation(idx_arr)]
         null_dist[p] = _cmi_plugin_njit(x_perm, y_int, z_comp, K_x, K_y, K_z)
-    # One-sided p-value.
-    p_value = float(np.mean(null_dist >= observed))
+    # (1 + #{null >= observed}) / (B + 1) continuity correction (Phipson & Smyth 2010): the observed statistic is
+    # itself one draw under the null, so a Monte-Carlo permutation p-value can never be exactly 0. Naive
+    # ``mean(null >= observed)`` can return 0 and overstate significance.
+    n_exceed = int(np.count_nonzero(null_dist >= observed))
+    p_value = (1.0 + n_exceed) / (int(n_permutations) + 1.0)
     return p_value < alpha, float(observed), p_value
 
 

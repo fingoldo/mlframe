@@ -427,6 +427,32 @@ def _kw_p_numeric_multiclass(x: np.ndarray, y: np.ndarray) -> float:
 
 
 @njit(cache=True)
+def _tie_sums(v: np.ndarray) -> Tuple[float, float, float]:
+    """Tie-group sums for Kendall's tie-corrected variance: returns (sum t(t-1), sum t(t-1)(t-2), sum t(t-1)(2t+5)) over the
+    distinct-value group sizes t of ``v``. Numba-friendly sorted pass (avoids np.unique(return_counts=), which numba can't type)."""
+    n = v.shape[0]
+    if n == 0:
+        return 0.0, 0.0, 0.0
+    vs = np.sort(v)
+    s0 = 0.0
+    s1 = 0.0
+    s2 = 0.0
+    run = 1.0
+    for i in range(1, n):
+        if vs[i] == vs[i - 1]:
+            run += 1.0
+        else:
+            s0 += run * (run - 1.0)
+            s1 += run * (run - 1.0) * (run - 2.0)
+            s2 += run * (run - 1.0) * (2.0 * run + 5.0)
+            run = 1.0
+    s0 += run * (run - 1.0)
+    s1 += run * (run - 1.0) * (run - 2.0)
+    s2 += run * (run - 1.0) * (2.0 * run + 5.0)
+    return s0, s1, s2
+
+
+@njit(cache=True)
 def _kendall_tau_z(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
     """Kendall tau-b with tie correction. Returns (tau, z-statistic).
 
@@ -460,11 +486,23 @@ def _kendall_tau_z(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
     if denom_x <= 0 or denom_y <= 0:
         return 0.0, 0.0
     tau = (concordant - discordant) / (denom_x * denom_y)
-    # Standard z under H0 of independence (large-n approx, ignoring ties).
-    var_t = (4 * n + 10) / (9 * n * (n - 1)) if n > 1 else 0.0
-    if var_t <= 0:
+    if n < 3:
         return tau, 0.0
-    z = tau / math.sqrt(var_t)
+    # z under H0 of independence using the TIE-CORRECTED variance of S = C - D (Kendall 1945; same form scipy.stats.kendalltau
+    # uses for its normal approximation). The previous (4n+10)/(9 n (n-1)) form is the NO-TIES variance of tau and gives the
+    # wrong z/p on tied integer / low-cardinality features -- exactly the columns that feed the BY-FDR family here. We need the
+    # per-value tie-group sizes of x and y to assemble v0/vt/vu/v1/v2. np.unique(return_counts=) is not numba-typed, so the tie
+    # sums are accumulated from a sorted pass. _tie_sums returns (sum t(t-1), sum t(t-1)(t-2), sum t(t-1)(2t+5)).
+    sx0, sx1, sx2 = _tie_sums(x)
+    sy0, sy1, sy2 = _tie_sums(y)
+    s = float(concordant - discordant)
+    v0 = n * (n - 1.0) * (2.0 * n + 5.0)
+    v1 = sx0 * sy0 / (2.0 * n * (n - 1.0))
+    v2 = sx1 * sy1 / (9.0 * n * (n - 1.0) * (n - 2.0))
+    var_s = (v0 - sx2 - sy2) / 18.0 + v1 + v2
+    if var_s <= 0:
+        return tau, 0.0
+    z = s / math.sqrt(var_s)
     return tau, z
 
 
@@ -474,16 +512,21 @@ def _kendall_p_numeric_continuous(x: np.ndarray, y: np.ndarray, random_state: in
         return 1.0
     xm = x[mask].astype(np.float64, copy=False)
     ym = y[mask].astype(np.float64, copy=False)
-    if xm.size > 2000:
-        # Subsample for the O(n^2) loop -- the BY-FDR procedure tolerates this loss. The caller's seed controls
-        # which subsample is drawn so the p-values are reproducible AND controllable (a fixed seed is repeatable
-        # across calls; distinct seeds let the caller average out subsample variance on huge n).
-        rng = np.random.default_rng(random_state)
-        idx = rng.choice(xm.size, size=2000, replace=False)
-        xm = xm[idx]
-        ym = ym[idx]
-    _, z = _kendall_tau_z(xm, ym)
-    return _normal_two_sided_p(z)
+    # Test at FULL n. Subsampling large features to 2000 rows before testing mixed heterogeneous effective-n p-values into a
+    # single BY family -- a 2000-row p-value and a full-n p-value are NOT exchangeable, which loses power and breaks the
+    # BY-FDR validity (the procedure assumes a homogeneous family). scipy.stats.kendalltau runs the tie-corrected tau-b in
+    # O(n log n), so full-n is affordable; fall back to the O(n^2) reference (tie-corrected variance) only when scipy is
+    # unavailable. random_state is retained for signature compatibility but no longer drives a subsample draw.
+    try:
+        from scipy.stats import kendalltau as _kendalltau
+
+        _tau, _p = _kendalltau(xm, ym, variant="b", nan_policy="omit")
+        if _p != _p:  # NaN (e.g. a constant column)
+            return 1.0
+        return float(_p)
+    except ImportError:
+        _, z = _kendall_tau_z(xm, ym)
+        return _normal_two_sided_p(z)
 
 
 # ---------------------------------------------------------------------------

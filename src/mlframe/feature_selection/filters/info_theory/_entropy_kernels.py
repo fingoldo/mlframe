@@ -250,32 +250,39 @@ def conditional_symmetric_uncertainty(
     z = np.asarray(z, dtype=np.int64)
     factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
 
+    n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
+
+    # Both the CMI numerator and the conditional-entropy normalizer are built from Miller-Madow-corrected entropy
+    # terms. The plug-in entropies over-bin worst on the high-cardinality joints (X,Z), (Y,Z), (X,Y,Z); a plug-in
+    # numerator over a plug-in denominator does NOT cancel that bias (the joint terms carry steeper bias than H(Z)),
+    # so on an independent-given-Z pair the bare ratio sits well above 0. Routing every entropy through
+    # ``entropy_miller_madow`` debiases both sides consistently so SU(X;Y|Z) -> 0 there.
     _, freqs_z, _ = merge_vars(
         factors_data=factors_data, vars_indices=z, var_is_nominal=None,
         factors_nbins=factors_nbins, verbose=False, dtype=dtype,
     )
-    h_z = entropy(freqs=freqs_z)
+    h_z = entropy_miller_madow(freqs_z, n_samples)
 
     xz = np.unique(np.concatenate((x, z)))
     _, freqs_xz, _ = merge_vars(
         factors_data=factors_data, vars_indices=xz, var_is_nominal=None,
         factors_nbins=factors_nbins, verbose=False, dtype=dtype,
     )
-    h_xz = entropy(freqs=freqs_xz)
+    h_xz = entropy_miller_madow(freqs_xz, n_samples)
 
     yz = np.unique(np.concatenate((y, z)))
     _, freqs_yz, _ = merge_vars(
         factors_data=factors_data, vars_indices=yz, var_is_nominal=None,
         factors_nbins=factors_nbins, verbose=False, dtype=dtype,
     )
-    h_yz = entropy(freqs=freqs_yz)
+    h_yz = entropy_miller_madow(freqs_yz, n_samples)
 
     xyz = np.unique(np.concatenate((x, y, z)))
     _, freqs_xyz, _ = merge_vars(
         factors_data=factors_data, vars_indices=xyz, var_is_nominal=None,
         factors_nbins=factors_nbins, verbose=False, dtype=dtype,
     )
-    h_xyz = entropy(freqs=freqs_xyz)
+    h_xyz = entropy_miller_madow(freqs_xyz, n_samples)
 
     cmi = h_xz + h_yz - h_z - h_xyz
     denom = h_xz + h_yz - 2.0 * h_z

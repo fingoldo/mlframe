@@ -214,13 +214,24 @@ def fastmi(x: np.ndarray, y: np.ndarray, *,
     # under independence.
     # For practical estimation we use the integrated joint entropy in probit
     # coords minus the two analytic marginal-normal entropies (= log(2 pi e) / 2 each).
-    cell_area = (2.0 * pad / M) ** 2
+    dx = 2.0 * pad / M
+    cell_area = dx * dx
     p = density / (density.sum() * cell_area)
     p = np.maximum(p, 1e-15)
     H_joint = -float((p * np.log(p)).sum()) * cell_area
-    # Marginal standard-normal entropy in nats: 0.5 * log(2 pi e).
-    H_marg = 0.5 * math.log(2.0 * math.pi * math.e)
-    mi = 2.0 * H_marg - H_joint
+    # I(X;Y) = H(Z_x) + H(Z_y) - H(Z_x, Z_y). BOTH marginal entropies and the joint MUST come from the SAME
+    # estimator basis or their finite-grid / finite-bandwidth biases do not cancel. The pre-fix code subtracted a
+    # binned-KDE joint from the ANALYTIC standard-normal marginal entropy ``0.5*log(2 pi e)``; the two have
+    # different (n-, M-, h-dependent) bias scales, so even an INDEPENDENT pair returned a nonzero offset and a
+    # known-MI pair was systematically off. Integrate the marginal entropies from the SAME KDE density grid (its
+    # row/column sums) so the grid + bandwidth bias enters all three terms identically and cancels in the sum.
+    p_zx = p.sum(axis=1) * dx          # marginal density of Z_x on the grid
+    p_zy = p.sum(axis=0) * dx
+    p_zx = np.maximum(p_zx, 1e-15)
+    p_zy = np.maximum(p_zy, 1e-15)
+    H_zx = -float((p_zx * np.log(p_zx)).sum()) * dx
+    H_zy = -float((p_zy * np.log(p_zy)).sum()) * dx
+    mi = H_zx + H_zy - H_joint
     return max(0.0, mi)
 
 

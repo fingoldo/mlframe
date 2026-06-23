@@ -141,6 +141,39 @@ def _mi_x_pair_y_njit(joint: np.ndarray) -> float:
 
 
 @njit(nogil=True, cache=True)
+def _occupied_counts_2d(p_xy: np.ndarray):
+    """Occupied (non-empty) marginal bin counts (k_x, k_y) of a normalised 2-D joint."""
+    K_x, K_y = p_xy.shape
+    kx = 0
+    for i in range(K_x):
+        s = 0.0
+        for j in range(K_y):
+            s += p_xy[i, j]
+        if s > 0.0:
+            kx += 1
+    ky = 0
+    for j in range(K_y):
+        s = 0.0
+        for i in range(K_x):
+            s += p_xy[i, j]
+        if s > 0.0:
+            ky += 1
+    return kx, ky
+
+
+@njit(nogil=True, cache=True)
+def _mm_mi_correct(mi_plugin: float, k_x: int, k_y: int, n: int) -> float:
+    """Miller-Madow MI bias correction ``I_mm = I_plugin - (k_x-1)(k_y-1)/(2n)`` on OCCUPIED bin counts.
+
+    Mirrors :func:`info_theory._entropy_kernels.mi_miller_madow_correct`. Pass-through when either side is
+    degenerate (``k <= 1``) so the plug-in value is untouched.
+    """
+    if k_x <= 1 or k_y <= 1 or n <= 0:
+        return mi_plugin
+    return mi_plugin - (k_x - 1) * (k_y - 1) / (2.0 * n)
+
+
+@njit(nogil=True, cache=True)
 def _mi_xy_njit(p_xy: np.ndarray) -> float:
     K_x, K_y = p_xy.shape
     # p_xy is already normalised joint.
@@ -216,6 +249,21 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
     mi_x2_y = float(_mi_xy_njit(p_x2y))
     # Total: I({X_1, X_2}; Y).
     total = float(_mi_x_pair_y_njit(joint))
+
+    # Miller-Madow bias-correct each plug-in MI on its OCCUPIED bin counts before the synergy subtraction.
+    # Synergy = total - U1 - U2 - R is a difference of plug-in MIs, and the ``total`` term is I over the COMPOSITE
+    # (X1,X2) source -- a joint whose occupied cardinality is ~K_x1*K_x2, far over-binned vs the 2-D marginal MIs.
+    # The 3-D over-binning inflates ``total``'s positive plug-in bias more than U1/U2/R's, so on an INDEPENDENT
+    # high-cardinality pair at small n the raw difference reports spurious positive synergy. Correcting each MI on
+    # its own occupied k removes the asymmetry (-> 0 as n -> inf, so large-n PID is untouched).
+    p_xx = joint.sum(axis=2) / float(n)
+    k_x1, k_y1 = _occupied_counts_2d(p_x1y)
+    k_x2, k_y2 = _occupied_counts_2d(p_x2y)
+    k_xx = int((p_xx > 0.0).sum())  # occupied composite (X1,X2)-source CELLS (not marginal rows) -- the true source cardinality
+    _, k_yj = _occupied_counts_2d(p_x1y)
+    mi_x1_y = max(0.0, _mm_mi_correct(mi_x1_y, k_x1, k_y1, n))
+    mi_x2_y = max(0.0, _mm_mi_correct(mi_x2_y, k_x2, k_y2, n))
+    total = max(0.0, _mm_mi_correct(total, k_xx, k_yj, n))
     # Unique components.
     u1 = max(0.0, mi_x1_y - r)
     u2 = max(0.0, mi_x2_y - r)

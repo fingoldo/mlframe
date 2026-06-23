@@ -10,7 +10,8 @@ from noise.
 MEASURED (2026-06-04, post-hoc cut on a LightGBM-gain ranking): madelon 251 -> N*=8..16 (modal 12 over n_perm/seed),
 downstream lgbm 0.9135 (N=8) / 0.940 (N=12) vs all-features 0.872 and RFECV-251 0.868 (knn 0.61->0.91 as the noise
 probes uncurse the distance metric); synth guard N*=20 keeps base_recall 0.875 at AUC -0.007 (within noise) -> does
-NOT over-cut a real-signal curve. Needs >=3 permutations (n_perm=1 is noisy). It is a POST-HOC cut on a feature
+NOT over-cut a real-signal curve. The 95th-percentile envelope needs n_perm large enough that the quantile is an interior order statistic
+(default 50; n_perm=3 makes it the MAX of 3 draws -> seed-unstable, anti-conservative floor). It is a POST-HOC cut on a feature
 RANKING + the data (not wired into RFECV's fit-time N-rule, which has no access to X/y at the dispatch stage and whose
 default config times out on wide frames); call it on a fitted model's importance ranking or any valid FI ordering.
 
@@ -24,6 +25,7 @@ PLATEAU rule is a valid stop -- so only that one is exposed.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Callable, Optional, Sequence
 
 import numpy as np
@@ -135,7 +137,7 @@ def cv_curve(estimator_factory: Callable, X, y, ranking: Sequence, n_grid: Seque
 
 
 def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequence,
-                                n_grid: Optional[Sequence[int]] = None, cv=3, n_perm: int = 3,
+                                n_grid: Optional[Sequence[int]] = None, cv=3, n_perm: int = 50,
                                 pct: float = 95.0, random_state: int = 0):
     """Post-hoc permuted-y noise-floor cut of an over-selected feature RANKING. Returns the top-N* features.
 
@@ -148,7 +150,9 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
     ranking : feature names (DataFrame) or integer indices (ndarray), MOST-IMPORTANT-FIRST (e.g. from a fitted
         model's importances, or RFECV's elimination order). The cut keeps a leading prefix of this ranking.
     n_grid : feature counts to evaluate; default a log-ish grid up to len(ranking).
-    cv : int folds or a CV splitter; n_perm : permutations for the noise envelope (>=3 recommended).
+    cv : int folds or a CV splitter; n_perm : permutations for the noise envelope. Default 50; must be large enough that
+        the ``pct`` percentile is an interior order statistic (>=ceil(100/(100-pct)), e.g. >=20 at pct=95) -- a tiny
+        n_perm makes the envelope a high-variance sample maximum and the floor seed-unstable / anti-conservative.
     pct : noise-envelope percentile.
 
     Returns
@@ -178,7 +182,17 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
     perm_mean, perm_curves = cv_curve(estimator_factory, X, y, ranking, n_grid, splitter,
                                       permute=True, n_perm=n_perm, base_seed=100 + random_state, scoring=scoring)
     n_star, _, _, _ = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=pct)
-    if n_perm < 3:
-        logger.warning("select_features_noise_floor: n_perm=%d is noisy; >=3 permutations recommended.", n_perm)
+    # The envelope at each grid point is the ``pct`` percentile of ``n_perm`` permuted incremental gains. With a tiny
+    # n_perm the percentile is a high-variance extreme order statistic (n_perm=3 makes the 95th pct literally the MAX of
+    # 3 draws), so the floor jumps around with the seed and is anti-conservative. n_perm must be large enough that the
+    # ``pct`` percentile is an interpolated interior order statistic: require at least ceil(100/(100-pct)) draws so the
+    # requested quantile is not the sample maximum (e.g. >=20 for pct=95), and recommend >=50 for a stable estimate.
+    min_perm = int(math.ceil(100.0 / max(100.0 - pct, 1e-9)))
+    if n_perm < min_perm:
+        logger.warning(
+            "select_features_noise_floor: n_perm=%d is too small for the %.1fth-percentile noise floor (the quantile "
+            "degenerates to an extreme order statistic); use >=%d (>=50 recommended) for a low-variance envelope.",
+            n_perm, pct, max(min_perm, 50),
+        )
     return dict(selected=ranking[:n_star], n_star=int(n_star), n_grid=n_grid,
                 real_curve=real_curve, perm_mean=perm_mean)

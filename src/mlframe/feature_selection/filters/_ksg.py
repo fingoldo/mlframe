@@ -314,15 +314,20 @@ def _lnc_correction(neighbours_xy: np.ndarray, eps: float, alpha: float) -> floa
 @njit(nogil=True, cache=True)
 def _kraskov1_aggregate(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray, d: int) -> float:
     """Classical Kraskov-1 MI estimator (Kraskov 2004 eq. 8):
-       I = psi(k) - (d - 1) / k + (d - 1) * psi(N) - mean(psi(n_x) + psi(n_y))
+       I = psi(k) - (d - 1) / k + (d - 1) * psi(N) - mean(psi(n_x + 1) + psi(n_y + 1))
     Used as the LNC base per Gao 2015 / NPEET_LNC reference (NOT the Gao 2017
     Mixed-KSG, which is the base for ``mixed_ksg_mi``).
+
+    The ``+1`` matches the neighbour-count convention used here and in ``_mixed_ksg_aggregate``: ``_count_within_eps``
+    returns the number of points STRICTLY within the marginal radius EXCLUDING the point itself, whereas the KSG-1
+    digamma term is ``psi(n_x)`` with ``n_x`` counted in the closed-ball convention INCLUDING self (NPEET ``avgdigamma``).
+    Using ``psi(n_x)`` against the self-excluding count is an open/closed-ball mismatch that systematically biases MI.
     """
     psi_k = _digamma_scalar(float(k))
     psi_n = _digamma_scalar(float(n))
     s = 0.0
     for i in range(n):
-        s += _digamma_scalar(float(n_x[i])) + _digamma_scalar(float(n_y[i]))
+        s += _digamma_scalar(float(n_x[i] + 1)) + _digamma_scalar(float(n_y[i] + 1))
     s /= float(n)
     return psi_k - float(d - 1) / float(k) + float(d - 1) * psi_n - s
 

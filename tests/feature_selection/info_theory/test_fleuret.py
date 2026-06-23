@@ -5,7 +5,7 @@ Public surface covered:
 - ``parallel_fleuret`` (joblib worker: rebuilds numba.typed.Dict caches and forwards to the core)
 - ``get_fleuret_criteria_confidence_parallel`` (joblib pool spawner: aggregates workers into ``(bootstrapped_gain, confidence, entropy_cache)``)
 
-Confidence semantics: ``confidence = 1 - nfailed / nchecked`` where ``nfailed`` is the count of permuted-y shuffles whose conditional gain still met the
+Confidence semantics: ``confidence = 1 - (1 + nfailed) / (1 + nchecked)`` (add-one-corrected p-value) where ``nfailed`` is the count of permuted-y shuffles whose conditional gain still met the
 bootstrapped target. High confidence == genuine signal (no permutation matched the original); low confidence == easily faked (target was noise).
 """
 from __future__ import annotations
@@ -99,8 +99,9 @@ def _call_core(
 
 
 def _confidence_from_core(nfailed: int, nchecked: int) -> float:
-    """Mirror the screen.py caller-side formula. Guard against ``nchecked == 0`` so the zero-permutation guard test stays clean."""
-    return (1 - nfailed / nchecked) if nchecked > 0 else 0.0
+    """Mirror the fleuret.py caller-side formula: confidence = 1 - p where p is the add-one-corrected (Phipson & Smyth 2010)
+    permutation p-value ``(1 + nfailed) / (1 + nchecked)`` -- never exactly 1.0 on a null feature. Guard ``nchecked == 0``."""
+    return (1.0 - (1.0 + nfailed) / (1.0 + nchecked)) if nchecked > 0 else 0.0
 
 
 @pytest.fixture
@@ -119,7 +120,7 @@ def noise_factors():
 
 
 def test_confidence_in_unit_interval_xor(xor_factors):
-    """``confidence = 1 - nfailed / nchecked`` must fall inside [0, 1] for any well-formed input."""
+    """``confidence = 1 - (1 + nfailed) / (1 + nchecked)`` must fall inside [0, 1] for any well-formed input."""
     factors_data, factors_nbins = xor_factors
     nfailed, nchecked = _call_core(factors_data, factors_nbins, npermutations=50)
     assert nchecked > 0

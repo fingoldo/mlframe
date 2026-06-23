@@ -6,7 +6,7 @@ subsamples and recommending only features that appear in the support of at least
 
 Public class
 ------------
-``StabilityMRMR(estimator, n_bootstraps=20, sample_fraction=0.75, support_threshold=0.6, random_state=None)``
+``StabilityMRMR(estimator, n_bootstraps=20, sample_fraction=0.5, support_threshold=0.6, random_state=None)``
 
 Same ``.fit / .transform / .support_ / .selection_probabilities_`` surface as ``MRMR``. ``selection_probabilities_`` exposes per-feature
 inclusion frequency as a numpy float vector for downstream stability plots.
@@ -50,16 +50,21 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
     * ``selection_probabilities_[j] = P(feature_j in support across bootstraps)``.
     * ``support_`` = features with prob >= ``support_threshold``.
 
-    Per Meinshausen-Buhlmann, ``support_threshold=0.6`` controls the expected number of false positives at a known FDR level given mild
-    assumptions on the base selector; tune up to ~0.8 for stricter control.
+    Error control. The Meinshausen-Buhlmann (2010, JRSS-B) PFER bound ``E[V] <= q^2 / ((2*pi_thr - 1) * p)`` -- where ``q`` is the
+    average number of features selected per bootstrap, ``pi_thr`` the ``support_threshold``, and ``p`` the feature count -- is derived
+    under ``sample_fraction = 0.5`` (the canonical complementary-pairs / n/2 subsampling regime). It does NOT hold at other fractions,
+    so the default is ``0.5``; raising ``support_threshold`` toward ~0.8 tightens control. The realized PFER bound for a fitted instance
+    is exposed via ``pfer_bound_`` (and the per-bootstrap selection count via ``avg_selected_per_bootstrap_``) so callers can check the
+    selection against their error budget. The bound is only valid at ``sample_fraction == 0.5``; ``pfer_bound_`` is ``nan`` otherwise.
 
     Parameters
     ----------
     estimator : BaseEstimator
         Any selector with ``.fit(X, y)`` and ``.support_`` attributes (typically an ``MRMR`` instance).
     n_bootstraps : int, default 20
-    sample_fraction : float, default 0.75
-        Fraction of rows to subsample per bootstrap.
+    sample_fraction : float, default 0.5
+        Fraction of rows to subsample per bootstrap. The MB PFER bound is only valid at 0.5 (complementary-pairs subsampling); other
+        values trade the error guarantee for a different bias/variance point.
     support_threshold : float, default 0.6
     random_state : int, default None
     n_jobs : int, default 1
@@ -76,7 +81,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         self,
         estimator,
         n_bootstraps: int = 20,
-        sample_fraction: float = 0.75,
+        sample_fraction: float = 0.5,
         support_threshold: float = 0.6,
         random_state: int = None,
         n_jobs: int = 1,
@@ -194,6 +199,16 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         self.support_ = np.where(counts >= _min_count)[0]
         self.n_features_ = len(self.support_)
         self.n_features_in_ = n_features
+
+        # Meinshausen-Buhlmann PFER bound E[V] <= q^2 / ((2*pi_thr - 1) * p), with q = avg #selected per bootstrap. Only valid at
+        # sample_fraction == 0.5 and pi_thr > 0.5; nan otherwise (the bound's derivation assumes complementary-pairs subsampling and a
+        # threshold above 0.5). Exposed so callers can compare the realized bound against their false-positive budget.
+        self.avg_selected_per_bootstrap_ = float(np.mean([len(s) for s in supports])) if supports else 0.0
+        _pi = float(self.support_threshold)
+        if abs(float(self.sample_fraction) - 0.5) <= 1e-9 and _pi > 0.5 and n_features > 0:
+            self.pfer_bound_ = (self.avg_selected_per_bootstrap_ ** 2) / ((2.0 * _pi - 1.0) * n_features)
+        else:
+            self.pfer_bound_ = float("nan")
         if hasattr(X, "columns"):
             self.feature_names_in_ = list(X.columns)
         return self

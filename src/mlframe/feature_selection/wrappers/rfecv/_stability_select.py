@@ -84,7 +84,10 @@ def _fit_stability_selection(self, X, y, signature):
     Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
     features appeared in the top-K by importance. A feature is selected if its appearance frequency >= ``stability_threshold``
     (typically 0.6-0.9). Provable error control: E[V] <= q^2 / ((2*pi - 1) * p), where q is the average number of selected features
-    per bootstrap and pi is the threshold.
+    per bootstrap and pi is the threshold. This bound is now computed and exposed as ``self.stability_pfer_bound_`` (and surfaced under
+    ``cv_results_['pfer_bound']``) so callers can check the selection against a false-positive budget; it is ``nan`` when ``pi <= 0.5``
+    (no finite control). With the default per-run top-K = p/4, ``q ~ p/4`` and the implied bound can be large -- lower ``stability_top_k``
+    or raise ``stability_threshold`` to tighten it.
 
     Particularly robust on small-n / high-p problems where per-fold CV voting is dominated by sampling noise. If ``self.estimators`` is
     set, FI is averaged across them inside each bootstrap.
@@ -212,6 +215,20 @@ def _fit_stability_selection(self, X, y, signature):
     selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
     support_mask = selection_freq >= float(self.stability_threshold)
 
+    # Meinshausen-Buhlmann (2010, JRSS-B) PFER bound: E[V] <= q^2 / ((2*pi_thr - 1) * p), where q is the average number of features
+    # selected per bootstrap (here top_k, since each bootstrap admits its positive-FI top-K), pi_thr = stability_threshold, p = n_features.
+    # The bound is derived under n/2 subsampling (sub_size = n//2, which this path uses) and requires pi_thr > 0.5. We compute it and expose
+    # stability_pfer_bound_ so callers can enforce an error budget; with top_k = p/4 the bound can be large, which is precisely the signal
+    # a caller needs to either lower top_k or raise the threshold. When pi_thr <= 0.5 the bound is undefined (nan) -- the threshold must
+    # exceed 0.5 for any finite PFER control.
+    _q_avg = float(top_k)
+    _pi = float(self.stability_threshold)
+    if _pi > 0.5 and n_features > 0:
+        self.stability_pfer_bound_ = (_q_avg ** 2) / ((2.0 * _pi - 1.0) * n_features)
+    else:
+        self.stability_pfer_bound_ = float("nan")
+    self.stability_avg_selected_per_bootstrap_ = _q_avg
+
     # must_include: pinned features always in support_.
     must_include_resolved = list(self.must_include) if self.must_include else []
     if must_include_resolved:
@@ -236,6 +253,7 @@ def _fit_stability_selection(self, X, y, signature):
         "cv_mean_perf": [float("nan")],
         "cv_std_perf": [0.0],
         "selection_frequency": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
+        "pfer_bound": [self.stability_pfer_bound_],
     }
     # Per-feature stability frequencies for inspection / downstream weighting, aligned with feature_names_in_.
     self.stability_selection_freq_ = selection_freq

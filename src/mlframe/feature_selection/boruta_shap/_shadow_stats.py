@@ -362,9 +362,17 @@ def test_features(self, iteration):
     # the constant full count (see ``_n_tests`` below), so its decision never changes -- re-testing it is a no-op on
     # the final partition. The only residual cost is the extra binomtests, which the ``_binom_test_cached`` LRU
     # collapses to O(1) per distinct ``(x, n, p, alternative)``, so the waste is negligible (B4, subsumed by the B3 base fix).
-    acceptance_p_values = self.binomial_H0_test(self.hits, n=iteration, p=0.5, alternative="greater")
+    # Null hit probability. A "hit" is X_feature_import > percentile-th percentile of the shadow pool. Under H0 (a real
+    # column is exchangeable with the shadows) a real importance exceeds the q-th percentile of the shadow values with
+    # probability ~ (100 - q)/100, NOT 0.5. The legacy p=0.5 corresponds to a median-shadow gate; with the canonical
+    # MAX-of-shadows gate (percentile=100) the true per-trial null hit rate is ~1/(m+1) for m shadows, far below 0.5, so
+    # p=0.5 is grossly anti-conservative (accepts noise) on the accept side and over-conservative on the reject side.
+    # Derive the calibrated p from self.percentile.
+    null_hit_p = max(min((100.0 - float(self.percentile)) / 100.0, 1.0), 1e-9)
 
-    regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=0.5, alternative="less")
+    acceptance_p_values = self.binomial_H0_test(self.hits, n=iteration, p=null_hit_p, alternative="greater")
+
+    regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=null_hit_p, alternative="less")
 
     # [1] as function returns a tuple. Bonferroni base is the FULL original feature count (all_columns), not the
     # shrinking current column set: self.hits and the accept/reject indexing are full-length, and using the live

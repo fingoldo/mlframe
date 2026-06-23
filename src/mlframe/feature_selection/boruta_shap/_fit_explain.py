@@ -107,28 +107,30 @@ def _naive_accepted_set_stable(accepted_history, patience):
     return all(s == recent[0] for s in recent[1:])
 
 
-def _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin):
+def _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin, null_p=0.5):
     """Margin gate primitive: is ANY still-tentative feature within ``margin`` of crossing a binomial threshold?
 
     Replays the EXACT prod decision statistic used in ``test_features``: a two-sided-style pair of one-sided exact
-    binomial tests (greater -> accept, less -> reject) at p=0.5 over ``iteration`` trials, Bonferroni-corrected by
-    multiplying by ``n_tests`` (capped at 1.0). A tentative feature is "near a boundary" when either corrected
-    p-value < ``pvalue * (1 + margin)`` -- i.e. it could plausibly resolve in the next few trials. Returns True if
-    any tentative feature is near (so it is NOT yet safe to stop); False when the whole tail is provably stuck.
+    binomial tests (greater -> accept, less -> reject) at the null hit probability ``null_p`` over ``iteration``
+    trials, Bonferroni-corrected by multiplying by ``n_tests`` (capped at 1.0). ``null_p`` MUST match the value
+    ``test_features`` uses (percentile-derived, ~ (100 - percentile)/100), otherwise the margin gate replays a
+    different statistic than the actual decision and the early-stop is no longer decision-equivalent. A tentative
+    feature is "near a boundary" when either corrected p-value < ``pvalue * (1 + margin)``. Returns True if any
+    tentative feature is near (so it is NOT yet safe to stop); False when the whole tail is provably stuck.
     """
     thr = pvalue * (1.0 + margin)
     for i in tentative_indices:
         h = hits[i]
-        acc_pc = min(binom_test(h, n=iteration, p=0.5, alternative="greater") * n_tests, 1.0)
+        acc_pc = min(binom_test(h, n=iteration, p=null_p, alternative="greater") * n_tests, 1.0)
         if acc_pc < thr:
             return True
-        rej_pc = min(binom_test(h, n=iteration, p=0.5, alternative="less") * n_tests, 1.0)
+        rej_pc = min(binom_test(h, n=iteration, p=null_p, alternative="less") * n_tests, 1.0)
         if rej_pc < thr:
             return True
     return False
 
 
-def _should_stop_tentative_tail(accepted_history, hits, tentative_indices, iteration, n_tests, pvalue, patience, margin):
+def _should_stop_tentative_tail(accepted_history, hits, tentative_indices, iteration, n_tests, pvalue, patience, margin, null_p=0.5):
     """MARGIN-GATED adaptive trial-stop (the SHIPPED safe rule).
 
     Stop the trial loop ONLY when BOTH hold:
@@ -144,7 +146,7 @@ def _should_stop_tentative_tail(accepted_history, hits, tentative_indices, itera
     if not _naive_accepted_set_stable(accepted_history, patience):
         return False
     # Plateau reached; refuse to stop while any tentative feature is still near a boundary.
-    return not _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin)
+    return not _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin, null_p=null_p)
 
 
 def _fit_with_subsample_stability(self, X, y):
@@ -490,9 +492,10 @@ def fit(self, X, y):
                     _accepted_history.append(frozenset(_acc))
                     _decided = _acc | _rej
                     _tentative_idx = [idx for idx, col in enumerate(self.all_columns) if col not in _decided]
+                    _null_hit_p = max(min((100.0 - float(self.percentile)) / 100.0, 1.0), 1e-9)
                     if _should_stop_tentative_tail(
                         _accepted_history, self.hits, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
-                        pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin,
+                        pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin, null_p=_null_hit_p,
                     ):
                         if self.verbose:
                             logger.info(

@@ -69,19 +69,34 @@ def pair_interaction_information(
     n: int,
     *,
     miller_madow: bool = True,
+    k_a_occupied: int | None = None,
+    k_b_occupied: int | None = None,
+    k_joint_occupied: int | None = None,
+    k_y_occupied: int | None = None,
 ) -> float:
     """Signed interaction information ``II(a;b;y) = I((a,b);y) - I(a;y) - I(b;y)`` (nats).
 
     All three MIs are the already-computed plug-in values (``mi_a`` / ``mi_b`` = ``cached_MIs[(a,)]`` /
     ``cached_MIs[(b,)]``, ``pair_mi`` = the joint). When ``miller_madow`` (default) each term is MM-corrected
-    on its OWN cardinality before the difference -- the joint term uses ``Kx = nbins_a * nbins_b`` bins, so its
-    bias is ~``nbins``x the marginal bias, and correcting all three is what keeps a finite-sample-inflated joint
-    from masquerading as synergy. ``> 0`` synergy, ``~= 0`` additive, ``< 0`` redundancy.
+    on its OWN cardinality before the difference. The MM bias term must be computed on the OCCUPIED (non-empty)
+    bin counts, NOT the design cardinality -- this is the same ``k = #{bins with count>0}`` convention
+    :func:`info_theory._entropy_kernels.mi_miller_madow_correct` / :func:`entropy_miller_madow` use. The joint
+    term is the trap: its DESIGN cardinality is ``nbins_a * nbins_b``, but on a heavy-tailed / sparse column the
+    actually-occupied joint cells are far fewer. Subtracting ``(nbins_a*nbins_b - 1)(nbins_y - 1)/(2n)`` then
+    OVER-corrects the joint by exactly the empty-cell count, pushing ``pair_mi`` down too far and -- because the
+    joint term enters II with a ``+`` sign -- manufacturing a deterministic UPWARD synergy offset on independent
+    heavy-tailed pairs (false synergy). Callers with access to the code arrays should pass the occupied counts
+    (``k_*_occupied``); when omitted the design cardinality is used as a fallback (correct only for dense joints).
+    ``> 0`` synergy, ``~= 0`` additive, ``< 0`` redundancy.
     """
     if miller_madow:
-        mi_a = mi_a - _mm_bias(int(nbins_a), int(nbins_y), int(n))
-        mi_b = mi_b - _mm_bias(int(nbins_b), int(nbins_y), int(n))
-        pair_mi = pair_mi - _mm_bias(int(nbins_a) * int(nbins_b), int(nbins_y), int(n))
+        k_a = int(k_a_occupied) if k_a_occupied is not None else int(nbins_a)
+        k_b = int(k_b_occupied) if k_b_occupied is not None else int(nbins_b)
+        k_j = int(k_joint_occupied) if k_joint_occupied is not None else int(nbins_a) * int(nbins_b)
+        k_y = int(k_y_occupied) if k_y_occupied is not None else int(nbins_y)
+        mi_a = mi_a - _mm_bias(k_a, k_y, int(n))
+        mi_b = mi_b - _mm_bias(k_b, k_y, int(n))
+        pair_mi = pair_mi - _mm_bias(k_j, k_y, int(n))
     return float(pair_mi - mi_a - mi_b)
 
 
@@ -156,18 +171,21 @@ def pooled_pair_ii_null_floor(
             ia, ib = int(pa[p]), int(pb[p])
             ca, cb = col_codes[ia], col_codes[ib]
             nb_a, nb_b = int(nb[ia]), int(nb[ib])
-            mi_a = mi_cache.get(ia)
-            if mi_a is None:
-                mi_a = _marginal_mi_codes(ca, y_perm, nb_a, k_y, inv_n)
-                mi_cache[ia] = mi_a
-            mi_b = mi_cache.get(ib)
-            if mi_b is None:
-                mi_b = _marginal_mi_codes(cb, y_perm, nb_b, k_y, inv_n)
-                mi_cache[ib] = mi_b
+            cached_a = mi_cache.get(ia)
+            if cached_a is None:
+                cached_a = _marginal_mi_codes(ca, y_perm, nb_a, k_y, inv_n)
+                mi_cache[ia] = cached_a
+            mi_a, k_a_occ = cached_a
+            cached_b = mi_cache.get(ib)
+            if cached_b is None:
+                cached_b = _marginal_mi_codes(cb, y_perm, nb_b, k_y, inv_n)
+                mi_cache[ib] = cached_b
+            mi_b, k_b_occ = cached_b
             joint = ca * nb_b + cb
-            pair_mi = _marginal_mi_codes(joint, y_perm, nb_a * nb_b, k_y, inv_n)
+            pair_mi, k_j_occ = _marginal_mi_codes(joint, y_perm, nb_a * nb_b, k_y, inv_n)
             ii = pair_interaction_information(
                 mi_a, mi_b, pair_mi, nb_a, nb_b, k_y, n, miller_madow=miller_madow,
+                k_a_occupied=k_a_occ, k_b_occupied=k_b_occ, k_joint_occupied=k_j_occ,
             )
             if ii > best:
                 best = ii
@@ -176,27 +194,30 @@ def pooled_pair_ii_null_floor(
     return float(np.quantile(maxes, float(quantile)))
 
 
-def _marginal_mi_codes(x_codes: np.ndarray, y_codes: np.ndarray, k_x: int, k_y: int, inv_n: float) -> float:
-    """Plug-in MI ``I(X;Y)`` (nats) from ordinal code arrays via a single joint-histogram pass.
+def _marginal_mi_codes(x_codes: np.ndarray, y_codes: np.ndarray, k_x: int, k_y: int, inv_n: float) -> tuple[float, int]:
+    """Plug-in MI ``I(X;Y)`` (nats) + OCCUPIED X-bin count from ordinal code arrays via a single joint-histogram pass.
 
     Mirrors the joint-MI accumulation in :func:`batch_pair_mi_prange` (``jf * log(jf / (px * py))``), so the
-    null floor's marginal/joint terms are on the exact same plug-in scale as the gated values.
+    null floor's marginal/joint terms are on the exact same plug-in scale as the gated values. The second return
+    value is ``#{X-bins with count>0}`` -- the occupied cardinality the Miller-Madow bias must be computed on (the
+    design ``k_x`` over-corrects sparse / heavy-tailed columns, see :func:`pair_interaction_information`).
     """
     joint = (x_codes.astype(np.int64) * k_y + y_codes.astype(np.int64))
     counts = np.bincount(joint, minlength=k_x * k_y).astype(np.float64)
     counts = counts.reshape(k_x, k_y)
     px = counts.sum(axis=1) * inv_n
     py = counts.sum(axis=0) * inv_n
+    k_x_occupied = int((px > 0).sum())
     pj = counts * inv_n
     mask = pj > 0
     if not mask.any():
-        return 0.0
+        return 0.0, k_x_occupied
     pj_m = pj[mask]
     # broadcast px (rows) and py (cols) over the masked joint cells
     rows, colz = np.nonzero(mask)
     denom = px[rows] * py[colz]
     good = denom > 0
-    return float(np.sum(pj_m[good] * np.log(pj_m[good] / denom[good])))
+    return float(np.sum(pj_m[good] * np.log(pj_m[good] / denom[good]))), k_x_occupied
 
 
 def route_prospective_pairs(

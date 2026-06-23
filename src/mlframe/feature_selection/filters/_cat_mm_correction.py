@@ -95,13 +95,21 @@ def _compute_pair_ii_mm(
     """
     n_samples = factors_data.shape[0]
 
+    # All six entropies are computed PLUG-IN here; the Miller-Madow correction is applied ONCE as a single
+    # closed-form II bias term below, NOT per-entropy. Per-term MM (the pre-fix path) added ``(k_i-1)/(2n)`` with
+    # each term's OWN occupied bin count k_i; those six occupied counts do NOT telescope to the analytic II bias
+    # ``(a-1)(b-1)(c-1)/(2n)`` (that closed form requires the joint occupied counts to factor as products of the
+    # marginals, which sparse / heavy-tailed joints violate). The leftover non-telescoping residual could be large
+    # enough to FLIP the sign of a small II. Computing plug-in II and subtracting ONE consistent correction keeps
+    # the six terms commensurable so the bias cancels exactly as the Jakulin/Roulston derivation intends.
+
     # ---- merge X1 alone (gives H(X1)) ----
     cls_x1, freqs_x1, _ = merge_vars(
         factors_data=factors_data,
         vars_indices=np.array([idx_a], dtype=np.int64),
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    h_x1 = _entropy_for_mode(freqs_x1, n_samples, use_mm)
+    h_x1 = _entropy_for_mode(freqs_x1, n_samples, False)
 
     # ---- merge X2 alone (gives H(X2)) ----
     cls_x2, freqs_x2, _ = merge_vars(
@@ -109,7 +117,7 @@ def _compute_pair_ii_mm(
         vars_indices=np.array([idx_b], dtype=np.int64),
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    h_x2 = _entropy_for_mode(freqs_x2, n_samples, use_mm)
+    h_x2 = _entropy_for_mode(freqs_x2, n_samples, False)
 
     # ---- merge X1, X2 (gives H(X1, X2)) ----
     cls_x1x2, freqs_x1x2, _ = merge_vars(
@@ -117,7 +125,7 @@ def _compute_pair_ii_mm(
         vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    h_x1x2 = _entropy_for_mode(freqs_x1x2, n_samples, use_mm)
+    h_x1x2 = _entropy_for_mode(freqs_x1x2, n_samples, False)
 
     # ---- merge X1, Y_idx ... (gives H(X1, Y)) ----
     # Concatenate idx_a with target_indices into a single vars list.
@@ -127,7 +135,7 @@ def _compute_pair_ii_mm(
         vars_indices=vi_x1y,
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    h_x1y = _entropy_for_mode(freqs_x1y, n_samples, use_mm)
+    h_x1y = _entropy_for_mode(freqs_x1y, n_samples, False)
 
     # ---- merge X2, Y (gives H(X2, Y)) ----
     vi_x2y = np.concatenate(([idx_b], target_indices)).astype(np.int64)
@@ -136,7 +144,7 @@ def _compute_pair_ii_mm(
         vars_indices=vi_x2y,
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    h_x2y = _entropy_for_mode(freqs_x2y, n_samples, use_mm)
+    h_x2y = _entropy_for_mode(freqs_x2y, n_samples, False)
 
     # ---- merge X1, X2, Y (gives H(X1, X2, Y)) ----
     vi_x1x2y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
@@ -145,10 +153,22 @@ def _compute_pair_ii_mm(
         vars_indices=vi_x1x2y,
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    h_x1x2y = _entropy_for_mode(freqs_x1x2y, n_samples, use_mm)
+    h_x1x2y = _entropy_for_mode(freqs_x1x2y, n_samples, False)
 
     # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
-    return h_x1x2 + h_x1y + h_x2y - h_x1x2y - h_x1 - h_x2 - h_y
+    ii_plugin = h_x1x2 + h_x1y + h_x2y - h_x1x2y - h_x1 - h_x2 - h_y
+    if not use_mm:
+        return ii_plugin
+    # Single telescoped Miller-Madow II bias on OCCUPIED marginal cardinalities (matches the occupied-k convention
+    # of info_theory.entropy_miller_madow / mi_miller_madow_correct). Plug-in II is biased UPWARD by
+    # ``(a-1)(b-1)(c-1)/(2n)`` under the independence null; subtract it once.
+    k_a = len(freqs_x1[freqs_x1 > 0])
+    k_b = len(freqs_x2[freqs_x2 > 0])
+    k_y = len(freqs_y[freqs_y > 0])
+    if k_a <= 1 or k_b <= 1 or k_y <= 1:
+        return ii_plugin
+    ii_bias = (k_a - 1) * (k_b - 1) * (k_y - 1) / (2.0 * n_samples)
+    return ii_plugin - ii_bias
 
 
 def _should_apply_mm_for_pair(
@@ -208,10 +228,12 @@ def _maybe_rerank_with_mm(
     if auto_gate and not per_pair_mm.any():
         return ii_arr, selected_idx
 
-    # Compute H(Y) once (constant across pairs but doesn't actually affect ranking since it appears in every II equally; included for correctness).
-    # KT smoothing alternative to MM (set via cfg.use_kt_smoothing).
+    # KT smoothing alternative to MM (set via cfg.use_kt_smoothing). KT smooths each entropy independently (a
+    # different bias model), so under KT the per-term path is used as-is; under MM the six terms are computed
+    # PLUG-IN and a single telescoped occupied-k bias is subtracted per pair (see _compute_pair_ii_mm).
     use_kt = bool(getattr(cfg, "use_kt_smoothing", False))
-    h_y_mm = _entropy_for_mode(freqs_y, n_samples, use_mm=True, use_kt=use_kt)
+    h_y_mm = _entropy_for_mode(freqs_y, n_samples, use_mm=not use_kt, use_kt=use_kt)
+    k_y_occ = len(freqs_y[freqs_y > 0])
 
     # Hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the columns touched by surviving pairs need to be computed.
     touched_cols: set = set()
@@ -220,8 +242,9 @@ def _maybe_rerank_with_mm(
             touched_cols.add(int(pairs_a[k]))
             touched_cols.add(int(pairs_b[k]))
 
-    h_marginal_cache: dict = {}     # idx -> H(X_idx) with MM
-    h_marginal_y_cache: dict = {}   # idx -> H(X_idx, Y) with MM
+    h_marginal_cache: dict = {}     # idx -> H(X_idx)
+    h_marginal_y_cache: dict = {}   # idx -> H(X_idx, Y)
+    k_marginal_cache: dict = {}     # idx -> occupied bin count of X_idx (for the telescoped II bias)
     for col_idx in touched_cols:
         cls_x, freqs_x, _ = merge_vars(
             factors_data=factors_data,
@@ -229,8 +252,9 @@ def _maybe_rerank_with_mm(
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
         h_marginal_cache[col_idx] = _entropy_for_mode(
-            freqs_x, n_samples, use_mm=True, use_kt=use_kt,
+            freqs_x, n_samples, use_mm=not use_kt, use_kt=use_kt,
         )
+        k_marginal_cache[col_idx] = len(freqs_x[freqs_x > 0])
         vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
         _, freqs_xy, _ = merge_vars(
             factors_data=factors_data,
@@ -238,7 +262,7 @@ def _maybe_rerank_with_mm(
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
         h_marginal_y_cache[col_idx] = _entropy_for_mode(
-            freqs_xy, n_samples, use_mm=True, use_kt=use_kt,
+            freqs_xy, n_samples, use_mm=not use_kt, use_kt=use_kt,
         )
 
     if verbose:
@@ -261,14 +285,14 @@ def _maybe_rerank_with_mm(
             vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_x1x2 = _entropy_for_mode(freqs_pair, n_samples, use_mm=True, use_kt=use_kt)
+        h_x1x2 = _entropy_for_mode(freqs_pair, n_samples, use_mm=not use_kt, use_kt=use_kt)
         vi_pair_y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
         _, freqs_pair_y, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=vi_pair_y,
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_x1x2y = _entropy_for_mode(freqs_pair_y, n_samples, use_mm=True, use_kt=use_kt)
+        h_x1x2y = _entropy_for_mode(freqs_pair_y, n_samples, use_mm=not use_kt, use_kt=use_kt)
         # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
         ii_mm = (
             h_x1x2
@@ -279,6 +303,14 @@ def _maybe_rerank_with_mm(
             - h_marginal_cache[idx_b]
             - h_y_mm
         )
+        if not use_kt:
+            # Single telescoped MM II bias on occupied marginal cardinalities (the six terms above are now all
+            # plug-in under MM mode, so subtract the closed-form bias once instead of per-entropy -- the per-term
+            # occupied-k corrections did NOT telescope and could flip the sign of a small II).
+            k_a = k_marginal_cache[idx_a]
+            k_b = k_marginal_cache[idx_b]
+            if k_a > 1 and k_b > 1 and k_y_occ > 1:
+                ii_mm -= (k_a - 1) * (k_b - 1) * (k_y_occ - 1) / (2.0 * n_samples)
         ii_mm_arr[k] = ii_mm
 
     # Re-sort selected_idx by the corrected scores. Same select_on logic

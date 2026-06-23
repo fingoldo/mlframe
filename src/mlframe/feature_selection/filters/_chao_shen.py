@@ -31,11 +31,15 @@ from numba import njit
 
 
 @njit(nogil=True, cache=True)
-def chao_shen_entropy_from_counts(counts: np.ndarray) -> float:
+def chao_shen_entropy_from_counts(counts: np.ndarray, coverage: float = -1.0) -> float:
     """Chao-Shen entropy estimator on a 1-D integer count array.
 
     Args:
         counts: int64 array of category counts. Sum > 0; len = K categories.
+        coverage: if ``>= 0``, use this externally-supplied Good-Turing coverage ``C_hat`` instead of estimating
+            it from ``counts``. Required by :func:`_joint_chao_shen_mi_njit` so the marginal and joint entropies
+            share ONE coverage basis -- a per-table coverage makes the three terms incommensurable and turns the
+            ``H_x+H_y-H_xy`` subtraction into a non-valid coverage-corrected MI. Default ``-1`` = estimate locally.
 
     Returns:
         H_CS in nats; floored at 0.
@@ -52,8 +56,11 @@ def chao_shen_entropy_from_counts(counts: np.ndarray) -> float:
             f_1 += 1
     if N <= 0:
         return 0.0
-    # Coverage estimate.
-    C_hat = 1.0 - float(f_1) / float(N)
+    # Coverage estimate (Good-Turing): externally supplied when the caller needs a shared basis across tables.
+    if coverage >= 0.0:
+        C_hat = coverage
+    else:
+        C_hat = 1.0 - float(f_1) / float(N)
     # If all observations are singletons, C_hat -> 0; fall back to plug-in.
     if C_hat <= 1e-12:
         N_f = float(N)
@@ -116,9 +123,27 @@ def _joint_chao_shen_mi_njit(joint: np.ndarray) -> float:
                 col_sums[j] += v
     # Flatten joint to 1-D counts for entropy.
     flat = joint.ravel().astype(np.int64)
-    H_xy = chao_shen_entropy_from_counts(flat)
-    H_x = chao_shen_entropy_from_counts(row_sums)
-    H_y = chao_shen_entropy_from_counts(col_sums)
+    # Shared coverage basis: estimate ONE Good-Turing coverage from the joint table (the finest partition, whose
+    # singleton structure dominates the sparse-contingency bias the CS correction targets) and apply it to all
+    # three entropy terms. A per-term coverage (the pre-fix path) gave H_x/H_y/H_xy three different rescalings, so
+    # ``H_x+H_y-H_xy`` was not a coverage-consistent MI -- the mismatched bases left a deterministic residual that
+    # inflated MI on sparse joints. With a single C_hat the rescalings are commensurable and largely cancel.
+    N = 0
+    f_1 = 0
+    for t in range(flat.shape[0]):
+        c = int(flat[t])
+        if c > 0:
+            N += c
+            if c == 1:
+                f_1 += 1
+    if N <= 0:
+        return 0.0
+    C_hat = 1.0 - float(f_1) / float(N)
+    if C_hat <= 1e-12:
+        C_hat = -1.0  # all-singleton joint: let each term fall back to local plug-in
+    H_xy = chao_shen_entropy_from_counts(flat, C_hat)
+    H_x = chao_shen_entropy_from_counts(row_sums, C_hat)
+    H_y = chao_shen_entropy_from_counts(col_sums, C_hat)
     mi = H_x + H_y - H_xy
     return max(0.0, mi)
 
