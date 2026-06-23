@@ -739,6 +739,29 @@ def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
     return lo - 0.5
 
 
+def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
+    """Average (mid) 0-based rank of each element of ``fit_finite`` AMONG ITSELF.
+
+    Bit-identical to ``_avg_tie_rank(np.sort(fit_finite), fit_finite)`` but avoids the two ``searchsorted`` sweeps over
+    the full array -- at FIT time the query set IS the reference set, so a single ``argsort`` + a run-length mid-rank
+    scatter computes the same average ranks (~3.4x faster at 1M rows). The replay path (``apply_rankgauss``) still uses
+    ``searchsorted`` because there the test values are NOT the fit values.
+    """
+    n = fit_finite.size
+    order = np.argsort(fit_finite, kind="stable")
+    sx = fit_finite[order]
+    change = np.empty(n, dtype=bool)
+    change[0] = True
+    np.not_equal(sx[1:], sx[:-1], out=change[1:])
+    grp_start = np.nonzero(change)[0]
+    seg_ends = np.append(grp_start[1:], n)
+    mid = (grp_start + seg_ends - 1) / 2.0  # mid rank per tie-group
+    grp_id = np.cumsum(change) - 1
+    out = np.empty(n, dtype=np.float64)
+    out[order] = mid[grp_id]
+    return out
+
+
 def generate_rankgauss_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],
@@ -776,7 +799,10 @@ def generate_rankgauss_features(
         # map to Gaussian. NaN rows -> 0.0 (the Gaussian centre).
         out = np.zeros_like(x)
         if n_fit > 0 and finite.any():
-            avg_rank = _avg_tie_rank(fit_sorted, x[finite])
+            # Fit-time ranks are the fit values' ranks among themselves -> argsort
+            # mid-rank, bit-identical to _avg_tie_rank(fit_sorted, x[finite]) but
+            # without the two full-array searchsorted sweeps (~3.4x at 1M).
+            avg_rank = _self_avg_tie_rank(x[finite])
             out[finite] = _rank_to_gauss(avg_rank, n_fit)
         name = engineered_name_rankgauss(col)
         encoded[name] = out
