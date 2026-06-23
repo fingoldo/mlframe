@@ -361,6 +361,16 @@ class CompositeTargetDiscovery:
                 # and any post-train wrapping path that re-applies the
                 # transform.
                 "extra_base_columns": tuple(getattr(s, "extra_base_columns", ()) or ()),
+                # Post-selection-inference honest gain (SA27). ``mi_gain`` above is the
+                # in-screen SELECTION score (optimistically biased by the winner's curse);
+                # ``honest_holdout_gain`` is the SAME gain re-scored on a holdout the discovery
+                # never touched -- the de-biased generalisation estimate. ``None`` when the
+                # holdout pass did not run (disabled / too few rows / degenerate re-score),
+                # in which case downstream callers fall back to ``mi_gain``.
+                "honest_holdout_gain": getattr(s, "honest_holdout_gain", None),
+                "honest_holdout_mi_t": getattr(s, "honest_holdout_mi_t", None),
+                "honest_holdout_mi_y": getattr(s, "honest_holdout_mi_y", None),
+                "honest_holdout_n_rows": getattr(s, "honest_holdout_n_rows", None),
             }
             for s in getattr(self, "specs_", [])
         ]
@@ -386,6 +396,21 @@ class CompositeTargetDiscovery:
         kept / rejected" diagnostics.
         """
         return dict(getattr(self, "_tiny_rerank_scores", {}))
+
+    @property
+    def honest_holdout_gains_(self) -> dict[str, float | None]:
+        """Per-spec honest (post-selection) holdout gain, keyed by spec name (SA27).
+
+        The de-biased generalisation gain re-scored on a holdout the discovery never
+        touched. ``None`` for a spec whose holdout re-score did not run (the holdout
+        was disabled, too few valid holdout rows, or the transform raised). Use this
+        -- NOT the in-screen ``mi_gain`` -- for generalisation claims; the in-screen
+        gain is the optimistically-biased winner's-curse selection score.
+        """
+        return {
+            getattr(s, "name", ""): getattr(s, "honest_holdout_gain", None)
+            for s in getattr(self, "specs_", [])
+        }
 
     @property
     def raw_y_baseline_rmse_(self) -> float:
@@ -510,6 +535,10 @@ class CompositeTargetDiscovery:
             "mi_t": spec.mi_t,
             "valid_domain_frac": spec.valid_domain_frac,
             "n_train_rows": spec.n_train_rows,
+            # In-screen ``mi_gain`` above is the optimistic SELECTION score; the honest
+            # holdout gain (None for rejected / non-survivor entries that were never re-scored)
+            # is the de-biased generalisation estimate -- report it alongside, never instead.
+            "honest_holdout_gain": getattr(spec, "honest_holdout_gain", None),
         }
 
 

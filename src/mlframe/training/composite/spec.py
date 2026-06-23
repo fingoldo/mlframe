@@ -54,3 +54,17 @@ class CompositeSpec:
     # and the wrapper materialises a (n, 1+len(extra)) matrix at
     # predict time. Stored as a tuple so the dataclass remains frozen.
     extra_base_columns: tuple[str, ...] = ()
+    # Post-selection-inference honest gain. ``mi_gain`` above is the in-screen
+    # SELECTION score -- the winner is picked on it, so on the screening sample it
+    # is optimistically biased (winner's curse). ``honest_holdout_gain`` is the SAME
+    # ``MI(T, X_remaining) - MI(y, X_remaining)`` quantity re-scored on a holdout the
+    # discovery never touched (using these fitted params), so it is an honest, less
+    # biased generalisation estimate. ``None`` when the holdout pass did not run
+    # (``honest_holdout_frac`` disabled, too few holdout rows, or a degenerate re-score).
+    # ``honest_holdout_mi_t`` / ``honest_holdout_mi_y`` are the two halves on the holdout.
+    # Set post-construction via ``object.__setattr__`` (the dataclass is frozen): the
+    # re-score happens after the winner set is final, so it cannot be a ctor argument.
+    honest_holdout_gain: float | None = None
+    honest_holdout_mi_t: float | None = None
+    honest_holdout_mi_y: float | None = None
+    honest_holdout_n_rows: int | None = None

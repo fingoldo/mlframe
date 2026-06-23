@@ -379,3 +379,61 @@ def apply_alpha_drift_gate(
             ", ".join(f"{n}(z={z:.2f})" for n, z in drift_dropped[:5]),
         )
     return drift_kept
+
+
+def apply_linear_residual_diff_collapse(
+    self,
+    kept_specs: list,
+    *,
+    df: Any,
+    train_idx: np.ndarray,
+    y_train: np.ndarray,
+    extract_column_array: Callable,
+) -> list:
+    """Drop ``linear_residual`` specs that collapse to ``diff`` (alpha~1, beta~0).
+
+    A ``linear_residual`` whose fitted ``alpha`` is ~1.0 (on the data scale) and ``beta`` ~0
+    carries zero information advantage over the corresponding ``diff`` spec while spending two
+    fitted params; when a ``diff`` spec for the SAME base also survived, the linear_residual is
+    redundant and dropped. Scale-invariant: the alpha deviation is measured as
+    ``|alpha - 1| * std(base) / std(y)`` so it does not depend on the units of base / y.
+    Skipped when ``collapse_linear_residual_alpha_eps`` is 0 (feature disabled) or fewer than
+    two specs survived. Returns the (possibly shorter) kept-specs list.
+    """
+    alpha_eps = float(getattr(self.config, "collapse_linear_residual_alpha_eps", 0.05))
+    if not (alpha_eps > 0 and len(kept_specs) > 1):
+        return kept_specs
+    diff_bases = {s.base_column for s in kept_specs if s.transform_name == "diff"}
+    collapsed: list = []
+    collapsed_dropped: list[tuple[str, float]] = []
+    # ``float(NaN) or 1.0`` is NaN-truthy (bool(NaN) is True), so an empty/all-NaN slice would set std_y=NaN and silently disable the collapse; gate on finiteness explicitly.
+    _std_y = float(np.std(y_train[np.isfinite(y_train)])) if np.isfinite(y_train).any() else 0.0
+    std_y = _std_y if (np.isfinite(_std_y) and _std_y > 0) else 1.0
+    for s in kept_specs:
+        if s.transform_name != "linear_residual" or s.base_column not in diff_bases:
+            collapsed.append(s)
+            continue
+        alpha = float(s.fitted_params.get("alpha", float("nan")))
+        beta = float(s.fitted_params.get("beta", 0.0))
+        # Reuse the pooled ``base_full[train_idx]`` (bit-identical float32 values) instead of re-extracting + re-slicing.
+        base_train = self._auto_base_pool.get(s.base_column)
+        if base_train is None:
+            base_train = extract_column_array(df, s.base_column)[train_idx]
+        base_finite = np.isfinite(base_train)
+        std_base = float(np.std(base_train[base_finite])) if base_finite.any() else 1.0
+        if std_base < 1e-12:
+            collapsed.append(s)
+            continue
+        alpha_dev = abs(alpha - 1.0) * std_base / std_y
+        beta_dev = abs(beta) / std_y
+        if alpha_dev < alpha_eps and beta_dev < alpha_eps:
+            collapsed_dropped.append((s.name, float(alpha_dev)))
+            continue
+        collapsed.append(s)
+    if collapsed_dropped:
+        preview = ", ".join(f"{n}(alpha_dev={d:.4f})" for n, d in collapsed_dropped[:3])
+        logger.info(
+            "[CompositeTargetDiscovery] collapsed %d linear_residual spec(s) into diff (alpha~1): %s",
+            len(collapsed_dropped), preview,
+        )
+    return collapsed

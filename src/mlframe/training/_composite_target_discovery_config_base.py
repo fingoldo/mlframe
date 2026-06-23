@@ -586,3 +586,18 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # ``mi_n_strata`` explicitly.
     mi_n_strata_heavy_tail: int = 30
 
+    # Post-selection-inference holdout (winner's curse de-bias). The winner spec is
+    # selected on the SAME mi_gain statistic that is then reported, so its reported
+    # in-screen gain is the MAX over many candidates evaluated on the screening sample
+    # -- optimistically biased upward (the curse grows with candidate count). Before
+    # screening runs, carve ``honest_holdout_frac`` of the train rows into a holdout the
+    # discovery NEVER touches (screening, FDR gate, tiny-rerank, multi-base promotion,
+    # opt-in steps all consume only the screening pool); after the winner(s) are picked,
+    # RE-SCORE the final spec(s) on this fresh holdout for an honest generalisation gain.
+    # The honest gain is reported ALONGSIDE the in-screen gain (both labelled), so
+    # downstream generalisation claims use the de-biased number, not the selection score.
+    # Default ON per "enable corrective mechanisms by default"; set 0.0 / None to disable
+    # (callers who need every row for screening, e.g. tiny train_idx).
+    honest_holdout_frac: Optional[float] = 0.2
+
+

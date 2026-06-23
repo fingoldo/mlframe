@@ -44,6 +44,7 @@ from ._eval import build_unary_base_context, eval_one_transform
 from ._eval_stats import (
     apply_alpha_drift_gate,
     apply_fdr_control_to_candidates,
+    apply_linear_residual_diff_collapse,
     near_collinear_keep_mask,
 )
 
@@ -138,7 +139,13 @@ def fit(
     # the no-spec degenerate cases.
     self._target_col = target_col
     self._df_ref = df
-    self.train_idx_ = train_idx
+
+    # Post-selection-inference holdout (winner's-curse de-bias, SA27): carve a never-touched
+    # holdout BEFORE screening, then REBIND ``train_idx`` to the screening pool so every
+    # downstream consumer is holdout-excluded with no per-site change (carve_screening_holdout).
+    from ._honest_holdout import carve_screening_holdout
+
+    train_idx, _honest_holdout_idx = carve_screening_holdout(self, train_idx)
 
     if train_idx.size < 50:
         logger.warning(
@@ -679,16 +686,10 @@ def fit(
     # Plugin MI quantises to a fixed grid, so tied mi_gain is realistic; the spec-name secondary key makes top-K deterministic across runs.
     # Known minor inconsistency: the gate above admits on mi_gain_lcb but this ranks on the point mi_gain, so under bootstrap a high-variance
     # big-point/low-LCB spec can outrank a stable better-LCB one (the lcb is not carried on the spec). Default bootstrap_n=0, so ranking is exact.
-    # WINNER'S CURSE (SA27, FUTURE): the winner is selected on the SAME mi_gain statistic that is then
-    # reported as its gain, so the top spec's reported mi_gain is optimistically biased -- the max over many
-    # candidate gains exceeds the winner's true gain (the curse grows with the candidate count). The reported
-    # gain is a SELECTION score, not an honest effect-size estimate. A proper fix needs a fresh holdout split
-    # the discovery never touched (screening, FDR gate, tiny-rerank, multi-base promotion all consume the
-    # screening sample), then re-scoring ONLY the final winner on that untouched holdout for an unbiased gain.
-    # Deferred as FUTURE rather than fixed here: threading a never-seen holdout through the whole discovery
-    # pipeline (and honouring the 100GB-frame / no-copy constraints) is an architectural change, not a local
-    # edit, and the mi_gain_lcb / FDR gate already partially de-bias the ADMISSION decision (just not the
-    # reported point gain). Treat kept_specs[*].mi_gain as a ranking key, not a calibrated generalisation gain.
+    # WINNER'S CURSE (SA27): mi_gain is the SELECTION score (max over many candidates) -- optimistically
+    # biased, NOT a calibrated generalisation gain. The de-bias is the post-selection holdout re-score below
+    # (``apply_honest_holdout``); use mi_gain only as the ranking key here, read ``honest_holdout_gain`` for
+    # a generalisation estimate.
     kept_specs.sort(key=lambda s: (-s.mi_gain, getattr(s, "name", "")))
     kept_specs = kept_specs[: self.config.top_k_after_mi]
 
@@ -704,59 +705,13 @@ def fit(
         linear_residual_fit=_linear_residual_fit,
     )
 
-    # Collapse redundant linear_residual ->
-    # diff when alpha ~ 1 and beta ~ 0 (linear_residual has zero
-    # information advantage over diff but carries 2 fitted params).
-    # Drop linear_residual specs whose alpha is close to 1.0 on
-    # the data scale IF a diff spec for the same base also kept.
-    # Skipped if the config eps is 0 (feature disabled).
-    alpha_eps = float(
-        getattr(
-            self.config,
-            "collapse_linear_residual_alpha_eps",
-            0.05,
-        )
+    # Collapse redundant linear_residual -> diff when alpha ~ 1 and beta ~ 0 (linear_residual
+    # has zero information advantage over diff but carries 2 fitted params); lifted to
+    # ``_eval_stats`` to keep this file under the monolith threshold.
+    kept_specs = apply_linear_residual_diff_collapse(
+        self, kept_specs, df=df, train_idx=train_idx, y_train=y_train,
+        extract_column_array=_extract_column_array,
     )
-    if alpha_eps > 0 and len(kept_specs) > 1:
-        diff_bases = {s.base_column for s in kept_specs if s.transform_name == "diff"}
-        collapsed: list[CompositeSpec] = []
-        collapsed_dropped: list[tuple[str, float]] = []
-        # ``float(NaN) or 1.0`` is NaN-truthy (bool(NaN) is True), so an empty/all-NaN slice would set std_y=NaN and silently disable the collapse; gate on finiteness explicitly.
-        _std_y = float(np.std(y_train[np.isfinite(y_train)])) if np.isfinite(y_train).any() else 0.0
-        std_y = _std_y if (np.isfinite(_std_y) and _std_y > 0) else 1.0
-        for s in kept_specs:
-            if s.transform_name != "linear_residual" or s.base_column not in diff_bases:
-                collapsed.append(s)
-                continue
-            alpha = float(s.fitted_params.get("alpha", float("nan")))
-            beta = float(s.fitted_params.get("beta", 0.0))
-            # Reuse the pooled ``base_full[train_idx]`` (bit-identical float32 values)
-            # instead of re-extracting the full column then re-slicing train rows.
-            base_train = self._auto_base_pool.get(s.base_column)
-            if base_train is None:
-                base_train = _extract_column_array(df, s.base_column)[train_idx]
-            base_finite = np.isfinite(base_train)
-            std_base = float(np.std(base_train[base_finite])) if base_finite.any() else 1.0
-            if std_base < 1e-12:
-                collapsed.append(s)
-                continue
-            # Scale-invariant alpha deviation: how much linear-residual
-            # diverges from diff (which is alpha=1, beta=0) relative
-            # to the data scale.
-            alpha_dev = abs(alpha - 1.0) * std_base / std_y
-            beta_dev = abs(beta) / std_y
-            if alpha_dev < alpha_eps and beta_dev < alpha_eps:
-                collapsed_dropped.append((s.name, float(alpha_dev)))
-                continue
-            collapsed.append(s)
-        if collapsed_dropped:
-            preview = ", ".join(f"{n}(alpha_dev={d:.4f})" for n, d in collapsed_dropped[:3])
-            logger.info(
-                "[CompositeTargetDiscovery] collapsed %d " "linear_residual spec(s) into diff (alpha~1): %s",
-                len(collapsed_dropped),
-                preview,
-            )
-        kept_specs = collapsed
 
     # Phase B: tiny-model rerank. Re-rank the MI-survivors by
     # CV-RMSE on the y-scale (the actual prediction objective).
@@ -905,6 +860,18 @@ def fit(
         kept_specs = list(kept_specs) + list(_extra) if _extra else kept_specs
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "opt_in_steps_done")
+
+    # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
+    # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
+    if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
+        from ._honest_holdout import apply_honest_holdout
+
+        apply_honest_holdout(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, _honest_holdout_idx, y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "honest_holdout_rescore_done")
 
     elapsed = timer() - t0
     logger.info(

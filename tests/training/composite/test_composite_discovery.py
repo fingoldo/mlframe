@@ -319,6 +319,11 @@ class TestLeakageGuards:
             enabled=True, mi_sample_n=600,
             base_candidates=["TVT_prev"], transforms=["linear_residual"],
             eps_mi_gain=-1.0,
+            # This test pins iter_transform's full-frame param application against the spec's
+            # fitted params; the SA27 honest holdout would fit those params on a row subset (a
+            # different but correct number), so disable it to exercise the train-fit-then-apply
+            # contract on the full train set.
+            honest_holdout_frac=0.0,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
             df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"],
@@ -724,6 +729,10 @@ class TestPolarsAndEdgeCases:
             top_k_after_mi=8, eps_mi_gain=-1.0,
             screening="mi",
             top_m_after_tiny=2,  # ignored when screening='mi'
+            # Assert the FULL set of mi-only survivors; the SA27 holdout shrinks the screening
+            # rows and can drop a borderline survivor on this small fixture -- orthogonal to the
+            # "mi-only skips the tiny-rerank trim" contract under test. Disable it here.
+            honest_holdout_frac=0.0,
         )
         disc = CompositeTargetDiscovery(cfg_mi).fit(
             df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
