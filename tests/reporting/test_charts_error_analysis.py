@@ -223,6 +223,43 @@ def test_worst_k_table_ids_timestamps_and_fi(reg_clean):
     assert list(res.table["id"]) == list(res.indices)
 
 
+def test_worst_k_table_pruned_pull_matches_full_matrix():
+    """Column-pruned pull (only top_fi cols at the K worst rows) is bit-identical to densifying the full matrix.
+
+    Pins the optimization that ``worst_k_table`` no longer builds+discards the whole dense feature matrix. Includes
+    string + bool columns so the label-encoding path matches the full-matrix encoder.
+    """
+    from mlframe.reporting.charts.error_analysis import (
+        _as_float_1d, _per_row_error, _resolve_feature_matrix,
+    )
+
+    rng = np.random.default_rng(7)
+    n, cols = 3000, 25
+    data = {f"f{j}": rng.standard_normal(n) for j in range(cols - 2)}
+    data["cat"] = rng.choice(["a", "bb", "ccc"], n)
+    data["flag"] = rng.integers(0, 2, n).astype(bool)
+    X = pd.DataFrame(data)
+    names_all = list(X.columns)
+    yt = rng.standard_normal(n)
+    yp = yt + rng.standard_normal(n) * 0.4
+    fi = rng.random(len(names_all))
+
+    res = worst_k_table(X, yt, yp, task="regression", k=20, feature_importances=fi, top_fi=6)
+
+    mat, names = _resolve_feature_matrix(X, None)
+    loss = _per_row_error(_as_float_1d(yt), _as_float_1d(yp), task="regression")
+    fidx = np.flatnonzero(np.isfinite(loss))
+    score = loss[fidx]
+    nn, kk = score.size, 20
+    part = np.argpartition(score, nn - kk)[nn - kk:]
+    sel = fidx[part[np.argsort(score[part])[::-1]]]
+    fi_cols = [int(j) for j in np.argsort(np.asarray(fi, float))[::-1][:6]]
+
+    assert np.array_equal(res.indices, sel.astype(np.int64))
+    for j in fi_cols:
+        assert np.array_equal(res.table[names[j]].to_numpy(), mat[sel, j]), f"col {names[j]} diverged"
+
+
 def test_worst_k_classification_uses_loss(reg_clean):
     X, _, _ = reg_clean
     rng = np.random.default_rng(3)

@@ -38,6 +38,19 @@ logger = logging.getLogger(__name__)
 _VALID_AGGS = ("y_mean", "y_std", "count", "y_q10", "y_q90")
 
 
+def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
+    """Per-row squared euclidean distance to each anchor, (n_rows, n_anchors), via the
+    ``||x||^2 - 2 x.a + ||a||^2`` GEMM decomposition. Avoids the (n_rows, n_anchors, d) broadcast
+    cube that ``np.sum((X[:,None,:]-anchors[None,:,:])**2, axis=2)`` materialises; only the
+    (n_rows, n_anchors) result is allocated. Differs from the subtraction form by float32 reduction
+    order (~1e-5 on the downstream softmax, argmin-equivalent), selection-equivalent for these FE features."""
+    x_sq = np.einsum("ij,ij->i", X, X)[:, None]
+    a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
+    d = x_sq - 2.0 * (X @ anchors.T) + a_sq
+    np.maximum(d, 0.0, out=d)
+    return d
+
+
 def _fit_anchors(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
     """Fit K-means anchors on X. Falls back to MiniBatchKMeans for large N."""
     from sklearn.cluster import KMeans, MiniBatchKMeans
@@ -91,7 +104,7 @@ def _compute_anchor_aggregates(y_train: np.ndarray, assignments: np.ndarray, n_a
 def _score_rows_against_anchors(X: np.ndarray, anchors: np.ndarray, anchor_aggs: dict[str, np.ndarray], softmax_temp: float, n_anchors: int) -> dict[str, np.ndarray]:
     """For each row in X, compute softmax-weighted similarity to all anchors AND per-anchor target features (broadcast soft-assignment * aggregate)."""
     # Negative squared euclidean as similarity; softmax over anchors per row.
-    dists = np.sum((X[:, None, :] - anchors[None, :, :]) ** 2, axis=2)  # (n, K)
+    dists = _squared_dists(X, anchors)  # (n, K)
     logits = -dists / (softmax_temp + 1e-9)
     logits -= logits.max(axis=1, keepdims=True)  # numerical stability
     exp_l = np.exp(logits)
@@ -167,7 +180,7 @@ def compute_anchor_attention(
         Xq_std = scaler_full.transform(np.asarray(X_query, dtype=np.float32)).astype(np.float32) if standardize else np.asarray(X_query, dtype=np.float32)
         anchors = _fit_anchors(Xt_std, n_anchors=n_anchors, seed=seed)
         # Hard assignment of train rows to nearest anchor for aggregate computation.
-        train_dists = np.sum((Xt_std[:, None, :] - anchors[None, :, :]) ** 2, axis=2)
+        train_dists = _squared_dists(Xt_std, anchors)
         # Wave 21 P1: np.argmin returns 0 on all-NaN rows (numpy>=1.18),
         # silently bucketing NaN-bearing rows under anchor 0 and
         # contaminating anchor 0's per-row aggregate. Use np.nanargmin,
@@ -206,7 +219,7 @@ def compute_anchor_attention(
             X_tr_s = X_tr
             X_va_s = X_va
         anchors = _fit_anchors(X_tr_s, n_anchors=n_anchors, seed=int(seed) + fold_idx)
-        train_dists = np.sum((X_tr_s[:, None, :] - anchors[None, :, :]) ** 2, axis=2)
+        train_dists = _squared_dists(X_tr_s, anchors)
         train_assign = np.argmin(train_dists, axis=1)
         anchor_aggs = _compute_anchor_aggregates(y_tr, train_assign, n_anchors=n_anchors, aggregates=aggregate)
         scores = _score_rows_against_anchors(X_va_s, anchors, anchor_aggs, softmax_temp=softmax_temp, n_anchors=n_anchors)
