@@ -135,12 +135,14 @@ def minimax_ranking(self, score_type: str = "winning_votes"):
     ranks = []
     for model in self.models:
         if score_type == "winning_votes":
+            # The weighted "less-than" sum is identical for models_scores and the
+            # does_win LHS; compute it once instead of twice per model.
             models_scores = ((self.ranks < self.ranks.loc[model]) * self.weights).sum(
                 axis=1
             )
-            does_win = ((self.ranks < self.ranks.loc[model]) * self.weights).sum(
-                axis=1
-            ) > ((self.ranks > self.ranks.loc[model]) * self.weights).sum(axis=1)
+            does_win = models_scores > (
+                (self.ranks > self.ranks.loc[model]) * self.weights
+            ).sum(axis=1)
             models_scores *= does_win
         elif score_type == "margins":
             models_scores = ((self.ranks < self.ranks.loc[model]) * self.weights).sum(

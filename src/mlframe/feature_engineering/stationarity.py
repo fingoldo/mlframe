@@ -48,6 +48,53 @@ def _ewma_recurrence_njit(seg_f: np.ndarray, alpha: float) -> np.ndarray:
     return ewma
 
 
+@njit(cache=True)
+def _cusum_walk_njit(seg: np.ndarray, seg_mean: float, threshold: float, drift: float):
+    """Serial Page-Hinkley CUSUM walk -- bit-identical to the Python loop.
+
+    Branch-dependent state resets (pos/neg/rows_since/n_resets) make this a
+    genuinely serial recurrence; njit removes the per-row Python overhead.
+    ``seg_mean`` is precomputed by the caller via ``np.nanmean`` so the
+    reduction order matches the original Python path exactly (bit-identical).
+    """
+    m = seg.size
+    out_pos = np.zeros(m, dtype=np.float64)
+    out_neg = np.zeros(m, dtype=np.float64)
+    out_since = np.zeros(m, dtype=np.float64)
+    out_count = np.zeros(m, dtype=np.float64)
+    if m == 0:
+        return out_pos, out_neg, out_since, out_count
+
+    pos = 0.0
+    neg = 0.0
+    rows_since = 0.0
+    n_resets = 0
+    for i in range(m):
+        x = seg[i]
+        if not np.isfinite(x):
+            out_pos[i] = pos
+            out_neg[i] = neg
+            out_since[i] = rows_since
+            out_count[i] = n_resets
+            rows_since += 1.0
+            continue
+        dev = x - seg_mean
+        pos = max(0.0, pos + dev - drift)
+        neg = min(0.0, neg + dev + drift)
+        if (pos > threshold) or (neg < -threshold):
+            pos = 0.0
+            neg = 0.0
+            rows_since = 0.0
+            n_resets += 1
+        else:
+            rows_since += 1.0
+        out_pos[i] = pos
+        out_neg[i] = neg
+        out_since[i] = rows_since
+        out_count[i] = n_resets
+    return out_pos, out_neg, out_since, out_count
+
+
 def frac_diff_weights(d: float, K: int) -> np.ndarray:
     """Coefficient vector for fractional differencing at exponent ``d``.
 
@@ -354,40 +401,18 @@ def cusum_features(
     out_since = np.zeros(n, dtype=np.float64)
     out_count = np.zeros(n, dtype=np.float64)
 
+    threshold = float(threshold)
+
     def _walk(idx_seg: np.ndarray) -> None:
-        m = idx_seg.size
-        if m == 0:
+        if idx_seg.size == 0:
             return
         seg = arr[idx_seg]
         seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
-        pos = 0.0
-        neg = 0.0
-        rows_since = 0.0
-        n_resets = 0
-        for i in range(m):
-            x = seg[i]
-            if not np.isfinite(x):
-                out_pos[idx_seg[i]] = pos
-                out_neg[idx_seg[i]] = neg
-                out_since[idx_seg[i]] = rows_since
-                out_count[idx_seg[i]] = n_resets
-                rows_since += 1
-                continue
-            dev = x - seg_mean
-            pos = max(0.0, pos + dev - drift)
-            neg = min(0.0, neg + dev + drift)
-            triggered = (pos > threshold) or (neg < -threshold)
-            if triggered:
-                pos = 0.0
-                neg = 0.0
-                rows_since = 0.0
-                n_resets += 1
-            else:
-                rows_since += 1
-            out_pos[idx_seg[i]] = pos
-            out_neg[idx_seg[i]] = neg
-            out_since[idx_seg[i]] = rows_since
-            out_count[idx_seg[i]] = n_resets
+        p, ng, sc, ct = _cusum_walk_njit(seg, seg_mean, threshold, drift)
+        out_pos[idx_seg] = p
+        out_neg[idx_seg] = ng
+        out_since[idx_seg] = sc
+        out_count[idx_seg] = ct
 
     if group_ids is None:
         _walk(np.arange(n))
