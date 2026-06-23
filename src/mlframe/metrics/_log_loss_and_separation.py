@@ -164,18 +164,40 @@ def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = None) -> 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _probability_separation_score_seq(y_true: np.ndarray, y_prob: np.ndarray, class_label: int = 1, std_weight: float = 0.5) -> float:
-    """Sequential variant. Public wrapper auto-dispatches at N>=50k."""
-    idx = y_true == class_label
-    if idx.sum() == 0:
+    """Sequential variant. Public wrapper auto-dispatches at N>=50k.
+
+    iter-fused: two scalar-accumulating passes (count+sum, then centred SSE)
+    replace the previous ``idx = y_true == class_label`` boolean-mask alloc +
+    ``y_prob[idx]`` fancy-index copy (built TWICE, once for mean once for std)
+    + np.mean + np.std. The old form allocated ~3 arrays and walked the data
+    ~4 times; the fused form is zero-alloc, two passes. Mirrors the SEQ
+    structure of ``_probability_separation_score_par`` below (without prange).
+    Bench (``_benchmarks/bench_prob_separation_seq_fused.py``, py3.14/numba):
+    2.86x@n=2k, 1.18-1.46x@n=10k, 1.16-1.21x@n=49k; max|diff|=0.0 (bit-
+    identical: plain running sum vs np pairwise summation happened to agree to
+    the last ULP on the tested shapes, the contract allows ~1e-15)."""
+    n = y_true.shape[0]
+    n_in = 0
+    s = 0.0
+    for i in range(n):
+        if y_true[i] == class_label:
+            n_in += 1
+            s += y_prob[i]
+    if n_in == 0:
         return np.nan
-    res = np.mean(y_prob[idx])
-    if std_weight != 0.0:
-        addend = np.std(y_prob[idx]) * std_weight
-        if class_label == 1:
-            res = res - addend
-        else:
-            res = res + addend
-    return res
+    mean = s / n_in
+    if std_weight == 0.0:
+        return mean
+    sse = 0.0
+    for i in range(n):
+        if y_true[i] == class_label:
+            d = y_prob[i] - mean
+            sse += d * d
+    std = np.sqrt(sse / n_in)
+    addend = std * std_weight
+    if class_label == 1:
+        return mean - addend
+    return mean + addend
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)

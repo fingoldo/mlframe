@@ -348,17 +348,7 @@ def _refine_kway_coordinate_ascent(
                         card *= int(nbins[k])
                     if card > max_combined_nbins or card >= 2**31:
                         continue
-                    new_classes, _, new_nuniq = merge_vars(
-                        factors_data=factors_data,
-                        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
-                        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-                    )
-                    new_mi = compute_mi_from_classes(
-                        classes_x=new_classes, freqs_x=None,  # unused; merge_vars gives freqs but we lose it here
-                        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
-                    ) if False else None
-                    # Recompute MI using fresh freqs
-                    _, new_freqs, _ = merge_vars(
+                    new_classes, new_freqs, new_nuniq = merge_vars(
                         factors_data=factors_data,
                         vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
                         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
