@@ -57,8 +57,19 @@ def compute_shap_on_cv(
     display_labels: dict = None,
     gen_params: object = None,
     plot: bool = True,
+    shap_oof: bool = False,
 ) -> Tuple[np.ndarray]:
-    """Also computes oos Performance"""
+    """Also computes oos Performance.
+
+    ``shap_oof`` controls the SHAP-explain row set. Default ``False`` keeps the legacy contract: each fold explains the ENTIRE X under that fold's
+    model, so ``values`` is stacked per fold with shape ``(n_folds, n_rows, n_features)``. This is ~k x redundant SHAP work for a k-fold cv.
+    With ``shap_oof=True`` each fold explains only its own ``X_test`` and the results are assembled into a single out-of-fold matrix of shape
+    ``(n_rows, n_features)`` (every row explained once, by the model of the fold that held it out). Because the active explainer is built without a
+    background ``data=`` set, the SHAP value of a row is independent of the other rows passed to ``explainer(...)`` (verified bit-identical in
+    ``_benchmarks/bench_shap_oof_per_fold.py``), so the OOF matrix is the bit-identical, ~k x cheaper test-row deliverable - but it is a DIFFERENT
+    object from the legacy per-fold stack (train rows are not present), hence opt-in rather than the default. Ignored when
+    ``catboost_native_feature_importance=True`` (that path uses CatBoost's native full-X importance, which is not OOF-decomposable here).
+    """
     if display_labels is None:
         display_labels = {}
     import shap  # pylint: disable=import-outside-toplevel
@@ -67,6 +78,10 @@ def compute_shap_on_cv(
 
     values, base_values, interaction_values, interaction_base_values, predictions, expected_values = [], [], [], [], [], []
     _X = Pool(X, cat_features=model_params.get("cat_features"))
+
+    # OOF SHAP assembly (shap_oof=True): each fold contributes only its held-out test rows; we slot them back by original row position.
+    oof_shap = [None] * len(X) if shap_oof else None
+    oof_base = [None] * len(X) if shap_oof else None
 
     do_ts_oos = False
     if show_oos_metrics:
@@ -136,10 +151,18 @@ def compute_shap_on_cv(
             )  # shap.TreeExplainer(model=model_stub, data=X, model_output="probability", feature_perturbation="interventional")  #
             expected_values.append(explainer.expected_value)
             logger.info("Getting shap values...")
-            shap_values = explainer(X)
+            if shap_oof:
+                shap_values = explainer(X_test)
+                fold_vals = shap_values.values
+                fold_base = shap_values.base_values
+                for j, ridx in enumerate(test_ind):
+                    oof_shap[ridx] = fold_vals[j]
+                    oof_base[ridx] = fold_base[j] if np.ndim(fold_base) >= 1 and len(fold_base) == len(test_ind) else fold_base
+            else:
+                shap_values = explainer(X)
+                values.append(shap_values.values)
+                base_values.append(shap_values.base_values)
             logger.info("Got shap values.")
-            values.append(shap_values.values)
-            base_values.append(shap_values.base_values)
 
             # shap_interaction_values=explainer.shap_interaction_values(X)
             # interaction_values.append(shap_interaction_values.values)
@@ -178,9 +201,15 @@ def compute_shap_on_cv(
             nclasses=nclasses,
             display_labels=display_labels,
         )
+    if shap_oof and not catboost_native_feature_importance:
+        out_values = np.array(oof_shap)
+        out_base_values = np.array(oof_base)
+    else:
+        out_values = np.array(values)
+        out_base_values = np.array(base_values)
     return (
-        np.array(values),
-        np.array(base_values),
+        out_values,
+        out_base_values,
         np.array(interaction_values),
         np.array(interaction_base_values),
         np.array(predictions),
