@@ -27,6 +27,32 @@ from .info_theory import compute_mi_from_classes, merge_vars
 # that an eager import would trigger.
 
 
+@njit(cache=True)
+def _scatter_factorize_lookup(
+    factors_data: np.ndarray,
+    idx_a: int,
+    idx_b: int,
+    nbins_a: int,
+    nbins_b: int,
+    classes_pair_post: np.ndarray,
+) -> np.ndarray:
+    """Single-pass scatter of post-prune classes into the pre-prune code lookup.
+
+    Builds ``lookup[a_val + b_val * nbins_a] = post_prune_class`` for every row,
+    last-write-wins on duplicate codes -- identical to ``lookup[codes] = classes``
+    numpy fancy-index assignment (which writes in ascending row order). Avoids the
+    three length-n int64 temporaries (``vals_a``, ``vals_b``, ``pre_prune_codes``)
+    the numpy form allocated per call. Returns the int64 lookup with -1 sentinel
+    for codes never seen in the training data.
+    """
+    lookup = np.full(nbins_a * nbins_b, -1, dtype=np.int64)
+    n = factors_data.shape[0]
+    for r in range(n):
+        code = factors_data[r, idx_a] + factors_data[r, idx_b] * nbins_a
+        lookup[code] = classes_pair_post[r]
+    return lookup
+
+
 # ============================================================================
 # K-way greedy expansion
 #
@@ -358,13 +384,16 @@ def _build_factorize_lookup(
     """
     n_samples = factors_data.shape[0]
     expected_size = int(nbins_a) * int(nbins_b)
-    lookup = np.full(expected_size, -1, dtype=np.int64)
-    # Vectorised population: pre-prune code per training row.
-    vals_a = factors_data[:, idx_a].astype(np.int64)
-    vals_b = factors_data[:, idx_b].astype(np.int64)
-    pre_prune_codes = vals_a + vals_b * int(nbins_a)
-    # ``classes_pair_post`` is aligned row-for-row with the data; assign bulk via fancy indexing (later rows overwrite earlier ones for the same code, identical values).
-    lookup[pre_prune_codes] = classes_pair_post.astype(np.int64)
+    # Single-pass njit scatter (no length-n int64 temporaries). Reads the two
+    # columns directly and writes ``lookup[a + b*nbins_a] = post_prune_class`` in
+    # row order -- last-write-wins on duplicate codes, EXACTLY as the prior numpy
+    # fancy-index assignment did. Bit-identical by construction; ~4.5-16x faster
+    # at n=10k..200k (this runs ``top_k_pairs`` times per fit). Bench:
+    # _benchmarks/bench_factorize_lookup_njit_scatter.py.
+    lookup = _scatter_factorize_lookup(
+        factors_data, int(idx_a), int(idx_b), int(nbins_a), int(nbins_b),
+        classes_pair_post,
+    )
 
     seen_mask = lookup >= 0
     n_uniq_effective = int(classes_pair_post.max()) + 1 if n_samples > 0 else 0

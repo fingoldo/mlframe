@@ -219,6 +219,49 @@ if _NUMBA_AVAILABLE:
             _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma,
                         out_pm[s:e], out_pv[s:e], out_lm[s:e])
 
+    # 1-D Kalman-filter scalar recurrence. fastmath=False keeps the exact op
+    # order, so the (T,5) output is bit-identical to the Python reference (the
+    # explicit isfinite NaN predict-only branch also needs nnan OFF).
+    @_numba.njit(cache=True, fastmath=False)
+    def _kf_inner(observations, prior_traj, Q, R, initial_variance):
+        T = observations.size
+        out = np.full((T, 5), np.nan, dtype=np.float64)
+        if T == 0:
+            return out
+        if np.isfinite(observations[0]):
+            mean = observations[0]
+        else:
+            mean = 0.0
+        var = initial_variance
+        for t in range(T):
+            drift = 0.0
+            if t > 0 and np.isfinite(prior_traj[t]) and np.isfinite(prior_traj[t - 1]):
+                drift = prior_traj[t] - prior_traj[t - 1]
+            mean_pred = mean + drift
+            var_pred = var + Q
+            if np.isfinite(observations[t]):
+                innovation = observations[t] - mean_pred
+                innovation_var = var_pred + R
+                K = var_pred / (innovation_var + 1e-12)
+                mean = mean_pred + K * innovation
+                var = (1.0 - K) * var_pred
+                log_lik = -0.5 * (
+                    math.log(2.0 * math.pi * innovation_var)
+                    + (innovation * innovation) / innovation_var
+                )
+            else:
+                mean = mean_pred
+                var = var_pred
+                innovation = math.nan
+                innovation_var = math.nan
+                log_lik = math.nan
+            out[t, 0] = mean
+            out[t, 1] = var
+            out[t, 2] = innovation
+            out[t, 3] = innovation_var
+            out[t, 4] = log_lik
+        return out
+
 
 def _pf_single_segment(
     observations: np.ndarray,
@@ -445,12 +488,16 @@ def _kf_single_segment(
     log_lik) per timestep. Innovations are y_t - E[x_t | y_{1..t-1}]
     (one-step-ahead predictive residuals) -- canonical anomaly signal.
     """
+    Q = transition_sigma ** 2
+    R = observation_sigma ** 2
+    if _NUMBA_AVAILABLE:
+        # njit machine-code recurrence: ~165-290x over the Python loop,
+        # bit-identical (fastmath=False). See _benchmarks/bench_kalman_filter_njit.py.
+        return _kf_inner(observations, prior_traj, Q, R, float(initial_variance))
     T = observations.size
     out = np.full((T, 5), np.nan, dtype=np.float64)
     if T == 0:
         return out
-    Q = transition_sigma ** 2
-    R = observation_sigma ** 2
     # Init from first finite observation (or 0 if none).
     init_obs = float(observations[0]) if np.isfinite(observations[0]) else 0.0
     mean = init_obs
