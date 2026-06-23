@@ -41,6 +41,7 @@ from pyutilz.system import tqdmu, get_own_memory_usage  # lint: disable=ungroupe
 
 
 from mlframe.core.stats import get_expected_unique_random_numbers_qty, get_tukey_fences_multiplier_for_quantile
+from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Config
@@ -278,11 +279,11 @@ def _clean_cat_and_obj_columns(
         if verbose:
             logger.info("Cleaning object columns...")
         for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
-            # .map beats .apply for elementwise pure functions on object columns: it uses a
-            # cached-dict fast path for repeated values where applicable.
-            # Include "string" so pandas 2.1+ StringDtype / pyarrow-backed
-            # string columns get the clean_fcn applied too.
-            df[col] = df[col].map(obj_vars_clean_fcn)
+            # Dedup-aware elementwise map: a low-cardinality object column (countries / statuses / codes repeated
+            # over millions of rows) gets the clean_fcn applied once per UNIQUE value, then reindexed — bit-identical
+            # for a pure elementwise fcn, gated so the all-distinct case never regresses (see cleaning_helpers).
+            # Include "string" so pandas 2.1+ StringDtype / pyarrow-backed string columns get the clean_fcn too.
+            df[col] = map_elementwise_dedup(df[col], obj_vars_clean_fcn)
         collect()
 
     if cat_vars_replace:

@@ -562,5 +562,13 @@ def apply_cat_pair_cross(
     # factorize add a third hashing pass that cancels the dedup benefit. Unlike
     # the single-column count/frequency encoders (one factorize replaces the
     # per-row get for a clean ~6x), the two-column tuple key has no cheap dense
-    # factorize. Keep the per-row loop.
-    return np.array([_value_for_pair(cats_i[r], cats_j[r]) for r in range(n)], dtype=np.float64)
+    # factorize. Keep the per-row dict.get -- but iterate via ``.tolist()`` + zip:
+    # ``.tolist()`` boxes each object array to Python objects in ONE C pass, so the
+    # loop yields pre-boxed objects instead of paying a per-row numpy __getitem__
+    # boxing on ``cats_i[r]`` / ``cats_j[r]``. Bit-identical (same values, order,
+    # dict.get). bench (bench_cat_pair_cross_replay_dedup, 2026-06-23): ~1.17-1.22x
+    # across n=5k..1M, ki/kj=15/50.
+    return np.array(
+        [_value_for_pair(si, sj) for si, sj in zip(cats_i.tolist(), cats_j.tolist())],
+        dtype=np.float64,
+    )
