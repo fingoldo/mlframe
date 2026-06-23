@@ -177,6 +177,15 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # by ``g_norm``/``f_norm`` stay well-conditioned, so AᵀA is far from singular). The
     # tiny solve falls back to the exact SVD lstsq on a rank-deficient ``LinAlgError`` so a
     # degenerate operand basis is still handled bit-for-bit as before. bench: bench_als.py.
+    # GPU-RESIDENCY bench-note (iter17, 2026-06-23): warm_start_als_seed + its _als_solve stay CPU.
+    # F2 100k cProfile: warm_start_als_seed 0.497s tottime / 0.957s cum over 89 calls; _als_solve 0.325s
+    # over 623 calls -- ~1.5-3% of the 31.6s WALL. NOT resident-routable on this HW: each seed is a strictly
+    # SEQUENTIAL rank-1 ALS sweep (1 init + iters*2 = 7 dependent solves; g depends on cb, f on ca, next cb on f),
+    # so there is no batch axis -- a cupy twin would H2D a tiny (n x degree+1<=5) design and run solve(AtA, At b)
+    # on a 5x5 normal-eq system 623 separate times. The GEMM is (5x5) and the solve is 5x5: every kernel is
+    # below the GTX 1050 Ti launch+H2D crossover (the cmi/maxT residents only won by batching THOUSANDS of cols
+    # into one resident call; here the inner dim is ~4 and the sweep can't be unrolled across seeds without
+    # restructuring the whole CMA-ES warm-start driver). Already at the CPU optimum (normal-eq, 1.24-1.84x over lstsq).
     def _als_solve(A: np.ndarray, b: np.ndarray) -> np.ndarray:
         AtA = A.T @ A
         try:

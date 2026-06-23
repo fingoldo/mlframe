@@ -399,6 +399,23 @@ def _detect_fourier_freqs_for_col(
     gate. N-gated at ``n >= min_rows`` (default 800) so a small-n chance
     frequency never fires. Frequencies already in the running list (within a
     coarse-grid spacing) are skipped to avoid re-locking the same peak.
+
+    GPU-RESIDENCY bench-note (iter17, 2026-06-23): this detector and its njit sub-kernels
+    (_coarse_basis_njit, _corr_sq_reductions_njit, _power_centered_fused_par_njit) STAY CPU.
+    F2 100k cProfile: _detect_fourier_freqs_for_col 0.357s tottime / 0.938s cum over 42 calls;
+    _coarse_basis_njit 0.201s/42; _power_centered_fused_par_njit 0.233s/924; _corr_sq_reductions_njit
+    small -- the whole family is ~3-4% of the 31.6s WALL. NOT resident-routable favourably on this HW
+    for three independent reasons: (1) the detector caps + row-subsamples its working set at
+    MLFRAME_FOURIER_DETECT_MAX_N (200k) and runs on a <=66k train slice, so the operand is small;
+    (2) the body is a SEQUENTIAL deflation loop -- pick peak -> _refine_peak_freq local scan -> held-out
+    confirm -> least-squares deflate y_tr/y_va -- with host-side argmax/corr control flow each iteration,
+    so there is no single batched workload; (3) the only batchable piece (the coarse grid x n sin/cos
+    plane build) was ALREADY tried in batched-matrix form TWICE and bench-rejected (np.outer + matrix
+    sin/cos LOSES 0.5-0.7x at n>=1100; raw-SS variant NEUTRAL) -- the (<=48 x <=66k) transcendental plane's
+    alloc + bandwidth dominates, and the GPU twin would re-pay that as H2D + a tiny launch 42*max_freqs times.
+    _power_centered_fused_par_njit returns a single scalar per call (924 calls) -- a GPU twin would transfer a
+    66k vector to compute ONE float, pure overhead. All three are already at the CPU optimum (fused
+    njit(parallel) machine code, 2.45-9.2x over the numpy loop), gated below the parallel-crossover for small n.
     """
     z01 = np.asarray(z01, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
