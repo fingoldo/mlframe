@@ -921,4 +921,123 @@ def materialise_and_finalise_fe_candidates(
                     type(_vote_exc).__name__, _vote_exc,
                 )
 
+    # C2 ADDITIVE-FUSION (2026-06-24, default-ON). After the per-pair search + escalation
+    # have materialised the engineered halves and the stability vote has confirmed them,
+    # fuse two SURVIVING engineered halves with DISJOINT raw-token sets and GENUINE additive
+    # separability (the fused ``add`` MI strictly exceeds both halves) into the single
+    # ``add(half_a, half_b)`` compound via the EXISTING unary_binary + nested-parent recipe
+    # (no new recipe kind; byte-exact replay). The two now-subsumed fragments are dropped from
+    # selection + the recipe dict (the fused compound carries both their additive terms). This
+    # recovers the one-clean-compound goal on the FUSION-blocked distributions
+    # (heavy_tailed / mixed) where the halves are built cleanly but never combined. Self-gates
+    # to a no-op (byte-identical) when fewer than two relevant disjoint engineered halves are
+    # present -- the common case -- so no spurious fusion is created on other targets.
+    if (
+        engineered_recipes is not None
+        and bool(getattr(self, "fe_additive_fusion_enable", True))
+        and _newly_engineered_indices
+    ):
+        try:
+            from .._fe_additive_fusion import propose_additive_fusions
+            _eng_cont_store = getattr(self, "_engineered_continuous_", None) or {}
+            # Names of the engineered columns just materialised this step (cols-space indices
+            # -> names) that have a registered (replayable) recipe.
+            _newly_names = [
+                cols[i] for i in _newly_engineered_indices
+                if 0 <= i < len(cols) and cols[i] in engineered_recipes
+            ]
+            _raw_name_set = set(self.feature_names_in_)
+            _fused, _subsumed, _subsumed_raws = propose_additive_fusions(
+                self,
+                engineered_recipes=engineered_recipes,
+                engineered_continuous=_eng_cont_store,
+                newly_engineered_names=_newly_names,
+                raw_name_set=_raw_name_set,
+                cols=cols,
+                classes_y=classes_y,
+                X=X,
+                nbins=int(self.quantization_nbins),
+                seed=int(getattr(self, "random_seed", 0) or 0),
+                verbose=int(verbose),
+            )
+            if _fused:
+                # Materialise each fused compound exactly like an escalation survivor.
+                if not _is_polars_input and hasattr(X, "columns"):
+                    X = X.copy()
+                _fz_codes = np.empty(shape=(len(X), len(_fused)), dtype=self.quantization_dtype)
+                for _jf, _fc in enumerate(_fused):
+                    _fz_codes[:, _jf] = discretize_array(
+                        arr=np.asarray(_fc["values"], dtype=np.float64),
+                        n_bins=self.quantization_nbins,
+                        method=self.quantization_method,
+                        dtype=self.quantization_dtype,
+                    )
+                _n_cols_before_fz = len(cols)
+                data = np.append(data, _fz_codes, axis=1)
+                nbins = np.concatenate([
+                    np.asarray(nbins),
+                    np.asarray([self.quantization_nbins] * len(_fused), dtype=np.asarray(nbins).dtype),
+                ])
+                cols = cols + [_fc["name"] for _fc in _fused]
+                _fused_indices = list(range(_n_cols_before_fz, len(cols)))
+                n_recommended_features += len(_fused)
+                if _is_polars_input:
+                    X = X.with_columns([
+                        pl.Series(_fc["name"], _fz_codes[:, _jf])
+                        for _jf, _fc in enumerate(_fused)
+                    ])
+                for _jf, _fc in enumerate(_fused):
+                    if not _is_polars_input:
+                        X[_fc["name"]] = _fz_codes[:, _jf]
+                    _eng_cont_store[_fc["name"]] = np.asarray(_fc["values"], dtype=np.float64)
+                    engineered_recipes[_fc["name"]] = _fc["recipe"]
+                self._engineered_continuous_ = _eng_cont_store
+                # Promote the fused compounds into selection and DROP the subsumed fragments
+                # (by cols-space index) from selected_vars + the recipe dict so neither
+                # support_ nor _engineered_recipes_ keeps a now-redundant fragment.
+                _drop_names = set(_subsumed) | set(_subsumed_raws)
+                _subsumed_idx = {
+                    i for i in selected_vars
+                    if 0 <= i < len(cols) and cols[i] in _drop_names
+                }
+                _sv = [i for i in selected_vars if i not in _subsumed_idx]
+                _sv_set = set(_sv)
+                selected_vars = _sv + [i for i in _fused_indices if i not in _sv_set]
+                for _sn in _subsumed:
+                    engineered_recipes.pop(_sn, None)
+                # Record the subsumed-fragment names so the fit-end selection finaliser
+                # strips them (they stay in cols/data and could otherwise be re-admitted by
+                # a downstream marginal-MI screen with no recipe -> select-then-drop skew).
+                _fz_dropped = getattr(self, "_fe_stability_vote_dropped_", None)
+                if _fz_dropped is None:
+                    _fz_dropped = set()
+                    self._fe_stability_vote_dropped_ = _fz_dropped
+                _fz_dropped.update(str(_sn) for _sn in _subsumed)
+                # Register the fused-out RAW operands as redundancy-dropped so the
+                # downstream raw-retention / rescue / augmentation passes
+                # (``_prefe_screened_raw_`` re-add, never-empty rescue) do NOT resurrect a
+                # raw the fused compound now fully subsumes -- the SAME contract the
+                # ``drop_redundant_raw_operands`` sweep relies on via ``_raw_redundancy_dropped_``.
+                if _subsumed_raws:
+                    _rrd = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
+                    _rrd.update(str(_rn) for _rn in _subsumed_raws)
+                    self._raw_redundancy_dropped_ = _rrd
+                    # AUTHORITATIVE FUSED-SUBSUMED RAW SET (2026-06-24): the raws the fused
+                    # compound verifiably captures (the keep-probe said no independent
+                    # residual). The fit-end support finaliser strips these unconditionally --
+                    # the downstream retention / rescue / emit-both-reattach passes evaluate a
+                    # raw against the CLEAN nested sub-expression (which, on a CORRUPTED a/b
+                    # half like ``div(neg(b),a__p2sin1)``, does NOT capture the raw and so
+                    # KEEPS it), but the FUSED compound DOES capture it -- so this set carries
+                    # the stronger (whole-compound) verdict the general sweep cannot reach once
+                    # the raw is re-attached as an operand of the surviving compound.
+                    _fsr = set(getattr(self, "_fused_subsumed_raws_", None) or set())
+                    _fsr.update(str(_rn) for _rn in _subsumed_raws)
+                    self._fused_subsumed_raws_ = _fsr
+        except Exception:
+            logger.warning(
+                "MRMR FE additive-fusion failed; continuing with the un-fused engineered survivors.",
+                exc_info=True,
+            )
+
     return prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features

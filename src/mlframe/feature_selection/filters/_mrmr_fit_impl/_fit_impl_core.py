@@ -7163,11 +7163,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 return True  # significance unavailable -> permissive re-add
 
         _sv_set = set(selected_vars)
+        # C2 ADDITIVE-FUSION EXCLUSION (2026-06-24): a raw operand the FE step's
+        # additive-fusion proposer judged FULLY subsumed by the fused ``add(...)`` compound
+        # (recorded in ``_raw_redundancy_dropped_`` via the production keep-probe) must NOT
+        # be resurrected here -- the fused compound carries its additive term, so re-adding
+        # it would re-inject a redundant single-group fragment beside the clean compound
+        # (the FUSION-blocked goal's leftover raw). The fusion ran the same n-invariant
+        # conditional-excess verdict ``drop_redundant_raw_operands`` uses, so this is the
+        # authoritative drop. Byte-identical when no fusion fired (the set is empty).
+        _fused_dropped_raw = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
         _readd = []
         _dropped_redundant = []
         _dropped_insignificant = []
         for _rn in _prefe_raw:
             if _rn in _cur_names or _rn in _substituted:
+                continue
+            if _rn in _fused_dropped_raw:
+                _dropped_redundant.append(_rn)
                 continue
             try:
                 _idx = cols.index(_rn)
@@ -8379,8 +8391,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _subsumed_operand_names = set(_ne_dropped or ())
             except Exception:
                 _subsumed_operand_names = set()  # best-effort: fall back to MI-only pick
+            # C2 ADDITIVE-FUSION EXCLUSION (2026-06-24): never re-attach a raw operand the
+            # FE additive-fusion proposer already judged subsumed by the fused ``add(...)``
+            # compound (``_raw_redundancy_dropped_``). The fused compound carries its additive
+            # term, so resurrecting it as the never-empty stand-in re-injects the redundant
+            # single-group fragment the fusion removed (the FUSION-blocked goal's leftover raw).
+            _fused_dropped_ne = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
             _eligible_idxs = [
-                _oi for _oi in _operand_idxs if cols[_oi] not in _subsumed_operand_names
+                _oi for _oi in _operand_idxs
+                if cols[_oi] not in _subsumed_operand_names
+                and cols[_oi] not in _fused_dropped_ne
             ]
             if _eligible_idxs:
                 _tgt_ne = np.asarray(target_indices, dtype=np.int64)
@@ -8721,6 +8741,44 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _eb_exc:
             if verbose:
                 logger.info("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
+
+    # C2 ADDITIVE-FUSION FINAL RAW STRIP (2026-06-24). Raw operands the FE additive-fusion
+    # proposer verified the fused ``add(...)`` compound fully captures (``_fused_subsumed_raws_``,
+    # set via the production keep-probe against the WHOLE compound) must not survive in the raw
+    # support, no matter which downstream retention / rescue / re-attach pass re-added them: those
+    # passes condition a raw on the CLEAN nested sub-expression, which on a corrupted a/b half does
+    # NOT capture the raw and so KEEPS it, whereas the fused compound DOES -- this strip applies the
+    # stronger whole-compound verdict. Only strips when the fused compound itself survives as a
+    # recipe (so the additive term it carries is actually present); byte-identical (empty set) when
+    # no fusion fired.
+    _fused_subsumed = set(getattr(self, "_fused_subsumed_raws_", None) or set())
+    if _fused_subsumed and getattr(self, "_engineered_recipes_", None):
+        _surv_eng = {getattr(_r, "name", None) for _r in (self._engineered_recipes_ or [])}
+        # Only strip a raw when a SURVIVING engineered compound actually references it (carries its
+        # additive term) -- otherwise leave it (the fusion that subsumed it did not survive).
+        import re as _re_fsr
+        _fsr_tok = _re_fsr.compile(r"[^A-Za-z0-9_]+")
+        _covered: set = set()
+        for _en in _surv_eng:
+            for _t in _fsr_tok.split(str(_en) or ""):
+                if not _t:
+                    continue
+                _base = _t if _t in set(self.feature_names_in_) else (
+                    _t.split("__", 1)[0] if "__" in _t and _t.split("__", 1)[0] in set(self.feature_names_in_) else None)
+                if _base is not None:
+                    _covered.add(_base)
+        _strip = _fused_subsumed & _covered
+        if _strip:
+            selected_vars = [
+                v for v in selected_vars
+                if not (0 <= int(v) < len(self.feature_names_in_)
+                        and self.feature_names_in_[int(v)] in _strip)
+            ]
+            if verbose:
+                logger.info(
+                    "MRMR C2 additive-fusion: stripped %d raw operand(s) the fused compound fully "
+                    "captures from the final raw support: %s", len(_strip), sorted(_strip),
+                )
 
     self.support_ = np.array(selected_vars, dtype=np.int64)
 

@@ -34,24 +34,31 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 # r = y - E_hat[y|selected]) is the WRONG tool for both -- the ridge residual is a/b-shaped, so retarget
 # re-chases the dominant half. uniform passes because Var(a**2/b) ~= Var(c*d) there, so both halves are
 # constructed AND the nested-parent pair search fuses them into one add(...).
-#   * FUSION-BLOCKED (heavy_tailed, mixed): the weak mul(log(c),sin(d)) half IS already constructed cleanly;
-#     the failure is non-fusion -- raw/a-b fragments survive and the two halves never combine into the single
-#     add(...). Fixable by C2 additive-fusion (reuse unary_binary + nested_parent_a/b with binary_name="add";
-#     byte-exact replay, no new recipe kind) so the fused candidate wins re-selection and the conditional-
-#     redundancy sweep drops the fragments.
+#   * FUSION-BLOCKED (heavy_tailed): BOTH halves ARE constructed as engineered features (the weak
+#     mul(log(c),sin(d)) AND an a/b-group half div(neg(b),a__p2sin1)) but never combined. FIXED 2026-06-24
+#     by C2 additive-fusion (_fe_additive_fusion.propose_additive_fusions): two surviving engineered
+#     halves with DISJOINT raw-token sets whose add(...) MI clears the stronger half's marginal-perm floor
+#     are fused via the existing unary_binary + nested_parent_a/b recipe (binary_name="add"; byte-exact
+#     replay, no new recipe kind); the fused compound wins re-selection and the now-subsumed fragments
+#     (engineered + their raw operands) are dropped. heavy_tailed now recovers the single compound.
+#   * CONSTRUCTION-BLOCKED (mixed): only the c/d half mul(log(c),sin(d)) is built as an engineered feature;
+#     the a/b half a**2/b is NEVER constructed (it stays as raw a + raw b), so there is NO second engineered
+#     half for C2 to fuse with. This is an upstream CONSTRUCTION miss, not a fusion miss -- C2 cannot help
+#     without first building the a/b half (fusing the c/d half with raw a would drop the **2/b and leave
+#     raw b as a fragment). Stays xfail pending the a/b-half construction fix.
 #   * DOMINANT-CAPTURE-BLOCKED (scaled_1_5, with_outliers): the dominant a/b half is captured corrupted and
 #     log(c) is DROPPED (-> cbrt(d)/sin(d)); there is no clean c/d half to fuse. Blocker lives upstream in the
 #     pair-search leader/tie-break + linear-usability guard (_step_core.py ~486-498), a research-grade FE-quality
 #     fix that must not regress the canonical test_biz_value_mrmr_fe_canonical (same signal, strong config,
 #     currently recovered perfectly). Must precede C2; C2 alone gets at most 2/4.
 # (Two no-ship iterations are documented in the work plan; the strict xfails stay until a fix lands all 4.)
-_XFAIL_FUSION = "GOAL: weak log(c)*sin(d) half constructed but NOT fused into one add(...) -- needs C2 additive-fusion"
+_XFAIL_CONSTRUCT = "GOAL: a/b half a**2/b NEVER constructed as an engineered feature (stays raw a+b) -- no second engineered half for C2 to fuse; needs upstream a/b-half construction fix"
 _XFAIL_CAPTURE = "GOAL: dominant a/b half corrupted under variance imbalance (log(c) dropped) -- needs upstream dominant-capture fix before C2"
 _PROFILES = [
     "uniform",
     pytest.param("scaled_1_5", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
-    pytest.param("heavy_tailed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_FUSION)),
-    pytest.param("mixed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_FUSION)),
+    "heavy_tailed",  # FIXED 2026-06-24 by C2 additive-fusion (both engineered halves built but unfused).
+    pytest.param("mixed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CONSTRUCT)),
     pytest.param("with_outliers", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
 ]
 
