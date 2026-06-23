@@ -20,10 +20,55 @@ from __future__ import annotations
 
 import numpy as np
 
-# Candidate threads/block to sweep. Powers + 768 spanning the GTX 1050 Ti measured curve; a higher-VRAM /
-# higher-SM card can learn a different point. 512 = the historical hardcoded default (and the fallback).
-_RADIX_THREADS_VARIANTS = [256, 512, 768, 1024]
-_RADIX_THREADS_DEFAULT = 512
+# Candidate threads/block to sweep. HW-AWARE (2026-06-23): instead of fixed magic constants the candidate
+# SET is now derived from the device occupancy (warp-multiple block sizes that achieve >=2 active blocks/SM
+# for THIS kernel's register + shared usage, see _gpu_hw_launch.occupancy_block_candidates) so a different
+# card sweeps its own HW-valid points. The seed list below (powers + 768, spanning the GTX 1050 Ti measured
+# curve) is intersected with / falls back to the derived set; 512 = the historical hardcoded default + the
+# pre-sweep / no-cupy / lookup-failure fallback. Block size NEVER changes the order statistics (sum-reduction
+# over the same column values) -> edges/codes/MI/selection bit-identical for every thread count.
+_RADIX_THREADS_SEED = [256, 512, 768, 1024]
+_RADIX_THREADS_DEFAULT = 512  # historical hardcoded default + pre-sweep / no-cupy / lookup-failure fallback
+# Worst-case dynamic shared the radix histogram uses (R<=40 active -> the host gates R*256*4 > device limit
+# off; R=38 is the canonical F2 R -> 38*256*4 ~= 38KB). Used only to bound the OCCUPANCY candidate set.
+_RADIX_DYN_SMEM_PROBE = 38 * 256 * 4
+
+
+def _radix_threads_variants() -> list:
+    """HW-occupancy-bounded threads/block candidates to sweep. Intersects the seed list with the warp-multiple
+    block sizes that hit >=2 active blocks/SM for the radix kernel's register/shared footprint on THIS device
+    (so the sweep ranges over HW-valid, occupancy-sane options that port to other cards). Falls back to the
+    raw seed list when no HW info / occupancy info is available (cupy missing) so behavior is unchanged there.
+    Always includes the default 512 so the reference variant exists."""
+    seed = list(_RADIX_THREADS_SEED)
+    try:
+        from ._gpu_hw_launch import device_props, occupancy_block_candidates
+        from ._gpu_resident_select import _get_radix_select_kernel
+
+        if not device_props():
+            return seed
+        ker = _get_radix_select_kernel(True)
+        valid = set(occupancy_block_candidates(
+            regs_per_thread=int(getattr(ker, "num_regs", 32)) or 32,
+            static_smem=int(getattr(ker, "shared_size_bytes", 0)) or 0,
+            dyn_smem=_RADIX_DYN_SMEM_PROBE, min_active_blocks=2,
+        ))
+        if not valid:
+            return seed
+        cands = sorted(v for v in seed if v in valid)
+        if _RADIX_THREADS_DEFAULT not in cands and _RADIX_THREADS_DEFAULT in valid:
+            cands.append(_RADIX_THREADS_DEFAULT)
+        # Add the device's occupancy-max block (largest warp-multiple still >=2 blocks/SM) if not present --
+        # the seed list may not contain this card's sweet spot. Keeps the sweep small but HW-spanning.
+        top = max(valid)
+        if top not in cands:
+            cands.append(top)
+        return sorted(set(cands)) or seed
+    except Exception:
+        return seed
+
+
+_RADIX_THREADS_VARIANTS = _radix_threads_variants()
 _RADIX_THREADS_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000, 1_000_000]
 _RADIX_THREADS_SALT = 1
 
