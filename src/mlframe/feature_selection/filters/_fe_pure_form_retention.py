@@ -62,7 +62,19 @@ def retain_usable_pure_forms(
     Gated and best-effort: any failure (no continuous target, degenerate pool, non-numeric frame)
     returns ``[]`` and never disturbs the fit. ``max_added`` caps the blast radius; ``w`` leans the
     usability pre-rank toward linear usability; the COMMIT decision is always the CV-MAE improvement
-    inside :func:`usability_greedy`."""
+    inside :func:`usability_greedy`.
+
+    bench-attempt-rejected (FE-wall /loop, 2026-06-22): F2 100k warm-fit cProfile (cprof seed=7) attributes
+    this function 4.72s cumtime, of which 4.56s is ``build_usability_candidate_pool`` (the pair pool +
+    replay-verify), 0.31s ``_adds_nonlinear_value`` (per-candidate sklearn residual fit), 0.06s
+    ``usability_greedy``. The pool itself is dominated by ALREADY-njit'd parallel kernels
+    (``_pair_combo_mi_njit_table_parallel`` ~1.0s, ``_combine_factorize_njit`` ~0.87s) plus first-touch
+    numba JIT compilation in the replay-verify path -- no Python-loop / O(n^2) hotspot remains here. The only
+    measurable Python overheads are below the 0.5% ship floor on this SELECTION-CRITICAL stage and were NOT
+    shipped: registry rebuilds (``create_unary/binary_transformations`` total 0.06s/fit across 69 calls --
+    dispatchers already process-cached via ``_NJIT_DISPATCHER_CACHE``, so lru_cache-by-preset saves only the
+    dict churn), and the double quantile-bin of the ~5 base columns when ``rank_pairs_by_joint_mi=True``
+    (~1.5ms/fit). Next wall lever is the kernel/JIT itself, not this CPU glue."""
     if y_cont is None:
         return []
     try:

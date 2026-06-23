@@ -131,7 +131,17 @@ def build_usability_candidate_pool(
     ~100s on a structured fit) is wasted on a pair with NO joint signal. When True, rank pairs by ONE cheap
     binned JOINT MI per pair and keep only the top ``max_pairs`` -- joint MI SURFACES low-marginal synergy
     pairs (XOR/ratio) the marginal-sum rank buries, so a SMALL ``max_pairs`` recovers them while the noise
-    pairs (lower joint MI) drop out. One MI eval/pair instead of |unary|^2*|binary|."""
+    pairs (lower joint MI) drop out. One MI eval/pair instead of |unary|^2*|binary|.
+
+    bench-attempt-rejected (FE-wall /loop, 2026-06-22): this is the wall core of BOTH retention passes
+    (4.37s cumtime over 2 calls in the F2 100k warm fit). Profiled top-down, the residual time is in the
+    already-njit'd parallel MI kernels (``score_pair_combos`` -> ``_pair_combo_mi_njit_table_parallel`` ~1.0s;
+    ``_binned_mi`` -> ``_combine_factorize_njit`` ~0.87s) plus first-touch numba JIT compilation of the
+    binary/unary dispatchers during the per-combo replay-verify (``apply_recipe``). The Python scaffolding
+    here (the lazy-recompute combo loop, the diversity ``_abscorr`` filter, the ``_combo_replay_ok`` cache)
+    is already minimal -- ~17k list-appends but <0.05s. No safe pure-overhead/vectorization win was found
+    above the 0.5% ship floor that preserves the byte-identical retain/drop on this selection-critical path;
+    the next real lever is the MI kernel / a JIT-warmth pre-touch, not this CPU dispatch glue."""
     import pandas as pd
     from .feature_engineering import create_unary_transformations, create_binary_transformations
     from .engineered_recipes import build_unary_binary_recipe, apply_recipe
