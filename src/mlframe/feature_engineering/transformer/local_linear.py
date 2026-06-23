@@ -79,28 +79,66 @@ def compute_local_linear_attention(
     out_for_query = X_query is not None
 
     def _fit_and_extract(X_anchor: np.ndarray, X_neighbour_pool: np.ndarray, y_neighbour_pool: np.ndarray) -> np.ndarray:
-        """For each anchor row, find k nearest in neighbour_pool, fit ridge, return [intercept, slopes, r2?]."""
+        """For each anchor row, find k nearest in neighbour_pool, fit ridge, return [intercept, slopes, r2?].
+
+        The ridge fit is a single BATCHED centred normal-equations solve over all anchor rows
+        (``(N,k,d)`` neighbour blocks -> one ``np.linalg.solve`` batch), not a per-row ``sklearn.Ridge``
+        object. Identical to ``Ridge(alpha, fit_intercept=True)`` up to float32 reduction order (~1e-6,
+        i.e. float32 ULP on the cast outputs); 18-70x faster on production shapes (see
+        ``_benchmarks/bench_local_linear_batched_ridge.py``). Rows whose normal matrix is singular fall
+        back to a per-row ``sklearn.Ridge`` solve so degenerate neighbourhoods keep the exact path.
+        """
         n_anchor = X_anchor.shape[0]
         out = np.zeros((n_anchor, n_out_cols), dtype=dtype)
         # Build ANN index over the neighbour pool.
         index = build_hnsw_index(X_neighbour_pool, space="cosine", M=16, ef_construction=100, num_threads=None)
         topk_ids, _ = query_topk(index, X_anchor, k=k)
-        for q in range(n_anchor):
-            ids = topk_ids[q]
-            Xn = X_neighbour_pool[ids]
-            yn = y_neighbour_pool[ids]
+        Xn_all = X_neighbour_pool[topk_ids].astype(np.float64, copy=False)   # (N, k, d)
+        yn_all = y_neighbour_pool[topk_ids].astype(np.float64, copy=False)   # (N, k)
+        Xm = Xn_all.mean(axis=1)                                             # (N, d)
+        ym = yn_all.mean(axis=1)                                             # (N,)
+        Xc = Xn_all - Xm[:, None, :]
+        yc = yn_all - ym[:, None]
+        A = np.einsum("nki,nkj->nij", Xc, Xc)                               # (N, d, d)
+        A[:, np.arange(d), np.arange(d)] += ridge_alpha
+        b = np.einsum("nki,nk->ni", Xc, yc)                                # (N, d)
+        try:
+            beta = np.linalg.solve(A, b[:, :, None])[:, :, 0]              # (N, d)
+            singular = ~np.all(np.isfinite(beta), axis=1)
+        except np.linalg.LinAlgError:
+            # At least one matrix is exactly singular: solve per-row, flag the failures for fallback.
+            beta = np.zeros((n_anchor, d), dtype=np.float64)
+            singular = np.zeros(n_anchor, dtype=bool)
+            for q in range(n_anchor):
+                try:
+                    beta[q] = np.linalg.solve(A[q], b[q])
+                except np.linalg.LinAlgError:
+                    singular[q] = True
+        intercept = ym - np.einsum("ni,ni->n", Xm, beta)
+        out[:, 0] = intercept.astype(dtype, copy=False)
+        out[:, 1 : 1 + d] = beta.astype(dtype, copy=False)
+        if return_r2:
+            pred = np.einsum("nki,ni->nk", Xn_all, beta) + intercept[:, None]
+            ss_res = np.sum((yn_all - pred) ** 2, axis=1)
+            ss_tot = np.sum((yn_all - ym[:, None]) ** 2, axis=1)
+            out[:, 1 + d] = (1.0 - ss_res / np.maximum(ss_tot, 1e-12)).astype(dtype, copy=False)
+        # Exact per-row fallback for any singular neighbourhood (matches the original behaviour).
+        for q in np.nonzero(singular)[0]:
+            out[q, :] = 0.0
+            Xn = X_neighbour_pool[topk_ids[q]]
+            yn = y_neighbour_pool[topk_ids[q]]
             model = Ridge(alpha=ridge_alpha, fit_intercept=True)
             try:
                 model.fit(Xn, yn)
                 out[q, 0] = model.intercept_
                 out[q, 1 : 1 + d] = model.coef_
                 if return_r2:
-                    pred = model.predict(Xn)
-                    ss_res = float(np.sum((yn - pred) ** 2))
-                    ss_tot = float(np.sum((yn - yn.mean()) ** 2))
-                    out[q, 1 + d] = 1.0 - ss_res / max(ss_tot, 1e-12)
+                    pred_q = model.predict(Xn)
+                    ss_res_q = float(np.sum((yn - pred_q) ** 2))
+                    ss_tot_q = float(np.sum((yn - yn.mean()) ** 2))
+                    out[q, 1 + d] = 1.0 - ss_res_q / max(ss_tot_q, 1e-12)
             except Exception as exc:  # pragma: no cover - degenerate fits
-                logger.info("local_linear: fit failed on row %d (%s); leaving zeros", q, exc)
+                logger.info("local_linear: fit failed on row %d (%s); leaving zeros", int(q), exc)
         return out
 
     if not out_for_query:

@@ -70,13 +70,21 @@ def conditional_permutation_test(
     strata: dict[int, list] = {}
     for idx, zv in enumerate(z):
         strata.setdefault(int(zv), []).append(idx)
+    # Materialise the per-stratum index arrays ONCE (constant across permutations)
+    # and drop singleton strata up front: pre-fix this rebuilt each ``arr`` from a
+    # Python list via ``np.asarray`` on EVERY permutation (B * n_strata calls --
+    # ~48% of wall at B=200), all redundant work. Bit-identical: ``rng.permutation``
+    # sees the SAME int64 arrays in the SAME dict-iteration order, so the RNG draw
+    # sequence and the resulting permutations are unchanged.
+    stratum_arrs = [
+        np.asarray(idx_list, dtype=np.int64)
+        for idx_list in strata.values()
+        if len(idx_list) > 1
+    ]
     null_dist = np.empty(int(n_permutations), dtype=np.float64)
     for p in range(int(n_permutations)):
         x_perm = x.copy()
-        for zv, idx_list in strata.items():
-            if len(idx_list) <= 1:
-                continue
-            arr = np.asarray(idx_list, dtype=np.int64)
+        for arr in stratum_arrs:
             shuffled = rng.permutation(arr)
             x_perm[arr] = x[shuffled]
         null_dist[p] = float(statistic_fn(x_perm, y, z))
