@@ -21,12 +21,34 @@ from __future__ import annotations
 import logging
 from typing import Optional, Union
 
+import numba
 import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
+
+
+@numba.njit(parallel=True, cache=True, fastmath=False)
+def _pcrff_fused_njit(X_std: np.ndarray, W: np.ndarray, b: np.ndarray, scale: np.float32) -> np.ndarray:  # pragma: no cover
+    """Fused per-column RFF: compute each angle once and write scale*cos / scale*sin straight into
+    the interleaved output, with no (n, d_input, m) ``angles``/``cos_part``/``sin_part`` temporaries
+    and no Python per-column copy loop. Output layout matches the prior numpy path exactly
+    (per column j: cos features [0..m), then sin features [m..2m)).
+    """
+    n, d_input = X_std.shape
+    m = W.shape[1]
+    out = np.empty((n, d_input * 2 * m), dtype=np.float32)
+    for r in numba.prange(n):
+        for j in range(d_input):
+            base = j * 2 * m
+            xj = X_std[r, j]
+            for i in range(m):
+                a = xj * W[j, i] + b[j, i]
+                out[r, base + i] = scale * np.cos(a)
+                out[r, base + m + i] = scale * np.sin(a)
+    return out
 
 
 def compute_per_column_rff(
@@ -75,20 +97,22 @@ def compute_per_column_rff(
     W = (rng.standard_normal((d_input, m)) / sigma_scale).astype(dtype, copy=False)  # (d_input, m)
     b = (rng.uniform(0, 2.0 * np.pi, size=(d_input, m))).astype(dtype, copy=False)   # (d_input, m)
 
-    # For each column j, compute x_j * W_j (broadcasting): shape (n, m) per column.
-    # Stack across columns: (n, d_input, m). Vectorise as einsum.
-    # angles[n, j, i] = X_std[n, j] * W[j, i] + b[j, i]
-    angles = X_std[:, :, None] * W[None, :, :] + b[None, :, :]   # (n, d_input, m)
-    scale = float(np.sqrt(1.0 / m))
-    cos_part = (scale * np.cos(angles)).astype(dtype, copy=False)
-    sin_part = (scale * np.sin(angles)).astype(dtype, copy=False)
-
-    # Flatten: (n, d_input * 2 * m). Order: column j cos features [0..m-1], then sin features [m..2m-1], then j+1, ...
-    # This is friendly for downstream feature-importance plots (consecutive features belong to the same input column).
-    out = np.empty((n, d_input * 2 * m), dtype=dtype)
-    for j in range(d_input):
-        out[:, j * 2 * m : j * 2 * m + m] = cos_part[:, j, :]
-        out[:, j * 2 * m + m : (j + 1) * 2 * m] = sin_part[:, j, :]
+    # Fused per-column RFF kernel: angle = x_j * W[j,i] + b[j,i] computed once per element and
+    # written straight into the interleaved output (per column j: cos [0..m), then sin [m..2m)).
+    # Replaces the prior path that materialised three full (n, d_input, m) temporaries
+    # (angles / cos_part / sin_part) plus a Python per-column copy loop: ~2.3-6.8x faster across
+    # n in {2k..500k} (bench_per_column_rff_fused_njit.py). The np.cos/np.sin float32 result is a
+    # single-ULP (~3e-8) off the prior numpy float32 ufunc — selection-equivalent for downstream
+    # boostings, not bit-identical (see that bench + test_per_column_rff_fused_njit_selection).
+    scale = np.float32(np.sqrt(1.0 / m))
+    out = _pcrff_fused_njit(
+        np.ascontiguousarray(X_std, dtype=np.float32),
+        np.ascontiguousarray(W, dtype=np.float32),
+        np.ascontiguousarray(b, dtype=np.float32),
+        scale,
+    )
+    if dtype != np.float32:
+        out = out.astype(dtype, copy=False)
 
     # Column names: per-input-column cos / sin pairs.
     names: list[str] = []

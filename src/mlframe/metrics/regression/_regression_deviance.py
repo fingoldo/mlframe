@@ -89,6 +89,12 @@ def _tweedie_deviance_general_kernel(
     used = 0
     invalid = 0
     p = power
+    # yp**(2-p) == yp**(1-p) * yp, so one variable-exponent pow (an exp(log) under the hood) is dropped per row; the per-call constant factors are hoisted out of the loop too.
+    e1 = 1.0 - p
+    e2 = 2.0 - p
+    c_y = 1.0 / (e1 * e2)
+    c_yp = 1.0 / e1
+    c_p = 1.0 / e2
     for i in range(y_true.shape[0]):
         yt = y_true[i]
         yp = y_pred[i]
@@ -100,9 +106,10 @@ def _tweedie_deviance_general_kernel(
             term_y = 0.0  # 0^(2-p) for 1<p<2: power > 0 -> 0; for p>2: power <0 -> inf, but
                           # sklearn special-cases this to 0 (sup-zero discontinuity).
         else:
-            term_y = (yt ** (2.0 - p)) / ((1.0 - p) * (2.0 - p))
-        term_yp = yt * (yp ** (1.0 - p)) / (1.0 - p)
-        term_p = (yp ** (2.0 - p)) / (2.0 - p)
+            term_y = (yt ** e2) * c_y
+        yp_pow1 = yp ** e1
+        term_yp = yt * yp_pow1 * c_yp
+        term_p = (yp_pow1 * yp) * c_p
         s += 2.0 * (term_y - term_yp + term_p)
         used += 1
     return (s / used) if used > 0 else np.nan, invalid
