@@ -263,13 +263,33 @@ def pooled_permutation_null_gain_floor(
         y_perms[k] = y_perm
     scaled_flat = np.concatenate(scaled_codes).astype(_fdr_dt)
     offsets = np.arange(n_cand + 1, dtype=np.int64) * n  # int64: true flat indices, can exceed 2^31
-    maxes = _pooled_gain_floor_perms_njit(
-        scaled_flat, offsets,
-        np.asarray(joint_card, dtype=np.int64),
-        np.asarray(h_x, dtype=np.float64),
-        np.asarray(mm_bias, dtype=np.float64),
-        float(h_y), y_perms, float(inv_n),
-    )
+    _jc = np.asarray(joint_card, dtype=np.int64)
+    _hx = np.asarray(h_x, dtype=np.float64)
+    _mm = np.asarray(mm_bias, dtype=np.float64)
+
+    # RESIDENT-GPU CROSSOVER (iter16, 2026-06-23): the per-shuffle MAX corrected MI over the pool is a
+    # (nperm x n_cand x n) histogram+MI loop -- ONE batched workload (no per-pair launches, the iter13 trap).
+    # Route it to the resident cupy twin ONLY where a per-host KTC sweep MEASURED it faster than this njit
+    # kernel (wide pools p>=64 and/or large n on a capable card); the narrow tabular floor stays on CPU where
+    # the njit is already sub-second. Selection-equivalent (per-cell entropy differs only in FP reduction
+    # order ~1e-15; the host owns the final np.quantile). Any cupy/device error falls back to njit -- the
+    # floor is NEVER broken by a GPU problem (correctness first).
+    maxes = None
+    try:
+        from ._permutation_null_resident_ktc import permnull_use_resident
+        if permnull_use_resident(n, n_cand, nperm):
+            from ._gpu_policy import gpu_globally_disabled
+            if not gpu_globally_disabled():
+                from ._permutation_null_resident import pooled_gain_floor_perms_cupy
+                maxes = pooled_gain_floor_perms_cupy(
+                    scaled_flat, offsets, _jc, _hx, _mm, float(h_y), y_perms, float(inv_n),
+                )
+    except Exception:
+        maxes = None  # fall through to the exact njit kernel
+    if maxes is None:
+        maxes = _pooled_gain_floor_perms_njit(
+            scaled_flat, offsets, _jc, _hx, _mm, float(h_y), y_perms, float(inv_n),
+        )
 
     return float(np.quantile(maxes, float(quantile)))
 

@@ -1,0 +1,105 @@
+"""Resident-GPU twin of the maxT permutation-null pooled gain floor (iter16, 2026-06-23).
+
+``_permutation_null._pooled_gain_floor_perms_njit`` is a ``(nperm x ncand x n)`` histogram-MI loop: for
+every target shuffle and every candidate it rebuilds the joint H(x, y_perm) contingency table and tracks
+the per-shuffle MAX corrected marginal MI over the pool. The X-codes, the per-candidate marginal entropy
+``h_x`` and the Miller-Madow bias are permutation-INVARIANT (precomputed once on host, cheap); only the
+joint entropy changes per shuffle. This is the textbook resident pattern -- ONE batched workload, no
+per-pair launches (the trap that sank iter13's per-pair ``score_pair_combos``): upload the invariant
+operands ONCE, run the whole (perm x cand) histogram + MI + per-shuffle-max reduction on the device, and
+D2H only the (nperm,) per-shuffle maxes.
+
+GATE: engages only where a per-host KTC crossover (``_permutation_null_resident_ktc.permnull_use_resident``)
+MEASURED the resident path faster than the njit kernel; otherwise the caller stays on the exact njit. On a
+small card (GTX 1050 Ti, 6 SMs) the crossover favours the resident path only at LARGE (nperm * ncand * n) --
+the production tabular F2 floor (ncand<=9, nperm=200, n=100k) may stay CPU there, which is correct.
+
+SELECTION-EQUIVALENCE: the per-cell ``-p*log(p)`` accumulation differs from the njit kernel ONLY in FP
+reduction order (the njit loops cells in code-ascending order; cupy's segmented reduction sums in a
+hardware-defined order). Both are exact plug-in entropies of the SAME integer contingency table, so the
+per-shuffle max corrected MI matches to fp64 round-off (~1e-15), far below the floor's selection scale
+(``np.quantile`` of the maxes). The host caller owns the final ``np.quantile`` so the floor value is
+computed identically.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+# Working-set budget so the largest intermediate -- the (chunk_cand * chunk_perm * n) int64 joint-code
+# array -- stays well inside a small (4GB) card. We size the (cand, perm) tile so that
+# ``cc * pb * n * 8`` bytes is bounded; below ~96M cells -> ~768MB for the joint plus a same-size bincount
+# input, comfortably under 4GB with headroom for the operand uploads. Candidates and perms are BOTH tiled.
+_PERMNULL_TILE_CELLS = 24_000_000  # cc * pb * n upper bound (int64 cells); ~192MB per (joint) buffer
+
+
+def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
+    """Resident cupy twin of :func:`_permutation_null._pooled_gain_floor_perms_njit`. Same signature; returns
+    a host ``(nperm,)`` float64 array of the per-shuffle MAX corrected marginal MI over the candidate pool.
+
+    All heavy arrays are uploaded ONCE and the whole (perm x cand) histogram + MI + per-shuffle-max runs on
+    the device. ``joint_card`` may be ragged across candidates, so candidates are processed in chunks of a
+    fixed working size; within a chunk every candidate's joint table is padded to the chunk's max cardinality
+    (empty padding cells contribute 0 to the entropy, exactly like the njit ``if c>0`` guard)."""
+    import cupy as cp
+
+    nperm = int(y_perms.shape[0])
+    n = int(y_perms.shape[1])
+    ncand = int(offsets.shape[0] - 1)
+    if nperm == 0 or ncand == 0:
+        return np.zeros(nperm, dtype=np.float64)
+
+    d_scaled = cp.asarray(scaled_flat)                      # (ncand*n,) int (>=0 joint base codes)
+    d_yperms = cp.asarray(y_perms)                          # (nperm, n) int (>=0 class codes)
+    d_off = cp.asarray(offsets, dtype=cp.int64)             # (ncand+1,) int64 flat segment offsets
+    d_jc = cp.asarray(joint_card, dtype=cp.int64)           # (ncand,) per-candidate joint cardinality
+    d_hx = cp.asarray(h_x, dtype=cp.float64)               # (ncand,) marginal H(x)
+    d_mm = cp.asarray(mm_bias, dtype=cp.float64)           # (ncand,) Miller-Madow bias
+    h_y = float(h_y)
+    inv_n = float(inv_n)
+
+    # Per-shuffle running max corrected MI over the pool (starts at 0.0 -> the njit ``best=0.0`` floor; MI is
+    # clamped implicitly by the running max never dropping below 0, matching ``if mi>best``).
+    d_best = cp.zeros(nperm, dtype=cp.float64)
+
+    # Tile both candidates and perms so the (cc * pb * n) joint-code intermediate fits a small card.
+    cand_chunk = max(1, min(ncand, _PERMNULL_TILE_CELLS // max(1, n)))
+    for c0 in range(0, ncand, cand_chunk):
+        c1 = min(c0 + cand_chunk, ncand)
+        cc = c1 - c0
+        jc_chunk = d_jc[c0:c1]
+        max_jc = int(cp.max(jc_chunk).item())
+        if max_jc <= 0:
+            continue
+        # Gather this chunk's X-codes as (cc, n). Segments are contiguous length-n runs in scaled_flat
+        # (offsets[j] = j*n in the order-1 caller, but read via offsets to stay faithful to any layout).
+        starts = d_off[c0:c1]
+        row_idx = starts[:, None] + cp.arange(n, dtype=cp.int64)[None, :]
+        x_codes = d_scaled[row_idx].astype(cp.int64)        # (cc, n)
+        d_hx_c = d_hx[c0:c1][:, None]
+        d_mm_c = d_mm[c0:c1][:, None]
+
+        perm_chunk = max(1, _PERMNULL_TILE_CELLS // max(1, cc * n))
+        for p0 in range(0, nperm, perm_chunk):
+            p1 = min(p0 + perm_chunk, nperm)
+            pb = p1 - p0
+            yp = d_yperms[p0:p1]                            # (pb, n)
+            # Joint flat index for the batched bincount: ((cand_local*pb + perm_local)*max_jc) + (x+y_perm).
+            # Padding cells (code >= jc[cand]) cannot occur: x in [0, nbins_x*nbins_y) and y in [0, nbins_y)
+            # so x+y < jc by construction; padding to max_jc only leaves trailing zero-count cells per (cand,
+            # perm) slab, which contribute 0 to the entropy exactly like the njit ``if c>0`` short-circuit.
+            joint = (x_codes[:, None, :] + yp[None, :, :]).astype(cp.int64)      # (cc, pb, n)
+            base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb
+                    + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc           # (cc, pb)
+            flat = (base[:, :, None] + joint).ravel()                            # (cc*pb*n,)
+            counts = cp.bincount(flat, minlength=cc * pb * max_jc)[: cc * pb * max_jc]
+            counts = counts.reshape(cc, pb, max_jc).astype(cp.float64)           # (cc, pb, max_jc)
+
+            # Plug-in joint entropy H(x, y_perm) per (cand, perm): -sum p*log(p), p=count/n, 0-count -> 0.
+            p = counts * inv_n
+            safe = cp.where(counts > 0, p, 1.0)
+            h_xy = -cp.sum(cp.where(counts > 0, p * cp.log(safe), 0.0), axis=2)  # (cc, pb)
+            mi = (d_hx_c + h_y) - h_xy - d_mm_c                                  # (cc, pb)
+            d_best[p0:p1] = cp.maximum(d_best[p0:p1], cp.max(mi, axis=0))
+            del joint, flat, counts, p, safe, h_xy, mi
+
+    return cp.asnumpy(d_best)
