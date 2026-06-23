@@ -85,6 +85,12 @@ def compute_decision_region_depth_features(
         # For each direction, do coarse scale search at {0.5, 1, 2, 3} σ
         scales = np.array([0.5, 1.0, 2.0, max_scale], dtype=np.float32)
         # probe_dist[probe, q] = smallest scale that flips
+        # CPX36 FUTURE: this loop does a FIXED n_probes*len(scales) (=32) full predicts independent
+        # of d, unlike the sibling transformers whose predict count scales with d (where batching the
+        # vertical perturbation stack paid 1.4-2.7x). Here batching 32 calls into one (32*n_q, d)
+        # predict would amortize far less LightGBM per-call overhead (8 probes x 4 scales), and the
+        # stack grows with n_probes*n_q*d which would need the same size gate for a smaller payoff.
+        # Deferred as the lowest-yield of the five; revisit if n_probes is raised materially.
         flip_dists = np.full((n_probes, n_q), max_scale + 0.5, dtype=np.float32)
         for p in range(n_probes):
             for scale in scales:

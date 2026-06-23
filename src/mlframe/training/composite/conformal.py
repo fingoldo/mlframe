@@ -432,19 +432,32 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_mondrian_q_") or self._mondrian_q_ is None:
         self._mondrian_q_ = {}
-    uniq = [u for u in np.unique(g)]
+    # Group the residuals into contiguous per-group blocks ONCE (factorize O(n) + a single
+    # stable argsort) instead of building a fresh ``g == u`` boolean mask over all n residuals
+    # for every unique group on every alpha (the old O(G*n)-per-alpha sweep). ``order`` sorts
+    # rows by group code; ``starts``/``stops`` index each group's slice of ``res_by_group``.
+    # The stable sort keeps each block in original row order, and conformal_quantile sorts
+    # internally, so the per-group radius is bit-identical to the masked slice.
+    import pandas as pd
+    codes, uniq = pd.factorize(g, sort=True, use_na_sentinel=False)
+    counts = np.bincount(codes, minlength=uniq.shape[0])
+    order = np.argsort(codes, kind="stable")
+    res_by_group = residuals[order]
+    starts = np.zeros(uniq.shape[0], dtype=np.intp)
+    np.cumsum(counts[:-1], out=starts[1:])
+    stops = starts + counts
     for a in alphas:
         af = float(a)
         global_r = conformal_quantile(residuals, af)
         per_group: dict = {None: global_r}
-        for u in uniq:
-            r_g = residuals[g == u]
+        for j in range(uniq.shape[0]):
+            r_g = res_by_group[starts[j]:stops[j]]
             rad = conformal_quantile(r_g, af)
             # A too-small group cannot certify the level on its own; fall back
             # to the (finite, pooled) global radius instead of an inf band.
             if not np.isfinite(rad) and np.isfinite(global_r):
                 rad = global_r
-            per_group[u] = float(rad)
+            per_group[uniq[j]] = float(rad)
         self._mondrian_q_[round(af, 6)] = per_group
     self._conformal_n_cal_ = int(np.isfinite(residuals).sum())
     return self

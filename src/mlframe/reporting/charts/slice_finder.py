@@ -286,16 +286,21 @@ def find_weak_slices(
         support_frac = counts / n
         scores = degradation * np.sqrt(support_frac)
         cell_ids = np.flatnonzero(valid & (degradation > 0.0))
-        for cid in cell_ids:
-            # Decode mixed-radix cell id back to per-feature bins for the human-readable bound.
-            rem = int(cid)
-            bins_of_cell: List[int] = []
-            for k in range(len(combo)):
-                bins_of_cell.append(rem // int(strides[k]))
-                rem = rem % int(strides[k])
+        # Decode every selected mixed-radix cell id at once: bins[:,k] = (rem // stride_k), rem %= stride_k.
+        # Same integer recurrence as the per-cell Python loop (np.unravel_index arithmetic), bit-identical
+        # by construction, but vectorized over all selected cells of the combo instead of a python row loop.
+        m = len(combo)
+        rem = cell_ids.astype(np.int64, copy=True)
+        decoded = np.empty((cell_ids.size, m), dtype=np.int64)
+        for k in range(m):
+            sk = int(strides[k])
+            decoded[:, k] = rem // sk
+            rem %= sk
+        for ci, cid in enumerate(cell_ids):
+            bins_of_cell = decoded[ci]
             bounds = " & ".join(
-                f"{names[combo[k]]} {_bin_label(all_edges[combo[k]], bins_of_cell[k])}"
-                for k in range(len(combo))
+                f"{names[combo[k]]} {_bin_label(all_edges[combo[k]], int(bins_of_cell[k]))}"
+                for k in range(m)
             )
             rec_features.append(tuple(names[f] for f in combo))
             rec_bounds.append(bounds)

@@ -86,6 +86,14 @@ def _topk_proximity(S_query: sp.csr_matrix, S_bank: sp.csr_matrix, k: int) -> tu
 
     Uses dense product of sparse matrices. For N_query=4000, N_bank=4000, n_features~3000 (300 trees × 10 leaves), dense N×N is 16M floats ~64MB, tractable.
     """
+    # CPX38 FUTURE (bench: _benchmarks rf_proximity probe, n=4000/d=12/200 trees): the "dense
+    # materialization of a sparse top-k" premise does NOT hold here — with ~200 aux trees every
+    # query/bank pair shares >=1 leaf, so sim is 100% DENSE (measured density=1.000). The dense
+    # block is load-bearing: the per-row argpartition below needs every column, and there is no
+    # sparsity to exploit. argpartition is already in use and cheap (61-176ms vs the 0.9-3.0s sparse
+    # matmul, which is the real cost and must produce all pairs for top-k regardless). A sparse@dense
+    # BLAS variant was ~2x on the matmul but requires materializing the full dense bank
+    # (n_bank*n_features) — a larger, unconditional dense allocation, out of CPX38's stated scope.
     # Dot product yields cosine similarity since both inputs are L2-normalised.
     sim_dense = (S_query @ S_bank.T).toarray()  # (n_query, n_bank) float32
     # Top-k per row.

@@ -138,6 +138,30 @@ def _stable_time_order(time_vals: np.ndarray) -> np.ndarray:
     return np.argsort(time_vals, kind="mergesort")
 
 
+def _group_row_slices(codes_sorted: np.ndarray, n_codes: int) -> list[np.ndarray]:
+    """Return, for each dense group code 0..n_codes-1, the array of row indices
+    (into the time-sorted arrays) belonging to that group, in time order.
+
+    Replaces the O(N * cardinality) ``codes_sorted == g_code`` boolean-mask
+    rescan (one full-array scan per group) with a single stable argsort + split
+    on group boundaries: O(N log N) total. A STABLE sort over the group codes
+    preserves the existing within-group time order (rows were sorted by time
+    before factorize), so the per-group row order is bit-identical to the mask
+    path's ``codes_sorted == g`` selection."""
+    if codes_sorted.size == 0 or n_codes == 0:
+        return []
+    perm = np.argsort(codes_sorted, kind="stable")
+    counts = np.bincount(codes_sorted, minlength=n_codes)
+    bounds = np.cumsum(counts)
+    out: list[np.ndarray] = []
+    start = 0
+    for g in range(n_codes):
+        end = int(bounds[g])
+        out.append(perm[start:end])
+        start = end
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Expanding aggregations
 # ---------------------------------------------------------------------------
@@ -232,12 +256,13 @@ def generate_expanding_agg_features(
         vals_sorted = vals[order]
         # History snapshot: per-entity sorted (time, value) lists.
         history: dict[str, dict] = {}
-        for g_code in range(int(codes_sorted.max()) + 1 if codes_sorted.size else 0):
-            mask = codes_sorted == g_code
-            ent_key = str(key_sorted[mask][0])
+        n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
+        times_ord = time_vals[order]
+        for rows in _group_row_slices(codes_sorted, n_codes):
+            ent_key = str(key_sorted[rows[0]])
             history[ent_key] = {
-                "t": time_vals[order][mask].tolist(),
-                "v": vals_sorted[mask].tolist(),
+                "t": times_ord[rows].tolist(),
+                "v": vals_sorted[rows].tolist(),
             }
         for stat in stats:
             res_sorted = _expanding_stat_past_only(vals_sorted, codes_sorted, stat)
@@ -369,14 +394,13 @@ def generate_rolling_window_agg_features(
         vals_sorted = vals[order]
         history: dict[str, dict] = {}
         n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
-        for g_code in range(n_codes):
-            mask = codes_sorted == g_code
-            ent_key = str(key_sorted[mask][0])
-            t_list = times_sorted[mask]
+        for rows in _group_row_slices(codes_sorted, n_codes):
+            ent_key = str(key_sorted[rows[0]])
+            t_list = times_sorted[rows]
             history[ent_key] = {
                 "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist()
                       if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
-                "v": vals_sorted[mask].astype(np.float64).tolist(),
+                "v": vals_sorted[rows].astype(np.float64).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
         for window in windows:
@@ -444,14 +468,13 @@ def generate_lag_features(
         history: dict[str, dict] = {}
         n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
         # Per-entity ordered value list (for lag-by-position).
-        for g_code in range(n_codes):
-            mask = codes_sorted == g_code
-            ent_key = str(key_sorted[mask][0])
-            t_list = times_sorted[mask]
+        for rows in _group_row_slices(codes_sorted, n_codes):
+            ent_key = str(key_sorted[rows[0]])
+            t_list = times_sorted[rows]
             history[ent_key] = {
                 "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist()
                       if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
-                "v": vals_sorted[mask].astype(np.float64).tolist(),
+                "v": vals_sorted[rows].astype(np.float64).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
         for lag in lags:
@@ -582,20 +605,75 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
     out = np.full(n, prior, dtype=np.float64)
     # Process test rows in time order so within-test history accumulates.
     order = _stable_time_order(times)
-    # Per-entity accumulated test history (timestamps not needed for expanding,
-    # only the count/values of earlier rows).
-    test_hist: dict[str, list] = {}
-    for idx in order:
-        ent = str(key[idx])
+    # Running per-entity accumulators (count / sum / Welford-M2 / min / max),
+    # seeded once from the TRAIN history. The prior implementation re-built and
+    # re-reduced a length-(train+seen) array on EVERY test row, i.e. O(N^2) per
+    # entity. Incremental accumulators make each row O(1): O(N) total. The seed
+    # folds the finite train values in one pass (Welford), then each test row is
+    # scored against the running state before being folded in -- preserving the
+    # "strict past only" contract. mean uses sum/count, std uses Welford-M2 to
+    # keep the reduction-order delta vs np.mean/np.std(ddof=1) at ~1e-9 (FP
+    # summation-order only; never selection-altering).
+    acc_n: dict[str, int] = {}
+    acc_sum: dict[str, float] = {}
+    acc_mean: dict[str, float] = {}
+    acc_m2: dict[str, float] = {}
+    acc_min: dict[str, float] = {}
+    acc_max: dict[str, float] = {}
+    seeded: set[str] = set()
+
+    def _seed(ent: str) -> None:
         train_v = np.asarray(history.get(ent, {}).get("v", []), dtype=np.float64)
         train_v = train_v[np.isfinite(train_v)]
-        seen = test_hist.get(ent, [])
-        combined = np.concatenate([train_v, np.asarray(seen, dtype=np.float64)]) if seen else train_v
-        if combined.size > 0:
-            out[idx] = _reduce_expanding(combined, stat)
+        cnt = int(train_v.size)
+        acc_n[ent] = cnt
+        if cnt:
+            s = float(train_v.sum())
+            acc_sum[ent] = s
+            m = s / cnt
+            acc_mean[ent] = m
+            acc_m2[ent] = float(((train_v - m) ** 2).sum())
+            acc_min[ent] = float(train_v.min())
+            acc_max[ent] = float(train_v.max())
+        else:
+            acc_sum[ent] = 0.0
+            acc_mean[ent] = 0.0
+            acc_m2[ent] = 0.0
+            acc_min[ent] = np.inf
+            acc_max[ent] = -np.inf
+        seeded.add(ent)
+
+    for idx in order:
+        ent = str(key[idx])
+        if ent not in seeded:
+            _seed(ent)
+        cnt = acc_n[ent]
+        if cnt > 0:
+            if stat == "count":
+                out[idx] = float(cnt)
+            elif stat == "mean":
+                out[idx] = acc_sum[ent] / cnt
+            elif stat == "std":
+                out[idx] = float(np.sqrt(acc_m2[ent] / (cnt - 1))) if cnt > 1 else 0.0
+            elif stat == "min":
+                out[idx] = acc_min[ent]
+            elif stat == "max":
+                out[idx] = acc_max[ent]
+            else:
+                out[idx] = _reduce_expanding(np.array([acc_mean[ent]]), stat)
         v = vals[idx]
         if np.isfinite(v):
-            test_hist.setdefault(ent, []).append(v)
+            # Welford incremental update.
+            cnt += 1
+            acc_n[ent] = cnt
+            acc_sum[ent] += v
+            delta = v - acc_mean[ent]
+            acc_mean[ent] += delta / cnt
+            acc_m2[ent] += delta * (v - acc_mean[ent])
+            if v < acc_min[ent]:
+                acc_min[ent] = v
+            if v > acc_max[ent]:
+                acc_max[ent] = v
     return out
 
 
@@ -629,6 +707,13 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
     n = len(X_test)
     out = np.full(n, prior, dtype=np.float64)
     order = _stable_time_order(times_num)
+    # FUTURE (perf): this per-row concatenate+mask reduce is O(N^2) per entity,
+    # same shape as the expanding replay that was converted to O(N) accumulators.
+    # A two-pointer sliding window (monotone left bound, since `t` is
+    # non-decreasing within an entity's processing order) would make it O(N) for
+    # mean/count/min/max, but train/test time interleaving + window eviction of
+    # min/max needs a monotonic deque -- deferred as the rolling path is opt-in
+    # (windows default empty) and correctness risk is higher than the win here.
     test_hist: dict[str, dict] = {}
     for idx in order:
         ent = str(key[idx])

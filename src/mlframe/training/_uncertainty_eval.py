@@ -22,13 +22,14 @@ def evaluate_tta_quality(
     seed: int = 0,
 ) -> dict[str, float]:
     """Metrics for TTA uncertainty on (X, y): point RMSE, TTA-mean RMSE, gain, and spread<->error correlation."""
-    from ._tta import tta_predict, tta_predict_spread
+    from ._tta import tta_point_mean_spread
 
     Xf = np.asarray(X, dtype=np.float64)
     yv = np.asarray(y, dtype=np.float64).reshape(-1)
-    point = np.asarray(predict_fn(Xf), dtype=np.float64).reshape(-1)
-    tta_mean = np.asarray(tta_predict(predict_fn, Xf, n=n, sigma_scale=sigma_scale, seed=seed)).reshape(-1)
-    spread = np.asarray(tta_predict_spread(predict_fn, Xf, n=n, sigma_scale=sigma_scale, seed=seed)).reshape(-1)
+    point_a, mean_a, spread_a = tta_point_mean_spread(predict_fn, Xf, n=n, sigma_scale=sigma_scale, seed=seed)
+    point = np.asarray(point_a, dtype=np.float64).reshape(-1)
+    tta_mean = np.asarray(mean_a, dtype=np.float64).reshape(-1)
+    spread = np.asarray(spread_a, dtype=np.float64).reshape(-1)
 
     def _rmse(a):
         d = a - yv

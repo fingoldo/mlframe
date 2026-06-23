@@ -47,6 +47,42 @@ logger = logging.getLogger(__name__)
 _DEFAULT_AGG_FNS: tuple = ("median", "iqr", "std", "mean")
 
 
+def _factorize_codes(values: np.ndarray) -> tuple:
+    """Map a 1-D array of arbitrary labels to dense int codes [0, n_uniq).
+
+    Returns ``(codes, uniques)``. Mirrors the value->code mapping that the
+    per-row ``np.unique(row)`` loop used to derive implicitly; doing it once
+    over the flattened neighbour matrix lets the count matrix be built in a
+    single vectorized pass.
+    """
+    uniques, codes = np.unique(values, return_inverse=True)
+    return codes.astype(np.intp, copy=False), uniques
+
+
+def _row_count_entropy_majority(codes: np.ndarray, n_codes: int) -> tuple:
+    """Vectorized per-row Shannon entropy + majority share over dense codes.
+
+    ``codes`` is an ``(n_q, k)`` int matrix of bin/class codes in
+    ``[0, n_codes)``. Builds the ``(n_q, n_codes)`` count matrix via
+    ``np.add.at`` (one pass, no per-query Python loop), then reduces. Bit-
+    identical to the prior per-row ``np.bincount`` / ``np.unique`` loop: same
+    counts, same ``p = counts/sum``, same ``-sum(p_nz*log(p_nz))`` and
+    ``p.max()`` per row.
+    """
+    n_q, k = codes.shape
+    counts = np.zeros((n_q, n_codes), dtype=np.int64)
+    rows = np.repeat(np.arange(n_q), k)
+    np.add.at(counts, (rows, codes.ravel()), 1)
+    totals = counts.sum(axis=1, keepdims=True)
+    p = counts.astype(np.float64) / totals
+    # entropy: -sum p*log(p) over nonzero p (0*log0 -> 0).
+    with np.errstate(divide="ignore", invalid="ignore"):
+        plogp = np.where(p > 0, p * np.log(p), 0.0)
+    entropy = -plogp.sum(axis=1)
+    majority = p.max(axis=1)
+    return entropy, majority
+
+
 def _resolve_aggs(values: np.ndarray, agg_fns: Iterable[str]) -> dict:
     """Apply each named aggregator to ``values`` (axis=1) and return a dict."""
     out: dict = {}
@@ -588,30 +624,29 @@ def knn_label_dispersion_features(
             edges = np.quantile(finite_lab, np.linspace(0, 1, n_bins + 1))
             edges = np.unique(edges)
             if edges.size >= 2:
-                # Per-row binned histogram.
+                # Per-row binned histogram, vectorized: searchsorted gives dense
+                # bin codes in [0, n_codes), and np.add.at builds the full
+                # (n_q, n_codes) count matrix in one pass (replaces the per-row
+                # np.bincount Python loop).
                 binned = np.searchsorted(edges[1:-1], label_arr, side="right")
-                # For each row count occurrences.
-                for i in range(n_q):
-                    bc = np.bincount(binned[i], minlength=max(2, edges.size - 1))
-                    p = bc.astype(np.float64) / bc.sum()
-                    p_nz = p[p > 0]
-                    entropy[i] = float(-np.sum(p_nz * np.log(p_nz)))
-                    majority_share[i] = float(p.max())
+                n_codes = max(2, edges.size - 1)
+                ent, maj = _row_count_entropy_majority(binned, n_codes)
+                entropy[:] = ent
+                majority_share[:] = maj
                 # Disagreement: fraction of neighbour labels on opposite side
                 # of the global median.
                 opp = (label_arr > global_median) != (label_arr[:, :1] > global_median)
                 disagreement = opp.mean(axis=1)
     else:
-        # Classification: per-row class fraction.
-        for i in range(n_q):
-            row = label_arr[i]
-            uniq, counts = np.unique(row, return_counts=True)
-            p = counts.astype(np.float64) / counts.sum()
-            p_nz = p[p > 0]
-            entropy[i] = float(-np.sum(p_nz * np.log(p_nz)))
-            majority_share[i] = float(p.max())
-            # Disagreement: fraction NOT equal to nearest neighbour's label.
-            disagreement[i] = float((row != row[0]).mean())
+        # Classification: per-row class fraction, vectorized. Factorize the kNN
+        # label values to dense codes, then build the (n_q, n_codes) count matrix
+        # with np.add.at (replaces the per-row np.unique Python loop).
+        flat_codes, _ = _factorize_codes(label_arr.reshape(-1))
+        codes = flat_codes.reshape(label_arr.shape)
+        n_codes = int(codes.max()) + 1 if codes.size else 1
+        entropy[:], majority_share[:] = _row_count_entropy_majority(codes, n_codes)
+        # Disagreement: fraction NOT equal to nearest neighbour's label.
+        disagreement = (label_arr != label_arr[:, :1]).mean(axis=1)
     return {
         "local_label_entropy": entropy,
         "local_disagreement_ratio": disagreement,

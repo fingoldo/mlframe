@@ -353,6 +353,12 @@ def _summary_batched_kernel(
         # across runs.
         order = np.argsort(-y_sc, kind="mergesort")
         rels_pred = y_t[order]
+        # bench-attempt-rejected (CPX23, 2026-06-23): the per-query double sort
+        # (argsort of score + sort of true) and n_rel_total are ALREADY hoisted
+        # here -- computed once per group and reused across the per-k loop below.
+        # A naive re-sort/re-count-per-k kernel is 1.81x-3.57x SLOWER (bench
+        # _benchmarks/bench_ndcg_sort_count_hoist_cpx23.py, shapes 2000x100 ..
+        # 200x1000), bit-identical. No further win to extract.
         # numba's @njit np.sort doesn't accept ``kind=`` (only np.argsort does).
         # Stable sort is irrelevant on np.sort's VALUES anyway - the per-tie
         # output positions all hold the same value, so default-quicksort and

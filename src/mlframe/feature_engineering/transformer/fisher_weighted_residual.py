@@ -20,6 +20,10 @@ from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
+# Cap on the vertically-stacked perturbation matrix (float32 elems). 64M ~ 256MB; above this
+# fall back to the per-feature loop to bound peak RAM.
+_MAX_STACK_ELEMS = 64_000_000
+
 
 def compute_fisher_weighted_residual_features(
     X_train: np.ndarray,
@@ -60,14 +64,34 @@ def compute_fisher_weighted_residual_features(
         else:
             p_base = model.predict(X).astype(np.float32)
         grad_sq_sum = np.zeros(n, dtype=np.float32)
-        for j in range(d):
-            X_plus = X.copy()
-            X_plus[:, j] += eps
+        # Batched finite-difference: stack d copies of X into one (d*n, d) matrix, add eps to
+        # block j's column j, then a SINGLE predict over the stack instead of d separate calls.
+        # Bit-identical to the per-feature predict (tree models predict per-row independently);
+        # amortizes LightGBM per-call overhead. Gated on stack size to bound peak RAM.
+        stack_elems = d * n * d
+        if stack_elems <= _MAX_STACK_ELEMS and d > 1:
+            stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d).copy()
+            block_starts = np.arange(d) * n
+            for j in range(d):
+                stack[block_starts[j]:block_starts[j] + n, j] += eps
             if is_binary:
-                p_plus = model.predict_proba(X_plus)[:, 1].astype(np.float32)
+                p_plus_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(d, n)
             else:
-                p_plus = model.predict(X_plus).astype(np.float32)
-            grad_sq_sum += ((p_plus - p_base) / eps) ** 2
+                p_plus_all = model.predict(stack).astype(np.float32).reshape(d, n)
+            # Accumulate in the SAME sequential per-feature order as the fallback loop so the
+            # float32 reduction order (and thus the result) is bit-identical, not pairwise-summed.
+            contrib = (((p_plus_all - p_base[None, :]) / eps) ** 2).astype(np.float32)
+            for j in range(d):
+                grad_sq_sum += contrib[j]
+        else:
+            for j in range(d):
+                X_plus = X.copy()
+                X_plus[:, j] += eps
+                if is_binary:
+                    p_plus = model.predict_proba(X_plus)[:, 1].astype(np.float32)
+                else:
+                    p_plus = model.predict(X_plus).astype(np.float32)
+                grad_sq_sum += ((p_plus - p_base) / eps) ** 2
         return np.sqrt(grad_sq_sum) + 1e-9
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:

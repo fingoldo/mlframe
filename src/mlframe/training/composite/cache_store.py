@@ -99,6 +99,17 @@ class DiscoveryCache:
                 "the cache would grow without bound. Pass at least one explicit cap (or float('inf') / 10**9 "
                 "to opt into unbounded growth) so the choice is auditable."
             )
+        # In-memory LRU ledger + incremental size accumulator (CPX28). The pre-fix store rewrote the
+        # whole ``.lru`` JSON on every touch and globbed + getsize'd every ``*.pkl`` on each ``set``,
+        # giving O(N^2) cost over a run. We now hold the LRU dict in memory, flush it lazily (on
+        # eviction -- which already happens -- and on ``close`` / ``__del__``), and keep a running
+        # byte total + per-stem size map updated incrementally on set / invalidate / evict. All three
+        # are rebuilt from disk the first time they are needed (``_ensure_*``), so a process restart
+        # reconstructs them correctly and eviction decisions stay identical to the disk-scan design.
+        self._lru: Optional[Dict[str, float]] = None
+        self._lru_dirty = False
+        self._entry_sizes: Optional[Dict[str, int]] = None
+        self._total_bytes = 0
 
     # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read / write the whole file on
     # every touch. Atime is too unreliable on NTFS to depend on.
@@ -166,10 +177,85 @@ class DiscoveryCache:
             except OSError:
                 pass
 
+    def _ensure_lru(self) -> Dict[str, float]:
+        """Lazily load the LRU ledger from disk into memory exactly once.
+
+        After load the in-memory dict is authoritative for this process; touches mutate it and set
+        the dirty flag, and the disk file is only rewritten at flush points (eviction + close).
+        Rebuilding from disk here keeps a process restart correct -- the prior run's flushed ledger
+        is read back, so access ordering survives.
+        """
+        if self._lru is None:
+            self._lru = self._load_lru()
+        return self._lru
+
+    def _ensure_sizes(self) -> Dict[str, int]:
+        """Lazily build the per-stem byte map (pkl + .sha256 sidecar) and running total from disk.
+
+        Done once per process; thereafter ``set`` / ``invalidate`` / eviction keep it in sync
+        incrementally instead of globbing + getsize-ing every ``*.pkl`` on each ``set``. The total
+        accumulator (``self._total_bytes``) and this map are reconstructed together so a restart
+        re-derives the exact footprint the disk-scan design would have computed.
+        """
+        if self._entry_sizes is None:
+            sizes: Dict[str, int] = {}
+            total = 0
+            for path in glob.glob(os.path.join(self.cache_dir, "*.pkl")):
+                stem = os.path.splitext(os.path.basename(path))[0]
+                size = 0
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    pass
+                try:
+                    size += os.path.getsize(path + ".sha256")
+                except OSError:
+                    pass
+                sizes[stem] = size
+                total += size
+            self._entry_sizes = sizes
+            self._total_bytes = total
+        return self._entry_sizes
+
+    def _entry_size_on_disk(self, stem: str) -> int:
+        path = os.path.join(self.cache_dir, f"{stem}.pkl")
+        size = 0
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return 0
+        try:
+            size += os.path.getsize(path + ".sha256")
+        except OSError:
+            pass
+        return size
+
+    def _flush_lru(self) -> None:
+        """Write the in-memory LRU ledger to disk if dirty. Called on eviction and on close/del."""
+        if self._lru is not None and self._lru_dirty:
+            with self._maybe_filelock(self._lock_path()):
+                self._save_lru(self._lru)
+            self._lru_dirty = False
+
+    def close(self) -> None:
+        """Flush any pending in-memory LRU state to disk so it survives process exit.
+
+        Idempotent. Eviction already flushes on every sweep, so close() only matters when the run
+        did sets/gets that touched the ledger without triggering an eviction (e.g. caps not yet hit).
+        """
+        try:
+            self._flush_lru()
+        except Exception as _e:
+            logger.debug("DiscoveryCache.close LRU flush failed: %s", _e)
+
+    def __del__(self) -> None:
+        # Best-effort flush so a cache GC'd without an explicit close() still persists access order.
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _touch_lru(self, key: str) -> None:
-        # Cross-process file lock around read-modify-write so a concurrent process can't replay a
-        # stale-snapshot save and overwrite a fresh access timestamp. filelock is optional.
-        #
         # ``time.time()`` is wall-clock (subject to NTP step-back) but we deliberately do NOT use
         # ``time.monotonic()`` here -- the LRU sidecar is shared across processes, and monotonic
         # clock values are not comparable across processes (each process's monotonic clock starts
@@ -177,20 +263,14 @@ class DiscoveryCache:
         # frame -- wall clock is the only portable option. Single-host NTP step-backs are rare and
         # only mis-order entries within the step delta.
         #
-        # The full JSON rewrite per touch is O(N entries). For caches >10,000 entries the rewrite
-        # cost dominates the read; we keep the simple
-        # write-everything-each-touch design because:
-        #   (a) the rewrite happens under the cross-process filelock, so a "mark dirty, flush
-        #       later" batching strategy would require additional cross-process flush
-        #       synchronisation;
-        #   (b) the atomic-rename + fsync guarantee survives a mid-touch crash;
-        #   (c) typical R&D cache sizes are <500 entries where the rewrite is sub-millisecond.
-        # Operators hitting the >10K-entry regime should pass ``max_entries`` to keep the file
-        # bounded.
-        with self._maybe_filelock(self._lock_path()):
-            lru = self._load_lru()
-            lru[key] = time.time()
-            self._save_lru(lru)
+        # CPX28: mutate the in-memory ledger and mark dirty; the disk file is rewritten lazily at
+        # flush points (eviction + ``close`` / ``__del__``) rather than on every touch, turning the
+        # per-op O(N) JSON rewrite into an amortised O(1) dict write. Eviction already flushes on
+        # every sweep, so a crash between flushes loses at most the access-timestamp bumps since the
+        # last sweep -- the value files themselves stay durable via ``set``'s atomic rename + fsync.
+        lru = self._ensure_lru()
+        lru[key] = time.time()
+        self._lru_dirty = True
 
     def _path(self, key: str) -> str:
         safe_key = self._safe_key(key)
@@ -383,31 +463,19 @@ class DiscoveryCache:
         # since we hold the lock) or a clock-skewed sibling is never yanked. Lock files
         # (``.lru.lock``) are owned by filelock and left in place.
         self._sweep_orphan_tmp_files()
-        lru = self._load_lru()
-        # Enumerate every on-disk entry, defaulting unseen ones to ts=0.
-        files = glob.glob(os.path.join(self.cache_dir, "*.pkl"))
-        entries: List[Tuple[str, float, int]] = []
-        for path in files:
-            stem = os.path.splitext(os.path.basename(path))[0]
-            ts = float(lru.get(stem, 0.0))
-            try:
-                size = os.path.getsize(path)
-            except OSError:
-                size = 0
-            # Count the ``.pkl.sha256`` sidecar in the entry's footprint so the eviction byte cap
-            # agrees with ``_discovery_cache_bytes_total`` (which counts .pkl + sidecar). Measuring
-            # only the .pkl lets a cache reported as over ``max_size_mb`` by the helper still refuse
-            # to evict (cap thinks it is under budget).
-            try:
-                size += os.path.getsize(path + ".sha256")
-            except OSError:
-                pass
-            entries.append((stem, ts, size))
+        lru = self._ensure_lru()
+        sizes = self._ensure_sizes()
+        # Enumerate every on-disk entry from the in-memory size map, defaulting unseen-in-LRU ones to
+        # ts=0 (legacy / external writes evict first). Identical to the prior glob+getsize scan: the
+        # size map is built from the same ``glob("*.pkl")`` once per process then kept in sync.
+        entries: List[Tuple[str, float, int]] = [
+            (stem, float(lru.get(stem, 0.0)), size) for stem, size in sizes.items()
+        ]
         # Oldest first - that's the eviction order.
         entries.sort(key=lambda e: e[1])
 
         n = len(entries)
-        total_bytes = sum(s for _, _, s in entries)
+        total_bytes = self._total_bytes
         max_bytes = (
             int(self.max_size_mb * 1024 * 1024)
             if self.max_size_mb is not None else None
@@ -428,6 +496,8 @@ class DiscoveryCache:
                 n -= 1
                 total_bytes -= size
                 lru.pop(stem, None)
+                sizes.pop(stem, None)
+                self._total_bytes -= size
                 # Drop the sidecar only after the value file is gone: if the value remove raised (e.g. Windows lock) the entry survives and must keep its sidecar, else strict load refuses the still-present entry forever.
                 try:
                     os.remove(path + ".sha256")
@@ -436,8 +506,11 @@ class DiscoveryCache:
             except OSError:
                 pass
             i += 1
+        # Already holding the eviction filelock (see ``_evict_to_caps``); save directly rather than
+        # via ``_flush_lru`` which would acquire a second, non-re-entrant FileLock on the same path.
         if removed:
             self._save_lru(lru)
+            self._lru_dirty = False
         return removed
 
     def set(self, key: str, value: Any) -> None:
@@ -511,7 +584,15 @@ class DiscoveryCache:
         # ``logging.DEBUG`` sees the underlying cause, while normal runs are unaffected (the write
         # itself already succeeded before this block).
         try:
-            self._touch_lru(self._safe_key(key))
+            _safe = self._safe_key(key)
+            # Incrementally update the size accumulator with this entry's on-disk footprint
+            # (replacing any prior size if the key was overwritten) instead of re-globbing every
+            # ``*.pkl`` inside eviction. ``_ensure_sizes`` rebuilds from disk once if not yet primed.
+            sizes = self._ensure_sizes()
+            new_size = self._entry_size_on_disk(_safe)
+            self._total_bytes += new_size - sizes.get(_safe, 0)
+            sizes[_safe] = new_size
+            self._touch_lru(_safe)
             self._evict_to_caps()
         except Exception as _evict_err:
             logger.debug("DiscoveryCache.set LRU/eviction failed (entry written OK): %s", _evict_err)
@@ -531,12 +612,16 @@ class DiscoveryCache:
             os.remove(path + ".sha256")
         except OSError:
             pass
-        # Mirror the deletion in the LRU sidecar so a stale ledger
-        # doesn't keep ghost keys pinning the count.
+        # Mirror the deletion in the in-memory LRU ledger + size accumulator so a stale ledger
+        # doesn't keep ghost keys pinning the count, and flush so the on-disk ledger drops the key.
         try:
-            lru = self._load_lru()
-            if lru.pop(self._safe_key(key), None) is not None:
-                self._save_lru(lru)
+            _safe = self._safe_key(key)
+            sizes = self._ensure_sizes()
+            self._total_bytes -= sizes.pop(_safe, 0)
+            lru = self._ensure_lru()
+            if lru.pop(_safe, None) is not None:
+                self._lru_dirty = True
+                self._flush_lru()
         except Exception:
             pass
         return True
@@ -565,6 +650,12 @@ class DiscoveryCache:
                 os.remove(self._lru_path)
         except OSError:
             pass
+        # Reset the in-memory ledger + size accumulator to empty/clean so a later ``close`` /
+        # ``__del__`` flush does not recreate a stale ``.lru`` for a directory we just wiped.
+        self._lru = {}
+        self._lru_dirty = False
+        self._entry_sizes = {}
+        self._total_bytes = 0
         # Sweep orphan tmp files (any age -- clear() is an explicit wipe, no in-flight write to
         # protect) and the filelock marker so a cleared dir is genuinely empty of cache cruft.
         _swept = 0

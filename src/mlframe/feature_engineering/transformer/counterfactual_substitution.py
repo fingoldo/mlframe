@@ -20,6 +20,10 @@ from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
+# Cap on the vertically-stacked perturbation matrix (in float32 elements ~ 4 bytes each).
+# 64M elems ~ 256MB; above this we fall back to the per-feature loop to avoid an oversized copy.
+_MAX_STACK_ELEMS = 64_000_000
+
 
 def compute_counterfactual_substitution_features(
     X_train: np.ndarray,
@@ -77,14 +81,33 @@ def compute_counterfactual_substitution_features(
 
         n_q = Xq_s.shape[0]
         deltas = np.zeros((n_q, d), dtype=np.float32)
-        for j in range(d):
-            Xq_subst = Xq_s.copy()
-            Xq_subst[:, j] = global_medians[j]  # simplified: use global median (faster than per-leaf)
+        # Batched substitution: stack d copies of Xq_s vertically into one (d*n_q, d) matrix,
+        # set block j's column j to its global median, then do a SINGLE predict over the stack
+        # and reshape back. Bit-identical to per-feature predict for tree models (per-row independent),
+        # but amortizes LightGBM's per-call overhead across all d perturbations. Gated on stack size:
+        # above _MAX_STACK_ELEMS floats fall back to the per-feature loop to bound peak RAM.
+        stack_elems = d * n_q * d
+        if stack_elems <= _MAX_STACK_ELEMS and d > 1:
+            stack = np.broadcast_to(Xq_s, (d, n_q, d)).reshape(d * n_q, d).copy()
+            # For block j (rows j*n_q:(j+1)*n_q), overwrite column j with the global median.
+            block_starts = np.arange(d) * n_q
+            for j in range(d):
+                stack[block_starts[j]:block_starts[j] + n_q, j] = global_medians[j]
             if task == "binary":
-                pred_sub = model.predict_proba(Xq_subst)[:, 1].astype(np.float32)
+                pred_stack = model.predict_proba(stack)[:, 1].astype(np.float32)
             else:
-                pred_sub = model.predict(Xq_subst).astype(np.float32)
-            deltas[:, j] = pred_sub - pred_orig
+                pred_stack = model.predict(stack).astype(np.float32)
+            pred_sub_all = pred_stack.reshape(d, n_q)  # (d, n_q)
+            deltas[:] = (pred_sub_all - pred_orig[None, :]).T
+        else:
+            for j in range(d):
+                Xq_subst = Xq_s.copy()
+                Xq_subst[:, j] = global_medians[j]  # simplified: use global median (faster than per-leaf)
+                if task == "binary":
+                    pred_sub = model.predict_proba(Xq_subst)[:, 1].astype(np.float32)
+                else:
+                    pred_sub = model.predict(Xq_subst).astype(np.float32)
+                deltas[:, j] = pred_sub - pred_orig
 
         abs_deltas = np.abs(deltas)
         max_abs_delta = abs_deltas.max(axis=1).astype(np.float32)

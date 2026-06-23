@@ -38,32 +38,18 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
         - Overall ROC AUC
         - Overall PR AUC
         - Dictionary mapping group_id -> (roc_auc, pr_auc)
+
+    Dispatches to ``fast_aucs_per_group_optimized``: that twin filters degenerate
+    (single-sample / single-class) groups up front and runs ONE numba boundary-walk
+    over presorted data instead of the per-group ``group_ids == g`` mask + argsort
+    loop here used to do. For every VALID group (>=2 samples, both classes) the AUCs
+    are identical (same inner scan); only degenerate groups change -- they now emit
+    ``(nan, nan)`` (AUC is undefined there) instead of the prior silent ``(0.0, 0.0)``,
+    so ``compute_mean_aucs_per_group`` drops them from the mean rather than depressing
+    it. The presort path is up to ~56x faster on fine-grained group_ids (bench
+    ``_benchmarks/bench_fast_aucs_per_group_dispatch.py``).
     """
-    from .core import fast_numba_aucs as _fast_numba_aucs
-    if y_score.ndim == 2:
-        y_score = y_score[:, -1]
-
-    # Overall AUCs
-    desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338 dispatcher
-    overall_roc_auc, overall_pr_auc = _fast_numba_aucs(y_true, y_score, desc_score_indices)
-
-    # Per-group AUCs
-    unique_groups = np.unique(group_ids)
-    group_aucs = {}
-
-    for group_id in unique_groups:
-        group_mask = group_ids == group_id
-        group_y_true = y_true[group_mask]
-        group_y_score = y_score[group_mask]
-
-        if len(group_y_true) > 1:  # Need at least 2 samples
-            group_desc_indices = _argsort_desc_for_metrics(group_y_score)  # iter338 dispatcher
-            roc_auc, pr_auc = _fast_numba_aucs(group_y_true, group_y_score, group_desc_indices)
-            group_aucs[int(group_id)] = (roc_auc, pr_auc)
-        else:
-            group_aucs[int(group_id)] = (0.0, 0.0)
-
-    return overall_roc_auc, overall_pr_auc, group_aucs
+    return fast_aucs_per_group_optimized(y_true, y_score, group_ids)
 
 
 def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None, return_order: bool = False, return_ks: bool = False):

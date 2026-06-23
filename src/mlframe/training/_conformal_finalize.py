@@ -198,13 +198,18 @@ def conformal_classification_report(
     else:
         cal_scores = 1.0 - cp[np.arange(cp.shape[0]), cal_true]
 
+    # APS test-side sort/cumsum is alpha-invariant (depends only on tp), so hoist it
+    # above the alpha loop and reuse; only the threshold + comparison vary with alpha.
+    if score == "aps":
+        aps_order = np.argsort(-tp, axis=1)
+        aps_csum = np.cumsum(np.take_along_axis(tp, aps_order, axis=1), axis=1)
+
     per_alpha: dict[float, dict[str, float]] = {}
     for a in alphas:
         thr = conformal_set_threshold(cal_scores, float(a))
         if score == "aps":
-            order = np.argsort(-tp, axis=1)
-            sorted_p = np.take_along_axis(tp, order, axis=1)
-            csum = np.cumsum(sorted_p, axis=1)
+            order = aps_order
+            csum = aps_csum
             in_set_sorted = csum <= thr
             in_set_sorted[:, 0] = True  # always keep the top label (non-empty set)
             in_set = np.zeros_like(in_set_sorted)

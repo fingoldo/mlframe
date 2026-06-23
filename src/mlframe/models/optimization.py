@@ -415,6 +415,10 @@ class MBHOptimizer:
                 logger.warning("suggest_candidate called before any evaluations were submitted; cannot suggest.")
                 return NOT_READY
 
+            # ``x not in ndarray`` is an O(K) scan; the candidate loops below run it O(S) times per call.
+            # A Python set built once (python scalars, matching ``search_space[i]``) makes each test O(1).
+            known_candidates_set = set(self.known_candidates.tolist())
+
             greedy_prob = min(self.greedy_prob * min(self.n_noimproving_iters, self.n_steps_since_greedy + 1), 1.0)
             if self._stdlib_rng.random() < greedy_prob:
                 self.n_steps_since_greedy = 0
@@ -423,7 +427,7 @@ class MBHOptimizer:
                 # Pick first unchecked and unsuggested candidate with the highest fitness.
                 for best_idx in np.argsort(expected_fitness):
                     next_candidate = self.search_space[best_idx]
-                    if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
+                    if next_candidate not in known_candidates_set and next_candidate not in self.suggested_candidates:
                         self.suggested_candidates[next_candidate] = eval_start_time
                         logger.info(
                             f"I became greedy! Recommending {next_candidate} that is closest unchecked to the best known so far {self.best_candidate} with eval={self.best_evaluation}"
@@ -544,7 +548,7 @@ class MBHOptimizer:
                         expected_fitness += y_std
 
                     best_idx = np.argsort(expected_fitness)[-1]
-                    if self.search_space[best_idx] in self.known_candidates:
+                    if self.search_space[best_idx] in known_candidates_set:
 
                         # best supposed point already checked. let's take std and distance into account then.
                         expected_fitness += distances
@@ -561,7 +565,7 @@ class MBHOptimizer:
 
                             best_value = expected_fitness[best_idx]
                             all_best_indices = np.where(expected_fitness == best_value)[0]
-                            all_best_indices = [idx for idx in all_best_indices if self.search_space[idx] not in self.known_candidates]
+                            all_best_indices = [idx for idx in all_best_indices if self.search_space[idx] not in known_candidates_set]
                             if len(all_best_indices) > 1:
                                 expected_fitness[all_best_indices] += distances[all_best_indices]
 
@@ -574,7 +578,7 @@ class MBHOptimizer:
                 # Pick first unchecked and unsuggested candidate with the highest fitness.
                 for best_idx in np.argsort(expected_fitness)[::-1]:
                     next_candidate = self.search_space[best_idx]
-                    if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
+                    if next_candidate not in known_candidates_set and next_candidate not in self.suggested_candidates:
                         if self.skip_best_candidate_prob > 0.0:
                             # Randomly skip the best candidate, if required
                             if self._stdlib_rng.random() < self.skip_best_candidate_prob:

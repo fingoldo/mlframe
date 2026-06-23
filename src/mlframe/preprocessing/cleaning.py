@@ -170,6 +170,37 @@ def _get_outlier_mask_njit():
     return _OUTLIER_MASK_NJIT
 
 
+_SPAN_FENCE_NJIT = None
+
+
+def _get_span_fence_njit():
+    """Lazily compile the fused span-mask + fence-count kernel. One parallel pass over the values builds the in-span keep-mask
+    (q0 <= v <= q1) and the two outside-fence counts (v < lo, v > hi) together, replacing the separate ``(values>=q0)&(values<=q1)``
+    mask plus two ``(values<lo).sum()`` / ``(values>hi).sum()`` full-array passes. NaN compares False on every comparison in numpy
+    and numba alike, so NaN rows are excluded from the span mask AND counted in neither fence — bit-identical to the numpy expression."""
+    global _SPAN_FENCE_NJIT
+    if _SPAN_FENCE_NJIT is None:
+        import numba
+
+        @numba.njit(cache=True, parallel=True)
+        def _span_fence(values, q0, q1, lo, hi):
+            n = values.shape[0]
+            mask = np.empty(n, dtype=np.bool_)
+            n_below = 0
+            n_above = 0
+            for i in numba.prange(n):
+                x = values[i]
+                mask[i] = (x >= q0) and (x <= q1)
+                if x < lo:
+                    n_below += 1
+                if x > hi:
+                    n_above += 1
+            return mask, n_below, n_above
+
+        _SPAN_FENCE_NJIT = _span_fence
+    return _SPAN_FENCE_NJIT
+
+
 def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = None) -> int:
     # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
     # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
@@ -420,12 +451,22 @@ def is_variable_truly_continuous(
                     "tukey_fences_multiplier MUST also be supplied."
                 )
 
-        values_in_span = values[(values >= calculated_quantiles[0]) & (values <= calculated_quantiles[1])]
         iqr = calculated_quantiles[1] - calculated_quantiles[0]
+        q0 = calculated_quantiles[0]
+        q1 = calculated_quantiles[1]
+        lo = q0 - tukey_fences_multiplier * iqr
+        hi = q1 + tukey_fences_multiplier * iqr
 
-        n_outliers = (values < calculated_quantiles[0] - tukey_fences_multiplier * iqr).sum() + (
-            values > calculated_quantiles[1] + tukey_fences_multiplier * iqr
-        ).sum()
+        # Fuse the span-mask build and the two fence counts into a single pass (was: one boolean &-mask
+        # plus two separate .sum() scans). NaN compares False everywhere, so it stays out of the span and
+        # counts in neither fence — identical values_in_span and n_outliers. Float-1d only; else exact numpy.
+        if getattr(values, "dtype", None) is not None and values.dtype.kind == "f" and values.ndim == 1:
+            in_span_mask, n_below, n_above = _get_span_fence_njit()(values, q0, q1, lo, hi)
+            values_in_span = values[in_span_mask]
+            n_outliers = n_below + n_above
+        else:
+            values_in_span = values[(values >= q0) & (values <= q1)]
+            n_outliers = (values < lo).sum() + (values > hi).sum()
 
     else:
         calculated_quantiles = np.array([np.nanmin(values), np.nanmax(values)])
@@ -454,6 +495,10 @@ def is_variable_truly_continuous(
     else:
         nexpected_unique_values = 0
 
+    # bench-attempt-rejected (2026-06-23): CPX18 reuse _get_nunique fast path here to skip np.unique's
+    # unique-array materialization measured 0.76x@100k / 1.02x@1M (bench_cleaning_cpx18_cpx19.py). The
+    # count is sort-dominated; both np.unique and _get_nunique sort the full array, so dropping only the
+    # unique-array build is washed out by the extra njit pass. No win — keep the simple np.unique.
     real_unique_values = len(np.unique(values_in_span))
 
     if nexpected_unique_values > 0:

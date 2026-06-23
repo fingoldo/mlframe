@@ -585,8 +585,8 @@ def calculate_relevance_table(
         ml_task: 'auto' / 'classification' / 'regression'. 'auto' inspects ``y``.
         fdr_level: Benjamini-Yekutieli FDR alpha (default 0.05).
         n_jobs: reserved for future parallelisation. Currently runs serial.
-        random_state: seed for the Kendall-tau subsample (continuous targets with n>2000 are subsampled to 2000 rows
-            for the O(n^2) tau loop). Controls reproducibility; distinct seeds draw distinct subsamples.
+        random_state: retained for signature/back-compat only. The Kendall-tau path now tests at FULL n via
+            ``scipy.stats.kendalltau`` (O(n log n)); it no longer draws a subsample, so this seed has no effect.
 
     Returns:
         pd.DataFrame indexed by feature name with columns ['feature', 'p_value', 'relevant'].

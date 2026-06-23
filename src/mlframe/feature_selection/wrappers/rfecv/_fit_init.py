@@ -20,6 +20,28 @@ from ._validate import _sanitize_X_inputs
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
+# Row-chunk byte budget for streamed hashing (~64 MB). Bounds the peak EXTRA RAM of the X-content
+# fingerprint to one chunk's bytes instead of a whole-frame ``.tobytes()`` copy, which on a 100+ GB
+# frame would double peak RAM and OOM the host.
+_HASH_CHUNK_BYTES = 64 * 1024 * 1024
+
+
+def _stream_hash_array(h, arr: np.ndarray) -> None:
+    """Feed ``arr`` into blake2b ``h`` in C-contiguous row-major order, one row-chunk at a time.
+
+    Bit-identical to ``h.update(np.ascontiguousarray(arr).tobytes())`` but never materialises the whole
+    buffer as one extra bytes copy: ``arr_c[i:j].tobytes()`` concatenated over contiguous row slices equals
+    ``arr_c.tobytes()`` for a C-contiguous array. Peak extra RAM is ~one chunk, not the whole frame.
+    """
+    arr_c = np.ascontiguousarray(arr)
+    if arr_c.ndim == 0 or arr_c.shape[0] == 0:
+        h.update(arr_c.tobytes())
+        return
+    row_bytes = arr_c.dtype.itemsize * int(np.prod(arr_c.shape[1:], dtype=np.int64))
+    rows_per_chunk = max(1, _HASH_CHUNK_BYTES // row_bytes) if row_bytes else arr_c.shape[0]
+    for i in range(0, arr_c.shape[0], rows_per_chunk):
+        h.update(arr_c[i : i + rows_per_chunk].tobytes())
+
 
 def _current_params_signature(self) -> object:
     """Hashable fingerprint of the selector's CURRENT params (``get_params(deep=True)``).
@@ -306,7 +328,7 @@ def _init_fit_state(
                 _nonnum_cols = [c for c in X.columns if c not in set(_numeric_cols)]
                 _h = hashlib.blake2b(digest_size=12)
                 if _numeric_cols:
-                    _h.update(np.ascontiguousarray(X[_numeric_cols].to_numpy()).tobytes())
+                    _stream_hash_array(_h, X[_numeric_cols].to_numpy())
                 for _c in _nonnum_cols:
                     _h.update(str(_c).encode("utf-8"))
                     _h.update(b"\x00")

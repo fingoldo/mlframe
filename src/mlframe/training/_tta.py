@@ -72,3 +72,46 @@ def tta_predict_spread(
         noise = rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
         preds.append(np.asarray(predict_fn(Xf + noise)))
     return np.std(np.stack(preds, axis=0), axis=0)
+
+
+def tta_point_mean_spread(
+    predict_fn: Callable[[np.ndarray], np.ndarray],
+    X: np.ndarray,
+    *,
+    n: int = 16,
+    sigma_scale: float = 0.02,
+    feature_std: Optional[np.ndarray] = None,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute the clean point prediction, the TTA mean, and the per-element TTA spread (population std, ddof=0) in ONE streaming pass.
+
+    Fuses what ``predict_fn(X)`` + ``tta_predict(..., agg="mean")`` + ``tta_predict_spread(...)`` would otherwise do in three separate
+    sweeps (3 clean passes + 2*(n-1) jittered passes = 2n+1 model calls) into a single sweep of n model calls: one clean pass reused as
+    both the point estimate and the first augmentation member, plus n-1 jittered passes accumulated via Welford. The clean pass and the
+    jittered noise sequence (``default_rng(seed)``) are identical to those of the two standalone functions, so ``mean`` and ``spread`` match
+    them to floating-point reduction-order tolerance (Welford streaming vs two-pass ``np.mean``/``np.std`` differ by ~1e-9 ULP only).
+
+    Returns ``(point, mean, spread)``; ``mean`` and ``spread`` are over the same n-member population as the standalone helpers. With
+    ``n<=1`` or ``sigma_scale<=0`` the mean equals the clean point and the spread is all-zero.
+    """
+    Xf = np.asarray(X, dtype=np.float64)
+    point = np.asarray(predict_fn(Xf), dtype=np.float64)
+    if n <= 1 or sigma_scale <= 0:
+        return point, point.copy(), np.zeros_like(point)
+    if feature_std is None:
+        feature_std = Xf.std(axis=0)
+    feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
+    rng = np.random.default_rng(seed)
+    # Welford accumulators seeded with the clean pass as member #1.
+    count = 1
+    mean = point.astype(np.float64).copy()
+    m2 = np.zeros_like(mean)
+    for _ in range(n - 1):
+        noise = rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
+        x = np.asarray(predict_fn(Xf + noise), dtype=np.float64)
+        count += 1
+        delta = x - mean
+        mean += delta / count
+        m2 += delta * (x - mean)
+    spread = np.sqrt(m2 / count)  # ddof=0 to match np.std default
+    return point, mean, spread

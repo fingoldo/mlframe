@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 _SCALES = (0.5, 1.0, 2.0)
 
+# Cap on the vertically-stacked perturbation matrix (float32 elems). 64M ~ 256MB; above this
+# fall back to the per-combo loop to bound peak RAM.
+_MAX_STACK_ELEMS = 64_000_000
+
 
 def compute_adversarial_flip_features(
     X_train: np.ndarray,
@@ -91,20 +95,44 @@ def compute_adversarial_flip_features(
         # For each row, compute per-feature minimum scale that flips.
         # We try scales in _SCALES (0.5σ, 1σ, 2σ) in ±directions. Record smallest scale that flips.
         flip_dists = np.full((n_q, d), 2.5, dtype=np.float32)  # default = "no flip within 2σ"
-        for j in range(d):
-            for scale in _SCALES:
-                for sign in (-1.0, 1.0):
-                    Xq_perturbed = Xq_s.copy()
-                    Xq_perturbed[:, j] = Xq_perturbed[:, j] + sign * scale * feat_std[j]
-                    if task == "binary":
-                        pred_pert = model.predict_proba(Xq_perturbed)[:, 1].astype(np.float32)
-                        flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
-                    else:
-                        pred_pert = model.predict(Xq_perturbed).astype(np.float32)
-                        flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
-                    # Update minimum scale where flip occurred.
-                    update_mask = flipped & (flip_dists[:, j] > scale)
-                    flip_dists[update_mask, j] = scale
+        # (j, scale, sign) perturbation combos — each is one full predict in the per-feature loop.
+        combos = [(j, scale, sign) for j in range(d) for scale in _SCALES for sign in (-1.0, 1.0)]
+        n_combo = len(combos)
+        # Batched path: stack all n_combo perturbations into one (n_combo*n_q, d) matrix and do a
+        # SINGLE predict, then replay the per-combo flip-update in the SAME order. Bit-identical to
+        # the per-combo predict for tree models. Gated on stack size to bound peak RAM.
+        stack_elems = n_combo * n_q * d
+        if stack_elems <= _MAX_STACK_ELEMS and n_combo > 0:
+            stack = np.broadcast_to(Xq_s, (n_combo, n_q, d)).reshape(n_combo * n_q, d).copy()
+            for c, (j, scale, sign) in enumerate(combos):
+                stack[c * n_q:(c + 1) * n_q, j] += sign * scale * feat_std[j]
+            if task == "binary":
+                pred_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(n_combo, n_q)
+            else:
+                pred_all = model.predict(stack).astype(np.float32).reshape(n_combo, n_q)
+            for c, (j, scale, sign) in enumerate(combos):
+                pred_pert = pred_all[c]
+                if task == "binary":
+                    flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
+                else:
+                    flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
+                update_mask = flipped & (flip_dists[:, j] > scale)
+                flip_dists[update_mask, j] = scale
+        else:
+            for j in range(d):
+                for scale in _SCALES:
+                    for sign in (-1.0, 1.0):
+                        Xq_perturbed = Xq_s.copy()
+                        Xq_perturbed[:, j] = Xq_perturbed[:, j] + sign * scale * feat_std[j]
+                        if task == "binary":
+                            pred_pert = model.predict_proba(Xq_perturbed)[:, 1].astype(np.float32)
+                            flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
+                        else:
+                            pred_pert = model.predict(Xq_perturbed).astype(np.float32)
+                            flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
+                        # Update minimum scale where flip occurred.
+                        update_mask = flipped & (flip_dists[:, j] > scale)
+                        flip_dists[update_mask, j] = scale
 
         min_dist = flip_dists.min(axis=1).astype(np.float32)
         mean_dist = flip_dists.mean(axis=1).astype(np.float32)

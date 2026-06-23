@@ -363,14 +363,15 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
         self.threshold = threshold
 
     def fit(self, X, y=None):
-        correlated_features = set()
         X = pd.DataFrame(X)
         corr_matrix = X.corr()
-        for i in range(len(corr_matrix.columns)):
-            for j in range(i):
-                if abs(corr_matrix.iloc[i, j]) > self.threshold:  # we are interested in absolute coeff value
-                    colname = corr_matrix.columns[i]  # getting the name of column
-                    correlated_features.add(colname)
+        # Vectorized upper-triangle (k=1) decorrelation: a column is dropped when its absolute correlation
+        # with any EARLIER column exceeds the threshold. ``np.triu(..., k=1)`` keeps only the entries above
+        # the diagonal, so for column index ``c`` the kept rows are ``i < c`` -- the later column of each
+        # correlated pair is the one dropped, matching the original ``for j in range(i)`` double loop exactly.
+        cols = corr_matrix.columns
+        upper = np.triu(np.abs(corr_matrix.to_numpy()), k=1)
+        correlated_features = {cols[c] for c in range(len(cols)) if (upper[:, c] > self.threshold).any()}
         self.correlated_features_ = correlated_features
         return self
 

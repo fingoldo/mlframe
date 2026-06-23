@@ -29,10 +29,32 @@ a constructor hyperparameter, exactly like the rolling-refit buffer.
 """
 from __future__ import annotations
 
+import bisect
 import math
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+
+def _sorted_quantile_radius(r_sorted: Sequence[float], m: int, alpha: float) -> float:
+    """Finite-sample ``(1-alpha)`` quantile from an already-sorted buffer.
+
+    ``r_sorted`` holds the ``m`` finite non-negative abs-residuals in ascending
+    order; the radius is the plain ``ceil((m+1)(1-alpha))`` rank (no
+    interpolation), so reading ``r_sorted[rank-1]`` is bit-identical to
+    ``np.sort(r)[rank-1]`` on the same float values. ``alpha`` is the adaptive
+    ``alpha_t``; the saturations match ``_rolling_quantile_radius`` exactly.
+    """
+    if m == 0:
+        return float("inf")
+    if alpha <= 0.0:
+        return float("inf")
+    if alpha >= 1.0:
+        return 0.0
+    rank = int(math.ceil((m + 1) * (1.0 - alpha)))
+    if rank > m:
+        return float("inf")
+    return float(r_sorted[rank - 1])
 
 
 def _rolling_quantile_radius(residuals: np.ndarray, alpha: float) -> float:
@@ -68,6 +90,7 @@ def _aci_default_state(alpha: float, gamma: float, buffer_n: int) -> Dict[str, A
         "gamma": float(gamma),
         "buffer_n": int(buffer_n),
         "residuals": [],          # rolling abs-residual buffer (FIFO, last buffer_n)
+        "residuals_sorted": [],   # same values kept ascending (bisect.insort) for O(1)-index quantile
         "errors": [],             # rolling 0/1 miss history (for rolling coverage)
         "n_seen": 0,
         "n_miss": 0,
@@ -112,8 +135,9 @@ def init_aci(self, alpha: float = 0.1, gamma: float = 0.05,
         warm = warm[np.isfinite(warm)]
         if warm.size:
             state["residuals"] = list(warm[-buffer_n:])
-            state["last_radius"] = _rolling_quantile_radius(
-                np.asarray(state["residuals"]), state["alpha_t"],
+            state["residuals_sorted"] = sorted(state["residuals"])
+            state["last_radius"] = _sorted_quantile_radius(
+                state["residuals_sorted"], len(state["residuals_sorted"]), state["alpha_t"],
             )
     self._aci_state_ = state
     return self
@@ -121,10 +145,8 @@ def init_aci(self, alpha: float = 0.1, gamma: float = 0.05,
 
 def _aci_radius(state: Dict[str, Any]) -> float:
     """Current radius = rolling ``(1-alpha_t)`` quantile of the buffer."""
-    buf = state["residuals"]
-    if not buf:
-        return float("inf")
-    return _rolling_quantile_radius(np.asarray(buf, dtype=np.float64), state["alpha_t"])
+    r_sorted = state["residuals_sorted"]
+    return _sorted_quantile_radius(r_sorted, len(r_sorted), state["alpha_t"])
 
 
 def predict_interval_online(self, X, clip: bool = True) -> Tuple[np.ndarray, np.ndarray]:
@@ -168,9 +190,18 @@ def _aci_step(state: Dict[str, Any], residual: float, in_interval: bool) -> None
     buffer_n = state["buffer_n"]
     ar = abs(float(residual))
     if np.isfinite(ar):
-        state["residuals"].append(ar)
-        if len(state["residuals"]) > buffer_n:
-            del state["residuals"][: len(state["residuals"]) - buffer_n]
+        buf = state["residuals"]
+        buf_sorted = state["residuals_sorted"]
+        buf.append(ar)
+        bisect.insort(buf_sorted, ar)
+        # Evict oldest (FIFO) once over capacity; drop its exact value from the
+        # sorted mirror so the index-based quantile stays bit-identical to a
+        # full ``np.sort`` of the live FIFO window.
+        if len(buf) > buffer_n:
+            n_evict = len(buf) - buffer_n
+            for evicted in buf[:n_evict]:
+                del buf_sorted[bisect.bisect_left(buf_sorted, evicted)]
+            del buf[:n_evict]
     err = 0.0 if in_interval else 1.0
     state["errors"].append(err)
     if len(state["errors"]) > buffer_n:

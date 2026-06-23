@@ -252,9 +252,24 @@ def _conditional_permutation_importance(
     # try/finally so the buffer re-enters each iteration identical to X_arr. The prior
     # per-repeat ``X_arr.copy()`` allocated a full p-column copy on every (j x repeat).
     X_perm = X_arr.copy()
+
+    # Conditioning set X_{-j} buffer, reused across j. The prior per-feature
+    # ``np.delete(X_arr, j, axis=1)`` allocated a fresh (n, p-1) array every iteration
+    # (O(n*p^2) allocation/copy over the loop). A single C-contiguous (n, p-1) scratch
+    # refilled by two contiguous block-copies (cols [0:j] and [j+1:p]) yields exactly the
+    # same bytes np.delete would produce, with one allocation total. sklearn's tree fit
+    # re-reads the buffer each call, so reuse is safe (no aliasing across iterations).
+    Xnotj_buf = np.empty((n, p - 1), dtype=X_arr.dtype) if p > 1 else None
     for j in range(p):
         Xj = X_arr[:, j]
-        Xnotj = np.delete(X_arr, j, axis=1)
+        if Xnotj_buf is None:
+            Xnotj = X_arr[:, :0]
+        else:
+            if j > 0:
+                Xnotj_buf[:, :j] = X_arr[:, :j]
+            if j < p - 1:
+                Xnotj_buf[:, j:] = X_arr[:, j + 1:]
+            Xnotj = Xnotj_buf
 
         if Xnotj.shape[1] == 0:
             # Single-feature case: no conditioning set; fall back to vanilla shuffle.

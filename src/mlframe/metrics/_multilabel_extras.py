@@ -36,6 +36,15 @@ def _lrap_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
 
     Equivalent to sklearn's implementation; rows with zero or all-true
     labels are skipped from the denominator (sklearn convention).
+
+    NOTE: a presort (O(n*K log K)) variant was prototyped (bench
+    ``_benchmarks/bench_multilabel_ranking_presort_cpx20.py``).
+    # bench-attempt-rejected (2026-06-23): per-row argsort O(n*K log K) LRAP was
+    # SLOWER than this O(n*K^2) rescan at every realistic K (0.09x@K20 / 0.18x@K50
+    # / 0.18x@K100, n=2000) -- the inner `>=` rescan is branch-cheap & cache-local,
+    # while argsort allocates a length-K index per row. It ALSO diverged by 1 ULP
+    # (tie-group `grp_true*(tp_rank/rank)` vs per-label adds in label order). No win
+    # + not bit-identical => rejected; kept the bench for re-test on other HW/K.
     """
     n, K = y_true.shape
     total = 0.0
@@ -143,10 +152,21 @@ def coverage_error(y_true: np.ndarray, scores: np.ndarray) -> float:
 # ----- Label ranking loss -----
 
 
+# Crossover (bench bench_multilabel_ranking_presort_cpx20.py, n=2000): the
+# O(n*K log K) presort kernel below loses to the O(n*K^2) pair kernel for small
+# K (argsort alloc not amortised) and wins above; measured crossover K~=30
+# (0.78x@K20, 1.01x@K30, 1.35x@K50, 1.87x@K100). Gate at K>=32 for margin.
+_RANKING_LOSS_SORT_K_THRESHOLD: int = 32
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def _ranking_loss_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
+def _ranking_loss_kernel_pairs(y_true: np.ndarray, scores: np.ndarray) -> float:
     """Average over samples of the fraction of (true, false) label pairs
-    incorrectly ordered by score. Lower is better; 0 = perfect."""
+    incorrectly ordered by score. Lower is better; 0 = perfect.
+
+    O(n*K^2) reference (true x false pair double-loop). Used for small K
+    where the presort variant's per-row argsort does not pay off.
+    """
     n, K = y_true.shape
     total = 0.0
     counted = 0
@@ -176,6 +196,66 @@ def _ranking_loss_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
     if counted == 0:
         return np.nan
     return total / counted
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _ranking_loss_kernel_sorted(y_true: np.ndarray, scores: np.ndarray) -> float:
+    """O(n*K log K) label-ranking loss: presort each row by descending score
+    ONCE, then a single forward pass over score tie-groups.
+
+    For each descending tie-group maintain ``false_above`` (false labels
+    strictly higher-scored). A true label in the group is mis-ordered w.r.t.
+    every false label strictly above it (1.0 each) plus every false label tied
+    with it (0.5 each). Per group of ``grp_true`` true / ``grp_false`` false:
+        bad += grp_true*false_above + 0.5*grp_true*grp_false
+    which reproduces the O(K^2) pair kernel (> => 1.0, == => 0.5) bit-for-bit.
+    Bit-identity validated on random/tied/edge inputs (300-trial fuzz) in the
+    CPX20 bench + tests/metrics/test_ranking_loss_presort_cpx20.py.
+    """
+    n, K = y_true.shape
+    total = 0.0
+    counted = 0
+    for i in range(n):
+        n_true = 0
+        for k in range(K):
+            if y_true[i, k] != 0:
+                n_true += 1
+        n_false = K - n_true
+        if n_true == 0 or n_false == 0:
+            continue
+        counted += 1
+        order = np.argsort(scores[i])[::-1]  # descending score
+        bad = 0.0
+        false_above = 0
+        g = 0
+        while g < K:
+            s_g = scores[i, order[g]]
+            h = g + 1
+            while h < K and scores[i, order[h]] == s_g:
+                h += 1
+            grp_true = 0
+            grp_false = 0
+            for p in range(g, h):
+                if y_true[i, order[p]] != 0:
+                    grp_true += 1
+                else:
+                    grp_false += 1
+            bad += grp_true * false_above + 0.5 * grp_true * grp_false
+            false_above += grp_false
+            g = h
+        total += bad / (n_true * n_false)
+    if counted == 0:
+        return np.nan
+    return total / counted
+
+
+def _ranking_loss_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
+    """Dispatcher: pick the O(n*K^2) pair kernel for small K and the
+    O(n*K log K) presort kernel for K >= _RANKING_LOSS_SORT_K_THRESHOLD.
+    Both produce bit-identical results; only the asymptotics differ."""
+    if y_true.shape[1] >= _RANKING_LOSS_SORT_K_THRESHOLD:
+        return _ranking_loss_kernel_sorted(y_true, scores)
+    return _ranking_loss_kernel_pairs(y_true, scores)
 
 
 def label_ranking_loss(y_true: np.ndarray, scores: np.ndarray) -> float:

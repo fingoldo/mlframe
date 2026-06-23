@@ -162,36 +162,51 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_ewm_core(label, is_anchor, half_life, ewm_val_out, ewm_slope_out):
+        # O(1)-per-step EWMA recurrence. Instead of recomputing decayed sums over
+        # ALL anchors at every row (O(A) per row => O(A^2) per segment), keep
+        # running accumulators in coordinates centred on the CURRENT row i, so the
+        # x-magnitudes stay bounded and the per-step update is O(1).
+        #
+        # Let r = 0.5^(1/H) be the per-row decay and u_j = pos_j - i (<= 0). At
+        # row i the weight of anchor j is w_j = r^(i - pos_j) = r^(-u_j). We track:
+        #   S0  = sum_j w_j
+        #   Sy  = sum_j w_j * y_j
+        #   Su  = sum_j w_j * u_j
+        #   Suy = sum_j w_j * u_j * y_j
+        #   Suu = sum_j w_j * u_j^2
+        # Stepping i -> i+1: every weight gains a factor r (decay), and every u_j
+        # shifts by -1. Decay scales all accumulators by r; the u-shift transforms
+        #   Su  -> Su  - S0
+        #   Suu -> Suu - 2*Su + S0
+        #   Suy -> Suy - Sy
+        # (order: shift uses the pre-shift Su/Sy). A new anchor at u=0 adds
+        # (1, y, 0, 0, 0). Then, since the slope is translation-invariant in x,
+        #   w_mean = Sy/S0, xm_u = Su/S0,
+        #   num = Suy - Su*Sy/S0,  den = Suu - Su^2/S0.
         m = label.size
-        pos = np.empty(m, dtype=np.float64)
-        val = np.empty(m, dtype=np.float64)
+        r = 0.5 ** (1.0 / half_life)
+        S0 = 0.0; Sy = 0.0; Su = 0.0; Suy = 0.0; Suu = 0.0
         n_anch = 0
         for i in range(m):
+            if i > 0 and n_anch > 0:
+                # decay (factor r on every w_j) then shift (u_j -> u_j - 1)
+                S0 *= r; Sy *= r; Su *= r; Suy *= r; Suu *= r
+                Suu = Suu - 2.0 * Su + S0
+                Suy = Suy - Sy
+                Su = Su - S0
             if is_anchor[i] and np.isfinite(label[i]):
-                pos[n_anch] = i
-                val[n_anch] = label[i]
+                y = label[i]
+                S0 += 1.0
+                Sy += y
+                # new anchor sits at u = 0 -> contributes nothing to Su/Suy/Suu
                 n_anch += 1
             if n_anch == 0:
                 continue
-            w_sum = 1e-12
-            wy = 0.0
-            for j in range(n_anch):
-                w = 0.5 ** ((i - pos[j]) / half_life)
-                w_sum += w
-                wy += val[j] * w
-            w_mean = wy / w_sum
+            w_mean = Sy / S0
             ewm_val_out[i] = w_mean
             if n_anch >= 2:
-                xm = 0.0
-                for j in range(n_anch):
-                    w = 0.5 ** ((i - pos[j]) / half_life)
-                    xm += pos[j] * w
-                xm /= w_sum
-                num = 0.0; den = 0.0
-                for j in range(n_anch):
-                    w = 0.5 ** ((i - pos[j]) / half_life)
-                    num += w * (pos[j] - xm) * (val[j] - w_mean)
-                    den += w * (pos[j] - xm) * (pos[j] - xm)
+                num = Suy - Su * Sy / S0
+                den = Suu - Su * Su / S0
                 ewm_slope_out[i] = num / (den + 1e-12)
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)

@@ -55,24 +55,35 @@ def _ci_from_samples(
     """
     lo_pct = (alpha / 2.0) * 100.0
     hi_pct = (1.0 - alpha / 2.0) * 100.0
+
+    def _pct_pair(p_lo: float, p_hi: float) -> tuple[float, float]:
+        # CPX24: one np.percentile call over the [lo, hi] vector instead of two
+        # separate calls. Each np.percentile internally np.partition's the array;
+        # two calls partition the SAME samples twice. The vectorised single call
+        # partitions once and is BIT-IDENTICAL (==) to the two scalar calls
+        # (verified across n=1k-10k). Pure post-processing of the CI cut-points,
+        # no RNG touched -- the resample draws are already complete here.
+        both = np.percentile(samples, [p_lo, p_hi])
+        return float(both[0]), float(both[1])
+
     if method != "bca":
-        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+        return _pct_pair(lo_pct, hi_pct)
 
     n_s = samples.shape[0]
     # z0: bias correction = inverse-normal of the fraction of resamples below the point estimate.
     n_below = int(np.count_nonzero(samples < point))
     if n_below == 0 or n_below == n_s:
-        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+        return _pct_pair(lo_pct, hi_pct)
     z0 = stats.norm.ppf(n_below / n_s)
 
     # a: acceleration from the jackknife skew of the metric (Efron 1987 eq 6.6). No jackknife -> percentile.
     if jackknife is None or jackknife.shape[0] < 3:
-        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+        return _pct_pair(lo_pct, hi_pct)
     jk_mean = jackknife.mean()
     diffs = jk_mean - jackknife
     denom = 6.0 * (np.sum(diffs ** 2) ** 1.5)
     if denom == 0.0 or not np.isfinite(denom):
-        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
+        return _pct_pair(lo_pct, hi_pct)
     a = float(np.sum(diffs ** 3) / denom)
 
     z_lo = stats.norm.ppf(alpha / 2.0)
@@ -80,8 +91,8 @@ def _ci_from_samples(
     a_lo = stats.norm.cdf(z0 + (z0 + z_lo) / (1.0 - a * (z0 + z_lo)))
     a_hi = stats.norm.cdf(z0 + (z0 + z_hi) / (1.0 - a * (z0 + z_hi)))
     if not (np.isfinite(a_lo) and np.isfinite(a_hi)) or a_lo >= a_hi:
-        return float(np.percentile(samples, lo_pct)), float(np.percentile(samples, hi_pct))
-    return float(np.percentile(samples, a_lo * 100.0)), float(np.percentile(samples, a_hi * 100.0))
+        return _pct_pair(lo_pct, hi_pct)
+    return _pct_pair(a_lo * 100.0, a_hi * 100.0)
 
 
 def _jackknife_metric(
@@ -138,14 +149,23 @@ def _jackknife_metric_idx(
         return None
     sel = np.arange(n) if n <= max_n else np.linspace(0, n - 1, max_n).astype(np.int64)
     full = np.arange(n, dtype=np.int64)
+    # CPX24: boolean mask-flip gather instead of per-iter np.delete(full, i).
+    # np.delete allocates a fresh length-(n-1) array AND pays searchsorted /
+    # range-rebuild dispatch every iteration; full[mask] is a single fancy-index
+    # gather with the mask flipped in/out per iter (no per-call delete dispatch).
+    # Bit-identical: full[mask] yields the same ascending indices delete did
+    # (mirrors the already-mask-based _jackknife_metric above). No RNG here.
+    keep_mask = np.ones(n, dtype=bool)
     out = np.empty(sel.shape[0], dtype=np.float64)
     w = 0
     for i in sel:
-        loo_idx = np.delete(full, i)
+        keep_mask[i] = False
         try:
-            v = float(metric_fn_idx(loo_idx))
+            v = float(metric_fn_idx(full[keep_mask]))
         except Exception:
+            keep_mask[i] = True
             continue
+        keep_mask[i] = True
         if not _isfinite(v):
             continue
         out[w] = v

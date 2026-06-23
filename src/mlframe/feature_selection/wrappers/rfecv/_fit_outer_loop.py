@@ -128,6 +128,9 @@ def run_outer_loop_iteration(
     else:
         # F6 (Wave 3): coerce votes_aggregation to Borda when multi-estimator + AM/GM and not allow_unsafe.
         _vam = votes_aggregation_method
+        # fi_run_order is consumed by get_next_features_subset only under fi_decay_rate>0 (age-weighted voting); materialising list(...keys()) every outer iter on the growing feature_importances dict is O(steps^2) over the run, so skip it when decay is off.
+        _fi_decay_rate = float(getattr(self, "fi_decay_rate", 0.0))
+        _fi_run_order = list(state.feature_importances.keys()) if _fi_decay_rate > 0.0 else None
         if estimators_list and len(estimators_list) > 1 and not getattr(self, "allow_unsafe_aggregation", False):
             if _vam in (VotesAggregation.AM, VotesAggregation.GM):
                 _vam = VotesAggregation.Borda
@@ -148,8 +151,8 @@ def run_outer_loop_iteration(
             dichotomic_epsilon=float(getattr(self, "dichotomic_epsilon", 0.0)),
             dichotomic_step=str(getattr(self, "dichotomic_step", "midpoint")),
             rng=getattr(self, "_rng", None),
-            fi_decay_rate=float(getattr(self, "fi_decay_rate", 0.0)),
-            fi_run_order=list(state.feature_importances.keys()),
+            fi_decay_rate=_fi_decay_rate,
+            fi_run_order=_fi_run_order,
             importance_agg=getattr(self, "importance_agg", "legacy"),
             fi_family=getattr(self, "_fi_family", None),
             signed_importances=getattr(self, "_signed_importances", None),
