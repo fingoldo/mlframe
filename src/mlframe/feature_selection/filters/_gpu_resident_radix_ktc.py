@@ -92,20 +92,26 @@ def radix_select_threads(n: int) -> int:
     return _RADIX_THREADS_DEFAULT
 
 
-# Lever C (2026-06-23): which f32 radix-select WINDOW-MATCH variant -- the base linear scan or the
-# binary-search variant -- is the per-host fastest. The base kernel is warp-divergence bound (~42% eff) on
-# the per-row linear window scan; the bsearch variant replaces it with a branchless binary search over the
-# sorted active-window prefixes (bit-identical order statistics; the sweep ranks by WALL only). "bsearch" is
-# the measured-faster default / lookup-failure fallback (proven by the CUDA-event A/B at production shape).
-_RADIX_F32_VARIANTS = ("linear", "bsearch")
-_RADIX_F32_VARIANT_DEFAULT = "bsearch"
-_RADIX_F32_VARIANT_SALT = 1
+# Lever C/4 (2026-06-23): which f32 radix-select variant -- the base linear scan, the binary-search
+# window-match (Lever C), or the parallel-per-rank-scan ``v3`` (Lever 4) -- is the per-host fastest. The
+# base kernel is warp-divergence bound (~42% eff) on the per-row linear window scan; bsearch replaces that
+# with a branchless binary search; v3 ADDITIONALLY parallelises the per-pass cumulative scan across the R
+# ranks (was serial in tid==0 -- the dominant cost, NOT the n-read bandwidth: CUDA-event A/B at the
+# production shape measured the kernel at ~20 GB/s << the card's ~96 GB/s read peak; v3 = ~2x over bsearch,
+# 48.6->22.1ms uniform / 45.6->22.0ms normal, interleaved-min 2x-confirmed). All THREE are bit-identical in
+# the produced order statistics (only HOW windows are matched / WHERE the scan runs differs; the sweep ranks
+# by WALL only). "v3" is the measured-fastest default / lookup-failure fallback; bsearch is the compile
+# fallback for v3 and linear the fallback for bsearch.
+_RADIX_F32_VARIANTS = ("linear", "bsearch", "v3")
+_RADIX_F32_VARIANT_DEFAULT = "v3"
+_RADIX_F32_VARIANT_SALT = 2  # bumped: v3 added to the variant set -> re-sweep
 
 
 def radix_select_f32_variant(n: int) -> str:
-    """Per-host f32 radix-select window-match variant ("linear"/"bsearch") from the kernel_tuning_cache.
-    Returns ``_RADIX_F32_VARIANT_DEFAULT`` ("bsearch") when no cache entry exists / the lookup fails / no
-    cupy. Both variants are bit-identical in the produced order statistics (only the window search differs)."""
+    """Per-host f32 radix-select variant ("linear"/"bsearch"/"v3") from the kernel_tuning_cache.
+    Returns ``_RADIX_F32_VARIANT_DEFAULT`` ("v3") when no cache entry exists / the lookup fails / no
+    cupy. All variants are bit-identical in the produced order statistics (only the window search / scan
+    parallelism differs)."""
     if _RADIX_F32_VARIANT_SPEC is None:
         return _RADIX_F32_VARIANT_DEFAULT
     try:
@@ -155,7 +161,7 @@ def _run_radix_f32_variant_sweep() -> list:
 
 
 def _radix_f32_variant_fallback_choice(n_samples: int) -> str:
-    """Pre-sweep fallback: the measured-faster binary-search variant."""
+    """Pre-sweep fallback: the measured-fastest parallel-per-rank-scan ``v3`` variant."""
     return _RADIX_F32_VARIANT_DEFAULT
 
 

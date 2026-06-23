@@ -220,6 +220,78 @@ void radix_select_f32_bsearch(const float* __restrict__ data, const long long n,
     if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
 }
 """
+# PARALLEL PER-RANK SCAN VARIANT (2026-06-23, Lever 4 -> the real win). The per-byte-pass histogram is
+# followed by a CUMULATIVE-SCAN + prefix-advance that the base/bsearch kernels run ENTIRELY in ``tid==0``:
+# a serial loop over the R<=40 ranks, each doing its own up-to-256-bucket cumulative scan while the other
+# 1023 threads idle at the barrier. CUDA-event A/B at the production shape (n=100k, K=583, R=38, f32,
+# threads=1024, GTX 1050 Ti, interleaved-min, 2x-confirmed) measured this serial scan -- NOT the n-read
+# bandwidth -- is the dominant cost: the kernel achieved only ~19-20 GB/s vs the card's ~96 GB/s effective
+# read bandwidth (a single n-pass sum runs at 96.5 GB/s -> a 4-pass bandwidth floor is ~10ms, but the
+# bsearch kernel takes ~46-49ms = ~4.7x above the floor). EARLY-TERMINATION (Lever 1) was probed and is
+# DEAD: continuous f32 quantile edges need ~3-4 byte passes to resolve all R ranks (instrumented: all
+# windows collapse to width<=1 only at pass 3/4 for uniform/normal/heavy), so no full n-read can be skipped.
+#
+# THIS variant parallelises that scan: thread ``r`` (r<R) owns rank ``r`` and runs its window's cumulative
+# 256-scan + prefix advance IN PARALLEL with the other ranks (R parallel scans instead of one serial loop
+# over R). Each rank reads its OWN window's histogram slice ``sh[w*256+..]`` and writes its OWN
+# ``below[r]``/``prefix[r]`` -- disjoint slots, no cross-rank dependency -> the result is IDENTICAL to the
+# serial loop (verified maxdiff 0 across the full n x K x {uniform,normal,heavy,ties,all-equal} grid). The
+# n-read + binary-search window-match (carried over from the bsearch variant) are UNCHANGED. MEASURED
+# (CUDA-event A/B vs the bsearch kernel, interleaved-min >=9 reps, 2x-confirmed): uniform 48.6->22.1ms =
+# 2.20x; normal 45.6->22.0ms = 2.07x; heavy 45.8->22.1ms = 2.07x; BIT-IDENTICAL (maxdiff 0). Kept as a
+# SEPARATE kernel (bsearch/linear stay the exact fallbacks + dispatch alternatives); selected by the KTC
+# variant sweep, default = whichever is measured faster per host (bsearch remains the fallback on any
+# compile/launch failure of this variant).
+_RADIX_SELECT_F32_V3_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_f32_v3(const float* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R, float* __restrict__ out){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned int prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned int wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ unsigned int wsort[MAXR];   // wpref sorted ascending (distinct active window prefixes)
+    __shared__ int wsort2w[MAXR];          // sorted position -> ORIGINAL window index (into wpref / sh)
+    __shared__ int W;
+    if(tid<R){prefix[tid]=0u;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=3;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned int hmask=(byte==3)?0u:(0xFFFFFFFFu<<((byte+1)*8));
+        if(tid==0){int w=0;for(int r=0;r<R;++r){unsigned int p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w]=p;rank2w[r]=w;w++;}else rank2w[r]=f;} W=w;
+            for(int q=0;q<w;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+            for(int a=1;a<w;++a){unsigned int kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            float d=data[(long long)col*n+i];unsigned int u;memcpy(&u,&d,4);  // COLUMN-MAJOR: coalesced
+            u=(u&0x80000000u)?~u:(u|0x80000000u);
+            unsigned int pm=u&hmask;
+            int lo=0,hi=Wl;
+            while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+            if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                int dig=(int)((u>>shift)&0xFFu);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        // PARALLEL per-rank cumulative scan + prefix advance: thread r owns rank r (disjoint below/prefix
+        // slots, own window histogram slice) -> identical result to the serial tid==0 loop, R-way parallel.
+        if(tid<R){int w=rank2w[tid];unsigned long long acc=below[tid];int chosen=0;long long want=ranks[tid];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[tid]=acc;prefix[tid]=(prefix[tid]&hmask)|((unsigned int)chosen<<shift);}
+        __syncthreads();
+    }
+    if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
+}
+"""
+_RADIX_SELECT_F32_V3_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 _RADIX_SELECT_F32_BSEARCH_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 _RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)
 _RADIX_SELECT_F32_KERNEL = None
@@ -316,6 +388,19 @@ def _get_radix_select_kernel(is_f32: bool):
     return _RADIX_SELECT_F64_KERNEL
 
 
+def _get_radix_select_f32_v3_kernel():
+    """Lazy-compiled (pickle-safe, module-level singleton) parallel-per-rank-scan f32 variant (the real
+    Lever-4 win). Bit-identical order statistics to ``radix_select_f32`` / ``radix_select_f32_bsearch``;
+    parallelises the per-pass cumulative scan across the R ranks (was serial in tid==0) -> ~2x at the
+    production shape (n=100k, K=583, R=38). Carries the bsearch binary-search window-match."""
+    global _RADIX_SELECT_F32_V3_KERNEL
+    import cupy as cp
+    if _RADIX_SELECT_F32_V3_KERNEL is None:
+        _RADIX_SELECT_F32_V3_KERNEL = cp.RawKernel(
+            _RADIX_SELECT_F32_V3_SRC, "radix_select_f32_v3")
+    return _RADIX_SELECT_F32_V3_KERNEL
+
+
 def _get_radix_select_f32_bsearch_kernel():
     """Lazy-compiled (pickle-safe, module-level singleton) binary-search window-match f32 variant
     (Lever C). Bit-identical order statistics to ``radix_select_f32``; replaces the divergent linear
@@ -338,22 +423,31 @@ _RADIX_F32_VARIANT_OVERRIDE = None  # "linear" / "bsearch" set by the KTC sweep 
 
 def _resolve_radix_f32_variant(n: int) -> str:
     """Which f32 radix-select variant to launch: the sweep override when active, else the per-host KTC-tuned
-    choice ("linear" / "bsearch"; falls back to "bsearch" -- the measured-faster default -- on lookup
-    failure). Both are bit-identical in the produced order statistics."""
+    choice ("linear" / "bsearch" / "v3"; falls back to "v3" -- the measured-fastest default -- on lookup
+    failure). All three are bit-identical in the produced order statistics."""
     if _RADIX_F32_VARIANT_OVERRIDE is not None:
         return str(_RADIX_F32_VARIANT_OVERRIDE)
     try:
         from ._gpu_resident_radix_ktc import radix_select_f32_variant
         return str(radix_select_f32_variant(int(n)))
     except Exception:
-        return "bsearch"
+        return "v3"
 
 
 def _get_radix_select_f32_dispatch(n: int):
-    """The f32 radix-select kernel for this size/host (Lever C dispatch). Returns the binary-search variant
-    when selected (and it compiles), else the base linear-scan kernel; the base is also the fallback on any
-    compile failure of the bsearch variant -- bit-identical order statistics either way."""
-    if _resolve_radix_f32_variant(n) == "bsearch":
+    """The f32 radix-select kernel for this size/host (Lever C/4 dispatch). Returns the parallel-per-rank-scan
+    ``v3`` variant (the measured-fastest, ~2x) when selected and it compiles, else the binary-search variant,
+    else the base linear-scan kernel; each falls back to the previous on a compile failure -- all three
+    produce bit-identical order statistics."""
+    variant = _resolve_radix_f32_variant(n)
+    if variant == "v3":
+        try:
+            return _get_radix_select_f32_v3_kernel()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("v3 radix kernel compile failed; bsearch fallback", exc_info=True)
+            variant = "bsearch"
+    if variant == "bsearch":
         try:
             return _get_radix_select_f32_bsearch_kernel()
         except Exception:
