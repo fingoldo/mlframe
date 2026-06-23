@@ -17,6 +17,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+try:
+    from numba import njit
+
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
+
+    def njit(*args, **kwargs):  # pragma: no cover
+        def wrap(fn):
+            return fn
+
+        if args and callable(args[0]):
+            return args[0]
+        return wrap
+
+
+@njit(cache=True)
+def _assign_classes_from_probability_kernel(predictors: np.ndarray, draw: np.ndarray, n_classes: int, out: np.ndarray) -> np.ndarray:
+    # ``total`` is seeded as float32 to match the legacy Python loop bit-for-bit: there ``total`` started as a Python float
+    # but ``py_float += np_float32`` follows numpy promotion and stays float32, so the cumulative walk rounded in float32.
+    # A float64 accumulator here would flip the chosen class on rare draws landing within ~1e-8 of a cumulative boundary.
+    n_samples = predictors.shape[0]
+    for i in range(n_samples):
+        total = np.float32(0.0)
+        out[i] = n_classes - 1
+        for j in range(n_classes):
+            total = total + predictors[i, j]
+            if draw[i] < total:
+                out[i] = j
+                break
+    return out
+
 
 def sample_random_variable(
     kind: str = "cat",
@@ -88,15 +120,7 @@ def assign_classes_from_probability(predictors: np.ndarray, draw: np.ndarray, n_
     n_samples = predictors.shape[0]
     if out is None:
         out = np.empty(n_samples, dtype=np.int32)
-    for i in range(n_samples):
-        total = 0.0
-        out[i] = n_classes - 1
-        for j in range(n_classes):
-            total += predictors[i, j]
-            if draw[i] < total:
-                out[i] = j
-                break
-    return out
+    return _assign_classes_from_probability_kernel(predictors, draw, n_classes, out)
 
 
 def generate_modelling_data(

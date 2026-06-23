@@ -29,8 +29,23 @@ __all__ = [
 from typing import Iterable, Optional, Sequence
 
 import numpy as np
+from numba import njit
 
 from .grouped import iter_group_segments
+
+
+@njit(cache=True)
+def _ewma_recurrence_njit(seg_f: np.ndarray, alpha: float) -> np.ndarray:
+    """``ewma[i] = alpha*x[i] + (1-alpha)*ewma[i-1]`` -- bit-identical to the Python loop."""
+    n = seg_f.size
+    ewma = np.empty_like(seg_f)
+    if n == 0:
+        return ewma
+    ewma[0] = seg_f[0]
+    one_minus = 1.0 - alpha
+    for i in range(1, n):
+        ewma[i] = alpha * seg_f[i] + one_minus * ewma[i - 1]
+    return ewma
 
 
 def frac_diff_weights(d: float, K: int) -> np.ndarray:
@@ -194,10 +209,7 @@ def ewma_residual(
     def _ewma_single(seg: np.ndarray, hl: float) -> np.ndarray:
         alpha = 1.0 - 2.0 ** (-1.0 / hl)
         seg_f = np.where(np.isfinite(seg), seg, 0.0)
-        ewma = np.empty_like(seg_f)
-        ewma[0] = seg_f[0]
-        for i in range(1, seg_f.size):
-            ewma[i] = alpha * seg_f[i] + (1.0 - alpha) * ewma[i - 1]
+        ewma = _ewma_recurrence_njit(seg_f, alpha)
         if adjust:
             # Pandas-style bias correction at the start.
             w = (1.0 - alpha) ** np.arange(seg_f.size)
