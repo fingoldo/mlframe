@@ -47,7 +47,9 @@ classifiers = [
 # Minimal hard requirements so `pip install mlframe` stays light.
 # Domain-specific stacks (catboost / lightgbm / shap / mlflow / ...) ship as extras.
 dependencies = [
-    "numpy>=1.23",
+    # Upper cap <2.5: numba 0.65.1 (latest) rejects numpy 2.5 at import ("Numba needs NumPy 2.4 or less").
+    # pip honours this (it ignores [tool.uv].override-dependencies, which carries the matching cap for uv).
+    "numpy>=1.23,<2.5",
     "pandas>=1.5",
     "polars>=0.20",
     "scipy>=1.10",
@@ -113,8 +115,10 @@ override-dependencies = [
     # numpy as overridden-to-nothing and PRUNES it from the resolution entirely (pandas/sklearn install, numpy
     # does not -> ModuleNotFoundError at import). The complementary py>=3.10 entry keeps numpy constrained
     # (>= the declared floor) on every interpreter, so it is never pruned. py3.9 still gets the numpy<2 ABI pin.
+    # Upper cap <2.5: numba 0.65.1 (latest, the only line with py3.13/3.14 wheels) rejects numpy 2.5 at import
+    # ("Numba needs NumPy 2.4 or less"); without the cap the resolver pulls numpy 2.5 and every numba import dies.
     "numpy<2.0; python_version < '3.10'",
-    "numpy>=1.23; python_version >= '3.10'",
+    "numpy>=1.23,<2.5; python_version >= '3.10'",
 ]
 
 [project.optional-dependencies]
