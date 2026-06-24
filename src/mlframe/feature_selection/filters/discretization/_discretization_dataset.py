@@ -369,8 +369,9 @@ def categorize_dataset(
                 # shift (the shift increases the max by 1; auto-promote
                 # below catches dtype overflow on the new max).
                 new_vals = new_vals + 1
-        max_cats = new_vals.max(axis=0)
-        global_max = int(max_cats.max())
+        # An empty block (0 rows) has no codes to bound; skip the overflow check whose ``.max(axis=0)`` would raise on the empty reduction axis.
+        global_max = int(new_vals.max(axis=0).max()) if new_vals.size else -1
+        max_cats = new_vals.max(axis=0) if new_vals.size else None
         if global_max > np.iinfo(dtype).max:
             for _candidate in (np.int16, np.int32, np.int64):
                 if global_max <= np.iinfo(_candidate).max:
@@ -392,6 +393,14 @@ def categorize_dataset(
             data = new_vals
         else:
             data = np.append(data, new_vals, axis=1)
+
+    # ``data.max(axis=0)`` raises on an empty reduction axis (0 columns OR 0 rows): return a typed empty result so callers
+    # get a consistent ``(data, cols, nbins)`` triple instead of an opaque reduction ValueError.
+    if data is None or data.size == 0:
+        n_rows = data.shape[0] if data is not None else 0
+        n_cols = len(numerical_cols) + len(categorical_cols)
+        empty = data if data is not None else np.empty((n_rows, n_cols), dtype=dtype)
+        return empty, numerical_cols + categorical_cols, np.zeros(n_cols, dtype=np.int64)
 
     nbins = data.max(axis=0).astype(np.int64) + 1
 

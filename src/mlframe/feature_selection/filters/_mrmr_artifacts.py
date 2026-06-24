@@ -31,6 +31,20 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _assert_nonneg_codes(codes: np.ndarray, what: str) -> None:
+    """Fail loudly at the source if a binned-code column carries a negative value before ``np.bincount``.
+
+    The upstream NaN-shift in ``categorize_dataset`` guarantees non-negative codes; a negative one means that shift regressed.
+    Without this guard ``np.bincount`` raises an opaque ``ValueError: 'list' argument must have no negative elements`` /
+    ``negative dimensions are not allowed`` that gives no hint of the real cause.
+    """
+    if codes.size and codes.min() < 0:
+        raise ValueError(
+            f"compute_mrmr_artifacts: {what} contains negative bin code(s) (min={int(codes.min())}); "
+            "the NaN +1 shift in categorize_dataset must keep all codes >= 0 before bincount. This indicates an upstream binning regression."
+        )
+
+
 # Schema: the dict returned by ``MRMR.export_artifacts`` and consumed by
 # ``ShapProxiedFS(precomputed=...)``. Keys are stable string identifiers;
 # consumers MUST tolerate missing optional keys (forward compat).
@@ -114,6 +128,7 @@ def compute_mrmr_artifacts(
     y_idx = int(target_indices[0])
     y_bins = data[:, y_idx]
     y_nbins = int(nbins[y_idx])
+    _assert_nonneg_codes(y_bins, "target column y_bins")
     y_counts = np.bincount(y_bins, minlength=y_nbins).astype(np.float64)
     y_total = float(y_counts.sum())
     if y_total > 0:
@@ -149,6 +164,7 @@ def compute_mrmr_artifacts(
         # Marginal H(X_j) from the binned column.
         x_bins = data[:, data_col]
         x_nb = int(nbins[data_col])
+        _assert_nonneg_codes(x_bins, f"feature column {name!r} x_bins")
         x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)
         x_total = float(x_counts.sum())
         if x_total > 0:

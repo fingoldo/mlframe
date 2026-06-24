@@ -264,10 +264,21 @@ def _validate_inputs(self, X, y):
             # being merged into bin-0 or imputed silently). transform()
             # preserves NaN in the returned X for downstream NaN-aware models
             # (catboost, lightgbm, xgboost histogram tree).
+        # Object-dtype columns can smuggle a Python ``float('inf')`` past the float-only scan above (they are excluded from select_dtypes("number")
+        # and the polars numeric set). Scan them too when present so the same undefined-bin failure is caught at the boundary, not deep in discretisation.
+        if hasattr(X, "select_dtypes"):
+            _obj = X.select_dtypes(include=["object"])
+            if _obj.shape[1] > 0:
+                _obj_arr = _obj.to_numpy()
+                _obj_floats = np.frompyfunc(lambda v: isinstance(v, float) and np.isinf(v), 1, 1)(_obj_arr).astype(bool)
+                if _obj_floats.any():
+                    raise ValueError(
+                        "MRMR.fit: input X contains +/-inf values in object-dtype column(s). Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
+                    )
     except ValueError:
         raise  # re-raise our own ValueError
     except Exception:
-        pass
+        logger.debug("MRMR.fit: inf/NaN input validation scan failed unexpectedly; skipping the guard.", exc_info=True)
     # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
     # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
     # Multilabel y is (N, K): require that AT LEAST ONE label column has variation
@@ -290,7 +301,7 @@ def _validate_inputs(self, X, y):
     except ValueError:
         raise  # re-raise our own ValueError
     except Exception:
-        pass
+        logger.debug("MRMR.fit: constant-y validation scan failed unexpectedly; skipping the guard.", exc_info=True)
     return X
 
 

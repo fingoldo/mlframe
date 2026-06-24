@@ -86,6 +86,12 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
     Constant or near-constant columns degenerate to a single class (0). NaN
     / Inf are mapped to bin 0 (caller is expected to scrub upstream; we keep
     the fallback for safety).
+
+    By design, a low-cardinality column can collapse to a single (or two) bin even when it is informative: ``np.unique(np.quantile(...))`` dedupes the
+    equi-frequency edges, so a column with few distinct values yields ``edges.size <= 2`` and reads MI ~= 0 here. This is the price of monotone-invariance
+    (the binning depends only on rank order, not raw spacing) and is intentional, NOT a bug -- the marginal-MI path (Layer 26) sees such columns through its
+    own binning, and the CMI-greedy step is meant to score CONDITIONAL gain on top of that. Do not "fix" this by switching to value-width bins; that would
+    break the rank-invariance the CMI numbers rely on (see the bench-attempt-rejected note below for why rank-based rebinning was rejected too).
     """
     # bench-attempt-rejected (2026-06-01): replacing np.quantile value-edge
     # binning with a numba argsort rank-based equi-frequency binner was BOTH
