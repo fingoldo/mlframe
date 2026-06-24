@@ -345,34 +345,32 @@ class TestGainRatioAuditSignal:
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
-        if gains.size < 2:
-            pytest.skip(
-                f"support has {gains.size} feature(s); leak-vs-legit "
-                f"ratio undefined. seed={seed}"
-            )
         # Audit signal: ratio of top-leak gain to the BEST legitimate
         # signal gain. Comparing to median-tail dilutes the ratio when
         # a second leak (group_mean, post_event) also lands in support;
         # the production heuristic a user wires up is "any feature with
-        # gain >> top non-leak gain is suspicious". Skip if no leak is
-        # present OR no legit signal is present -- the ratio is then
-        # undefined / not relevant to this contract.
+        # gain >> top non-leak gain is suspicious".
         leak_idx = [i for i, n in enumerate(names) if n in LEAK_COLS]
         legit_idx = [
             i for i, n in enumerate(names) if n in ("x_legit_1", "x_legit_2")
         ]
-        if not leak_idx:
-            pytest.skip(
-                f"no leak in support on this seed. seed={seed}, "
-                f"support={names}"
-            )
-        if not legit_idx:
-            pytest.skip(
-                f"no legit signal in support on this seed; "
-                f"leak-vs-legit ratio is undefined. seed={seed}, "
-                f"support={names}"
-            )
+        # The leak IS in support on every seed by construction (the three leaks
+        # have near-perfect MI with y; pinned independently by
+        # TestLeakSurfacedToSupport). If MRMR stops selecting any leak this is a
+        # relevance-ranker regression -- it must FAIL the contract, not skip it.
+        assert leak_idx, (
+            f"no direct-leak column ({LEAK_COLS}) in support_ despite each having "
+            f"near-perfect MI with y; the relevance ranker is no longer surfacing "
+            f"the leak, so the gain-ratio audit can never fire. seed={seed}, "
+            f"support={names}"
+        )
         top_leak_gain = float(np.max(gains[leak_idx]))
+        if not legit_idx:
+            # No legitimate signal in support: the leak crowded out every legit
+            # feature, so the leak-vs-legit ratio is +inf -- a STRONGER audit
+            # signal than the 2x floor. The contract (leak auditably dominant) is
+            # satisfied, exactly as in the collapsed-legit-gain branch below.
+            return
         top_legit_gain = float(np.max(gains[legit_idx]))
         if top_legit_gain <= 0.0:
             # Legit gain collapsed to zero (DCD pruned everything redundant
@@ -507,8 +505,13 @@ class TestSupportGainsAlignment:
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
-        if gains.size < 1:
-            pytest.skip(f"empty support on seed={seed}")
+        # A non-empty support is a hard contract on the leaky frame (the direct
+        # leak alone has near-perfect MI with y); an empty gains array means MRMR
+        # selected nothing, which is a regression, not a skippable case.
+        assert gains.size >= 1, (
+            f"empty support on the leaky frame (seed={seed}); MRMR selected no "
+            f"feature despite the direct leak having near-perfect MI with y."
+        )
         # gain[0] is the FIRST greedy pick == largest relevance gain.
         # The remaining picks have STRICTLY non-increasing gains (relative-gain
         # stop). So argmax of the gains array must be index 0.

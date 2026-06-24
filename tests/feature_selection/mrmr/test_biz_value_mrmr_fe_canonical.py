@@ -977,6 +977,32 @@ def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
         "would get 0 features (raw operands dropped against an un-replayable "
         f"nested-engineered subsumer). support_={getattr(fs, 'support_', None)}"
     )
+    # ``len(out) > 0`` alone is satisfiable by a single degenerate raw pass-through
+    # while the actual golden signal is lost. Pin the real contract: BOTH halves of
+    # ``y = a**2/b + log(c)*sin(d)`` must be recovered (the union of selected-column
+    # operands covers {a,b} AND {c,d}), and the recovered support must genuinely
+    # predict y downstream (Ridge R^2 floor).
+    union = set()
+    for nm in out:
+        union |= _bare_vars(nm)
+    assert {"a", "b"} <= union, (
+        f"a**2/b half lost: selected operands {sorted(union)} miss a/b. selected={out}"
+    )
+    assert {"c", "d"} <= union, (
+        f"log(c)*sin(d) half lost: selected operands {sorted(union)} miss c/d. selected={out}"
+    )
+    from sklearn.linear_model import Ridge
+    from sklearn.metrics import r2_score
+
+    Xt_full = np.asarray(fs.transform(df), dtype=np.float64)
+    r2 = r2_score(y.values, Ridge(alpha=1.0).fit(Xt_full, y.values).predict(Xt_full))
+    # Measured 0.838 on this seeded fixture; floor 0.72 (~14% margin). A degenerate
+    # support that passed a bare non-empty check would collapse this R^2.
+    assert r2 >= 0.72, (
+        f"downstream Ridge R^2={r2:.4f} < 0.72 on the canonical golden support; the "
+        f"selection no longer predicts y -- the signal was lost despite a non-empty "
+        f"feature set. selected={out}"
+    )
     # And transform() must actually deliver those columns to the consumer.
     Xt = np.asarray(fs.transform(df.head(64)))
     assert Xt.shape[1] == len(out) and Xt.shape[1] > 0, (
