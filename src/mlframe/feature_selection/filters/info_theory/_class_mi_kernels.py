@@ -63,7 +63,8 @@ def compute_mi_from_classes(
     n = len(classes_x)
     K_x = len(freqs_x)
     K_y = len(freqs_y)
-    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    # A single joint cell count can reach ``n``; the caller-supplied ``dtype`` (int32 by default) wraps negative above ~2.1e9 rows, turning ``log(jf/...)`` into NaN. The counter is bounded by ``n`` regardless of class encoding, so int64 is the safe width at negligible cost for the small (K_x, K_y) array (mirrors the ``merge_vars`` freqs/lookup-table int64 fix).
+    joint_counts = np.zeros((K_x, K_y), dtype=np.int64)
     for k in range(n):
         joint_counts[classes_x[k], classes_y[k]] += 1
     inv_n = 1.0 / n
@@ -99,7 +100,8 @@ def compute_su_from_classes(
     n = len(classes_x)
     K_x = len(freqs_x)
     K_y = len(freqs_y)
-    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    # int64 counter: a joint cell can reach ``n``; int32 (default ``dtype``) wraps negative above ~2.1e9 rows -> NaN SU. See ``compute_mi_from_classes``.
+    joint_counts = np.zeros((K_x, K_y), dtype=np.int64)
     for k in range(n):
         joint_counts[classes_x[k], classes_y[k]] += 1
     inv_n = 1.0 / n
@@ -125,6 +127,9 @@ def compute_su_from_classes(
     denom = h_x + h_y
     if denom <= 1e-12:
         return 0.0
+    # Floor the plug-in numerator at 0 (matching the CMI clamp): on near-deterministic columns float round-off in ``H(X)+H(Y)-H(XY)`` can leave ``mi_xy`` slightly negative, yielding a tiny negative SU treated as a valid low relevance instead of 0.
+    if mi_xy < 0.0:
+        mi_xy = 0.0
     return 2.0 * mi_xy / denom
 
 

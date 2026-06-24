@@ -8,6 +8,15 @@ from typing import Callable
 import numpy as np
 from numba import njit, prange
 
+# Cardinality cap for the per-pair / per-triple joint histogram. ``nbins`` derives from ``data.max(axis=0)+1`` and can be huge for high-cardinality
+# categoricals (hash IDs, zip codes), so an ungated ``nb_a*nb_b`` (pair) or ``nb_a*nb_b*nb_c`` (triple) product silently OOMs the per-iteration buffer
+# and can overflow the index product. A joint with more cells than there are rows is degenerate (most cells empty, MI dominated by sampling noise), so a
+# pair/triple whose RAW cardinality exceeds this cap is skipped and scored MI=0.0 -- the no-information sentinel the FE noise-gate already treats as
+# uninformative. 64M int64 cells == 512 MiB per worker thread is the default ceiling; override via ``MLFRAME_BATCH_JOINT_CARD_CAP`` (read by the Python
+# callers and threaded down) for hosts that want a different RAM budget. The triple kernel dense-renumbers occupied cells so its WORKING histogram is
+# bounded by ``n``, but the ``remap`` table it must allocate is sized by the raw product -- the same OOM hazard, gated identically.
+MAX_JOINT_CARDINALITY = 64_000_000
+
 
 @njit(parallel=True, nogil=True, cache=True)
 def batch_pair_mi_prange(
@@ -65,6 +74,12 @@ def batch_pair_mi_prange(
         nb_a = int(nbins[a])
         nb_b = int(nbins[b])
         joint_card = nb_a * nb_b
+
+        # Skip-and-sentinel a pathologically high-cardinality pair: allocating a (joint_card, n_classes_y) histogram for a huge
+        # nb_a*nb_b would OOM the worker. MI=0.0 is the no-information value the FE noise-gate treats as uninformative.
+        if joint_card > MAX_JOINT_CARDINALITY:
+            out[p] = 0.0
+            continue
 
         # Thread-local buffers. numba allocates these per-prange-iteration on the
         # worker thread's stack so there's no cross-thread aliasing.
@@ -159,6 +174,12 @@ def batch_triple_mi_prange(
         nb_c = int(nbins[c])
         raw_card = int(nbins[a]) * nb_b * nb_c
 
+        # Skip-and-sentinel a pathologically high-cardinality triple: the dense-renumber bounds the WORKING histogram to n_dense<=n, but the
+        # direct-address ``remap`` table below is sized by the raw product and is the OOM hazard. MI=0.0 is the gate's uninformative sentinel.
+        if raw_card > MAX_JOINT_CARDINALITY:
+            out[p] = 0.0
+            continue
+
         # Thread-local per-row raw 3-way codes + a direct-address remap table.
         raw_codes = np.empty(n_samples, dtype=np.int64)
         remap = np.full(raw_card, -1, dtype=np.int64)  # raw code -> dense id (-1 = unseen)
@@ -220,7 +241,8 @@ def _perm_failcount_col(
     col_codes = np.empty(n, dtype=classes_dense.dtype)
     for r in range(n):
         col_codes[r] = classes_dense[r, k]
-    joint = np.zeros((K_x, K_y), dtype=dtype)
+    # int64 counter: a joint cell can reach ``n``; int32 (default ``dtype``) wraps negative above ~2.1e9 rows -> NaN MI.
+    joint = np.zeros((K_x, K_y), dtype=np.int64)
     inv_n = 1.0 / n
     # SU normalisation denom is perm-invariant (depends only on freqs_dense[k] + freqs_y) -> hoist (same float).
     su_denom = 0.0
@@ -252,6 +274,8 @@ def _perm_failcount_col(
                     jf = jc * inv_n
                     mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
         if use_su:
+            if mi_perm < 0.0:
+                mi_perm = 0.0
             mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
         if mi_perm >= original_mi_k:
             nfk += 1
@@ -549,7 +573,8 @@ def _densify_and_relevance_fused(
     unchanged. ``classes_dense`` is still fully written (the permutation path re-reads it per shuffle)."""
     n = col.shape[0]
     K_y = len(freqs_y)
-    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    # int64 counter: a joint cell can reach ``n``; int32 (default ``dtype``) wraps negative above ~2.1e9 rows -> NaN MI.
+    joint_counts = np.zeros((K_x, K_y), dtype=np.int64)
     for r in range(n):
         dc = lookup[col[r]]
         classes_dense[r, k] = dc
@@ -582,6 +607,9 @@ def _densify_and_relevance_fused(
     denom = h_x + h_y
     if denom <= 1e-12:
         return 0.0
+    # Floor the plug-in numerator at 0: float round-off on near-deterministic columns can leave ``mi_xy`` slightly negative -> tiny negative SU treated as valid low relevance instead of 0.
+    if mi_xy < 0.0:
+        mi_xy = 0.0
     return 2.0 * mi_xy / denom
 
 
@@ -612,7 +640,8 @@ def _relevance_from_dense(
     # scratch adds get_thread_id() + a manual zeroing loop + flat-index arithmetic +
     # cross-thread false sharing that all cost MORE than the elided alloc. Keep the
     # per-call np.zeros. (proto D:/Temp/q5_scratch_proto.py)
-    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    # int64 counter: a joint cell can reach ``n``; int32 (default ``dtype``) wraps negative above ~2.1e9 rows -> NaN MI.
+    joint_counts = np.zeros((K_x, K_y), dtype=np.int64)
     for r in range(n):
         joint_counts[classes_dense[r, k], classes_y[r]] += 1
     inv_n = 1.0 / n
@@ -643,6 +672,9 @@ def _relevance_from_dense(
     denom = h_x + h_y
     if denom <= 1e-12:
         return 0.0
+    # Floor the plug-in numerator at 0: float round-off on near-deterministic columns can leave ``mi_xy`` slightly negative -> tiny negative SU treated as valid low relevance instead of 0.
+    if mi_xy < 0.0:
+        mi_xy = 0.0
     return 2.0 * mi_xy / denom
 
 

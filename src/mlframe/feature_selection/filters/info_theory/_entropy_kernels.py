@@ -222,6 +222,9 @@ def symmetric_uncertainty(
     denom = entropy_x + entropy_y
     if denom <= 1e-12:
         return 0.0
+    # Floor the plug-in numerator at 0: on near-deterministic columns float round-off in ``H(X)+H(Y)-H(XY)`` can leave ``mi_xy`` slightly negative, yielding a tiny negative SU treated as a valid low relevance instead of 0.
+    if mi_xy < 0.0:
+        mi_xy = 0.0
     return 2.0 * mi_xy / denom
 
 
@@ -291,6 +294,9 @@ def conditional_symmetric_uncertainty(
     denom = h_xz + h_yz - 2.0 * h_z
     if denom <= 1e-12:
         return 0.0
+    # Floor the conditional-MI numerator at 0 (matching the ``conditional_mi`` clamp): float round-off in ``H(XZ)+H(YZ)-H(Z)-H(XYZ)`` on near-deterministic slices can leave ``cmi`` slightly negative, yielding a tiny negative CSU instead of 0.
+    if cmi < 0.0:
+        cmi = 0.0
     return 2.0 * cmi / denom
 
 
