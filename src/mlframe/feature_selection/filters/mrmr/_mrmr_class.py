@@ -152,6 +152,9 @@ from ..screen import postprocess_candidates, screen_predictors, _preserve_global
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
+# Sentinel distinguishing "constructor attribute was not overridden during fit" from a stored value of None.
+_UNSET = object()
+
 
 def _mrmr_y_is_multioutput(y) -> bool:
     """True when y carries >=2 target columns (2D DataFrame / 2D ndarray); a Series / 1D array / single-column frame is single-target."""
@@ -2930,23 +2933,21 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         # assert isinstance(estimator, (BaseEstimator,))
 
-        # ``random_state`` was declared but never read internally (``random_seed`` is the only consumed alias).
-        # Treat sklearn-style ``random_state`` as a fallback alias: if the user passed only ``random_state``,
-        # promote it to ``random_seed`` so seeded behaviour does not silently disappear. Warn on conflicts.
-        if random_state is not None:
-            if random_seed is None:
-                random_seed = random_state
-            elif random_seed != random_state:
-                warnings.warn(
-                    "MRMR: both random_seed and random_state were set to different values; "
-                    f"using random_seed={random_seed} and ignoring random_state={random_state}.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
-        # Reconcile the deprecated ``skip_retraining_on_same_shape`` alias into the canonical
-        # ``skip_retraining_on_same_content``. The cache keys on content signatures, never shape; the old
-        # name was a misnomer. A non-None legacy value wins (explicit user intent) but warns.
+        # sklearn contract: ``__init__`` MUST store every constructor argument UNMODIFIED so ``get_params``
+        # round-trips and ``clone`` is a true copy. ``random_state``/``random_seed`` reconciliation and the
+        # deprecated ``skip_retraining_on_same_shape`` alias are therefore resolved LAZILY at fit time
+        # (``_effective_random_seed`` + the fit-entry save/restore of ``skip_retraining_on_same_content``),
+        # NOT here -- mutating the locals before ``store_params_in_object`` made ``get_params`` echo the
+        # promoted value (``random_seed`` showing ``random_state``) and re-emit the deprecation warning on
+        # every ``clone`` of even a default-constructed estimator. The only thing done at construction time
+        # is to WARN when the user actually passed a conflicting / deprecated argument.
+        if random_state is not None and random_seed is not None and random_seed != random_state:
+            warnings.warn(
+                "MRMR: both random_seed and random_state were set to different values; "
+                f"using random_seed={random_seed} and ignoring random_state={random_state}.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         if skip_retraining_on_same_shape is not None:
             warnings.warn(
                 "MRMR: skip_retraining_on_same_shape is deprecated and misnamed (the fit cache keys on "
@@ -2954,8 +2955,6 @@ class MRMR(BaseEstimator, TransformerMixin):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            skip_retraining_on_same_content = bool(skip_retraining_on_same_shape)
-        skip_retraining_on_same_shape = skip_retraining_on_same_content
 
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
@@ -3101,6 +3100,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.stability_info_ = info
         return self
 
+    def _effective_random_seed(self):
+        """Resolve the seed actually used by fit from the two stored constructor aliases.
+
+        ``random_seed`` is the canonical name; ``random_state`` is the sklearn-style fallback. The
+        constructor stores BOTH unmodified (sklearn ``get_params`` contract), so the promotion that used to
+        happen in ``__init__`` is done here instead: ``random_seed`` wins when set, otherwise ``random_state``
+        fills in. Returns ``None`` when neither is set (entropy-seeded behaviour preserved)."""
+        seed = getattr(self, "random_seed", None)
+        if seed is None:
+            seed = getattr(self, "random_state", None)
+        return seed
+
     def _resolve_target_prefix(self) -> str:
         """Stable, seedable prefix for the temporary target columns injected during fit.
 
@@ -3236,11 +3247,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Uniform -> nothing to do (preserves bit-exact legacy + cache reuse).
         if float(sw.max() - sw.min()) <= 1e-12 * max(1.0, abs(float(sw.mean()))):
             return X, y
-        # When random_seed is None the user wants ENTROPY-seeded randomness for the resample;
-        # the prior fallback hardcoded ``0`` which deterministically returned the same draw on
-        # every call -- two A/B comparisons expecting independent random resamples got identical
-        # samples. ``np.random.default_rng(None)`` pulls fresh entropy from the OS.
-        rng = np.random.default_rng(self.random_seed)
+        # Reproducible by default: follow the module-wide convention (``int(seed or 0)`` -> None maps to a
+        # DETERMINISTIC 0, not OS entropy) so that two fits with the same (default) seed and the same
+        # sample_weight draw the SAME resample. ``_effective_random_seed`` honours the ``random_state``
+        # fallback alias. A caller wanting an independent draw passes a distinct ``random_seed``.
+        rng = np.random.default_rng(int(self._effective_random_seed() or 0))
         probs = sw / total
         idx = rng.choice(n_rows, size=n_rows, replace=True, p=probs)
         # iloc preserves dtypes / category metadata; works on pandas + polars (via take) + numpy.
@@ -3635,6 +3646,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         from ..info_theory import (
             set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow,
             set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
+            use_su_normalization, use_jmim_aggregator, get_bur_lambda, use_mi_miller_madow,
+            get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
+        )
+        # Snapshot the MI thread-locals at fit ENTRY so the ``finally`` can restore the caller's values
+        # instead of hardcoded literals: a nested / outer MRMR fit (the worker path already does this in
+        # _evaluation_driver.py) must not have its toggles clobbered to False/0.0 when an inner fit exits.
+        _toggles_snapshot = (
+            use_su_normalization(), use_jmim_aggregator(), get_bur_lambda(),
+            use_mi_miller_madow(), get_relaxmrmr_alpha(), get_pid_synergy_bonus(),
+            get_cmi_perm_stop(),
         )
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
@@ -3730,6 +3751,26 @@ class MRMR(BaseEstimator, TransformerMixin):
                 _fast_search_saved = self._apply_fast_search_profile()
             except Exception:
                 _fast_search_saved = {}
+        # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
+        # passed). The constructor no longer promotes ``random_state`` -> ``random_seed`` nor folds the
+        # deprecated ``skip_retraining_on_same_shape`` into ``skip_retraining_on_same_content``; that is
+        # resolved HERE and the EFFECTIVE value is written onto the public attr for the fit duration so
+        # every reader (this module + _fit_impl_core's skip check + the cross-file ``self.random_seed``
+        # uses) sees it, then the original stored value is restored in ``finally`` (saved == _UNSET means
+        # "not overridden, leave alone"). ``skip_retraining_on_same_shape`` non-None wins (explicit legacy
+        # intent), mirroring the pre-fix folding.
+        _eff_seed = self._effective_random_seed()
+        _orig_random_seed = _UNSET
+        if _eff_seed != getattr(self, "random_seed", None):
+            _orig_random_seed = getattr(self, "random_seed", None)
+            self.random_seed = _eff_seed
+        _orig_skip_content = _UNSET
+        _skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
+        if _skip_shape is not None:
+            _eff_skip = bool(_skip_shape)
+            if _eff_skip != getattr(self, "skip_retraining_on_same_content", True):
+                _orig_skip_content = getattr(self, "skip_retraining_on_same_content", True)
+                self.skip_retraining_on_same_content = _eff_skip
         try:
             # GLOBAL-RNG CONTAINMENT + SEED DETERMINISM (2026-06-17): a fit consumes process-global
             # ``np.random`` in places no per-call Generator covers (cat-confirm permutation shuffles,
@@ -3818,30 +3859,30 @@ class MRMR(BaseEstimator, TransformerMixin):
             self._print_fit_summary()
             return result
         finally:
-            # restore SU thread-local to its pre-fit state (always False
-            # outside of a MRMR fit -- nested fits are not supported by the simple
-            # toggle, but neither is the cache layer they would share).
+            # Restore the MI thread-locals to the values they held at fit ENTRY (snapshot above), not to
+            # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
+            # _prev_* restore in _evaluation_driver.py's worker path.
+            _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0 = _toggles_snapshot
             try:
-                set_su_normalization(False)
-            except Exception:
-                pass
-            # reset JMIM + BUR thread-locals.
-            try:
-                set_jmim_aggregator(False)
+                set_su_normalization(_su0)
             except Exception:
                 pass
             try:
-                set_bur_lambda(0.0)
+                set_jmim_aggregator(_jmim0)
             except Exception:
                 pass
             try:
-                set_mi_miller_madow(False)
+                set_bur_lambda(_bur0)
             except Exception:
                 pass
             try:
-                set_relaxmrmr_alpha(0.0)
-                set_pid_synergy_bonus(0.0)
-                set_cmi_perm_stop(False, 0.05, 100)
+                set_mi_miller_madow(_mm0)
+            except Exception:
+                pass
+            try:
+                set_relaxmrmr_alpha(_relax0)
+                set_pid_synergy_bonus(_pid0)
+                set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
             except Exception:
                 pass
             # reset DCD thread-local and restore
@@ -3855,6 +3896,12 @@ class MRMR(BaseEstimator, TransformerMixin):
                 self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
             except Exception:
                 pass
+            # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
+            # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
+            if _orig_random_seed is not _UNSET:
+                self.random_seed = _orig_random_seed
+            if _orig_skip_content is not _UNSET:
+                self.skip_retraining_on_same_content = _orig_skip_content
             # restore the fast-search profile overrides (constructor-arg stability).
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.

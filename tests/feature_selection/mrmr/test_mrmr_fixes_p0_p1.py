@@ -230,17 +230,20 @@ def test_fix6_int64_downcast_skipped_when_out_of_int16_range():
 
 
 def test_fix7_random_state_aliases_random_seed():
-    """MRMR(random_state=7) must surface 7 as the effective seed."""
+    """MRMR(random_state=7) must surface 7 as the EFFECTIVE seed without dropping it.
+
+    The alias is now resolved LAZILY (``_effective_random_seed``) instead of by mutating the ctor locals,
+    so the stored constructor attributes stay byte-identical to what the user passed (sklearn ``get_params``
+    round-trip contract): ``random_seed`` stays None, ``random_state`` echoes 7. The real contract -- no seed
+    silently dropped -- is checked on the EFFECTIVE value, which is what fit consumes."""
     m = MRMR(random_state=7)
-    # The fix sets random_seed when only random_state was passed (or warns and uses random_seed).
-    assert getattr(m, "random_seed", None) == 7 or getattr(m, "random_state", None) == 7
-    # The stronger contract: a seeded run with random_state alone must agree
-    # with the same seed under random_seed.
+    # Stored ctor attrs stay pristine (no cross-contamination): random_state-only leaves random_seed None.
+    assert m.random_seed is None
+    assert m.random_state == 7
+    # The effective seed surfaces 7 and agrees with the random_seed-direct API.
     m2 = MRMR(random_seed=7)
-    assert m.random_seed == m2.random_seed, (
-        f"random_state alias broken: random_state-only -> random_seed={m.random_seed!r}; "
-        f"random_seed-direct -> {m2.random_seed!r}"
-    )
+    assert m._effective_random_seed() == 7
+    assert m._effective_random_seed() == m2._effective_random_seed()
 
 
 # ----------------------------------------------------------------------
