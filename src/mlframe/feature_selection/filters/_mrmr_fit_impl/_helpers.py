@@ -310,6 +310,7 @@ def fe_decide_on_subsample(
     *,
     subsample_n: int = 0,
     subsample_seed: int = 42,
+    shared_subsample_idx=None,
     **kwargs,
 ):
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
@@ -346,13 +347,26 @@ def fe_decide_on_subsample(
     Any per-recipe replay error also triggers the full-data fallback.
     """
     n = len(X)
-    if not (isinstance(subsample_n, int) and 0 < subsample_n < n):
+    # Prefer the fit's ONE shared row-index draw when supplied (so this closed-form family scores the
+    # SAME rows as the pair-search / polynom / sufficiency floor); else fall back to the legacy draw.
+    _shared = None
+    if shared_subsample_idx is not None:
+        try:
+            _s = np.asarray(shared_subsample_idx)
+            if _s.ndim == 1 and 0 < _s.shape[0] < n and int(_s.max()) < n:
+                _shared = _s.astype(np.int64, copy=False)
+        except Exception:
+            _shared = None
+    if _shared is None and not (isinstance(subsample_n, int) and 0 < subsample_n < n):
         return fit_with_recipes_fn(X, y, **kwargs)
-    _idx = np.sort(
-        np.random.default_rng(int(subsample_seed)).choice(
-            n, size=int(subsample_n), replace=False,
+    if _shared is not None:
+        _idx = _shared
+    else:
+        _idx = np.sort(
+            np.random.default_rng(int(subsample_seed)).choice(
+                n, size=int(subsample_n), replace=False,
+            )
         )
-    )
     _X_sub = X.iloc[_idx].reset_index(drop=True)
     _y_sub = np.asarray(y)[_idx]
     # Arity-agnostic: every ``*_with_recipes`` family returns the augmented frame FIRST
