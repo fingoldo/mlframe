@@ -28,9 +28,10 @@ jobs:
       - name: Install docs dependencies
         # composite_targets_tutorial.ipynb imports mlframe; install the package so a future
         # flip of mkdocs-jupyter `execute: false` -> true keeps building. Notebooks render from
-        # stored outputs today (execute: false in mkdocs.yml), so this is forward-insurance.
+        # stored outputs today (execute: false in mkdocs.yml), so --no-deps suffices: it registers
+        # mlframe without resolving its deps (pyutilz is first-party, absent from PyPI, so a full resolve fails).
         run: |
-          pip install -e .
+          pip install -e . --no-deps
           pip install "mkdocs-material>=9.5" "mkdocs-jupyter>=0.24"
 
       - name: Build site
