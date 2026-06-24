@@ -46,17 +46,31 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #     half for C2 to fuse with. This is an upstream CONSTRUCTION miss, not a fusion miss -- C2 cannot help
 #     without first building the a/b half (fusing the c/d half with raw a would drop the **2/b and leave
 #     raw b as a fragment). Stays xfail pending the a/b-half construction fix.
-#   * DOMINANT-CAPTURE-BLOCKED (scaled_1_5, with_outliers): the dominant a/b half is captured corrupted and
-#     log(c) is DROPPED (-> cbrt(d)/sin(d)); there is no clean c/d half to fuse. Blocker lives upstream in the
-#     pair-search leader/tie-break + linear-usability guard (_step_core.py ~486-498), a research-grade FE-quality
-#     fix that must not regress the canonical test_biz_value_mrmr_fe_canonical (same signal, strong config,
-#     currently recovered perfectly). Must precede C2; C2 alone gets at most 2/4.
-# (Two no-ship iterations are documented in the work plan; the strict xfails stay until a fix lands all 4.)
+#   * DOMINANT-CAPTURE-BLOCKED (scaled_1_5): FIXED 2026-06-24. The blocker was NOT a corrupted a/b capture --
+#     under [1,5]-scaling the (c,d) half is an ASYMMETRIC synergy pair (only the bootstrap operand ``c`` is
+#     unselected; ``c``'s MARGINAL MI ~= 0 because E[sin(d)] ~= 0, yet log(c) carries real CONDITIONAL signal
+#     jointly with d). Its joint-MI ratio (~1.13) cleared the regular 1.05 prevalence bar but FAILED the strict
+#     1.5 synergy bar, so the clean ``mul(log(c),sin(d))`` half was never built and C2 had nothing to fuse. The
+#     4-part fix lets the clean c/d half survive so C2 fuses it: (a) relax the synergy prevalence bar to the
+#     regular 1.05 for an ASYMMETRIC pair whose SINGLE bootstrap operand has ~0 marginal MI (pool-scale-relative
+#     gate -- canonical's symmetric/non-~0 noise pairs keep the strict 1.5 bar; _step_pairs_rank.py); (b) admit a
+#     fusion on a scale/sign-invariant 2-half OLS multiple-R separability path ALONGSIDE the binned-MI margin
+#     (variance imbalance makes binned-MI under-credit the weak half; _fe_additive_fusion.py); (c) run C2 BEFORE
+#     the cross-fold stability vote so the weak c/d half (which alone fails the per-fold quorum) is fused before
+#     it can be dropped, and the FUSED compound then faces the vote (_step_score.py); (d) preserve each subsumed
+#     fragment's recipe in a side-store so a step-2 re-derivation of a composite nesting the fragment stays
+#     REPLAYABLE (else it is recorded recipe-less and dropped, collapsing the support back to raw a/b/d;
+#     _step_score.py). scaled_1_5 now recovers the single fused compound add(abs(div(sqr(a),b)),mul(log(c),sin(d))).
+#   * DOMINANT-CAPTURE-BLOCKED (with_outliers): the dominant a/b half is captured corrupted and log(c) is DROPPED;
+#     there is no clean c/d half to fuse (the 4-part scaled_1_5 fix above does NOT recover it -- verified still
+#     missing 2026-06-24). Stays xfail pending the upstream dominant-capture fix.
+#   * CONSTRUCTION-BLOCKED (mixed): only the c/d half is built; the a/b half a**2/b is NEVER constructed (stays
+#     raw a + raw b), so there is NO second engineered half for C2 to fuse with. Stays xfail.
 _XFAIL_CONSTRUCT = "GOAL: a/b half a**2/b NEVER constructed as an engineered feature (stays raw a+b) -- no second engineered half for C2 to fuse; needs upstream a/b-half construction fix"
 _XFAIL_CAPTURE = "GOAL: dominant a/b half corrupted under variance imbalance (log(c) dropped) -- needs upstream dominant-capture fix before C2"
 _PROFILES = [
     "uniform",
-    pytest.param("scaled_1_5", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
+    "scaled_1_5",  # FIXED 2026-06-24 by the 4-part asymmetric-synergy / OLS-separability / pre-vote-fusion / subsumed-recipe-preservation fix.
     "heavy_tailed",  # FIXED 2026-06-24 by C2 additive-fusion (both engineered halves built but unfused).
     pytest.param("mixed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CONSTRUCT)),
     pytest.param("with_outliers", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),

@@ -118,6 +118,47 @@ def score_prospective_pairs(
                 _prev_thresh = fe_min_pair_mi_prevalence
                 if _is_synergy_pair:
                     _prev_thresh = max(fe_min_pair_mi_prevalence, _synergy_prev_resolved)
+                    # ASYMMETRIC-SYNERGY RELAXATION (2026-06-24, DOMINANT-CAPTURE fix for the F2
+                    # ``mul(log(c),sin(d))`` half). The strict 1.5 synergy bar exists to suppress the
+                    # finite-sample JOINT-MI bias inflation that lets a TWO-NOISE-operand synergy pair
+                    # clear the lenient 1.05 gate. But it also blocks a GENUINE asymmetric synergy half:
+                    # the F2 (c,d) pair has exactly ONE bootstrap operand (c), whose own MARGINAL MI is
+                    # ~0 (E[sin(d)]~=0 zeroes MI(c;y)), yet log(c) carries real CONDITIONAL signal
+                    # jointly with d. Its joint ratio (~1.13) clears 1.05 but fails 1.5, so the clean
+                    # c/d half is never built and C2 has nothing to fuse. Relax to the REGULAR 1.05 bar
+                    # ONLY for an asymmetric pair (exactly one bootstrap operand) whose bootstrap
+                    # operand's CONDITIONAL signal given the partner is GENUINE -- a leak-safe held-out
+                    # test, NOT a marginal-only heuristic. A marginal-only gate cannot separate the real
+                    # (c,d) half from a noise cross-mix like canonical's (c,e): BOTH have a ~0-marginal
+                    # bootstrap operand. The discriminator is CMI(boot; y | partner) vs its
+                    # conditional-permutation null: genuine synergy clears the null by a wide margin
+                    # (F2 (c,d): CMI 0.020 vs floor 0.004, excess 0.018) while a noise operand sits ON
+                    # the null (canonical (c,e): CMI 0.004 vs floor 0.004, excess 0.003). Require the
+                    # CMI to clear the null AND its excess over the null mean to be at least the null
+                    # FLOOR magnitude (a chance-fluctuation scale) -- (c,d) excess 0.018 >= floor 0.004
+                    # PASSES, (c,e) excess 0.003 < floor 0.004 FAILS. Best-effort: any error leaves the
+                    # strict 1.5 bar in place (no relaxation), so canonical is never loosened on failure.
+                    _idx0, _idx1 = raw_vars_pair[0], raw_vars_pair[1]
+                    _b0 = _idx0 in _synergy_added_idx
+                    _b1 = _idx1 in _synergy_added_idx
+                    if _b0 != _b1:  # exactly one bootstrap operand -> asymmetric
+                        _boot_idx = _idx0 if _b0 else _idx1
+                        _partner_idx = _idx1 if _b0 else _idx0
+                        try:
+                            from .._fe_cmi_redundancy_gate import _conditional_perm_null
+                            from .._mi_greedy_cmi_fe import _cmi_from_binned
+                            _bcodes = np.ascontiguousarray(data[:, int(_boot_idx)], dtype=np.int64)
+                            _pcodes = np.ascontiguousarray(data[:, int(_partner_idx)], dtype=np.int64)
+                            _yc = np.ascontiguousarray(classes_y, dtype=np.int64)
+                            _cmi_obs = float(_cmi_from_binned(_bcodes, _yc, _pcodes))
+                            _cfloor, _cnull_mean = _conditional_perm_null(
+                                _bcodes, _yc, _pcodes,
+                                seed=int(getattr(self, "random_seed", 0) or 0) + 6271 * int(_boot_idx) + int(_partner_idx),
+                            )
+                            if _cmi_obs > _cfloor and (_cmi_obs - _cnull_mean) >= _cfloor:
+                                _prev_thresh = fe_min_pair_mi_prevalence
+                        except Exception:
+                            pass  # keep the strict 1.5 bar on any failure
                 # ORDER-2 maxT floor (computed once above) applied IN ADDITION to the
                 # per-pair prevalence gate: the pair's JOINT MI must clear the pool's
                 # permutation-null max as well, rejecting best-of-p chance-max noise
