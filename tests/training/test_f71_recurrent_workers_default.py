@@ -13,6 +13,9 @@ import os
 
 import pytest
 
+pytest.importorskip("torch")
+pytest.importorskip("lightning")
+
 from mlframe.training.neural._recurrent_config import (
     RecurrentConfig, _default_num_workers,
 )

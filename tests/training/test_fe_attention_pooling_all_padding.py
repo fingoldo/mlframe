@@ -15,6 +15,10 @@ relative to a meaningful summary, but at least not NaN.
 from __future__ import annotations
 
 import pytest
+
+pytest.importorskip("torch")
+pytest.importorskip("lightning")
+
 import torch
 
 from mlframe.training.neural._recurrent_arch import AttentionPooling

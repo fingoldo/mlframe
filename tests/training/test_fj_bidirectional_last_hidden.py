@@ -38,6 +38,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+pytest.importorskip("torch")
+pytest.importorskip("lightning")
+
 import torch
 import torch.nn as nn
 

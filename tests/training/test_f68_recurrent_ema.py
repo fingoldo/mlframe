@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+pytest.importorskip("torch")
+pytest.importorskip("lightning")
+
 import torch
 
 from mlframe.training.neural._recurrent_config import (

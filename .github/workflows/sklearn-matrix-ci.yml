@@ -70,10 +70,10 @@ jobs:
         os: [ubuntu-latest]
         python-version: ["3.11"]
         # Active sklearn versions in production use. Exact pins make
-        # breakage attributable to the specific minor.
+        # breakage attributable to the specific minor. Floor is 1.6: category-encoders (a hard mlframe dep)
+        # imports sklearn.utils.Tags, which only exists from 1.6, so sklearn 1.5 cannot import mlframe at all.
         sklearn-version:
-          - "1.5.2"  # LTS-era; still in production at many sites
-          - "1.6.1"  # validation changes; LightGBM 4.5+ polars edge
+          - "1.6.1"  # oldest supported; validation changes; LightGBM 4.5+ polars edge
           - "1.7.2"  # current most-installed across user base
           - "1.8.0"  # latest stable
         include:

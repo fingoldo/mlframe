@@ -53,7 +53,9 @@ dependencies = [
     "pandas>=1.5",
     "polars>=0.20",
     "scipy>=1.10",
-    "scikit-learn>=1.3",
+    # >=1.6: category-encoders (a hard dep below) imports ``sklearn.utils.Tags``, which only exists from
+    # sklearn 1.6; on older sklearn ``import category_encoders`` fails, so 1.6 is mlframe's effective floor.
+    "scikit-learn>=1.6",
     "pyarrow>=10.0",
     "joblib>=1.2",
     "tqdm>=4.65",
@@ -401,7 +403,7 @@ markers = [
     "uses_matplotlib: test produces matplotlib figures; triggers plt.close('all') + gc in cleanup_memory autouse",
     "uses_torch: test allocates GPU/CPU torch tensors; triggers torch.cuda.empty_cache in cleanup_memory autouse",
     "numba_disabled: include in the NUMBA_DISABLE_JIT=1 nightly coverage run; tests run 10-100x slower under no-JIT, see scripts/run_numba_coverage.{sh,ps1}",
-    "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix-ci.yml); tests pin scikit-learn surface contracts across the supported version range (1.5-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
+    "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix-ci.yml); tests pin scikit-learn surface contracts across the supported version range (1.6-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",
