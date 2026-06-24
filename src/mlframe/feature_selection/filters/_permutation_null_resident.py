@@ -41,6 +41,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias,
     fixed working size; within a chunk every candidate's joint table is padded to the chunk's max cardinality
     (empty padding cells contribute 0 to the entropy, exactly like the njit ``if c>0`` guard)."""
     import cupy as cp
+    import cupyx
 
     nperm = int(y_perms.shape[0])
     n = int(y_perms.shape[1])
@@ -51,7 +52,8 @@ def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias,
     d_scaled = cp.asarray(scaled_flat)                      # (ncand*n,) int (>=0 joint base codes)
     d_yperms = cp.asarray(y_perms)                          # (nperm, n) int (>=0 class codes)
     d_off = cp.asarray(offsets, dtype=cp.int64)             # (ncand+1,) int64 flat segment offsets
-    d_jc = cp.asarray(joint_card, dtype=cp.int64)           # (ncand,) per-candidate joint cardinality
+    jc_host = np.asarray(joint_card, dtype=np.int64)        # (ncand,) per-candidate joint cardinality (host)
+    d_jc = cp.asarray(jc_host)                              # device twin (kept for any device-side use)
     d_hx = cp.asarray(h_x, dtype=cp.float64)               # (ncand,) marginal H(x)
     d_mm = cp.asarray(mm_bias, dtype=cp.float64)           # (ncand,) Miller-Madow bias
     h_y = float(h_y)
@@ -66,8 +68,10 @@ def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias,
     for c0 in range(0, ncand, cand_chunk):
         c1 = min(c0 + cand_chunk, ncand)
         cc = c1 - c0
-        jc_chunk = d_jc[c0:c1]
-        max_jc = int(cp.max(jc_chunk).item())
+        # max_jc drives host-side shape/arange sizing, so read it from the HOST joint_card slice -- a device
+        # ``cp.max(...).item()`` here was a tiny per-chunk D2H scalar pull (latency, not bandwidth). The host
+        # ``jc_host`` is the exact same values uploaded into ``d_jc`` -> identical max, zero round-trip.
+        max_jc = int(jc_host[c0:c1].max()) if c1 > c0 else 0
         if max_jc <= 0:
             continue
         # Gather this chunk's X-codes as (cc, n). Segments are contiguous length-n runs in scaled_flat
@@ -91,8 +95,16 @@ def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias,
             base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb
                     + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc           # (cc, pb)
             flat = (base[:, :, None] + joint).ravel()                            # (cc*pb*n,)
-            counts = cp.bincount(flat, minlength=cc * pb * max_jc)[: cc * pb * max_jc]
-            counts = counts.reshape(cc, pb, max_jc).astype(cp.float64)           # (cc, pb, max_jc)
+            # COALESCE (2026-06-24): cp.bincount internally pulls the input max (+ a sizing scalar) to host on
+            # EVERY call -- 2 tiny per-(cand,perm)-tile D2H scalar pulls that, summed over the floor's tile loop,
+            # are the canonical-fit's dominant tiny-D2H source (~2400 of ~2810 sub-4KB .get()s, F2 100k). The
+            # output extent is KNOWN here (cc*pb*max_jc, every flat code < it by construction), so scatter_add
+            # into a pre-zeroed buffer needs no max-pull and is sync-free (0 tiny D2H). int32 counts hold the
+            # per-cell totals (bounded by n) exactly; BIT-IDENTICAL integer histogram to bincount (verified
+            # array_equal). The downstream entropy upcasts to float64 just as the bincount path did.
+            counts_i = cp.zeros(cc * pb * max_jc, dtype=cp.int32)
+            cupyx.scatter_add(counts_i, flat, cp.int32(1))
+            counts = counts_i.reshape(cc, pb, max_jc).astype(cp.float64)         # (cc, pb, max_jc)
 
             # Plug-in joint entropy H(x, y_perm) per (cand, perm): -sum p*log(p), p=count/n, 0-count -> 0.
             p = counts * inv_n
@@ -100,6 +112,6 @@ def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias,
             h_xy = -cp.sum(cp.where(counts > 0, p * cp.log(safe), 0.0), axis=2)  # (cc, pb)
             mi = (d_hx_c + h_y) - h_xy - d_mm_c                                  # (cc, pb)
             d_best[p0:p1] = cp.maximum(d_best[p0:p1], cp.max(mi, axis=0))
-            del joint, flat, counts, p, safe, h_xy, mi
+            del joint, flat, counts_i, counts, p, safe, h_xy, mi
 
     return cp.asnumpy(d_best)
