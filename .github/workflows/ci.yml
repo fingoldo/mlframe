@@ -104,15 +104,7 @@ jobs:
         # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          uv pip install --system --reinstall-package numpy "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
-          echo "===== NUMPY DIAG ====="
-          echo "--- which python / executable / sys.path ---"
-          which python; python --version; python -c "import sys; print('exe:', sys.executable); [print('path:', p) for p in sys.path]"
-          echo "--- uv pip show numpy ---"; uv pip show numpy 2>&1 | head -5 || echo "uv pip show numpy FAILED"
-          echo "--- pip list | numpy ---"; python -m pip list 2>/dev/null | grep -i numpy || echo "pip: NO numpy"
-          echo "--- site-packages entries matching numpy ---"; python -c "import site,glob,os; [print(p) for sp in site.getsitepackages() for p in glob.glob(os.path.join(sp,'numpy*'))]" || true
-          echo "--- import numpy ---"; python -c "import numpy; print('numpy OK', numpy.__version__)" || echo "import numpy FAILED"
-          echo "===== END DIAG ====="
+          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
 
       - name: Show installed versions
         run: |
