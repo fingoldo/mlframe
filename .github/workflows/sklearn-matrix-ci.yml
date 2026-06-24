@@ -129,7 +129,11 @@ jobs:
           pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,db,dev]"
 
       - name: Pin scikit-learn to ${{ matrix.sklearn-version }}
-        run: pip install --force-reinstall "scikit-learn==${{ matrix.sklearn-version }}"
+        # --no-deps: swap ONLY scikit-learn to the pinned version. Without it, --force-reinstall re-resolves
+        # scikit-learn's own deps and pulls numpy up to the latest (its numpy req is uncapped), blowing past
+        # mlframe's numpy<2.5 cap -> numba 0.65.1 then rejects numpy 2.5 at import. Deps are already installed
+        # by the editable install above, so --no-deps keeps the numpy 2.4.x the cap resolved.
+        run: pip install --force-reinstall --no-deps "scikit-learn==${{ matrix.sklearn-version }}"
 
       - name: Show installed versions
         run: |
