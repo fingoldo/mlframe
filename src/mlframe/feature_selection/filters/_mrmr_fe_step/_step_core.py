@@ -412,6 +412,15 @@ def _run_fe_step(
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
+        # ONE shared FE subsample for this fit (2026-06-25): resolve + cache the single row-index draw
+        # ONCE here, so the polynom path, the pair-search and the sufficient-summary floor all REUSE it
+        # (same rows everywhere) instead of each drawing its own. ``classes_y`` is the discrete fit
+        # target; the helper returns None at small n (<= unified screen size) -> legacy per-call draw.
+        try:
+            from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
+            _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
+        except Exception:
+            _shared_fe_idx = None
         # Capture cols width before the polynom block so we can promote the
         # polynom-injected engineered column indices into ``selected_vars``
         # below (same "ROOT CAUSE 5" promotion the unary/binary block does for
@@ -453,6 +462,7 @@ def _run_fe_step(
             verbose=int(verbose),
             subsample_n=_subsample_n,
             fe_subsample_stratify=_fe_subsample_stratify,
+            shared_subsample_idx=_shared_fe_idx,
             # Cheap-first dispatch: skip the expensive CMA/Optuna search for pairs
             # whose trivial baseline already saturates the joint-MI ceiling. getattr
             # default keeps the knob optional (no ctor flag required); 1.0 disables.
@@ -588,10 +598,9 @@ def _run_fe_step(
         # win the ``else`` branch was tuned for is the CPU-njit-MI regime (small n, GPU gate OFF), which
         # this predicate leaves untouched. Selection is unchanged (same check_prospective_fe_pairs over
         # the same pairs; only the kernel parallelism + chunk-merge differ, both byte-identical).
-        # ONE shared FE subsample for this fit (2026-06-25): resolve + cache the single row-index draw
-        # once, so the pair-search REUSES it (and the sufficient-summary floor / any later consumer read
-        # the same cached draw) instead of each drawing its own. ``classes_y`` is the discrete fit target;
-        # the helper returns None at small n (n <= unified screen size) -> legacy per-call draw, unchanged.
+        # Ensure the ONE shared FE subsample draw is bound on the pair-search path too (the polynom
+        # block above that first resolves it may be skipped when the smart-polynom search is off). The
+        # helper caches on the instance keyed by n, so this is idempotent -- same cached draw, no re-draw.
         try:
             from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
             _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))

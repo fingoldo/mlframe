@@ -98,6 +98,11 @@ def run_polynom_pair_fe(
     # byte-identical legacy uniform draw. The caller resolves the MRMR ``fe_subsample_stratify``
     # tri-state knob (None=auto) to a concrete bool via ``_resolve_fe_subsample_stratify``.
     fe_subsample_stratify: bool = False,
+    # ONE shared FE subsample (2026-06-25). When the caller passes the fit's single shared row-index
+    # draw, the inner-search subsample REUSES it verbatim instead of drawing its own per-pair slice, so
+    # the polynom path scores the SAME rows as the pair-search / sufficiency floor (one draw per fit).
+    # ``None`` keeps the legacy per-pair uniform/stratified draw below.
+    shared_subsample_idx=None,
     # 2026-06-02 CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
     # search only earns its cost on pairs whose signal a trivial library
     # unary/binary feature CANNOT already capture (non-monotone inners like
@@ -219,7 +224,21 @@ def run_polynom_pair_fe(
         # 2026-05-18 subsample for CMA-ES inner search. Final transform on
         # FULL source array preserves precision; only the optimiser's MI
         # evaluation uses the slice.
-        if subsample_n and 0 < subsample_n < len(vals_a_full):
+        _poly_shared_idx = None
+        if shared_subsample_idx is not None:
+            try:
+                _psi = np.asarray(shared_subsample_idx)
+                if _psi.ndim == 1 and 0 < _psi.shape[0] < len(vals_a_full) and int(_psi.max()) < len(vals_a_full):
+                    _poly_shared_idx = _psi.astype(np.int64, copy=False)
+            except Exception:
+                _poly_shared_idx = None
+        if _poly_shared_idx is not None:
+            # Reuse the fit's ONE shared draw (same rows as the pair-search / sufficiency floor).
+            _ss_idx = _poly_shared_idx
+            vals_a_sub = vals_a_full[_ss_idx]
+            vals_b_sub = vals_b_full[_ss_idx]
+            classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
+        elif subsample_n and 0 < subsample_n < len(vals_a_full):
             _ss_rng = np.random.default_rng(subsample_seed + int(raw_vars_pair[0]) * 1000 + int(raw_vars_pair[1]))
             if fe_subsample_stratify and hasattr(y_arr, "__getitem__"):
                 # ``classes_y`` (y_arr) is the discrete target the inner MI scores against -> classification
