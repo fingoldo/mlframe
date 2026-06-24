@@ -2396,22 +2396,14 @@ class FuzzCombo:
                 )
                 else ()
             ),
-            # B5 fe_ratio_delta_diff: each kind has its own gate.
-            #   * "ratio" / log_ratio: needs >=2 numeric columns -- always
-            #     satisfied by the synthetic builder (num_0..num_3).
-            #   * "grouped_delta": needs fe_grouped_delta_group_col, which
-            #     the fuzz frame builder does NOT supply today. Collapses
-            #     to "off".
-            #   * "lagged_diff": needs fe_lagged_diff_time_col, ditto.
-            #     Collapses to "off".
-            # The aggregate canon: outside use_mrmr_fs OR when the chosen
-            # kind has no supporting frame data, collapse to "off".
+            # B5 fe_ratio_delta_diff: each kind has its own supporting frame data, all now provided by the fuzz frame builder.
+            #   * "ratio" / log_ratio: needs >=2 numeric columns -- always satisfied by the synthetic builder (num_0..num_3).
+            #   * "grouped_delta": needs a group key -- the builder emits ``mrmr_fe_group`` (wired via build_mrmr_kwargs) for this kind.
+            #   * "lagged_diff": needs a sortable time/order column -- the builder emits ``mrmr_fe_order`` for this kind.
+            # Aggregate canon: collapse to "off" only when MRMR is disabled (the kind cannot run at all without the MRMR FE entry point).
             (
                 self.mrmr_fe_ratio_delta_diff_cfg
-                if (
-                    self.use_mrmr_fs
-                    and self.mrmr_fe_ratio_delta_diff_cfg in ("off", "ratio")
-                )
+                if self.use_mrmr_fs
                 else "off"
             ),
             # B6 fe_mi_greedy: sibling to hybrid_orth; gate is use_mrmr_fs
@@ -2703,13 +2695,6 @@ class FuzzCombo:
             and self.categorical_encoding_cfg in ("ordinal", "onehot")
             and not self.skip_categorical_encoding_cfg
         ):
-            return None
-        # Recurrent + MRMR + small n + heavy aging/OD trim collapses the
-        # tabular train to ≤ ~100 rows, MRMR then drops every feature, and
-        # the companion mlframe model (e.g. CB) hits Pool() with empty
-        # labels (c0079). Disable recurrent in this combination — the
-        # tabular feature-selection axis is exercised separately.
-        if self.use_mrmr_fs:
             return None
         return rec
 

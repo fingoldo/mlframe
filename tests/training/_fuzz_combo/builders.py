@@ -140,7 +140,11 @@ def build_mrmr_kwargs_from_flat(
     fe_pairwise_ratio_enable: bool = False,
     fe_pairwise_log_ratio_enable: bool = False,
     fe_grouped_delta_enable: bool = False,
+    fe_grouped_delta_group_col: "str | None" = None,
+    fe_grouped_delta_num_cols: tuple = (),
     fe_lagged_diff_enable: bool = False,
+    fe_lagged_diff_time_col: "str | None" = None,
+    fe_lagged_diff_value_cols: tuple = (),
     # 2026-05-31 audit-pass-12 (W12) C1: retain_artifacts at mrmr.py:787.
     # When True the fitted MRMR exposes ``export_artifacts()`` which the
     # downstream ShapProxiedFS consumes via the ``precomputed=`` ctor kwarg.
@@ -348,7 +352,11 @@ def build_mrmr_kwargs_from_flat(
         "fe_pairwise_ratio_enable": fe_pairwise_ratio_enable,
         "fe_pairwise_log_ratio_enable": fe_pairwise_log_ratio_enable,
         "fe_grouped_delta_enable": fe_grouped_delta_enable,
+        "fe_grouped_delta_group_col": fe_grouped_delta_group_col,
+        "fe_grouped_delta_num_cols": fe_grouped_delta_num_cols,
         "fe_lagged_diff_enable": fe_lagged_diff_enable,
+        "fe_lagged_diff_time_col": fe_lagged_diff_time_col,
+        "fe_lagged_diff_value_cols": fe_lagged_diff_value_cols,
         "retain_artifacts": retain_artifacts,
         # 2026-05-31 audit-pass-14 (W14). Param names match MRMR.__init__
         # exactly (filters/mrmr.py:845-847 / :621 / :622 / :655).
@@ -463,6 +471,13 @@ def build_mrmr_kwargs_from_flat(
 
 def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
     """FuzzCombo-aware wrapper around build_mrmr_kwargs_from_flat."""
+    from .frame_builder import (
+        MRMR_FE_GROUP_COL,
+        MRMR_FE_GROUP_VAL_COL,
+        MRMR_FE_ORDER_COL,
+        MRMR_FE_LAG_VAL_COL,
+    )
+
     cat_fe = build_cat_fe_config_from_flat(
         use_mrmr_fs=combo.use_mrmr_fs,
         cat_fe_enable=combo.mrmr_cat_fe_enable_cfg,
@@ -550,14 +565,17 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_missingness_indicator_enable=combo.mrmr_fe_missingness_indicator_enable_cfg,
         fe_missingness_count_enable=combo.mrmr_fe_missingness_count_enable_cfg,
         fe_missingness_pattern_enable=combo.mrmr_fe_missingness_pattern_enable_cfg,
-        # B5: 4-way mrmr_fe_ratio_delta_diff_cfg -> 4 master switches.
-        # The canon collapses "grouped_delta" / "lagged_diff" -> "off" since
-        # the fuzz frame builder does not emit a group_col / time_col today,
-        # so the only non-off branch reached in practice is "ratio".
+        # B5: 4-way mrmr_fe_ratio_delta_diff_cfg -> 4 master switches. The frame builder emits a group key (grouped_delta) / order column
+        # (lagged_diff) for the matching kind, so all three non-off branches actually run -- the group_col / time_col + their numeric source
+        # columns are wired through here so the MRMR FE entry point has the inputs it needs (without them prod no-ops the kind).
         fe_pairwise_ratio_enable=(combo.mrmr_fe_ratio_delta_diff_cfg == "ratio"),
         fe_pairwise_log_ratio_enable=False,  # log_ratio variant deferred (axis covers raw ratio only)
         fe_grouped_delta_enable=(combo.mrmr_fe_ratio_delta_diff_cfg == "grouped_delta"),
+        fe_grouped_delta_group_col=(MRMR_FE_GROUP_COL if combo.mrmr_fe_ratio_delta_diff_cfg == "grouped_delta" else None),
+        fe_grouped_delta_num_cols=((MRMR_FE_GROUP_VAL_COL,) if combo.mrmr_fe_ratio_delta_diff_cfg == "grouped_delta" else ()),
         fe_lagged_diff_enable=(combo.mrmr_fe_ratio_delta_diff_cfg == "lagged_diff"),
+        fe_lagged_diff_time_col=(MRMR_FE_ORDER_COL if combo.mrmr_fe_ratio_delta_diff_cfg == "lagged_diff" else None),
+        fe_lagged_diff_value_cols=((MRMR_FE_LAG_VAL_COL,) if combo.mrmr_fe_ratio_delta_diff_cfg == "lagged_diff" else ()),
         # C1: retain_artifacts ON when the artifact-reuse master is on AND
         # both selectors are in the chain. The canonical_key collapse layer
         # already pins the axis to "off" outside the compound gate, but the

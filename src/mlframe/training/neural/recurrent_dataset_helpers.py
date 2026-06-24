@@ -182,6 +182,19 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         if mode == InputMode.HYBRID and (features is None or sequences is None):
             raise ValueError("both features and sequences required for HYBRID mode")
 
+    def _aux_features_emptied_by_selection(self, features) -> bool:
+        """True when feature selection (MRMR / RFECV / constant-column drop) removed every aux column for a mode that consumes them.
+
+        A 0-column tabular frame is unfittable here exactly as it is for the booster path: ``_scaler_fit_numeric_only`` hands an ``(n, 0)``
+        array to ``StandardScaler.fit`` which raises ``ValueError: Found array with 0 sample(s) (shape=(0, 0))``. SEQUENCE_ONLY carries its
+        signal in ``sequences`` and runs fine with no aux features, so the guard only fires for FEATURES_ONLY / HYBRID. Mirrors the suite-level
+        0-feature skip in ``_training_loop._train_model_with_fallback`` so the caller's ``model is None -> skip`` degradation handles it
+        instead of the fit aborting (or being logged as an exception traceback) when an upstream selector empties every column.
+        """
+        if self._cfg.input_mode == InputMode.SEQUENCE_ONLY:
+            return False
+        return features is not None and hasattr(features, "shape") and len(getattr(features, "shape", ())) == 2 and features.shape[1] == 0
+
     def _create_dataset(
         self,
         sequences: list[np.ndarray] | None,
@@ -659,6 +672,14 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             self._cfg.num_classes = self._n_labels
 
         self._validate_inputs(features, sequences)
+        if self._aux_features_emptied_by_selection(features):
+            logger.warning(
+                "Skipping RecurrentClassifierWrapper fit: aux feature frame has 0 features (feature selection / column dropping removed every "
+                "column). Nothing to fit -- the model is left unfitted (predict raises NotFittedError) so the suite skips it instead of crashing "
+                "StandardScaler on an empty array."
+            )
+            self.model = None
+            return self
         self._clear_cache()
 
         if self._cfg.scale_features and features is not None:
@@ -849,6 +870,14 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         features = self._factorize_cats_fit(features, cat_features)
 
         self._validate_inputs(features, sequences)
+        if self._aux_features_emptied_by_selection(features):
+            logger.warning(
+                "Skipping RecurrentRegressorWrapper fit: aux feature frame has 0 features (feature selection / column dropping removed every "
+                "column). Nothing to fit -- the model is left unfitted (predict raises NotFittedError) so the suite skips it instead of crashing "
+                "StandardScaler on an empty array."
+            )
+            self.model = None
+            return self
         self._clear_cache()
 
         if self._cfg.scale_features and features is not None:

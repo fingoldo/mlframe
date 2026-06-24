@@ -3619,15 +3619,14 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
                     f"B3 {label}: {other_key} must be False under exclusive 4-way mapping"
                 )
 
-    # B5 4-way exhaustive: each non-off value maps to its own master switch.
-    # "ratio" -> fe_pairwise_ratio_enable; "grouped_delta" -> fe_grouped_delta_enable;
-    # "lagged_diff" -> fe_lagged_diff_enable. Note: B5 canon collapses
-    # "grouped_delta" / "lagged_diff" -> "off" (no group_col / time_col in
-    # fuzz frame today), so the builder ONLY sees "off" / "ratio" routes
-    # in practice; we verify the mapping holds against the raw axis values.
-    # Build with the raw value passed through canonical-key collapse:
+    # B5 4-way exhaustive: each non-off value maps to its own master switch and threads its supporting columns.
+    # "ratio" -> fe_pairwise_ratio_enable; "grouped_delta" -> fe_grouped_delta_enable (+ group_col / num_cols);
+    # "lagged_diff" -> fe_lagged_diff_enable (+ time_col / value_cols). The frame builder now emits the group key /
+    # order column for the matching kind, so all three non-off branches actually run -- none collapses to "off".
     for label, expected in (
         ("ratio", "fe_pairwise_ratio_enable"),
+        ("grouped_delta", "fe_grouped_delta_enable"),
+        ("lagged_diff", "fe_lagged_diff_enable"),
     ):
         axes_b5 = dict(base_axes); axes_b5.update(
             use_mrmr_fs=True,
@@ -3636,6 +3635,16 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         c_b5 = _build_combo(models=("cb",), axes=axes_b5, seed=0)
         kw_b5 = build_mrmr_kwargs(c_b5)
         assert kw_b5[expected] is True, f"B5 {label}: did not thread to {expected}"
+    # grouped_delta wires its group_col + numeric source columns so the kind has the inputs prod needs.
+    axes_gd = dict(base_axes); axes_gd.update(use_mrmr_fs=True, mrmr_fe_ratio_delta_diff_cfg="grouped_delta")
+    kw_gd = build_mrmr_kwargs(_build_combo(models=("cb",), axes=axes_gd, seed=0))
+    assert kw_gd["fe_grouped_delta_group_col"], "grouped_delta: group_col not wired"
+    assert kw_gd["fe_grouped_delta_num_cols"], "grouped_delta: num_cols not wired"
+    # lagged_diff wires its time_col + value source columns.
+    axes_ld = dict(base_axes); axes_ld.update(use_mrmr_fs=True, mrmr_fe_ratio_delta_diff_cfg="lagged_diff")
+    kw_ld = build_mrmr_kwargs(_build_combo(models=("cb",), axes=axes_ld, seed=0))
+    assert kw_ld["fe_lagged_diff_time_col"], "lagged_diff: time_col not wired"
+    assert kw_ld["fe_lagged_diff_value_cols"], "lagged_diff: value_cols not wired"
 
     # B1-B6 canon-collapse: when use_mrmr_fs=False, every axis collapses.
     off_b_a = dict(on_b); off_b_a["use_mrmr_fs"] = False
@@ -3703,17 +3712,23 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         "B4: extra_bases must canon-collapse when hybrid_orth master is off"
     )
 
-    # B5 specific gate: grouped_delta / lagged_diff have no support in the
-    # current fuzz frame builder -> canon-collapses to "off".
+    # B5 specific gate: the frame builder now emits a group key / order column for grouped_delta / lagged_diff, so both
+    # kinds actually run and must stay DISTINCT from "off" under canonicalisation (NOT collapsed away -- a collapse would
+    # silently drop the kind from the sweep). Disabling MRMR still collapses every kind (no FE entry point at all).
     for kind in ("grouped_delta", "lagged_diff"):
-        off_b5_a = dict(base_axes); off_b5_a.update(
-            use_mrmr_fs=True, mrmr_fe_ratio_delta_diff_cfg=kind,
+        on_b5 = dict(base_axes); on_b5.update(use_mrmr_fs=True, mrmr_fe_ratio_delta_diff_cfg=kind)
+        off_b5 = dict(on_b5); off_b5["mrmr_fe_ratio_delta_diff_cfg"] = "off"
+        c_on_b5 = _build_combo(models=("cb",), axes=on_b5, seed=0)
+        c_off_b5 = _build_combo(models=("cb",), axes=off_b5, seed=0)
+        assert c_on_b5.canonical_key() != c_off_b5.canonical_key(), (
+            f"B5 {kind}: must stay distinct from 'off' (the kind runs; collapsing it drops it from the sweep)"
         )
-        off_b5_b = dict(off_b5_a); off_b5_b["mrmr_fe_ratio_delta_diff_cfg"] = "off"
-        c_off_b5_a = _build_combo(models=("cb",), axes=off_b5_a, seed=0)
-        c_off_b5_b = _build_combo(models=("cb",), axes=off_b5_b, seed=0)
-        assert c_off_b5_a.canonical_key() == c_off_b5_b.canonical_key(), (
-            f"B5 {kind}: must canon-collapse when no group_col / time_col in frame"
+        no_mrmr_b5 = dict(on_b5); no_mrmr_b5["use_mrmr_fs"] = False
+        no_mrmr_off = dict(no_mrmr_b5); no_mrmr_off["mrmr_fe_ratio_delta_diff_cfg"] = "off"
+        c_no_mrmr_b5 = _build_combo(models=("cb",), axes=no_mrmr_b5, seed=0)
+        c_no_mrmr_off = _build_combo(models=("cb",), axes=no_mrmr_off, seed=0)
+        assert c_no_mrmr_b5.canonical_key() == c_no_mrmr_off.canonical_key(), (
+            f"B5 {kind}: must canon-collapse to 'off' when use_mrmr_fs is False (no FE entry point)"
         )
 
     # ------------------------------------------------------------------

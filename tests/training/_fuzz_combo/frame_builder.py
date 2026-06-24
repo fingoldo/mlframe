@@ -6,6 +6,17 @@ from typing import Any  # noqa: F401  (annotation strings under PEP 563)
 from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
 
 
+# Column names the grouped_delta / lagged_diff MRMR-FE kinds consume. Emitted into the synthetic frame (and wired into the MRMR ctor via
+# builders.build_mrmr_kwargs) only when ``mrmr_fe_ratio_delta_diff_cfg`` selects one of those kinds, so the two FE kinds actually run in the
+# sweep instead of being canonicalised to "off" for lack of a group / time column. ``MRMR_FE_GROUP_COL`` is a low-cardinality repeating int key
+# (per-group mean/std are well defined); ``MRMR_FE_ORDER_COL`` is a strictly-monotone index so the lagged_diff sort is deterministic. The
+# ``*_VAL_COL`` columns are the numeric sources the transform is applied to, engineered so the transform recovers a target-predictive signal.
+MRMR_FE_GROUP_COL = "mrmr_fe_group"
+MRMR_FE_GROUP_VAL_COL = "mrmr_fe_gval"
+MRMR_FE_ORDER_COL = "mrmr_fe_order"
+MRMR_FE_LAG_VAL_COL = "mrmr_fe_lval"
+
+
 def build_frame_for_combo(combo: FuzzCombo):
     """Build a pd / pl DataFrame matching the combo's input spec.
 
@@ -369,6 +380,35 @@ def build_frame_for_combo(combo: FuzzCombo):
             unseen = "ZZZ_UNSEEN"
             for j in range(n - tail, n):
                 cat_cols["cat_0"][j] = unseen
+
+    # grouped_delta / lagged_diff MRMR-FE kinds need a group key and a sortable order column respectively; emit them (plus a matching source
+    # column carrying genuine signal) only for the combos that select those kinds, so every other combo's frame and its canonical key is
+    # unchanged. The source column is engineered so the FE transform RECOVERS a target-predictive signal the raw column hides -- otherwise the
+    # MRMR Tier-1 local-MI gate (correctly) drops the engineered column as a no-uplift near-duplicate and the kind, while it runs, leaves nothing
+    # behind. ``MRMR_FE_GROUP_VAL_COL`` = per-group target offset + within-group target signal: the raw column is dominated by the group offset,
+    # but ``x - mean(x|group)`` isolates the within-group signal (decorrelated from the raw column, still target-predictive). ``MRMR_FE_LAG_VAL_COL``
+    # = slow random-walk drift + a target step: the raw column is dominated by the drift, but ``x - x.shift(p)`` (after the order-column sort)
+    # differences out the drift and leaves the target step.
+    _kind = combo.mrmr_fe_ratio_delta_diff_cfg if combo.use_mrmr_fs else "off"
+    if _kind in ("grouped_delta", "lagged_diff"):
+        _t = np.asarray(target)
+        _t1d = _t[:, 0] if _t.ndim >= 2 else _t
+        _t1d = _t1d.astype("float64")
+        _ts = (_t1d - _t1d.mean()) / (_t1d.std() + 1e-9)  # standardised 1-D target signal
+    if _kind == "grouped_delta":
+        _grp = (np.arange(n) % 8).astype("float32")
+        extra_num_cols[MRMR_FE_GROUP_COL] = _grp
+        # Per-group offset uncorrelated with target (decorrelates the RAW column) + within-group signal that IS the target -> grouped_delta keeps
+        # it. The target coupling is strong (and noise small) so the recovered ``x - mean(x|group)`` column clears the Tier-1 local-MI floor, which
+        # is raised by the high-MI default-FE pool already in X by the time this kind runs -- a weak signal is (correctly) gated out.
+        _grp_offset = (rng.standard_normal(8) * 5.0)[(np.arange(n) % 8)]
+        extra_num_cols[MRMR_FE_GROUP_VAL_COL] = (_grp_offset + 3.0 * _ts + rng.standard_normal(n) * 0.05).astype("float32")
+    elif _kind == "lagged_diff":
+        extra_num_cols[MRMR_FE_ORDER_COL] = np.arange(n, dtype="float32")
+        # Slow random-walk drift (dominates the raw column) + a strong per-row target step that the first difference isolates; coupling chosen so
+        # the recovered ``x - x.shift(p)`` column clears the local-MI floor raised by the default-FE pool (see grouped_delta note above).
+        _drift = np.cumsum(rng.standard_normal(n) * 0.5)
+        extra_num_cols[MRMR_FE_LAG_VAL_COL] = (_drift + 3.0 * _ts + rng.standard_normal(n) * 0.05).astype("float32")
 
     # 2026-05-12 Wave 30: when no model in the combo supports polars
     # natively (CB/XGB/HGB), build a pandas frame regardless of the
