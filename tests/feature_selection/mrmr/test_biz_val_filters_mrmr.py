@@ -430,12 +430,22 @@ def test_biz_val_mrmr_extra_x_shuffling_changes_selection_distribution():
 
 
 def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
-    """``fe_polynomial_basis='chebyshev'`` (post-2026-05-10 default)
-    must run without raising on a polynomial-target FE pass. Catches
-    regressions in the basis-registry dispatch wired in 1903cf7."""
+    """``fe_polynomial_basis='chebyshev'`` (post-2026-05-10 default) must
+    engineer a chebyshev-basis polynomial feature that RECOVERS the saddle
+    signal. The basis-registry dispatch (wired in 1903cf7) is the contract.
+
+    On this saddle target ``y=sign(0.7*x0^2 - 0.5*x1^2 + 0.3*x0*x1)`` the
+    raw signal columns are near-useless to a linear model (the relationship
+    is quadratic/even), so a logistic-regression baseline on the raw signal
+    columns scores ~0.48 AUC (chance). The chebyshev FE engineers a
+    ``_polynom_chebyshev_*`` column of the (x0, x1) pair that lifts the
+    selected-set AUC to ~0.97 -- a measured ~0.49 absolute uplift over the
+    raw-signal baseline. A broken basis dispatch that engineered nothing
+    useful would fail both the marker check and the AUC floor."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target, as_df, signal_recovery_count,
+        downstream_auc, baseline_signal_auc,
     )
     X, y, signal = make_polynomial_target(n=1500, degree=2, seed=42)
     df, ys = as_df(X, y)
@@ -450,13 +460,30 @@ def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
     # in __init__ kwargs.
     sel.fe_polynomial_basis = "chebyshev"
     sel.fit(df, ys)
-    # Must complete and produce non-empty OUTPUT. On a (symmetric) polynomial
-    # target the default univariate-basis FE recovers the signal via engineered
-    # features (``x0__He2`` etc.), so ``support_`` (raw-only indices) can be empty
-    # while ``get_feature_names_out()`` (raw + engineered) is non-empty. Assert the
-    # latter -- "the chebyshev basis FE ran and produced features" -- which is the
-    # contract this test pins (basis-registry dispatch), not raw-column survival.
-    assert len(sel.get_feature_names_out()) > 0
+    names = list(sel.get_feature_names_out())
+    # (a) The chebyshev basis actually engineered a polynomial feature
+    # (real marker ``_polynom_chebyshev_`` emitted by the basis dispatch).
+    assert any("chebyshev" in n for n in names), (
+        f"chebyshev basis FE must emit a _polynom_chebyshev_ feature; "
+        f"got names={names}"
+    )
+    # (b) Both signal columns are referenced by the selected set, and the
+    # engineered feature lifts the selected-set AUC far above the
+    # near-chance raw-signal baseline. Measured: auc_sel~0.973,
+    # auc_base~0.482 (delta ~0.49); floors leave wide margin.
+    assert signal_recovery_count(sel, signal, top_k=5) >= 2, (
+        f"chebyshev FE must reference both signal cols; got names={names}"
+    )
+    auc_sel = downstream_auc(sel, df, ys)
+    auc_base = baseline_signal_auc(df, ys, signal)
+    assert auc_sel >= 0.85, (
+        f"chebyshev-FE selected set must reach >=0.85 AUC on the saddle "
+        f"target; got {auc_sel:.4f} (names={names})"
+    )
+    assert auc_sel >= auc_base + 0.15, (
+        f"chebyshev FE must lift AUC >=0.15 over the raw-signal baseline; "
+        f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -790,13 +817,22 @@ def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
 
 @pytest.mark.parametrize("preset", ["minimal", "medium", "maximal"])
 def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
-    """``fe_binary_preset`` parametrized over presets that should
-    exist."""
+    """``fe_binary_preset`` parametrized over presets that should exist.
+
+    Each preset's binary-op FE must RECOVER the saddle signal, not merely
+    select some column. On ``y=sign(0.7*x0^2 - 0.5*x1^2 + 0.3*x0*x1)`` the
+    raw signal columns are near-chance to a linear model (~0.47 baseline
+    AUC), so a working binary-preset registry must engineer a feature of
+    the (x0, x1) pair that references both signal columns and lifts the
+    selected-set AUC well above that baseline (measured for ``minimal``:
+    recovery=2, auc_sel~0.98 vs auc_base~0.47). The AUC reuses the already-
+    fitted selector (one cheap logreg CV, no extra MRMR fit)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target, as_df, signal_recovery_count,
+        downstream_auc, baseline_signal_auc,
     )
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     try:
         sel = MRMR(
@@ -805,9 +841,24 @@ def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
             fe_binary_preset=preset,
         )
         sel.fit(df, ys)
-        assert len(sel.support_) >= 1
     except (KeyError, ValueError) as e:
         pytest.fail(f"required preset={preset!r} missing from registry: {e}")
+    # The preset's FE must reference a signal column and beat the
+    # near-chance raw-signal baseline by a wide margin.
+    assert signal_recovery_count(sel, signal, top_k=5) >= 1, (
+        f"binary preset={preset!r} FE must reference a signal col; "
+        f"got names={list(sel.get_feature_names_out())}"
+    )
+    auc_sel = downstream_auc(sel, df, ys)
+    auc_base = baseline_signal_auc(df, ys, signal)
+    assert auc_sel >= 0.75, (
+        f"binary preset={preset!r} selected set must reach >=0.75 AUC on "
+        f"the saddle target; got {auc_sel:.4f}"
+    )
+    assert auc_sel >= auc_base + 0.15, (
+        f"binary preset={preset!r} FE must lift AUC >=0.15 over the raw "
+        f"baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
+    )
 
 
 @pytest.mark.parametrize("max_pair_features", [1, 2, 3])

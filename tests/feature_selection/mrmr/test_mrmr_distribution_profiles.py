@@ -33,6 +33,9 @@ Run with MLFRAME_DISABLE_HNSW=1 (harness-set); each fit is seeded.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -411,6 +414,101 @@ def test_ratio_sqr_nsweep_under_profile(profile, n):
         f"signal_lost={keep_fail} noise={drop_fail}"
     )
     _gate("ratio_sqr", profile, n, selected, keep_fail, drop_fail)
+
+
+# ---------------------------------------------------------------------------
+# Fresh-process RECOVERY sensor for the documented xfail registries.
+# ---------------------------------------------------------------------------
+# The in-suite gate uses IMPERATIVE ``pytest.xfail`` (not strict-xfail) on the
+# SIGNAL_LOSS / NOISE_ADMISSION cells of BOTH this file and the sibling
+# ``test_mrmr_create_keep_drop.py``: those cells are PROCESS-STATE-DEPENDENT --
+# they recover the genuine signal in a fresh process but lose it after the
+# accumulated in-suite global-RNG / dispatcher / JIT state shifts a weak
+# divisor ratio just under the screen floor (see the registry reasons, e.g. the
+# ``ratio_sqr / with_outliers / 30000`` "IN-SUITE BOUNDARY flip" note). Strict
+# xfail would therefore FLAKE on XPASS whenever a cell happens to recover.
+#
+# But a runtime xfail can never XPASS, so a documented gap that gets genuinely
+# FIXED would silently rot (the cell would recover yet the xfail keeps passing).
+# This sensor closes that hole WITHOUT making the registries strict: it re-runs a
+# few representative documented cells -- one per SUBPROCESS so each starts from
+# clean process state -- and asserts the genuine keep-signal RECOVERS in
+# isolation. A real regression (a cell that fails to recover EVEN when fresh) is
+# a true signal loss and trips this loudly; an in-suite-only loss stays a
+# tolerated, documented process-state artifact. Kept to 4 small cells (2 from
+# each suite's registry families) so it stays fast.
+
+# (kind, formula, profile_or_None, n, label). ``profile=None`` => sibling
+# create_keep_drop cell. Each is a documented in-suite SIGNAL_LOSS / noise /
+# protect cell that is KNOWN to recover the genuine keep-signal in isolation.
+_RECOVERY_SENSOR_CELLS = [
+    ("distro", "ratio_sqr", "uniform", 10000, "noise-admission residual; (a,b) recovers fresh"),
+    ("distro", "ratio_sqr", "with_outliers", 30000, "SIGNAL_LOSS in-suite; (a,b) recovers fresh (the documented boundary-flip cell)"),
+    ("distro", "two_pairs_strong", "mixed", 20000, "SIGNAL_LOSS in-suite; both (a,b)+(c,d) recover fresh"),
+    ("ckd", "ws1_easy_ratio_sqr", None, 1000, "create_keep_drop small-n protect cell; (a,b) recovers fresh"),
+]
+
+
+def _recovery_subprocess_src(kind: str, formula: str, profile, n: int) -> str:
+    """Source for a one-cell fit run in a CLEAN child process. Exits 0 when the
+    genuine keep-signal is recovered, 3 when it is lost (a real regression)."""
+    if kind == "distro":
+        body = (
+            "from tests.feature_selection.mrmr import test_mrmr_distribution_profiles as M\n"
+            f"sel, keep_fail, drop_fail = M._fit_profile({formula!r}, {profile!r}, {int(n)})\n"
+        )
+    else:
+        body = (
+            "from tests.feature_selection.mrmr import test_mrmr_create_keep_drop as M\n"
+            f"spec, sel, failures = M._fit_and_eval({formula!r}, {int(n)}, "
+            f"fe_max_steps=M.FORMULAS[{formula!r}].get('fe_max_steps', 1))\n"
+            "keep_fail = [f for f in failures if f.get('kind') == 'missing_signal']\n"
+        )
+    return (
+        "import os, sys, warnings\n"
+        "warnings.filterwarnings('ignore')\n"
+        "os.environ.setdefault('MLFRAME_DISABLE_HNSW', '1')\n"
+        "os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')\n"
+        + body +
+        "print('KEEP_FAIL=' + repr(keep_fail))\n"
+        "print('SELECTED=' + repr(sel))\n"
+        "sys.exit(0 if not keep_fail else 3)\n"
+    )
+
+
+@pytest.mark.timeout(FIT_TIMEOUT)
+@pytest.mark.parametrize(
+    "kind,formula,profile,n,label", _RECOVERY_SENSOR_CELLS,
+    ids=[f"{c[0]}:{c[1]}:{c[2]}:{c[3]}" for c in _RECOVERY_SENSOR_CELLS],
+)
+def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile, n, label):
+    """A documented in-suite xfail cell MUST recover its genuine keep-signal
+    when re-run in a clean child process. This is what makes the imperative
+    (non-strict) xfail registries non-rotting: an in-suite-only loss is a
+    tolerated process-state artifact, but a loss that persists even fresh is a
+    real regression and fails here. See ``label`` for the per-cell datum."""
+    import subprocess
+
+    src = _recovery_subprocess_src(kind, formula, profile, n)
+    env = dict(os.environ)
+    env.setdefault("MLFRAME_DISABLE_HNSW", "1")
+    env.setdefault("CUDA_VISIBLE_DEVICES", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", src],
+        capture_output=True, text=True, env=env, timeout=FIT_TIMEOUT - 5,
+    )
+    if proc.returncode == 3:
+        pytest.fail(
+            f"REGRESSION: documented cell {kind}:{formula}:{profile}:{n} ({label}) "
+            f"failed to recover the genuine keep-signal even in a FRESH process -- "
+            f"this is a real signal loss, not a process-state artifact.\n"
+            f"stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}",
+            pytrace=False,
+        )
+    assert proc.returncode == 0, (
+        f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored "
+        f"(rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
