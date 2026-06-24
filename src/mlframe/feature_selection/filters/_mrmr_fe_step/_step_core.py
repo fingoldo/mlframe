@@ -588,6 +588,15 @@ def _run_fe_step(
         # win the ``else`` branch was tuned for is the CPU-njit-MI regime (small n, GPU gate OFF), which
         # this predicate leaves untouched. Selection is unchanged (same check_prospective_fe_pairs over
         # the same pairs; only the kernel parallelism + chunk-merge differ, both byte-identical).
+        # ONE shared FE subsample for this fit (2026-06-25): resolve + cache the single row-index draw
+        # once, so the pair-search REUSES it (and the sufficient-summary floor / any later consumer read
+        # the same cached draw) instead of each drawing its own. ``classes_y`` is the discrete fit target;
+        # the helper returns None at small n (n <= unified screen size) -> legacy per-call draw, unchanged.
+        try:
+            from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
+            _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
+        except Exception:
+            _shared_fe_idx = None
         try:
             from .._feature_engineering_pairs._pairs_core import _fe_gpu_discretize_enabled as _fe_gpu_disc_gate
             # Representative candidate-count for the gate's n*K crossover (a pair generates dozens-to-
@@ -624,6 +633,7 @@ def _run_fe_step(
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                 fe_subsample_stratify=_fe_subsample_stratify,
+                shared_subsample_idx=_shared_fe_idx,
                 prewarp_enable=_prewarp_enable,
                 prewarp_y=classes_y if _prewarp_enable else None,
                 prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
@@ -714,6 +724,7 @@ def _run_fe_step(
                         subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                         subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                         fe_subsample_stratify=_fe_subsample_stratify,
+                        shared_subsample_idx=_shared_fe_idx,
                         prewarp_enable=_prewarp_enable,
                         prewarp_y=classes_y if _prewarp_enable else None,
                         prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,

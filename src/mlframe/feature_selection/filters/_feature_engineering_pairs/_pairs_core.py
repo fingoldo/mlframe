@@ -173,6 +173,11 @@ def check_prospective_fe_pairs(
     # >= 50k on synthetic 3-pair-competition data. 0 = use full data (legacy).
     subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
     subsample_seed: int = 42,
+    # ONE shared FE subsample (2026-06-25). When the caller (``_mrmr_fe_step``) passes the fit's single
+    # shared row-index draw, the MI-sweep REUSES it verbatim instead of drawing its own subsample here --
+    # so the pair-search, the polynom path and the sufficient-summary maxT floor all score the SAME rows
+    # (one draw per fit, not N independent re-draws). ``None`` keeps the legacy per-call draw below.
+    shared_subsample_idx=None,
     # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the MI-sweep row subsample below draws a
     # TARGET-STRATIFIED set of rows (per-class proportional for classification -- guaranteeing the
     # rare class survives; y-quantile-bin proportional for regression -- preserving the tails)
@@ -378,20 +383,33 @@ def check_prospective_fe_pairs(
     # unchanged (everything below uses ``X`` / ``classes_y`` / ... directly).
     _X_full = X
     _full_n_rows = len(_X_full)
-    _use_subsample = isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows
+    # Prefer the fit's ONE shared row-index draw when the caller supplies it (so every FE consumer
+    # scores the SAME rows); fall back to the legacy per-call draw otherwise.
+    _shared_idx = None
+    if shared_subsample_idx is not None:
+        try:
+            _si = np.asarray(shared_subsample_idx)
+            if _si.ndim == 1 and 0 < _si.shape[0] < _full_n_rows and int(_si.max()) < _full_n_rows:
+                _shared_idx = _si.astype(np.int64, copy=False)
+        except Exception:
+            _shared_idx = None
+    _use_subsample = (_shared_idx is not None) or (isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows)
     _sample_idx = None  # set below when subsampling; threaded into _fit_prewarp_and_gate_med
     if _use_subsample:
-        _rng_sub = np.random.default_rng(int(subsample_seed))
-        if fe_subsample_stratify:
-            # Stratify on the discretised class codes (classification: balances classes; this path's
-            # ``classes_y`` is the discrete target the MI sweep scores against). is_clf=True is correct
-            # because ``classes_y`` is always discrete codes here (a continuous y is binned upstream).
-            from .._fe_subsample import stratified_subsample_idx
-            _sample_idx = stratified_subsample_idx(
-                _rng_sub, np.asarray(classes_y), int(subsample_n), is_clf=True
-            )
+        if _shared_idx is not None:
+            _sample_idx = _shared_idx
         else:
-            _sample_idx = np.sort(_rng_sub.choice(_full_n_rows, size=int(subsample_n), replace=False))
+            _rng_sub = np.random.default_rng(int(subsample_seed))
+            if fe_subsample_stratify:
+                # Stratify on the discretised class codes (classification: balances classes; this path's
+                # ``classes_y`` is the discrete target the MI sweep scores against). is_clf=True is correct
+                # because ``classes_y`` is always discrete codes here (a continuous y is binned upstream).
+                from .._fe_subsample import stratified_subsample_idx
+                _sample_idx = stratified_subsample_idx(
+                    _rng_sub, np.asarray(classes_y), int(subsample_n), is_clf=True
+                )
+            else:
+                _sample_idx = np.sort(_rng_sub.choice(_full_n_rows, size=int(subsample_n), replace=False))
         if isinstance(_X_full, pd.DataFrame):
             X = _X_full.iloc[_sample_idx].reset_index(drop=True)
         else:
