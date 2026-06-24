@@ -536,6 +536,18 @@ def discretize_array(
     # 9.74s vs 9.68s nanpercentile -- a WASH (the O(n) np.isfinite(arr).all() guard offsets the saved
     # nan-mask on the 1-D path; the 2-D win came from amortising dispatch over many columns, absent here).
     # Kept nanpercentile: equal speed, simpler, and NaN-correct without a guard.
+    #
+    # bench-attempt-rejected (2026-06-24): a FUSED 1-D njit kernel ``_quantile_codes_1d_njit``
+    # (kept in _kernels.py for reuse/re-bench on other HW) that partitions the column ONCE at the
+    # lerp's read indices (the same one-partition technique that WON in the 2-D ``_quantile_edges_2d_njit``)
+    # and assigns codes via an inline binary search, replacing BOTH ``nanpercentile`` and ``searchsorted``.
+    # BIT-IDENTICAL on a NaN-free array (verified across float32/64 x {2..300} bins x uniform/ties/heavy/const).
+    # But it is a NET LOSS for the SINGLE-COLUMN 1-D case: microbench (NaN-free float32, 200 reps)
+    #   n=10k/nb=10 0.74x, n=10k/nb=20 0.70x, n=100k/nb=10 0.67x, n=100k/nb=20 0.58x.
+    # The 2-D batch win came from amortising dispatch over MANY columns + a column ``prange``; a single
+    # serial 1-D column has neither, and numpy's vectorised C ``partition`` beats a numba scalar
+    # partition-copy + python-free-but-scalar binary-search loop. Confirms the older 2026-06-14
+    # np.percentile-swap rejection: the 1-D quantile path is numpy-optimal as-is. Reverted to numpy.
     bins_edges = np.nanpercentile(arr, quantiles)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 

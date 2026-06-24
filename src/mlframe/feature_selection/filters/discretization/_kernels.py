@@ -173,6 +173,85 @@ def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out:
             out[r, j] = lo
 
 
+@njit(nogil=True, cache=True)
+def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.ndarray, codes_out: np.ndarray) -> None:
+    """Fused 1-D quantile discretiser: BIT-IDENTICAL to
+    ``np.searchsorted(np.nanpercentile(arr, quantiles)[1:-1], arr, side='right')`` on a
+    NaN-FREE ``arr`` (caller gates), in ONE nogil kernel that partitions the column ONCE.
+
+    The 1-D ``discretize_array(method='quantile')`` path was the dominant CPU residual on the
+    golden F2 100k fit: 9754 calls, each doing ``np.nanpercentile`` (whose ``_quantile`` runs
+    ``ndarray.partition`` once PER quantile -> ~7.8s ``partition``) plus ``np.searchsorted``
+    (~7.7s). This kernel collapses both into a single ``np.partition(buf, kths)`` (O(n), reads
+    exactly the order statistics the lerp touches -- the same one-partition technique already
+    shipped in ``_quantile_edges_2d_njit``) followed by an inline binary search per element.
+
+    bench-attempt-rejected (2026-06-24): wiring this into the 1-D ``discretize_array`` quantile
+    path was a NET LOSS on the dev HW (single-column microbench, NaN-free float32, 200 reps:
+    n=10k/nb=10 0.74x, n=10k/nb=20 0.70x, n=100k/nb=10 0.67x, n=100k/nb=20 0.58x vs numpy
+    ``nanpercentile``+``searchsorted``). The 2-D batch sibling wins by amortising dispatch over
+    MANY columns + a column ``prange``; a single serial 1-D column has neither, and numpy's
+    vectorised C ``partition`` beats a numba scalar partition-copy + scalar binary-search loop.
+    KEPT here (feedback_keep_all_kernel_versions) for re-bench on other HW: ``kths`` is the
+    ``_quantile_edges_2d_njit`` recipe (the lo/lo+1 read indices, with the n-1 clamp).
+
+    BIT-IDENTITY (same proof as ``_quantile_edges_2d_njit`` + ``_searchsorted_2d_right_njit``):
+      * Edges: ``np.partition(col_copy, kths)[k] == np.sort(col_copy)[k]`` at every ``k in kths``
+        (introselect places each kth at its final sorted position); the lerp ``v=(q/100)*(n-1)``,
+        ``lo=floor(v)``, asymmetric ``_lerp`` (a+(b-a)t for t<0.5 else b-(b-a)(1-t)) with the
+        ``lo==n-1`` clamp is numpy's exact ``method='linear'`` percentile. On a NaN-free array
+        ``np.percentile == np.nanpercentile`` bit-for-bit.
+      * Codes: ``side='right'`` binary search over the INTERIOR edges (``edges[1:-1]``) reproduces
+        ``np.searchsorted(..., side='right')`` exactly (ties advance ``lo`` -> rightmost bin).
+      * dtype: ``arr`` (float32/64) promotes to float64 in the float64 edge compares, identical to
+        ``searchsorted(float64_edges, col)``. ``codes_out`` carries the caller's widened code dtype.
+
+    NaN is NOT handled here (caller routes NaN-bearing arrays to the numpy ``nanpercentile`` path);
+    a NaN would sort last and bias the edges, exactly as a raw ``np.percentile`` would, so the
+    caller's NaN gate is what preserves correctness -- identical contract to the 2-D kernels.
+
+    SERIAL + ``nogil`` (not ``parallel``): a single 1-D column has no inner parallelism to spread
+    (the win is eliminating per-quantile re-partition + numpy dispatch), and the FE pair-search
+    already calls this from inside joblib ``backend="threading"`` workers, so a nested numba prange
+    would risk the threading-layer deadlock the 2-D serial kernel documents.
+    """
+    n = arr.shape[0]
+    n_q = quantiles.shape[0]
+    # Partition a private copy at exactly the order-statistic indices the lerp reads (O(n)).
+    buf = arr.copy()
+    buf = np.partition(buf, kths)
+    # Compute the n_q quantile edges from the partitioned buffer (matches np.percentile linear).
+    edges = np.empty(n_q, dtype=np.float64)
+    for qi in range(n_q):
+        v = (quantiles[qi] / 100.0) * (n - 1)
+        lo = int(math.floor(v))
+        if lo >= n - 1:
+            edges[qi] = buf[n - 1]
+        else:
+            a = float(buf[lo])
+            b = float(buf[lo + 1])
+            t = v - lo
+            diff_b_a = b - a
+            if t >= 0.5:
+                edges[qi] = b - diff_b_a * (1.0 - t)
+            else:
+                edges[qi] = a + diff_b_a * t
+    # Interior edges only (drop the 0th/last like ``bins_edges[1:-1]``); side='right' search.
+    n_edges = n_q - 2
+    for r in range(n):
+        x = arr[r]
+        lo = 0
+        hi = n_edges
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            # edges index +1 to skip the dropped 0th edge (interior == edges[1:-1]).
+            if x < edges[mid + 1]:
+                hi = mid
+            else:
+                lo = mid + 1
+        codes_out[r] = lo
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def _searchsorted_2d_right_njit_parallel(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
     """``parallel=True`` (prange over COLUMNS) twin of ``_searchsorted_2d_right_njit`` --
