@@ -101,20 +101,18 @@ jobs:
         # ./pyutilz[...] target fully controls pyutilz's extras). Install the narrow pyutilz extras -- EXCLUDING
         # [nlp] (spacy>=3.0 -> thinc>=8.3.12 needs py>=3.10, and the matrix still covers py3.9) -- and mlframe's
         # [all,dev] union (mlframe's submodules have unguarded top-level heavy imports, so [all] keeps test
-        # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install` so uv computes one
-        # consistent plan. Two sequential `uv pip install --system` passes left the env without numpy: the
-        # second pass uninstalled the first pass's numpy (a version bump on py3.10+) without reinstalling it,
-        # so every numpy-dependent import (sklearn et al.) died at "Show installed versions".
-        # --reinstall-package numpy: `uv pip install --system` resolves numpy as a transitive dep of
-        # sklearn/pandas/etc. but then EXCLUDES it from the install set as "already satisfied", while it is
-        # in fact absent from the interpreter's site-packages -- so every numpy-dependent import (sklearn et
-        # al.) died with ModuleNotFoundError at the next step. Forcing a numpy reinstall guarantees its files
-        # actually land on disk. The trailing import check fails loudly here (not three steps later) if numpy
-        # is still missing, so a future regression is obvious at the install step.
+        # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
           uv pip install --system --reinstall-package numpy "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
-          python -c "import numpy, sklearn; print('numpy', numpy.__version__, '| sklearn', sklearn.__version__)"
+          echo "===== NUMPY DIAG ====="
+          echo "--- which python / executable / sys.path ---"
+          which python; python --version; python -c "import sys; print('exe:', sys.executable); [print('path:', p) for p in sys.path]"
+          echo "--- uv pip show numpy ---"; uv pip show numpy 2>&1 | head -5 || echo "uv pip show numpy FAILED"
+          echo "--- pip list | numpy ---"; python -m pip list 2>/dev/null | grep -i numpy || echo "pip: NO numpy"
+          echo "--- site-packages entries matching numpy ---"; python -c "import site,glob,os; [print(p) for sp in site.getsitepackages() for p in glob.glob(os.path.join(sp,'numpy*'))]" || true
+          echo "--- import numpy ---"; python -c "import numpy; print('numpy OK', numpy.__version__)" || echo "import numpy FAILED"
+          echo "===== END DIAG ====="
 
       - name: Show installed versions
         run: |
