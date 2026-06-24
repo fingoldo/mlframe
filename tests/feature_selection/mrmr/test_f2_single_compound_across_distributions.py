@@ -69,10 +69,34 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #     fragment's recipe in a side-store so a step-2 re-derivation of a composite nesting the fragment stays
 #     REPLAYABLE (else it is recorded recipe-less and dropped, collapsing the support back to raw a/b/d;
 #     _step_score.py). scaled_1_5 now recovers the single fused compound add(abs(div(sqr(a),b)),mul(log(c),sin(d))).
-#   * DOMINANT-CAPTURE-BLOCKED (with_outliers): the dominant a/b half is captured corrupted and log(c) is DROPPED;
-#     there is no clean c/d half to fuse (the 4-part scaled_1_5 fix above does NOT recover it -- verified still
-#     missing 2026-06-24). Stays xfail pending the upstream dominant-capture fix.
-_XFAIL_CAPTURE = "GOAL: dominant a/b half corrupted under variance imbalance (log(c) dropped) -- needs upstream dominant-capture fix before C2"
+#   * TAIL-CONCENTRATED-AB-BLOCKED (with_outliers): the PRIOR diagnosis ("a/b corrupted, log(c) DROPPED, no clean
+#     c/d half") was REFUTED by per-pair diagnostics 2026-06-24. The c/d half IS built cleanly -- ``mul(log(c),sin(d))``
+#     wins its pair at binned MI ~1.34 and is selected; log(c) is NOT dropped. The blocker is entirely the a/b half,
+#     and it is NOT "corruption" but a genuine, IRREDUCIBLE rank-MI property of the contaminated data: the 3%/15-IQR
+#     outliers injected into operands a and b make ``a**2/b`` a TAIL-CONCENTRATED signal -- in the clean BULK (95% of
+#     rows) Var(a**2/b) collapses to ~0.0014 vs Var(log(c)sin(d)) ~0.62 (a ~440x imbalance), and Spearman(a**2/b, y)
+#     in the bulk is ~0.05 (essentially zero RANK association). a**2/b tracks y only in the 5% outlier tail. So the
+#     rank-based binned MI of EVERY a/b form sits in a tight noise band 0.04-0.07: the true ratio ``div(sqr(a),b)``
+#     reads MI 0.0626 while a spurious noise form ``min(reciproc(a),sign(b))`` reads 0.0730 -- a REAL, reproducible
+#     0.010 lead (bootstrap P(spurious>true)=0.99), NOT binning noise. No statistically-honest tie band covers it
+#     (Miller-Madow bias 0.004, 95th-pct chance-MI floor 0.005, 99th-pct 0.006 are all << 0.010), so the spurious
+#     form legitimately wins the per-pair winner-selection AND the (a,b) pair is then dropped upstream by BOTH the
+#     prospective-pair ranking (its plain pair-MI 0.094 loses to the d-pairs at ~1.2) AND the engineered-MI
+#     prevalence gate -- all of which are calibrated on RANK MI. The two forms DISAGREE overwhelmingly on LINEAR
+#     usability (|corr(continuous y)| 0.986 true vs 0.371 spurious -- corr is outlier-inflated), so a usability-aware
+#     winner-selection CAN crown ``div(sqr(a),b)``, but that alone does NOT recover the compound: the ratio half (MI
+#     0.0626) cannot clear the rank-MI-calibrated engineered-MI / joint-prevalence gate against a pair whose plain
+#     pair-MI is 0.094, and the (a,b) pair is dropped from the prospective list entirely in the relaxed retry pass.
+#     A safe fix needs the prospective-pair ranking AND the engineered-MI prevalence gate AND the per-pair winner
+#     selection to ALL credit tail-concentrated LINEAR-usable (OLS-R / |corr|) signal the coarse rank-MI under-credits
+#     -- a multi-gate change that risks flipping selection on the canonical fixtures (where rank-MI is the honest
+#     arbiter) and the 4 passing profiles (where div(sqr(a),b) is both the rank-MI AND the usability leader, so no
+#     usability override is needed). Attempted 2026-06-24 (usability-dominance leader admission in _pairs_emit +
+#     usability_override in _select_single_best): it correctly flips the (a,b) WINNER to div(sqr(a),b) but the pair
+#     is still killed upstream by the prospective-ranking + prevalence gates, so with_outliers stays unrecovered;
+#     reverted (the winner-selection-only change adds canonical risk without achieving the goal). Stays xfail pending
+#     a unified tail-concentrated-signal credit across the upstream rank-MI gates.
+_XFAIL_CAPTURE = "GOAL: a/b half is TAIL-CONCENTRATED under outliers (rank-MI ~0 in bulk, signal only in the 5% tail) -- the true div(sqr(a),b) ratio loses the rank-MI race to a spurious form by a REAL 0.010 (not noise) and the (a,b) pair is dropped by the rank-MI-calibrated prospective-ranking + prevalence gates; needs unified tail-signal credit (OLS-R/|corr|) across those gates, not just winner-selection"
 _PROFILES = [
     "uniform",
     "scaled_1_5",  # FIXED 2026-06-24 by the 4-part asymmetric-synergy / OLS-separability / pre-vote-fusion / subsumed-recipe-preservation fix.
