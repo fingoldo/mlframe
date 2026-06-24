@@ -108,7 +108,13 @@ dependencies = [
 # numpy-1 ABI world the whole 3.9 C-extension stack (astropy/numba 0.60/pyarrow) was built for.
 override-dependencies = [
     "ortools>=9.12",
+    # An override-dependencies entry REPLACES a package's resolved constraints. With ONLY the py<3.10 numpy
+    # entry, on py>=3.10 its marker is False, leaving numpy with zero active override entries -- uv then treats
+    # numpy as overridden-to-nothing and PRUNES it from the resolution entirely (pandas/sklearn install, numpy
+    # does not -> ModuleNotFoundError at import). The complementary py>=3.10 entry keeps numpy constrained
+    # (>= the declared floor) on every interpreter, so it is never pruned. py3.9 still gets the numpy<2 ABI pin.
     "numpy<2.0; python_version < '3.10'",
+    "numpy>=1.23; python_version >= '3.10'",
 ]
 
 [project.optional-dependencies]
