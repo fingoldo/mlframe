@@ -376,11 +376,10 @@ class TestLayer54_C4_GainAlignsWithMrmrGains:
         X, y = _simple_binary_frame(n=400, seed=30)
         m = _fast_mrmr().fit(X, y)
         gains_arr = np.asarray(getattr(m, "mrmr_gains_", []))
-        if gains_arr.size == 0:
-            pytest.skip(
-                "mrmr_gains_ empty (legacy fallback path); the gain-"
-                "alignment assertion is moot."
-            )
+        # The greedy log is populated on this fixture (seed=30 deterministically selects
+        # x_signal at rank 0), so mrmr_gains_ MUST be non-empty; an empty array would mean
+        # a regression to the legacy fallback that drops the per-rank gain record.
+        assert gains_arr.size > 0, "mrmr_gains_ unexpectedly empty -- greedy gain log not recorded"
         for _, row in m.fe_provenance_.iterrows():
             rank = int(row["support_rank"])
             if 0 <= rank < gains_arr.size:

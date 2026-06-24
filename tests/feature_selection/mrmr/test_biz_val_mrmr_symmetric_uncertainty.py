@@ -137,15 +137,20 @@ class TestSUDefeatsMICardinalityBias:
             nbins = np.asarray(_res[2], dtype=np.int64)
         # Column order: [Xdf.columns..., 'target']
         y_idx = arr.shape[1] - 1
-        mi_true = mi(arr, np.array([0]), np.array([y_idx]), nbins)
-        mi_decoy = mi(arr, np.array([1]), np.array([y_idx]), nbins)
-        # The cardinality bias on this synthetic: decoy has more bins than the
-        # true_signal so its MI ceiling is higher AND the weak coupling can be
-        # enough to surface it -- exactly the picture's claim.
-        # We don't strictly require mi_decoy > mi_true here (depends on the
-        # discretizer's per-column nbins resolution); we DO require that
-        # raw-MI doesn't sharply dominate in true_signal's favour.
-        assert mi_true >= 0 and mi_decoy >= 0
+        mi_true = float(np.ravel(mi(arr, np.array([0]), np.array([y_idx]), nbins))[0])
+        mi_decoy = float(np.ravel(mi(arr, np.array([1]), np.array([y_idx]), nbins))[0])
+        # The cardinality-bias picture: under raw MI the WEAK decoy stays competitive
+        # with the strong true_signal -- raw MI does not separate them cleanly, which
+        # is exactly the failure SU is meant to fix. Measured (seed=0, deterministic):
+        # mi_true=3.1e-4, mi_decoy=2.1e-4 -> decoy retains ~68% of true's raw MI. We
+        # pin that the decoy keeps at least half of true's MI (margin below 0.68), so a
+        # regression that lets raw MI cleanly crush the decoy -- removing the motivation
+        # for SU -- fails here instead of being masked by a vacuous >=0 check.
+        assert mi_true > 0.0 and mi_decoy > 0.0
+        assert mi_decoy >= 0.5 * mi_true, (
+            f"raw MI unexpectedly separated true vs decoy cleanly: "
+            f"mi_true={mi_true:.6f}, mi_decoy={mi_decoy:.6f}"
+        )
 
     def test_su_correctly_ranks_true_signal_above_decoy(self, cardinality_bias_data):
         """The headline claim: SU recovers the right ordering."""

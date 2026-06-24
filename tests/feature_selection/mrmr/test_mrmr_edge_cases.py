@@ -199,12 +199,15 @@ class TestMRMREdgeCases:
             warnings.simplefilter("ignore")
             mrmr.fit(X, y)
 
-        # Transform should work even with empty selection
+        # Transform should work even when no RAW features survive the strict thresholds.
         X_transformed = mrmr.transform(X)
 
-        # Verify it completed without IndexError
-        assert X_transformed is not None
+        # Completed without IndexError; rows preserved and column count == n_features_
+        # (engineered features may still be produced even when no raw column is kept).
         assert hasattr(mrmr, 'n_features_')
+        assert X_transformed.shape[0] == X.shape[0]
+        assert X_transformed.shape[1] == mrmr.n_features_
+        assert len(mrmr.get_feature_names_out()) == X_transformed.shape[1]
 
     def test_perfect_feature_detection(self):
         """Test MRMR detects a feature with perfect correlation to target.

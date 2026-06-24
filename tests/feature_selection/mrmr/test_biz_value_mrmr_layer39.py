@@ -331,14 +331,14 @@ def _discover_prior_layer_modules():
             continue
         mod_name = f"{pkg}.{p.stem}"
         out.append((mod_name, p, mod_name))
-    # Layers consolidated into themed subpackages are imported once per ORIGINAL layer number so the
-    # import-smoke keeps per-layer granularity (the submodule docstrings record "...layerNN.py").
+    # Themed-subpackage submodules are imported once each; a submodule named ``test_layer<N>.py``
+    # carries its original layer number in the FILENAME, used only to label the parametrize id with
+    # per-layer granularity (no source text is read).
     for p in sorted(here.glob("test_biz_value_mrmr_*/test_*.py")):
         mod_name = f"{pkg}.{p.parent.name}.{p.stem}"
-        layers = sorted(set(re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8"))), key=int)
-        if layers:
-            for n in layers:
-                out.append((mod_name, p, f"{mod_name}::layer{n}"))
+        fm = re.match(r"test_layer(\d+)\.py$", p.name)
+        if fm is not None:
+            out.append((mod_name, p, f"{mod_name}::layer{fm.group(1)}"))
         else:
             out.append((mod_name, p, mod_name))
     return out

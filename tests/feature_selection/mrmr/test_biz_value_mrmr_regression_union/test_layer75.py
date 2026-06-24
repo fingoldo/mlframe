@@ -588,12 +588,14 @@ class TestRosterAtLeast74:
             mobj = rx.search(os.path.basename(path))
             if mobj is not None:
                 layer_numbers.add(int(mobj.group(1)))
-        # Layers consolidated into themed subpackages keep a "...layerNN.py" provenance marker in
-        # each submodule docstring; harvest those so a relocated layer still counts as present.
+        # Layers consolidated into themed subpackages keep their number in the relocated submodule
+        # FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest from the basename so a
+        # relocated layer still counts, without reading source text.
+        sub_rx = re.compile(r"test_layer(\d+)\.py$")
         for sub in glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py")):
-            with open(sub, encoding="utf-8") as fh:
-                for n in re.findall(r"layer(\d+)\.py", fh.read()):
-                    layer_numbers.add(int(n))
+            mobj = sub_rx.search(os.path.basename(sub))
+            if mobj is not None:
+                layer_numbers.add(int(mobj.group(1)))
         catchall_required = (
             "test_biz_value_mrmr_extreme.py",
             "test_biz_value_mrmr_hard_cases.py",
@@ -601,16 +603,23 @@ class TestRosterAtLeast74:
             "test_biz_value_mrmr_quality_metrics.py",
             "test_biz_value_mrmr_ultra.py",
         )
-        catchall_on_disk = [
+        missing_catchall = [
             n for n in catchall_required
-            if os.path.isfile(os.path.join(this_dir, n))
+            if not os.path.isfile(os.path.join(this_dir, n))
         ]
-        total = len(layer_numbers) + len(catchall_on_disk)
-        assert total >= 74, (
-            f"Combined biz_value module roster size = {total}; floor is "
-            f"74 (Layer 75 spec). Discovered layer numbers: "
-            f"{sorted(layer_numbers)!r}; catch-alls on disk: "
-            f"{catchall_on_disk!r}."
+        assert not missing_catchall, (
+            f"Missing catch-all biz_value module(s): {missing_catchall!r}."
+        )
+        # Silent-delete guard: the biz_value test-module roster on disk (flat layer files + themed
+        # subpackage submodules, some consolidated under non-layerN names) must not shrink below the
+        # shipped floor. A glob count over the tree catches a dropped/renamed module directly,
+        # independent of docstring provenance markers (which a source-text grep would depend on).
+        module_count = len(glob.glob(os.path.join(this_dir, "test_biz_value_*.py"))) + len(
+            glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
+        )
+        assert module_count >= 110, (
+            f"biz_value test-module roster shrank to {module_count} (floor 110); "
+            f"a prior-layer test module was likely dropped or renamed."
         )
         assert 75 in layer_numbers, (
             f"L75 layer module not discovered on disk; layer numbers "

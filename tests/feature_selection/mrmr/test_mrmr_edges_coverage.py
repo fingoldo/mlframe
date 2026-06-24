@@ -202,39 +202,54 @@ def test_transform_numpy_input():
 
 
 def test_transform_polars_input():
-    """Polars DataFrame transform path."""
+    """Polars DataFrame transform path returns a polars frame whose columns match get_feature_names_out."""
     pl = pytest.importorskip("polars")
     df, y = _make_data(seed=22)
     sel = _fast_mrmr().fit(df, y)
+    names = list(sel.get_feature_names_out())
     pldf = pl.from_pandas(df)
     out = sel.transform(pldf)
-    assert out is not None
+    # Polars in -> polars out; never silently coerced to pandas/ndarray.
+    assert isinstance(out, pl.DataFrame)
+    assert out.shape == (df.shape[0], len(names))
+    assert list(out.columns) == names
 
 
 def test_transform_column_drift_raises():
     """Drop a selected column post-fit; transform must raise RuntimeError, not KeyError."""
     df, y = _make_data(seed=23)
     sel = _fast_mrmr().fit(df, y)
-    # Find a selected col and drop it
+    # A fit on informative data must select at least one feature; the first selected
+    # name on this seed is a raw column, so dropping it makes transform's support_
+    # check fail. Asserting non-emptiness first keeps the raises unconditional: an
+    # empty get_feature_names_out regression now fails here instead of silently
+    # skipping the drift guard.
     names = sel.get_feature_names_out()
-    if len(names) >= 1:
-        drop_col = str(names[0])
-        if drop_col in df.columns:
-            df2 = df.drop(columns=[drop_col])
-            with pytest.raises(RuntimeError, match=r"column"):
-                sel.transform(df2)
+    assert len(names) >= 1
+    drop_col = str(names[0])
+    assert drop_col in df.columns
+    df2 = df.drop(columns=[drop_col])
+    with pytest.raises(RuntimeError, match=r"column"):
+        sel.transform(df2)
 
 
 def test_transform_all_cols_selected_identity_fast_path():
-    """When MRMR selects every column AND no engineered recipes, transform returns X unchanged."""
+    """transform output columns equal get_feature_names_out; when every raw col is selected with no engineered recipes the identity fast path returns X frame-equal."""
     df = pd.DataFrame(
         {"a": np.linspace(-3, 3, 50), "b": np.linspace(0, 1, 50)},
     )
     y = (df["a"] > 0).astype(np.int32).to_numpy()
     sel = _fast_mrmr(min_relevance_gain=1e-12).fit(df, y)
+    names = list(sel.get_feature_names_out())
     out = sel.transform(df)
-    # If both got selected, out is df (identity). Else regular transform.
-    assert out is not None
+    assert isinstance(out, pd.DataFrame)
+    assert out.shape == (df.shape[0], len(names))
+    assert list(out.columns) == names
+    # Identity fast path only when the selection is exactly the raw input columns
+    # (no engineered features). On this fixture MRMR may pick a subset, so the
+    # identity equality is asserted only when that precondition actually holds.
+    if names == list(df.columns):
+        assert out.equals(df)
 
 
 # ----------------------------------------------------------------------------

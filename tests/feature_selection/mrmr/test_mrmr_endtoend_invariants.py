@@ -493,8 +493,18 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
     private term protects it. This is the exact BUG1 shape (raw kept next to the
     composite that captures it)."""
     r = _get(case_idx, case, _results_cache)
-    if not r["eng_cols"]:
-        pytest.skip("no engineered feature produced -> no subsumption to test")
+    # On the canonical UNIFORM terrain the lean drop config (fe_max_steps>=1,
+    # redundancy_policy="drop") deterministically produces engineered features, so an
+    # empty eng_cols there is a real FE regression -- assert presence instead of skipping.
+    # Off-uniform, FE may legitimately produce nothing on some target families; that case
+    # is data-dependent and is skipped (it would also be skipped by the calibration gate below).
+    if case["distribution"] == "uniform":
+        assert r["eng_cols"], (
+            "uniform terrain produced no engineered feature -- FE regression "
+            f"(kept_raws={r['kept_raws']})"
+        )
+    elif not r["eng_cols"]:
+        pytest.skip("off-uniform fixture produced no engineered feature -> no subsumption to test")
     # FUNCTIONAL no-harm (ALL distributions): keeping redundant raws must never make the
     # FE selection score BELOW the raw-only baseline. Measured with the TREE downstream
     # (``delta`` = fe_hgb - raw_hgb) -- the model that can use every feature -- so the

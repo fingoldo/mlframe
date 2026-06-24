@@ -68,9 +68,10 @@ def test_whatif_count_matches_ledger_margin_arithmetic():
     report = est.explain_selection()
 
     led = est.fe_rejection_ledger_
-    if led is None or led.empty:
-        assert "ledger empty" in report.lower()
-        pytest.skip("no rejections recorded on this fixture")
+    # The canonical frame deterministically drives FE gates to record rejections, so the
+    # ledger MUST be populated; an empty ledger here is a regression in the rejection-ledger
+    # plumbing, not a vacuous skip.
+    assert led is not None and not led.empty, "fe_rejection_ledger_ unexpectedly empty on the canonical frame"
 
     gate_col = led["gate"].astype(str)
     margin_col = pd.to_numeric(led["margin"], errors="coerce")
@@ -98,8 +99,12 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
     est = _fe_on(fe_min_engineered_mi_prevalence=0.90)
     est.fit(X, y)
     led = est.fe_rejection_ledger_
-    if led is None or led.empty or "engineered_mi_prevalence" not in led["gate"].astype(str).values:
-        pytest.skip("engineered_mi_prevalence did not bind on this fixture")
+    # The engineered_mi_prevalence gate deterministically binds on the canonical frame at
+    # threshold 0.90, so it MUST appear in the ledger; absence is a gate-plumbing regression.
+    assert led is not None and not led.empty, "fe_rejection_ledger_ unexpectedly empty"
+    assert "engineered_mi_prevalence" in led["gate"].astype(str).values, (
+        "engineered_mi_prevalence gate did not bind on the canonical frame"
+    )
 
     gate = "engineered_mi_prevalence"
     knob, delta = _GATE_TO_FLIP_BAND[gate]

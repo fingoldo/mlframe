@@ -486,11 +486,12 @@ class TestRecipeReplay:
             min_uplift=1.10,
             top_k=5,
         )
-        if not recipes:
-            pytest.skip(
-                f"seed={seed}: routing emitted no columns; replay test "
-                f"requires at least one recipe."
-            )
+        # On every seed in SEEDS the heavy-tail fixture deterministically routes x to
+        # the log|x|+Hermite cell, so routing MUST emit at least one recipe; a regression
+        # that silently drops the routed column now fails here instead of skipping.
+        assert recipes, (
+            f"seed={seed}: routing emitted no recipe on the heavy-tail fixture"
+        )
         # Re-extract appended columns from X_aug.
         appended = [c for c in X_aug.columns if c not in X.columns]
         # For each recipe, replay against the SAME X and compare row-by-row
@@ -551,8 +552,11 @@ class TestRoutingCriterionCorrDefault:
                 Xtr, ytr.values, cols=["x"], degrees=(2, 3),
                 min_uplift=1.0, top_k=1, routing_criterion=crit,
             )
-            if not recipes:
-                pytest.skip(f"criterion {crit!r} emitted no column on this fixture")
+            # Both corr and mi criteria deterministically route x to the log|x|+Hermite
+            # cell on this fixture, so each MUST emit a recipe for the held-out comparison.
+            assert recipes, (
+                f"criterion {crit!r} emitted no recipe on the heavy-tail fixture"
+            )
             v = np.asarray(apply_recipe(recipes[0], Xte), dtype=float)
             held[crit] = (
                 abs(float(np.corrcoef(v, yte)[0, 1]))

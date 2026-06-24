@@ -101,7 +101,10 @@ class TestMRMRBasic:
         # fit_transform should work
         X_transformed = mrmr.fit_transform(X, y)
 
-        assert X_transformed is not None
+        # Rows preserved; column count equals the selected/engineered feature count.
+        assert X_transformed.shape[0] == X.shape[0]
+        assert X_transformed.shape[1] == mrmr.n_features_
+        assert mrmr.n_features_ >= 1
         # MRMR stores original feature count (without target column added internally)
         assert mrmr.n_features_in_ > 0
         assert mrmr.n_features_in_ <= X.shape[1]

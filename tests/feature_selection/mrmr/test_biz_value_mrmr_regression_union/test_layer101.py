@@ -280,14 +280,12 @@ class TestPriorLayerRoster:
             if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
         )
         assert present, "no test_biz_value_mrmr_layer<N>.py modules found"
-        # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) still count as
-        # present: each submodule docstring records its source layer numbers ("...layerNN.py").
+        # Layers consolidated into themed subpackages keep their number in the relocated
+        # submodule FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest those from
+        # the basename so the family's high-water mark still includes relocated layers, without
+        # reading source text.
         relocated: set[int] = set()
         for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
-            for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
-                relocated.add(int(n))
-            # A consolidated submodule named ``test_layer<N>.py`` IS the relocated layer N; harvest the
-            # filename too so a relocated layer counts even when its docstring omits the ``layerN.py`` marker.
             fm = re.match(r"test_layer(\d+)\.py$", p.name)
             if fm:
                 relocated.add(int(fm.group(1)))
@@ -295,13 +293,16 @@ class TestPriorLayerRoster:
         assert max(present_all) >= 100, (
             f"highest layer module should be >= 100, got {max(present_all)}"
         )
-        # The 6..100 range is the shipped contiguous family; allow a handful of
-        # intentionally-skipped numbers but flag a wholesale drift.
-        expected = set(range(6, 101))
-        missing = sorted(expected - present_all)
-        assert len(missing) <= 6, (
-            f"too many gaps in the layer family (missing {missing}); a layer "
-            f"module was likely dropped"
+        # Silent-delete detection for the family: the biz_value test-module roster on disk (flat
+        # layer files + themed-subpackage submodules, some consolidated under non-layerN names) must
+        # not shrink below the shipped floor. A glob count over the tree catches a dropped/renamed
+        # module directly, without depending on docstring provenance markers (which a text-grep would).
+        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(
+            sorted(root.glob("test_biz_value_mrmr_*/test_*.py"))
+        )
+        assert module_count >= 110, (
+            f"biz_value test-module roster shrank to {module_count} (floor 110); "
+            f"a prior-layer test module was likely dropped or renamed."
         )
 
 

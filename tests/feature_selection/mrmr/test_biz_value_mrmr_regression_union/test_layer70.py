@@ -399,12 +399,14 @@ class TestRosterSizeAtLeast69:
             mobj = rx.search(os.path.basename(path))
             if mobj is not None:
                 layer_numbers.add(int(mobj.group(1)))
-        # Layers consolidated into themed subpackages keep a "...layerNN.py" provenance marker in
-        # each submodule docstring; harvest those so a relocated layer still counts as present.
+        # Layers consolidated into themed subpackages keep their number in the relocated
+        # submodule FILENAME (e.g. ``test_biz_value_mrmr_fe_hybrid_orth/test_layer21.py``);
+        # harvest from the basename so a relocated layer still counts, without reading source text.
+        sub_rx = re.compile(r"layer(\d+)\.py$")
         for sub in glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py")):
-            with open(sub, encoding="utf-8") as fh:
-                for n in re.findall(r"layer(\d+)\.py", fh.read()):
-                    layer_numbers.add(int(n))
+            mobj = sub_rx.search(os.path.basename(sub))
+            if mobj is not None:
+                layer_numbers.add(int(mobj.group(1)))
         catchall_required = (
             "test_biz_value_mrmr_extreme.py",
             "test_biz_value_mrmr_hard_cases.py",
