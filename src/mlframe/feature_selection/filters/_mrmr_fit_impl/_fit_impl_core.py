@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import textwrap
+import threading
 import warnings
 from collections import defaultdict
 from timeit import default_timer as timer
@@ -25,6 +26,15 @@ import pandas as pd
 from sklearn.metrics import make_scorer
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+# Guards every read-then-mutate sequence on the process-wide ``MRMR._FIT_CACHE`` (lookup + ``move_to_end`` on
+# a hit; ``__setitem__`` + ``move_to_end`` + LRU/byte-cap ``popitem`` on store). Concurrent fits -- multi-target
+# discovery, joblib-threading callers, web-service workers -- otherwise race ``popitem``/``__setitem__``/
+# ``move_to_end`` on the same OrderedDict and can raise KeyError or evict the wrong entry. RLock so a wrapped
+# region may safely re-enter. The companion ``_MRMR_IDENTITY_FP_CACHE`` already had its own lock; this closes the
+# same gap for the fit cache. Exposed on the ``MRMR`` class (idempotently, inside the fit body) as
+# ``_FIT_CACHE_LOCK`` so any other holder of the cache can take the same canonical lock.
+_MRMR_FIT_CACHE_LOCK = threading.RLock()
 
 """MRMR._fit_impl main fit body.
 
@@ -63,6 +73,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         screen_predictors,
         sort_dict_by_value,
     )
+    # Publish the canonical fit-cache lock on the class so any other holder of ``_FIT_CACHE`` shares it. Idempotent:
+    # only set on first fit, never re-bound (re-binding would split the lock identity under concurrent fits).
+    if getattr(MRMR, "_FIT_CACHE_LOCK", None) is None:
+        MRMR._FIT_CACHE_LOCK = _MRMR_FIT_CACHE_LOCK
     # include_numeric NaN guard: snapshot raw NaN/inf-bearing NUMERIC columns at the VERY START of fit, before
     # _validate_inputs / categorize / any GPU-discretisation path can impute X. include_numeric must skip a column
     # the user supplied with NaN -- its quantile-edge transform replay has no NaN bin, so a NaN test value would
@@ -189,9 +203,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig)
     except Exception:
         _cache_key = None
-    if _cache_key is not None and _cache_key in MRMR._FIT_CACHE:
-        _cached = MRMR._FIT_CACHE[_cache_key]
-        MRMR._FIT_CACHE.move_to_end(_cache_key)
+    _cached = None
+    if _cache_key is not None:
+        with _MRMR_FIT_CACHE_LOCK:
+            if _cache_key in MRMR._FIT_CACHE:
+                _cached = MRMR._FIT_CACHE[_cache_key]
+                MRMR._FIT_CACHE.move_to_end(_cache_key)
+    if _cached is not None:
         _replayed = _replay_fitted_state(self, _cached)
         if self.verbose:
             logger.info(
@@ -6046,7 +6064,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     )
     logger.info("categorized.")
 
-    target_indices = np.array([cols.index(col) for col in target_names], dtype=np.int64)
+    # ``cols`` is a list; per-name ``cols.index`` is an O(len(cols)) scan, so resolving every target /
+    # categorical name that way is O(C*P). Build a name->index map once and reuse it for both lookups.
+    _name_to_idx = {c: i for i, c in enumerate(cols)}
+
+    target_indices = np.array([_name_to_idx[col] for col in target_names], dtype=np.int64)
 
     # TARGET REBIN GUARD (2026-06-10). The adaptive per-column ``nbins_strategy``
     # (default ``"mdlp"`` since Wave 7) is meant for FEATURE columns; applied to the
@@ -6113,7 +6135,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         ]
     else:
         categorical_vars_names = X.head().select_dtypes(include=("category", "object", "string", "bool")).columns.values.tolist()
-    categorical_vars = [cols.index(col) for col in categorical_vars_names]
+    categorical_vars = [_name_to_idx[col] for col in categorical_vars_names]
 
     if fe_max_steps > 0:
         unary_transformations = create_unary_transformations(preset=fe_unary_preset)
@@ -9428,40 +9450,44 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
     # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
     if _cache_key is not None:
-        MRMR._FIT_CACHE[_cache_key] = self
-        MRMR._FIT_CACHE.move_to_end(_cache_key)
-        # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
-        # (e.g. for memory-constrained suites where the 4-entry cache pins
-        # too much state). The previous ``or 4`` form silently restored the
-        # default cap, so cache-off was a no-op. ``None`` (unset attr) still
-        # folds to 4.
-        _cap_raw = getattr(self, "fit_cache_max", 4)
-        _cap = int(4 if _cap_raw is None else _cap_raw)
-        if _cap <= 0:
-            MRMR._FIT_CACHE.clear()
-        else:
-            while len(MRMR._FIT_CACHE) > _cap:
-                MRMR._FIT_CACHE.popitem(last=False)
-        # Byte-size cap on top of entry count (audit A5 P1 #6): a 1k-feature suite
-        # carrying 4 cached MRMR instances each holding _selectors_ / _engineered_features_
-        # state can exceed 1 GB of process RSS. ``fit_cache_max_mb`` (default 1024 MB; env
-        # override ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``) bounds the aggregate cache footprint.
-        _mb_cap_raw = getattr(self, "fit_cache_max_mb", None)
-        if _mb_cap_raw is None:
-            _env_mb = os.environ.get("MLFRAME_MRMR_FIT_CACHE_MAX_MB", "1024")
-            try:
-                _mb_cap = float(_env_mb)
-            except ValueError:
-                _mb_cap = 1024.0
-        else:
-            try:
-                _mb_cap = float(_mb_cap_raw)
-            except (TypeError, ValueError):
-                _mb_cap = 1024.0
-        if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
-            _byte_cap = _mb_cap * (1024 ** 2)
-            while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
-                MRMR._FIT_CACHE.popitem(last=False)
+        # Whole store + LRU/byte-cap eviction held under the cache lock so a concurrent fit cannot interleave its
+        # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
+        # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.
+        with _MRMR_FIT_CACHE_LOCK:
+            MRMR._FIT_CACHE[_cache_key] = self
+            MRMR._FIT_CACHE.move_to_end(_cache_key)
+            # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
+            # (e.g. for memory-constrained suites where the 4-entry cache pins
+            # too much state). The previous ``or 4`` form silently restored the
+            # default cap, so cache-off was a no-op. ``None`` (unset attr) still
+            # folds to 4.
+            _cap_raw = getattr(self, "fit_cache_max", 4)
+            _cap = int(4 if _cap_raw is None else _cap_raw)
+            if _cap <= 0:
+                MRMR._FIT_CACHE.clear()
+            else:
+                while len(MRMR._FIT_CACHE) > _cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
+            # Byte-size cap on top of entry count: a 1k-feature suite carrying 4 cached MRMR instances each
+            # holding _selectors_ / _engineered_features_ state can exceed 1 GB of process RSS.
+            # ``fit_cache_max_mb`` (default 1024 MB; env override ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``) bounds the
+            # aggregate cache footprint.
+            _mb_cap_raw = getattr(self, "fit_cache_max_mb", None)
+            if _mb_cap_raw is None:
+                _env_mb = os.environ.get("MLFRAME_MRMR_FIT_CACHE_MAX_MB", "1024")
+                try:
+                    _mb_cap = float(_env_mb)
+                except ValueError:
+                    _mb_cap = 1024.0
+            else:
+                try:
+                    _mb_cap = float(_mb_cap_raw)
+                except (TypeError, ValueError):
+                    _mb_cap = 1024.0
+            if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
+                _byte_cap = _mb_cap * (1024 ** 2)
+                while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
     # 2026-05-30 Wave 8 — post-fit UAED auto-size. When enabled, replaces the
     # configured ``min_features_fallback`` floor with an automatic elbow on
     # the per-feature MI gain curve. Relevance trace is taken from the
