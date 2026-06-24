@@ -174,11 +174,13 @@ def build_unary_binary_recipe(
     log_shift_b: float | None = None,
 ) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
-    parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges so transform-time replay maps each row to the SAME bin
-    code regardless of test-data distribution. Dtype is stringified so the recipe is JSON-friendly and pickle-safe across numpy versions.
+    parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges. Dtype is stringified so the recipe is JSON-friendly and
+    pickle-safe across numpy versions.
 
-    2026-05-30 Wave 9.1 iter 28: ``fit_values_for_edges`` lets the caller pin the quantile boundaries. Without it (legacy code paths) the
-    recipe emits a UserWarning at replay time about the train/test leakage risk.
+    The stored ``edges`` are PROVENANCE/AUDIT only: ``_apply_unary_binary`` replays the CONTINUOUS engineered value and never re-quantises, so it
+    never consults ``edges`` (the magnitude-preserving, drift-invariant contract -- see the apply-side rationale). ``fit_values_for_edges`` still
+    lets the caller record the fit-time quantile boundaries on the recipe for inspection; passing ``None`` simply omits them. No replay-time
+    leakage warning is emitted either way, because there is no replay-time quantiser left to leak.
 
     NESTED-ENGINEERED PARENTS (2026-06-08): ``nested_parent_a`` / ``nested_parent_b`` are
     the ``EngineeredRecipe`` objects for operands that are THEMSELVES engineered columns

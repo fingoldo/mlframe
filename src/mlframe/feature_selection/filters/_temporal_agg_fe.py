@@ -35,6 +35,12 @@ within the test frame, against earlier test rows of the same entity. This means
 
 The ``y`` array is consumed ONLY by the MI gate in :func:`hybrid_temporal_agg_fe`
 to rank candidates; the recipes carry no ``y`` reference.
+
+MEMORY: this family is OPT-IN (``fe_temporal_agg_enable=False`` by default) precisely because the leak-safety contract
+requires each recipe to persist the FULL per-entity train history (timestamps + values) -- O(n_train) per value column,
+carried on the recipe and therefore in any pickled fitted state. There is no cheaper representation: replaying a test row's
+expanding / rolling / lag statistic against "the train past" needs the actual past values. Enable it only for genuine
+time-series targets, and prefer rolling windows / a bounded lag set over unbounded expanding history on very large frames.
 """
 from __future__ import annotations
 

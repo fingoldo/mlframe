@@ -197,6 +197,9 @@ def _validate_inputs(self, X, y):
         if isinstance(n_cols, int):
             # MRMR's binned-frame working set is roughly ``n_rows * n_cols * 4`` bytes (int32 per cell). The previous absolute 1e9 cell ceiling rejected datasets that comfortably fit in RAM on a modern 128 GB+ host while letting through wide-but-not-as-wide frames on a tiny 16 GB box. Compare to ``psutil.virtual_memory().available * 0.5`` -- half of free RAM is the standard "safe working set" headroom for one stage of the pipeline.
             _footprint_bytes = n_rows * n_cols * 4
+            # psutil is a HARD dependency (unconditional module-top import in mrmr/__init__ and _mrmr_class), so the import
+            # here never fails -- the try/except guards only a RUNTIME ``virtual_memory()`` failure (some sandboxed / container
+            # hosts where the syscall errors), in which case ``_available_bytes=0`` disables the headroom check (permissive).
             try:
                 import psutil as _psutil
                 _available_bytes = int(_psutil.virtual_memory().available)
@@ -484,6 +487,12 @@ def _append_engineered(self, base_out, X, recipes):
     - For ndarray input, engineered cols are stacked as additional
       numeric columns; column names are not preserved (caller is
       expected to use ``get_feature_names_out`` for naming).
+
+    CAVEAT (chained recipes): a chained recipe whose engineered intermediate had its PRODUCER pruned at fit time is
+    unreconstructable at transform. Because ``get_feature_names_out`` fixes the output WIDTH (the recipe count), such a
+    column cannot be physically dropped without a shape mismatch, so it is emitted as a constant-0 (zero-variance) column
+    with only a ``logger.warning`` -- the feature is effectively dropped (no signal) but silently present in the output
+    layout. A constant 0.0 (not NaN) is used so NaN-rejecting downstream estimators do not hard-crash.
     """
     if not recipes:
         return base_out

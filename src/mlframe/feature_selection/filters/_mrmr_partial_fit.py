@@ -17,6 +17,12 @@ DESIGN
     * when a refit triggers, run ``self.fit`` over the buffered data with
       decay-weighted ``sample_weight`` reflecting recency
 
+MEMORY: set ``partial_fit_window`` for long streams. With ``partial_fit_window=None`` the buffer grows UNBOUNDED -- every
+call does ``pd.concat([buffer, new_batch])``, which copies the WHOLE accumulated buffer each time (O(total rows) per call,
+O(total^2) over the stream). On an endless stream this eventually exhausts RAM (the 100GB-frame rule applies: an unbounded
+in-memory buffer cannot fit a frame larger than host memory). A finite ``partial_fit_window`` caps the buffer to the most
+recent ``window`` rows, bounding both peak memory and per-call copy cost.
+
 DECAY SEMANTICS
 ---------------
 ``partial_fit_decay`` in ``[0, 1]``:

@@ -4197,7 +4197,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._engineered_recipes_ = []
         self.multioutput_supports_ = per_column_selected
         self.multioutput_strategy_ = strategy
-        self.signature = f"_mrmr_multioutput_{strategy}_n{n_features}"
+        # No in-object skip signature for the multioutput path: this method always re-runs the per-column sub-fits (it never consults a content
+        # signature), and the single-target skip check compares a 6-tuple ``(shape, shape, y_hash, x_hash, cols, params)`` against ``self.signature``.
+        # ``None`` makes that comparison False BY CONSTRUCTION (a later single-target fit on this instance always refits), rather than relying on
+        # the str-vs-tuple type mismatch of a content-free ``f"_mrmr_multioutput_..."`` string to never collide.
+        self.signature = None
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         return self
 

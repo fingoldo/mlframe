@@ -305,6 +305,12 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
     """Find the support_rank of ``name`` in the greedy predictor log.
     Returns -1 when the name is not in the log (e.g. raw column carried
     via the empty-support fallback). Tests treat -1 as "no greedy rank".
+
+    DEPENDENCY: the match is correct only while ``simplify_fe_name`` maps the provenance-side ``name`` and the predictor
+    log's RAW op-name to the SAME canonical string. If that simplifier's normalisation ever diverges between the two sides
+    (e.g. a new op alias simplified on one path but not the other), the rank silently resolves to -1 here -- the column then
+    shows as "no greedy rank" in the report rather than erroring. ``simplify_fe_name`` is idempotent, which is what keeps the
+    already-simplified provenance name and the raw log name agreeing today.
     """
     # Compare on the SIMPLIFIED name on BOTH sides: ``name`` arrives already simplified
     # (it is a ``_final_feature_order`` entry, which mirrors get_feature_names_out's

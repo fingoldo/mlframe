@@ -282,6 +282,40 @@ def test_biz_val_mrmr_multioutput_strategy_validation():
         sel.fit(df, y)
 
 
+def _multioutput_target_from_cols(seed: int, sig_a: int, sig_b: int):
+    """A 2D 'union' target whose two columns are driven by features ``sig_a``/``sig_b``.
+    The X design is identical to ``make_target`` (8 columns) so two such targets share the
+    same ``(strategy, n_features)`` while differing only in WHICH features carry the signal."""
+    rng, df, _ = _design(seed)
+    xa = df.iloc[:, sig_a].to_numpy()
+    xb = df.iloc[:, sig_b].to_numpy()
+    o0 = xa + 0.3 * rng.normal(size=N)
+    o1 = xb + 0.3 * rng.normal(size=N)
+    y = pd.DataFrame(np.column_stack([o0, o1]), columns=["o0", "o1"])
+    return df, y
+
+
+def test_biz_val_mrmr_multioutput_refit_does_not_replay_stale_support():
+    """Two different-CONTENT multioutput fits on the SAME instance that share an identical
+    ``(strategy, n_features)`` must each recover THEIR OWN signal columns -- the second fit must
+    not in-object-skip-replay the first fit's ``support_``. The signature for this path is ``None``
+    by construction, so the single-target skip check can never spuriously match it."""
+    sel = _make_mrmr(0)
+    df1, y1 = _multioutput_target_from_cols(0, sig_a=0, sig_b=1)
+    sel.fit(df1, y1)
+    sup1 = _selected(sel)
+    assert {0, 1}.issubset(sup1), f"first fit must recover {{0,1}}; got {sorted(sup1)}"
+    assert sel.signature is None
+
+    df2, y2 = _multioutput_target_from_cols(1, sig_a=2, sig_b=3)
+    sel.fit(df2, y2)
+    sup2 = _selected(sel)
+    assert {2, 3}.issubset(sup2), (
+        f"second fit (signal in cols 2,3) must recover {{2,3}}, not stale-replay the first "
+        f"fit's {{0,1}}; got {sorted(sup2)}"
+    )
+
+
 # ===========================================================================
 # RFECV -- SINGLE-target target types it DOES handle.
 # ===========================================================================

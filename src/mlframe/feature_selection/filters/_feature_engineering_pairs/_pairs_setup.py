@@ -42,7 +42,13 @@ def _fit_prewarp_and_gate_med(
 ):
     """Fit the per-operand pre-warp specs + median-gate medians. Returns
     ``(_prewarp_active, _prewarp_spec_by_var, _gate_med_active,
-    _gate_med_median_by_var)``."""
+    _gate_med_median_by_var)``.
+
+    CAVEAT: when ``_use_subsample`` is set, both the prewarp ALS coefficients and the gate-med medians are estimated on the
+    pair-search SUBSAMPLE (``_sample_idx``), not on full n -- deliberately, so they align with the subsampled operand values
+    the pair search scores against. They are therefore subsample estimates and may differ slightly from a full-n fit. This is
+    safe by construction: the FROZEN constant is stored on the survivor recipe and replayed closed-form (leak-free), so the
+    transform-time column is an exact function of the stored constant regardless of how that constant was estimated."""
     # PER-OPERAND PRE-WARP setup (2026-06-02). When enabled, fit ONE learned
     # 1-D pre-warp per raw operand against the (subsample-aligned) target, and
     # expose it as an extra pseudo-unary named ``_PREWARP_UNARY`` so the existing

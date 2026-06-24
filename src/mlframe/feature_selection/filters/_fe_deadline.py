@@ -9,6 +9,15 @@ threading a parameter through every call site. The deadline is advisory and scop
 the core screen / greedy-selection MI is never gated here, so an aborted enrichment pass still leaves screen free to
 produce a usable partial selection (the budget contract: abort early AND expose a non-empty ``support_``).
 
+A thread-local is sufficient because all three ``fe_deadline_passed()`` consumers -- the orthogonal univariate / pair-cross /
+extra-basis generators -- run INLINE on the MAIN thread inside ``_mrmr_fit_impl._fit_impl_core`` (the same thread that calls
+``set_fe_deadline``), not inside a joblib worker. The joblib ``backend="threading"`` blocks in the FE path (the
+``check_prospective_fe_pairs`` pair-search and the ``_confirm_predictor`` greedy step) do NOT consult this deadline -- they
+carry their own budget -- so the thread-local never needs to cross a worker boundary. If a future change moves an enrichment
+generator into a joblib worker, the deadline MUST be forwarded as an explicit kwarg and re-published in the worker (mirror
+the ``use_su`` / ``use_jmim`` thread-local re-publish in ``_evaluation_driver._confirm_predictor``), because ``threading.local``
+does not propagate to worker threads.
+
 ``set_fe_deadline`` is called once at the top of MRMR.fit (absolute ``timer()`` value, or None to disable) and cleared
 in a finally. ``fe_deadline_passed`` is a cheap monotonic-clock compare the enrichment loops call to decide whether to
 ``break`` and return whatever they engineered so far."""
