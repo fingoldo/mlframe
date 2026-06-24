@@ -6,22 +6,27 @@ Bailey 2016 (*Pattern Recognition* 53:51-62) show this catches higher-order
 redundancy that pairwise CMIM / JMIM both miss when three or more selected
 features jointly explain a candidate.
 
-Decomposition (interaction information, McGill 1954):
+Interaction information (McGill 1954) is the gap between the conditional and unconditional 3-way co-information:
+
+    II(X; Z_1; Z_2) = I(X; Z_1; Z_2 | Y) - I(X; Z_1; Z_2)
+
+with each co-information expanded into pairwise / joint MIs:
 
     I(X; Z_1; Z_2 | Y) = I(X; Z_1 | Y) + I(X; Z_2 | Y) - I(X; Z_1, Z_2 | Y)
+    I(X; Z_1; Z_2)     = I(X; Z_1)     + I(X; Z_2)     - I(X; Z_1, Z_2)
 
-The third term is the 3-way joint CMI; subtracting the two pairwise CMIs
-yields the SYNERGY/REDUNDANCY interaction term. Positive = synergistic
-(jointly carries more), negative = redundant (jointly carries less than sum).
+II > 0 = SYNERGY (the pair (Z_1, Z_2) carries more about X once Y is fixed than it does unconditionally);
+II < 0 = REDUNDANCY (the pair already explains X without help from Y). The conditional co-information alone is
+NOT a synergy/redundancy signal -- subtracting the unconditional co-information is what gives II its sign.
 
 RelaxMRMR score:
 
     score(X_k) = I(X_k; Y)
                  - (1/|S|) * sum_{j in S} I(X_k; X_j)
-                 + (alpha / |S|(|S|-1)) * sum_{i<j in S} I(X_k; X_i; X_j | Y)
+                 + (alpha / C(|S|,2)) * sum_{i<j in S} II(X_k; X_i; X_j)
 
-Default alpha = 1 matches Vinh 2016. Higher alpha emphasises higher-order
-redundancy detection.
+Adding the (signed) interaction term LOWERS the score of jointly-redundant candidates (II < 0) and RAISES
+synergistic ones (II > 0). Default alpha = 1 matches Vinh 2016; higher alpha emphasises higher-order structure.
 
 Reference: Vinh, N.X., Zhou, J., Chan, J., Bailey, J. (2016), "Can
 high-order dependencies improve mutual information based feature
@@ -91,6 +96,38 @@ def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray,
     return _cmi_xy_given_z_njit(x, y, z_comp, K_x, K_y, K_zz)
 
 
+@njit(nogil=True, cache=True)
+def _mi_x_pair_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray,
+                     K_x: int, K_z1: int, K_z2: int) -> float:
+    """Unconditional I(X; Z_1, Z_2) via plug-in on the composite (Z_1, Z_2)."""
+    n = x.shape[0]
+    if n <= 0:
+        return 0.0
+    K_zz = K_z1 * K_z2
+    joint = np.zeros((K_x, K_zz), dtype=np.float64)
+    for i in range(n):
+        joint[int(x[i]), int(z1[i]) * K_z2 + int(z2[i])] += 1.0
+    n_f = float(n)
+    Px = np.zeros(K_x, dtype=np.float64)
+    Pz = np.zeros(K_zz, dtype=np.float64)
+    for i in range(K_x):
+        for j in range(K_zz):
+            v = joint[i, j]
+            Px[i] += v
+            Pz[j] += v
+    mi = 0.0
+    for i in range(K_x):
+        if Px[i] <= 0.0:
+            continue
+        for j in range(K_zz):
+            v = joint[i, j]
+            if v <= 0.0 or Pz[j] <= 0.0:
+                continue
+            p = v / n_f
+            mi += p * math.log(p * n_f / (Px[i] * Pz[j] / n_f))
+    return max(0.0, mi)
+
+
 def relax_mrmr_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
                       y: np.ndarray, nbins_x: int,
                       nbins_selected: list[int], nbins_y: int,
@@ -107,49 +144,50 @@ def relax_mrmr_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
     sets enable the dispatcher only after the per-screen filter has pruned
     the pool.
     """
-    from ._jmim_scorer import _joint_mi_3d_njit  # reuse plug-in MI
+    from ._bur_term import _mi_pair_njit  # reuse the 2-var plug-in MI kernel
     x_int = x_cand.astype(np.int64)
     y_int = y.astype(np.int64)
     K_x = int(nbins_x)
     K_y = int(nbins_y)
-    # I(X; Y)
-    relevance = _joint_mi_3d_njit(
-        x_int, np.zeros(x_int.size, dtype=np.int64), y_int,
-        K_x, 1, K_y,
-    )
+    # Relevance I(X; Y).
+    relevance = _mi_pair_njit(x_int, y_int, K_x, K_y)
     n_S = len(selected_cols)
     if n_S == 0:
         return float(relevance)
-    # Pairwise CMI term: (1/|S|) sum_j I(X; X_j) (treated as redundancy proxy
-    # per Vinh 2016 eq. 4; using marginal MI keeps cost manageable).
+    # Pairwise redundancy (1/|S|) sum_j I(X; X_j): marginal MI between the candidate and each already-selected feature.
+    # A candidate that duplicates a selected feature gets a large penalty; an independent one gets ~0.
+    sel_int = [col.astype(np.int64) for col in selected_cols]
+    K_sel = [int(k) for k in nbins_selected]
     pair_red = 0.0
-    cmis_given_y = np.empty(n_S, dtype=np.float64)
-    for j, col_j in enumerate(selected_cols):
-        K_z = int(nbins_selected[j])
-        pair_red += _joint_mi_3d_njit(
-            x_int, col_j.astype(np.int64), np.zeros(x_int.size, dtype=np.int64),
-            K_x, K_z, 1,
-        )
-        cmis_given_y[j] = _cmi_xy_given_z_njit(
-            x_int, y_int, col_j.astype(np.int64), K_x, K_y, K_z,
-        )
+    marg_mi = np.empty(n_S, dtype=np.float64)   # I(X; X_j)
+    cmi_given_y = np.empty(n_S, dtype=np.float64)  # I(X; X_j | Y)
+    for j in range(n_S):
+        K_z = K_sel[j]
+        marg_mi[j] = _mi_pair_njit(x_int, sel_int[j], K_x, K_z)
+        pair_red += marg_mi[j]
+        cmi_given_y[j] = _cmi_xy_given_z_njit(x_int, y_int, sel_int[j], K_x, K_y, K_z)
     pair_red /= float(n_S)
-    # 3-D interaction term: alpha / |S|(|S|-1) sum_{i<j} I(X; Z_i; Z_j | Y).
+    # 3-way interaction-information correction: alpha / C(|S|,2) * sum_{i<j} II(X; Z_i; Z_j),
+    # where II = I(X; Z_i; Z_j | Y) - I(X; Z_i; Z_j) and each co-information is decomposed as
+    # CO_cond  = I(X; Z_i | Y) + I(X; Z_j | Y) - I(X; Z_i, Z_j | Y),
+    # CO_uncond= I(X; Z_i)     + I(X; Z_j)     - I(X; Z_i, Z_j).
+    # II > 0 means the pair (Z_i, Z_j) carries MORE about X once Y is fixed than unconditionally (synergy) -> reward;
+    # II < 0 means the joint already explains X without Y (redundancy) -> penalty. Adding alpha*II therefore lowers the
+    # score of jointly-redundant candidates and raises synergistic ones, the direction RelaxMRMR (Vinh 2016) intends.
     inter = 0.0
     if n_S >= 2 and alpha > 0.0:
         norm = float(n_S * (n_S - 1)) / 2.0
         for i in range(n_S):
             for j in range(i + 1, n_S):
-                col_i = selected_cols[i].astype(np.int64)
-                col_j = selected_cols[j].astype(np.int64)
-                K_i = int(nbins_selected[i])
-                K_j = int(nbins_selected[j])
-                # I(X; Z_i | Y) + I(X; Z_j | Y) - I(X; Z_i, Z_j | Y).
-                cmi_ij = _joint_cmi_xy_given_zw_njit(
-                    x_int, y_int, col_i, col_j,
-                    K_x, K_y, K_i, K_j,
-                )
-                inter += cmis_given_y[i] + cmis_given_y[j] - cmi_ij
+                col_i = sel_int[i]
+                col_j = sel_int[j]
+                K_i = K_sel[i]
+                K_j = K_sel[j]
+                cmi_ij = _joint_cmi_xy_given_zw_njit(x_int, y_int, col_i, col_j, K_x, K_y, K_i, K_j)
+                co_cond = cmi_given_y[i] + cmi_given_y[j] - cmi_ij
+                mi_x_zz = _mi_x_pair_njit(x_int, col_i, col_j, K_x, K_i, K_j)
+                co_uncond = marg_mi[i] + marg_mi[j] - mi_x_zz
+                inter += co_cond - co_uncond
         inter *= float(alpha) / norm
     return float(relevance - pair_red + inter)
 
