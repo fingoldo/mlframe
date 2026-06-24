@@ -299,7 +299,8 @@ def _mrmr_compute_x_fingerprint(X) -> str:
                             arr = col.to_numpy()
                         else:
                             arr = np.asarray(col)
-                        vals = tuple(repr(arr[p]) for p in positions if p < len(arr))
+                        # Bit-exact cell bytes (matches the deliberately-tightened y-side ``tobytes()``); ``repr`` of a float papered over distinct-but-near values.
+                        vals = tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
                         samples.append((str(c), vals))
                     except Exception:
                         samples.append((str(c), ()))
@@ -543,10 +544,12 @@ def _full_x_content_hash(X) -> str:
             except Exception:
                 pass
         result = h.hexdigest()
-        # Publish value BEFORE key so a concurrent torn read (this single-slot memo is unlocked and MRMR.fit may run under joblib threads) can only see
-        # an OLD key paired with whatever hash -- a miss that recomputes -- never a NEW id_shape paired with a stale hash from a prior different X.
-        _MRMR_LAST_X_HASH_CACHE["hash"] = result
-        _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
+        # Guard the single-slot memo write with the same lock the sibling identity cache uses; the publish-hash-before-key ordering is the
+        # extra belt-and-braces so even a torn read (lock contention aside) can only see an OLD key paired with whatever hash -- a miss that
+        # recomputes -- never a NEW id_shape paired with a stale hash from a prior different X.
+        with _MRMR_IDENTITY_FP_LOCK:
+            _MRMR_LAST_X_HASH_CACHE["hash"] = result
+            _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
         return result
     except Exception:
         return ""
@@ -575,7 +578,9 @@ def _full_y_content_hash(y) -> str:
         return ""
 
 
-# Constructor-parameter names of ``MRMR``. Populated lazily to avoid importing inspect at module load.
+# Constructor-parameter names of ``MRMR``. Resolved from the live class on first replay rather than at import time because importing ``MRMR`` here would
+# close the ``_mrmr_class -> _mrmr_fingerprints`` import cycle; the one-time computation is guarded by ``_MRMR_IDENTITY_FP_LOCK`` so concurrent first
+# replays (joblib threads) cannot race the module-global write.
 _MRMR_INIT_PARAM_NAMES: frozenset[str] | None = None
 
 
@@ -588,46 +593,54 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
     """
     global _MRMR_INIT_PARAM_NAMES
     if _MRMR_INIT_PARAM_NAMES is None:
-        import inspect
-        # Use target.__class__ instead of the (TYPE_CHECKING-only) ``MRMR``
-        # symbol; both source and target are MRMR instances at runtime.
-        _MRMR_INIT_PARAM_NAMES = frozenset(
-            p for p in inspect.signature(target.__class__.__init__).parameters
-            if p != "self"
-        )
-    # 2026-05-30 Wave 9.1 fix (loop iter 40): mutable CONTAINER types
-    # (dict / list / set) must be DEEP-COPIED so post-fit mutations on
-    # one replayed instance don't silently propagate to every other
-    # past+future cache hit. Pre-fix every fitted-state attribute was
-    # shallow-assigned, so ``B._engineered_features_.append(...)``
-    # mutated ``A._engineered_features_`` and a third clone C
-    # replaying from A then saw the phantom feature it never had.
-    # Same hazard for support_ ndarrays - freeze the source ndarray
-    # in-place so accidental ``support_[i] = x`` style writes raise
-    # ``ValueError`` instead of corrupting the shared cache entry.
-    # Numpy array sharing is still preserved for the COMMON read-only
-    # case (this is the cache-density win the original docstring
-    # called out).
-    import copy as _copy_iter40
-    _MUTABLE_CONTAINER_TYPES = (dict, list, set)
+        with _MRMR_IDENTITY_FP_LOCK:
+            if _MRMR_INIT_PARAM_NAMES is None:
+                import inspect
+                # Use target.__class__ instead of the (TYPE_CHECKING-only) ``MRMR``
+                # symbol; both source and target are MRMR instances at runtime.
+                _MRMR_INIT_PARAM_NAMES = frozenset(
+                    p for p in inspect.signature(target.__class__.__init__).parameters
+                    if p != "self"
+                )
+    # ``MRMR._FIT_CACHE[key]`` stores the LIVE first-fitted instance, so the cached source's fitted attributes are the canonical copy every future
+    # replay reads. Any mutable fitted attribute that is merely shallow-assigned onto a replayed target is then SHARED with the cache entry, so an
+    # in-place mutation by any caller of the replayed instance silently corrupts the source and all later replays. The safe contract: deep-copy
+    # everything that is not an immutable scalar (bool/int/float/complex), str/bytes/bytearray-of-immutable, None, or a frozenset; keep a fast-path
+    # only for ndarrays, where the dense state can be large and the read-only freeze prevents accidental cache corruption without a full copy.
+    import copy as _deepcopy_mod
+    # Small public learned-index arrays a downstream caller may legitimately mutate in place. They are tiny (O(n_selected)), so a writeable per-replay
+    # copy is cheap AND makes a cache-replayed instance behave IDENTICALLY to a cold-fit one (D7: cold fit's ``support_`` is writeable, so the replay's
+    # must be too). Larger internal ndarrays keep the read-only freeze-and-share fast-path for density.
+    _WRITEABLE_PUBLIC_INDEX_ARRAYS = ("support_", "ranking_")
+    _IMMUTABLE_SCALAR_TYPES = (bool, int, float, complex, str, bytes, type(None), frozenset)
     n_replayed = 0
     for k, v in source.__dict__.items():
         if k in _MRMR_INIT_PARAM_NAMES:
             continue
-        if isinstance(v, _MUTABLE_CONTAINER_TYPES):
-            target.__dict__[k] = _copy_iter40.deepcopy(v)
-        elif isinstance(v, np.ndarray):
-            # Freeze the source ndarray so any in-place write raises
-            # instead of silently corrupting the cache. Only freeze
-            # arrays we own (skip views/slices).
-            if v.flags.owndata and v.flags.writeable:
-                try:
-                    v.flags.writeable = False
-                except Exception:
-                    pass
+        if isinstance(v, np.ndarray):
+            if k in _WRITEABLE_PUBLIC_INDEX_ARRAYS:
+                # Hand the target its OWN writeable copy so cold-fit and replayed instances behave identically on public index arrays.
+                target.__dict__[k] = v.copy()
+            else:
+                # Freeze the source ndarray so any in-place write raises instead of silently corrupting the shared cache entry; only freeze arrays
+                # we own (skip views/slices) and share the (now read-only) buffer with the target for density.
+                if v.flags.owndata and v.flags.writeable:
+                    try:
+                        v.flags.writeable = False
+                    except Exception:
+                        pass
+                target.__dict__[k] = v
+        elif isinstance(v, _IMMUTABLE_SCALAR_TYPES):
             target.__dict__[k] = v
         else:
-            target.__dict__[k] = v
+            # Everything else (dict / list / set, pandas DataFrame/Series, dataclasses like CatFEState, friend_graph_, dict-of-arrays replay state,
+            # any other object carrying mutable state) is deep-copied so a mutation on the replayed instance never reaches back to the cached source.
+            try:
+                target.__dict__[k] = _deepcopy_mod.deepcopy(v)
+            except Exception:
+                # A non-deepcopyable fitted artefact (e.g. a live framework handle) falls back to the legacy shared assignment rather than failing
+                # the whole replay; such objects are rare and treated as read-only by callers.
+                target.__dict__[k] = v
         n_replayed += 1
     return n_replayed
 
