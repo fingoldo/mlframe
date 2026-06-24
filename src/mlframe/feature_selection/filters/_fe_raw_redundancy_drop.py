@@ -364,11 +364,18 @@ def raw_retains_linear_signal_given_children(
         return False
     # Permutation null: shuffle the raw residual; the 95th-percentile |corr| is the
     # n-invariant spurious-correlation floor the real partial corr must clear.
+    # corr(perm, ry) reduces to (perm @ (ry-mean(ry))) / (n*std(rx)*std(ry)): perm is a
+    # reordering of rx so its mean/std are loop-invariant, and ry is fixed -- only the
+    # cross dot product varies. Hoisting the centred target + constant denominator out
+    # of the loop replaces np.corrcoef's per-iteration 2x2 rebuild with one dot product
+    # (bit-identical to corrcoef up to FP reduction order, ~1e-17).
     rng = np.random.default_rng(seed)
+    ryc = ry - ry.mean()
+    denom = n * float(np.std(rx)) * float(np.std(ry))
     null = np.empty(int(nperm), dtype=np.float64)
     for k in range(int(nperm)):
         perm = rng.permutation(rx)
-        null[k] = abs(float(np.corrcoef(perm, ry)[0, 1]))
+        null[k] = abs(float(perm @ ryc) / denom) if denom > 0.0 else 0.0
     floor_p95 = float(np.percentile(null[np.isfinite(null)], 95)) if np.any(np.isfinite(null)) else 1.0
     return abs(pcorr) > floor_p95
 
