@@ -475,12 +475,22 @@ def materialise_and_finalise_fe_candidates(
     # reused one frame). Copy ONCE, up front, only when at least one pair
     # actually produced an engineered column. Polars (``.with_columns``)
     # already returns a fresh frame, and the ndarray path never appends to X.
+    # ``_x_is_owned`` tracks whether ``X`` is already a private (copied) frame: the first pandas
+    # materialise copies once; the later escalation / additive-fusion blocks then mutate that same
+    # private frame in place instead of copying it again (three full-frame copies collapse to one).
+    _x_is_owned = False
     if (
         not _is_polars_input
         and hasattr(X, "columns")
         and any(v[0] for v in prospective_additions.values())
     ):
         X = X.copy()
+        _x_is_owned = True
+    # Accumulate the per-pair discretised code blocks and concatenate ONCE after the loop instead of
+    # ``np.append``-ing the whole (n, K) code matrix per pair (each append reallocated + copied all of
+    # ``data``, O(pairs * n * K)). ``cols`` / ``nbins`` still grow per iteration (cheap), so the
+    # cols-space index bookkeeping is unchanged; ``data`` itself is not read inside the loop.
+    _data_chunks: list = []
     for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
         if this_pair_features:
             engineered_features.update(this_pair_features)
@@ -498,7 +508,7 @@ def materialise_and_finalise_fe_candidates(
                         dtype=self.quantization_dtype,
                     )
                 _n_cols_before = len(cols)
-                data = np.append(data, new_vals, axis=1)
+                _data_chunks.append(new_vals)
                 # ``nbins`` is a numpy.ndarray (returned by categorize_dataset), so plain ``+`` does
                 # element-wise addition / broadcasting, not concatenation. Use np.concatenate so nbins
                 # grows in lockstep with data.shape[1] (otherwise screen_predictors trips its
@@ -686,6 +696,12 @@ def materialise_and_finalise_fe_candidates(
         # processed", which is name-agnostic.
         checked_pairs.add(raw_vars_pair)
 
+    # Flush the accumulated per-pair code blocks into ``data`` in a SINGLE concatenate (column order
+    # matches the loop's append order, so it is byte-identical to the prior per-pair ``np.append``).
+    # Must run before the escalation block below reads / appends ``data``.
+    if _data_chunks:
+        data = np.concatenate([data, *_data_chunks], axis=1)
+
     # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B,
     # default-ON). A pair that PASSED the pair-MI prescreen (ratio gate + order-2
     # maxT floor) but for which the unary/binary search above admitted NOTHING used
@@ -799,8 +815,9 @@ def materialise_and_finalise_fe_candidates(
                     # discretised codes into data/X, name into cols, nbins in
                     # lockstep, recipe registered, continuous values stashed for
                     # the engineered-operand feed-forward, index promoted below.
-                    if not _is_polars_input and hasattr(X, "columns"):
+                    if not _is_polars_input and hasattr(X, "columns") and not _x_is_owned:
                         X = X.copy()
+                        _x_is_owned = True
                     _esc_new_codes = np.empty(
                         shape=(len(X), len(_esc_admitted)), dtype=self.quantization_dtype,
                     )
@@ -900,8 +917,9 @@ def materialise_and_finalise_fe_candidates(
             )
             if _fused:
                 # Materialise each fused compound exactly like an escalation survivor.
-                if not _is_polars_input and hasattr(X, "columns"):
+                if not _is_polars_input and hasattr(X, "columns") and not _x_is_owned:
                     X = X.copy()
+                    _x_is_owned = True
                 _fz_codes = np.empty(shape=(len(X), len(_fused)), dtype=self.quantization_dtype)
                 for _jf, _fc in enumerate(_fused):
                     _fz_codes[:, _jf] = discretize_array(

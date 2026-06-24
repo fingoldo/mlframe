@@ -224,7 +224,18 @@ def _validate_inputs(self, X, y):
     try:
         import polars as _pl
         if isinstance(X, _pl.LazyFrame):
-            _w.warn("MRMR.fit autocollecting LazyFrame; pass DataFrame to skip this copy.", stacklevel=3)
+            # MRMR genuinely REQUIRES an eager frame (it makes multiple full passes, injects target
+            # columns in place, and bins the whole matrix), so a LazyFrame cannot be kept lazy through
+            # the fit -- collecting is mandatory, not an optimisation we could skip. We collect (rather
+            # than raise) to preserve the established contract, but warn loudly because materialising a
+            # frame the caller deliberately kept lazy can be large: pass a collected DataFrame to control
+            # WHEN (and whether) that materialisation happens.
+            _w.warn(
+                "MRMR.fit received a polars LazyFrame and is collecting it into memory; MRMR requires an "
+                "eager frame, so this materialisation is unavoidable. Call .collect() yourself before fit "
+                "to control the timing / RAM cost of this copy.",
+                stacklevel=3,
+            )
             X = X.collect()
         if hasattr(_pl, "Expr") and isinstance(X, _pl.Expr):
             raise ValueError("MRMR.fit cannot accept polars Expr; materialise via .select(...) first")

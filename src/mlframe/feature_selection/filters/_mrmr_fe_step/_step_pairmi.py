@@ -160,9 +160,16 @@ def compute_pair_mis_and_floor(
         try:
             from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi
 
-            _pairs_list = list(combinations(numeric_vars_to_consider, 2))
-            _pair_a_arr = np.fromiter((p[0] for p in _pairs_list), dtype=np.int64, count=len(_pairs_list))
-            _pair_b_arr = np.fromiter((p[1] for p in _pairs_list), dtype=np.int64, count=len(_pairs_list))
+            # Build the (a, b) id arrays via ``np.triu_indices`` over the materialised id list instead of
+            # ``list(combinations(...))`` -- the exhaustive branch bypasses the _MRMR_BATCH_PRECOMPUTE_MAX_K
+            # cap, so at large p the Python tuple list is O(p^2) tuples (~420 MB at p=3888). ``triu_indices``
+            # yields ``(_ids[i], _ids[j])`` for i<j in iteration order, byte-for-byte the SAME pair sequence
+            # ``combinations(_ids, 2)`` produces, so the ``cached_MIs`` keys + their MI values are identical.
+            _ids = list(numeric_vars_to_consider)
+            _ids_arr = np.fromiter(_ids, dtype=np.int64, count=len(_ids))
+            _ia, _ib = np.triu_indices(len(_ids), k=1)
+            _pair_a_arr = _ids_arr[_ia]
+            _pair_b_arr = _ids_arr[_ib]
             _pair_mi_batch, _backend_used = dispatch_batch_pair_mi(
                 factors_data=data,
                 pair_a=_pair_a_arr,
@@ -174,14 +181,18 @@ def compute_pair_mis_and_floor(
             )
             # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
-            for _i, _p in enumerate(_pairs_list):
+            # Reconstruct each pair key lazily (``_ids[i], _ids[j]``) -- same Python-int tuple keys as the
+            # old ``combinations`` path, without materialising the full tuple list.
+            _n_pairs_batch = _ia.shape[0]
+            for _i in range(_n_pairs_batch):
+                _p = (_ids[_ia[_i]], _ids[_ib[_i]])
                 if _p not in cached_confident_MIs and _p not in cached_MIs:
                     cached_MIs[_p] = float(_pair_mi_batch[_i])
                     _batch_prefill_count += 1
             if verbose:
                 logger.info(
                     "MRMR FE: batch-prefilled %d/%d pair MIs via %s backend (permutation test skipped for these pairs)",
-                    _batch_prefill_count, len(_pairs_list), _backend_used,
+                    _batch_prefill_count, _n_pairs_batch, _backend_used,
                 )
         except Exception as _exc:
             if verbose:

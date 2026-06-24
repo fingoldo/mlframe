@@ -315,6 +315,12 @@ def sis_screen(
             import pandas as pd
             from ..hybrid_selector import corr_clusters  # lazy: avoids any import cycle at module load
 
+            # The float64 upcast is load-bearing, NOT a removable copy: ``Xarr`` is a float32 memmap at
+            # wide p, and ``corr_clusters`` computes Pearson |corr| at the ``dedup_corr_thr`` boundary --
+            # float32 accumulation would shift a correlation across the threshold and flip a cluster
+            # membership (a selection change). The gather is over the SMALL (n x m) survivor sub-matrix
+            # (m = post-screen survivors, a few thousand), never the full p-wide frame, and only when
+            # ``dedup_corr_thr`` is set; ``corr_clusters`` requires a DataFrame (it reads ``.columns``).
             surv_df = pd.DataFrame(np.asarray(Xarr[:, survivors], dtype=np.float64),
                                    columns=[str(int(s)) for s in survivors])
             _, members = corr_clusters(surv_df, thr=float(dedup_corr_thr))

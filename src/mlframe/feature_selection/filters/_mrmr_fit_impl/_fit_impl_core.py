@@ -1799,8 +1799,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _tg_support_cols = [
                     c for c in _hybrid_already_appended if c in X.columns
                 ]
+                # Column selection (not ``.copy()``): the three-gate callee only READS this sub-frame
+                # (``.empty`` / ``.shape`` / per-column ``.to_numpy()`` for the CMI bins), never mutates it,
+                # so the extra full materialise was redundant.
                 _tg_current_support = (
-                    X[_tg_support_cols].copy()
+                    X[_tg_support_cols]
                     if _tg_support_cols
                     else None
                 )

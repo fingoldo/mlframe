@@ -94,7 +94,18 @@ class MRMRTreeRescued(MRMR):
             # numeric coercion (best-effort): the rescue augments the NUMERIC informative features the greedy missed.
             if hasattr(X, "columns"):
                 Xf = X.reindex(columns=cols) if cols else X
-                Xnum = Xf.apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+                # Fast path for the common all-numeric frame: a single ``np.asarray(..., float)`` gather +
+                # in-place NaN->0 replaces the per-column ``apply(pd.to_numeric).fillna().to_numpy()`` (~3
+                # passes). Byte-identical to the slow path on numeric frames (``to_numeric`` is a no-op there,
+                # ``fillna(0.0)`` only touches NaN, never inf -- matched by ``isnan``). A non-numeric column
+                # makes ``asarray(float)`` raise; fall back to the lenient coerce-to-NaN-then-zero path so a
+                # mixed frame still rescues exactly as before (the bad column becomes all-zeros, not a skip).
+                try:
+                    Xnum = np.asarray(Xf, dtype=float)
+                    if np.isnan(Xnum).any():
+                        Xnum[np.isnan(Xnum)] = 0.0
+                except (ValueError, TypeError):
+                    Xnum = Xf.apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=float)
             else:
                 Xnum = np.asarray(X, dtype=float)
             if Xnum.shape[1] != int(self.n_features_in_):

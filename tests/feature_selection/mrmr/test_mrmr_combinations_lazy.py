@@ -42,11 +42,14 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
     """Behavioral: monkey-patch ``combinations`` in the FE-step sibling, observe
     that the iterator is consumed in chunks, never wrapped in a single ``list(...)``."""
     from mlframe.feature_selection.filters import mrmr as _mrmr_mod
-    # ``_run_fe_step`` lives in the ``_mrmr_fe_step`` subpackage's ``_step_core``
-    # submodule and looks up ``combinations`` from THAT module's globals -> patch
-    # there, not on the package re-export facade (whose ``combinations`` the body
-    # never reads).
-    from mlframe.feature_selection.filters._mrmr_fe_step import _step_core as _mrmr_fe_step_mod
+    # The pair-MI stage of ``_run_fe_step`` lives in the ``_mrmr_fe_step`` subpackage's
+    # ``_step_pairmi`` submodule and looks up ``combinations`` from THAT module's globals ->
+    # patch there, not on the package re-export facade (whose ``combinations`` the body never
+    # reads). The lazy ``combinations(...)`` consumption (small path: ``tqdmu(...)``; large path:
+    # ``_lazy_chunks(...)``) is the contract this probe verifies -- the batch-precompute branch
+    # builds its (a, b) id arrays via ``np.triu_indices`` (no ``combinations``), but the per-pair
+    # ``compute_pairs_mis`` path still iterates ``combinations`` lazily, which is what we observe.
+    from mlframe.feature_selection.filters._mrmr_fe_step import _step_pairmi as _mrmr_fe_step_mod
 
     real_combinations = _mrmr_fe_step_mod.combinations
 
