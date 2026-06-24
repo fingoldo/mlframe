@@ -120,3 +120,34 @@ def test_expanding_replay_identity(stat, tol):
     else:
         md = float(np.max(np.abs(got - ref)))
         assert md <= tol, f"{stat}: max abs diff {md} exceeds {tol}"
+
+
+@pytest.mark.parametrize(
+    "col",
+    [
+        pd.Series([1, 2, 5000, -3, 0], dtype="int64"),
+        pd.Series([0.5, -1.25, 3.0, np.nan, 1e-9], dtype="float64"),
+        pd.Series(["aa", "bb", "cc", "dd", "ee"], dtype=object),
+        pd.Series(pd.Categorical(["x", "y", "x", "z", "y"])),
+    ],
+)
+def test_entity_key_series_matches_per_row_str(col):
+    """The vectorized ``.astype(str)`` entity-key cast must produce strings
+    bit-identical to the prior per-row ``str(v)`` map, so factorize codes (and
+    thus the engineered features) are unchanged."""
+    X = pd.DataFrame({"ent": col})
+    got = M._entity_key_series(X, ["ent"])
+    ref = X["ent"].astype(object).map(lambda v: str(v))
+    pd.testing.assert_series_equal(got, ref, check_names=False)
+
+
+def test_entity_key_series_multicol_matches_per_row_str():
+    X = pd.DataFrame(
+        {"a": pd.Series([1, 2, 3], dtype="int64"), "b": ["p", "q", "r"]}
+    )
+    got = M._entity_key_series(X, ["a", "b"])
+    parts = [X[c].astype(object).map(lambda v: str(v)) for c in ("a", "b")]
+    ref = parts[0]
+    for p in parts[1:]:
+        ref = ref.str.cat(p, sep="\x00")
+    pd.testing.assert_series_equal(got, ref, check_names=False)

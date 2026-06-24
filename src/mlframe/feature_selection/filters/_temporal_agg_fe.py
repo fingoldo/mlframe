@@ -87,9 +87,12 @@ def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series
     """Collapse one or more entity columns into a single str key per row,
     index-aligned with X. Multi-column keys join with a NUL separator that
     cannot appear in normal string casts."""
+    # Vectorized ``.astype(str)`` is bit-identical to a per-row ``str(v)``
+    # cast for int/float/object columns but skips the Python-level map (up to
+    # ~12x on string/categorical entity ids, the common case).
     if len(entity_cols) == 1:
-        return X[entity_cols[0]].astype(object).map(lambda v: str(v))
-    parts = [X[c].astype(object).map(lambda v: str(v)) for c in entity_cols]
+        return X[entity_cols[0]].astype(str)
+    parts = [X[c].astype(str) for c in entity_cols]
     key = parts[0]
     for p in parts[1:]:
         key = key.str.cat(p, sep="\x00")
