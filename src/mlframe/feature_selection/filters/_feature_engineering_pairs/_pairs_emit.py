@@ -19,7 +19,7 @@ import numpy as np
 
 from pyutilz.pythonlib import sort_dict_by_value
 
-from ._pairs_gates import _PREWARP_UNARY, _select_single_best
+from ._pairs_gates import _PREWARP_UNARY, _select_single_best, mi_tie_band
 
 
 def _emit_pair_features(
@@ -149,6 +149,15 @@ def _emit_pair_features(
                     _leader_usability[_lc] = _safe_abs_corr(_lvals)
             except Exception:
                 continue
+
+    # ABSOLUTE binned-MI tie band (2026-06-24, F2 ``mixed`` distribution-robustness fix). Two FORMS of
+    # the same raw pair that are monotone re-expressions of one algebraic target have MI equal up to the
+    # plug-in bias scale; without a tie band an MI EPSILON (pure binning noise) crowns a form whose linear
+    # usability is far worse (mixed: additive ``add(log(a),invsqrt(b))`` MI 0.1180 > exact ratio
+    # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 -- the noise winner does not fuse cleanly and
+    # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
+    # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
+    _mi_band = mi_tie_band(int(quantization_nbins), int(len(classes_y)), int(np.asarray(freqs_y).shape[0]))
 
     if len(leading_features) > 1:
         if len(numeric_vars_to_consider) > 2:
@@ -372,7 +381,7 @@ def _emit_pair_features(
             # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
             _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
             _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf,
-                                          usability=_leader_usability)
+                                          usability=_leader_usability, mi_band=_mi_band)
             if _winner is not None:
                 new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
                 if verbose:
@@ -385,7 +394,7 @@ def _emit_pair_features(
             # still emit ONE best representative (highest engineered MI,
             # deterministic name tie-break) rather than the whole class.
             _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability)
+            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability, mi_band=_mi_band)
             if _winner is not None:
                 if verbose:
                     messages.append(

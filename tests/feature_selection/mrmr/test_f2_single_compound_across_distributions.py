@@ -41,11 +41,19 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #     are fused via the existing unary_binary + nested_parent_a/b recipe (binary_name="add"; byte-exact
 #     replay, no new recipe kind); the fused compound wins re-selection and the now-subsumed fragments
 #     (engineered + their raw operands) are dropped. heavy_tailed now recovers the single compound.
-#   * CONSTRUCTION-BLOCKED (mixed): only the c/d half mul(log(c),sin(d)) is built as an engineered feature;
-#     the a/b half a**2/b is NEVER constructed (it stays as raw a + raw b), so there is NO second engineered
-#     half for C2 to fuse with. This is an upstream CONSTRUCTION miss, not a fusion miss -- C2 cannot help
-#     without first building the a/b half (fusing the c/d half with raw a would drop the **2/b and leave
-#     raw b as a fragment). Stays xfail pending the a/b-half construction fix.
+#   * FORM-SELECTION-BLOCKED (mixed): FIXED 2026-06-24. The ORIGINAL "a**2/b is NEVER constructed" diagnosis
+#     was REFUTED by per-pair diagnostics -- the (a,b) half IS built; the blocker was that the WRONG functional
+#     FORM won the per-pair winner selection. Under the per-feature-mixed marginals (a~beta_u, b~gamma) the
+#     additive summary ``add(log(a),invsqrt(b))`` scored binned MI 0.1180 vs the EXACT ratio ``div(sqr(a),b)``
+#     at 0.1167 -- a 0.0013 BINNING-NOISE gap -- yet its linear usability is far worse (|corr(y)| 0.25 vs 0.46).
+#     ``_select_single_best`` broke that epsilon-MI tie on bit-exact ``>``, crowning the additive form; C2 then
+#     fused THAT weak form into a poor compound while the correct ratio form (re-derived at step 2 from the still-
+#     present raw a/b) survived as a fragment, and the c/d half reappeared too -> 2 full compounds + 2 fragments.
+#     The fix snaps the PRIMARY MI key in ``_select_single_best`` to a chance-fluctuation tie band (3% of the pool
+#     max, the binned-MI plug-in noise scale ``(k-1)(k_y-1)/2n``) so STATISTICALLY-tied forms are resolved by the
+#     EXISTING linear-usability tie-break -- the same "prefer the linearly-usable member of an MI-equivalence
+#     class" rule, extended from bit-equal to statistically-equal MI. The ratio half now wins, C2 fuses the same
+#     clean halves as uniform, and mixed recovers the single compound add(mul(log(c),sin(d)),div(sqr(a),abs(b))).
 #   * DOMINANT-CAPTURE-BLOCKED (scaled_1_5): FIXED 2026-06-24. The blocker was NOT a corrupted a/b capture --
 #     under [1,5]-scaling the (c,d) half is an ASYMMETRIC synergy pair (only the bootstrap operand ``c`` is
 #     unselected; ``c``'s MARGINAL MI ~= 0 because E[sin(d)] ~= 0, yet log(c) carries real CONDITIONAL signal
@@ -64,15 +72,12 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #   * DOMINANT-CAPTURE-BLOCKED (with_outliers): the dominant a/b half is captured corrupted and log(c) is DROPPED;
 #     there is no clean c/d half to fuse (the 4-part scaled_1_5 fix above does NOT recover it -- verified still
 #     missing 2026-06-24). Stays xfail pending the upstream dominant-capture fix.
-#   * CONSTRUCTION-BLOCKED (mixed): only the c/d half is built; the a/b half a**2/b is NEVER constructed (stays
-#     raw a + raw b), so there is NO second engineered half for C2 to fuse with. Stays xfail.
-_XFAIL_CONSTRUCT = "GOAL: a/b half a**2/b NEVER constructed as an engineered feature (stays raw a+b) -- no second engineered half for C2 to fuse; needs upstream a/b-half construction fix"
 _XFAIL_CAPTURE = "GOAL: dominant a/b half corrupted under variance imbalance (log(c) dropped) -- needs upstream dominant-capture fix before C2"
 _PROFILES = [
     "uniform",
     "scaled_1_5",  # FIXED 2026-06-24 by the 4-part asymmetric-synergy / OLS-separability / pre-vote-fusion / subsumed-recipe-preservation fix.
     "heavy_tailed",  # FIXED 2026-06-24 by C2 additive-fusion (both engineered halves built but unfused).
-    pytest.param("mixed", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CONSTRUCT)),
+    "mixed",  # FIXED 2026-06-24 by the binned-MI tie-band form-selection fix (see ROOT CAUSE note below).
     pytest.param("with_outliers", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
 ]
 

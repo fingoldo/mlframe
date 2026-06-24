@@ -3,6 +3,7 @@ the prewarp / median-gate pseudo-unary constants, the marginal-uplift thresholds
 the median-gate closed-form replay, and the one-best-per-pair selector."""
 from __future__ import annotations
 
+import math
 from typing import Sequence
 
 import numpy as np
@@ -164,16 +165,39 @@ def _gate_med_apply(vals: np.ndarray, median: float) -> np.ndarray:
     return (np.asarray(vals, dtype=np.float64) > float(median)).astype(np.float64)
 
 
+def mi_tie_band(nbins: int, n_rows: int, k_y: int) -> float:
+    """ABSOLUTE binned-MI tie band = the Miller-Madow plug-in MI bias scale ``(k_x-1)(k_y-1)/2n``.
+
+    Binned MI is a finite-sample plug-in estimate whose sampling noise is of this order; two FORMS of
+    the same raw pair that are strictly-monotone re-expressions of one algebraic target have MI that is
+    EQUAL up to this scale. The band is ABSOLUTE (in MI units), NOT a fraction of the pool max -- a
+    relative-to-max band over-widens on a high-MI pool (where the genuine winner leads by far more than
+    binning noise) and would wrongly tie distinct forms. ``k_x`` is taken as ``nbins`` (the engineered
+    quantiser width); ``k_y`` is the target's class count. On the FE quantiser (nbins~=10, k_y~=10,
+    n=1e4) this is ~0.004 -- it covers the F2 ``mixed`` 0.0013 noise gap between the exact ratio
+    ``div(sqr(a),b)`` (MI 0.1167) and the additive summary ``add(log(a),invsqrt(b))`` (MI 0.1180) while
+    leaving a genuine winner that leads by >> the bias scale (heavy_tailed a/b leads by ~0.29) untouched.
+    """
+    n = max(int(n_rows), 1)
+    return max(0.0, (float(int(nbins) - 1) * float(int(k_y) - 1)) / (2.0 * n))
+
+
 def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None,
-                        usability: dict | None = None):
+                        usability: dict | None = None, mi_band: float = 0.0):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
     Selection key, in priority order:
       1. PRIMARY: maximum ``perf[config]`` -- this MUST be the engineered
-         feature's MI WITH THE TARGET. (Regression guard: a prior version
-         passed the external-validation score -- MI of the candidate recombined
-         with an unrelated third factor -- as the primary key here, so the
-         search would discard the true max-target-MI form. e.g. on
+         feature's MI WITH THE TARGET, SNAPPED to a chance-fluctuation tie band of
+         ABSOLUTE width ``mi_band`` (the Miller-Madow plug-in MI bias scale; see
+         ``mi_tie_band``). Binned MI is a noisy plug-in estimate, so two forms whose
+         MI differs only by binning noise are treated as TIED and resolved by the
+         usability tie-break below; a genuinely higher MI (gap above the band) still
+         wins outright. ``mi_band <= 0`` -> exact ``==`` ties only (byte-identical to
+         the prior key). (Regression guard: a prior
+         version passed the external-validation score -- MI of the candidate
+         recombined with an unrelated third factor -- as the primary key here, so
+         the search would discard the true max-target-MI form. e.g. on
          y = log(c)*sin(d) it picked add(log(c),1/d) at MI=0.25 over the true
          mul(log(c),sin(d)) at MI=0.32. Primary MUST be target MI.)
       2. LINEAR-USABILITY (optional tie-break): maximum ``usability[config]`` --
@@ -209,11 +233,36 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
     from ..feature_engineering import get_new_feature_name
     _sec = secondary or {}
     _use = usability or {}
+    # Tie-band width in ABSOLUTE MI (the plug-in MI bias scale; see ``mi_tie_band``). Forms whose MI
+    # lands within ``_band`` of the leader are STATISTICALLY tied (the gap is binning noise), so the
+    # primary key floors MI to the band and the usability/secondary tie-breaks decide among them.
+    # ``mi_band <= 0`` -> band 0.0 -> exact ``==`` ties only (byte-identical to the prior key).
+    _max_mi = max((float(v) for v in perf.values()), default=0.0)
+    _band = float(mi_band) if (mi_band and mi_band > 0.0) else 0.0
+
+    def _primary(_mi: float) -> float:
+        if _band <= 0.0:
+            return float(_mi)
+        # Floor to the band so two MIs within ``_band`` collapse to one key; the leader's own
+        # band is anchored at the top so it (and everything within ``_band`` below it) ties.
+        return math.floor((_max_mi - float(_mi)) / _band) * -1.0
+
+    # Key order: banded MI -> linear usability -> EXACT MI -> external-validation -> name. The EXACT-MI
+    # leg (2026-06-24) is decisive ONLY among band-tied forms whose usability ALSO ties -- it restores
+    # the baseline strict-MI winner for that sub-class, so the band can NEVER flip a winner unless
+    # usability STRICTLY improves. This is critical for sign-variant forms: ``div(x,neg(b))`` and
+    # ``div(x,abs(b))`` (b>0) are exact sign flips -> identical binned MI AND identical |corr(y)| (corr is
+    # abs), so without the exact-MI leg the band would group them as tied and the lexicographic name
+    # tie-break would flip ``neg(b)`` -> ``abs(b)``, silently changing the form a downstream additive
+    # fusion depends on (observed breaking the F2 heavy_tailed compound). With the exact-MI leg the band
+    # only intervenes on a GENUINE usability difference (the F2 mixed ratio-vs-additive case: |corr(y)|
+    # 0.46 vs 0.25) and is otherwise byte-identical to the strict-MI selection.
     return max(
         perf.items(),
         key=lambda kv: (
-            kv[1],
+            _primary(kv[1]),
             float(_use.get(kv[0], 0.0)),
+            float(kv[1]),
             float(_sec.get(kv[0], 0.0)),
             _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
         ),
