@@ -447,7 +447,8 @@ def _detect_fourier_freqs_for_col(
     # so it recovers the same dominant frequencies at a fraction of the memory. Cap via
     # MLFRAME_FOURIER_DETECT_MAX_N (0 = no cap; default 200k is ample for dominant-frequency detection).
     # Seeded local Generator -> deterministic + NO global-RNG contamination. Below the cap: untouched.
-    _fdet_cap = int(os.environ.get("MLFRAME_FOURIER_DETECT_MAX_N", "200000") or "0")
+    from .._fourier_detect_cap import get_fourier_detect_max_n
+    _fdet_cap = get_fourier_detect_max_n()
     if _fdet_cap > 0 and z_tr.size > _fdet_cap:
         _fdet_rng = np.random.default_rng(0xF0F0_1234)
         _sub_tr = _fdet_rng.choice(z_tr.size, size=_fdet_cap, replace=False)

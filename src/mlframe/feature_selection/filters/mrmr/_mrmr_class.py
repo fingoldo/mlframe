@@ -403,13 +403,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the fast-search subsample -- bit-safe (detection-only; the recipe replays sin(2*pi*f*x) full-n).
         _fast_ss2 = getattr(self, "fe_check_pairs_subsample_n", None)
         if _fast_ss2:
-            import os as _os
-            for _envk in ("MLFRAME_FOURIER_DETECT_MAX_N",):
-                _cur_env = _os.environ.get(_envk, None)
-                _cur_val = int(_cur_env) if (_cur_env and _cur_env.strip().isdigit()) else 200_000
-                if int(_fast_ss2) < _cur_val:
-                    saved[f"__env__{_envk}"] = _cur_env
-                    _os.environ[_envk] = str(int(_fast_ss2))
+            from .._fourier_detect_cap import get_fourier_detect_max_n, peek_fourier_detect_cap, set_fourier_detect_cap
+            if int(_fast_ss2) < get_fourier_detect_max_n():
+                # Thread-local (not os.environ) so concurrent fits do not race the cap; save the prior thread-local value (None if unset) for nested-fit-safe restore.
+                saved["__fdcap__"] = peek_fourier_detect_cap()
+                set_fourier_detect_cap(int(_fast_ss2))
         return saved
 
     def __init__(
@@ -3915,7 +3913,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                 import os as _os_restore
                 for _k, _v in _fast_search_saved.items():
                     try:
-                        if _k.startswith("__env__"):
+                        if _k == "__fdcap__":
+                            from .._fourier_detect_cap import clear_fourier_detect_cap, set_fourier_detect_cap
+                            if _v is None:
+                                clear_fourier_detect_cap()
+                            else:
+                                set_fourier_detect_cap(_v)
+                        elif _k.startswith("__env__"):
                             _envk = _k[len("__env__"):]
                             if _v is None:
                                 _os_restore.environ.pop(_envk, None)
