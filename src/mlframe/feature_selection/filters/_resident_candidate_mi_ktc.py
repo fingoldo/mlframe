@@ -31,7 +31,14 @@ def rescand_use_resident(n: int, k: int) -> bool:
 
     Returns ``True`` (use the resident GPU gen+MI) only on a measured-faster cache hit; ``False`` on a miss /
     no-cupy / lookup failure (caller stays on the exact host njit batch-MI). ``k`` snaps to the nearest swept
-    bucket."""
+    bucket. STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic, default OFF) forces the resident path:
+    the two binning schemes are selection-equivalent (the approved FE-PAIR trade)."""
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     if _RESCAND_SPEC is None:
         return False
     k_bucket = min(_RESCAND_SWEEP_K, key=lambda b: abs(b - int(k)))

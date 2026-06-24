@@ -39,7 +39,14 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
     Returns ``True`` (use CUDA) / ``False`` (use CPU) on a cache hit, or ``None`` when no measured entry
     exists yet (pre-sweep / no-cupy / lookup failure) so the caller applies its hardcoded bootstrap fallback.
     The ``p`` axis is snapped to the nearest swept bucket so an arbitrary candidate count maps to a measured
-    region."""
+    region. STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic, default OFF) forces CUDA: the CPU/CUDA
+    backends are numerically equivalent (~1e-9), so this is selection-equivalent."""
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     if _CMI_SPEC is None:
         return None
     p_bucket = min(_CMI_SWEEP_P, key=lambda b: abs(b - int(p)))

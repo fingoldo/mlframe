@@ -37,7 +37,14 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
     """Per-host engage decision for the resident-GPU batched pair-combo MI table, from the
     kernel_tuning_cache. Returns ``True`` (use the resident path) only on a measured-faster cache hit;
     ``False`` on a miss / no-cupy / lookup failure (caller stays on the exact host per-pair njit kernel).
-    Each axis snaps to the nearest swept bucket."""
+    Each axis snaps to the nearest swept bucket. STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic,
+    default OFF) forces the resident path: it is bit-faithful to the njit table (~6e-15) -> selection-equivalent."""
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     if _POOLRES_SPEC is None:
         return False
     pb = min(_POOLRES_SWEEP_NPAIRS, key=lambda b: abs(b - int(npairs)))

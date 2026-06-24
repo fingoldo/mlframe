@@ -33,7 +33,14 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
 
     Returns ``True`` (use the resident GPU path) only on a measured-faster cache hit; ``False`` on a miss /
     no-cupy / lookup failure (caller stays on the exact host njit kernel). Each axis snaps to the nearest
-    swept bucket."""
+    swept bucket. STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic, default OFF) forces the resident
+    path: the two paths differ only in FP reduction order (~1e-15) -> selection-equivalent."""
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     if _PERMNULL_SPEC is None:
         return False
     nb = min(_PERMNULL_SWEEP_NCAND, key=lambda b: abs(b - int(ncand)))

@@ -268,6 +268,16 @@ def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:  # noqa: C901
     if joint_size * 4 > 48 * 1024:
         return False
 
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force CUDA past the KTC crossover /
+    # size threshold once the VRAM + shared-mem guards above have passed (forcing past those would OOM, not
+    # diagnose). The CPU/CUDA conditional-MI backends are numerically equivalent (~1e-9) -> selection-equivalent.
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+
     try:
         from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
 

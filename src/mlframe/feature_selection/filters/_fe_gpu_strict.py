@@ -1,0 +1,64 @@
+"""STRICT GPU-mode diagnostic flag for the MRMR / FE GPU dispatch (2026-06-24).
+
+DIAGNOSTIC-ONLY, default OFF, purely additive. ``MLFRAME_FE_GPU_STRICT=1`` forces EVERY FE GPU-vs-CPU
+dispatch decision that HAS a bit-identical (selection-equivalent) GPU twin to choose the GPU, bypassing the
+per-host KTC crossover / size threshold / default-OFF gate. It exists to answer ONE question: when the GPU
+busy% looks low (~8-15%) on this card, is the FE "GPU path" CPU-bound because the KTC crossover gates many
+kernels BACK to CPU (sub-crossover on the weak GTX 1050 Ti -- i.e. MIS-GATED / movable on a stronger card),
+or because the remaining work is GENUINELY CPU-only (Python greedy-selection orchestration, the sequential
+``_combine_factorize_njit``, scipy.special ops -- the irreducible residual)?
+
+WHAT STRICT FORCES (each has a proven selection-equivalent GPU twin -- ~1e-15 / argmax-identical):
+  * ``_cmi_cuda._should_use_cuda``           -- batched conditional-MI CPU<->CUDA crossover
+  * ``_cmi_cuda_ktc.cmi_use_cuda``           -- the swept crossover backing the above
+  * ``_resident_candidate_mi_ktc``           -- resident GPU candidate-gen + plug-in MI
+  * ``_permutation_null_resident_ktc``       -- resident GPU maxT permutation-null floor
+  * ``_usability_pool_resident_ktc``         -- resident GPU batched pair-combo MI table
+  * ``_pairs_core._fe_gpu_discretize_enabled`` / ``_fe_gpu_binning_enabled`` -- FE candidate binning + MI
+
+WHAT STRICT CANNOT FORCE (no bit-identical GPU twin -- these stay CPU and ARE the "truly CPU-only" residual):
+  * the Python greedy-selection orchestration loop itself
+  * the sequential ``_combine_factorize_njit`` factorize
+  * ``scipy.special`` analytic-MI ops, fingerprint / recipe-replay / validation glue
+The radix / histgate threads-per-block + kernel-variant KTC specs are GPU-vs-GPU tuning (the work is ALREADY
+on the GPU); strict is a no-op for them -- they never route to CPU.
+
+STRICT IS A NO-OP WHEN CUDA IS ABSENT: with no usable device the gate returns False and the dispatch is the
+exact CPU path -- byte-for-byte the legacy no-GPU behavior. STRICT NEVER CHANGES THE DEFAULT (flag unset =
+current KTC-gated behavior, unchanged): forcing GPU on these gateable kernels is selection-equivalent, so the
+SAME compound + recipes are recovered under both flag states.
+"""
+from __future__ import annotations
+
+import os
+
+_STRICT_CACHE: bool | None = None
+
+
+def _cuda_usable() -> bool:
+    """Best-effort CUDA-availability probe (mirrors ``_gpu_resident_fe._cuda_present``); any failure -> False."""
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+        return False
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        return bool(is_cuda_available())
+    except Exception:
+        try:
+            from numba import cuda as _c
+            return bool(getattr(_c, "is_available", lambda: False)())
+        except Exception:
+            return False
+
+
+def fe_gpu_strict_enabled() -> bool:
+    """Whether STRICT GPU mode is active: ``MLFRAME_FE_GPU_STRICT`` truthy AND a CUDA device is usable.
+
+    Read ONCE and cached for the process lifetime (the dispatch gates call this on every greedy round, so a
+    per-call ``os.environ`` read would add measurable overhead). Default OFF -> the cached value is False and
+    every gate keeps its current KTC-crossover behavior, so this is purely additive. No-op without CUDA."""
+    global _STRICT_CACHE
+    if _STRICT_CACHE is None:
+        _on = os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("1", "true", "on", "yes")
+        _STRICT_CACHE = bool(_on and _cuda_usable())
+    return _STRICT_CACHE

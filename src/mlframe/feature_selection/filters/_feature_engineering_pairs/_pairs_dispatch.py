@@ -209,6 +209,17 @@ def _dispatch_batch_mi_with_noise_gate(
         except Exception:  # pyutilz missing / cache error -> CPU (always correct)
             backend = "cpu"
 
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force the noise-gate MI onto the
+    # bit-identical GPU twin (GPU does the integer counting, entropy stays on the CPU bit-exact path ->
+    # selection-equivalent), past the KTC crossover. Honoured AFTER the explicit GPU opt-out above (which
+    # still wins); a no-op without CUDA. Any GPU failure still falls through to the CPU njit kernel below.
+    try:
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            backend = "gpu"
+    except Exception:
+        pass
+
     # GPU region: route to the bit-identical GPU twin. Any failure (cupy/cuda
     # unavailable, OOM, shape edge) returns None / raises and falls through to the
     # always-correct CPU njit kernel below (mirrors mi_direct's GPU fastpath).

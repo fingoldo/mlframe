@@ -72,6 +72,14 @@ def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force GPU past the KTC crossover.
+    # The GPU pair-MI path is bit-identical to the CPU analytic dispatch (verified maxdiff 0) -> selection-equivalent.
+    try:
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
         return fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu"
@@ -107,6 +115,14 @@ def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force GPU binning past the KTC
+    # crossover. The GPU binning is bit-identical to the CPU njit binning (verified maxdiff 0) -> selection-equivalent.
+    try:
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_binning_backend_choice
         return fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu"
