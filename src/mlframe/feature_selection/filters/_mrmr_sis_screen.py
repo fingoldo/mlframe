@@ -256,6 +256,10 @@ def sis_screen(
         edges = np.quantile(yf, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         y_mi = np.searchsorted(edges, yf).astype(np.int64)         # continuous/high-card -> quantile bins
     y_mi = np.ascontiguousarray(y_mi)
+    # CAVEAT (continuous target): the MI channel scores against this quantile-binned ``y_mi`` while ``second_moment_propensity`` keeps the RAW continuous ``y_arr`` and takes
+    # the moment path (|corr(x^2,y)|+|corr(x,y^2)|). The two channels therefore use slightly DIFFERENT y representations -- they are not on a strictly comparable y-grid. This
+    # is tolerable because ``fuse_scores`` is a MAX over the per-channel z-scores (robust to scale differences) AND this gate only decides which survivors enter full MRMR; it
+    # never sets the final selection. Aligning the two channels onto one y-grid would be over-engineering for a coarse pre-rank.
 
     mi = np.zeros(p, dtype=np.float64)
     prop = np.zeros(p, dtype=np.float64)

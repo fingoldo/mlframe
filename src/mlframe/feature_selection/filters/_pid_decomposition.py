@@ -263,6 +263,10 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
     k_x1, k_y1 = _occupied_counts_2d(p_x1y)
     k_x2, k_y2 = _occupied_counts_2d(p_x2y)
     k_xx = int((p_xx > 0.0).sum())  # occupied composite (X1,X2)-source CELLS (not marginal rows) -- the true source cardinality
+    # y-cardinality for the ``total = I({X1,X2};Y)`` MM-correction. ``p_x1y = joint.sum(axis=1)`` has ALREADY summed over X2, so its
+    # y-marginal occupancy equals the FULL composite y-marginal occupancy ``(joint.sum(axis=(0,1)) > 0).sum()`` -- a y-bin is occupied
+    # in ``p_x1y`` iff some (x1, x2) row carries it. Reusing the X1-marginal here is therefore NOT an X1-only undercount: it is the exact
+    # composite occupied-y count (verified equal for all joints), so a y-bin X2 occupies but X1 does not is still counted.
     _, k_yj = _occupied_counts_2d(p_x1y)
     mi_x1_y = max(0.0, _mm_mi_correct(mi_x1_y, k_x1, k_y1, n))
     mi_x2_y = max(0.0, _mm_mi_correct(mi_x2_y, k_x2, k_y2, n))

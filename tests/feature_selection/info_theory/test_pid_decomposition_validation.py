@@ -97,3 +97,39 @@ def test_empty_input_returns_zeros():
     result = pid_decomposition(empty, empty, empty, 2, 2, 2)
     for v in result.values():
         assert v == 0.0
+
+
+def test_x1_marginal_y_occupancy_equals_composite_y_occupancy():
+    """The X1-marginal joint's y-occupancy is IDENTICAL to the composite joint's y-occupancy.
+
+    This pins the invariant behind the A10 disposition (DOC, no behavior change): ``p_x1y = joint.sum(axis=1)`` has already
+    summed over X2, so a y-bin is occupied in ``p_x1y`` iff some (x1, x2) row carries it. The ``total = I({X1,X2};Y)``
+    Miller-Madow correction therefore reuses the X1-marginal y-count CORRECTLY -- a y-bin X2 occupies but X1 does not is
+    still counted (it lands in ``p_x1y`` regardless of which x1 it pairs with). Guards a future "fix" that wrongly assumes
+    the two counts can differ. Tested over many random joints including the X2-extends-support shape.
+    """
+    from mlframe.feature_selection.filters._pid_decomposition import _occupied_counts_2d
+
+    rng = np.random.default_rng(7)
+    for _ in range(500):
+        K_x1, K_x2, K_y = (int(rng.integers(1, 4)) for _ in range(3))
+        n = int(rng.integers(1, 40))
+        x1 = rng.integers(0, K_x1, n)
+        x2 = rng.integers(0, K_x2, n)
+        y = rng.integers(0, K_y, n)
+        flat = (x1 * K_x2 + x2) * K_y + y
+        joint = np.bincount(flat, minlength=K_x1 * K_x2 * K_y).reshape(K_x1, K_x2, K_y).astype(np.float64)
+        p_x1y = joint.sum(axis=1)
+        _, k_y_x1_marginal = _occupied_counts_2d(p_x1y)
+        k_y_composite = int((joint.sum(axis=(0, 1)) > 0.0).sum())
+        assert k_y_x1_marginal == k_y_composite
+
+    # Explicit X2-extends-support shape: X2 carries y-bins paired with x1=0; the X1-marginal still occupies every y-bin.
+    x1 = np.array([0, 1, 0, 1, 0, 1, 0, 0, 0, 0], dtype=np.int64)
+    x2 = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int64)
+    y = np.array([0, 0, 1, 1, 0, 1, 2, 2, 2, 2], dtype=np.int64)
+    K_x1, K_x2, K_y = 2, 2, 3
+    flat = (x1 * K_x2 + x2) * K_y + y
+    joint = np.bincount(flat, minlength=K_x1 * K_x2 * K_y).reshape(K_x1, K_x2, K_y).astype(np.float64)
+    _, k_y_x1_marginal = _occupied_counts_2d(joint.sum(axis=1))
+    assert k_y_x1_marginal == int((joint.sum(axis=(0, 1)) > 0.0).sum()) == 3

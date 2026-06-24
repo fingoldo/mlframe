@@ -104,7 +104,17 @@ def detect_synergy(
 
     Returns ``(is_synergistic, info)``. ``info`` carries the measured best real-pair excess, the
     permuted-null excess scale, the data-derived threshold and the null multiple used (for explain/logging).
-    Bounded cost: subsample rows/features/pairs, a handful of label permutations for the null."""
+    Bounded cost: subsample rows/features/pairs, a handful of label permutations for the null.
+
+    STATISTICAL CAVEATS (this is a coarse OPT-IN gate, reached only when ``redundancy_aggregator='auto'``; the constructor default is
+    ``None`` = plain Fleuret, so a default fit never runs it):
+      * The interaction-information excess ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` is built from Miller-Madow-corrected plug-in joint MIs, which still carry a residual UPWARD bias of
+        order ``(kx-1)(ky-1)(kt-1)/(2n)`` at small n / high cardinality. Both the real and permuted-null excess inherit the same bias, so taking ``real_excess`` over a multiple of
+        the null scale cancels most of it -- but a very high-cardinality pair at small n can still read a small spurious positive excess.
+      * The null uses only ``n_null`` (default 3) label permutations and takes the MAX excess over those runs, so the null scale is a HIGH-VARIANCE max-over-3 estimate. The
+        threshold is deliberately a multiple of it (``null_mult``, from kernel_tuning_cache) with an ``eps`` floor to stay conservative. Raising ``n_null`` shrinks that variance
+        but is NOT default-bumped: a larger budget RAISES the max-over-runs null scale (and so the threshold), which is selection-altering for the gate decision, plus it costs
+        ``n_null x pp`` extra marginal-MI passes per call. Pass a larger ``n_null`` explicitly if the gate flickers on a borderline dataset."""
     X = np.asarray(X)
     if X.ndim != 2 or X.shape[1] < 2 or X.shape[0] < 50:
         return False, {"reason": "too_small"}

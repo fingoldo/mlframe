@@ -51,6 +51,12 @@ _JMIM_CACHE_STATS: "_deque" = _deque(maxlen=4096)
 # a STANDARD statistical level, not a fixture-tuned coefficient; the selection is stable across a wide alpha range (0.02-0.10) precisely because real signal clears p ~ 0 and
 # noise sits near p ~ 1, far from any alpha in that band. Subtraction is scale-preserving (stays in MI units) so the downstream min_relevance_gain / relative-gain / FDR floors
 # need no recalibration. Override via the ``MLFRAME_MRMR_NULL_SIGNIF_ALPHA`` env var.
+#
+# RESOLUTION LIMIT: the p_value the gate compares against is the add-one Monte-Carlo estimate ``(1 + nfailed) / (full_budget + 1)`` (see permutation._perm_pvalue) over the
+# null budget ``MLFRAME_MRMR_NULL_PERMS`` (default 32). It is therefore QUANTIZED in steps of ~1/(32+1) ~ 0.0303: the only attainable p-values near alpha are 0/33=0.0,
+# 1/33~0.0303, 2/33~0.0606, ... -- so any alpha in the open interval (0.0303, 0.0606) is INDISTINGUISHABLE from alpha=0.0606, and a feature whose null is tied/beaten by exactly
+# one shuffle ("1 tie") reads p~0.0606 >= 0.05 and is treated as NON-significant (its full null mean is subtracted). At the default budget the gate cannot resolve the
+# 0.0303..0.0606 band; raise ``MLFRAME_MRMR_NULL_PERMS`` (finer steps ~1/(B+1), at proportional permutation cost) if you need to separate alpha values inside that band.
 import os as _os
 _MRMR_NULL_SIGNIF_ALPHA = float(_os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
 
@@ -64,6 +70,35 @@ def _materialize_var(factors_data, var_idx, factors_nbins, dtype=np.int32):
         factors_nbins=factors_nbins, verbose=False, dtype=dtype,
     )
     return np.asarray(classes, dtype=np.int64), int(nclasses)
+
+
+def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbins, dtype) -> float:
+    """SU-scale a marginal-relevance MI when ``mi_normalization='su'`` is active (no-op otherwise / on a non-positive gain).
+
+    Scales by the SU denominator ``2/(H(X)+H(Y))`` so the value the ``min_relevance_gain`` floor compares against is the
+    cardinality-scrubbed score, matching the unit SU definition. Shared by BOTH relevance-MI entry points so they stay on the
+    SAME scale: the fresh ``mi_direct`` else-path AND the ``cached_confident_MIs`` branch (a confirmed candidate's bootstrapped
+    gain, which is otherwise raw MI and would be compared against an SU-scale floor). A degenerate joint keeps the raw value.
+    """
+    if not (use_su_normalization() and direct_gain > 0.0):
+        return direct_gain
+    try:
+        _x_idx = np.asarray(X, dtype=np.int64)
+        _y_idx = np.asarray(y, dtype=np.int64)
+        _, _freqs_x_su, _ = merge_vars(
+            factors_data=factors_data, vars_indices=_x_idx, var_is_nominal=None,
+            factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+        )
+        _, _freqs_y_su, _ = merge_vars(
+            factors_data=factors_data, vars_indices=_y_idx, var_is_nominal=None,
+            factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+        )
+        _denom_su = entropy(freqs=_freqs_x_su) + entropy(freqs=_freqs_y_su)
+        if _denom_su > 1e-12:
+            return 2.0 * direct_gain / _denom_su
+    except Exception:
+        pass  # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance
+    return direct_gain
 
 
 def get_candidate_name(candidate_indices: list, factors_names: list) -> str:
@@ -364,6 +399,10 @@ def evaluate_gain(
 
                     # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
                     # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
+                    # CAVEAT (extra_knowledge_multipler > 0): this is NOT MRMR redundancy for that candidate. Once a single Z yields additional_knowledge above the
+                    # multiplied direct_gain, ``positive_mode`` flips and the score becomes the MAX over Z of that extra-knowledge term, NOT the MIN-redundancy MRMR
+                    # objective -- the candidate is ranked by its single BEST synergistic relationship instead of its worst-case redundancy. Default is -1.0 (off), so
+                    # the default selection stays pure MRMR; enable this only when you deliberately want a synergy-seeking (max-extra-knowledge) ranking.
                     if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
                         if not positive_mode:
                             current_gain = additional_knowledge
@@ -429,9 +468,19 @@ def evaluate_candidate(
     # Is this candidate any good for target 1-vs-1?
     if X in cached_confident_MIs:  # cached_confident_MIs first -- more reliable (but don't fill them here).
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
-        # The main loop normally skips this branch (a confirmed candidate lands in added_/failed_candidates), so it
-        # was latent, but assigning the whole tuple to direct_gain crashes the next ``direct_gain > 0`` if ever reached.
+        # INVARIANT: a candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its
+        # cand_idx is in added_/failed_candidates and should_skip_candidate filters it out before re-entry here -- so under
+        # a normal fit this branch is unreachable. It is kept (and made explicit) only as a safety net: if the skip
+        # invariant ever breaks, the bootstrapped gain MUST still pass the same SU floor-scaling the else-path applies,
+        # otherwise a raw-MI-scale value would be compared against an SU-scale min_relevance_gain floor (it is already
+        # permutation-confirmed, so it does NOT re-enter the null-debiasing/significance gate -- re-applying that would
+        # double-penalise). Log once if reached so a broken invariant is diagnosable rather than silently mis-scoring.
+        logger.warning(
+            "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch (skip-invariant broken); "
+            "scoring it through the SU floor-scaling guard.", X,
+        )
         direct_gain, _ = cached_confident_MIs[X]
+        direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
     else:
         if X in cached_MIs:
             direct_gain = cached_MIs[X]
@@ -505,23 +554,7 @@ def evaluate_candidate(
             # floor (e.g. 80-level hi_* with MI ~0.11 > 0.16*H(y)=0.111) was admitted even though its SU ~0.044 sits far below. Scale the
             # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
             # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
-            if use_su_normalization() and direct_gain > 0.0:
-                try:
-                    _x_idx = np.asarray(X, dtype=np.int64)
-                    _y_idx = np.asarray(y, dtype=np.int64)
-                    _, _freqs_x_su, _ = merge_vars(
-                        factors_data=factors_data, vars_indices=_x_idx, var_is_nominal=None,
-                        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
-                    )
-                    _, _freqs_y_su, _ = merge_vars(
-                        factors_data=factors_data, vars_indices=_y_idx, var_is_nominal=None,
-                        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
-                    )
-                    _denom_su = entropy(freqs=_freqs_x_su) + entropy(freqs=_freqs_y_su)
-                    if _denom_su > 1e-12:
-                        direct_gain = 2.0 * direct_gain / _denom_su
-                except Exception:
-                    pass  # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance
+            direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
             cached_MIs[X] = direct_gain
 
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the

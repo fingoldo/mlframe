@@ -316,6 +316,48 @@ def test_evaluate_candidate_cached_confident_short_circuits(xor_factors):
     assert current_gain == pytest.approx(sentinel_gain)
 
 
+def test_evaluate_candidate_cached_confident_branch_routed_through_su_floor_scaling(xor_factors):
+    """A confirmed candidate re-entering the ``cached_confident_MIs`` branch must be scored on the SAME scale as the
+    fresh ``mi_direct`` else-path, NOT returned as raw MI.
+
+    The branch is normally unreachable (a confirmed candidate's cand_idx is in added_/failed_candidates, so
+    should_skip_candidate filters it out before re-entry). This pins the safety-net behavior if that invariant ever
+    breaks: with ``mi_normalization='su'`` active, the cached bootstrapped gain is SU floor-scaled identically to the
+    else-path -- otherwise a raw-MI-scale value would be compared against the SU-scale min_relevance_gain floor.
+
+    Pre-fix: the branch returned the bootstrapped gain unmodified (raw MI), bypassing the SU floor-scaling.
+    Post-fix: the branch routes through ``_su_normalize_relevance`` -- so under SU the returned gain is the SU-scaled
+    value, and under the default (SU off) it stays exactly the bootstrapped gain (legacy byte-identical).
+    """
+    from mlframe.feature_selection.filters.evaluation import _su_normalize_relevance
+    from mlframe.feature_selection.filters.info_theory import set_su_normalization
+
+    factors_data, factors_nbins, factors_names = xor_factors
+    sentinel_gain = 1.2345
+
+    # Default (SU off): unchanged bootstrapped gain.
+    set_su_normalization(False)
+    try:
+        kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
+        kwargs["cached_confident_MIs"] = {(0,): (sentinel_gain, 0.95)}
+        current_gain, _ = evaluate_candidate(**kwargs)
+        assert current_gain == pytest.approx(sentinel_gain)
+
+        # SU on: the branch SU-scales the bootstrapped gain, matching what the shared helper computes on the same X/y.
+        set_su_normalization(True)
+        expected_su = _su_normalize_relevance(
+            sentinel_gain, (0,), kwargs["y"], factors_data, factors_nbins, np.int32,
+        )
+        # SU is a real rescale on this synthetic, so the routed value must differ from the raw sentinel AND equal the helper.
+        assert expected_su != pytest.approx(sentinel_gain)
+        kwargs2 = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
+        kwargs2["cached_confident_MIs"] = {(0,): (sentinel_gain, 0.95)}
+        current_gain_su, _ = evaluate_candidate(**kwargs2)
+        assert current_gain_su == pytest.approx(expected_su)
+    finally:
+        set_su_normalization(False)
+
+
 def test_evaluate_candidate_cached_mi_short_circuits(xor_factors):
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
