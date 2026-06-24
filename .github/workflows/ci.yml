@@ -13,16 +13,18 @@ concurrency:
 
 jobs:
   test:
-    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '4' }})
+    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '8' }})
     runs-on: ${{ matrix.os }}
-    # The suite is ~21.7k tests and a GitHub-hosted runner has only 2 vCPUs, so
-    # `pytest -n auto` (= 2 workers) cannot finish it inside any sane single-job
-    # budget (measured: ~90 min and still incomplete, on Linux+macOS+Windows
-    # alike — install via uv is only ~30 s, so the wall-clock is pure test
-    # execution). We shard the suite across 4 parallel jobs via pytest-split
-    # (`--splits 4 --group N`), so each job runs ~1/4 of the tests (~22 min).
-    # timeout-minutes is generous headroom over that per-shard time, not a
-    # whole-suite budget.
+    env:
+      # Persist numba's on-disk JIT cache across runs AND shards (see the cache step below). Without it numba
+      # recompiles the ~430 cache=True kernels cold on every shard of every run; measured locally, ~80% of a
+      # feature_selection test file's cold time is first-call compilation (64.6s cold -> 11.9s warm), which is
+      # what pushed each shard past the 120-min cap. A persisted cache makes warm shards ~5x faster to compile.
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
+    # A GitHub-hosted runner has only 2 vCPUs and the suite is large. Two costs dominate per shard: numba
+    # cold-JIT compilation (now cached across runs+shards via NUMBA_CACHE_DIR) and model-training tests. We
+    # shard 8 ways via pytest-split (`--splits 8 --group N`) so even a cold shard (which must populate the
+    # cache) finishes under the cap; warm shards are far faster. timeout-minutes is headroom, not a budget.
     timeout-minutes: 120
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
@@ -34,28 +36,40 @@ jobs:
       matrix:
         # Linux rows 3.9-3.13 are required (blocking). The [all] extra installs
         # on 3.13 thanks to the tool.uv `ortools>=9.12` override (see pyproject).
-        # Each (os, python) is sharded 4 ways via pytest-split: the ~21.7k-test
-        # suite cannot finish on a single 2-vCPU runner inside the cap, so
-        # `group` fans it out into ~1/4 slices (~22 min each).
+        # Each (os, python) is sharded 8 ways via pytest-split so even a cold
+        # shard (numba JIT not yet cached) finishes inside the 120-min cap; once
+        # the numba cache is warm each shard is far faster.
         os: [ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        group: ["1", "2", "3", "4"]
+        group: ["1", "2", "3", "4", "5", "6", "7", "8"]
         include:
-          # Representative non-Linux coverage, also sharded 4 ways. Windows
+          # Representative non-Linux coverage, also sharded 8 ways. Windows
           # drops coverage (pytest-cov .coverage lock PermissionError); macOS
           # arm64 catches Darwin-specific polars/numba/BLAS regressions.
           - { os: windows-latest, python-version: "3.11", group: "1" }
           - { os: windows-latest, python-version: "3.11", group: "2" }
           - { os: windows-latest, python-version: "3.11", group: "3" }
           - { os: windows-latest, python-version: "3.11", group: "4" }
+          - { os: windows-latest, python-version: "3.11", group: "5" }
+          - { os: windows-latest, python-version: "3.11", group: "6" }
+          - { os: windows-latest, python-version: "3.11", group: "7" }
+          - { os: windows-latest, python-version: "3.11", group: "8" }
           - { os: windows-latest, python-version: "3.13", group: "1" }
           - { os: windows-latest, python-version: "3.13", group: "2" }
           - { os: windows-latest, python-version: "3.13", group: "3" }
           - { os: windows-latest, python-version: "3.13", group: "4" }
+          - { os: windows-latest, python-version: "3.13", group: "5" }
+          - { os: windows-latest, python-version: "3.13", group: "6" }
+          - { os: windows-latest, python-version: "3.13", group: "7" }
+          - { os: windows-latest, python-version: "3.13", group: "8" }
           - { os: macos-latest, python-version: "3.11", group: "1" }
           - { os: macos-latest, python-version: "3.11", group: "2" }
           - { os: macos-latest, python-version: "3.11", group: "3" }
           - { os: macos-latest, python-version: "3.11", group: "4" }
+          - { os: macos-latest, python-version: "3.11", group: "5" }
+          - { os: macos-latest, python-version: "3.11", group: "6" }
+          - { os: macos-latest, python-version: "3.11", group: "7" }
+          - { os: macos-latest, python-version: "3.11", group: "8" }
           # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
           # blocker is gone (override above), but the heavy [all] stack (torch /
           # numba / ...) does not yet reliably ship cp314 wheels. Run it as a
@@ -106,6 +120,19 @@ jobs:
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
           uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
 
+      - name: Restore numba JIT cache
+        # numba's per-kernel disk cache (keyed internally by source + numba version) is restored into
+        # NUMBA_CACHE_DIR so warm shards skip recompilation. The exact key hits when src is unchanged; the
+        # restore-keys prefix falls back to the newest prior cache (numba then recompiles only changed kernels,
+        # so a stale restore is still a large net win). All shards of one (os, python) share the key, so the
+        # first to finish populates it for the rest. Save happens in the post-job step.
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.numba-cache
+          key: numba-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            numba-${{ runner.os }}-py${{ matrix.python-version }}-
+
       - name: Show installed versions
         run: |
           python -c "import mlframe; print('mlframe', mlframe.__version__)"
@@ -120,7 +147,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           pytest -m "not slow and not gpu and not multigpu" \
-            --splits ${{ matrix.splits || '4' }} --group ${{ matrix.group }} \
+            --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} \
             -n auto \
             --cov=src/mlframe \
             --cov-report=xml \
@@ -133,7 +160,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only" --splits ${{ matrix.splits || '4' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
+          pytest -m "not slow and not gpu and not multigpu and not linux_only" --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
 
       # macOS path: skip linux_only markers; no coverage to keep parity with Windows lightweight job.
       - name: Run tests (macOS, no coverage)
@@ -141,7 +168,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only and not windows_only" --splits ${{ matrix.splits || '4' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
+          pytest -m "not slow and not gpu and not multigpu and not linux_only and not windows_only" --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
