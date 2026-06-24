@@ -420,16 +420,39 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, ma
     # comment) - fixed together.
     if min_value is None or max_value is None:
         min_value, max_value = arrayMinMax(arr)
+    n = arr.shape[0]
+    out = np.empty(n, dtype=dtype)
+    # Dedicated NaN bin code (one past the top real code n_bins-1), matching the
+    # categorize_dataset / quantile-path convention so NaN rows do NOT collide with real
+    # bin 0 and never produce a garbage cast. ``np.clip(NaN, ...)`` is a no-op on NaN, so
+    # without this gate the subsequent ``.astype(int8)`` casts NaN to a garbage code
+    # (RuntimeWarning: invalid value encountered in cast) and silently poisons MI/SU/MRMR.
+    nan_code = n_bins
     _rng = max_value - min_value
-    if _rng <= 0:
-        # Constant column: every row -> bin 0; honest single-bin code.
-        return np.zeros_like(arr, dtype=dtype)
+    if not (_rng > 0):
+        # Constant column OR all-NaN min/max (max-min is NaN -> _rng>0 is False): real rows
+        # -> bin 0 (honest single-bin), NaN rows -> the dedicated NaN bin.
+        for i in range(n):
+            v = arr[i]
+            out[i] = nan_code if v != v else 0
+        return out
     rev_bin_width = n_bins / _rng
-    # Clip in the float domain BEFORE the (possibly narrow) cast: casting first lets
-    # codes > dtype-max wrap negative (int8 modulo), and the subsequent clip then maps
-    # those wrapped negatives to bin 0 -- silently collapsing the high-value region.
-    result = np.clip((arr - min_value) * rev_bin_width, 0, n_bins - 1)
-    return result.astype(dtype)
+    hi = n_bins - 1
+    for i in range(n):
+        v = arr[i]
+        if v != v:  # NaN: route to the dedicated bin, never the affine map / cast
+            out[i] = nan_code
+            continue
+        # Affine map then clip in the float domain BEFORE the (possibly narrow) cast: casting
+        # first lets codes > dtype-max wrap negative (int8 modulo), and a later clip then maps
+        # those wrapped negatives to bin 0 -- silently collapsing the high-value region.
+        c = (v - min_value) * rev_bin_width
+        if c < 0:
+            c = 0.0
+        elif c > hi:
+            c = float(hi)
+        out[i] = c
+    return out
 
 
 @njit(cache=True, parallel=True)
@@ -444,15 +467,23 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
     """
     n = arr.shape[0]
     out = np.empty(n, dtype=dtype)
+    # Dedicated NaN bin (n_bins, one past the top real code) -- mirrors discretize_uniform so NaN rows
+    # do not collide with real bin 0 and never hit the NaN-producing affine map + cast.
+    nan_code = n_bins
     rng = max_value - min_value
-    if rng <= 0:
+    if not (rng > 0):
         for i in prange(n):
-            out[i] = 0
+            v = arr[i]
+            out[i] = nan_code if v != v else 0
         return out
     rev_bin_width = n_bins / rng
     hi = n_bins - 1
     for i in prange(n):
-        v = (arr[i] - min_value) * rev_bin_width
+        x = arr[i]
+        if x != x:  # NaN: dedicated bin, skip the affine map / cast
+            out[i] = nan_code
+            continue
+        v = (x - min_value) * rev_bin_width
         if v < 0:
             v = 0.0
         elif v > hi:

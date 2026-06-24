@@ -11,7 +11,15 @@ from numba import cuda, njit, prange
 ################################################################################################
 
 
-@njit(fastmath=True, cache=True)
+# fastmath WITHOUT nnan/ninf: the full ``fastmath=True`` flag set tells LLVM to assume no NaN
+# (the ``nnan`` flag), which would let it fold the ``v == v`` NaN test below to a constant True --
+# silently defeating the NaN skip. We keep the SIMD-friendly arithmetic flags but drop the NaN/inf
+# assumptions so the NaN-aware comparison survives. min/max is a comparison scan (no FP accumulator
+# reduction), so dropping nnan/ninf does NOT block vectorisation the way it would for a sum-reduction.
+_MINMAX_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}
+
+
+@njit(fastmath=_MINMAX_FASTMATH, cache=True)
 def arrayMinMax(x, l=0, r=0):
     n = len(x)
     if r == 0:
@@ -19,13 +27,25 @@ def arrayMinMax(x, l=0, r=0):
     # Empty-range guard: return NaN sentinels (numba-friendly: no Python exceptions)
     if n == 0 or r <= l:
         return (np.nan, np.nan)
-    firstElem = x[l]
-    maximum, minimum = firstElem, firstElem
+    # NaN-aware seeding/comparison: a NaN seed (e.g. a leading-NaN column) would otherwise stick as
+    # both min and max, and a non-leading NaN would be silently dropped -- both poison the uniform
+    # discretiser's affine map. Seed from the first FINITE element and skip NaN entries; on all-finite
+    # input this is bit-identical to the plain first-element seed + scan (no NaN ever takes the finite
+    # branch, so the seed and every comparison match). +/-inf are finite-comparison-wise and stay normal.
+    minimum = np.nan
+    maximum = np.nan
+    seeded = False
     for v in x[l:r]:
-        if v > maximum:
-            maximum = v
-        elif v < minimum:
-            minimum = v
+        if v == v:  # NaN != NaN; cheap, no np.isfinite dispatch
+            if not seeded:
+                minimum = v
+                maximum = v
+                seeded = True
+            elif v > maximum:
+                maximum = v
+            elif v < minimum:
+                minimum = v
+    # All-NaN range: return NaN sentinels so the caller's _rng<=0 / NaN guard fires.
     return (minimum, maximum)
 
 

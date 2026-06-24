@@ -53,6 +53,13 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
     (n=2k..50k) at zero numeric change to ``best_M``; bench discretization/_benchmarks/bench_knuth_posterior_fused.py.
     """
     n = a_sorted.shape[0]
+    # Degenerate-input guard, replicated from the _knuth_bin_edges wrapper because this kernel is a
+    # public re-export and may be called directly. With a_max<=a_min the bin width is 0, every
+    # searchsorted lands at n, so all but the first bin get 0 counts and the posterior search returns
+    # an arbitrary M; with n<1 the lgamma/log terms are meaningless. Return the minimum sensible M=2
+    # (a single median split downstream) instead.
+    if n < 1 or not (a_max > a_min):
+        return 2
     log_gamma_half = math.lgamma(0.5)
     best_M = 2
     best_logp = -1e300
@@ -142,6 +149,12 @@ def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
         edges[i] = 0.5 * (t[i - 1] + t[i])
     edges[N] = t[N - 1]
     block_length = edges[N] - edges
+    # Relative floor for T_cp before the log: on tie-heavy data the midpoint differences collapse and
+    # T_cp can be a tiny positive float (~1e-16), making log(N_cp/T_cp) explode and biasing the search
+    # toward degenerate single-point blocks. Floor T_cp at a small fraction of the total span so a
+    # tie-collapsed cell can never dominate. The total span is edges[N]-edges[0] = block_length[0].
+    _span = block_length[0]
+    _t_floor = 1e-12 * _span if _span > 0.0 else 0.0
     # DP: best[i] = max log-likelihood reachable ending at point i.
     best = np.full(N, -1e300, dtype=np.float64)
     last = np.zeros(N, dtype=np.int64)
@@ -153,6 +166,8 @@ def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
             N_cp = R - cp + 1
             if T_cp <= 0.0 or N_cp <= 0:
                 continue
+            if T_cp < _t_floor:
+                T_cp = _t_floor
             # Event-mode fitness: N * (log(N / T) - 1).
             fit = N_cp * (math.log(N_cp / T_cp))
             prev = best[cp - 1] if cp > 0 else 0.0
