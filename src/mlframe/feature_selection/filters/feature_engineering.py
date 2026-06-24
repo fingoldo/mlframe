@@ -208,28 +208,33 @@ def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) 
     return int(raw / (_FE_PEAK_OVERHEAD_FACTOR * nw))
 
 
-# Shared subsample default across the two FE entry points. ``polynom_pair_fe``
-# already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
-# feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
-# at this n landed at jaccard=1.0 vs full -- see
-# bench_fe_pair_subsample_accuracy.py. Keep both call sites pinned to ONE knob
-# so a future re-tune lands consistently across the FE block.
-#
-# R2 FAST-SETTING GUIDANCE (2026-06-18). The FE-screen accuracy bench
-# (bench_fe_pair_subsample_accuracy.py) measured the survivor set + winner match vs the
-# FULL-n screen across n_eff: at n_eff >= 25_000 the survivor jaccard is 1.0 and the
-# winner-match is 5/5 -- i.e. 25_000 is a VALIDATED "fast" subsample that reproduces the
-# 200_000-default screen exactly while cutting the MI-sweep buffer ~8x. 10_000 is the
-# MARGINAL FLOOR (jaccard begins to slip); DO NOT set ``fe_check_pairs_subsample_n`` below
-# 25_000. The default stays 200_000 for bit-stability with prior fits; a latency-sensitive
-# caller can pass ``fe_check_pairs_subsample_n=25_000`` for the validated fast screen.
-FE_DEFAULT_SUBSAMPLE_N: int = 200_000
+# UNIFIED FE/screen subsample (2026-06-25). The FE block historically carried THREE separate
+# subsample constants -- the relevance SCREEN (_DEFAULT_SCREEN_SUBSAMPLE_N=30_000), the FE PAIR-SEARCH
+# (FE_DEFAULT_SUBSAMPLE_N=200_000), and a documented "fast" preset (FE_FAST_SUBSAMPLE_N=25_000) -- that
+# all cluster near ~25-30k except the conservative 200k pair-search ctor default. Two facts collapse them
+# to ONE knob with NO accuracy loss:
+#   * The FE-screen accuracy bench (bench_fe_pair_subsample_accuracy.py) measured survivor-jaccard=1.0 and
+#     winner-match 5/5 vs the FULL-n screen for every n_eff >= 25_000; 30_000 sits above that validated
+#     floor with headroom for the gate-detection MI band (the screen's >25k requirement). 10_000 is the
+#     marginal floor (jaccard slips) -- DO NOT go below 25_000.
+#   * Since 2026-06-20 the default ``MRMR()`` fit ALREADY shrinks ``fe_check_pairs_subsample_n`` (and
+#     ``fe_smart_polynom_subsample_n``) to the 30k screen size at large n via
+#     ``_apply_default_screen_subsample`` -- so the 200k pair-search ctor default was already overridden
+#     at every n>30k where it would matter; it was vestigial. Verified BIT-IDENTICAL selection (chosen
+#     features, recipe names, get_feature_names_out order) at the unified 30k vs the legacy mixed
+#     200k/30k/25k across the F2 goal (uniform/scaled_1_5/heavy_tailed/mixed) + the canonical biz_value
+#     suite + engineered-replay. The 2026-05-18 "200k kept a marginal hermite feature vs 100k" note is
+#     superseded: that path (fe_smart_polynom_subsample_n) is likewise screen-shrunk to 30k by the default
+#     profile and the canonical suite (which exercises it) passes at 30k.
+# This is the SINGLE source of truth; the legacy names alias it (kept for import back-compat) and the
+# per-host KTC tune (cache key ``mrmr_default_screen_n``, resolved by ``MRMR._default_screen_subsample_n``)
+# is the ONE place a host re-tunes the value -- never re-introduce a second tunable subsample constant.
+UNIFIED_FE_SUBSAMPLE_N: int = 30_000
 
-# R2 validated "fast" FE-screen subsample (see FE_DEFAULT_SUBSAMPLE_N note above): jaccard 1.0 /
-# winner-match 5/5 vs full-n at this n_eff. Exposed as a named constant so a caller / preset can opt
-# into the fast screen without hardcoding the magic number. NOT the default (the default stays
-# 200_000 for byte-stability); 10_000 is the marginal floor -- do not go below 25_000.
-FE_FAST_SUBSAMPLE_N: int = 25_000
+# Back-compat aliases -- both now resolve to the single unified knob above (were 200_000 / 25_000). Kept
+# so external importers of these names keep working; new code should read UNIFIED_FE_SUBSAMPLE_N.
+FE_DEFAULT_SUBSAMPLE_N: int = UNIFIED_FE_SUBSAMPLE_N
+FE_FAST_SUBSAMPLE_N: int = UNIFIED_FE_SUBSAMPLE_N
 
 
 def _rebuild_full_survivor_col(

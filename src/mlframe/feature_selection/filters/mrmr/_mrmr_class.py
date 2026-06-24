@@ -118,6 +118,7 @@ from ..discretization import (  # noqa: F401
 )
 from ..feature_engineering import (  # noqa: F401
     FE_DEFAULT_SUBSAMPLE_N,
+    UNIFIED_FE_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
     create_binary_transformations,
@@ -301,7 +302,11 @@ class MRMR(BaseEstimator, TransformerMixin):
     # n=100k additive-regression fit drops 168.8s -> ~75s and still recovers the a**2/b and log(c)*sin(d)
     # compounds. NEVER hardcode a per-HW threshold (mlframe is shared infra): a quiet/large-RAM box can
     # record a larger ``subsample_n`` under the ``mrmr_default_screen_n`` cache key and override the floor.
-    _DEFAULT_SCREEN_SUBSAMPLE_N = 30_000  # >25k validated floor, headroom for the gate-detection MI band
+    # UNIFIED (2026-06-25): the screen subsample is the SAME single knob as the FE pair-search / fast-preset
+    # (``feature_engineering.UNIFIED_FE_SUBSAMPLE_N``) -- one source of truth, KTC-tuned per host under the
+    # ``mrmr_default_screen_n`` cache key (``_default_screen_subsample_n``). >25k validated floor (jaccard 1.0
+    # vs full-n screen), headroom for the gate-detection MI band.
+    _DEFAULT_SCREEN_SUBSAMPLE_N = UNIFIED_FE_SUBSAMPLE_N
 
     @classmethod
     def _default_screen_subsample_n(cls) -> int:

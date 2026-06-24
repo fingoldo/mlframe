@@ -41,13 +41,21 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
     return s[:head] + ".." + s[-tail:]
 
 
-# Shared subsample default across the two FE entry points. ``polynom_pair_fe``
-# already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
-# feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
-# at this n landed at jaccard=1.0 vs full -- see
-# bench_fe_pair_subsample_accuracy.py. Keep both call sites pinned to ONE knob
-# so a future re-tune lands consistently across the FE block.
-FE_DEFAULT_SUBSAMPLE_N: int = 200_000
+# Subsample default for the FE pair-search entry point. UNIFIED (2026-06-25) onto the single
+# ``feature_engineering.UNIFIED_FE_SUBSAMPLE_N`` source of truth (30k) -- see the full rationale there.
+# This duplicate constant used to hold an independent 200_000; it now aliases the unified knob so the FE
+# block has ONE subsample value. (Lazy local import to avoid a circular import at module load: this
+# package is imported by feature_engineering's transitive deps; the value is a plain int, read at def time.)
+def _unified_fe_subsample_n() -> int:
+    from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
+
+    return int(UNIFIED_FE_SUBSAMPLE_N)
+
+
+try:
+    FE_DEFAULT_SUBSAMPLE_N: int = _unified_fe_subsample_n()
+except Exception:
+    FE_DEFAULT_SUBSAMPLE_N = 30_000  # bootstrap fallback if feature_engineering not yet importable
 
 logger = logging.getLogger(__name__)
 

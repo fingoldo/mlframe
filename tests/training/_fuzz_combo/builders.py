@@ -57,9 +57,10 @@ def build_mrmr_kwargs_from_flat(
     # __init__ knob added in feat(fe+suite) 5223085 alongside the matching
     # fe_smart_polynom subsample. 0 = disabled (legacy full-frame path);
     # >0 AND < len(X) fires the subsample MI sweep with full-n survivor
-    # rebuild. Both subsamples share FE_DEFAULT_SUBSAMPLE_N (200_000)
-    # upstream; fuzz pins a tighter 50_000 budget so the subsample path
-    # also fires at n_rows=200_000.
+    # rebuild. Both subsamples share the unified FE subsample upstream
+    # (FE_DEFAULT_SUBSAMPLE_N now aliases UNIFIED_FE_SUBSAMPLE_N=30_000 as of
+    # 2026-06-25); this fuzz builder pins its OWN explicit budget below so its
+    # behavior is independent of the upstream default.
     fe_check_pairs_subsample_n: int = 0,
     fe_smart_polynom_subsample_n: int = 0,
     # Suite-side fuzz-speed pins. Callers can override.
