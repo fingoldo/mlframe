@@ -36,6 +36,10 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # ``_FIT_CACHE_LOCK`` so any other holder of the cache can take the same canonical lock.
 _MRMR_FIT_CACHE_LOCK = threading.RLock()
 
+# Above this many bytes of nullable-column data, densify masked columns one-per-``assign`` instead of all at once
+# so peak extra RAM stays ~one float64 column rather than ~2x the whole nullable subset (100GB-frame safe).
+_NULLABLE_DENSIFY_EAGER_MAX_BYTES = 2 * 1024 ** 3
+
 """MRMR._fit_impl main fit body.
 
 The irreducible single function _fit_impl (bound onto the MRMR class
@@ -330,7 +334,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if pd.api.types.is_extension_array_dtype(X[c].dtype) and getattr(X[c].dtype, "kind", "O") in ("i", "u", "f", "b")
         ]
         if _nullable_num:
-            X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
+            # A single ``assign`` of every nullable column materialises all the float64 arrays before building the
+            # frame (peak ~2x the nullable-column bytes); above the threshold densify one column per ``assign`` so
+            # each intermediate frame is freed and peak extra RAM stays ~one column. ``assign`` returns a new frame
+            # either way, so the caller's frame is never mutated -- the densification stays RAM-safe on 100+ GB frames.
+            if int(len(X)) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
+                X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
+            else:
+                for _nc in _nullable_num:
+                    X = X.assign(**{_nc: X[_nc].astype("float64")})
             if verbose:
                 logger.info(
                     "MRMR.fit: densified %d nullable masked column(s) to float64 (NaN-preserving): %s",
