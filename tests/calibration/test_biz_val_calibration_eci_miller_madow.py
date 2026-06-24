@@ -49,13 +49,21 @@ def test_biz_val_eci_default_is_miller_madow():
 
 
 def test_biz_val_eci_correction_magnitude_matches_formula():
-    """MM correction equals (K_obs - 1)/(2N): plug-in ECI minus MM ECI must match the closed form exactly."""
+    """MM correction equals (K_obs - 1)/(2N): plug-in ECI minus MM ECI must match the closed form exactly.
+
+    Uses a MISCALIBRATED (skewed) PIT so both ECI values sit comfortably above the index's ``max(eci, 0)`` floor.
+    On a near-uniform PIT the MM-corrected ECI underflows that floor and the clamp turns ``mm`` into 0, which
+    legitimately breaks the raw ``plugin - mm`` identity -- the clamp is the correct calibration-index behaviour
+    (ECI cannot be negative), so the identity is only meaningful where neither side is clamped.
+    """
     rng = np.random.default_rng(3)
-    pit = rng.uniform(0.0, 1.0, size=400)
+    pit = rng.beta(2.0, 5.0, size=2000)
     bins = 10
     counts, _ = np.histogram(pit, bins=bins, range=(0, 1))
     k_obs = int(np.count_nonzero(counts))
     expected_delta = (k_obs - 1) / (2.0 * counts.sum())
     plugin = entropy_calibration_index(pit, bins=bins, miller_madow=False)
     mm = entropy_calibration_index(pit, bins=bins, miller_madow=True)
+    # Both ECI values above the 0 floor => neither is clamped => the closed-form correction identity holds exactly.
+    assert plugin > expected_delta and mm > 0.0, f"input not miscalibrated enough to clear the ECI clamp; plugin={plugin}, mm={mm}"
     assert plugin - mm == pytest.approx(expected_delta, rel=1e-9)
