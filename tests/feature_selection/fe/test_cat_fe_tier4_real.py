@@ -214,8 +214,8 @@ class TestFullConditionalIPF:
         x2 = rng.integers(0, 3, n).astype(np.int32)
         y = rng.integers(0, 2, n).astype(np.int32)
         x2_safe = x2.astype(np.int64, copy=True)
-        # Run IPF shuffle
-        _full_conditional_shuffle_ipf(x2_safe, x1, y, 3, 2)
+        # Run IPF shuffle (base_seed arg matches the production callers in _prewarm / _cat_confirm_permutation)
+        _full_conditional_shuffle_ipf(x2_safe, x1, y, 3, 2, 0)
         # After shuffle: for each (x1=a, y=b) stratum, the set of X2
         # values is the SAME (just reordered).
         for a in range(3):
