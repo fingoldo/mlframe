@@ -49,6 +49,39 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 _TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_]+")
 
 
+def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
+    """Scale/sign-invariant multiple correlation R of an OLS fit ``y ~ cols + intercept``.
+
+    Returns ``corr(fitted, y)`` (the multiple-R), in [0, 1]. OLS absorbs per-column scaling
+    and sign, so this is invariant to the operand distributions' scale/sign -- exactly the
+    invariance the binned-MI separability gate LACKS under variance imbalance (where the
+    dominant half saturates the coarse bins and the weak half's genuine additive lift shows
+    almost no binned-MI margin, even though it materially improves the LINEAR usability of
+    the compound). NaN-safe; returns 0.0 on a degenerate (constant-y / singular) fit.
+    """
+    X2 = np.asarray(cols_2d, dtype=np.float64)
+    yv = np.asarray(y, dtype=np.float64).ravel()
+    if X2.ndim == 1:
+        X2 = X2.reshape(-1, 1)
+    X2 = np.nan_to_num(X2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    yv = np.nan_to_num(yv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    if yv.shape[0] < 3 or float(np.std(yv)) <= 1e-12:
+        return 0.0
+    design = np.column_stack([X2, np.ones(X2.shape[0], dtype=np.float64)])
+    try:
+        beta, *_ = np.linalg.lstsq(design, yv, rcond=None)
+    except Exception:
+        return 0.0
+    fitted = design @ beta
+    sf = float(np.std(fitted))
+    if sf <= 1e-12:
+        return 0.0
+    r = float(np.corrcoef(fitted, yv)[0, 1])
+    if not np.isfinite(r):
+        return 0.0
+    return abs(r)
+
+
 def _bare_tokens(name: str, raw_name_set: set) -> set:
     """Raw-column operands referenced by an engineered (or raw) name -- including warped
     ``base__suffix`` tokens mapped back to their raw base."""
@@ -171,7 +204,33 @@ def propose_additive_fusions(
             # floor (a chance-fluctuation scale). Two unrelated features whose sum has no
             # genuine joint uplift (fused_mi ~= the stronger half +/- noise) are NOT fused.
             _strong = ha if ha["mi"] >= hb["mi"] else hb
-            if fused_mi <= _strong["mi"] + _floor_margin * _strong["floor"]:
+            _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
+            # OLS LINEAR-USABILITY SEPARABILITY (2026-06-24, default-ON, ALONGSIDE the binned-MI
+            # gate). Under variance imbalance the coarse binned-MI WRONGLY rejects a genuine
+            # fusion: the dominant half saturates most bins, so the fused binned-MI barely exceeds
+            # the strong half's even though the second additive term materially improves the
+            # compound's LINEAR usability for the downstream model (measured on F2 scaled_1_5:
+            # fused binned-MI 0.67 < strong-half 1.06, yet 2-half OLS multiple-R 0.998 > strong
+            # half's 0.976). Admit the fusion if EITHER the binned-MI margin OR the OLS-R
+            # separability passes. The OLS-R path fits ``y ~ [half_a, half_b] + intercept`` and
+            # compares its multiple-R to the best SINGLE-half R (y ~ one half alone); the second
+            # half must lift R by a small but real margin (chance-fluctuation scale ~ 1/sqrt(n)),
+            # so two unrelated halves whose join adds no linear usability are NOT fused. OLS is
+            # scale/sign-invariant, so it is robust to the operand-distribution imbalance the
+            # binned-MI path is not.
+            _ols_passes = False
+            if not _binned_mi_passes:
+                _yc = y_dense.astype(np.float64)
+                _r_a = _multiple_r(ha["vals"], _yc)
+                _r_b = _multiple_r(hb["vals"], _yc)
+                _r_fused = _multiple_r(np.column_stack([ha["vals"], hb["vals"]]), _yc)
+                _r_best_single = max(_r_a, _r_b)
+                # The 2-half fit must beat the best single half by more than a chance-fluctuation
+                # margin (~ 1/sqrt(n), the SE scale of a correlation). A genuine second additive
+                # term clears it; a noise half does not move multiple-R.
+                _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
+                _ols_passes = _r_fused > _r_best_single + _r_margin
+            if not (_binned_mi_passes or _ols_passes):
                 continue
             # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery.
             name = f"add({ha['name']},{hb['name']})"

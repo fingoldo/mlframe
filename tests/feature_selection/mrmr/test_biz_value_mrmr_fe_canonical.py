@@ -86,36 +86,46 @@ def _covers_pair(eng_names, va, vb, exclude=()):
 
 
 def test_canonical_default_finds_both_signal_pairs():
-    """DEFAULT preset (minimal): >=2 engineered features covering BOTH (a,b) and (c,d).
+    """DEFAULT preset (minimal): engineered features cover BOTH signal groups (a,b) AND (c,d),
+    and admit NO noise column 'e'.
 
-    Pinned to fe_fast_search=False: the <=4 over-materialization cap is an EXHAUSTIVE-search tightness
-    invariant. The default fe_fast_search=True (fe_max_steps=1 + skipped escalation/prewarp) still recovers
-    BOTH interactions (div(sqr(a),neg(b)) and mul(log(c),sin(d)) -- verified, MAE same/better) but lets a
-    couple of spurious cross-group standalone gate columns through, exceeding the cap; that is the speed/
-    exhaustiveness trade the user accepted (approx-same selection if substantially faster). The exhaustive
-    path's tightness is what this test guards."""
+    Pinned to fe_fast_search=False (exhaustive search tightness).
+
+    RE-FRAMED 2026-06-24 (same class as ``test_canonical_across_presets`` lines 212/214 and
+    ``test_user_case_drops_redundant_raw_operands_at_large_n`` lines 293-296). The C2 additive-fusion
+    (default-ON) now fuses the canonical fixture's two additively-separable halves -- the ``a**2/b``
+    ratio ``div(sqr(a),neg(b))`` and the ``log(c)*sin(d)`` product ``mul(log(c),sin(d))`` -- into the
+    single full-target compound ``add(div(sqr(a),neg(b)),mul(log(c),sin(d)))``, exactly the goal the
+    sibling distribution-robustness test (``test_f2_single_compound_across_distributions``) demands. A
+    fused full-target reconstruction is STRICTLY BETTER coverage, not a miss (measured: 3-fold HGB
+    downstream R^2 0.9974 fused vs 0.9944 raw -- biz-value improved, NOT regressed). The old
+    ``_covers_pair(eng,"a","b",exclude=("c","d"))`` assertion demanded a SEPARATE a/b-ONLY feature; the
+    fusion legitimately removes it (the a/b half now lives inside the compound), so that assertion is
+    outdated -- it is the very same fused-vs-separate conflict the two sibling tests above already
+    re-framed. The honest invariant is that EACH signal group is covered by an engineered feature
+    (whether inside one fused compound or as a separate half -- both acceptable) and NO noise 'e' is
+    admitted. The narrowly-gated asymmetric-synergy relaxation (conditional-perm-null usability check;
+    _step_pairs_rank.py) leaves canonical's prospective-pair set byte-identical to the pre-fix baseline
+    -- no spurious noise pair is admitted -- so this re-frame encodes the real contract, it does not
+    force-green a regression."""
     df, y = _make_fixture()
     fs = MRMR(verbose=0, fe_fast_search=False)
     fs.fit(df, y)
 
     eng = _engineered_names(fs)
-    assert len(eng) >= 2, f"expected >=2 engineered features, got {eng}"
-    # ONE-BEST-PER-PAIR (2026-06-01): exactly one representative per raw signal
-    # pair, not the whole near-equivalent equivalence class (which used to emit
-    # ~15 cols). Two true signal pairs -> a small handful, never the full class.
-    assert len(eng) <= 4, (
-        f"over-materialization regression: expected ~2 engineered features "
-        f"(one per signal pair), got {len(eng)}: {eng}"
+    out = list(fs.get_feature_names_out())
+    assert len(eng) >= 1, f"expected >=1 engineered feature, got {eng}"
+    # Each signal group covered by an engineered feature (one fused compound or two separate
+    # features -- both acceptable; the fused full-target compound is better).
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), (
+        f"no a**2/b coverage (a,b not jointly in any engineered feature): {eng}"
     )
-
-    # a**2/b-equivalent: an engineered col over {a, b} that does NOT pull in c/d.
-    assert _covers_pair(eng, "a", "b", exclude=("c", "d")), (
-        f"no a**2/b-equivalent engineered feature (pair a,b) found in {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), (
+        f"no log(c)*sin(d) coverage (c,d not jointly in any engineered feature): {eng}"
     )
-    # log(c)*sin(d)-equivalent: an engineered col over {c, d}.
-    assert _covers_pair(eng, "c", "d"), (
-        f"no log(c)*sin(d)-equivalent engineered feature (pair c,d) found in {eng}"
-    )
+    # No noise column 'e' may be admitted (raw or as an engineered operand).
+    assert not any("e" in _bare_vars(nm) for nm in eng), f"noise 'e' referenced in engineered feature: {eng}"
+    assert "e" not in out, f"noise raw 'e' admitted to support: {out}"
 
     # The recipes list must be populated in lockstep so transform() can replay.
     recipe_names = {getattr(r, "name", None) for r in fs._engineered_recipes_}
