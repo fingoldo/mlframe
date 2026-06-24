@@ -186,11 +186,30 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     return leg
 
 
-def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
+def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
+    """Bin the target into integer codes exactly as :func:`_binned_mi` does
+    internally. Hoisted so the (per-leg-invariant) y-subset binning can be
+    computed once per ``_select_wavelet_legs`` call and reused across all legs.
+    Byte-identical to the inline path in ``_binned_mi``."""
+    y = np.asarray(y).ravel()
+    if np.issubdtype(y.dtype, np.integer) and np.unique(y).size <= 20:
+        return y.astype(np.int64)
+    if np.unique(y).size <= 20:
+        uy = np.unique(y)
+        return np.searchsorted(uy, y)
+    edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+    return np.digitize(y, edges_y)
+
+
+def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Optional[np.ndarray] = None) -> float:
     """Plug-in binned MI(feat; y) in nats. y is treated as discrete classes if it
     has <= 20 unique values, else quantile-binned into ``nbins``. Used only for
     the held-out scale-selection ranking (the pool-level admission reuses the
-    project's ``_mi_classif_batch``)."""
+    project's ``_mi_classif_batch``).
+
+    ``y_codes``: optional precomputed integer y-binning (from :func:`_bin_y_codes`).
+    When given, the per-call y re-binning is skipped (byte-identical result). The
+    default ``None`` preserves the original behavior for every other caller."""
     feat = np.asarray(feat, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = feat.size
@@ -204,7 +223,9 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
     else:
         edges = np.quantile(feat, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         fb = np.digitize(feat, edges)
-    if np.issubdtype(y.dtype, np.integer) and np.unique(y).size <= 20:
+    if y_codes is not None:
+        yb = y_codes
+    elif np.issubdtype(y.dtype, np.integer) and np.unique(y).size <= 20:
         yb = y.astype(np.int64)
     elif np.unique(y).size <= 20:
         uy = np.unique(y)
@@ -368,6 +389,11 @@ def _select_wavelet_legs(
     tr = ~va
     if int(tr.sum()) < 64 or int(va.sum()) < 32:
         return []
+    # The y-subsets y[tr]/y[va] are invariant across all legs in this call; bin
+    # them ONCE here and thread the codes into _binned_mi (byte-identical to the
+    # per-leg inline binning) instead of re-binning per leg.
+    yb_tr = _bin_y_codes(y[tr])
+    yb_va = _bin_y_codes(y[va])
     cand: list[tuple] = []  # (train_mi, heldout_mi, j, k)
     for j in range(int(max_scale) + 1):
         for k in range(2 ** j):
@@ -377,8 +403,8 @@ def _select_wavelet_legs(
             # Require enough rows in each non-zero half-cell for a trustworthy MI.
             if nz_left < _WAVELET_MIN_HALF_ROWS or nz_right < _WAVELET_MIN_HALF_ROWS:
                 continue
-            mi_tr = _binned_mi(leg[tr], y[tr])
-            mi_va = _binned_mi(leg[va], y[va])
+            mi_tr = _binned_mi(leg[tr], y[tr], y_codes=yb_tr)
+            mi_va = _binned_mi(leg[va], y[va], y_codes=yb_va)
             cand.append((mi_tr, mi_va, j, k))
     if not cand:
         return []
