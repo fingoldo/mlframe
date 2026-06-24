@@ -307,6 +307,36 @@ _FE_STRATIFY_REG_ABS_SKEW: float = 2.0
 _FE_STRATIFY_REG_TAIL_IQR_RATIO: float = 6.0
 
 
+def resolve_shared_fe_subsample_idx(y, n_rows: int, size: int, *, is_clf: bool, stratify_knob, random_seed) -> np.ndarray | None:
+    """Resolve the ONE shared FE subsample row-index set for a whole fit (the single reused draw).
+
+    The FE screen / pair-search / polynom / permutation-null floors all bound their cost by row
+    subsampling, and were historically drawing the subsample INDEPENDENTLY (different seeds / per-pair
+    draws) -- wasteful re-sampling and inconsistent (stages saw different rows). This produces ONE draw
+    per fit, reproducible from ``random_seed``, so every consumer SLICES the SAME rows instead of
+    re-drawing. The permutation-null floors then ride the SAME ``size`` as the candidates they gate, so
+    the floor (a chance-max MI threshold whose scale is ~1/n) is the matched estimator for the screened
+    candidates -- not the historically full-n floor that was both the large-n cost / OOM source and a
+    looser threshold than the subsampled candidates it gated.
+
+    Returns ``None`` when ``n_rows <= size`` (nothing to subsample -> consumers use full n, byte-identical
+    to legacy small-n behaviour) or on any failure. Otherwise SORTED int64 indices, ~``size`` long.
+    """
+    try:
+        n = int(n_rows)
+        size = int(size)
+        if size <= 0 or n <= size:
+            return None
+        base = 0x9E3779B9 if random_seed is None else (int(random_seed) & 0x7FFFFFFF)
+        rng = np.random.default_rng(base)
+        stratify = _resolve_fe_subsample_stratify(stratify_knob, y, is_clf=is_clf)
+        if stratify:
+            return stratified_subsample_idx(rng, np.asarray(y), size, is_clf=is_clf)
+        return np.sort(rng.choice(n, size=size, replace=False)).astype(np.int64, copy=False)
+    except Exception:
+        return None
+
+
 def _resolve_fe_subsample_stratify(stratify_knob, y, *, is_clf: bool) -> bool:
     """Resolve the tri-state ``fe_subsample_stratify`` knob to a concrete bool for a fit.
 

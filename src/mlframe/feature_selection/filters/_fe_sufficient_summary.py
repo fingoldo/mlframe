@@ -100,6 +100,49 @@ _MAXT_QUANTILE_DEFAULT = 0.95
 _RIDGE_ALPHA_DEFAULT = 1e-3
 
 
+def _get_shared_fe_subsample_idx(self, y_continuous, n_full):
+    """Lazily resolve + cache the ONE shared FE subsample row-index set on ``self`` for this fit.
+
+    Computed ONCE per fit (keyed by n) and reused by every consumer that rides the shared draw (this
+    residual floor today; the screen FDR floor / pair-search / polynom as the consolidation lands) so
+    the same rows are seen everywhere instead of N independent re-draws. ``size`` is the unified screen
+    knob (``MRMR._default_screen_subsample_n``); returns ``None`` when n is at/below it (full-n path,
+    byte-identical to legacy small-n). ``is_clf`` is resolved from the TASK (not the local continuous
+    target) so the shared draw matches the classification consumers' stratification."""
+    try:
+        n = int(n_full)
+        cached_n = getattr(self, "_fe_shared_subsample_n", None)
+        if cached_n == n:
+            return getattr(self, "_fe_shared_subsample_idx", None)
+        size = None
+        _resolver = getattr(self, "_default_screen_subsample_n", None)
+        if callable(_resolver):
+            size = int(_resolver())
+        if size is None or n <= size:
+            self._fe_shared_subsample_idx = None
+            self._fe_shared_subsample_n = n
+            return None
+        from ._fe_subsample import resolve_shared_fe_subsample_idx
+
+        _task = getattr(self, "task", None)
+        is_clf = bool(
+            getattr(self, "is_classification_", None)
+            if getattr(self, "is_classification_", None) is not None
+            else (str(_task).lower().startswith("clas") if _task is not None else False)
+        )
+        idx = resolve_shared_fe_subsample_idx(
+            y_continuous, n, int(size),
+            is_clf=is_clf,
+            stratify_knob=getattr(self, "fe_subsample_stratify", None),
+            random_seed=getattr(self, "random_seed", None),
+        )
+        self._fe_shared_subsample_idx = idx
+        self._fe_shared_subsample_n = n
+        return idx
+    except Exception:
+        return None
+
+
 @dataclass
 class SufficientSummaryVerdict:
     """Diagnostics for one sufficient-summary early-stop check.
@@ -477,6 +520,21 @@ def check_sufficient_summary_for_mrmr(
                 except Exception:
                     pass
 
+        # ONE shared subsample reused across the fit (2026-06-25): the maxT residual floor below was
+        # historically computed on FULL n even when the FE candidate search ran on the ~30k screen
+        # subsample -- the dominant large-n permutation-null cost / OOM source, AND a looser (lower-n
+        # -> wider, smaller) chance-max threshold than the subsampled candidates it gates. Ride the
+        # SAME single shared row draw as the rest of the FE step so the floor is the matched estimator
+        # for the screened candidates and the full-n permutation work disappears. Slices ROWS only
+        # (column indices are unchanged); ``None`` (small n) keeps the legacy full-n path byte-identical.
+        _n_full = int(data.shape[0])
+        _ss_idx = _get_shared_fe_subsample_idx(self, yv, _n_full)
+        if _ss_idx is not None:
+            data = data[_ss_idx]
+            yv = yv[_ss_idx]
+            # sel_cont values are full-n continuous columns -> slice the same rows; leave any column
+            # whose length doesn't match full n untouched (defensive; the helper drops mismatches later).
+            sel_cont = {k: (np.asarray(v)[_ss_idx] if hasattr(v, "__len__") and len(v) == _n_full else v) for k, v in sel_cont.items()}
         return sufficient_summary_reached(
             data=data,
             nbins=nbins,
