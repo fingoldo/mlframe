@@ -128,6 +128,53 @@ class TestDispatcher:
         assert np.all(np.isfinite(transformed_vals))
 
 
+class TestHoistHeadroomAcceptance:
+    """HOIST-GATE RE-CALIBRATION (2026-06-24): a buffer that is small relative to available RAM
+    must HOIST even when it exceeds the conservative relative budget, AS LONG AS its realistic
+    peak footprint (buffer * overhead * workers) leaves >= the host reserve free. At large n the
+    footprint approaches available, so the OOM-protecting decline must still fire."""
+
+    def _force_avail(self, monkeypatch, available_bytes):
+        # Pin the OPT5 vmem cache so the decision is deterministic regardless of host RAM.
+        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))
+
+    def test_small_buffer_at_abundant_ram_hoists(self, monkeypatch):
+        """The F2 100k repro: 222.5 MiB buffer, 5.7 GiB available, 2 workers. The old relative
+        budget (138 MiB) declined it; the headroom path must hoist (free-after 4.4 GiB >= 3 GiB)."""
+        self._force_avail(monkeypatch, int(5.7 * 2**30))
+        buf = int(222.5 * 2**20)
+        # The conservative relative budget alone DECLINES this buffer ...
+        budget = fe_mod._fe_effective_buffer_budget_bytes(int(5.7 * 2**30), n_workers=2)
+        assert buf > budget, "fixture must exceed the relative budget to exercise the headroom path"
+        # ... but the headroom acceptance path HOISTS it.
+        can, bb, av = fe_mod._can_hoist_shared_buffer(buf, n_workers=2)
+        assert can is True
+        assert bb == buf
+
+    def test_large_n_buffer_still_declines(self, monkeypatch):
+        """A buffer whose peak footprint (buffer * overhead * workers) would push free RAM below
+        the reserve must DECLINE -- the headroom path must not weaken large-n OOM protection."""
+        avail = int(5.7 * 2**30)
+        self._force_avail(monkeypatch, avail)
+        big = int(avail / 3)  # *3 overhead *2 workers => ~11 GiB footprint >> 5.7 GiB available
+        can, _bb, _av = fe_mod._can_hoist_shared_buffer(big, n_workers=2)
+        assert can is False
+
+    def test_headroom_path_disabled_by_zero_ratio(self, monkeypatch):
+        """A zeroed budget (fallback-forcing knob) must decline even a tiny buffer."""
+        self._force_avail(monkeypatch, int(8 * 2**30))
+        monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
+        can, _bb, _av = fe_mod._can_hoist_shared_buffer(1024, n_workers=1)
+        assert can is False
+
+    def test_headroom_overhead_resolver_env_override(self, monkeypatch):
+        """The headroom overhead multiplier honours the env override (KTC-tunable knob)."""
+        monkeypatch.setenv("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD", "5.0")
+        assert fe_mod._fe_hoist_headroom_overhead() == 5.0
+        monkeypatch.setenv("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD", "garbage")
+        assert fe_mod._fe_hoist_headroom_overhead() == fe_mod._FE_HOIST_HEADROOM_OVERHEAD
+
+
 class TestSubsampleMode:
     """subsample_n > 0 forces the MI sweep onto a row subset but survivor
     columns must still be produced at full n (mrmr.py contract)."""

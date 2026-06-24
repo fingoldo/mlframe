@@ -87,6 +87,66 @@ _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.3
 # narrower chunk simply means more (smaller) batched passes over the SAME candidates.
 _FE_PEAK_OVERHEAD_FACTOR: float = 3.0
 
+# HOIST-GATE RE-CALIBRATION (2026-06-24). The conservative ``_fe_effective_buffer_budget_bytes``
+# envelope (raw 0.3*usable / overhead / n_workers) is the RIGHT cap for the chunk WIDTH and for
+# the large-n OOM ceiling, but it OVER-DECLINES a buffer that is SMALL RELATIVE TO AVAILABLE RAM:
+# on the F2 100k fit a 222.5 MiB single-pair buffer was declined with 5.7 GiB available, because
+# 0.3*(5.7-3.0)GiB / (3.0 overhead * 2 workers) = ~138 MiB < 222.5 MiB. That decline forced 15370
+# pairs onto the serial ``discretize_array(quantile)`` recompute-fallback path instead of the
+# already-bit-parity-validated ``discretize_2d_quantile_batch`` batch path the hoisted buffer
+# routes to. The decline was spurious: the buffer's REALISTIC peak footprint (buffer * overhead *
+# n_workers = 1.3 GiB) leaves 4.4 GiB free -- far above the 3 GiB reserve -- so there was never any
+# OOM risk. The fix (in ``_can_hoist_shared_buffer``) adds an ABSOLUTE-HEADROOM acceptance path:
+# hoist when the buffer's peak footprint still leaves at least ``_fe_min_free_ram_bytes()`` of host
+# RAM free, EVEN IF it exceeds the conservative relative budget. This moves the 15370 serial calls
+# onto the validated batch path WITHOUT weakening the large-n protection: at large n the buffer
+# footprint approaches ``available`` and the headroom path declines too (free-after < reserve), so
+# the OOM ceiling is intact. Selection is unaffected -- the batch path the buffer routes to is
+# documented byte-identical to the recompute path (the hoist/recompute decision only chooses HOW
+# the survivors are produced, never WHICH). ``_FE_HOIST_HEADROOM_OVERHEAD`` is the peak-footprint
+# multiplier for THIS headroom check (defaults to the same conservative overhead so the worst-case
+# coexisting-buffer sum is accounted for); routed through the per-host kernel_tuning_cache so a box
+# with measured-tighter or measured-looser real peaks can record its own value (never hardcode a
+# per-HW memory threshold -- mlframe is shared infra). Override via env ``MLFRAME_FE_HOIST_HEADROOM_OVERHEAD``.
+_FE_HOIST_HEADROOM_OVERHEAD: float = 3.0
+
+
+def _fe_hoist_headroom_overhead() -> float:
+    """Peak-footprint multiplier for the absolute-headroom hoist acceptance path.
+
+    Resolution order: env ``MLFRAME_FE_HOIST_HEADROOM_OVERHEAD`` (if set + parseable and > 0)
+    overrides the per-host ``kernel_tuning_cache`` entry under key ``fe_hoist_headroom_overhead``
+    (field ``overhead``), which overrides the module constant ``_FE_HOIST_HEADROOM_OVERHEAD``
+    (default 3.0, matching the conservative coexisting-buffer multiple). NEVER hardcode a per-HW
+    memory threshold; the cache lets a quiet/large-RAM box record a measured value. Read live each
+    call so tests / callers can monkeypatch the constant or env. Cold/missing cache + missing env
+    falls through to the safe constant default -- byte-identical to the pre-KTC behaviour."""
+    import os
+
+    val = float(_FE_HOIST_HEADROOM_OVERHEAD)
+    try:
+        from ._kernel_tuning import get_kernel_tuning_cache
+
+        _cache = get_kernel_tuning_cache()
+        if _cache is not None:
+            tuned = _cache.lookup("fe_hoist_headroom_overhead")
+            if tuned:
+                _v = float(tuned.get("overhead", 0.0) or 0.0)
+                if _v > 0.0:
+                    val = _v
+    except Exception:
+        pass
+    env = os.environ.get("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD")
+    if env is not None:
+        try:
+            _e = float(env)
+            if _e > 0.0:
+                val = _e
+        except (TypeError, ValueError):
+            pass
+    return val
+
+
 # ABSOLUTE FREE-RAM FLOOR (2026-06-13). The ``_FE_BUFFER_RAM_BUDGET_RATIO`` (0.3) cap is RELATIVE: on
 # a small-RAM host with lots of free RAM it still sizes a multi-GB buffer (observed ~9 GiB peak for a
 # full-n diagnostic), leaving NO guaranteed free headroom for the rest of the process / other procs.
@@ -332,7 +392,31 @@ def _can_hoist_shared_buffer(
         budget = _fe_effective_buffer_budget_bytes(available, n_workers=n_workers)
     else:
         budget = int(available * budget_ratio)
-    return buffer_bytes < budget, buffer_bytes, available
+    if buffer_bytes < budget:
+        return True, buffer_bytes, available
+    # ABSOLUTE-HEADROOM ACCEPTANCE (2026-06-24): the conservative relative budget over-declines a
+    # buffer that is small relative to available RAM (the F2 100k 222 MiB-at-5.7 GiB case). Accept
+    # the buffer anyway when its REALISTIC peak footprint (buffer * overhead * n_workers, covering
+    # the coexisting disc/MI/single-pair buffers AND concurrent threading workers) still leaves at
+    # least the host-global ``_fe_min_free_ram_bytes()`` reserve free. This is strictly safer than
+    # the relative budget at the OOM boundary: at large n the footprint approaches ``available`` and
+    # free-after drops below the reserve, so this path declines too -- the large-n protection holds.
+    # Only the relative (over-conservative) gate is relaxed; selection is unchanged (the batch path
+    # the buffer routes to is byte-identical to the recompute fallback). overhead_aware==False keeps
+    # the raw single-buffer semantics (no coexisting siblings) and skips this footprint path.
+    # A zeroed budget is the callers'/tests' explicit "disable hoisting entirely" signal (the
+    # fallback-forcing knob, e.g. monkeypatching ``_FE_BUFFER_RAM_BUDGET_RATIO`` to 0.0 -> budget==0
+    # via ``_fe_effective_buffer_budget_bytes``, OR passing ``budget_ratio<=0`` on the raw path). The
+    # headroom path honours either so the disable knob always declines. ``budget > 0`` covers both:
+    # the overhead-aware budget is 0 iff the live ratio (or usable RAM) is 0; the raw budget is 0 iff
+    # ``budget_ratio<=0``.
+    if overhead_aware and budget > 0 and budget_ratio > 0.0:
+        reserve = _fe_min_free_ram_bytes()
+        nw = max(1, int(n_workers))
+        peak_footprint = int(buffer_bytes) * _fe_hoist_headroom_overhead() * nw
+        if available - peak_footprint >= reserve:
+            return True, buffer_bytes, available
+    return False, buffer_bytes, available
 
 
 # Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
