@@ -59,19 +59,21 @@ def _eval(basis: dict, z: np.ndarray, c: np.ndarray, params: dict) -> np.ndarray
 # ---------------------------------------------------------------------------
 
 class TestDegenerateInputs:
-    def test_fourier_fit_constant_array_uses_span_epsilon(self):
-        # hi == lo path: span clamped to 1e-12 so z = (x - lo) / 1e-12 - we mainly assert no NaN / no ZeroDivision.
+    def test_fourier_fit_constant_array_maps_degenerate_to_zero(self):
+        # hi == lo: a constant column is degenerate. Rather than a 1e-12 span floor (which amplifies a single
+        # outlier's rounding noise into a high-frequency sin(2*pi*k*z) garbage feature), fit maps it to z=0 and
+        # flags degenerate; apply must honour the flag instead of dividing by the 0.0 span.
         b = EXTRA_BASES["fourier"]
         x = np.full(20, 3.14, dtype=np.float64)
         z, params = b["fit"](x)
         assert z.shape == x.shape
-        assert math.isfinite(params["span"])
-        assert params["span"] > 0.0
-        # Re-apply: must equal original z within tolerance.
+        assert params["degenerate"] is True
+        assert params["span"] == 0.0
+        assert np.all(z == 0.0)
+        # Re-apply must honour the degenerate flag and return the same all-zero z (no division by span=0.0).
         z2 = b["apply"](x, params)
         np.testing.assert_allclose(z, z2)
-        # All identical -> after normalisation all z entries equal.
-        assert np.allclose(z, z[0])
+        assert np.all(np.isfinite(z2))
 
     def test_fourier_fit_single_element(self):
         b = EXTRA_BASES["fourier"]
@@ -103,19 +105,24 @@ class TestDegenerateInputs:
         assert np.all(params["thresholds"] == -5.0)
 
     def test_pade_fit_constant_array(self):
-        # std == 0 path: floor at 1e-12 -> z huge but finite.
+        # std == 0: a constant column is degenerate. An additive 1e-12 std floor would blow a single outlier to
+        # z~8 and feed the rational Horner a garbage feature, so fit maps it to z=0 and flags degenerate instead.
         b = EXTRA_BASES["pade"]
         x = np.full(30, 1.5, dtype=np.float64)
         z, params = b["fit"](x)
         assert np.all(np.isfinite(z))
-        assert params["std"] > 0.0
+        assert np.all(z == 0.0)
+        assert params["degenerate"] is True
+        assert params["std"] == 0.0
 
-    def test_pade_apply_uses_std_floor(self):
-        # apply path divides by max(std, 1e-12) - exercise the max() branch.
+    def test_pade_apply_degenerate_returns_zeros(self):
+        # apply honours the degenerate flag set by fit (std==0.0 always arrives with degenerate=True from fit),
+        # returning all-zeros without dividing by the 0.0 std.
         b = EXTRA_BASES["pade"]
         x = np.array([1.0, 1.0, 1.0], dtype=np.float64)
-        z = b["apply"](x, dict(mean=1.0, std=0.0))
+        z = b["apply"](x, dict(mean=1.0, std=0.0, degenerate=True))
         assert np.all(np.isfinite(z))
+        assert np.all(z == 0.0)
 
     def test_rbf_eval_empty_coefs_returns_zeros(self):
         # nc == 0 guard in kernel.
