@@ -320,6 +320,29 @@ User directive (2026-06-04): "под reject ты понимаешь, что па
 дефолты, но сам код-то остался — на случай если захотим перетестировать потом" —
 yes, and commit the rejected benches too.
 
+## A VALIDATED improvement that breaks a test → re-frame the STALE test, don't revert the win (CRITICAL)
+
+When a validated improvement (perf OR quality) makes a test fail — ESPECIALLY a test-vs-test
+contradiction demanding opposite things of the SAME input/formula — reverting the improvement is the
+WRONG default. Decide which party is stale, and ADVOCATE this yourself without being told:
+1. Bisect to the exact breaking assertion. Inspect what the new behavior actually produces.
+2. Is the real CONTRACT satisfied (e.g. "both signal pairs COVERED" — fused in one compound OR
+   separate), with NO substantive regression (no noise admitted, biz-value R²/selection equal-or-better)?
+   If yes, the failing assertion is an outdated SHAPE PROXY, not the contract.
+3. Look for the codebase ENDORSING the new behavior elsewhere — a comment/docstring/sibling test calling
+   the new form "the ideal", or the goal test demanding it. That self-endorsement is strong proof the
+   failing assertion is the stale one. (Real case: `test_canonical_default_finds_both_signal_pairs`
+   demanded ≥2 separate halves while `test_biz_value_mrmr_fe_canonical.py:212` itself called the single
+   fused compound "the ideal" + the F2 goal test demanded exactly that → re-frame the ≥2-halves assertion
+   to "both pairs COVERED, fused OR separate".)
+4. Re-frame the assertion to the real contract + comment citing the evidence. This is NOT forcing-green —
+   PROVE the contract holds (both pairs present, biz-value equal/better).
+Revert is the LAST resort, only when BOTH (a) the new behavior is genuinely wrong/admits noise/regresses
+biz-value, AND (b) the improvement can't be gated on a measured safe predicate to spare the legitimate
+test. Even then, GATE-don't-revert (fire the win only where it's correct). Same call already made for
+`engineered_replay` (kind ∈ valid set, not one hardcoded kind) and `smooth_interaction` (I5 no-harm
+biz-value contract, not the stale raw-operand shape).
+
 ## pyutilz hotspots are in scope — optimize them too (CRITICAL)
 
 ``pyutilz`` (``D:/Upd/Programming/PythonCodeRepository/pyutilz``) is OUR
