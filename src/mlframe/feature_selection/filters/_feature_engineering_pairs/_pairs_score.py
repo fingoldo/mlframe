@@ -405,6 +405,9 @@ def _score_one_pair(
                 i = 0
 
             if not _gpu_fused_done:
+                # The GPU-prep candidate loop above advances ``i`` to size the fused launch; if the GPU-binning gate declines (no device / below crossover) we reach here with NO exception,
+                # so the ``except``-path ``i = 0`` reset never ran -- restart the column cursor before the CPU materialise, else it overruns ``final_transformed_vals`` (``_batch_candidates``/``_disc_2d`` keep their pre-try init).
+                i = 0
                 for transformations_pair in combs:
                     if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
                         continue
