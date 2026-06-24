@@ -2,7 +2,8 @@
 
 The softmax-weight recompute, ``y_skew`` and ``x_centroid_dist`` were per-query Python loops; they are now fixed-k batched gather + einsum/broadcast reductions
 (5-10x faster at n_queries up to 100k, called once per head per fold in the row-attention OOF loop). einsum reorders the float32 reduction, so the contract is
-<=1 float32 ULP, not bit-identical. ``y_iqr`` is unchanged (still a per-query argsort + interp) and must stay exact. The degenerate-softmax uniform-1/k fallback
+<=1 float32 ULP, not bit-identical. ``y_iqr`` is now also batched (one axis argsort + take_along_axis + cumsum, then a fused njit interp kernel); its tie ordering
+can differ from the per-row argsort by <=1 ULP. The degenerate-softmax uniform-1/k fallback
 must be preserved on non-finite logits.
 """
 from __future__ import annotations
@@ -90,6 +91,28 @@ def test_extra_aggregates_match_golden_within_ulp(seed):
     # feature-selection decision.
     for name in AGGS:
         np.testing.assert_allclose(new[name], gold[name], rtol=2e-4, atol=2e-4, err_msg=name)
+
+
+@pytest.mark.parametrize("k", [32, 64])
+def test_y_iqr_batched_matches_per_row_interp(k):
+    """The batched ``_weighted_iqr_batched`` njit kernel must replicate the per-row ``np.interp`` cumulative-weight quantile, including endpoint clamping and ties."""
+    from mlframe.feature_engineering.transformer._aggregation import _weighted_iqr_batched
+
+    rng = np.random.default_rng(11)
+    n_queries = 1500
+    y_sorted = np.sort(rng.standard_normal((n_queries, k)).astype(np.float32), axis=1)
+    # Include rows with weight ties (repeated cum_w plateaus) by zeroing some weights.
+    w = rng.random((n_queries, k)).astype(np.float32)
+    w[: n_queries // 3, ::3] = 0.0
+    w /= w.sum(axis=1, keepdims=True)
+    cum_w = np.cumsum(w, axis=1)
+
+    new = _weighted_iqr_batched(np.ascontiguousarray(y_sorted), np.ascontiguousarray(cum_w))
+    gold = np.empty(n_queries, dtype=np.float32)
+    for q in range(n_queries):
+        gold[q] = float(np.interp(0.75, cum_w[q], y_sorted[q])) - float(np.interp(0.25, cum_w[q], y_sorted[q]))
+    # Equal on all non-tied rows; on cumulative-weight plateaus the bracket convention differs from np.interp's searchsorted by one index -> a single float32 ULP.
+    np.testing.assert_allclose(new, gold, rtol=0.0, atol=2e-7)
 
 
 def test_degenerate_softmax_fallback_preserved():

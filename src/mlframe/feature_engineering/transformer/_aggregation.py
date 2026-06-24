@@ -152,6 +152,44 @@ def batch_weighted_vector_mean(  # pragma: no cover
             out[q, d] = s * inv
 
 
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _weighted_iqr_batched(y_sorted: np.ndarray, cum_w: np.ndarray) -> np.ndarray:  # pragma: no cover
+    """Per-row weighted IQR via cumulative-weight quantile interpolation, replicating ``np.interp(q, cum_w_row, y_sorted_row)``.
+
+    ``y_sorted`` / ``cum_w`` are (n_queries, k) with each row already sorted by neighbour target and its weights cumulatively summed. For the 0.25 / 0.75 quantile
+    points this reproduces numpy's ``interp`` exactly: clamp to the first / last value outside the cumulative-weight range, otherwise linear-interpolate between the
+    two bracketing samples found by an ascending scan (numpy uses the same ``xp[j-1] < x <= xp[j]`` bracket on monotone ``xp``).
+    """
+    n_queries, k = y_sorted.shape
+    out = np.empty(n_queries, dtype=np.float32)
+    for q in numba.prange(n_queries):
+        lo = cum_w[q, 0]
+        hi = cum_w[q, k - 1]
+        q25 = _interp_one(0.25, cum_w[q], y_sorted[q], k, lo, hi)
+        q75 = _interp_one(0.75, cum_w[q], y_sorted[q], k, lo, hi)
+        out[q] = np.float32(float(q75) - float(q25))
+    return out
+
+
+@numba.njit(cache=True, nogil=True, inline="always")
+def _interp_one(x: float, xp: np.ndarray, fp: np.ndarray, k: int, lo: float, hi: float) -> float:  # pragma: no cover
+    """Scalar ``np.interp(x, xp, fp)`` for ascending ``xp`` of length ``k`` (endpoints ``lo``/``hi`` precomputed)."""
+    if x <= lo:
+        return float(fp[0])
+    if x >= hi:
+        return float(fp[k - 1])
+    j = 1
+    while j < k and xp[j] < x:
+        j += 1
+    x0 = float(xp[j - 1])
+    x1 = float(xp[j])
+    f0 = float(fp[j - 1])
+    f1 = float(fp[j])
+    if x1 == x0:
+        return f1
+    return f0 + (f1 - f0) * (x - x0) / (x1 - x0)
+
+
 def compute_extra_aggregates(
     q_proj: np.ndarray,
     k_proj: np.ndarray,
@@ -195,19 +233,15 @@ def compute_extra_aggregates(
     out: dict[str, np.ndarray] = {}
 
     if "y_iqr" in aggregates:
-        # Weighted IQR via cumulative-weight quantile. For each query: sort neighbour targets, find values at cumulative weights 0.25 and 0.75.
-        y_iqr = np.empty(n_queries, dtype=np.float32)
-        for q in range(n_queries):
-            y_q = y_train[topk_ids[q]]
-            order = np.argsort(y_q)
-            y_sorted = y_q[order]
-            w_sorted = weights[q][order]
-            cum_w = np.cumsum(w_sorted)
-            # find 25th and 75th percentile by cumulative weight crossing.
-            q25 = float(np.interp(0.25, cum_w, y_sorted))
-            q75 = float(np.interp(0.75, cum_w, y_sorted))
-            y_iqr[q] = q75 - q25
-        out["y_iqr"] = y_iqr
+        # Weighted IQR via cumulative-weight quantile: per row, the values at cumulative weights 0.25 and 0.75. Batched one argsort + take_along_axis + cumsum over
+        # all queries, then a fused njit kernel replays numpy's per-row ``interp`` bracket. Tie ordering between the per-row 1-D argsort and the batched axis argsort
+        # can differ, drifting the interp by <=1 float32 ULP -- an uncertainty proxy where that is selection-irrelevant.
+        y_nbr = y_train[topk_ids]
+        order = np.argsort(y_nbr, axis=1)
+        y_sorted = np.take_along_axis(y_nbr, order, axis=1)
+        w_sorted = np.take_along_axis(weights, order, axis=1)
+        cum_w = np.cumsum(w_sorted, axis=1)
+        out["y_iqr"] = _weighted_iqr_batched(np.ascontiguousarray(y_sorted), np.ascontiguousarray(cum_w))
 
     if "y_skew" in aggregates:
         # Weighted skewness (biased): E[(y - mean)^3] / std^3, vectorised over all queries (fixed k).

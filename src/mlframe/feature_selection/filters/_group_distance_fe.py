@@ -50,6 +50,12 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+try:
+    from numba import njit
+    _HAVE_NUMBA = True
+except ImportError:  # numba is an optional dep; fall back to scipy below.
+    _HAVE_NUMBA = False
+
 from ._internals import group_key_strings
 
 logger = logging.getLogger(__name__)
@@ -125,13 +131,62 @@ def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray,
     return float(np.sum(p * np.log(p / q)))
 
 
+if _HAVE_NUMBA:
+
+    @njit(cache=True)
+    def _wasserstein1_sorted_kernel(u_sorted, v_sorted) -> float:
+        """Exact Wasserstein-1 between two PRE-SORTED empirical distributions in
+        O(nu + nv). Reproduces ``scipy.stats._cdf_distance(p=1)``: the integral of
+        ``|CDF_u - CDF_v|`` over the merged support. A two-pointer merge tracks the
+        running counts ``i`` / ``j`` consumed from each side, which equal
+        ``searchsorted(prev, 'right')`` of u / v at every step -- so no per-step
+        searchsorted and, crucially, no re-sort of the (already-sorted) global array
+        that scipy would redo on every group call.
+        """
+        nu = u_sorted.size
+        nv = v_sorted.size
+        if nu == 0 or nv == 0:
+            return 0.0
+        i = 0
+        j = 0
+        prev = u_sorted[0] if u_sorted[0] <= v_sorted[0] else v_sorted[0]
+        total = 0.0
+        nu_f = float(nu)
+        nv_f = float(nv)
+        while i < nu or j < nv:
+            take_u = i < nu and (j >= nv or u_sorted[i] <= v_sorted[j])
+            cur = u_sorted[i] if take_u else v_sorted[j]
+            if cur != prev:
+                d = float(i) / nu_f - float(j) / nv_f
+                if d < 0.0:
+                    d = -d
+                total += d * (cur - prev)
+                prev = cur
+            if take_u:
+                i += 1
+            else:
+                j += 1
+        return total
+
+
 def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
     """Wasserstein-1 (earth-mover) distance between the group's empirical
     distribution and the global one, via the integral of |CDF_group - CDF_global|.
-    Reuses ``scipy.stats.wasserstein_distance`` when available; otherwise a
-    pure-numpy quantile-grid approximation."""
+
+    ``global_sorted`` is already sorted by the caller (a per-num_col invariant);
+    the njit merge kernel exploits that to compute the exact scipy integral in
+    linear time instead of re-sorting the global array per group. Falls back to
+    ``scipy.stats.wasserstein_distance`` when numba is unavailable, and to a
+    pure-numpy quantile grid when scipy is also missing."""
     if group_vals.size == 0 or global_sorted.size == 0:
         return 0.0
+    if _HAVE_NUMBA:
+        return float(
+            _wasserstein1_sorted_kernel(
+                np.sort(np.ascontiguousarray(group_vals, dtype=np.float64)),
+                np.ascontiguousarray(global_sorted, dtype=np.float64),
+            )
+        )
     try:
         from scipy.stats import wasserstein_distance
         return float(wasserstein_distance(group_vals, global_sorted))
