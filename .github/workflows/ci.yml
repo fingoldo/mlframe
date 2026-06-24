@@ -105,9 +105,16 @@ jobs:
         # consistent plan. Two sequential `uv pip install --system` passes left the env without numpy: the
         # second pass uninstalled the first pass's numpy (a version bump on py3.10+) without reinstalling it,
         # so every numpy-dependent import (sklearn et al.) died at "Show installed versions".
+        # --reinstall-package numpy: `uv pip install --system` resolves numpy as a transitive dep of
+        # sklearn/pandas/etc. but then EXCLUDES it from the install set as "already satisfied", while it is
+        # in fact absent from the interpreter's site-packages -- so every numpy-dependent import (sklearn et
+        # al.) died with ModuleNotFoundError at the next step. Forcing a numpy reinstall guarantees its files
+        # actually land on disk. The trailing import check fails loudly here (not three steps later) if numpy
+        # is still missing, so a future regression is obvious at the install step.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
+          uv pip install --system --reinstall-package numpy "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
+          python -c "import numpy, sklearn; print('numpy', numpy.__version__, '| sklearn', sklearn.__version__)"
 
       - name: Show installed versions
         run: |
