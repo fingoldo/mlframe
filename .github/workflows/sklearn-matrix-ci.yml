@@ -56,6 +56,11 @@ jobs:
     name: sklearn ${{ matrix.sklearn-version }} on py${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # Force bash on every OS: the run steps below use bash backslash line-continuations, which the
+    # windows-latest default shell (PowerShell) cannot parse (ParserError). Git Bash ships on the Windows runner.
+    defaults:
+      run:
+        shell: bash
     # Newest-Python rows are non-blocking until the optional-extra ecosystem
     # finishes publishing cp314 wheels (see ci.yml for the same rationale).
     continue-on-error: ${{ matrix.experimental || false }}
