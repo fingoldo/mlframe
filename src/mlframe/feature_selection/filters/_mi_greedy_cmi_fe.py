@@ -702,8 +702,12 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
     Kx = (int(dx.max()) + 1) if dx.size else 1
 
+    from ._fe_batched_mi import joint_nnz_gpu
+
     def _nc(codes, cards):
-        return _nnz_from_counts(joint_counts_gpu(codes, cards))
+        # occupied-cell count fused into the histogram pass (atomicAdd 0->1 trick) -> ONE launch, vs
+        # joint_counts_gpu + _nnz_from_counts (two). Integer cardinality -> identical df.
+        return joint_nnz_gpu(codes, cards)
 
     # CROSS-CALL CACHE of the (y,z)-only cardinalities (launch-reduction). In the analytic-null df the gate
     # scores MANY candidates against the SAME (y target, z support) within a greedy round, so k_z / k_yz

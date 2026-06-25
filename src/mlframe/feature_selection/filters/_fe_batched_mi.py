@@ -310,6 +310,29 @@ void batched_joint_hist1(const long long* __restrict__ X, const int Kx, const lo
     long long xv = X[row * (long long)K + col];
     atomicAdd((unsigned long long*)&counts[col * (long long)Kx + xv], 1ULL);
 }
+// OCCUPIED-CELL count in the SAME pass as the histogram: atomicAdd returns the OLD value, so a cell's
+// 0 -> 1 transition (first sample landing there) is detected race-free and bumps a single global nnz
+// counter. ONE launch yields the cardinality joint_cardinalities_cupy needs -- no separate _nnz reduction.
+extern "C" __global__
+void joint_hist_nnz1(const long long* __restrict__ a, const long long n,
+                     long long* __restrict__ counts, unsigned long long* __restrict__ nnz) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n && atomicAdd((unsigned long long*)&counts[a[i]], 1ULL) == 0ULL) atomicAdd(nnz, 1ULL);
+}
+extern "C" __global__
+void joint_hist_nnz2(const long long* __restrict__ a, const long long* __restrict__ b, const int Kb,
+                     const long long n, long long* __restrict__ counts, unsigned long long* __restrict__ nnz) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n && atomicAdd((unsigned long long*)&counts[a[i] * Kb + b[i]], 1ULL) == 0ULL) atomicAdd(nnz, 1ULL);
+}
+extern "C" __global__
+void joint_hist_nnz3(const long long* __restrict__ a, const long long* __restrict__ b,
+                     const long long* __restrict__ c, const int Kb, const int Kc, const long long n,
+                     long long* __restrict__ counts, unsigned long long* __restrict__ nnz) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n && atomicAdd((unsigned long long*)&counts[(a[i] * Kb + b[i]) * Kc + c[i]], 1ULL) == 0ULL)
+        atomicAdd(nnz, 1ULL);
+}
 """
 _JOINT_HIST_KERNELS = None
 
@@ -444,6 +467,46 @@ def joint_counts_gpu(codes, cards):
         h3((blocks,), (threads,), (codes[0], codes[1], codes[2],
                                    np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts))
     return counts
+
+
+_JOINT_NNZ_KERNELS = None
+
+
+def _get_joint_nnz_kernels():
+    global _JOINT_NNZ_KERNELS
+    if _JOINT_NNZ_KERNELS is None:
+        import cupy as cp
+        mod = cp.RawModule(code=_JOINT_HIST_SRC)
+        _JOINT_NNZ_KERNELS = (mod.get_function("joint_hist_nnz1"),
+                              mod.get_function("joint_hist_nnz2"),
+                              mod.get_function("joint_hist_nnz3"))
+    return _JOINT_NNZ_KERNELS
+
+
+def joint_nnz_gpu(codes, cards):
+    """Occupied-cell COUNT (cardinality) of the joint of 1-3 device code arrays in ONE launch -- the
+    histogram atomicAdd and the nonzero count fuse via the atomicAdd-returns-old 0->1 trick, so no separate
+    cp.bincount / _nnz reduction. ``codes`` cupy int64 (n,); ``cards`` the matching cardinalities. Returns a
+    Python int. The count is exact (integer) -> identical to ``_nnz_from_counts(joint_counts_gpu(...))``."""
+    import cupy as cp
+
+    n = int(codes[0].size)
+    M = 1
+    for kc in cards:
+        M *= int(kc)
+    counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)        # cudaMemsetAsync, not a cuLaunchKernel
+    nnz = cp.zeros(1, dtype=cp.uint64)                       # cudaMemsetAsync, not a cuLaunchKernel
+    threads = 256
+    blocks = (n + threads - 1) // threads
+    h1, h2, h3 = _get_joint_nnz_kernels()
+    if len(codes) == 1:
+        h1((blocks,), (threads,), (codes[0], np.int64(n), counts, nnz))
+    elif len(codes) == 2:
+        h2((blocks,), (threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), counts, nnz))
+    else:
+        h3((blocks,), (threads,), (codes[0], codes[1], codes[2],
+                                   np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts, nnz))
+    return int(nnz.get()[0])
 
 
 def batched_quantile_bin_gpu(x_cols, nbins: int):
