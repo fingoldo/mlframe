@@ -140,10 +140,7 @@ def test_finalize_suite_stamps_cache_stats_on_metadata():
     from mlframe.training.core._training_context import TrainingContext
 
     # Construct a minimal ctx by leveraging the dataclass defaults.
-    try:
-        ctx = TrainingContext()
-    except Exception as exc:
-        pytest.skip(f"TrainingContext default construction not supported: {exc!r}")
+    ctx = TrainingContext()
 
     # Pre-populate the cache_stats accumulator the way _train_one_target would.
     ctx._cache_stats = {
@@ -160,10 +157,7 @@ def test_finalize_suite_stamps_cache_stats_on_metadata():
     # finalize_suite walks ctx.models for fairness reports + selected features and then writes metadata
     # to disk. We don't want a real disk write -- ctx.data_dir defaults to None which short-circuits the
     # save (see _finalize_and_save_metadata). Just call finalize_suite and assert the stamp lands.
-    try:
-        metadata = finalize_suite(ctx)
-    except Exception as exc:
-        pytest.skip(f"finalize_suite raised in this minimal ctx environment: {exc!r}")
+    metadata = finalize_suite(ctx)
 
     assert "cache_stats" in metadata
     _cs = metadata["cache_stats"]

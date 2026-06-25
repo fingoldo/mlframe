@@ -281,16 +281,13 @@ def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        try:
-            _result = train_mlframe_models_suite(
-                df=df, target_name="target", model_name="fs_report_smoke",
-                features_and_targets_extractor=fte,
-                mlframe_models=["linear"],
-                feature_selection_config=fs_cfg,
-                use_mlframe_ensembles=False, verbose=0,
-            )
-        except Exception as exc:
-            pytest.skip(f"suite call failed in test environment: {exc!r}")
+        _result = train_mlframe_models_suite(
+            df=df, target_name="target", model_name="fs_report_smoke",
+            features_and_targets_extractor=fte,
+            mlframe_models=["linear"],
+            feature_selection_config=fs_cfg,
+            use_mlframe_ensembles=False, verbose=0,
+        )
 
     # train_mlframe_models_suite returns (models, metadata, ...) tuple or a ctx; normalise.
     metadata = None
