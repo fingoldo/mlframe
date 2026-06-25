@@ -3537,10 +3537,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                 _ycorr_thr = float(getattr(self, "mrmr_identity_cache_ycorr_threshold", 0.0) or 0.0)
                 _ycorr_ok = True
                 _measured_corr = None
-                if _ycorr_thr > 0.0 and _prior_y_sample is not None:
-                    _measured_corr = _mrmr_y_corr(_mrmr_y_corr_sample(y), _prior_y_sample)
-                    # NaN corr (constant sample / mismatched length) is treated as "cannot confirm" -> refuse.
-                    _ycorr_ok = _measured_corr is not None and abs(_measured_corr) >= _ycorr_thr
+                if _ycorr_thr > 0.0:
+                    if _prior_y_sample is not None:
+                        _measured_corr = _mrmr_y_corr(_mrmr_y_corr_sample(y), _prior_y_sample)
+                        # NaN corr (constant sample / mismatched length) is treated as "cannot confirm" -> refuse.
+                        _ycorr_ok = _measured_corr is not None and abs(_measured_corr) >= _ycorr_thr
+                    else:
+                        # The user asked for the y-correlation safety gate (thr > 0) but the cached entry is the
+                        # legacy bool format with no prior y-sample to check against -- we cannot confirm the new
+                        # target matches the one that produced the cached identity selection. Refuse the shortcut
+                        # and run a full fit rather than emit a selection that never saw this y.
+                        _ycorr_ok = False
                 if _ycorr_ok:
                     logger.info(
                         "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- "
