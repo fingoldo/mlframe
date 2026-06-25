@@ -324,6 +324,18 @@ def _conditional_perm_null(
         # -> null MARGINAL MI(cand; y). Mean estimates the marginal MI bias at
         # this n; the seed's debiased excess = max(0, marginal_mi - this mean).
         nperm = int(n_permutations)
+        # BATCHED marginal null under STRICT (default OFF -> CPU loop): all nperm free-shuffled columns
+        # into one (n, nperm) matrix (SAME rng draws) -> one batched_cmi_gpu(..., z=None) call.
+        if _cmi_gpu_enabled() and nperm > 1:
+            try:
+                from ._fe_batched_mi import batched_cmi_gpu
+                Xp = np.empty((x.size, nperm), dtype=np.int64)
+                for i in range(nperm):
+                    Xp[:, i] = x[rng.permutation(x.size)]
+                nulls = np.asarray(batched_cmi_gpu(Xp, y, None), dtype=np.float64)
+                return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+            except Exception:
+                pass
         nulls = np.empty(nperm, dtype=np.float64)
         for i in range(nperm):
             x_perm = x[rng.permutation(x.size)]
@@ -372,8 +384,27 @@ def _conditional_perm_null(
     z_rank = np.zeros(x.size, dtype=np.float64)
     if x.size > 1:
         z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
-    nulls = np.empty(int(n_permutations), dtype=np.float64)
-    for i in range(int(n_permutations)):
+    _nperm = int(n_permutations)
+    # BATCHED born-on-device null under STRICT (default OFF -> per-perm CPU loop below). y_i/z_i are
+    # shuffle-invariant; only the within-stratum-shuffled candidate varies per perm -> build all _nperm
+    # shuffled columns into one (n, _nperm) matrix (SAME rng draws as the loop) and score CMI(x_perm; y|z)
+    # for every perm in ONE batched_cmi_gpu workload, replacing _nperm per-call cp.unique CMIs.
+    if _cmi_gpu_enabled() and _nperm > 1:
+        try:
+            from ._fe_batched_mi import batched_cmi_gpu
+            Xp = np.empty((x.size, _nperm), dtype=np.int64)
+            for i in range(_nperm):
+                keys = rng.random(x.size)
+                within = np.argsort(z_rank + keys, kind="stable")
+                xp = np.empty_like(x)
+                xp[order] = x_sorted[within]
+                Xp[:, i] = xp
+            nulls = np.asarray(batched_cmi_gpu(Xp, y_i, z_i), dtype=np.float64)
+            return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+        except Exception:
+            pass  # any cupy error -> exact per-perm CPU loop below
+    nulls = np.empty(_nperm, dtype=np.float64)
+    for i in range(_nperm):
         keys = rng.random(x.size)
         within = np.argsort(z_rank + keys, kind="stable")  # within each (already-sorted) stratum block: random order
         x_perm = np.empty_like(x)
