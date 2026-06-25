@@ -45,6 +45,22 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
     return mis
 
 
+def _orth_mi_gpu_enabled() -> bool:
+    """STRICT-GPU full-coverage mode: route the orth-FE batch MI through the resident-GPU plugin-MI so the
+    whole FE path runs on the device (MLFRAME_FE_GPU_STRICT / MLFRAME_CMI_GPU). Default OFF -> njit
+    dispatcher. STRICT is a diagnostic FULL-GPU mode (every gateable kernel on the device for nsys GPU-load
+    profiling), not a wall-optimised default -- the per-call H2D of host-built candidates is paid here; the
+    wall win needs born-on-device candidates."""
+    import os as _os
+    if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
+        return True
+    try:
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+        return bool(fe_gpu_strict_enabled())
+    except Exception:
+        return False
+
+
 def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.ndarray:
     """Numba prange batch MI(X_j; y) for classification.
 
@@ -93,8 +109,16 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
         else:
             X_dense = np.ascontiguousarray(X[:, dense_cols])
         try:
-            mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
-            mis[dense_cols] = mis_dense
+            if _orth_mi_gpu_enabled():
+                import cupy as cp
+
+                from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+                _Xg = cp.asarray(X_dense, dtype=cp.float64)
+                _yg = cp.asarray(y_i64, dtype=cp.int64)
+                mis[dense_cols] = _plugin_mi_classif_batch_cuda_resident(_Xg, _yg, nbins)
+            else:
+                mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
+                mis[dense_cols] = mis_dense
         except Exception:
             # If the batch path fails for any reason (cupy import error,
             # kernel tuning miss, etc.), fall back to sklearn for the
