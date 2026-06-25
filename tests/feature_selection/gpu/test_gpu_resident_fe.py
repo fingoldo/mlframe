@@ -194,8 +194,16 @@ def test_gpu_resident_emits_replayable_recipe():
     replayed = np.asarray(apply_recipe(recipe, df), dtype=np.float64).ravel()
     assert np.all(np.isfinite(replayed))
     true = a**2 / np.where(b == 0, 1e-9, b)
-    rho = np.corrcoef(replayed, true)[0, 1]
-    assert abs(rho) > 0.99, f"replayed recipe doesn't track a**2/b (|rho|={rho:.3f})"
+    # SELECTION-EQUIVALENCE via RANK correlation (not Pearson). The MI scorer bins equi-frequency
+    # (quantile/rank), so it is MONOTONE-INVARIANT: every monotone spelling of the a-b interaction --
+    # ``mul(sqr(a),reciproc(b))`` (= a**2/b), ``div(a,sqrt(b))`` (= sqrt(a**2/b)), ``mul(reciproc(a),sqrt(b))``
+    # (= 1/sqrt(a**2/b)) -- has the SAME partition, hence IDENTICAL MI (verified: all top-3 tie at MI 2.9957),
+    # and which one wins is a sub-ULP MI tie-break (a fused-kernel ~1e-15 reassociation flips it). All recover
+    # the a**2/b signal; the winner is monotone-equivalent to a**2/b (|Spearman| = 1.0) but need not be LINEAR
+    # in it (a/sqrt(b) gives Pearson ~0.97). Rank correlation is the selection-equivalent recovery metric here.
+    rank = lambda v: np.argsort(np.argsort(v))
+    rho = np.corrcoef(rank(replayed), rank(true))[0, 1]
+    assert abs(rho) > 0.99, f"replayed recipe doesn't monotonically track a**2/b (|spearman|={rho:.3f})"
 
 
 def test_grand_fused_pair_mi_bit_identical_to_cpu():

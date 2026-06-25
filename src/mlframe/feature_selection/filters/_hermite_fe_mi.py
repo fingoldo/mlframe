@@ -307,23 +307,33 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # test_percentile_binning_chunk_invariant). TRADE-OFF: edge-based equi-frequency vs the njit MI's
     # rank-based -> not bit-identical to njit at ties, an approved trade (features unchanged; MRMR
     # selection-equivalence tests still pass). (bench-rejected f32 sort keys: 0.97x, no win.)
-    qs = cp.linspace(0.0, 100.0, n_bins + 1)
-    if k == 1:
-        # CUPY BUG GUARD (2026-06-20): cp.percentile(X, axis=0) returns WRONG edges for a single-column
-        # (n, 1) array (verified maxdiff ~23 vs numpy; multi-column is exact). A k==1 chunk occurs in
-        # production whenever the last VRAM chunk holds one candidate, so this would silently corrupt that
-        # column's binning. Ravel to 1D, where cp.percentile is correct, then restore the (n_bins+1, 1) shape.
-        edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
-    else:
-        edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
-    # Fused single-launch binning: the per-column cp.searchsorted(side='right') loop fired k-1 extra kernel
-    # launches + k int64 temporaries. _searchsorted_codes is the already-validated drop-in (bit-identical:
-    # code = #(interior edges <= value), edges f64-promoted exactly as cp.searchsorted does, with its own
-    # per-column fallback on kernel failure). Lazy import keeps the module-import graph acyclic (cupy-resident
-    # _gpu_resident_fe never top-level-imports this module). astype(int64) only widens the int32 codes
-    # (range [0, n_bins-1]) for the flat-index math below -- value-preserving, no truncation.
+    # Sort-free EXACT interior quantile edges via radix-select (GPU-time reduction): cp.percentile bins via a
+    # comparison MERGE-sort over the whole (n, k) matrix -- the single largest DeviceMergeSort source in the
+    # F2 STRICT profile. _radix_select_interior_edges extracts the same order-statistic edges WITHOUT a sort
+    # and is BIT-IDENTICAL in the resulting codes (maxdiff 0, verified) -- so this preserves the existing
+    # exact contract, no test re-frame. Falls back to cp.percentile when the radix path is inapplicable
+    # (R over cap / shared-mem over limit / k==1 cupy-axis bug) or disabled (MLFRAME_FE_GPU_RADIX_EDGES=0).
+    interior = None
+    if k > 1:
+        try:
+            from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+            if fe_gpu_radix_edges_enabled():
+                interior = _radix_select_interior_edges(X_gpu, n_bins)  # (n_bins-1, k), sort-free, == edges[1:-1]
+        except Exception:
+            interior = None
+    if interior is None:
+        qs = cp.linspace(0.0, 100.0, n_bins + 1)
+        if k == 1:
+            # CUPY BUG GUARD (2026-06-20): cp.percentile(X, axis=0) returns WRONG edges for a single-column
+            # (n, 1) array; ravel to 1D where cp.percentile is correct, then restore shape.
+            edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
+        else:
+            edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
+        interior = edges[1:-1]
+    # Fused single-launch binning: _searchsorted_codes is the already-validated drop-in (bit-identical:
+    # code = #(interior edges <= value)). Lazy import keeps the module-import graph acyclic.
     from ._gpu_resident_fe import _searchsorted_codes
-    X_binned = _searchsorted_codes(X_gpu, edges[1:-1]).astype(cp.int64, copy=False)
+    X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
 
     # Joint hist via single bincount on flat index (col, bin, class).
     j_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
