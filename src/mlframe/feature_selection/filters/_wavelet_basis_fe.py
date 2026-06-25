@@ -238,15 +238,15 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes) -> float:
             ey = cp.quantile(dy.astype(cp.float64), cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
             yb = cp.digitize(dy.astype(cp.float64), ey)
 
-    def _ent(keys):
-        c = cp.unique(keys, return_counts=True)[1].astype(cp.float64)
-        p = c * inv_n
-        return float(-(p * cp.log(p)).sum())
-
-    fa = cp.unique(fb, return_inverse=True)[1]
-    yv = cp.unique(yb, return_inverse=True)[1]
-    kb = int(yv.max()) + 1 if yv.size else 1
-    mi = _ent(fa) + _ent(yv) - _ent(fa * kb + yv)
+    # Fused one-launch MI-from-codes (launch-reduction): the binned feat/y codes ``fb``/``yb`` are already
+    # valid bin indices, so MI(feat; y) = H(feat)+H(y)-H(feat,y) goes through the single RawKernel
+    # (codes -> shared-mem joint histogram -> plug-in MI) instead of three cp.unique-sort + entropy passes.
+    # Same plain plug-in MI partition -> selection-equivalent. Falls back internally to the cupy path if the
+    # (Kx*Ky) shared tile would not fit.
+    from ._fe_batched_mi import binned_mi_from_codes_gpu
+    fb = fb.astype(cp.int64, copy=False)
+    yb = yb.astype(cp.int64, copy=False)
+    mi = float(binned_mi_from_codes_gpu(fb[:, None], yb)[0])
     return float(max(mi, 0.0))
 
 
