@@ -3225,6 +3225,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             defaults[k] = copy.deepcopy(v) if isinstance(v, (list, dict, set)) else v
         for k, v in defaults.items():
             state.setdefault(k, v)
+        # P0 pickle BC: the hand-maintained roster above enumerates only a subset of ctor params, so a pickle
+        # produced before ANY other ctor param existed re-surfaces without it -- and the fit path reads many
+        # via bare ``self.<param>`` (e.g. ``self.dtype``), raising AttributeError before any work. Inject every
+        # remaining ctor default the roster did not cover (roster keys + LEGACY_OVERRIDES already set above keep
+        # their possibly-legacy-divergent values; ``setdefault`` never overwrites them).
+        for k, v in _ctor.items():
+            if k in state:
+                continue
+            state[k] = copy.deepcopy(v) if isinstance(v, (list, dict, set)) else v
         self.__dict__.update(state)
 
     def _maybe_resample_for_sample_weight(self, X, y, sample_weight: np.ndarray | None):
