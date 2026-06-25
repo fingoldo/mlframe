@@ -446,8 +446,11 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, ma
         # Affine map then clip in the float domain BEFORE the (possibly narrow) cast: casting
         # first lets codes > dtype-max wrap negative (int8 modulo), and a later clip then maps
         # those wrapped negatives to bin 0 -- silently collapsing the high-value region.
+        # A denormal-tiny range makes rev_bin_width overflow to inf, so (v-min)*inf is NaN at v==min
+        # (0*inf). NaN passes both ``< 0`` and ``> hi`` (comparisons are False on NaN) and would cast to a
+        # garbage code -- route it to bin 0 (the value sits at the column floor) alongside the negatives.
         c = (v - min_value) * rev_bin_width
-        if c < 0:
+        if c != c or c < 0:
             c = 0.0
         elif c > hi:
             c = float(hi)
@@ -484,7 +487,7 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
             out[i] = nan_code
             continue
         v = (x - min_value) * rev_bin_width
-        if v < 0:
+        if v != v or v < 0:  # NaN from inf*0 on a denormal-tiny range -> column floor, not a garbage cast
             v = 0.0
         elif v > hi:
             v = float(hi)
