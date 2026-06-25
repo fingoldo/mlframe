@@ -317,15 +317,14 @@ class TestWeightAwareFeatureSelectionSuite:
             weight_schemas=("uniform", "weighted"),
         )
 
-        # Weight-blind FS across both schemas: the cache collapses to one fit per target.
+        # Weight-blind FS across both schemas: the cache collapses to one fit per target. A second fit would mean
+        # the FS-cache key spuriously folds the weight schema even though weights are FS-blind here.
         assert all(not r["sw_not_none"] for r in records)
         n_fits = len(records)
-        if n_fits != 1:
-            pytest.xfail(
-                reason=f"PROD BUG: use_sample_weights_in_fs=False ran MRMR.fit {n_fits} times for one target across "
-                "2 weight schemas; the FS-cache reuse invariant expects exactly 1 (second schema should hit the cache)"
-            )
-        assert n_fits == 1
+        assert n_fits == 1, (
+            f"use_sample_weights_in_fs=False ran MRMR.fit {n_fits} times for one target across 2 weight schemas; "
+            "the FS-cache reuse invariant expects exactly 1 (the second schema must hit the cache)"
+        )
 
 
 @pytest.mark.parametrize("use_flag", [False, True])
