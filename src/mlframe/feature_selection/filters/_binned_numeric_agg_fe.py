@@ -371,7 +371,7 @@ def binned_numeric_agg_with_recipes(
     # residual per-cell structure while preserving genuine cell-conditional features (where the per-cell shape
     # adds information the raw marginals cannot).
     if redundancy_gate and feat_df.shape[1] > 0:
-        from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
+        from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _quantile_bin, _renumber_joint
         from ._unified_fe_gate import _coerce_y_classes
 
         y_cls = _coerce_y_classes(y)
@@ -411,11 +411,30 @@ def binned_numeric_agg_with_recipes(
             cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
             null_ceiling = 0.0
             if np.isfinite(cmi) and cmi >= float(min_cmi_gain):
-                _null = np.empty(_n_perm, dtype=np.float64)
-                for _i in range(_n_perm):
-                    yp = y_cls[_rng.permutation(y_cls.shape[0])]
-                    c0 = _cmi_from_binned(cand_bin, yp, z_joint)
-                    _null[_i] = c0 if np.isfinite(c0) else 0.0
+                # BATCHED null (launch-reduction): cand_bin / z_joint are FIXED across the _n_perm shuffles;
+                # only the permuted y varies. Plug-in CMI is symmetric in X and Y, so CMI(cand; yp | z) ==
+                # CMI(yp; cand | z) -- stack the SAME _rng-drawn permuted-y columns into one (n, nperm) matrix
+                # and score them all in ONE batched_cmi_gpu workload (cand as the fixed 'y', z as support),
+                # replacing _n_perm per-perm _cmi_from_binned calls. Identical permutations -> the null ceiling
+                # is selection-equivalent; falls back to the per-perm loop on any error / when GPU is off.
+                _null = None
+                try:
+                    if _cmi_gpu_enabled() and int(_n_perm) > 1:
+                        from ._fe_batched_mi import batched_cmi_gpu
+
+                        _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)
+                        for _i in range(int(_n_perm)):
+                            _Yp[:, _i] = y_cls[_rng.permutation(y_cls.shape[0])]
+                        _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)
+                        _null = np.where(np.isfinite(_null), _null, 0.0)
+                except Exception:
+                    _null = None
+                if _null is None:
+                    _null = np.empty(_n_perm, dtype=np.float64)
+                    for _i in range(_n_perm):
+                        yp = y_cls[_rng.permutation(y_cls.shape[0])]
+                        c0 = _cmi_from_binned(cand_bin, yp, z_joint)
+                        _null[_i] = c0 if np.isfinite(c0) else 0.0
                 # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
                 null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
             keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
