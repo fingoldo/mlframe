@@ -25,16 +25,21 @@ from mlframe.feature_selection.wrappers._noise_floor import (
 
 
 class TestKendallSubsampleSeed:
-    """F9: the >2000-row Kendall subsample must honour the caller's seed."""
+    """The Kendall-tau continuous path now tests at FULL n via tie-corrected ``scipy.stats.kendalltau`` (O(n log n)),
+    NOT a 2000-row random subsample. Mixing a subsampled 2000-row p-value with full-n p-values in one BY-FDR family
+    is invalid (heterogeneous effective-n breaks the procedure's homogeneity assumption) and loses power, so the
+    subsample -- and with it the seed-dependence the F9 fix threaded -- was removed. ``random_state`` is retained for
+    signature/back-compat only and has NO effect on the Kendall p-value. The pre-fix seed-perturbs-subsample
+    behaviour was the stale proxy; the real contract is full-n determinism + more power."""
 
-    def test_distinct_seeds_give_distinct_p_values(self):
+    def test_distinct_seeds_give_identical_full_n_p_values(self):
         rng = np.random.default_rng(1)
-        n = 6000  # > 2000 forces the subsample path
+        n = 6000  # full-n path; no subsample, so the seed cannot perturb the draw
         x = rng.standard_normal(n)
-        y = 0.05 * x + rng.standard_normal(n)  # weak signal so subsample choice perturbs tau/p
+        y = 0.05 * x + rng.standard_normal(n)
         p0 = _kendall_p_numeric_continuous(x, y, random_state=0)
         p1 = _kendall_p_numeric_continuous(x, y, random_state=1)
-        assert p0 != p1, "distinct seeds must draw distinct subsamples (pre-fix both used rng(0))"
+        assert p0 == p1, "full-n Kendall is deterministic; random_state must not change the p-value"
 
     def test_fixed_seed_is_reproducible(self):
         rng = np.random.default_rng(2)
@@ -43,7 +48,7 @@ class TestKendallSubsampleSeed:
         y = 0.05 * x + rng.standard_normal(n)
         assert _kendall_p_numeric_continuous(x, y, random_state=7) == _kendall_p_numeric_continuous(x, y, random_state=7)
 
-    def test_relevance_table_threads_random_state(self):
+    def test_relevance_table_kendall_is_seed_independent(self):
         rng = np.random.default_rng(3)
         n = 6000
         f0 = rng.standard_normal(n)
@@ -51,7 +56,7 @@ class TestKendallSubsampleSeed:
         y = 0.05 * f0 + rng.standard_normal(n)
         p_a = calculate_relevance_table(X, y, ml_task="regression", random_state=0).loc["f0", "p_value"]
         p_b = calculate_relevance_table(X, y, ml_task="regression", random_state=1).loc["f0", "p_value"]
-        assert p_a != p_b
+        assert p_a == p_b
 
 
 class TestNoiseFloorTaskTypes:

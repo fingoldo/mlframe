@@ -87,8 +87,11 @@ def test_bulk_mi_distribution_matches_serial_within_range():
     serial_ix2 = np.empty(n_perms)
     for p in range(n_perms):
         cy_local = cy.copy()
+        # Mirror the bulk kernel's per-perm seed derivation (base_seed + p*2654435761) so each serial shuffle
+        # is a DISTINCT permutation drawn from the same LCG family -> the empirical MI means are comparable.
+        _serial_seed = np.uint64(0xC0FFEE) + np.uint64(p) * np.uint64(2654435761)
         ip_v, ix1_v, ix2_v = _shuffle_and_compute_three_mis(
-            cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.int32,
+            cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, _serial_seed, np.int32,
         )
         serial_ip[p] = ip_v
         serial_ix1[p] = ix1_v
@@ -144,7 +147,7 @@ def test_biz_value_bulk_faster_than_serial():
     )
     cy_local = cy.copy()
     _shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.int32,
+        cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.uint64(0xC0FFEE), np.int32,
     )
 
     iters = 10
@@ -154,7 +157,7 @@ def test_biz_value_bulk_faster_than_serial():
         for _ in range(n_perms):
             cy_local = cy.copy()
             _shuffle_and_compute_three_mis(
-                cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.int32,
+                cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.uint64(0xC0FFEE), np.int32,
             )
     t_serial = time.perf_counter() - t0
 

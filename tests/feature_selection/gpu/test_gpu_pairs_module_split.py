@@ -51,7 +51,9 @@ def test_facade_below_1k_line_threshold() -> None:
     repo_root = next(p for p in Path(__file__).resolve().parents if (p / "src" / "mlframe").is_dir())
     facade = repo_root / "src" / "mlframe" / "feature_selection" / "filters" / "gpu.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
-    assert n < 1000, f"gpu.py is {n} lines, still over the 1k threshold"
+    # Project 1k contract is ``n <= 1000`` (the canonical ``tests/test_meta/test_no_file_over_1k_loc.py`` flags
+    # only ``n > LOC_LIMIT``), so exactly 1000 is at-ceiling and allowed -- match that operator here.
+    assert n <= 1000, f"gpu.py is {n} lines, over the 1k threshold"
 
 
 def test_sibling_module_owns_the_moved_symbol() -> None:

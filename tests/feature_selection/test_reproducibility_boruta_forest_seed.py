@@ -10,9 +10,11 @@ import pytest
 def _make(random_state, classification):
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
+    # sklearn clone-ability: the verbatim ``model`` param stays None; ``check_model`` resolves the default
+    # seeded RandomForest into the learned ``model_`` attribute -- which is where the CON5 seed lands.
     bs = BorutaShap(model=None, classification=classification, random_state=random_state)
     bs.check_model()
-    return bs.model
+    return bs.model_
 
 
 def test_con5_default_forest_is_seeded_classifier():

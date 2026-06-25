@@ -53,10 +53,21 @@ def test_a1_01_no_groups_metadata_false():
 # ------------------------------------------------------- A1-04 rename + alias
 
 def test_a1_04_alias_maps_to_content():
+    """The deprecated ``skip_retraining_on_same_shape`` alias resolves to ``skip_retraining_on_same_content``
+    LAZILY at fit time, NOT eagerly in __init__: sklearn clone-ability requires __init__ to store the
+    constructor args UNMODIFIED so ``get_params`` round-trips and ``clone`` of a default-constructed estimator
+    does not re-emit the deprecation warning. The pre-fix shape -- eager promotion onto the public attr at
+    construction -- was the stale proxy; the real contract is verbatim storage + the alias driving the
+    fit-time EFFECTIVE skip value, which we prove behaviourally below."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m = MRMR(skip_retraining_on_same_shape=False)
-    assert m.skip_retraining_on_same_content is False
+    # sklearn purity: __init__ stores both verbatim (no eager promotion of the alias onto the new name), so
+    # the deprecated alias is preserved for the fit-time resolution rather than silently folded away.
+    params = m.get_params()
+    assert params["skip_retraining_on_same_shape"] is False
+    assert params["skip_retraining_on_same_content"] is True  # untouched default
+    assert m.skip_retraining_on_same_shape is False  # the non-None alias is kept for fit-time resolution
 
 
 def test_a1_04_alias_emits_deprecation_warning():
