@@ -578,7 +578,10 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     inv_n = 1.0 / n
 
     def _ent(keys):
-        c = cp.unique(keys, return_counts=True)[1].astype(cp.float64)
+        # cp.bincount (one kernel) instead of cp.unique (sort = 5-10 cub launches): same partition
+        # counts, selection-equivalent. Mirrors the batched born-on-device path (_fe_batched_mi).
+        c = cp.bincount(keys)
+        c = c[c > 0].astype(cp.float64)
         p = c * inv_n
         return float(-(p * cp.log(p)).sum()), int(c.shape[0])
 
@@ -612,12 +615,15 @@ def joint_cardinalities_cupy(x, y, z):
     dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
     dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
     kz = (int(dz.max()) + 1) if dz.size else 1
-    k_z = int(cp.unique(dz).size)
-    k_xz = int(cp.unique(dx * kz + dz).size)
+    # occupied-cell count = (bincount > 0).sum() (one kernel) instead of cp.unique(...).size (sort).
+    def _ncells(keys):
+        return int((cp.bincount(keys) > 0).sum())
+    k_z = _ncells(dz)
+    k_xz = _ncells(dx * kz + dz)
     yz = dy * kz + dz
-    k_yz = int(cp.unique(yz).size)
+    k_yz = _ncells(yz)
     _big = (int(yz.max()) + 1) if yz.size else 1
-    k_xyz = int(cp.unique(dx * _big + yz).size)
+    k_xyz = _ncells(dx * _big + yz)
     return k_z, k_xz, k_yz, k_xyz
 
 
@@ -632,7 +638,9 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     inv_n = 1.0 / float(n)
 
     def _ent(keys):
-        c = cp.unique(keys, return_counts=True)[1].astype(cp.float64)
+        # cp.bincount (one kernel) instead of cp.unique (sort): same counts, selection-equivalent.
+        c = cp.bincount(keys)
+        c = c[c > 0].astype(cp.float64)
         p = c * inv_n
         return float(-(p * cp.log(p)).sum()), int(c.shape[0])
 
