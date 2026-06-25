@@ -65,11 +65,14 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
 
 
 def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
-    """Densify a Haar-leg subset ({-1,0,+1}-valued) to 0..k-1 codes exactly as ``_binned_mi`` does for a
-    low-cardinality feature (``searchsorted(unique(leg), leg)``). Returns (codes, k)."""
-    u = np.unique(leg_sub)
-    codes = np.searchsorted(u, leg_sub).astype(np.int64)
-    return codes, int(u.size)
+    """Densify a Haar-leg subset ({-1,0,+1}-valued) to bin codes. Since MI is partition-based, the exact
+    code labels are irrelevant -- only the partition matters -- so map ``leg -> leg + 1`` ({0,1,2}) with a
+    fixed cardinality 3 instead of ``searchsorted(unique(leg), leg)``. This drops the per-leg host
+    ``np.unique`` sort + ``searchsorted`` (dozens of legs/fit); an absent value just leaves an empty bin
+    that contributes 0 to MI, so the result is selection-equivalent to the value-rank coding _binned_mi
+    uses (pinned by test_wavelet_batched_mi_parity)."""
+    codes = (np.asarray(leg_sub) + 1).astype(np.int64)
+    return codes, 3
 
 
 def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: float, *, max_scale: int, max_legs: int, scale_sigma: float) -> list:
