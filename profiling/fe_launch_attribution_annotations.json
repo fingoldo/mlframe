@@ -1,0 +1,10 @@
+[
+ {"module":"mlframe.feature_selection.filters._hermite_fe_mi","functions":["_plugin_mi_classif_batch_cuda_resident","_plugin_mi_classif_batch_cuda"]},
+ {"module":"mlframe.feature_selection.filters._orthogonal_univariate_fe","functions":["_gpu_build_and_score_univariate"]},
+ {"module":"mlframe.feature_selection.filters._resident_candidate_mi","functions":["_build_best_existing_op_candidates_gpu"]},
+ {"module":"mlframe.feature_selection.filters.discretization","functions":["discretize_2d_array_cuda"]},
+ {"module":"mlframe.feature_selection.filters._fe_batched_mi","functions":["binned_mi_from_values_gpu","binned_mi_from_codes_gpu","batched_cmi_gpu","joint_counts_gpu","batched_quantile_bin_gpu"]},
+ {"module":"mlframe.feature_selection.filters._wavelet_basis_fe_batched","functions":["select_wavelet_legs_batched"]},
+ {"module":"mlframe.feature_selection.filters._gpu_resident_basis","functions":["_gpu_evaluate_basis_matrix","_gpu_route_bases_batched","_gpu_detect_heavy_tail_batched","_gpu_batched_abs_corr"]},
+ {"module":"mlframe.feature_selection.filters._gpu_resident_select","functions":["_radix_select_interior_edges","_searchsorted_codes","gpu_discretize_codes_host","build_resident_operand_table"]}
+]
