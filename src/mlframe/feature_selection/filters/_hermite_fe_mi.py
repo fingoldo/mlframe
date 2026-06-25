@@ -333,19 +333,17 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
         else:
             edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
         interior = edges[1:-1]
-    # Fused single-launch binning: _searchsorted_codes is the already-validated drop-in (bit-identical:
-    # code = #(interior edges <= value)). Lazy import keeps the module-import graph acyclic.
+    # MEGA-FUSION: bin (binary-search on interior edges) + joint histogram + plug-in MI in ONE RawKernel,
+    # collapsing the separate _searchsorted_codes kernel + the (n,K) int code array + binned_mi_from_codes_gpu
+    # into a single launch. Bin codes equal _searchsorted_codes bit-for-bit (same f64 edges, side='right') ->
+    # selection-equivalent (resident-FE recovery is rank/Spearman-checked). Falls back to the codes path when
+    # the (n_bins*n_classes) shared tile won't fit.
+    from ._fe_batched_mi import binned_mi_from_values_gpu, binned_mi_from_codes_gpu
+    _mi_v = binned_mi_from_values_gpu(X_gpu, interior, y_gpu, int(n_bins), int(n_classes))
+    if _mi_v is not None:
+        return _mi_v
     from ._gpu_resident_fe import _searchsorted_codes
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
-
-    # Plug-in MI(x_k; y) for ALL columns in ONE fused RawKernel (codes -> shared-mem joint histogram ->
-    # plug-in MI), replacing the cp.bincount + two axis-sums + log/where marginals + fused-contrib + sum
-    # chain (~10 cuLaunchKernel) with a single launch. ``X_binned`` is in [0, n_bins) and ``y_gpu`` in
-    # [0, n_classes) (offset by y_min above), so pass the cardinalities -> no per-call cp.max. Same plain
-    # plug-in MI -> selection-equivalent (the resident-FE recovery is rank/Spearman-checked; the MI scorer's
-    # equi-frequency binning is monotone-invariant, so all monotone spellings tie and the sub-ULP winner is
-    # equivalent). Falls back internally to the cupy batched path if the (n_bins*n_classes) tile won't fit.
-    from ._fe_batched_mi import binned_mi_from_codes_gpu
     return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes))
 
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,

@@ -65,6 +65,84 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
     }
 }
 """
+# FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion, 2026-06-25). For an (n,K) FLOAT matrix + per-column
+# interior quantile edges, ONE launch bins each value in-kernel (binary-search upper_bound == cp.searchsorted
+# side='right') AND builds the joint histogram AND computes plug-in MI -- replacing the separate
+# _searchsorted_codes kernel + the (n,K) int code array + binned_mi_from_codes_gpu. One block per column,
+# shared (nbins*Ky) int hist. Bin codes equal _searchsorted_codes bit-for-bit (same f64 edges, same
+# side='right') -> selection-equivalent. edges: (nbins-1, K) row-major (interior); X: (n,K) row-major.
+_MI_FROM_VALUES_SRC = r"""
+extern "C" __global__
+void mi_from_values(const double* __restrict__ X, const double* __restrict__ edges,
+                    const long long* __restrict__ y, const long long n, const int K,
+                    const int nbins, const int Ky, const double inv_n, double* __restrict__ mi_out) {
+    extern __shared__ int sh[];          // (nbins*Ky) joint histogram for this column
+    int c = blockIdx.x;
+    if (c >= K) return;
+    int ne = nbins - 1, M = nbins * Ky;
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        double v = X[i * (long long)K + c];
+        int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
+        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        atomicAdd(&sh[lo * Ky + y[i]], 1);
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double mi = 0.0;
+        for (int xx = 0; xx < nbins; ++xx) {
+            long long rx = 0;
+            for (int yy = 0; yy < Ky; ++yy) rx += sh[xx * Ky + yy];
+            if (rx == 0) continue;
+            double px = (double)rx * inv_n;
+            for (int yy = 0; yy < Ky; ++yy) {
+                long long nxy = sh[xx * Ky + yy];
+                if (nxy == 0) continue;
+                long long ry = 0;
+                for (int xx2 = 0; xx2 < nbins; ++xx2) ry += sh[xx2 * Ky + yy];
+                mi += (double)nxy * inv_n * log(((double)nxy * inv_n) / (px * ((double)ry * inv_n)));
+            }
+        }
+        mi_out[c] = mi > 0.0 ? mi : 0.0;
+    }
+}
+"""
+_MI_FROM_VALUES_KERNEL = None
+
+
+def _get_mi_from_values_kernel():
+    global _MI_FROM_VALUES_KERNEL
+    if _MI_FROM_VALUES_KERNEL is None:
+        import cupy as cp
+        _MI_FROM_VALUES_KERNEL = cp.RawKernel(_MI_FROM_VALUES_SRC, "mi_from_values")
+    return _MI_FROM_VALUES_KERNEL
+
+
+def binned_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins: int, ky: int):
+    """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
+    ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
+    + binned_mi_from_codes_gpu. Returns a host (K,) float64 array. Selection-equivalent (codes match
+    cp.searchsorted side='right' bit-for-bit). Falls back to None if the (nbins*ky) shared tile won't fit."""
+    import cupy as cp
+
+    Xd = x_vals.astype(cp.float64, copy=False)
+    if Xd.ndim == 1:
+        Xd = Xd[:, None]
+    n, K = int(Xd.shape[0]), int(Xd.shape[1])
+    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))   # (nbins-1, K)
+    yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
+    Ky = int(ky)
+    if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
+        return None
+    mi_out = cp.empty(K, dtype=cp.float64)
+    _get_mi_from_values_kernel()((K,), (256,), (cp.ascontiguousarray(Xd), E, yv, np.int64(n), np.int32(K),
+                                              np.int32(int(nbins)), np.int32(Ky), np.float64(1.0 / float(max(1, n))), mi_out),
+                                 shared_mem=int(nbins) * Ky * 4)
+    return cp.asnumpy(mi_out)
+
+
 _MI_FROM_CODES_KERNEL = None   # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
 _MI_FROM_CODES_MAX_SHARED = 44000   # bytes; stay under the 48KB default shared cap (Kx*Ky*4 must fit)
 
