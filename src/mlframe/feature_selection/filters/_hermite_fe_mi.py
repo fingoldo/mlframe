@@ -270,6 +270,11 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
     return _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins)
 
 
+# (id(y_gpu), y_min) -> shifted (y - y_min) device vector. y is a fit-constant, so the shift recurs identically
+# across the per-chunk MI calls; memoize to launch it ONCE per fit (module-level -> never on a pickled instance).
+_SHIFTED_Y_CACHE: dict = {}
+
+
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays -- the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
@@ -298,7 +303,19 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
         _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
         y_min = int(_ymm[0])
         n_classes = int(_ymm[1]) - y_min + 1   # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
-    y_gpu = y_gpu - y_min
+    # y is a fit-CONSTANT and y_min a fit-CONSTANT, so ``y_gpu - y_min`` yields the IDENTICAL shifted vector on
+    # every per-chunk / per-candidate call. Skip it entirely when y_min == 0 (already 0-based dense labels, the
+    # common case -> the subtraction is a pure no-op that still launched), and memoize the shifted vector keyed
+    # on (id(y_gpu), y_min) otherwise so the launch happens ONCE per fit, not once per MI batch. Bit-identical.
+    if y_min:
+        _sk = (id(y_gpu), int(y_min))
+        _sh = _SHIFTED_Y_CACHE.get(_sk)
+        if _sh is None or _sh.shape != y_gpu.shape:
+            _sh = y_gpu - y_min
+            if len(_SHIFTED_Y_CACHE) > 8:
+                _SHIFTED_Y_CACHE.clear()
+            _SHIFTED_Y_CACHE[_sk] = _sh
+        y_gpu = _sh
 
     # Per-column quantile binning via cp.percentile EDGES + searchsorted (2026-06-20). Replaced the
     # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster
