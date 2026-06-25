@@ -339,6 +339,27 @@ def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
 # count (p200). Bit-equivalent to the per-column path (same math, just vectorised); guarded by
 # test_gpu_basis_column_parity's batched leg.
 
+_ROBUST_SCALE_COMBINE_SRC = r"""
+extern "C" __global__
+void robust_scale_combine(const double* __restrict__ mad, const double* __restrict__ q25,
+                          const double* __restrict__ q75, const int K, double* __restrict__ out) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= K) return;
+    double sc = 1.4826 * mad[i];
+    double iqr = (q75[i] - q25[i]) / 1.349;
+    out[i] = sc > 1e-12 ? sc : (iqr > 1e-12 ? iqr : 0.0);
+}
+"""
+_ROBUST_SCALE_COMBINE_KERNEL = None
+
+
+def _get_robust_scale_combine_kernel(cp):
+    global _ROBUST_SCALE_COMBINE_KERNEL
+    if _ROBUST_SCALE_COMBINE_KERNEL is None:
+        _ROBUST_SCALE_COMBINE_KERNEL = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC, "robust_scale_combine")
+    return _ROBUST_SCALE_COMBINE_KERNEL
+
+
 def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
     """Per-column (axis=0) robust scale over finite (n, g) M: 1.4826*MAD, IQR/1.349 fallback, 0 degenerate.
 
@@ -347,12 +368,24 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
     may be passed pre-computed by a caller that already extracted M's quartiles (e.g. heavy-tail folds
     them into one [0.25,0.5,0.75] radix call) to skip the redundant q25/q75 select+interp here."""
     mad = _batched_quantiles(cp, cp.abs(M - med), [0.5])[0]   # median(|M-med|) per column
-    scale = 1.4826 * mad
     if q25 is None or q75 is None:
         q = _batched_quantiles(cp, M, [0.25, 0.75])           # (2, g) == cp.percentile(M,[25,75],axis=0)
         q25, q75 = q[0], q[1]
-    iqr = (q75 - q25) / 1.349
-    return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
+    # FUSED combine (launch-reduction): 1.4826*MAD, IQR/1.349 fallback, 0 degenerate -- one (K,) kernel vs
+    # the scale + iqr + where + where chain. Same f64 ops -> bit-identical; cupy chain fallback on error.
+    try:
+        K = int(mad.shape[0])
+        out = cp.empty(K, dtype=cp.float64)
+        threads = 128
+        _get_robust_scale_combine_kernel(cp)(((K + threads - 1) // threads,), (threads,),
+            (cp.ascontiguousarray(mad.astype(cp.float64, copy=False)),
+             cp.ascontiguousarray(q25.astype(cp.float64, copy=False)),
+             cp.ascontiguousarray(q75.astype(cp.float64, copy=False)), np.int32(K), out))
+        return out
+    except Exception:  # noqa: BLE001
+        scale = 1.4826 * mad
+        iqr = (q75 - q25) / 1.349
+        return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
 
 
 def _gpu_robust_lo_hi_batched(cp, M, med, scale):
