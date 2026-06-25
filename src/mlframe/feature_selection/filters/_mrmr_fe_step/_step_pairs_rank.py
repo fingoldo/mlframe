@@ -217,7 +217,54 @@ def score_prospective_pairs(
                                 )
                     except Exception:
                         _admit_via_perm = False
-                if (_passes_prevalence and _passes_maxt) or _admit_via_perm:
+                # bench-attempt-rejected (2026-06-25): the cheap proxy below (2-operand joint OLS R^2 of the
+                # CONTINUOUS y on the BINNED operand codes) does NOT recover with_outliers at any threshold
+                # (0.05/0.15/0.3 all leave the selection byte-identical to OFF). The signal is too diluted:
+                # y = a**2/b + f/5 + log(c)*sin(d), so a 2-var LINEAR fit on binned a,b captures only the linear
+                # projection of ONE nonlinear third of y -> R^2 stays below any useful bar. The true
+                # distinguisher (the materialised form div(sqr(a),b) vs y, |corr| 0.986) lives DOWNSTREAM of
+                # this admission gate; a residual-target fit (y minus the already-captured c/d half) or actual
+                # form materialisation is required, not an operand proxy. Kept default-OFF + wired (reject =
+                # not-default, never deleted) so the next attempt builds on it instead of re-trying the proxy.
+                # USABILITY ADMISSION (2026-06-25, tail-concentrated signal credit, default OFF). Under heavy
+                # outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI is suppressed (bulk
+                # Spearman ~0, signal only in the tail) so it fails BOTH prevalence and maxT, and the rank-CMI
+                # perm path is gated behind maxT too -- yet it carries strong LINEAR usability the gate never
+                # sees (discrete codes only). Re-decide a rank-MI-rejected pair on the 2-operand joint OLS R^2
+                # against the CONTINUOUS y: a tail-concentrated true pair has linear-usable joint structure
+                # (high R^2) while a noise pair does not. Fires ONLY when BOTH rank-MI gates failed (so it can
+                # only ADD pairs the rank path drops, never remove), and the FULL downstream FE admission gates
+                # + escalation |corr| re-test still decide -- a false admit only PROPOSES. Default OFF
+                # (canonical byte-identical); ``fe_pair_usability_admission_enable`` turns it on.
+                _admit_via_usability = False
+                if (
+                    (not _passes_prevalence) and (not _passes_maxt)
+                    and bool(getattr(self, "fe_pair_usability_admission_enable", False))
+                ):
+                    try:
+                        _yc = getattr(self, "_fe_prewarp_y_continuous_", None)
+                        if _yc is not None and len(_yc) == data.shape[0]:
+                            _ya = np.asarray(_yc, dtype=np.float64).reshape(-1)
+                            _A = np.column_stack([
+                                data[:, int(raw_vars_pair[0])].astype(np.float64),
+                                data[:, int(raw_vars_pair[1])].astype(np.float64),
+                                np.ones(data.shape[0], dtype=np.float64),
+                            ])
+                            _coef, _, _, _ = np.linalg.lstsq(_A, _ya, rcond=None)
+                            _ss_res = float(((_A @ _coef - _ya) ** 2).sum())
+                            _ss_tot = float(((_ya - _ya.mean()) ** 2).sum())
+                            _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else 0.0
+                            if _r2 >= float(getattr(self, "fe_pair_usability_admission_min_r2", 0.15)):
+                                _admit_via_usability = True
+                                if verbose >= 2:
+                                    logger.info(
+                                        "Factors pair %s ADMITTED via usability (joint OLS R^2=%.4f vs y) despite "
+                                        "rank-MI rejection -- tail-concentrated linear signal.",
+                                        raw_vars_pair, _r2,
+                                    )
+                    except Exception:
+                        _admit_via_usability = False
+                if (_passes_prevalence and _passes_maxt) or _admit_via_perm or _admit_via_usability:
                     uplift = pair_mi / ind_elems_mi_sum if ind_elems_mi_sum > 0 else float("inf")
                     if verbose >= 2 and not _admit_via_perm:
                         logger.info(
