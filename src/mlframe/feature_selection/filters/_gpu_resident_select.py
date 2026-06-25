@@ -797,19 +797,30 @@ def _radix_quantiles(cand_gpu, q_fracs):
     if shmem > sh_limit:
         return None
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
-    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
-    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
     data_cm = _transpose_to_cm(cand_gpu)                            # (K, n) coalesced (same as edges path)
     threads = _resolve_radix_threads(n)
-    ker((K,), (threads,),
-        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
-    osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
     pos = {int(r): i for i, r in enumerate(uniq)}
     bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
     ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
     w = cp.ascontiguousarray(cp.asarray(idx - bel))                 # float64 weight_above
     nq = int(qfr.size)
     out = cp.empty((nq, K), dtype=cp.float64)
+    if not is_f32:
+        # FUSED select+interp (launch-reduction): the f64 radix select keeps its order statistics in shared
+        # memory and emits the nq interior quantiles directly -- ONE launch, no osv global, no separate interp.
+        try:
+            _get_radix_select_interp_f64_kernel()((K,), (threads,),
+                (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), bi, ai, w, np.int32(nq), out),
+                shared_mem=shmem)
+            return out
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("fused f64 radix_quantiles failed; two-kernel path", exc_info=True)
+    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
+    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
+    ker((K,), (threads,),
+        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
     _ker = _get_radix_interp_kernel()
     t = 256
     total = nq * K
