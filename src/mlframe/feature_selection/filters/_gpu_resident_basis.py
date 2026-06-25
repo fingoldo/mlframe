@@ -449,8 +449,139 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         )
 
 
+_BASIS_PREPROCESS_SRC = r"""
+extern "C" __global__
+void basis_preprocess(const double* __restrict__ M, const double* __restrict__ med,
+                      const double* __restrict__ scale, const double* __restrict__ mn,
+                      const double* __restrict__ mx, const double* __restrict__ stdcol,
+                      const int basis_code, const double Kc, const long long n, const int K,
+                      double* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    double x = M[row * (long long)K + col];
+    double mc = med[col], sc = scale[col];
+    bool deg = sc <= 1e-12;
+    double lo = deg ? mn[col] : mc - Kc * sc;
+    double hi = deg ? mx[col] : mc + Kc * sc;
+    double z;
+    if (basis_code == 0) {                                   // hermite robust z-score
+        double std = (hi - lo) / 6.0;
+        if (!(std > 1e-12)) std = stdcol[col] + 1e-12;       // cp.where(std>1e-12, std, M.std+1e-12)
+        z = (x - mc) / std;
+        z = z < -6.0 ? -6.0 : (z > 6.0 ? 6.0 : z);
+    } else if (basis_code == 1) {                            // legendre/chebyshev min-max -> [-1,1]
+        double span = hi - lo + 1e-12;
+        z = 2.0 * (x - lo) / span - 1.0;
+        z = z < -1.0 ? -1.0 : (z > 1.0 ? 1.0 : z);
+    } else {                                                 // laguerre shift -> >= 0
+        double hic = (hi - lo) + 1e-9;
+        z = x - lo + 1e-9;
+        z = z < 0.0 ? 0.0 : (z > hic ? hic : z);
+    }
+    out[row * (long long)K + col] = z;
+}
+"""
+_BASIS_PREPROCESS_KERNEL = None
+
+
+def _get_basis_preprocess_kernel(cp):
+    global _BASIS_PREPROCESS_KERNEL
+    if _BASIS_PREPROCESS_KERNEL is None:
+        _BASIS_PREPROCESS_KERNEL = cp.RawKernel(_BASIS_PREPROCESS_SRC, "basis_preprocess")
+    return _BASIS_PREPROCESS_KERNEL
+
+
+_BASIS_PREPROCESS_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
+
+# Non-robust preprocess fused: hermite z = (x-mean)/std (no clip); legendre/cheb z = 2(x-lo)/span - 1 (no
+# clip); laguerre z = x-lo+1e-9. p0/p1 are the per-column params; ONE launch vs the cupy reduction+arith chain.
+_BASIS_PREPROCESS_NR_SRC = r"""
+extern "C" __global__
+void basis_preprocess_nr(const double* __restrict__ M, const double* __restrict__ p0,
+                         const double* __restrict__ p1, const int basis_code,
+                         const long long n, const int K, double* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    double x = M[row * (long long)K + col];
+    double a = p0[col], b = p1[col];
+    double z;
+    if (basis_code == 0)       z = (x - a) / b;            // hermite z-score (b = std + 1e-12)
+    else if (basis_code == 1)  z = 2.0 * (x - a) / b - 1.0; // legendre/cheb min-max (a = lo, b = span)
+    else                       z = x - a + 1e-9;            // laguerre shift (a = lo)
+    out[row * (long long)K + col] = z;
+}
+"""
+_BASIS_PREPROCESS_NR_KERNEL = None
+
+
+def _get_basis_preprocess_nr_kernel(cp):
+    global _BASIS_PREPROCESS_NR_KERNEL
+    if _BASIS_PREPROCESS_NR_KERNEL is None:
+        _BASIS_PREPROCESS_NR_KERNEL = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC, "basis_preprocess_nr")
+    return _BASIS_PREPROCESS_NR_KERNEL
+
+
+def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
+    """Non-robust preprocess for a (n, g) M sharing one basis, FUSED into a single kernel (the per-column
+    mean/std or min/max reductions + the per-element transform) -- bit-identical to the cupy chain."""
+    code = _BASIS_PREPROCESS_CODE[basis]
+    n, g = int(M.shape[0]), int(M.shape[1])
+    Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
+    if code == 0:                                  # hermite: (M-mean)/std
+        p0 = Mc.mean(axis=0); p1 = Mc.std(axis=0) + 1e-12
+    elif code == 1:                                # legendre/cheb: 2(M-lo)/span - 1
+        p0 = Mc.min(axis=0); p1 = (Mc.max(axis=0) - p0) + 1e-12
+    else:                                          # laguerre: M-lo+1e-9 (p1 unused)
+        p0 = Mc.min(axis=0); p1 = p0
+    out = cp.empty((n, g), dtype=cp.float64)
+    total = n * g
+    threads = 256
+    _get_basis_preprocess_nr_kernel(cp)(((total + threads - 1) // threads,), (threads,),
+        (Mc, cp.ascontiguousarray(p0.astype(cp.float64, copy=False)),
+         cp.ascontiguousarray(p1.astype(cp.float64, copy=False)),
+         np.int32(code), np.int64(n), np.int32(g), out))
+    return out
+
+
+def _gpu_basis_preprocess_robust_fused(cp, M, basis):
+    """Robust preprocess for a (n, g) M sharing one basis, FUSED into a single kernel (lo/hi from the
+    median+scale, the std-fallback, and the per-basis clip/scale done per-element in ONE launch) instead of
+    the cupy where/clip/arith chain. med + scale come from the radix-quantile path; mn/mx (and std for the
+    hermite fallback) are per-column reductions. Bit-identical to the cupy chain (same f64 ops)."""
+    med = _batched_quantiles(cp, M, [0.5])[0]
+    scale = _gpu_robust_scale_batched(cp, M, med)
+    code = _BASIS_PREPROCESS_CODE[basis]
+    n, g = int(M.shape[0]), int(M.shape[1])
+    Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
+    mn = Mc.min(axis=0); mx = Mc.max(axis=0)
+    stdcol = Mc.std(axis=0) if code == 0 else scale   # std only used by the hermite fallback; else unused
+    out = cp.empty((n, g), dtype=cp.float64)
+    total = n * g
+    threads = 256
+    _get_basis_preprocess_kernel(cp)(((total + threads - 1) // threads,), (threads,),
+        (Mc, cp.ascontiguousarray(med.astype(cp.float64, copy=False)),
+         cp.ascontiguousarray(scale.astype(cp.float64, copy=False)),
+         cp.ascontiguousarray(mn.astype(cp.float64, copy=False)),
+         cp.ascontiguousarray(mx.astype(cp.float64, copy=False)),
+         cp.ascontiguousarray(stdcol.astype(cp.float64, copy=False)),
+         np.int32(code), float(_GPU_ROBUST_AXIS_K), np.int64(n), np.int32(g), out))
+    return out
+
+
 def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     """Vectorized per-basis preprocess over (n, g) M (all g columns share basis + robust). Returns Z (n, g)."""
+    if basis in _BASIS_PREPROCESS_CODE:
+        try:
+            return (_gpu_basis_preprocess_robust_fused(cp, M, basis) if robust
+                    else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis))
+        except Exception:  # noqa: BLE001
+            pass   # fall through to the exact cupy chain below
     if basis == "hermite":  # z-score
         if robust:
             center = _batched_quantiles(cp, M, [0.5])[0]
