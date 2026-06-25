@@ -37,12 +37,16 @@ def test_b1_fit_with_sample_true_on_small_frame_does_not_crash():
 
 
 def test_b2_default_surrogate_uses_all_cores():
+    # sklearn clone-ability: the verbatim ``model`` param stays None; the resolved default RandomForest
+    # surrogate lives in the learned ``model_`` attribute, which is where n_jobs=-1 must land.
     bs = BorutaShap(classification=True, random_state=0)
     bs.check_model()
-    assert bs.model.n_jobs == -1
+    assert bs.model is None
+    assert bs.model_.n_jobs == -1
     bs_reg = BorutaShap(classification=False, random_state=0)
     bs_reg.check_model()
-    assert bs_reg.model.n_jobs == -1
+    assert bs_reg.model is None
+    assert bs_reg.model_.n_jobs == -1
 
 
 def test_b3_bonferroni_base_is_full_feature_count():

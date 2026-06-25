@@ -23,9 +23,24 @@ def test_boruta_shap_kwargs_accepts_cluster_reduce_keys():
     assert cfg.boruta_shap_kwargs["cluster_corr_threshold"] == 0.85
 
 
-def test_rfecv_kwargs_accepts_cluster_reduce_keys():
-    cfg = FeatureSelectionConfig(rfecv_models=["lgb"], rfecv_kwargs={"cluster_reduce": False, "cluster_corr_threshold": 0.9})
-    assert cfg.rfecv_kwargs["cluster_reduce"] is False
+def test_rfecv_cluster_reduce_reachable_via_first_class_fields():
+    """The suite RFECV cluster-medoid wrap is reachable + fuzzable through the DEDICATED first-class config
+    fields (``rfecv_cluster_reduce`` / ``rfecv_cluster_corr_threshold`` / ``rfecv_cluster_min_reduction``),
+    NOT through ``rfecv_kwargs``. The suite builds RFECV directly in ``configure_training_params`` and forwards
+    ``rfecv_kwargs`` VERBATIM to ``RFECV(**rfecv_kwargs)``, so a ``cluster_reduce`` key there would TypeError in
+    ``RFECV.__init__``; ``_build_pre_pipelines`` reads the first-class fields and applies the GroupAwareMRMR wrap
+    itself. (Contrast BorutaShap, whose registry factory POPS the cluster keys before constructing, so they ARE
+    whitelisted in ``boruta_shap_kwargs``.) The pre-fix shape -- whitelisting cluster keys in ``rfecv_kwargs`` --
+    was the stale proxy; the real reach is the first-class fields."""
+    cfg = FeatureSelectionConfig(
+        rfecv_models=["lgb"], rfecv_cluster_reduce=False, rfecv_cluster_corr_threshold=0.9, rfecv_cluster_min_reduction=0.1,
+    )
+    assert cfg.rfecv_cluster_reduce is False
+    assert cfg.rfecv_cluster_corr_threshold == 0.9
+    assert cfg.rfecv_cluster_min_reduction == 0.1
+    # rfecv_kwargs correctly REJECTS cluster keys (they would TypeError in the verbatim-forwarded RFECV.__init__).
+    with pytest.raises(ValueError, match="unknown key"):
+        FeatureSelectionConfig(rfecv_models=["lgb"], rfecv_kwargs={"cluster_reduce": False})
 
 
 @pytest.mark.parametrize(

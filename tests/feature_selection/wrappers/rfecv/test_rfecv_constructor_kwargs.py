@@ -72,9 +72,13 @@ def test_setattr_fallback_for_non_sklearn_instances():
 
 
 def test_sample_weight_marker_still_stamped_via_setattr():
-    """Per user constraint: the suite-internal ``_mlframe_use_sample_weights_in_fs_`` marker stays as setattr."""
+    """Per user constraint: the suite-internal ``_mlframe_use_sample_weights_in_fs_`` marker stays as setattr
+    (never routed through set_params). It is stamped on the OUTER object that enters ``pre_pipelines`` -- with
+    cluster-reduce default-ON that is the GroupAwareMRMR wrapper, which is exactly what the downstream
+    ``_selector_kind`` / weight-aware fit driver reads it off. The pre-cluster-wrap shape (marker on the bare
+    inner instance) was the stale proxy."""
     inst = _FakeRFECVWithSetParams()
-    _build_pre_pipelines(
+    pre_pipelines, _ = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=["fake"],
         rfecv_models_params={"fake": inst},
@@ -87,7 +91,8 @@ def test_sample_weight_marker_still_stamped_via_setattr():
         boruta_shap_kwargs=None,
         use_sample_weights_in_fs=True,
     )
-    assert getattr(inst, "_mlframe_use_sample_weights_in_fs_") is True
-    # The marker is NOT routed through set_params (kept suite-internal).
+    outer = pre_pipelines[0]
+    assert getattr(outer, "_mlframe_use_sample_weights_in_fs_") is True
+    # The marker is NOT routed through set_params (kept suite-internal) on the inner instance.
     for call in inst._set_params_calls:
         assert "_mlframe_use_sample_weights_in_fs_" not in call

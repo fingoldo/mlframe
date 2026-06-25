@@ -86,7 +86,14 @@ def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products():
 
 def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products_fast():
     """Fast representative (smaller n, fewer noise cols) so MLFRAME_FAST=1 still exercises the stump-vs-deep flip:
-    depth=1 engineers nothing, depth=3 engineers the interaction products."""
+    depth=1 proposes ZERO tree co-occurrence products, depth=3 proposes the interaction products.
+
+    The contract ``tree_max_depth`` controls is the TREE member's co-occurrence proposals (``_tree_prod_pairs_``):
+    a stump cannot branch on two features within one tree, so it proposes none. ``n_engineered_`` is NOT the right
+    sensor here -- it ALSO counts the MRMR member's synergy-bootstrap product, which fires on this pure-interaction
+    bed independently of tree depth (even at ``fe_max_steps=0``, since the synergy bootstrap is not an FE step). So
+    the stump's ``n_engineered_`` is 1 (the MRMR Hermite product), not 0. Mirror the slow sibling and assert on the
+    tree-member quantity that ``tree_max_depth`` actually governs."""
     X, y = _interaction_bed(seed=0, n=600, p_noise=2)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -98,5 +105,7 @@ def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products_fast():
             use_mrmr=True, use_fe=True, use_tree_member=True, tree_max_depth=3,
             tree_n_estimators=30, tree_cooccur_pairs=4, fe_max_steps=0, random_state=0,
         ).fit(X, y)
-    assert stump.n_engineered_ == 0, f"stump must engineer 0 columns; got {stump.n_engineered_}"
-    assert deep.n_engineered_ >= 1, f"depth=3 must engineer >=1 interaction product; got {deep.n_engineered_}"
+    stump_pairs = getattr(stump, "_tree_prod_pairs_", []) or []
+    deep_pairs = getattr(deep, "_tree_prod_pairs_", []) or []
+    assert len(stump_pairs) == 0, f"a depth-1 stump cannot co-occur two features -> 0 tree products; got {len(stump_pairs)}"
+    assert len(deep_pairs) >= 1, f"depth=3 must propose >=1 tree co-occurrence interaction product; got {len(deep_pairs)}"

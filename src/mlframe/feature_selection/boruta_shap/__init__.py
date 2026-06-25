@@ -204,11 +204,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.classification = classification
         self.model = model
 
-        # sklearn contract: __init__ stores params verbatim and derives nothing. The private RNG
-        # (``_rng``) and the resolved-model (``model_``) are built in ``fit``/``check_model`` instead, so
-        # ``get_params``/``clone`` round-trip the constructor args unchanged and a fitted instance still
-        # reports ``model=None`` when None was passed.
+        # sklearn contract: __init__ stores params verbatim and derives nothing that mutates them. The
+        # resolved-model (``model_``) is built in ``check_model`` so ``get_params``/``clone`` round-trip the
+        # constructor args unchanged (``model=None`` stays None on a fitted instance). The private RNG
+        # (``_rng``, A-P0-004) is a fresh ``default_rng(random_state)`` -- an INDEPENDENT Generator that does
+        # NOT touch the process-global ``np.random`` stream, so building it here keeps both contracts: clone
+        # re-runs __init__ and re-derives the same RNG from the unchanged seed.
         self.random_state = random_state
+        self._rng = np.random.default_rng(random_state)
 
         self.n_trials = n_trials
         # Canonical Boruta extends the system by AT LEAST ``shadow_min_pad`` shadow attributes even when the real
@@ -441,7 +444,13 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         models_to_check = ("xgb", "catboost", "lgbm", "lightgbm")
 
-        model_name = str(type(self.model_)).lower()
+        # Inspect the surrogate's type to decide warn-vs-raise on NaN. This method is callable standalone
+        # (before ``check_model`` resolves ``model_``), so fall back to the verbatim constructor param when
+        # the learned attribute is not yet built.
+        resolved_model = getattr(self, "model_", None)
+        if resolved_model is None:
+            resolved_model = self.model
+        model_name = str(type(resolved_model)).lower()
         if X_missing or Y_missing:
             if any([x in model_name for x in models_to_check]):
                 logger.warning("There are missing values in your data !")
