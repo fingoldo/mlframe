@@ -587,6 +587,17 @@ def _ent_from_counts(c, inv_n: float):
     return float(_ENT_RK(c, float(inv_n))), int(_NNZ_RK(c))
 
 
+def _nnz_from_counts(c) -> int:
+    """Occupied-cell count of a bincount histogram in one ReductionKernel launch (vs >0 elementwise + sum)."""
+    import cupy as cp
+    global _ENT_RK, _NNZ_RK
+    if _NNZ_RK is None:
+        _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
+                                     "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
+        _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
+    return int(_NNZ_RK(c))
+
+
 def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
     Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15)."""
@@ -631,9 +642,10 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
     dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
     kz = (int(dz.max()) + 1) if dz.size else 1
-    # occupied-cell count = (bincount > 0).sum() (one kernel) instead of cp.unique(...).size (sort).
+    # occupied-cell count via bincount + the shared NNZ ReductionKernel (one launch for the >0 count,
+    # vs a separate boolean-elementwise + sum). Same cardinality -> df unchanged (selection-equivalent).
     def _ncells(keys):
-        return int((cp.bincount(keys) > 0).sum())
+        return _nnz_from_counts(cp.bincount(keys))
     k_z = _ncells(dz)
     k_xz = _ncells(dx * kz + dz)
     yz = dy * kz + dz
