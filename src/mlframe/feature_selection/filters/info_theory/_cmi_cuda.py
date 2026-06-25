@@ -133,6 +133,82 @@ def _get_kernel():
         return module._cmi_joint_hist_cuda
 
 
+# FUSED CMI-from-joint (launch-reduction, 2026-06-25). conditional_mi_batched_cuda called
+# _entropy_from_counts_axis FOUR times (H(Z), H(X,Z), H(Y,Z), H(X,Y,Z)), each marg.sum(axis) + xlogx EK +
+# .sum(axis=1) = ~3 cuLaunchKernel -> ~12 per call (the measured #1 hidden launch source, 228+95). One block
+# per candidate now reads the global joint once, builds the (X,Z)/(Y,Z)/(Z) marginals in shared memory via
+# atomicAdd, reduces all four plug-in entropies (block tree reduction, 256 threads), and writes the clamped
+# CMI -- ONE launch. Same float64 p*log p over nonzero cells -> within the documented ~1e-9 parity gate.
+_cmi_from_joint_cuda = None
+
+
+def _get_cmi_from_joint_kernel():
+    global _cmi_from_joint_cuda
+    if _cmi_from_joint_cuda is not None:
+        return _cmi_from_joint_cuda
+    import cupy as cp
+
+    with _KERNEL_LOCK:
+        if _cmi_from_joint_cuda is not None:
+            return _cmi_from_joint_cuda
+        module = sys.modules[__name__]
+        module._cmi_from_joint_cuda = cp.RawKernel(
+            r"""
+        extern "C" __global__
+        void cmi_from_joint(const int* __restrict__ joint, const double inv_n, const int p,
+                            const int nbx, const int nby, const int nbz, double* __restrict__ cmi_out) {
+            int cand = blockIdx.x;
+            if (cand >= p) return;
+            int tid = threadIdx.x, nt = blockDim.x;
+            int nxz = nbx * nbz, nyz = nby * nbz, joint_size = nbx * nby * nbz;
+            extern __shared__ char shmem[];
+            double* red = (double*)shmem;            // nt doubles (8-byte aligned base)
+            int* m_xz = (int*)(red + nt);            // nxz ints
+            int* m_yz = m_xz + nxz;                  // nyz ints
+            int* m_z  = m_yz + nyz;                  // nbz ints
+            for (int i = tid; i < nxz; i += nt) m_xz[i] = 0;
+            for (int i = tid; i < nyz; i += nt) m_yz[i] = 0;
+            for (int i = tid; i < nbz; i += nt) m_z[i] = 0;
+            __syncthreads();
+            const int* J = joint + (long)cand * joint_size;
+            double hxyz_loc = 0.0;
+            for (int i = tid; i < joint_size; i += nt) {
+                int c = J[i];
+                if (c > 0) {
+                    double pp = (double)c * inv_n; hxyz_loc += pp * log(pp);
+                    int cz = i % nbz, rem = i / nbz, cx = rem % nbx, cy = rem / nbx;
+                    atomicAdd(&m_xz[cx * nbz + cz], c);
+                    atomicAdd(&m_yz[cy * nbz + cz], c);
+                    atomicAdd(&m_z[cz], c);
+                }
+            }
+            __syncthreads();
+            red[tid] = hxyz_loc; __syncthreads();
+            for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) red[tid] += red[tid + s]; __syncthreads(); }
+            double h_xyz = -red[0]; __syncthreads();
+            double loc = 0.0;
+            for (int i = tid; i < nxz; i += nt) { int c = m_xz[i]; if (c > 0) { double pp = (double)c * inv_n; loc += pp * log(pp); } }
+            red[tid] = loc; __syncthreads();
+            for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) red[tid] += red[tid + s]; __syncthreads(); }
+            double h_xz = -red[0]; __syncthreads();
+            loc = 0.0;
+            for (int i = tid; i < nyz; i += nt) { int c = m_yz[i]; if (c > 0) { double pp = (double)c * inv_n; loc += pp * log(pp); } }
+            red[tid] = loc; __syncthreads();
+            for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) red[tid] += red[tid + s]; __syncthreads(); }
+            double h_yz = -red[0]; __syncthreads();
+            loc = 0.0;
+            for (int i = tid; i < nbz; i += nt) { int c = m_z[i]; if (c > 0) { double pp = (double)c * inv_n; loc += pp * log(pp); } }
+            red[tid] = loc; __syncthreads();
+            for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) red[tid] += red[tid + s]; __syncthreads(); }
+            double h_z = -red[0];
+            if (tid == 0) { double cmi = h_xz + h_yz - h_z - h_xyz; cmi_out[cand] = cmi > 0.0 ? cmi : 0.0; }
+        }
+        """,
+            "cmi_from_joint",
+        )
+        return module._cmi_from_joint_cuda
+
+
 def _entropy_from_counts_axis(counts_3d, axes, n):
     """Shannon entropy (nats) of a marginal of the 3-D joint count tensor.
 
@@ -208,21 +284,29 @@ def conditional_mi_batched_cuda(
         shared_mem=joint_size * 4,
     )
 
-    # joint is (p, nby, nbx, nbz) in the merged-id layout (Z fastest, X next, Y slowest).
-    counts = joint.reshape(p, nbins_y, nbins_x, nbins_z)
-
-    # H(Z): sum out Y(1) and X(2) -> marginal over Z.
-    h_z = _entropy_from_counts_axis(counts, (1, 2), n)        # (p,) -- all identical, kept per-cand for clamp simplicity
-    # H(X, Z): sum out Y(1).
-    h_xz = _entropy_from_counts_axis(counts, (1,), n)
-    # H(Y, Z): sum out X(2).
-    h_yz = _entropy_from_counts_axis(counts, (2,), n)
-    # H(X, Y, Z): no sum.
-    h_xyz = _entropy_from_counts_axis(counts, (), n)
-
-    cmi = h_xz + h_yz - h_z - h_xyz
-    cmi = cp.maximum(cmi, 0.0)
-    return cp.asnumpy(cmi)
+    # FUSED (launch-reduction): one block-per-candidate kernel reads the global joint once, builds the
+    # (X,Z)/(Y,Z)/(Z) marginals in shared memory, reduces all four plug-in entropies, and writes the clamped
+    # CMI in ONE launch -- replacing the four _entropy_from_counts_axis calls (~12 cuLaunchKernel) + the
+    # cmi assembly + maximum. Same float64 p*log p over nonzero cells -> within the ~1e-9 parity gate.
+    # Falls back to the four-call cupy path on any kernel error.
+    try:
+        cmi_g = cp.empty(p, dtype=cp.float64)
+        red_threads = 256
+        shmem_bytes = red_threads * 8 + (nbins_x * nbins_z + nbins_y * nbins_z + nbins_z) * 4
+        _get_cmi_from_joint_kernel()(
+            (p,), (red_threads,),
+            (joint, 1.0 / float(n), np.int32(p), np.int32(nbins_x), np.int32(nbins_y), np.int32(nbins_z), cmi_g),
+            shared_mem=shmem_bytes,
+        )
+        return cp.asnumpy(cmi_g)
+    except Exception as _exc:  # noqa: BLE001
+        logger.debug("cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
+        counts = joint.reshape(p, nbins_y, nbins_x, nbins_z)
+        h_z = _entropy_from_counts_axis(counts, (1, 2), n)
+        h_xz = _entropy_from_counts_axis(counts, (1,), n)
+        h_yz = _entropy_from_counts_axis(counts, (2,), n)
+        h_xyz = _entropy_from_counts_axis(counts, (), n)
+        return cp.asnumpy(cp.maximum(h_xz + h_yz - h_z - h_xyz, 0.0))
 
 
 def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
