@@ -147,12 +147,21 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
     import cupy as cp
 
     marg = counts_3d.sum(axis=axes)  # (p, ...) remaining axes
-    marg = marg.reshape(marg.shape[0], -1).astype(cp.float64)
-    pr = marg / n
-    # 0 * log 0 -> 0; mask zeros.
-    nz = pr > 0
-    contrib = cp.where(nz, pr * cp.log(pr), 0.0)
+    marg = marg.reshape(marg.shape[0], -1)
+    # Fused x*log(x) (launch-reduction): one ElementwiseKernel folds the /n + zero-mask + log + multiply
+    # (cp.divide + cp.where + cp.log + multiply, ~4 cuLaunchKernel) into a single launch -- ``c>0 ?
+    # (c*invn)*log(c*invn) : 0`` -- then one sum(axis=1). Same float64 plug-in entropy -> within the 1e-9
+    # selection gate (cmi_cuda parity tests stay < 1e-9). ElementwiseKernel launches via the same
+    # cuLaunchKernel driver API -> genuine count reduction, not a counter shift.
+    global _XLOGX_EK
+    if _XLOGX_EK is None:
+        _XLOGX_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o",
+                                         "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek")
+    contrib = _XLOGX_EK(marg, 1.0 / float(n))
     return -contrib.sum(axis=1)
+
+
+_XLOGX_EK = None
 
 
 def conditional_mi_batched_cuda(
