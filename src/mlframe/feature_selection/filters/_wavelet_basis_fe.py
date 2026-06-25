@@ -433,6 +433,15 @@ def _select_wavelet_legs(
     -> empty list (no wavelet). A genuine localized leg is a multi-sigma outlier
     in held-out MI -> admitted. Returns ``[]`` on too-few rows / degenerate x.
     """
+    # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
+    # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
+    # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
+    if _binnedmi_gpu_enabled():
+        try:
+            from ._wavelet_basis_fe_batched import select_wavelet_legs_batched
+            return select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
+        except Exception:
+            pass
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = x.size

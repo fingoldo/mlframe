@@ -34,3 +34,28 @@ def test_wavelet_batched_mi_matches_per_column_cpu():
     )
     # ranking identical -> the leg SELECTION the batched path would produce matches the CPU path
     assert np.array_equal(np.argsort(mi_batched), np.argsort(mi_cpu)) or np.allclose(mi_batched, mi_cpu, atol=1e-9)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 123])
+def test_select_wavelet_legs_batched_same_admitted(seed):
+    """The batched born-on-device leg selector returns the SAME admitted (j,k) legs as the CPU path."""
+    pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters.hermite_fe  # noqa: F401
+    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+        _WAVELET_MAX_LEGS,
+        _WAVELET_MAX_SCALE,
+        _WAVELET_SCALE_SIGMA,
+        _select_wavelet_legs,
+    )
+    from mlframe.feature_selection.filters._wavelet_basis_fe_batched import select_wavelet_legs_batched
+
+    rng = np.random.default_rng(seed)
+    n = 6000
+    x = rng.uniform(0.0, 1.0, n)
+    # localized step in a sub-interval -> a genuine Haar leg carries signal, plus noise
+    y = (((x > 0.30) & (x < 0.55)).astype(np.float64) + 0.4 * rng.standard_normal(n))
+    yb = np.digitize(y, np.quantile(y, np.linspace(0, 1, 11)[1:-1])).astype(np.int64)
+    kw = dict(max_scale=_WAVELET_MAX_SCALE, max_legs=_WAVELET_MAX_LEGS, scale_sigma=_WAVELET_SCALE_SIGMA)
+    cpu = _select_wavelet_legs(x, yb, 0.0, 1.0, **kw)
+    gpu = select_wavelet_legs_batched(x, yb, 0.0, 1.0, **kw)
+    assert cpu == gpu, f"seed={seed}: CPU legs {cpu} != batched {gpu}"

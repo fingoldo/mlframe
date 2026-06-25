@@ -62,3 +62,83 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
         ratio = cp.where((pij > 0) & (denom > 0), pij / denom, 1.0)
         mi = cp.sum(cp.where(pij > 0, pij * cp.log(ratio), 0.0), axis=(1, 2))
     return cp.asnumpy(cp.maximum(mi, 0.0))
+
+
+def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
+    """Densify a Haar-leg subset ({-1,0,+1}-valued) to 0..k-1 codes exactly as ``_binned_mi`` does for a
+    low-cardinality feature (``searchsorted(unique(leg), leg)``). Returns (codes, k)."""
+    u = np.unique(leg_sub)
+    codes = np.searchsorted(u, leg_sub).astype(np.int64)
+    return codes, int(u.size)
+
+
+def select_wavelet_legs_batched(x, y, lo, span, *, max_scale, max_legs, scale_sigma):
+    """BATCHED born-on-device twin of ``_wavelet_basis_fe._select_wavelet_legs``: returns the SAME admitted
+    ``(j, k)`` legs, but scores every candidate leg's train + held-out MI in TWO batched device workloads
+    (one per split) instead of ~2 per-leg ``_binned_mi`` calls. Selection-equivalent (plug-in MI is
+    partition-based). Reuses the primary module's leg builder + gate constants read-only (no mutation)."""
+    from ._wavelet_basis_fe import (
+        _WAVELET_MIN_HALF_ROWS,
+        _WAVELET_MIN_HELDOUT_MI,
+        _WAVELET_MIN_ROWS,
+        _bin_y_codes,
+        _dyadic_haar_leg,
+    )
+
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y).ravel()
+    n = x.size
+    if n != y.size or n < _WAVELET_MIN_ROWS:
+        return []
+    if span <= 1e-12 or float(np.std(x)) < 1e-12:
+        return []
+    z = np.clip((x - lo) / span, 0.0, 1.0)
+    idx = np.arange(n)
+    va = (idx % 3) == 0
+    tr = ~va
+    if int(tr.sum()) < 64 or int(va.sum()) < 32:
+        return []
+    yb_tr = _bin_y_codes(y[tr])
+    yb_va = _bin_y_codes(y[va])
+
+    metas: list[tuple] = []          # (j, k)
+    tr_cols: list[np.ndarray] = []
+    va_cols: list[np.ndarray] = []
+    tr_kx: list[int] = []
+    va_kx: list[int] = []
+    for j in range(int(max_scale) + 1):
+        for k in range(2 ** j):
+            leg = _dyadic_haar_leg(z, j, k)
+            if int(np.count_nonzero(leg > 0)) < _WAVELET_MIN_HALF_ROWS or int(np.count_nonzero(leg < 0)) < _WAVELET_MIN_HALF_ROWS:
+                continue
+            c_tr, k_tr = _dense_leg_codes(leg[tr])
+            c_va, k_va = _dense_leg_codes(leg[va])
+            metas.append((int(j), int(k)))
+            tr_cols.append(c_tr)
+            va_cols.append(c_va)
+            tr_kx.append(k_tr)
+            va_kx.append(k_va)
+    if not metas:
+        return []
+
+    tr_mat = np.stack(tr_cols, axis=1)   # (n_tr, K)
+    va_mat = np.stack(va_cols, axis=1)   # (n_va, K)
+    ky_tr = int(np.asarray(yb_tr).max()) + 1
+    ky_va = int(np.asarray(yb_va).max()) + 1
+    mi_tr = batched_binned_mi_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
+    mi_va = batched_binned_mi_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
+
+    heldout = np.asarray(mi_va, dtype=np.float64)
+    if heldout.size >= 4:
+        med = float(np.median(heldout))
+        mad = float(np.median(np.abs(heldout - med)))
+        floor = med + scale_sigma * 1.4826 * mad
+    else:
+        floor = 0.0
+    floor = max(floor, _WAVELET_MIN_HELDOUT_MI)
+    cand = [(float(mi_tr[i]), float(mi_va[i]), metas[i][0], metas[i][1]) for i in range(len(metas))]
+    admitted = [c for c in cand if c[1] >= floor]
+    if not admitted:
+        return []
+    admitted.sort(key=lambda c: c[0], reverse=True)
+    return [(int(c[2]), int(c[3])) for c in admitted[: int(max_legs)]]
