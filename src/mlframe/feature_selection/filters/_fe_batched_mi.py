@@ -224,13 +224,20 @@ def batched_quantile_bin_gpu(x_cols, nbins: int):
     return codes
 
 
-def batched_cmi_gpu(x_cols, y: np.ndarray, z=None) -> np.ndarray:
+def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
     from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes; ``z`` (n,) int codes or None
     (marginal MI). Returns a host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per
     column (selection-equivalent).
+
+    ``return_cards`` (conditional path only): also return the occupied-cell cardinalities the analytic
+    CMI-null df needs -- ``(cmi[K], k_z, k_xz[K], k_yz, k_xyz[K])`` -- computed in the SAME workload (they
+    are already produced internally by ``_rows_entropy_and_k`` + the shared y/z terms). Lets the gate score
+    the analytic floor/df of ALL round candidates from ONE call instead of a per-candidate
+    ``joint_cardinalities_cupy``. The cell counts equal the per-candidate path's (same occupied-cell
+    definition) -> df bit-identical.
     """
     import cupy as cp
 
@@ -288,4 +295,8 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None) -> np.ndarray:
 
     cmi = h_xz + h_yz - h_z - h_xyz
     bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * nf)
-    return cp.asnumpy(cp.maximum(cmi - bias, 0.0))
+    cmi_host = cp.asnumpy(cp.maximum(cmi - bias, 0.0))
+    if return_cards:
+        return (cmi_host, int(k_z), cp.asnumpy(k_xz).astype(np.int64),
+                int(k_yz), cp.asnumpy(k_xyz).astype(np.int64))
+    return cmi_host

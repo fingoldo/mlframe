@@ -642,12 +642,17 @@ def apply_cmi_redundancy_gate(
         best_name = None
         best_excess = -1.0
         scored: dict = {}
-        # ROUND-LEVEL BATCHED CMI (launch-reduction): within a greedy round z_support is FIXED, so every
-        # remaining candidate's CMI(x; y | z) can be scored in ONE batched_cmi_gpu workload instead of a
-        # per-candidate _cmi_from_binned call. Selection-equivalent (batched_cmi_gpu == _cmi_from_binned,
-        # parity-pinned). Gated under STRICT/CMI_GPU (default OFF -> the per-candidate CPU path below,
-        # byte-identical). The conditional-permutation FLOOR stays per-candidate (its own batching is next).
+        # ROUND-LEVEL BATCHED CMI + ANALYTIC FLOOR/df (launch-reduction): within a greedy round z_support is
+        # FIXED, so EVERY remaining candidate's CMI(x; y | z) AND its analytic-null cardinalities
+        # (k_z/k_xz/k_yz/k_xyz -> df) are computed in ONE batched_cmi_gpu(return_cards) workload instead of a
+        # per-candidate _cmi_from_binned + joint_cardinalities_cupy. The occupied-cell counts equal the
+        # per-candidate path's (same definition) -> df, hence floor = chi2.ppf(q,df)/2N and null_mean =
+        # df/2N, are BIT-IDENTICAL to _conditional_perm_null's analytic branch (the SAME applicability gate:
+        # n >= analytic-min-n, df > 0, n/k_xyz >= min-expected-cell). Candidates where the analytic null does
+        # NOT apply fall back to the per-candidate _conditional_perm_null (permutation path) below. Gated
+        # under STRICT/CMI_GPU (default OFF -> per-candidate CPU, byte-identical).
         _round_cmi: dict = {}
+        _round_floor: dict = {}
         _rem_list = list(remaining)
         try:
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
@@ -656,17 +661,36 @@ def apply_cmi_redundancy_gate(
                 _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
                 for _j, _nm in enumerate(_rem_list):
                     _Xc[:, _j] = cand_bins[_nm]
-                _cmis = np.asarray(batched_cmi_gpu(_Xc, y_dense, z_support), dtype=np.float64)
+                _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, z_support, return_cards=True)
+                _cmis = np.asarray(_cmis, dtype=np.float64)
                 _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
+                # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
+                try:
+                    from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
+                    from ._mi_greedy_cmi_fe import _cmi_analytic_null_min_n
+                    if _HAVE_CHI2 and analytic_null_enabled() and n_rows >= _cmi_analytic_null_min_n():
+                        _nf = float(max(1, n_rows)); _mincell = _min_expected_cell()
+                        for _j, _nm in enumerate(_rem_list):
+                            _df = int(_kxyz[_j]) + int(_kz) - int(_kxz[_j]) - int(_kyz)
+                            _cells = max(1, int(_kxyz[_j]))
+                            if _df > 0 and (_nf / float(_cells)) >= _mincell:
+                                _flr = float(_chi2.ppf(float(quantile), _df)) / (2.0 * _nf)
+                                _round_floor[_nm] = (_flr if _flr > 0.0 else 0.0, _df / (2.0 * _nf))
+                except Exception:
+                    _round_floor = {}
         except Exception:
             _round_cmi = {}
+            _round_floor = {}
         for nm in _rem_list:
             cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(cand_bins[nm], y_dense, z_support))
-            floor, null_mean = _conditional_perm_null(
-                cand_bins[nm], y_dense, z_support,
-                n_permutations=n_permutations, quantile=quantile, seed=seed,
-                salt=zlib.crc32(nm.encode("utf-8")),
-            )
+            if nm in _round_floor:
+                floor, null_mean = _round_floor[nm]
+            else:
+                floor, null_mean = _conditional_perm_null(
+                    cand_bins[nm], y_dense, z_support,
+                    n_permutations=n_permutations, quantile=quantile, seed=seed,
+                    salt=zlib.crc32(nm.encode("utf-8")),
+                )
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
             passes_floor = cmi > floor                 # leg 1: significance
