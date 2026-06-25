@@ -524,6 +524,17 @@ def cmi_from_binned_fixed_yz(
     :func:`precompute_cmi_yz_terms`. Computes only the x-dependent ``xz`` / ``xyz``
     renumberings + their entropies; bit-identical to :func:`_cmi_from_binned` on
     the same inputs (it is the same arithmetic with the y/z block factored out)."""
+    # GPU route (2026-06-25): the xz / xyz joint ENTROPIES are partition statistics -- cp.unique(flat_key,
+    # return_counts) densifies on the device (sort+unique, value-order labels) and the counts give the SAME
+    # partition -> the SAME entropy -> the SAME CMI (only fp reduction order differs ~1e-15; selection
+    # identical). Routes the dominant mi_greedy CMI compute (combine_factorize + entropy) onto the GPU under
+    # MLFRAME_FE_GPU_STRICT / the KTC gate, instead of the host njit renumber+entropy. Falls back to CPU on
+    # any cupy error.
+    if _cmi_gpu_enabled():
+        try:
+            return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
+        except Exception:
+            pass
     x_i = np.ascontiguousarray(x, dtype=np.int64).ravel()
     xz, _ = _renumber_joint(x_i, z_i)
     xyz, _ = _renumber_joint(x_i, y_i, z_i)
@@ -531,6 +542,45 @@ def cmi_from_binned_fixed_yz(
     h_xyz, k_xyz = _entropy_from_classes(xyz)
     cmi_plugin = h_xz + h_yz - h_z - h_xyz
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+    return max(0.0, cmi_plugin - cmi_bias)
+
+
+def _cmi_gpu_enabled() -> bool:
+    """Route the mi_greedy CMI entropies to the GPU when STRICT-GPU is on (or a future KTC gate). Default
+    OFF -> host path, byte-identical. STRICT_GPU=1 forces it (the user's "make GPU actually carry the FE
+    compute" knob: most FE families were CPU-only, this puts the dominant CMI on the device)."""
+    import os as _os
+    if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
+        return True
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        return bool(fe_gpu_strict_enabled())
+    except Exception:
+        return False
+
+
+def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> float:
+    """Device twin of :func:`cmi_from_binned_fixed_yz`: the xz / xyz joint entropies via cp.unique counts.
+    Value-order densification -> same partition -> same CMI (selection-identical, fp-order ~1e-15)."""
+    import cupy as cp
+
+    dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
+    dy = cp.asarray(np.ascontiguousarray(y_i, dtype=np.int64).ravel())
+    dz = cp.asarray(np.ascontiguousarray(z_i, dtype=np.int64).ravel())
+    inv_n = 1.0 / float(n)
+
+    def _ent(keys):
+        c = cp.unique(keys, return_counts=True)[1].astype(cp.float64)
+        p = c * inv_n
+        return float(-(p * cp.log(p)).sum()), int(c.shape[0])
+
+    kz = int(k_z) if int(k_z) > 0 else (int(dz.max()) + 1 if dz.size else 1)
+    h_xz, k_xz = _ent(dx * kz + dz)
+    yz = dy * kz + dz
+    _big = int(yz.max()) + 1 if yz.size else 1
+    h_xyz, k_xyz = _ent(dx * _big + yz)
+    cmi_plugin = h_xz + float(h_yz) - float(h_z) - h_xyz
+    cmi_bias = (k_xyz + int(k_z) - k_xz - int(k_yz)) / (2.0 * float(n))
     return max(0.0, cmi_plugin - cmi_bias)
 
 
