@@ -98,25 +98,23 @@ def test_non_adaptive_path_unchanged():
     nan_idx = rng.choice(n, 20, replace=False)
     x[nan_idx] = np.nan
 
-    data, cols, nbins = categorize_dataset(
-        df=pd.DataFrame({"x": x}),
-        n_bins=4, dtype=np.int16,
-        missing_strategy="separate_bin",
-        nbins_strategy=None,  # legacy uniform path
-    )
-    codes = data[:, cols.index("x")]
-    real_codes = {int(c) for c in codes[~np.isnan(x)]}
-    nan_codes = {int(c) for c in codes[np.isnan(x)]}
-    # n_bins=4 means real codes are in [0, 3] (or [0, 4] depending on
-    # the discretizer); NaN code is 4. The legacy path was already safe
-    # because per-column nbins equals the global n_bins.
-    assert nan_codes == {4}
-    assert max(real_codes) <= 4
-    # Make the safety property explicit:
-    if 4 in real_codes:
-        # Discretizer happened to use 5-bin output ([0..4]); then NaN code
-        # collides on this legacy path too. That's a separate pre-existing
-        # issue NOT in iter-9 scope - allow but assert it stays as it was.
-        # (If this fires, file as iter 10 candidate.)
-        pytest.xfail("Legacy non-adaptive path has its own NaN collision "
-                      "when discretizer uses [0..n_bins] range -- pre-existing.")
+    # Contract sweep: across seeds + n_bins the dedicated NaN code must never collide with a real
+    # bin on the legacy path. (In practice the unsupervised discretizer clips to n_bins-1 so the
+    # collision is not reachable here; the prod hardening makes the NaN code one past the real max
+    # so it stays correct even if a future discretizer emits the full [0..n_bins] range.)
+    for seed in range(24):
+        for n_bins in (4, 5, 8):
+            r = np.random.default_rng(seed)
+            xx = r.normal(size=n)
+            xx[r.choice(n, 20, replace=False)] = np.nan
+            data, cols, _ = categorize_dataset(
+                df=pd.DataFrame({"x": xx}), n_bins=n_bins, dtype=np.int16,
+                missing_strategy="separate_bin", nbins_strategy=None,  # legacy uniform path
+            )
+            codes = data[:, cols.index("x")]
+            real_codes = {int(c) for c in codes[~np.isnan(xx)]}
+            nan_codes = {int(c) for c in codes[np.isnan(xx)]}
+            assert nan_codes.isdisjoint(real_codes), (
+                f"[seed={seed} n_bins={n_bins}] NaN code collides with a real bin on the legacy path: "
+                f"nan={sorted(nan_codes)} real={sorted(real_codes)}"
+            )

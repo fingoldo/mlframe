@@ -299,7 +299,13 @@ def categorize_dataset(
         if nbins_strategy is not None:
             nan_codes_per_col = np.asarray(per_col_bins, dtype=np.int64)
         else:
-            nan_codes_per_col = np.full(arr.shape[1], int(n_bins), dtype=np.int64)
+            # Legacy unsupervised path: discretize_2d_array can emit a real code == n_bins for some columns
+            # ([0..n_bins], n_bins+1 distinct codes), so a flat NaN code = ctor n_bins collides with that real
+            # top bin and destroys the missingness signal -- the same defect the adaptive branch fixes per-column.
+            # ``max(n_bins, col_real_max + 1)`` keeps the NaN code at n_bins wherever it is already distinct
+            # (bit-identical to the prior behaviour) and only pushes it one past the real max for a colliding column.
+            col_real_max = data.max(axis=0).astype(np.int64) if data.size else np.zeros(arr.shape[1], dtype=np.int64)
+            nan_codes_per_col = np.maximum(int(n_bins), col_real_max + 1)
         max_bin_after = int(nan_codes_per_col.max())
         if max_bin_after > np.iinfo(data.dtype).max:
             raise ValueError(
