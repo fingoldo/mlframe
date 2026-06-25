@@ -608,24 +608,26 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
 
-    def _ent(keys):
-        # bincount histogram + fused two-ReductionKernel entropy/count (vs filter+astype+multiply+log+sum).
-        return _ent_from_counts(cp.bincount(keys), inv_n)
+    from ._fe_batched_mi import joint_counts_gpu
 
+    def _entc(codes, cards):
+        # in-kernel flat-key joint histogram (one atomic-hist launch, no cp.bincount cub_any, no key arith)
+        # + fused entropy/NNZ ReductionKernels. Same partition counts -> selection-equivalent.
+        return _ent_from_counts(joint_counts_gpu(codes, cards), inv_n)
+
+    Kx = (int(dx.max()) + 1) if dx.size else 1
     ky = (int(dy.max()) + 1) if dy.size else 1
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
-        h_x, k_x = _ent(dx)
-        h_y, k_y = _ent(dy)
-        h_xy, k_xy = _ent(dx * ky + dy)
+        h_x, k_x = _entc([dx], [Kx])
+        h_y, k_y = _entc([dy], [ky])
+        h_xy, k_xy = _entc([dx, dy], [Kx, ky])
         return max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
     dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
     kz = (int(dz.max()) + 1) if dz.size else 1
-    h_z, k_z = _ent(dz)
-    h_xz, k_xz = _ent(dx * kz + dz)
-    yz = dy * kz + dz
-    h_yz, k_yz = _ent(yz)
-    _big = (int(yz.max()) + 1) if yz.size else 1
-    h_xyz, k_xyz = _ent(dx * _big + yz)
+    h_z, k_z = _entc([dz], [kz])
+    h_xz, k_xz = _entc([dx, dz], [Kx, kz])
+    h_yz, k_yz = _entc([dy, dz], [ky, kz])
+    h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
     cmi_plugin = h_xz + h_yz - h_z - h_xyz
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
     return max(0.0, cmi_plugin - cmi_bias)
@@ -638,20 +640,22 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     label-invariant). Raises on any cupy error so the caller falls back to the host path."""
     import cupy as cp
 
+    from ._fe_batched_mi import joint_counts_gpu
+
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
     dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
     dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
+    Kx = (int(dx.max()) + 1) if dx.size else 1
+    ky = (int(dy.max()) + 1) if dy.size else 1
     kz = (int(dz.max()) + 1) if dz.size else 1
-    # occupied-cell count via bincount + the shared NNZ ReductionKernel (one launch for the >0 count,
-    # vs a separate boolean-elementwise + sum). Same cardinality -> df unchanged (selection-equivalent).
-    def _ncells(keys):
-        return _nnz_from_counts(cp.bincount(keys))
-    k_z = _ncells(dz)
-    k_xz = _ncells(dx * kz + dz)
-    yz = dy * kz + dz
-    k_yz = _ncells(yz)
-    _big = (int(yz.max()) + 1) if yz.size else 1
-    k_xyz = _ncells(dx * _big + yz)
+    # occupied-cell count via in-kernel-flat-key atomic histogram + the shared NNZ ReductionKernel (one
+    # atomic-hist launch, no cp.bincount cub_any, no key int-arithmetic). df unchanged (selection-equiv).
+    def _nc(codes, cards):
+        return _nnz_from_counts(joint_counts_gpu(codes, cards))
+    k_z = _nc([dz], [kz])
+    k_xz = _nc([dx, dz], [Kx, kz])
+    k_yz = _nc([dy, dz], [ky, kz])
+    k_xyz = _nc([dx, dy, dz], [Kx, ky, kz])
     return k_z, k_xz, k_yz, k_xyz
 
 
@@ -660,20 +664,22 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     Value-order densification -> same partition -> same CMI (selection-identical, fp-order ~1e-15)."""
     import cupy as cp
 
+    from ._fe_batched_mi import joint_counts_gpu
+
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
     dy = cp.asarray(np.ascontiguousarray(y_i, dtype=np.int64).ravel())
     dz = cp.asarray(np.ascontiguousarray(z_i, dtype=np.int64).ravel())
     inv_n = 1.0 / float(n)
 
-    def _ent(keys):
-        # bincount histogram + fused two-ReductionKernel entropy/count (launch-reduction; selection-equiv).
-        return _ent_from_counts(cp.bincount(keys), inv_n)
+    def _entc(codes, cards):
+        # in-kernel flat-key joint histogram (one atomic-hist launch) + fused entropy/NNZ reductions.
+        return _ent_from_counts(joint_counts_gpu(codes, cards), inv_n)
 
+    Kx = (int(dx.max()) + 1) if dx.size else 1
+    ky = (int(dy.max()) + 1) if dy.size else 1
     kz = int(k_z) if int(k_z) > 0 else (int(dz.max()) + 1 if dz.size else 1)
-    h_xz, k_xz = _ent(dx * kz + dz)
-    yz = dy * kz + dz
-    _big = int(yz.max()) + 1 if yz.size else 1
-    h_xyz, k_xyz = _ent(dx * _big + yz)
+    h_xz, k_xz = _entc([dx, dz], [Kx, kz])
+    h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
     cmi_plugin = h_xz + float(h_yz) - float(h_z) - h_xyz
     cmi_bias = (k_xyz + int(k_z) - k_xz - int(k_yz)) / (2.0 * float(n))
     return max(0.0, cmi_plugin - cmi_bias)

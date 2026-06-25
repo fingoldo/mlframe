@@ -127,6 +127,71 @@ def _rows_entropy_and_k(counts, inv_n):
     return h, k
 
 
+# FUSED joint-histogram RawKernels (launch-reduction, 2026-06-25). The per-call cupy CMI built each joint
+# histogram as caller int-arithmetic flat key (dx*Kb+db -> cupy multiply + add) followed by cp.bincount
+# (itself scan + two cub_any passes). These kernels compute the flat key IN-KERNEL and atomicAdd into a
+# caller-zeroed counts buffer -> ONE launch per joint, no intermediate key array, no bincount cub_any.
+# Counts are then reduced by the shared entropy/NNZ ReductionKernels. Same partition counts -> identical
+# plug-in entropy -> selection-equivalent.
+_JOINT_HIST_SRC = r"""
+extern "C" __global__
+void joint_hist1(const long long* __restrict__ a, const long long n, long long* __restrict__ counts) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) atomicAdd((unsigned long long*)&counts[a[i]], 1ULL);
+}
+extern "C" __global__
+void joint_hist2(const long long* __restrict__ a, const long long* __restrict__ b,
+                 const int Kb, const long long n, long long* __restrict__ counts) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) atomicAdd((unsigned long long*)&counts[a[i] * Kb + b[i]], 1ULL);
+}
+extern "C" __global__
+void joint_hist3(const long long* __restrict__ a, const long long* __restrict__ b,
+                 const long long* __restrict__ c, const int Kb, const int Kc,
+                 const long long n, long long* __restrict__ counts) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) atomicAdd((unsigned long long*)&counts[(a[i] * Kb + b[i]) * Kc + c[i]], 1ULL);
+}
+"""
+_JOINT_HIST_KERNELS = None
+
+
+def _get_joint_hist_kernels():
+    global _JOINT_HIST_KERNELS
+    if _JOINT_HIST_KERNELS is None:
+        import cupy as cp
+        mod = cp.RawModule(code=_JOINT_HIST_SRC)
+        _JOINT_HIST_KERNELS = (mod.get_function("joint_hist1"),
+                               mod.get_function("joint_hist2"),
+                               mod.get_function("joint_hist3"))
+    return _JOINT_HIST_KERNELS
+
+
+def joint_counts_gpu(codes, cards):
+    """Joint-histogram counts of 1-3 device code arrays via an in-kernel flat key + atomic add (ONE launch,
+    no intermediate key array, no cp.bincount cub_any passes). ``codes`` are cupy int64 (n,); ``cards`` the
+    matching cardinalities (upper bounds; empty bins cost only memory). Returns a cupy int64 (prod(cards),)
+    count vector for the shared entropy/NNZ reduction."""
+    import cupy as cp
+
+    n = int(codes[0].size)
+    M = 1
+    for kc in cards:
+        M *= int(kc)
+    counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)
+    threads = 256
+    blocks = (n + threads - 1) // threads
+    h1, h2, h3 = _get_joint_hist_kernels()
+    if len(codes) == 1:
+        h1((blocks,), (threads,), (codes[0], np.int64(n), counts))
+    elif len(codes) == 2:
+        h2((blocks,), (threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), counts))
+    else:
+        h3((blocks,), (threads,), (codes[0], codes[1], codes[2],
+                                   np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts))
+    return counts
+
+
 def batched_quantile_bin_gpu(x_cols, nbins: int):
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
