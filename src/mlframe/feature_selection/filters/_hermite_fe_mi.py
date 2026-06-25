@@ -335,78 +335,15 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     from ._gpu_resident_fe import _searchsorted_codes
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
 
-    # Joint hist via single bincount on flat index (col, bin, class).
-    j_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
-    y_b = y_gpu[:, None]
-    flat = (j_idx * n_bins + X_binned) * n_classes + y_b  # (n, k)
-    hist_flat = cp.bincount(
-        flat.ravel(), minlength=k * n_bins * n_classes,
-    )
-    hist_xyc = hist_flat.reshape(k, n_bins, n_classes).astype(cp.float64)
-    hist_x = hist_xyc.sum(axis=2)  # (k, n_bins)
-    hist_y = hist_xyc.sum(axis=1)  # (k, n_classes); same across cols but kept per-col for cleanliness
-
-    # MI sum vectorised across cells. Cells with zero count contribute 0
-    # (same as the njit ``if n_xy == 0: continue`` short-circuit).
-    # bench-attempt-rejected (2026-06-20, GTX 1050 Ti, "eliminate ALL f64 in the GPU MI math"): the
-    # histogram freqs/log/entropy-sum here were cast to float32 to chase the consumer-GPU f64 1/32-rate
-    # penalty. Measured NO win: math-only f64->f32 = 1.00-1.01x at n=100k-300k K=384 (the math runs on the
-    # tiny (k,nbins,nclasses) integer-derived hist -- it is NOT where the f64 penalty bites). The penalty
-    # is entirely in the BINNING sort (cp.asarray(...f64) + cp.percentile + cp.searchsorted): bin f64->f32
-    # alone = 1.33-1.51x, and math f32 on top of that adds 0.00x more. So the MI MATH stays f64 (free
-    # bit-fidelity to the njit reference); the binning-dtype lever is the real win and is owned by the
-    # MLFRAME_FE_GPU_BINNING_DTYPE path. Full-chain f32 also FLIPPED the argmax at n=300k among the
-    # equivalent a**2/b spellings (div(id,sqrt) -> mul(sqr,reciproc), a tie-cluster reorder) -- selection
-    # instability for no math speedup. (proto D:/Temp/_bench_mi_dtype*.py)
-    #
-    # bit-exact-attempt-rejected (2026-06-23, GTX 1050 Ti cc6.1): goal was to make this resident MI
-    # BYTE-IDENTICAL (maxdiff EXACTLY 0) to _plugin_mi_classif_njit by matching njit's serial row-major
-    # nat-sum order on the GPU (an ordered per-candidate reduction) instead of the cp.sum tree reduction.
-    # MEASURED that this CANNOT reach 0 vs the SHIPPED njit reference, for TWO independent reasons, NEITHER
-    # of which is the reduction-order tree-vs-serial gap the iter18 note hypothesised:
-    #   (1) BINNING (dominant, ~1e-3): njit bins RANK-based (_quantile_bin_njit: argsort -> first base+1
-    #       ranks = bin 0 ...), this path bins percentile-EDGE-based (cp.percentile + searchsorted). On any
-    #       column with DUPLICATE values the two disagree for THOUSANDS of rows (probe: a rounded col put
-    #       895/4000 rows in the same bin -> MI maxdiff 6.3e-3). This is the already-approved edge-vs-rank
-    #       trade documented at the binning block above; an ordered nat-sum does NOTHING for it. On no-tie
-    #       (all-distinct) columns the binning IS identical and this term vanishes.
-    #   (2) fastmath FLOOR (~3.4e-16, even on no-tie cols): njit's reference is @njit(fastmath=True), which
-    #       itself reorders/contracts the CPU nat-sum. Decomposition on no-tie cols (n=4000,k=8,nbins=20):
-    #         GPU ordered-serial vs a NON-fastmath python-libm same-order reference = 3.5e-18 (~exact: the
-    #           reduction order IS matchable on GPU AND the device float64 log is sub-ULP vs libm here -- log
-    #           is NOT the blocker),
-    #         njit(fastmath) vs that same-order python reference = 3.4e-16 (this IS the floor),
-    #         GPU ordered-serial vs njit(fastmath) = 3.4e-16 (floored by fastmath, not by order/log).
-    #       So even a perfectly njit-order-matched GPU kernel floors at the fastmath gap; reaching 0 would
-    #       require dropping fastmath from the shipped njit kernel (a numeric change to the reference -- out
-    #       of scope, and it would shift every existing njit MI value).
-    # VERDICT: exact-0 is impossible without re-binning rank-based on GPU AND removing njit fastmath. The
-    # resident MI stays SELECTION-EQUIVALENT (not byte-identical) with the documented tie-flip caveat; the
-    # downstream stable-sort + diversity filter is robust to it (engineered-replay + canonical subset pass).
-    # The residual is dominated by the approved edge-vs-rank binning (~1e-3 on tie cols), NOT reduction order
-    # (~3.4e-16 fastmath floor on no-tie cols). Do NOT re-attempt an ordered-reduction kernel for byte-identity.
-    log_n = math.log(n)
-    if _fe_gpu_fuse_mi_enabled():
-        # FUSED per-cell contribution: ONE elementwise launch over the big (k,nb,nc) array instead of the
-        # ~6-launch chain below. The marginal logs stay 2 small launches; broadcast them to (k,nb,1)/(k,1,nc)
-        # so the fuse sees pure-elementwise broadcasting. Selection-equivalent (~1e-18 re-assoc; see header).
-        logx = cp.log(cp.where(hist_x > 0, hist_x, 1.0))[:, :, None]   # (k, nb, 1)
-        logy = cp.log(cp.where(hist_y > 0, hist_y, 1.0))[:, None, :]   # (k, 1, nc)
-        contrib = _get_fused_mi_term()(hist_xyc, logx, logy, 1.0 / n, log_n)
-        mi = contrib.sum(axis=(1, 2))  # (k,)
-        mi = cp.maximum(mi, 0.0)
-        return cp.asnumpy(mi)
-    mask = hist_xyc > 0
-    safe_xyc = cp.where(mask, hist_xyc, 1.0)
-    safe_x = cp.where(hist_x > 0, hist_x, 1.0)
-    safe_y = cp.where(hist_y > 0, hist_y, 1.0)
-    term = (hist_xyc / n) * (
-        cp.log(safe_xyc) + log_n
-        - cp.log(safe_x)[:, :, None] - cp.log(safe_y)[:, None, :]
-    )
-    mi = cp.where(mask, term, 0.0).sum(axis=(1, 2))  # (k,)
-    mi = cp.maximum(mi, 0.0)
-    return cp.asnumpy(mi)
+    # Plug-in MI(x_k; y) for ALL columns in ONE fused RawKernel (codes -> shared-mem joint histogram ->
+    # plug-in MI), replacing the cp.bincount + two axis-sums + log/where marginals + fused-contrib + sum
+    # chain (~10 cuLaunchKernel) with a single launch. ``X_binned`` is in [0, n_bins) and ``y_gpu`` in
+    # [0, n_classes) (offset by y_min above), so pass the cardinalities -> no per-call cp.max. Same plain
+    # plug-in MI -> selection-equivalent (the resident-FE recovery is rank/Spearman-checked; the MI scorer's
+    # equi-frequency binning is monotone-invariant, so all monotone spellings tie and the sub-ULP winner is
+    # equivalent). Falls back internally to the cupy batched path if the (n_bins*n_classes) tile won't fit.
+    from ._fe_batched_mi import binned_mi_from_codes_gpu
+    return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes))
 
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
                                 n_bins: int = 20) -> float:
