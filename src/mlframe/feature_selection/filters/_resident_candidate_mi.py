@@ -36,28 +36,88 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+_BUILD_OPCANDS_SRC = r"""
+extern "C" __global__
+void build_op_cands(const double* __restrict__ M, const int* __restrict__ pi, const int* __restrict__ pj,
+                    const long long n, const int m, const int npairs, const int has_sum,
+                    const int k, double* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)k;
+    if (t >= total) return;
+    int c = (int)(t % (long long)k);
+    long long row = t / (long long)k;
+    const double* Mr = M + row * (long long)m;
+    double val;
+    if (c < m) {
+        val = Mr[c];                                   // raw column
+    } else if (c < m + 4 * npairs) {
+        int q = c - m; int p = q >> 2; int o = q & 3;
+        double u = Mr[pi[p]], v = Mr[pj[p]];
+        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / (fabs(v) + 1e-6) : u + v));
+    } else {
+        int r = c - m - 4 * npairs;
+        if (r <= 1) {                                  // row max / min over the m operands
+            double acc = Mr[0];
+            for (int q = 1; q < m; ++q) { double w = Mr[q]; acc = (r == 0) ? (w > acc ? w : acc) : (w < acc ? w : acc); }
+            val = acc;
+        } else {                                        // row sum (has_sum)
+            double acc = 0.0;
+            for (int q = 0; q < m; ++q) acc += Mr[q];
+            val = acc;
+        }
+    }
+    out[row * (long long)k + c] = val;
+}
+"""
+_BUILD_OPCANDS_KERNEL = None
+
+
+def _get_build_opcands_kernel(cp):
+    global _BUILD_OPCANDS_KERNEL
+    if _BUILD_OPCANDS_KERNEL is None:
+        _BUILD_OPCANDS_KERNEL = cp.RawKernel(_BUILD_OPCANDS_SRC, "build_op_cands")
+    return _BUILD_OPCANDS_KERNEL
+
+
 def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
     """Build the ``best_existing_op_mi`` candidate columns ON THE DEVICE from resident operand columns.
 
     Mirrors the host numpy generation in ``_conditional_gate_fe.best_existing_op_mi`` op-for-op (raw columns
     + pairwise product / diff / ratio / sum + row max / min + full row sum when >=3 operands). Returns an
     (n, k) cupy float64 matrix -- NO host transfer. Column ORDER is identical to the host path so the
-    per-column MI maps 1:1."""
-    cands = list(cols_arr_gpu)  # raw columns first (same as host)
+    per-column MI maps 1:1.
+
+    FUSED (launch-reduction): one op-table RawKernel builds ALL candidate columns (raw + 4 pairwise ops +
+    row max/min/sum) in ONE launch instead of ~4*pairs + reductions cupy elementwise ops. Same f64 ops in
+    the same column order -> bit-identical; falls back to the cupy build on any kernel error."""
     m = len(cols_arr_gpu)
-    for i in range(m):
-        for j in range(i + 1, m):
-            u, v = cols_arr_gpu[i], cols_arr_gpu[j]
-            cands.append(u * v)
-            cands.append(u - v)
-            cands.append(u / (cp.abs(v) + 1e-6))
-            cands.append(u + v)
-    stk = cp.stack(cols_arr_gpu, axis=1)  # (n, m)
-    cands.append(stk.max(axis=1))
-    cands.append(stk.min(axis=1))
-    if m >= 3:
-        cands.append(stk.sum(axis=1))
-    return cp.stack(cands, axis=1)  # (n, k) column-major-equivalent stack
+    try:
+        n = int(cols_arr_gpu[0].shape[0])
+        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=1).astype(cp.float64, copy=False))  # (n, m)
+        pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
+        npairs = len(pairs)
+        has_sum = 1 if m >= 3 else 0
+        k = m + 4 * npairs + 2 + has_sum
+        pi = cp.asarray(np.asarray([p[0] for p in pairs] or [0], dtype=np.int32))
+        pj = cp.asarray(np.asarray([p[1] for p in pairs] or [0], dtype=np.int32))
+        out = cp.empty((n, k), dtype=cp.float64)
+        total = n * k
+        threads = 256
+        _get_build_opcands_kernel(cp)(((total + threads - 1) // threads,), (threads,),
+                                      (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs),
+                                       np.int32(has_sum), np.int32(k), out))
+        return out
+    except Exception:
+        cands = list(cols_arr_gpu)
+        for i in range(m):
+            for j in range(i + 1, m):
+                u, v = cols_arr_gpu[i], cols_arr_gpu[j]
+                cands.append(u * v); cands.append(u - v); cands.append(u / (cp.abs(v) + 1e-6)); cands.append(u + v)
+        stk = cp.stack(cols_arr_gpu, axis=1)
+        cands.append(stk.max(axis=1)); cands.append(stk.min(axis=1))
+        if m >= 3:
+            cands.append(stk.sum(axis=1))
+        return cp.stack(cands, axis=1)
 
 
 def best_existing_op_mi_resident(
