@@ -353,20 +353,76 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
     return cp.ascontiguousarray(cp.concatenate(cand_blocks, axis=1)), meta
 
 
+_ABS_CORR_SRC = r"""
+extern "C" __global__
+void abs_corr(const double* __restrict__ cand, const double* __restrict__ y, const long long n,
+              const int m, const double Sy, const double Syy, double* __restrict__ out) {
+    int c = blockIdx.x;
+    if (c >= m) return;
+    __shared__ double sh[3];                       // sum_x, sum_xx, sum_xy
+    int tid = threadIdx.x, nt = blockDim.x;
+    if (tid < 3) sh[tid] = 0.0;
+    __syncthreads();
+    double psx = 0.0, psxx = 0.0, psxy = 0.0;
+    for (long long i = tid; i < n; i += nt) {
+        double v = cand[i * (long long)m + c];
+        double yy = y[i];
+        psx += v; psxx += v * v; psxy += v * yy;
+    }
+    atomicAdd(&sh[0], psx); atomicAdd(&sh[1], psxx); atomicAdd(&sh[2], psxy);
+    __syncthreads();
+    if (tid == 0) {
+        double nf = (double)n, sx = sh[0], sxx = sh[1], sxy = sh[2];
+        double cov = nf * sxy - sx * Sy;
+        double vx = nf * sxx - sx * sx;            // = n * sum((v-mean)^2)
+        double vy = nf * Syy - Sy * Sy;
+        double den = sqrt(vx * vy);
+        double corr = den > 1e-300 ? fabs(cov / den) : 0.0;
+        bool ok = isfinite(corr) && (sqrt(vx / nf) > 1e-12);   // cn = sqrt(sum cc^2) = sqrt(vx/n) > 1e-12
+        out[c] = ok ? corr : -1.0;
+    }
+}
+"""
+_ABS_CORR_KERNEL = None
+
+
+def _get_abs_corr_kernel():
+    global _ABS_CORR_KERNEL
+    if _ABS_CORR_KERNEL is None:
+        import cupy as cp
+        _ABS_CORR_KERNEL = cp.RawKernel(_ABS_CORR_SRC, "abs_corr")
+    return _ABS_CORR_KERNEL
+
+
 def _gpu_batched_abs_corr(cp, cand, y_cont):
     """|Pearson corr| of every column of ``cand`` (n, m) with the (n,) continuous ``y_cont``, on device.
     Degenerate columns (std <= 1e-12) or non-finite results -> -1.0 (so the host argmax skips them, mirroring
-    the host router's ``if std(v) < 1e-12: continue``). Same Pearson definition as np.corrcoef(v, y)[0,1]."""
-    yc = y_cont - y_cont.mean()
-    yn = cp.sqrt((yc * yc).sum())
-    cc = cand - cand.mean(axis=0)
-    cn = cp.sqrt((cc * cc).sum(axis=0))            # (m,)
-    num = (cc * yc[:, None]).sum(axis=0)           # (m,)
-    denom = cn * yn
-    corr = cp.where(denom > 1e-300, num / denom, 0.0)
-    corr = cp.abs(corr)
-    finite_ok = cp.isfinite(corr) & (cn > 1e-12)
-    return cp.where(finite_ok, corr, -1.0)
+    the host router's ``if std(v) < 1e-12: continue``). Same Pearson definition as np.corrcoef(v, y)[0,1].
+
+    FUSED (launch-reduction): one RawKernel (one block per column, one-pass sums) computes corr =
+    cov/sqrt(vx*vy) -- algebraically identical to the centered cupy form -- instead of the
+    subtract/multiply/sum(axis) chain (~10 cuLaunchKernel). Parity <1e-6 vs the centered form (one-pass
+    re-association), within the router's documented <1e-6 corr tolerance (the argmax/tie logic is unchanged).
+    Falls back to the cupy chain on any kernel error."""
+    try:
+        cand2 = cand if cand.ndim == 2 else cand[:, None]
+        n, m = int(cand2.shape[0]), int(cand2.shape[1])
+        cand2 = cp.ascontiguousarray(cand2.astype(cp.float64, copy=False))
+        yv = y_cont.astype(cp.float64, copy=False).ravel()
+        Sy = float(yv.sum()); Syy = float((yv * yv).sum())
+        out = cp.empty(m, dtype=cp.float64)
+        _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m),
+                                              np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
+        return out
+    except Exception:
+        yc = y_cont - y_cont.mean()
+        yn = cp.sqrt((yc * yc).sum())
+        cc = cand - cand.mean(axis=0)
+        cn = cp.sqrt((cc * cc).sum(axis=0))
+        num = (cc * yc[:, None]).sum(axis=0)
+        denom = cn * yn
+        corr = cp.abs(cp.where(denom > 1e-300, num / denom, 0.0))
+        return cp.where(cp.isfinite(corr) & (cn > 1e-12), corr, -1.0)
 
 
 def _gpu_route_bases_batched(cp, M, y_cont, candidate_bases, degrees, *, robust_axis):
