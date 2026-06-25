@@ -589,6 +589,34 @@ def fe_gpu_radix_edges_enabled() -> bool:
 _RADIX_INTERP_CACHE: dict = {}
 
 
+_RADIX_INTERP_SRC = r"""
+extern "C" __global__
+void radix_interp(const double* __restrict__ osv, const long long* __restrict__ bi,
+                  const long long* __restrict__ ai, const double* __restrict__ w,
+                  const int K, const int ne, double* __restrict__ edges) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = (long long)ne * K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    int e = (int)(t / (long long)K);
+    double ab = osv[bi[e] * (long long)K + col];
+    double aa = osv[ai[e] * (long long)K + col];
+    double ww = w[e];
+    double diff = aa - ab;
+    edges[t] = ww < 0.5 ? (ab + diff * ww) : (aa - diff * (1.0 - ww));
+}
+"""
+_RADIX_INTERP_KERNEL = None
+
+
+def _get_radix_interp_kernel():
+    global _RADIX_INTERP_KERNEL
+    if _RADIX_INTERP_KERNEL is None:
+        import cupy as cp
+        _RADIX_INTERP_KERNEL = cp.RawKernel(_RADIX_INTERP_SRC, "radix_interp")
+    return _RADIX_INTERP_KERNEL
+
+
 def _radix_select_interior_edges(cand_gpu, nbins: int):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
     sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
@@ -643,14 +671,18 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
         _RADIX_INTERP_CACHE[_ik] = (bi, ai, w)
     else:
         bi, ai, w = _ic
-    # Fancy-indexed gathers are already fresh allocations (never aliased to osv); only cast when osv is f32.
-    # On the f64 binning path .astype(f64) was a no-op copy (alloc + cast launch x2 per chunk) -- skip it.
-    _ab = osv[bi, :]
-    _aa = osv[ai, :]
-    ab = _ab if _ab.dtype == cp.float64 else _ab.astype(cp.float64)
-    aa = _aa if _aa.dtype == cp.float64 else _aa.astype(cp.float64)
-    diff = aa - ab
-    edges = cp.where(w[:, None] < 0.5, ab + diff * w[:, None], aa - diff * (1.0 - w)[:, None])
+    # FUSED interpolation (launch-reduction, 2026-06-25): the two fancy-index gathers + diff + cp.where
+    # linear-interp (~8 cuLaunchKernel/call -- the #1 launch source by measured python-functions-trace
+    # attribution, ~1418 total) collapse into ONE RawKernel that reads the two order-statistic rows from
+    # ``osv`` and writes the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear'
+    # interp (same f64 formula). osv is promoted to f64 in-kernel (matches the prior .astype(f64)).
+    osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
+    edges = cp.empty((ne_rows := int(bi.shape[0]), K), dtype=cp.float64)
+    _ker_interp = _get_radix_interp_kernel()
+    _threads = 256
+    _total = ne_rows * K
+    _ker_interp(((_total + _threads - 1) // _threads,), (_threads,),
+                (osv64, bi, ai, cp.ascontiguousarray(w), np.int32(K), np.int32(ne_rows), edges))
     return edges                          # (nbins-1, K) float64
 
 
