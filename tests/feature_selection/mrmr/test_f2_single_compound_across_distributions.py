@@ -96,7 +96,21 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #     is still killed upstream by the prospective-ranking + prevalence gates, so with_outliers stays unrecovered;
 #     reverted (the winner-selection-only change adds canonical risk without achieving the goal). Stays xfail pending
 #     a unified tail-concentrated-signal credit across the upstream rank-MI gates.
-_XFAIL_CAPTURE = "GOAL: a/b half is TAIL-CONCENTRATED under outliers (rank-MI ~0 in bulk, signal only in the 5% tail) -- the true div(sqr(a),b) ratio loses the rank-MI race to a spurious form by a REAL 0.010 (not noise) and the (a,b) pair is dropped by the rank-MI-calibrated prospective-ranking + prevalence gates; needs unified tail-signal credit (OLS-R/|corr|) across those gates, not just winner-selection"
+_XFAIL_CAPTURE = (
+    "GOAL: a/b half is TAIL-CONCENTRATED under outliers (rank-MI ~0 in bulk, signal only in the 5% tail) -- "
+    "the true div(sqr(a),b) ratio loses the rank-MI race to a spurious form by a REAL 0.010 (not noise) and "
+    "the (a,b) pair is dropped by the rank-MI-calibrated prospective-ranking + prevalence gates. ROOT CAUSE "
+    "(2026-06-25 accuracy experiment, score_prospective_pairs in _step_pairs_rank.py:171-220): the admission "
+    "gate has ONLY rank-MI/CMI signals (prevalence = pair_mi>sum*bar; maxt = pair_mi>=floor; the perm-CMI "
+    "path itself requires _passes_maxt). The DISTINGUISHING signal -- linear |corr| (true 0.986 vs spurious "
+    "0.371) -- is unavailable at this gate (discrete codes only; the |corr| re-test lives downstream in the "
+    "escalation, BEHIND the maxt clearance the tail-concentrated true form fails). rank-MI/CMI cannot, by "
+    "construction, separate a tail-concentrated-true (low rank-MI, high |corr|) from a spurious (high rank-MI, "
+    "low |corr|) pair. FIX needs a CROSS-CUTTING change: plumb continuous y + form materialisation (or a "
+    "precomputed |corr|/OLS-R signal) INTO score_prospective_pairs and add a usability-gated admission under a "
+    "tail-concentration detector -- not a local gate tweak; touches the primary pair-ranking path so it "
+    "requires its own canonical biz-value gate (reject if canonical regresses)."
+)
 _PROFILES = [
     "uniform",
     "scaled_1_5",  # FIXED 2026-06-24 by the 4-part asymmetric-synergy / OLS-separability / pre-vote-fusion / subsumed-recipe-preservation fix.
