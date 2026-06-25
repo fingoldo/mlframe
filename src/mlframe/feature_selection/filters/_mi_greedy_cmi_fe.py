@@ -633,6 +633,9 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     return max(0.0, cmi_plugin - cmi_bias)
 
 
+_YZ_CARD_CACHE: dict = {}   # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant across a round's candidates
+
+
 def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tuple[int, int, int, int]:
     """Occupied-cell counts (k_z, k_xz, k_yz, k_xyz) for the analytic CMI-null df, via device cp.unique.
     Only the cardinalities (number of distinct joint codes) are needed -> cp.unique(...).size on the
@@ -646,15 +649,32 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
     dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
     Kx = (int(dx.max()) + 1) if dx.size else 1
-    ky = (int(dy.max()) + 1) if dy.size else 1
-    kz = (int(dz.max()) + 1) if dz.size else 1
-    # occupied-cell count via in-kernel-flat-key atomic histogram + the shared NNZ ReductionKernel (one
-    # atomic-hist launch, no cp.bincount cub_any, no key int-arithmetic). df unchanged (selection-equiv).
+
     def _nc(codes, cards):
         return _nnz_from_counts(joint_counts_gpu(codes, cards))
-    k_z = _nc([dz], [kz])
+
+    # CROSS-CALL CACHE of the (y,z)-only cardinalities (launch-reduction). In the analytic-null df the gate
+    # scores MANY candidates against the SAME (y target, z support) within a greedy round, so k_z / k_yz
+    # (and ky / kz) are INVARIANT across those per-candidate calls -- only k_xz / k_xyz depend on the
+    # candidate x. Recomputing k_z + k_yz per candidate was 2 of the 4 occupied-cell histograms each call.
+    # Memoize them keyed by the (y,z) host-array identity + size + endpoints (stable within a round, distinct
+    # across rounds; endpoints guard against id() reuse after GC). Same cardinalities -> df unchanged.
+    ya = np.asarray(y).ravel(); za = np.asarray(z).ravel()
+    yzkey = (id(y), id(z), int(ya.size),
+             int(ya[0]) if ya.size else 0, int(ya[-1]) if ya.size else 0,
+             int(za[0]) if za.size else 0, int(za[-1]) if za.size else 0)
+    _cached = _YZ_CARD_CACHE.get(yzkey)
+    if _cached is not None:
+        k_z, k_yz, ky, kz = _cached
+    else:
+        ky = (int(dy.max()) + 1) if dy.size else 1
+        kz = (int(dz.max()) + 1) if dz.size else 1
+        k_z = _nc([dz], [kz])
+        k_yz = _nc([dy, dz], [ky, kz])
+        if len(_YZ_CARD_CACHE) > 128:
+            _YZ_CARD_CACHE.clear()
+        _YZ_CARD_CACHE[yzkey] = (k_z, k_yz, ky, kz)
     k_xz = _nc([dx, dz], [Kx, kz])
-    k_yz = _nc([dy, dz], [ky, kz])
     k_xyz = _nc([dx, dy, dz], [Kx, ky, kz])
     return k_z, k_xz, k_yz, k_xyz
 
