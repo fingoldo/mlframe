@@ -213,14 +213,30 @@ def _binnedmi_gpu_enabled() -> bool:
         return False
 
 
-def _binned_mi_cupy(feat, y, nbins: int, y_codes) -> float:
+def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> float:
     """Device twin of :func:`_binned_mi`: bin feat/y + MI = H(feat)+H(y)-H(feat,y) via cp.unique partition
-    counts. Same partition -> same MI -> same leg ranking (selection-identical, fp-order ~1e-15)."""
+    counts. Same partition -> same MI -> same leg ranking (selection-identical, fp-order ~1e-15).
+
+    ``discrete``: the caller guarantees ``feat`` (and, when ``y_codes`` is None, ``y``) are ALREADY small
+    integer bin codes (the held-out incremental-MI path passes ``xc`` / ``xc*3+legcode`` / class codes).
+    Then the ``cp.unique`` densify -- a FULL device sort just to dedupe already-discrete values, the single
+    largest MergeSort source in the F2 STRICT profile -- is skipped: the codes are used directly (offset by
+    min, a label relabel that leaves the partition, hence the plug-in MI, identical) and scored by the
+    fused MI-from-codes RawKernel. Selection-EXACT (no approximation), no sort."""
     import cupy as cp
 
     df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
     n = int(df.size)
     inv_n = 1.0 / float(n)
+    if discrete:
+        from ._fe_batched_mi import binned_mi_from_codes_gpu
+        fb = (df - df.min()).astype(cp.int64)
+        if y_codes is not None:
+            yb = cp.asarray(np.asarray(y_codes).ravel()).astype(cp.int64, copy=False)
+        else:
+            dy = cp.asarray(np.asarray(y).ravel()).astype(cp.int64, copy=False)
+            yb = dy - dy.min()
+        return float(max(float(binned_mi_from_codes_gpu(fb[:, None], yb)[0]), 0.0))
     uf = cp.unique(df)
     if int(uf.size) <= nbins:
         fb = cp.searchsorted(uf, df)
@@ -250,7 +266,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes) -> float:
     return float(max(mi, 0.0))
 
 
-def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Optional[np.ndarray] = None) -> float:
+def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Optional[np.ndarray] = None, discrete: bool = False) -> float:
     """Plug-in binned MI(feat; y) in nats. y is treated as discrete classes if it
     has <= 20 unique values, else quantile-binned into ``nbins``. Used only for
     the held-out scale-selection ranking (the pool-level admission reuses the
@@ -269,7 +285,7 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     # same MI -> same leg RANKING (selection-identical). Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
     if _binnedmi_gpu_enabled():
         try:
-            return _binned_mi_cupy(feat, y, int(nbins), y_codes)
+            return _binned_mi_cupy(feat, y, int(nbins), y_codes, discrete=discrete)
         except Exception:
             pass
     # Feature is a Haar leg taking values in {-1, 0, +1} -> use those as classes
@@ -373,8 +389,8 @@ def _heldout_incremental_mi(
     leg_code = np.clip(leg_code, 0, 2)
     joint = xc * 3 + leg_code
     y_va = np.asarray(y[va])
-    base_mi = _binned_mi(xc.astype(np.float64), y_va, nbins=max(nbins, int(xc.max()) + 1))
-    joint_mi = _binned_mi(joint.astype(np.float64), y_va, nbins=int(joint.max()) + 1)
+    base_mi = _binned_mi(xc.astype(np.float64), y_va, nbins=max(nbins, int(xc.max()) + 1), discrete=True)
+    joint_mi = _binned_mi(joint.astype(np.float64), y_va, nbins=int(joint.max()) + 1, discrete=True)
     leg_incr_raw = float(joint_mi - base_mi)
     # PERMUTATION-NULL DEBIAS: subtract the worst-shuffle incremental MI so the leg's finite-sample plug-in
     # bias (the extra leg cells inflate the joint MI even on noise) cancels. Deterministic seed -> reproducible
@@ -389,7 +405,7 @@ def _heldout_incremental_mi(
         null = np.empty(n_perm, dtype=np.float64)
         for _p in range(n_perm):
             yp = y_va[_rng.permutation(y_va.size)]
-            null[_p] = _binned_mi(joint_f, yp, nbins=joint_nb) - _binned_mi(xc_f, yp, nbins=base_nb)
+            null[_p] = _binned_mi(joint_f, yp, nbins=joint_nb, discrete=True) - _binned_mi(xc_f, yp, nbins=base_nb, discrete=True)
         # Subtract the MAX incremental MI over the shuffles: the leg survives only if its incremental MI beats
         # every shuffled-y replicate -- a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
         # extra contingency cells inflate the joint MI even on noise (finite-sample plug-in bias) and that bias
@@ -402,7 +418,7 @@ def _heldout_incremental_mi(
     # SMOOTH-refinement competitor: finer (2*nbins) location binning of raw x.
     xc_fine = _x_codes(x[va], nbins=2 * nbins)
     fine_mi = _binned_mi(
-        xc_fine.astype(np.float64), y[va], nbins=max(2 * nbins, int(xc_fine.max()) + 1),
+        xc_fine.astype(np.float64), y[va], nbins=max(2 * nbins, int(xc_fine.max()) + 1), discrete=True,
     )
     smooth_gain = float(fine_mi - base_mi)
     return leg_incr, smooth_gain
