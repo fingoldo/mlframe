@@ -104,15 +104,18 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
             # array_equal). The downstream entropy upcasts to float64 just as the bincount path did.
             counts_i = cp.zeros(cc * pb * max_jc, dtype=cp.int32)
             cupyx.scatter_add(counts_i, flat, cp.int32(1))
-            counts = counts_i.reshape(cc, pb, max_jc).astype(cp.float64)         # (cc, pb, max_jc)
 
             # Plug-in joint entropy H(x, y_perm) per (cand, perm): -sum p*log(p), p=count/n, 0-count -> 0.
-            p = counts * inv_n
-            safe = cp.where(counts > 0, p, 1.0)
-            h_xy = -cp.sum(cp.where(counts > 0, p * cp.log(safe), 0.0), axis=2)  # (cc, pb)
+            # The per-(cand,perm)-row entropy over the max_jc joint cells is exactly the fused rows-entropy
+            # kernel (one block per row, shared-mem reduction) -> ONE launch, replacing the counts*inv_n +
+            # where + log + where + sum chain. Same float64 plug-in entropy -> selection-equivalent.
+            from ._fe_batched_mi import _rows_entropy_and_k
+
+            h_xy_flat, _ = _rows_entropy_and_k(counts_i.reshape(cc * pb, max_jc), inv_n)   # (cc*pb,)
+            h_xy = h_xy_flat.reshape(cc, pb)                                     # (cc, pb)
             mi = (d_hx_c + h_y) - h_xy - d_mm_c                                  # (cc, pb)
             d_best[p0:p1] = cp.maximum(d_best[p0:p1], cp.max(mi, axis=0))
-            del joint, flat, counts_i, counts, p, safe, h_xy, mi
+            del joint, flat, counts_i, h_xy_flat, h_xy, mi
 
     return cp.asnumpy(d_best)
 
