@@ -416,10 +416,36 @@ def _heldout_incremental_mi(
         joint_f = joint.astype(np.float64)
         base_nb = max(nbins, int(xc.max()) + 1)
         joint_nb = int(joint.max()) + 1
-        null = np.empty(n_perm, dtype=np.float64)
-        for _p in range(n_perm):
-            yp = y_va[_rng.permutation(y_va.size)]
-            null[_p] = _binned_mi(joint_f, yp, nbins=joint_nb, discrete=True) - _binned_mi(xc_f, yp, nbins=base_nb, discrete=True)
+        null = None
+        # BATCHED null (launch-reduction): joint_f / xc_f are FIXED across the n_perm shuffles; only the
+        # permuted y varies. Plain plug-in MI is symmetric, so MI(joint; yp) == MI(yp; joint): stack the SAME
+        # _rng-drawn permuted-y columns into one (n, nperm) matrix and score them all in TWO
+        # binned_mi_from_codes_gpu workloads (one vs joint, one vs xc) -- the SAME plain-plug-in kernel
+        # _binned_mi(discrete) uses, so selection-equivalent. Identical permutations -> identical null.max().
+        try:
+            import cupy as cp
+
+            from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+            n_cls = int(y_va.max()) + 1 if y_va.size else 1
+            Yp = np.empty((int(y_va.size), n_perm), dtype=np.int64)
+            for _p in range(n_perm):
+                Yp[:, _p] = y_va[_rng.permutation(y_va.size)]
+            Yp_d = cp.asarray(Yp)
+            joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
+            xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
+            jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)),
+                            dtype=np.float64)
+            bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)),
+                            dtype=np.float64)
+            null = jm - bm
+        except Exception:
+            null = None
+        if null is None:
+            null = np.empty(n_perm, dtype=np.float64)
+            for _p in range(n_perm):
+                yp = y_va[_rng.permutation(y_va.size)]
+                null[_p] = _binned_mi(joint_f, yp, nbins=joint_nb, discrete=True) - _binned_mi(xc_f, yp, nbins=base_nb, discrete=True)
         # Subtract the MAX incremental MI over the shuffles: the leg survives only if its incremental MI beats
         # every shuffled-y replicate -- a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
         # extra contingency cells inflate the joint MI even on noise (finite-sample plug-in bias) and that bias
