@@ -199,8 +199,15 @@ def _conditional_perm_null(
     quantile: float = _CMI_FLOOR_QUANTILE,
     seed: int = 0,
     salt: int = 0,
+    precomp_cards: Optional[tuple] = None,
 ) -> tuple[float, float]:
     """Conditional-permutation null for ``CMI(cand; y | z_support)``.
+
+    ``precomp_cards`` (k_z, k_xz, k_yz, k_xyz): the OCCUPIED-cell cardinalities for THIS candidate, already
+    computed by the round-level ``batched_cmi_gpu(return_cards=True)`` workload. When supplied (conditional
+    path), the analytic-null df reuses them instead of recomputing the per-candidate ``joint_cardinalities_cupy``
+    (the same occupied-cell definition -> bit-identical df), eliminating a redundant 4-histogram device call
+    per fallback candidate.
 
     ``salt`` mixes a per-candidate value into the RNG (via ``SeedSequence([seed, salt])``) so each
     candidate's null is drawn from an INDEPENDENT stream. Without it every candidate in a greedy round
@@ -280,7 +287,10 @@ def _conditional_perm_null(
                 # (k_z/k_xz/k_yz/k_xyz) -> device cp.unique(...).size replaces the host renumber+entropy.
                 # Label-invariant -> same df. Gated (STRICT / MLFRAME_CMI_GPU), falls back to CPU on error.
                 _ks = None
-                if _cmi_gpu_enabled():
+                if precomp_cards is not None:
+                    # round-batched cards (same occupied-cell definition -> bit-identical df); no per-cand call
+                    _ks = precomp_cards
+                elif _cmi_gpu_enabled():
                     try:
                         from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
                         _ks = joint_cardinalities_cupy(x, y, _z)
@@ -653,6 +663,7 @@ def apply_cmi_redundancy_gate(
         # under STRICT/CMI_GPU (default OFF -> per-candidate CPU, byte-identical).
         _round_cmi: dict = {}
         _round_floor: dict = {}
+        _round_cards: dict = {}   # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
         _rem_list = list(remaining)
         try:
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
@@ -664,6 +675,12 @@ def apply_cmi_redundancy_gate(
                 _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, z_support, return_cards=True)
                 _cmis = np.asarray(_cmis, dtype=np.float64)
                 _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
+                # cards for EVERY candidate -> pass to the per-candidate permutation-null fallback so it never
+                # recomputes joint_cardinalities_cupy (z_support is conditional here, so cards apply).
+                if z_support is not None:
+                    _kxz_a = np.asarray(_kxz); _kxyz_a = np.asarray(_kxyz)
+                    _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j]))
+                                    for _j, _nm in enumerate(_rem_list)}
                 # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
                 try:
                     from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
@@ -690,6 +707,7 @@ def apply_cmi_redundancy_gate(
                     cand_bins[nm], y_dense, z_support,
                     n_permutations=n_permutations, quantile=quantile, seed=seed,
                     salt=zlib.crc32(nm.encode("utf-8")),
+                    precomp_cards=_round_cards.get(nm),
                 )
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
