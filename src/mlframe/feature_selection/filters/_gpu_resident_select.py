@@ -505,6 +505,71 @@ def _get_radix_select_kernel(is_f32: bool):
     return _RADIX_SELECT_F64_KERNEL
 
 
+# FUSED select+interp for the f64 path (launch-reduction, 2026-06-25): the radix order-statistic select and
+# the cupy-'linear' interpolation were two kernels (osv written to global, then radix_interp read it back).
+# This combined kernel keeps the R order statistics in shared memory and emits the (ne, K) interior edges
+# DIRECTLY -- one launch, no osv global, no second launch. The radix body is byte-for-byte the f64 select; the
+# tail reproduces _RADIX_INTERP_SRC exactly (same f64 formula) -> BIT-IDENTICAL edges. Used only by the f64
+# _radix_select_interior_edges path; the f32 variants + the cp.percentile fallback keep the two-kernel route.
+_RADIX_SELECT_INTERP_F64_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_interp_f64(const double* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R,
+                      const long long* __restrict__ bi, const long long* __restrict__ ai,
+                      const double* __restrict__ w, const int ne, double* __restrict__ edges){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned long long prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned long long wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ int W;
+    __shared__ double osv_sh[MAXR];
+    if(tid<R){prefix[tid]=0ULL;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=7;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned long long hmask=(byte==7)?0ULL:(0xFFFFFFFFFFFFFFFFULL<<((byte+1)*8));
+        if(tid==0){int w_=0;for(int r=0;r<R;++r){unsigned long long p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w_;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w_]=p;rank2w[r]=w_;w_++;}else rank2w[r]=f;} W=w_;}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);
+            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            unsigned long long pm=u&hmask;int win=-1;
+            for(int q=0;q<Wl;++q)if(wpref[q]==pm){win=q;break;}
+            if(win>=0){int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        if(tid==0){for(int r=0;r<R;++r){int w2=rank2w[r];unsigned long long acc=below[r];int chosen=0;long long want=ranks[r];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w2*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[r]=acc;prefix[r]=(prefix[r]&hmask)|((unsigned long long)chosen<<shift);}}
+        __syncthreads();
+    }
+    if(tid<R){unsigned long long u=prefix[tid];u=(u&0x8000000000000000ULL)?(u&0x7FFFFFFFFFFFFFFFULL):~u;
+        double d;memcpy(&d,&u,8);osv_sh[tid]=d;}
+    __syncthreads();
+    for(int e=tid;e<ne;e+=nt){
+        double ab=osv_sh[bi[e]], aa=osv_sh[ai[e]], ww=w[e]; double diff=aa-ab;
+        edges[(long long)e*K+col] = ww<0.5 ? (ab+diff*ww) : (aa-diff*(1.0-ww));
+    }
+}
+"""
+_RADIX_SELECT_INTERP_F64_KERNEL = None
+
+
+def _get_radix_select_interp_f64_kernel():
+    global _RADIX_SELECT_INTERP_F64_KERNEL
+    if _RADIX_SELECT_INTERP_F64_KERNEL is None:
+        import cupy as cp
+        _RADIX_SELECT_INTERP_F64_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_SRC, "radix_select_interp_f64")
+    return _RADIX_SELECT_INTERP_F64_KERNEL
+
+
 def _get_radix_select_f32_v3_kernel():
     """Lazy-compiled (pickle-safe, module-level singleton) parallel-per-rank-scan f32 variant (the real
     Lever-4 win). Bit-identical order statistics to ``radix_select_f32`` / ``radix_select_f32_bsearch``;
@@ -646,10 +711,6 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     if shmem > sh_limit:
         return None
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
-    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
-    # Lever C: dispatch the f32 path to the binary-search window-match variant where the per-host KTC selects
-    # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
-    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
     # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
     # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
@@ -657,10 +718,8 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
     data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
     threads = _resolve_radix_threads(n)    # Lever B: per-host KTC-tuned block size (bit-identical edges)
-    ker((K,), (threads,),
-        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
-    # cupy 'linear' interpolation, in float64 over the (f32-promoted or native-f64) order stats -- exactly
-    # the cupy_percentile_weightnening elementwise kernel (U=float64; below/above promoted; w in float64).
+    # cupy 'linear' interp gather indices + weight (bi/ai/w), cached per (n, nbins) -- needed BEFORE the kernel
+    # for the fused f64 path, which interpolates in-kernel.
     _ik = (int(n), int(nbins))
     _ic = _RADIX_INTERP_CACHE.get(_ik)
     if _ic is None:
@@ -671,13 +730,31 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
         _RADIX_INTERP_CACHE[_ik] = (bi, ai, w)
     else:
         bi, ai, w = _ic
+    ne_rows = int(bi.shape[0])
+    if not is_f32:
+        # FUSED select+interp (launch-reduction): the f64 radix select keeps its R order statistics in shared
+        # memory and emits the (ne, K) interior edges directly -- ONE launch, no osv global, no separate
+        # radix_interp launch. Bit-identical to the two-kernel f64 path (same select body + same f64 interp).
+        try:
+            edges = cp.empty((ne_rows, K), dtype=cp.float64)
+            _get_radix_select_interp_f64_kernel()((K,), (threads,),
+                (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
+                 bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows), edges), shared_mem=shmem)
+            return edges                  # (nbins-1, K) float64
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("fused f64 select+interp failed; two-kernel path", exc_info=True)
+    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
+    # Lever C: dispatch the f32 path to the binary-search window-match variant where the per-host KTC selects
+    # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
+    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
+    ker((K,), (threads,),
+        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # FUSED interpolation (launch-reduction, 2026-06-25): the two fancy-index gathers + diff + cp.where
-    # linear-interp (~8 cuLaunchKernel/call -- the #1 launch source by measured python-functions-trace
-    # attribution, ~1418 total) collapse into ONE RawKernel that reads the two order-statistic rows from
-    # ``osv`` and writes the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear'
-    # interp (same f64 formula). osv is promoted to f64 in-kernel (matches the prior .astype(f64)).
+    # linear-interp collapse into ONE RawKernel that reads the two order-statistic rows from ``osv`` and writes
+    # the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear' interp (same f64 formula).
     osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
-    edges = cp.empty((ne_rows := int(bi.shape[0]), K), dtype=cp.float64)
+    edges = cp.empty((ne_rows, K), dtype=cp.float64)
     _ker_interp = _get_radix_interp_kernel()
     _threads = 256
     _total = ne_rows * K
