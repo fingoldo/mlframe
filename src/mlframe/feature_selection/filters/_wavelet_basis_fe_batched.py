@@ -128,8 +128,12 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     va_mat = np.stack(va_cols, axis=1)   # (n_va, K)
     ky_tr = int(np.asarray(yb_tr).max()) + 1
     ky_va = int(np.asarray(yb_va).max()) + 1
-    mi_tr = batched_binned_mi_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
-    mi_va = batched_binned_mi_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
+    # Fused one-launch MI-from-codes (launch-reduction): replaces the cupy bincount+entropy chain per
+    # call with a single RawKernel launch; selection-equivalent (same plug-in MI). Falls back internally
+    # to ``batched_binned_mi_gpu`` if the shared-mem histogram tile would not fit.
+    from ._fe_batched_mi import binned_mi_from_codes_gpu
+    mi_tr = binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
+    mi_va = binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
 
     heldout = np.asarray(mi_va, dtype=np.float64)
     if heldout.size >= 4:

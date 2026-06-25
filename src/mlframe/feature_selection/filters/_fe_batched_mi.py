@@ -17,6 +17,95 @@ from __future__ import annotations
 import numpy as np
 
 
+# FUSED MI-FROM-CODES RawKernel (launch-reduction rewrite, 2026-06-25). ONE launch computes plug-in
+# MI(col_k; y) for EVERY column of an (n,K) int code matrix, replacing the cupy chain bincount + reshape
+# + sum(axis) x2 + where + log + multiply + sum (~7 cuLaunchKernel) with a single kernel launch (also via
+# cuLaunchKernel -> a genuine COUNT reduction, not a driver/runtime counter shift). One block per column:
+# the column's (Kx, Ky) joint histogram lives in shared int32 (counts <= n < 2^31); threads stride rows
+# and atomicAdd; then a single-thread reduction computes the plug-in MI from the small joint table. The
+# math is identical to ``batched_binned_mi_gpu`` (plain plug-in MI, no MM bias) -> selection-equivalent
+# (fp reduction order ~1e-15). Used only when the shared tile (Kx*Ky int32) fits; else the cupy path.
+_MI_FROM_CODES_SRC = r"""
+extern "C" __global__
+void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major int codes in [0,Kx)
+                   const long long* __restrict__ y,        // (n,) int codes in [0,Ky)
+                   const long long n, const int K, const int Kx, const int Ky,
+                   const double inv_n, double* __restrict__ mi_out) {
+    extern __shared__ int sh[];          // (Kx*Ky) joint histogram for this column
+    int c = blockIdx.x;
+    if (c >= K) return;
+    int M = Kx * Ky;
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        long long cx = codes[i * (long long)K + c];
+        long long cy = y[i];
+        atomicAdd(&sh[cx * Ky + cy], 1);
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double mi = 0.0;
+        for (int xx = 0; xx < Kx; ++xx) {
+            long long rx = 0;
+            for (int yy = 0; yy < Ky; ++yy) rx += sh[xx * Ky + yy];
+            if (rx == 0) continue;
+            double px = (double)rx * inv_n;
+            for (int yy = 0; yy < Ky; ++yy) {
+                long long nxy = sh[xx * Ky + yy];
+                if (nxy == 0) continue;
+                long long ry = 0;
+                for (int xx2 = 0; xx2 < Kx; ++xx2) ry += sh[xx2 * Ky + yy];
+                double pxy = (double)nxy * inv_n;
+                double py = (double)ry * inv_n;
+                mi += pxy * log(pxy / (px * py));
+            }
+        }
+        mi_out[c] = mi > 0.0 ? mi : 0.0;
+    }
+}
+"""
+_MI_FROM_CODES_KERNEL = None   # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
+_MI_FROM_CODES_MAX_SHARED = 44000   # bytes; stay under the 48KB default shared cap (Kx*Ky*4 must fit)
+
+
+def _get_mi_from_codes_kernel():
+    global _MI_FROM_CODES_KERNEL
+    if _MI_FROM_CODES_KERNEL is None:
+        import cupy as cp
+        _MI_FROM_CODES_KERNEL = cp.RawKernel(_MI_FROM_CODES_SRC, "mi_from_codes")
+    return _MI_FROM_CODES_KERNEL
+
+
+def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0):
+    """Plug-in MI(col_k; y) for EVERY column of ``code_cols`` (n,K) in ONE fused RawKernel launch.
+
+    Drop-in for ``_wavelet_basis_fe_batched.batched_binned_mi_gpu`` (same plain plug-in MI, no MM bias).
+    Falls back to that cupy path when the (Kx*Ky) shared tile would exceed the shared-memory cap. Returns
+    a host (K,) float64 array. Accepts a host ndarray or a resident cupy code matrix."""
+    import cupy as cp
+
+    C = code_cols if isinstance(code_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(code_cols).astype(np.int64))
+    if C.ndim == 1:
+        C = C[:, None]
+    C = cp.ascontiguousarray(C.astype(cp.int64, copy=False))
+    n, K = int(C.shape[0]), int(C.shape[1])
+    y = cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel()) if not isinstance(y_codes, cp.ndarray) else y_codes.astype(cp.int64, copy=False).ravel()
+    Ky = int(ky) if ky > 0 else (int(y.max()) + 1 if y.size else 1)
+    Kx = int(np.max(np.asarray(kx_per_col))) if kx_per_col is not None else (int(C.max()) + 1 if C.size else 1)
+    Kx = max(Kx, 1)
+    if Kx * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
+        from ._wavelet_basis_fe_batched import batched_binned_mi_gpu
+        return batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
+    mi_out = cp.empty(K, dtype=cp.float64)
+    threads = 256
+    self_kernel = _get_mi_from_codes_kernel()
+    self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
+                                   np.float64(1.0 / float(max(1, n))), mi_out),
+                shared_mem=Kx * Ky * 4)
+    return cp.asnumpy(mi_out)
+
+
 def _rows_entropy_and_k(counts, inv_n):
     """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix."""
     import cupy as cp

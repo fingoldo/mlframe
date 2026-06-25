@@ -59,3 +59,22 @@ def test_select_wavelet_legs_batched_same_admitted(seed):
     cpu = _select_wavelet_legs(x, yb, 0.0, 1.0, **kw)
     gpu = select_wavelet_legs_batched(x, yb, 0.0, 1.0, **kw)
     assert cpu == gpu, f"seed={seed}: CPU legs {cpu} != batched {gpu}"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42])
+def test_fused_mi_from_codes_matches_cupy_batched(seed):
+    """Fused one-launch MI-from-codes RawKernel == the cupy batched_binned_mi_gpu (plug-in MI parity)."""
+    pytest.importorskip("cupy")
+    import numpy as _np
+    from mlframe.feature_selection.filters._fe_batched_mi import binned_mi_from_codes_gpu
+    from mlframe.feature_selection.filters._wavelet_basis_fe_batched import batched_binned_mi_gpu
+    rng = _np.random.default_rng(seed)
+    n, K = 6000, 20
+    kx = rng.integers(2, 4, K)
+    C = _np.empty((n, K), _np.int64)
+    for k in range(K):
+        C[:, k] = rng.integers(0, kx[k], n)
+    y = rng.integers(0, 10, n).astype(_np.int64)
+    a = batched_binned_mi_gpu(C, y, kx_per_col=kx, ky=10)
+    b = binned_mi_from_codes_gpu(C, y, kx_per_col=kx, ky=10)
+    assert _np.allclose(a, b, atol=1e-9), f"seed={seed} max|d|={_np.max(_np.abs(a-b)):.2e}"
