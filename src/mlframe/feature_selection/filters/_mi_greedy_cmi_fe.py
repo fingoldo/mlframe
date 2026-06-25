@@ -576,15 +576,67 @@ def _cmi_gpu_enabled() -> bool:
 _ENT_RK = None
 _NNZ_RK = None
 
+# FUSED entropy + occupied-cell in ONE RawKernel (launch-reduction, 2026-06-25). _ent_from_counts ran TWO
+# cupy ReductionKernels (ENT_RK for sum xlog x, NNZ_RK for occupied cells) -- two cuLaunchKernel per call,
+# and after the per-candidate CMI scoring it was the measured #1 launch source (477). One grid-stride kernel
+# now reduces both: each thread accumulates (sum xlogx, nnz) over its strided cells, a block reduction in
+# shared memory folds the block, and one atomicAdd per block adds into a 2-slot output (out[0]=sum xlogx,
+# out[1]=nnz). out is cp.zeros(2) -- a cudaMemsetAsync, NOT a cuLaunchKernel -- so the call is ONE launch.
+# Same float64 plug-in entropy / same occupied-cell definition -> selection-equivalent (bit-identical sum
+# up to float reduction order, which the plug-in MI is already order-tolerant to).
+_ENT_NNZ_SRC = r"""
+extern "C" __global__
+void ent_nnz(const long long* __restrict__ c, const double inv_n, const long long M,
+             double* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long stride = (long long)gridDim.x * blockDim.x;
+    double hloc = 0.0, kloc = 0.0;
+    for (long long i = t; i < M; i += stride) {
+        long long ci = c[i];
+        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+    }
+    __shared__ double sh_h[256];
+    __shared__ double sh_k[256];
+    int tid = threadIdx.x;
+    sh_h[tid] = hloc; sh_k[tid] = kloc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { atomicAdd(&out[0], sh_h[0]); atomicAdd(&out[1], sh_k[0]); }
+}
+"""
+_ENT_NNZ_KERNEL = None
+
+
+def _get_ent_nnz_kernel(cp):
+    global _ENT_NNZ_KERNEL
+    if _ENT_NNZ_KERNEL is None:
+        _ENT_NNZ_KERNEL = cp.RawKernel(_ENT_NNZ_SRC, "ent_nnz")
+    return _ENT_NNZ_KERNEL
+
 
 def _ent_from_counts(c, inv_n: float):
+    """Plug-in entropy (h) + occupied-cell count (k) of an int64 count vector in ONE fused RawKernel launch.
+    Falls back to the two cupy ReductionKernels on any kernel error (bit-equivalent)."""
     import cupy as cp
+
     global _ENT_RK, _NNZ_RK
-    if _ENT_RK is None:
-        _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
-                                     "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
-        _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
-    return float(_ENT_RK(c, float(inv_n))), int(_NNZ_RK(c))
+    try:
+        M = int(c.size)
+        out = cp.zeros(2, dtype=cp.float64)             # cudaMemsetAsync, not a cuLaunchKernel
+        threads = 256
+        blocks = min(1024, max(1, (M + threads - 1) // threads))
+        _get_ent_nnz_kernel(cp)((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
+        h_k = cp.asnumpy(out)
+        return float(-h_k[0]), int(round(h_k[1]))
+    except Exception:                                   # noqa: BLE001
+        if _ENT_RK is None:
+            _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
+                                         "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
+            _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
+        return float(_ENT_RK(c, float(inv_n))), int(_NNZ_RK(c))
 
 
 def _nnz_from_counts(c) -> int:
