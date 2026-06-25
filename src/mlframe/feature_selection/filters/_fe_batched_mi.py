@@ -106,13 +106,23 @@ def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0):
     return cp.asnumpy(mi_out)
 
 
+_XLOGX_ROWS_EK = None
+
+
 def _rows_entropy_and_k(counts, inv_n):
-    """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix."""
+    """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix.
+
+    The x*log(x) contribution (counts*inv_n + where + log + where + multiply, ~5 cuLaunchKernel) is folded
+    into ONE ElementwiseKernel ``c>0 ? (c*invn)*log(c*invn) : 0`` (launches via the same cuLaunchKernel
+    driver API -> genuine count reduction), leaving the per-row sum + the occupied-cell sum. Same float64
+    plug-in entropy -> selection-equivalent."""
     import cupy as cp
 
-    p = counts * inv_n
-    with np.errstate(divide="ignore", invalid="ignore"):
-        h = -cp.sum(cp.where(counts > 0, p * cp.log(cp.where(counts > 0, p, 1.0)), 0.0), axis=1)
+    global _XLOGX_ROWS_EK
+    if _XLOGX_ROWS_EK is None:
+        _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o",
+                                              "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
+    h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
     k = cp.sum(counts > 0, axis=1)
     return h, k
 
