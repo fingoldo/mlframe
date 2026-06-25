@@ -90,8 +90,10 @@ def compute_pair_mis_and_floor(
         if _eng_cap == 0:
             _keep_eng: set = set()
         else:
-            # Rank by marginal MI; missing single-var MI sorts last (kept only if it fits the cap).
-            _ranked = sorted(_engineered_in_pool, key=lambda v: cached_MIs.get((v,), 0.0), reverse=True)
+            # Rank by marginal MI desc; missing single-var MI sorts last. Tie-break on the var index so the
+            # cap survivors are deterministic (the pool derives from a set, whose iteration order is not stable
+            # across processes -- without the secondary key equal-MI operands kept an arbitrary, irreproducible subset).
+            _ranked = sorted(_engineered_in_pool, key=lambda v: (-cached_MIs.get((v,), 0.0), v))
             _keep_eng = set(_ranked[:_eng_cap])
         _drop_eng = set(_engineered_in_pool) - _keep_eng
         if _drop_eng:

@@ -404,7 +404,7 @@ def materialise_and_finalise_fe_candidates(
             _toks = _bare_tokens_fsc(_nm)
             if len(_toks) < 2:
                 continue
-            _others = [_ts for _ts in _clean_token_sets_fsc if _ts is not _bare_tokens_fsc(_nm) and _ts != _toks]
+            _others = [_ts for _ts in _clean_token_sets_fsc if _ts != _toks]
             # "Cross-group" == no OTHER single clean survivor jointly covers this node's whole token set.
             _within_one = any(_toks <= _ts for _ts in _clean_token_sets_fsc if _ts != _toks)
             if _within_one:
