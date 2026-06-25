@@ -3229,11 +3229,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         # produced before ANY other ctor param existed re-surfaces without it -- and the fit path reads many
         # via bare ``self.<param>`` (e.g. ``self.dtype``), raising AttributeError before any work. Inject every
         # remaining ctor default the roster did not cover (roster keys + LEGACY_OVERRIDES already set above keep
-        # their possibly-legacy-divergent values; ``setdefault`` never overwrites them).
+        # their possibly-legacy-divergent values; the keys here are never overwritten once present in state).
+        # Source the value from a FRESHLY-CONSTRUCTED instance, not the raw signature default, so params that
+        # ``__init__`` resolves (``n_jobs=-1`` -> cpu_count, ``parallel_kwargs=None`` -> dict) match a fresh MRMR
+        # exactly -- a resurrected legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift).
+        try:
+            _fresh = type(self)()
+        except Exception:
+            _fresh = None
         for k, v in _ctor.items():
             if k in state:
                 continue
-            state[k] = copy.deepcopy(v) if isinstance(v, (list, dict, set)) else v
+            fv = getattr(_fresh, k, v) if _fresh is not None else v
+            state[k] = copy.deepcopy(fv) if isinstance(fv, (list, dict, set)) else fv
         self.__dict__.update(state)
 
     def _maybe_resample_for_sample_weight(self, X, y, sample_weight: np.ndarray | None):
