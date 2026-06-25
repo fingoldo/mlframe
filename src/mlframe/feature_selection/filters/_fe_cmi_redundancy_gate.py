@@ -642,8 +642,26 @@ def apply_cmi_redundancy_gate(
         best_name = None
         best_excess = -1.0
         scored: dict = {}
-        for nm in list(remaining):
-            cmi = float(_cmi_from_binned(cand_bins[nm], y_dense, z_support))
+        # ROUND-LEVEL BATCHED CMI (launch-reduction): within a greedy round z_support is FIXED, so every
+        # remaining candidate's CMI(x; y | z) can be scored in ONE batched_cmi_gpu workload instead of a
+        # per-candidate _cmi_from_binned call. Selection-equivalent (batched_cmi_gpu == _cmi_from_binned,
+        # parity-pinned). Gated under STRICT/CMI_GPU (default OFF -> the per-candidate CPU path below,
+        # byte-identical). The conditional-permutation FLOOR stays per-candidate (its own batching is next).
+        _round_cmi: dict = {}
+        _rem_list = list(remaining)
+        try:
+            from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+            if _cmi_gpu_enabled() and len(_rem_list) > 1:
+                from ._fe_batched_mi import batched_cmi_gpu
+                _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
+                for _j, _nm in enumerate(_rem_list):
+                    _Xc[:, _j] = cand_bins[_nm]
+                _cmis = np.asarray(batched_cmi_gpu(_Xc, y_dense, z_support), dtype=np.float64)
+                _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
+        except Exception:
+            _round_cmi = {}
+        for nm in _rem_list:
+            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(cand_bins[nm], y_dense, z_support))
             floor, null_mean = _conditional_perm_null(
                 cand_bins[nm], y_dense, z_support,
                 n_permutations=n_permutations, quantile=quantile, seed=seed,
