@@ -349,17 +349,14 @@ def test_large_p_noise_exclusion(seed, n, p):
 @pytest.mark.parametrize("aggregator", ["jmim", None])
 def test_exact_duplicate_keeps_one_jmim_vs_default(aggregator):
     """Exact-duplicate keep-one contract must hold under both the jmim redundancy aggregator and the default
-    (None -> fleuret). Skips gracefully if this MRMR build lacks the kwarg.
-    """
+    (None -> fleuret)."""
     import inspect
 
-    if "redundancy_aggregator" not in inspect.signature(MRMR.__init__).parameters:
-        pytest.skip("redundancy_aggregator kwarg not present in this MRMR build")
-    try:
-        names = _fit_cached(("exact_dup_agg", aggregator), _make_exact_dup(0, n=2000), mode="raw",
-                            nbins=8, seed=0, redundancy_aggregator=aggregator)
-    except (ValueError, KeyError, TypeError) as exc:
-        pytest.skip(f"redundancy_aggregator={aggregator!r} unsupported: {exc}")
+    assert "redundancy_aggregator" in inspect.signature(MRMR.__init__).parameters, (
+        "redundancy_aggregator is a documented MRMR ctor param; a missing kwarg is a real regression, not a skip"
+    )
+    names = _fit_cached(("exact_dup_agg", aggregator), _make_exact_dup(0, n=2000), mode="raw",
+                        nbins=8, seed=0, redundancy_aggregator=aggregator)
     sigs = _signal_cols(names)
     assert len(sigs) == 1, (
         f"exact-dup under aggregator={aggregator!r}: expected ONE of the pair, got {sigs}; full={names}"
