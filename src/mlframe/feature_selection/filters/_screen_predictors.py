@@ -75,6 +75,11 @@ def screen_predictors(
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
     random_seed: int = None,
+    # ONE shared FE subsample (2026-06-25, "score the screen on the same rows"). When supplied, the
+    # order-1 relevance SWEEP + its maxT FDR floor are computed on THESE rows (consistent estimator scale,
+    # and the full-n permutation work disappears); the RETURNED target encodings (classes_y / freqs_y)
+    # are recomputed at FULL n so the downstream FE pipeline stays row-aligned. None -> full-n screen.
+    subsample_idx=None,
     use_gpu: bool = False,
     n_workers: int = 1,
     # confidence
@@ -477,6 +482,26 @@ def screen_predictors(
                         _dcd_init_exc,
                     )
                 dcd_state = None
+
+        # SCREEN SUBSAMPLE ("score on the shared rows"): slice the working factors/targets to the fit's
+        # one shared draw so the relevance sweep + maxT FDR floor below run on ~30k rows (consistent with
+        # the candidates they gate; no full-n permutation work). ``_screen_full_factors`` keeps the full
+        # array so the RETURNED encodings are recomputed at full n (row-aligned for the FE pipeline).
+        _screen_full_factors = None
+        if subsample_idx is not None:
+            try:
+                _sidx = np.asarray(subsample_idx)
+                if _sidx.ndim == 1 and 0 < _sidx.shape[0] < len(factors_data) and int(_sidx.max()) < len(factors_data):
+                    _sidx = _sidx.astype(np.int64, copy=False)
+                    _same_t = targets_data is factors_data
+                    _screen_full_factors = factors_data
+                    factors_data = factors_data[_sidx]
+                    if _same_t:
+                        targets_data = factors_data
+                    elif targets_data is not None and len(targets_data) == len(_screen_full_factors):
+                        targets_data = targets_data[_sidx]
+            except Exception:
+                _screen_full_factors = None
 
         data_copy = factors_data.copy()
 
@@ -906,6 +931,12 @@ def screen_predictors(
             if key in cached_cond_MIs:
                 additional_knowledge = cached_cond_MIs[key]
         """
+        # When the screen SCORED on a subsample, recompute the RETURNED target encodings at FULL n: the
+        # downstream FE pipeline consumes classes_y / classes_y_safe_host / freqs_y row-aligned to the
+        # full data (the subsample only bounded the screen's relevance sweep + maxT floor cost).
+        if _screen_full_factors is not None:
+            classes_y, freqs_y, _ = merge_vars(factors_data=_screen_full_factors, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
+            classes_y_safe_host = classes_y.copy()
         # Return the CPU numpy ``classes_y_safe_host`` (NOT the CuPy device buffer that
         # ``ctx`` holds for ``mi_direct_gpu``): the caller threads this into the FE step's
         # njit MI noise-gate, which cannot accept a cupy array. ``classes_y_safe_host`` is

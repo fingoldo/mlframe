@@ -6454,10 +6454,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     while True:
         n_recommended_features = 0
         times_spent = defaultdict(float)
+        # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
+        # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
+        # SAME rows). None at small n -> full-n screen, unchanged.
+        try:
+            from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
+            _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), int(len(data)))
+        except Exception:
+            _screen_shared_idx = None
         selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state = (
             screen_predictors(
                 factors_data=data,
                 y=target_indices,
+                subsample_idx=_screen_shared_idx,
                 factors_nbins=nbins,
                 factors_names=cols,
                 # Layer 23: when hybrid orth FE appended columns, extend the
