@@ -230,6 +230,23 @@ _GPU_ROBUST_AXIS_GAP = 3.0
 _GPU_ROBUST_AXIS_MAX_FRAC = 0.20
 
 
+def _batched_quantiles(cp, M, q_fracs):
+    """Per-column quantiles ``(len(q_fracs), K)`` over finite (n, K) ``M``, via the sort-free radix-select
+    machinery (``_gpu_resident_select._radix_quantiles``) -- BIT-IDENTICAL to ``cp.percentile(M,
+    [q*100 ...], axis=0)`` and to ``cp.median`` at q=0.5. Replaces the per-call full sort of cp.median /
+    cp.percentile in the robust-scale / heavy-tail batched path (the measured #1 GPU-launch source, 672)
+    with one select+interp launch pair. Falls back to cp.percentile on any radix inapplicability / error."""
+    try:
+        from ._gpu_resident_select import _radix_quantiles
+
+        out = _radix_quantiles(M, q_fracs)
+        if out is not None:
+            return out
+    except Exception:  # noqa: BLE001
+        pass
+    return cp.percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
+
+
 def _gpu_robust_scale(cp, xf, med):
     """cupy mirror of _hermite_robust._robust_scale: 1.4826*MAD, IQR/1.349 fallback, 0.0 if degenerate."""
     mad = float(cp.median(cp.abs(xf - med)))
@@ -322,12 +339,19 @@ def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
 # count (p200). Bit-equivalent to the per-column path (same math, just vectorised); guarded by
 # test_gpu_basis_column_parity's batched leg.
 
-def _gpu_robust_scale_batched(cp, M, med):
-    """Per-column (axis=0) robust scale over finite (n, g) M: 1.4826*MAD, IQR/1.349 fallback, 0 degenerate."""
-    mad = cp.median(cp.abs(M - med), axis=0)
+def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
+    """Per-column (axis=0) robust scale over finite (n, g) M: 1.4826*MAD, IQR/1.349 fallback, 0 degenerate.
+
+    Quantiles routed through ``_batched_quantiles`` (sort-free radix-select, bit-identical to cp.median /
+    cp.percentile) to drop the per-call full sort -- the measured #1 GPU-launch source. ``q25`` / ``q75``
+    may be passed pre-computed by a caller that already extracted M's quartiles (e.g. heavy-tail folds
+    them into one [0.25,0.5,0.75] radix call) to skip the redundant q25/q75 select+interp here."""
+    mad = _batched_quantiles(cp, cp.abs(M - med), [0.5])[0]   # median(|M-med|) per column
     scale = 1.4826 * mad
-    q = cp.percentile(M, cp.asarray([25.0, 75.0]), axis=0)  # (2, g)
-    iqr = (q[1] - q[0]) / 1.349
+    if q25 is None or q75 is None:
+        q = _batched_quantiles(cp, M, [0.25, 0.75])           # (2, g) == cp.percentile(M,[25,75],axis=0)
+        q25, q75 = q[0], q[1]
+    iqr = (q75 - q25) / 1.349
     return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
 
 
@@ -342,8 +366,11 @@ def _gpu_detect_heavy_tail_batched(cp, M):
     """Vectorized per-column heavy-tail over a FINITE (n, K) matrix (caller skips non-finite cols).
     Returns (K,) cupy bool, matching _gpu_detect_heavy_tail per column."""
     n = M.shape[0]
-    med = cp.median(M, axis=0)
-    scale = _gpu_robust_scale_batched(cp, M, med)
+    # med + q25 + q75 of M fold into ONE radix-select call (same M); MAD's median(|M-med|) stays separate
+    # (needs med first). Bit-identical to cp.median(M)/cp.percentile(M,[25,75]).
+    q = _batched_quantiles(cp, M, [0.25, 0.5, 0.75])
+    med = q[1]
+    scale = _gpu_robust_scale_batched(cp, M, med, q25=q[0], q75=q[2])
     dev = cp.abs(M - med)
     outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
     n_outer = outer.sum(axis=0)
@@ -360,7 +387,7 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     """Vectorized per-basis preprocess over (n, g) M (all g columns share basis + robust). Returns Z (n, g)."""
     if basis == "hermite":  # z-score
         if robust:
-            center = cp.median(M, axis=0)
+            center = _batched_quantiles(cp, M, [0.5])[0]
             scale = _gpu_robust_scale_batched(cp, M, center)
             lo, hi = _gpu_robust_lo_hi_batched(cp, M, center, scale)
             std = (hi - lo) / 6.0
@@ -370,7 +397,7 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
         return (M - mean) / std
     if basis in ("legendre", "chebyshev"):  # min-max -> [-1, 1]
         if robust:
-            med = cp.median(M, axis=0)
+            med = _batched_quantiles(cp, M, [0.5])[0]
             scale = _gpu_robust_scale_batched(cp, M, med)
             lo, hi = _gpu_robust_lo_hi_batched(cp, M, med, scale)
             span = hi - lo + 1e-12
@@ -379,7 +406,7 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
         return 2.0 * (M - lo) / span - 1.0
     if basis == "laguerre":  # shift -> >= 0
         if robust:
-            med = cp.median(M, axis=0)
+            med = _batched_quantiles(cp, M, [0.5])[0]
             scale = _gpu_robust_scale_batched(cp, M, med)
             lo, hi = _gpu_robust_lo_hi_batched(cp, M, med, scale)
             upper = hi - lo

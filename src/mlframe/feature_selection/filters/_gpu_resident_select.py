@@ -686,6 +686,60 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     return edges                          # (nbins-1, K) float64
 
 
+def _radix_quantiles(cand_gpu, q_fracs):
+    """Per-column quantiles at ``q_fracs`` (fractions in [0,1]) over the resident (n, K) cupy ``cand_gpu``
+    via the SAME sort-free radix-select kernel + cupy 'linear' interpolation as ``_radix_select_interior_edges``.
+    Returns ``(len(q_fracs), K)`` float64, BIT-IDENTICAL to ``cp.percentile(cand, [q*100 ...], axis=0)``
+    (and to ``cp.median`` at q=0.5 -- even-n linear interp == mean of the two middle order statistics).
+    Returns ``None`` when the radix path is inapplicable (R over the kernel cap / shared-mem over the device
+    limit) so the caller takes the cp.percentile fallback. ``cand_gpu`` must be a finite (n, K) cupy array.
+
+    This generalises ``_radix_select_interior_edges`` (which is locked to ``linspace(0,100,nbins+1)`` binning
+    edges) to ARBITRARY quantiles so the robust-scale / heavy-tail path (median, MAD-median, q25/q75) reuses
+    the radix machinery instead of cp.median/cp.percentile's full per-call sort -- one select+interp launch
+    pair per quantile-set vs the sort's ~6-8."""
+    import cupy as cp
+
+    cand_gpu = cp.ascontiguousarray(cand_gpu)
+    n, K = cand_gpu.shape
+    is_f32 = cand_gpu.dtype == cp.float32
+    qfr = np.asarray(q_fracs, dtype=np.float64)
+    idx = qfr * (n - 1)
+    bel = np.floor(idx).astype(np.int64)
+    abv = np.minimum(bel + 1, n - 1)
+    uniq = np.unique(np.concatenate([bel, abv]))                    # order-statistic ranks to extract
+    R = int(uniq.size)
+    if R > _RADIX_SELECT_MAXR:
+        return None
+    shmem = R * 256 * 4
+    try:
+        dev = cp.cuda.Device()
+        sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+    except Exception:
+        sh_limit = 48 * 1024
+    if shmem > sh_limit:
+        return None
+    ranks_g = cp.asarray(uniq, dtype=cp.int64)
+    osv = cp.empty((R, K), dtype=cand_gpu.dtype)
+    ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
+    data_cm = _transpose_to_cm(cand_gpu)                            # (K, n) coalesced (same as edges path)
+    threads = _resolve_radix_threads(n)
+    ker((K,), (threads,),
+        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
+    pos = {int(r): i for i, r in enumerate(uniq)}
+    bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
+    ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
+    w = cp.ascontiguousarray(cp.asarray(idx - bel))                 # float64 weight_above
+    nq = int(qfr.size)
+    out = cp.empty((nq, K), dtype=cp.float64)
+    _ker = _get_radix_interp_kernel()
+    t = 256
+    total = nq * K
+    _ker(((total + t - 1) // t,), (t,), (osv64, bi, ai, w, np.int32(K), np.int32(nq), out))
+    return out                             # (len(q_fracs), K) float64
+
+
 # FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
 # int32 cast-copies (searchsorted returns int64, ``out`` is int32). nvprof on the n=100k/300k binning path:
