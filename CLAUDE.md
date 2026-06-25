@@ -343,6 +343,16 @@ test. Even then, GATE-don't-revert (fire the win only where it's correct). Same 
 `engineered_replay` (kind ∈ valid set, not one hardcoded kind) and `smooth_interaction` (I5 no-harm
 biz-value contract, not the stale raw-operand shape).
 
+**Fix WHAT the test sees, NOT WHEN it broke.** Do not bisect across commits / spin up baseline worktrees
+to find which change turned a test red, or to settle "was it me or pre-existing" — that is wasted work;
+the fix is the same regardless of who broke it. Diagnose WHAT the assertion now observes (print the actual
+winner/value), confirm selection-equivalence, and re-frame. Real case (2026-06-25): a fused-kernel ~1e-15
+reassociation flipped a sub-ULP MI tie among MONOTONE-EQUIVALENT `a**2/b` spellings — `mul(sqr(a),reciproc(b))`
+(a²/b), `div(a,sqrt(b))` (√(a²/b)), `mul(reciproc(a),sqrt(b))` (1/√(a²/b)) ALL tie at identical MI 2.9957
+because equi-frequency binning is monotone-invariant. The winner is a monotone-equivalent recovery
+(|Spearman|=1.0), so `test_gpu_resident_emits_replayable_recipe` was re-framed to assert RANK (Spearman)
+recovery of a**2/b, not Pearson (which over-specified the linear spelling). No bisect; just the fix.
+
 ## pyutilz hotspots are in scope — optimize them too (CRITICAL)
 
 ``pyutilz`` (``D:/Upd/Programming/PythonCodeRepository/pyutilz``) is OUR
