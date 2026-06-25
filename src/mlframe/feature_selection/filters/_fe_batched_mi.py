@@ -367,6 +367,60 @@ def _batched_marginal_counts(X, Kx):
     return counts.reshape(K, int(Kx))
 
 
+# FUSED 1D scalar entropy + occupied-cell (launch-reduction, 2026-06-25). The column-invariant H(z)/H(y,z)/
+# H(y) terms in batched_cmi_gpu were cp.bincount (scan+cub) -> boolean-mask getitem -> *inv_n -> log -> mul
+# -> sum (~6-7 cuLaunchKernel) plus a separate (c>0).sum() nnz. Computing the histogram with the in-kernel
+# atomicAdd joint_counts_gpu (one launch, no bincount) and reducing it with this grid-stride kernel (one
+# launch, out is cp.zeros(2)=memset) collapses each scalar term to two launches. Same float64 plug-in
+# entropy / occupied-cell -> selection-equivalent.
+_ENT_NNZ_1D_SRC = r"""
+extern "C" __global__
+void ent_nnz_1d(const long long* __restrict__ c, const double inv_n, const long long M,
+                double* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long stride = (long long)gridDim.x * blockDim.x;
+    double hloc = 0.0, kloc = 0.0;
+    for (long long i = t; i < M; i += stride) {
+        long long ci = c[i];
+        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+    }
+    __shared__ double sh_h[256];
+    __shared__ double sh_k[256];
+    int tid = threadIdx.x;
+    sh_h[tid] = hloc; sh_k[tid] = kloc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { atomicAdd(&out[0], sh_h[0]); atomicAdd(&out[1], sh_k[0]); }
+}
+"""
+_ENT_NNZ_1D_KERNEL = None
+
+
+def _ent_nnz_1d(c, inv_n):
+    """Plug-in entropy (float) + occupied-cell count (int) of an int64 count vector ``c`` in ONE fused
+    RawKernel launch. Falls back to the cupy entropy chain on any kernel error (bit-equivalent)."""
+    import cupy as cp
+
+    global _ENT_NNZ_1D_KERNEL
+    try:
+        if _ENT_NNZ_1D_KERNEL is None:
+            _ENT_NNZ_1D_KERNEL = cp.RawKernel(_ENT_NNZ_1D_SRC, "ent_nnz_1d")
+        M = int(c.size)
+        out = cp.zeros(2, dtype=cp.float64)             # cudaMemsetAsync, not a cuLaunchKernel
+        threads = 256
+        blocks = min(1024, max(1, (M + threads - 1) // threads))
+        _ENT_NNZ_1D_KERNEL((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
+        h_k = cp.asnumpy(out)
+        return float(-h_k[0]), int(round(h_k[1]))
+    except Exception:  # noqa: BLE001
+        cf = c.astype(cp.float64) if c.dtype != cp.float64 else c
+        p = cf[cf > 0] * float(inv_n)
+        return float(-(p * cp.log(p)).sum()), int((cf > 0).sum())
+
+
 def joint_counts_gpu(codes, cards):
     """Joint-histogram counts of 1-3 device code arrays via an in-kernel flat key + atomic add (ONE launch,
     no intermediate key array, no cp.bincount cub_any passes). ``codes`` are cupy int64 (n,); ``cards`` the
@@ -461,27 +515,18 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
         cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
-        yc = cp.bincount(dy, minlength=Ky).astype(cp.float64)
-        py = yc[yc > 0] * inv_n
-        h_y = float(-(py * cp.log(py)).sum())
-        k_y = int((yc > 0).sum())
+        h_y, k_y = _ent_nnz_1d(joint_counts_gpu([dy], [Ky]), inv_n)         # H(y) via atomic-hist + fused reduce
         mi = h_x + h_y - h_xy
         bias = (k_x + k_y - k_xy - 1) / (2.0 * nf)
         return cp.asnumpy(cp.maximum(mi - bias, 0.0))
 
     dz = cp.asarray(np.ascontiguousarray(z).astype(np.int64).ravel())
     Kz = int(dz.max()) + 1 if dz.size else 1
-    # shared y/z terms (column-invariant)
-    zc = cp.bincount(dz, minlength=Kz).astype(cp.float64)
-    pz = zc[zc > 0] * inv_n
-    h_z = float(-(pz * cp.log(pz)).sum())
-    k_z = int((zc > 0).sum())
-    yz = dy * Kz + dz                      # dense (y,z) code
-    yzc = cp.bincount(yz, minlength=int(yz.max()) + 1).astype(cp.float64)
-    pyz = yzc[yzc > 0] * inv_n
-    h_yz = float(-(pyz * cp.log(pyz)).sum())
-    k_yz = int((yzc > 0).sum())
+    # shared y/z terms (column-invariant) -- atomic-hist + fused 1D entropy/NNZ reduce, no cp.bincount chain
+    h_z, k_z = _ent_nnz_1d(joint_counts_gpu([dz], [Kz]), inv_n)
+    yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
     Kyz = int(yz.max()) + 1
+    h_yz, k_yz = _ent_nnz_1d(joint_counts_gpu([yz], [Kyz]), inv_n)
 
     # H(x_k, z) for all k: in-kernel flat key k*(Kx*Kz) + x*Kz + z (one atomicAdd launch, no bincount)
     cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)       # (K, Kx*Kz)
