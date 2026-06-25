@@ -696,8 +696,22 @@ def score_candidates_by_cmi(
         ]
         z_joint, _ = _renumber_joint(*sup_bins)
 
+    cand_cols = list(X_cand.columns)
+    # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):
+    # bin all candidates into one (n, K) code matrix and score CMI for EVERY candidate in ONE device
+    # workload (batched_cmi_gpu), instead of a per-candidate cp.unique CMI. Parity-pinned selection-equiv.
+    if _cmi_gpu_enabled() and len(cand_cols) > 1:
+        try:
+            from ._fe_batched_mi import batched_cmi_gpu
+            X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
+            for j, c in enumerate(cand_cols):
+                X_codes[:, j] = _quantile_bin(X_cand[c].to_numpy(), nbins=nbins)
+            cmis = batched_cmi_gpu(X_codes, y_bin, z_joint)
+            return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
+        except Exception:
+            pass  # any cupy error -> exact CPU loop below
     out = {}
-    for c in X_cand.columns:
+    for c in cand_cols:
         x_bin = _quantile_bin(X_cand[c].to_numpy(), nbins=nbins)
         out[c] = _cmi_from_binned(x_bin, y_bin, z_joint)
     return pd.Series(out, dtype=np.float64)
