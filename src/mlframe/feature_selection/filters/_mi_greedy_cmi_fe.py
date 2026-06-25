@@ -710,11 +710,22 @@ def score_candidates_by_cmi(
     # workload (batched_cmi_gpu), instead of a per-candidate cp.unique CMI. Parity-pinned selection-equiv.
     if _cmi_gpu_enabled() and len(cand_cols) > 1:
         try:
-            from ._fe_batched_mi import batched_cmi_gpu
-            X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
+            from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
+            X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.float64)
             for j, c in enumerate(cand_cols):
-                X_codes[:, j] = _quantile_bin(X_cand[c].to_numpy(), nbins=nbins)
-            cmis = batched_cmi_gpu(X_codes, y_bin, z_joint)
+                X_float[:, j] = X_cand[c].to_numpy()
+            if np.isfinite(X_float).all():
+                # Born-on-device: bin the whole candidate matrix on the GPU (one batched cp.percentile
+                # sort) and keep the codes RESIDENT, scoring CMI on them without a code H2D round-trip.
+                import cupy as cp
+                X_codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float), nbins)
+                cmis = batched_cmi_gpu(X_codes_dev, y_bin, z_joint)
+            else:
+                # Non-finite columns -> host equi-freq binning (handles nan/inf), then device CMI.
+                X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
+                for j in range(len(cand_cols)):
+                    X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
+                cmis = batched_cmi_gpu(X_codes, y_bin, z_joint)
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
         except Exception:
             pass  # any cupy error -> exact CPU loop below

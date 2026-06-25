@@ -28,15 +28,52 @@ def _rows_entropy_and_k(counts, inv_n):
     return h, k
 
 
-def batched_cmi_gpu(x_cols: np.ndarray, y: np.ndarray, z: np.ndarray | None = None) -> np.ndarray:
-    """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
+def batched_quantile_bin_gpu(x_cols, nbins: int):
+    """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
-    ``x_cols`` (n,K) int codes; ``y`` (n,) int codes; ``z`` (n,) int codes or None (marginal MI). Returns a
-    host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per column (selection-equivalent).
+    Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column. ONE batched ``cp.percentile``
+    (axis=0) computes all K columns' edges in a single device sort -- replacing K host ``np.quantile``
+    (introselect partition) calls -- then per-column ``cp.searchsorted`` on the (deduped) inner edges. The
+    per-column ``cp.unique`` is over only (nbins+1) edge values (negligible), so the n-sized sort stays
+    batched. Returns a cupy int64 (n,K) array (kept on device to feed ``batched_cmi_gpu`` without a code
+    H2D). Selection-equivalent to the host binning: same equi-frequency partition (value-edge, rank-based).
+    Assumes all-finite input (the production nan-scrubbed case); the caller falls back to the host path
+    otherwise.
     """
     import cupy as cp
 
-    X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
+    Xd = x_cols if isinstance(x_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(np.asarray(x_cols, dtype=np.float64)))
+    if Xd.ndim == 1:
+        Xd = Xd[:, None]
+    Xd = Xd.astype(cp.float64, copy=False)
+    n, K = int(Xd.shape[0]), int(Xd.shape[1])
+    qs = cp.linspace(0.0, 100.0, nbins + 1)
+    edges_all = cp.percentile(Xd, qs, axis=0)        # (nbins+1, K) -- one batched device sort
+    codes = cp.zeros((n, K), dtype=cp.int64)
+    for k in range(K):
+        edges = cp.unique(edges_all[:, k])           # dedupe equi-freq edges (mirror np.unique on host)
+        if int(edges.size) <= 2:
+            if int(edges.size) == 2:
+                codes[:, k] = (Xd[:, k] >= edges[1]).astype(cp.int64)
+            continue
+        codes[:, k] = cp.searchsorted(edges[1:-1], Xd[:, k], side="right").astype(cp.int64)
+    return codes
+
+
+def batched_cmi_gpu(x_cols, y: np.ndarray, z=None) -> np.ndarray:
+    """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
+
+    ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
+    from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes; ``z`` (n,) int codes or None
+    (marginal MI). Returns a host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per
+    column (selection-equivalent).
+    """
+    import cupy as cp
+
+    if isinstance(x_cols, cp.ndarray):
+        X = x_cols.astype(cp.int64, copy=False)
+    else:
+        X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
     if X.ndim == 1:
         X = X[:, None]
     n, K = int(X.shape[0]), int(X.shape[1])
