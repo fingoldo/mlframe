@@ -468,6 +468,32 @@ def _unary_apply(xp, name, x):
 
 
 
+_PREWARP_TRANSFORM_SRC = r"""
+extern "C" __global__
+void prewarp_transform(const double* __restrict__ x, const int code, const double lo, const double span,
+                       const double mean, const double std_safe, const double clip_lo, const double clip_hi,
+                       const int has_clip, const long long n, double* __restrict__ out) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double v = x[i], z;
+    if (code == 1)       z = 2.0 * (v - lo) / span - 1.0;   // legendre/chebyshev min-max
+    else if (code == 0)  z = (v - mean) / std_safe;          // hermite z-score
+    else                 z = v - lo + 1e-9;                  // laguerre shift
+    if (has_clip) z = z < clip_lo ? clip_lo : (z > clip_hi ? clip_hi : z);
+    out[i] = z;
+}
+"""
+_PREWARP_TRANSFORM_KERNEL = None
+_PREWARP_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
+
+
+def _get_prewarp_transform_kernel(cp):
+    global _PREWARP_TRANSFORM_KERNEL
+    if _PREWARP_TRANSFORM_KERNEL is None:
+        _PREWARP_TRANSFORM_KERNEL = cp.RawKernel(_PREWARP_TRANSFORM_SRC, "prewarp_transform")
+    return _PREWARP_TRANSFORM_KERNEL
+
+
 def _gpu_apply_prewarp(cp, x, spec):
     """Device port of ``hermite_fe.apply_operand_prewarp``. ``x`` is a device array (native float dtype);
     returns a device float64 column. Raises for any basis/path not ported so the caller falls back to the
@@ -494,22 +520,41 @@ def _gpu_apply_prewarp(cp, x, spec):
     if clen is None:
         raise ValueError(f"prewarp basis {basis!r} not GPU-ported")
     pp = dict(spec["preprocess"])
+    # FUSED transform: the per-column min-max / z-score / shift + clip done in ONE kernel (scalar params) vs
+    # the cupy sub/mul/div/clip chain. Same f64 ops -> bit-identical; cupy chain fallback on any kernel error.
+    code = _PREWARP_CODE[basis]
+    clip = pp.get("clip")
+    has_clip = clip is not None
     if basis in ("legendre", "chebyshev"):      # _apply_minmax
-        span = pp["hi"] - pp["lo"] + 1e-12
-        z = 2 * (xf - pp["lo"]) / span - 1
-        clip = pp.get("clip")
-        if clip is not None:
-            z = cp.clip(z, -float(clip), float(clip))
+        lo = float(pp["lo"]); span = float(pp["hi"]) - float(pp["lo"]) + 1e-12; mean = 0.0; std_safe = 1.0
+        clip_lo = -float(clip) if has_clip else 0.0; clip_hi = float(clip) if has_clip else 0.0
     elif basis == "hermite":                    # _apply_zscore
-        z = (xf - pp["mean"]) / max(pp["std"], 1e-12)
-        clip = pp.get("clip")
-        if clip is not None:
-            z = cp.clip(z, -float(clip), float(clip))
+        lo = 0.0; span = 1.0; mean = float(pp["mean"]); std_safe = max(float(pp["std"]), 1e-12)
+        clip_lo = -float(clip) if has_clip else 0.0; clip_hi = float(clip) if has_clip else 0.0
     else:                                        # laguerre: _apply_shift
-        z = xf - pp["lo"] + 1e-9
-        clip = pp.get("clip")
-        if clip is not None:
-            z = cp.clip(z, 0.0, float(clip) + 1e-9)
+        lo = float(pp["lo"]); span = 1.0; mean = 0.0; std_safe = 1.0
+        clip_lo = 0.0; clip_hi = (float(clip) + 1e-9) if has_clip else 0.0
+    try:
+        xfc = cp.ascontiguousarray(xf)
+        nrow = int(xfc.size)
+        z = cp.empty(nrow, dtype=cp.float64)
+        threads = 256
+        _get_prewarp_transform_kernel(cp)(((nrow + threads - 1) // threads,), (threads,),
+            (xfc, np.int32(code), np.float64(lo), np.float64(span), np.float64(mean), np.float64(std_safe),
+             np.float64(clip_lo), np.float64(clip_hi), np.int32(1 if has_clip else 0), np.int64(nrow), z))
+    except Exception:  # noqa: BLE001
+        if basis in ("legendre", "chebyshev"):
+            z = 2 * (xf - pp["lo"]) / (pp["hi"] - pp["lo"] + 1e-12) - 1
+            if has_clip:
+                z = cp.clip(z, -float(clip), float(clip))
+        elif basis == "hermite":
+            z = (xf - pp["mean"]) / max(pp["std"], 1e-12)
+            if has_clip:
+                z = cp.clip(z, -float(clip), float(clip))
+        else:
+            z = xf - pp["lo"] + 1e-9
+            if has_clip:
+                z = cp.clip(z, 0.0, float(clip) + 1e-9)
     coef = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]
     return clen(cp, z, coef)
 
