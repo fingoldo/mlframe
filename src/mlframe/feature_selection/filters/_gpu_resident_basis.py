@@ -137,6 +137,81 @@ _PREWARP_CLENSHAW_GPU = {
     "laguerre": _lag_clenshaw_gpu,
 }
 
+_BASIS_ID = {"chebyshev": 0, "legendre": 1, "hermite": 2, "laguerre": 3}
+
+# FUSED CLENSHAW BASIS RawKernel (launch-reduction, 2026-06-25): one launch evaluates the one-hot
+# orthonormal basis polynomial B_d(Z) for EVERY (column, degree) of a preprocessed (n,m) Z block, output
+# (n, m*nd) in the concatenate layout [deg0: all m cols][deg1: ...]. Replaces the per-degree clen() cupy
+# chains (~nd*degree elementwise ops -> the measured #1 launch source _gpu_evaluate_basis_matrix). Each
+# in-kernel recurrence reproduces _{cheb,leg,herme}_clenshaw_gpu (backward Clenshaw, one-hot coef) and
+# _lag_clenshaw_gpu (forward) op-for-op in float64 -> bit-identical basis values.
+_CLENSHAW_SRC = r"""
+__device__ double eval_basis(int basis, int d, double x) {
+    if (d == 0) return 1.0;
+    if (d == 1) return basis == 3 ? (1.0 - x) : x;
+    if (basis == 3) {                                  // laguerre forward L_d
+        double pp = 1.0, pc = 1.0 - x, pn;
+        for (int k = 2; k <= d; ++k) { pn = ((2.0*k - 1.0 - x) * pc - (k - 1) * pp) / k; pp = pc; pc = pn; }
+        return pc;
+    }
+    if (basis == 0) {                                  // chebyshev Clenshaw one-hot
+        double x2 = 2.0 * x, c0 = 0.0, c1 = 1.0;
+        for (int i = 3; i <= d + 1; ++i) { double tmp = c0; c0 = -c1; c1 = tmp + c1 * x2; }
+        return c0 + c1 * x;
+    }
+    if (basis == 1) {                                  // legendre Clenshaw one-hot
+        int nd = d + 1; double c0 = 0.0, c1 = 1.0;
+        for (int i = 3; i <= d + 1; ++i) { double tmp = c0; nd -= 1; c0 = -(c1 * (nd - 1)) / nd; c1 = tmp + (c1 * x * (2*nd - 1)) / nd; }
+        return c0 + c1 * x;
+    }
+    // basis == 2: hermite(He) Clenshaw one-hot
+    int nd = d + 1; double c0 = 0.0, c1 = 1.0;
+    for (int i = 3; i <= d + 1; ++i) { double tmp = c0; nd -= 1; c0 = -c1 * (nd - 1); c1 = tmp + c1 * x; }
+    return c0 + c1 * x;
+}
+extern "C" __global__
+void clenshaw_basis(const double* __restrict__ Z, const int* __restrict__ degs, const long long n,
+                    const int m, const int nd, const int basis, double* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)m * nd;
+    if (t >= total) return;
+    int j = (int)(t % (long long)m);
+    long long r = t / (long long)m;
+    int k = (int)(r % (long long)nd);
+    long long i = r / (long long)nd;
+    double z = Z[i * (long long)m + j];
+    out[i * ((long long)m * nd) + (long long)k * m + j] = eval_basis(basis, degs[k], z);
+}
+"""
+_CLENSHAW_KERNEL = None
+
+
+def _get_clenshaw_kernel():
+    global _CLENSHAW_KERNEL
+    if _CLENSHAW_KERNEL is None:
+        import cupy as cp
+        _CLENSHAW_KERNEL = cp.RawKernel(_CLENSHAW_SRC, "clenshaw_basis")
+    return _CLENSHAW_KERNEL
+
+
+def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
+    """Fused (n, m*nd) one-hot basis block for ``basis`` over (n,m) ``Zg``, columns ordered
+    [degrees[0]: all m][degrees[1]: ...] (== the per-degree clen()+concatenate layout). Returns None for an
+    unsupported basis (caller per-degree cupy fallback). Bit-identical to clen() per degree."""
+    bid = _BASIS_ID.get(basis)
+    if bid is None:
+        return None
+    Z = cp.ascontiguousarray(Zg.astype(cp.float64, copy=False))
+    n, m = int(Z.shape[0]), int(Z.shape[1])
+    nd = len(degrees)
+    degs = cp.asarray(np.asarray([int(d) for d in degrees], dtype=np.int32))
+    out = cp.empty((n, m * nd), dtype=cp.float64)
+    total = n * m * nd
+    threads = 256
+    _get_clenshaw_kernel()(((total + threads - 1) // threads,), (threads,),
+                           (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
+    return out
+
 # --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2, 2026-06-21) -------------
 # Faithful cupy mirror of _orthogonal_univariate_fe._evaluate_basis_column (no-aux, no-replay path):
 # the robust heavy-tail axis detection (_hermite_robust._detect_heavy_tail_numpy/_robust_scale/
@@ -343,11 +418,19 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
             continue
         Mg = M[:, idx]
         Zg = _gpu_basis_preprocess_batched(cp, Mg, basis, robust=robust)
-        for d in degrees:
-            coef = [0.0] * (int(d) + 1)
-            coef[int(d)] = 1.0
-            cand_blocks.append(clen(cp, Zg, coef))   # (n, len(idx))
-            meta.extend((ci, basis, int(d)) for ci in idx)
+        # FUSED: one RawKernel builds B_d(Zg) for ALL degrees x columns (layout [d0: all cols][d1: ...]),
+        # bit-identical to the per-degree clen() chain it replaces. Fallback to clen() per degree on miss.
+        block = _clenshaw_basis_block_gpu(cp, Zg, basis, list(degrees))
+        if block is not None:
+            cand_blocks.append(block)
+            for d in degrees:
+                meta.extend((ci, basis, int(d)) for ci in idx)
+        else:
+            for d in degrees:
+                coef = [0.0] * (int(d) + 1)
+                coef[int(d)] = 1.0
+                cand_blocks.append(clen(cp, Zg, coef))   # (n, len(idx))
+                meta.extend((ci, basis, int(d)) for ci in idx)
     if not cand_blocks:
         return None, []
     return cp.ascontiguousarray(cp.concatenate(cand_blocks, axis=1)), meta
