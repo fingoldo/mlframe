@@ -29,6 +29,7 @@ from .info_theory import (
     set_su_normalization, set_jmim_aggregator, set_bur_lambda,
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
     set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
+    use_mi_miller_madow, set_mi_miller_madow,
 )
 
 # Helpers + the module-level JMIM cache stats deque live in the parent ``evaluation.py``. These are
@@ -197,24 +198,30 @@ def evaluate_candidates(
     relaxmrmr_alpha: float = 0.0,
     pid_synergy_bonus: float = 0.0,
     cmi_perm: tuple = (False, 0.05, 100),
+    mi_miller_madow: bool = False,
 ) -> None:
 
     # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
     # try/finally guarantees we don't pollute the worker thread's locals
     # if the same worker is re-used for a subsequent dispatch with
-    # different settings.
+    # different settings. mi_miller_madow is forwarded alongside the other six:
+    # threading.local does not cross into joblib workers, so without it the
+    # mi_correction='miller_madow' bias-correction was a silent no-op in the
+    # parallel greedy loop (mi_or_su / the class-MI kernels consult this toggle).
     _prev_su = use_su_normalization()
     _prev_jmim = use_jmim_aggregator()
     _prev_bur = get_bur_lambda()
     _prev_relax = get_relaxmrmr_alpha()
     _prev_pid = get_pid_synergy_bonus()
     _prev_cmi = get_cmi_perm_stop()
+    _prev_mm = use_mi_miller_madow()
     set_su_normalization(bool(use_su))
     set_jmim_aggregator(bool(use_jmim))
     set_bur_lambda(float(bur_lambda))
     set_relaxmrmr_alpha(float(relaxmrmr_alpha))
     set_pid_synergy_bonus(float(pid_synergy_bonus))
     set_cmi_perm_stop(bool(cmi_perm[0]), float(cmi_perm[1]), int(cmi_perm[2]))
+    set_mi_miller_madow(bool(mi_miller_madow))
     try:
         return _evaluate_candidates_inner(
             workload=workload, y=y, best_gain=best_gain,
@@ -242,6 +249,7 @@ def evaluate_candidates(
         set_relaxmrmr_alpha(_prev_relax)
         set_pid_synergy_bonus(_prev_pid)
         set_cmi_perm_stop(_prev_cmi[0], _prev_cmi[1], _prev_cmi[2])
+        set_mi_miller_madow(_prev_mm)
 
 
 def _evaluate_candidates_inner(

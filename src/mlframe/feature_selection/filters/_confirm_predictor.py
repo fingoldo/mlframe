@@ -269,6 +269,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             use_su_normalization as _use_su, use_jmim_aggregator as _use_jmim,
             get_bur_lambda as _get_bur, get_relaxmrmr_alpha as _get_relax,
             get_pid_synergy_bonus as _get_pid, get_cmi_perm_stop as _get_cmi,
+            use_mi_miller_madow as _use_mm,
         )
         _su_snapshot = bool(_use_su())
         _jmim_snapshot = bool(_use_jmim())
@@ -276,6 +277,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
         _relax_snapshot = float(_get_relax())
         _pid_snapshot = float(_get_pid())
         _cmi_snapshot = _get_cmi()
+        _mm_snapshot = bool(_use_mm())
         res = workers_pool(
             delayed(evaluate_candidates)(
                 workload=workload,
@@ -316,6 +318,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 relaxmrmr_alpha=_relax_snapshot,
                 pid_synergy_bonus=_pid_snapshot,
                 cmi_perm=_cmi_snapshot,
+                mi_miller_madow=_mm_snapshot,
             )
             for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
         )
