@@ -674,6 +674,10 @@ def _cached_card(host_arr, dev_codes) -> int:
 def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
     Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15)."""
+    # bench-attempt-rejected (2026-06-26): fusing dx/dy/dz.max() into one multi_max RawKernel REGRESSED F2
+    # STRICT (2021 -> 2066, +45). The y/z cardinalities are already cache-hits via _cached_card on the
+    # stable-id greedy/perm paths (free), so the kernel only ADDED a launch where the cache had removed one.
+    # Keep dx.max() + _cached_card(y)/_cached_card(z_support).
     import cupy as cp
 
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())

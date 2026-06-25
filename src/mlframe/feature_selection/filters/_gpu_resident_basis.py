@@ -569,7 +569,8 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     if code == 0:                                  # hermite: (M-mean)/std
         p0 = Mc.mean(axis=0); p1 = Mc.std(axis=0) + 1e-12
     elif code == 1:                                # legendre/cheb: 2(M-lo)/span - 1
-        p0 = Mc.min(axis=0); p1 = (Mc.max(axis=0) - p0) + 1e-12
+        lo, hi = _col_minmax(cp, Mc)               # min + max in ONE launch (bit-identical)
+        p0 = lo; p1 = (hi - lo) + 1e-12
     else:                                          # laguerre: M-lo+1e-9 (p1 unused)
         p0 = Mc.min(axis=0); p1 = p0
     out = cp.empty((n, g), dtype=cp.float64)
@@ -582,6 +583,42 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     return out
 
 
+_COL_MINMAX_SRC = r"""
+extern "C" __global__
+void col_minmax(const double* __restrict__ M, const long long n, const int K,
+                double* __restrict__ out_min, double* __restrict__ out_max) {
+    int col = blockIdx.x;
+    if (col >= K) return;
+    int tid = threadIdx.x, nt = blockDim.x;
+    double lmin = 1e308, lmax = -1e308;
+    for (long long i = tid; i < n; i += nt) { double v = M[i * (long long)K + col]; if (v < lmin) lmin = v; if (v > lmax) lmax = v; }
+    __shared__ double sh_min[256];
+    __shared__ double sh_max[256];
+    sh_min[tid] = lmin; sh_max[tid] = lmax;
+    __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) {
+        if (tid < s) { if (sh_min[tid + s] < sh_min[tid]) sh_min[tid] = sh_min[tid + s]; if (sh_max[tid + s] > sh_max[tid]) sh_max[tid] = sh_max[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { out_min[col] = sh_min[0]; out_max[col] = sh_max[0]; }
+}
+"""
+_COL_MINMAX_KERNEL = None
+
+
+def _col_minmax(cp, Mc):
+    """Per-column min AND max of a C-contiguous (n, K) f64 matrix in ONE launch (vs Mc.min(axis=0) +
+    Mc.max(axis=0)). min/max reduce order-independently -> bit-identical. Returns (mn (K,), mx (K,))."""
+    global _COL_MINMAX_KERNEL
+    if _COL_MINMAX_KERNEL is None:
+        _COL_MINMAX_KERNEL = cp.RawKernel(_COL_MINMAX_SRC, "col_minmax")
+    n, K = int(Mc.shape[0]), int(Mc.shape[1])
+    mn = cp.empty(K, dtype=cp.float64)
+    mx = cp.empty(K, dtype=cp.float64)
+    _COL_MINMAX_KERNEL((K,), (256,), (Mc, np.int64(n), np.int32(K), mn, mx))
+    return mn, mx
+
+
 def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     """Robust preprocess for a (n, g) M sharing one basis, FUSED into a single kernel (lo/hi from the
     median+scale, the std-fallback, and the per-basis clip/scale done per-element in ONE launch) instead of
@@ -592,7 +629,7 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     code = _BASIS_PREPROCESS_CODE[basis]
     n, g = int(M.shape[0]), int(M.shape[1])
     Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
-    mn = Mc.min(axis=0); mx = Mc.max(axis=0)
+    mn, mx = _col_minmax(cp, Mc)                       # min + max in ONE launch (bit-identical)
     stdcol = Mc.std(axis=0) if code == 0 else scale   # std only used by the hermite fallback; else unused
     out = cp.empty((n, g), dtype=cp.float64)
     total = n * g
