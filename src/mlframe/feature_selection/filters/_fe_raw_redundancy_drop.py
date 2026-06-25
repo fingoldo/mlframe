@@ -264,6 +264,13 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
     from ._mi_greedy_cmi_fe import _cmi_from_binned
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
 
+    # bench-attempt-rejected (2026-06-26): computing cmi + the analytic-null df cards from ONE
+    # batched_cmi_gpu(return_cards) call (to skip the perm-null's joint_cardinalities via precomp_cards)
+    # REGRESSED F2 STRICT (1849 -> 1917, +68). batched_cmi_gpu builds the full shared y/z workload (zc, yzc
+    # histograms) which only amortises across MANY candidate columns; for the SINGLE candidate here it is
+    # heavier (~11 launches) than _cmi_from_binned (~5) + joint_cardinalities (~4) separately. This path is
+    # genuinely per-raw with VARYING conditioning z (base / full-composite / sibling), so it is not
+    # batchable with the fixed-y/z primitives -- keep the per-call _cmi_from_binned.
     cmi = float(_cmi_from_binned(cand_bin, y_bin, z_support))
     floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed)
     return cmi, floor, max(0.0, cmi - null_mean)

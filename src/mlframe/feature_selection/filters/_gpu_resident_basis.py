@@ -560,6 +560,43 @@ def _get_basis_preprocess_nr_kernel(cp):
     return _BASIS_PREPROCESS_NR_KERNEL
 
 
+_COL_MEANSTD_SRC = r"""
+extern "C" __global__
+void col_meanstd(const double* __restrict__ M, const long long n, const int K,
+                 double* __restrict__ out_mean, double* __restrict__ out_std) {
+    int col = blockIdx.x;
+    if (col >= K) return;
+    int tid = threadIdx.x, nt = blockDim.x;
+    __shared__ double sh[256];
+    double s = 0.0;
+    for (long long i = tid; i < n; i += nt) s += M[i * (long long)K + col];
+    sh[tid] = s; __syncthreads();
+    for (int j = nt >> 1; j > 0; j >>= 1) { if (tid < j) sh[tid] += sh[tid + j]; __syncthreads(); }
+    double mean = sh[0] / (double)n;
+    __syncthreads();
+    double d2 = 0.0;
+    for (long long i = tid; i < n; i += nt) { double dv = M[i * (long long)K + col] - mean; d2 += dv * dv; }
+    sh[tid] = d2; __syncthreads();
+    for (int j = nt >> 1; j > 0; j >>= 1) { if (tid < j) sh[tid] += sh[tid + j]; __syncthreads(); }
+    if (tid == 0) { out_mean[col] = mean; out_std[col] = sqrt(sh[0] / (double)n); }
+}
+"""
+_COL_MEANSTD_KERNEL = None
+
+
+def _col_meanstd(cp, Mc):
+    """Per-column mean AND std (ddof=0, two-pass) of a C-contiguous (n, K) f64 matrix in ONE launch (vs
+    Mc.mean(axis=0) + Mc.std(axis=0)). Same two-pass formula as cupy std -> rel ~1e-13 (basis path tol 1e-6)."""
+    global _COL_MEANSTD_KERNEL
+    if _COL_MEANSTD_KERNEL is None:
+        _COL_MEANSTD_KERNEL = cp.RawKernel(_COL_MEANSTD_SRC, "col_meanstd")
+    n, K = int(Mc.shape[0]), int(Mc.shape[1])
+    mean = cp.empty(K, dtype=cp.float64)
+    std = cp.empty(K, dtype=cp.float64)
+    _COL_MEANSTD_KERNEL((K,), (256,), (Mc, np.int64(n), np.int32(K), mean, std))
+    return mean, std
+
+
 def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     """Non-robust preprocess for a (n, g) M sharing one basis, FUSED into a single kernel (the per-column
     mean/std or min/max reductions + the per-element transform) -- bit-identical to the cupy chain."""
@@ -567,7 +604,8 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     n, g = int(M.shape[0]), int(M.shape[1])
     Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
     if code == 0:                                  # hermite: (M-mean)/std
-        p0 = Mc.mean(axis=0); p1 = Mc.std(axis=0) + 1e-12
+        _mean, _std = _col_meanstd(cp, Mc)         # mean + std in ONE launch
+        p0 = _mean; p1 = _std + 1e-12
     elif code == 1:                                # legendre/cheb: 2(M-lo)/span - 1
         lo, hi = _col_minmax(cp, Mc)               # min + max in ONE launch (bit-identical)
         p0 = lo; p1 = (hi - lo) + 1e-12
