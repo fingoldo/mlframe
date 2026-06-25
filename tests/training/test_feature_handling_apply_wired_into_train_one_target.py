@@ -235,16 +235,24 @@ def test_helper_is_module_level_in_phase_train_one_target():
 
 
 def test_train_one_target_actually_calls_the_helper():
-    """Pin the call site: ``_train_one_target`` must reference ``_maybe_run_feature_handling_apply`` in its compiled co_names.
+    """Pin the call site: the per-target training path must reference ``_maybe_run_feature_handling_apply`` in its compiled co_names.
 
     The compiled-bytecode introspection is behavioural (asks the interpreter what names the function actually resolves, not what the
     source string contains) so a future refactor that drops the call -- whether by deleting the line or by renaming through an
     alias -- breaks this assertion before the wire-in goes dark. Avoids ``inspect.getsource`` per the project rule against
     source-string assertions.
+
+    The per-target body was carved into submodules; ``_train_one_target`` now delegates the model-setup seam (where the wire-in
+    lives) to ``_setup_per_target_mlframe_models``. Walk the delegation chain so the sensor follows the call wherever it sits.
     """
     from mlframe.training.core._phase_train_one_target import _train_one_target
+    from mlframe.training.core._phase_train_one_target_model_setup import (
+        _setup_per_target_mlframe_models,
+    )
 
-    assert "_maybe_run_feature_handling_apply" in _train_one_target.__code__.co_names, (
-        "_train_one_target must invoke _maybe_run_feature_handling_apply; the wire-in lives in the per-target body. If this fails "
+    # _train_one_target delegates the model-setup seam (which owns the wire-in) to this function.
+    assert "_setup_per_target_mlframe_models" in _train_one_target.__code__.co_names
+    assert "_maybe_run_feature_handling_apply" in _setup_per_target_mlframe_models.__code__.co_names, (
+        "the per-target model-setup path must invoke _maybe_run_feature_handling_apply; the wire-in lives there. If this fails "
         "after a refactor, the FHC kwarg is dead code again."
     )

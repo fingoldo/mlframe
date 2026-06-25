@@ -73,8 +73,12 @@ class TestM7Contract:
             base_estimator=lgb.LGBMClassifier(n_estimators=80, verbose=-1),
             base_margin_column="base_logit",
         ).fit(X, y)
-        # The inner must have been fit WITHOUT the margin column.
-        assert est.n_features_in_ == X.shape[1] - 1
+        # The inner must have been fit WITHOUT the margin column. The composite's own
+        # ``n_features_in_`` follows the sklearn convention (== the full X passed to fit,
+        # margin column included -- it is plumbing, not a learned dim), so the contract is
+        # asserted on the INNER estimator, which sees X with the margin column dropped.
+        assert est.estimator_.n_features_in_ == X.shape[1] - 1
+        assert est.n_features_in_ == X.shape[1]
         auc = roc_auc_score(y, est.predict_proba(X)[:, 1])
         assert auc > 0.85
 

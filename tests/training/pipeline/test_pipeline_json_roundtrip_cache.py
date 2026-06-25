@@ -137,9 +137,13 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
-    # Seed the in-memory cache + persist to disk.
-    fake_hash = hash('{"steps": [{"type": "test_disk_cache"}]}')
-    sh._PIPELINE_JSON_ROUNDTRIP_CACHE[fake_hash] = True
+    # Seed the in-memory cache + persist to disk. Keys are the production cache-key
+    # form -- a content-only blake2b hexdigest string (PYTHONHASHSEED-stable), NOT a
+    # builtin hash() int; the disk layer canonicalises keys to str, so seeding with an
+    # int would not survive the round-trip (and prod never uses int keys).
+    from mlframe.training.core._setup_helpers_pipeline_cache import pipeline_json_cache_key
+    cache_key = pipeline_json_cache_key('{"steps": [{"type": "test_disk_cache"}]}')
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE[cache_key] = True
     sh._persist_pipeline_disk_cache()
 
     import os
@@ -150,7 +154,7 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
     sh._load_pipeline_disk_cache_into_memory()
 
-    assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(fake_hash) is True, (
+    assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(cache_key) is True, (
         "disk cache must rehydrate into the in-memory cache on load"
     )
 

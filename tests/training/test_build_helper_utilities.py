@@ -141,6 +141,12 @@ def test_build_pre_pipelines_ordinary_only():
     assert names == [""]
 
 
+def _inner_rfecv(selector):
+    """Unwrap the cluster-medoid GroupAwareMRMR wrapper (default-ON for the suite's RFECV)
+    to reach the underlying RFECV instance; returns the selector itself when not wrapped."""
+    return getattr(selector, "estimator", selector)
+
+
 def test_build_pre_pipelines_rfecv_merge():
     # The suite-level overrides apply ``leakage_corr_threshold`` /
     # ``mbh_adaptive_threshold`` to the RFECV instance via setattr; we need a
@@ -156,7 +162,9 @@ def test_build_pre_pipelines_rfecv_merge():
         mrmr_kwargs={},
     )
     assert None in pipes
-    assert fake in pipes
+    # The RFECV is wrapped in GroupAwareMRMR(expand=True) cluster-medoid pre-reduction
+    # (default-ON for the suite's RFECV); the original instance is the wrapper's estimator.
+    assert any(_inner_rfecv(p) is fake for p in pipes if p is not None)
     assert "cb_rfecv " in names
 
 
@@ -216,7 +224,9 @@ def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
         mrmr_kwargs={},
         rfecv_leakage_corr_threshold=0.80,
     )
-    assert pipes[0] is fake
+    # The override is applied to the RFECV instance before it is wrapped in the cluster-medoid
+    # GroupAwareMRMR; the real contract is the threshold reaching the RFECV, not pipe identity.
+    assert _inner_rfecv(pipes[0]) is fake
     assert fake.leakage_corr_threshold == 0.80
 
 
@@ -233,7 +243,8 @@ def test_build_pre_pipelines_rfecv_mbh_adaptive_threshold_applied():
         mrmr_kwargs={},
         rfecv_mbh_adaptive_threshold=75,
     )
-    assert pipes[0] is fake
+    # As above: the override reaches the RFECV instance before the cluster-medoid wrap.
+    assert _inner_rfecv(pipes[0]) is fake
     assert fake.mbh_adaptive_threshold == 75
 
 

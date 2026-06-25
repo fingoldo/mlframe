@@ -35,10 +35,17 @@ import pytest
 
 
 def _make_es_estimator(validation_fraction):
-    """Build an EarlyStoppingEstimator over a partial_fit-spy base model."""
+    """Build an EarlyStoppingEstimator over a partial_fit-spy base model.
+
+    The wrapper clones ``base_model`` (sklearn contract: never mutate the caller's
+    instance), so the spy is a ``BaseEstimator`` to be cloneable; the FITTED clone is
+    reachable post-fit as ``est.estimator_`` -- that is where ``train_sizes`` lands.
+    """
+    from sklearn.base import BaseEstimator
+
     from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
-    class _SpyBase:
+    class _SpyBase(BaseEstimator):
         def __init__(self):
             self.train_sizes = []
         def partial_fit(self, X, y, classes=None):
@@ -71,9 +78,10 @@ def test_early_stopping_clamps_val_samples_to_at_least_one():
     y = np.array([0, 1] * 4 + [0])
     est = _make_es_estimator(validation_fraction=0.05)  # int(9*0.05)=0 -> clamp to 1
     est.fit(X, y)
-    # One val row clamped off; the rest (8) are the training slice.
-    assert est.base_model.train_sizes
-    assert all(sz == 8 for sz in est.base_model.train_sizes)
+    # One val row clamped off; the rest (8) are the training slice. The wrapper fits a
+    # CLONE of base_model, so inspect the fitted clone (est.estimator_), not the original.
+    assert est.estimator_.train_sizes
+    assert all(sz == 8 for sz in est.estimator_.train_sizes)
 
 
 # ---- #2 probabilities chunked-tail garbage --------------------------------

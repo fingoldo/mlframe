@@ -325,21 +325,30 @@ def test_m_neu_10_obj_kwargs_win_over_model_kwargs(caplog) -> None:
 
 def test_m_neu_11_no_lazy_import_in_create_dataset() -> None:
     """ThreadPoolExecutor was lazily imported inside _create_dataset on every
-    fit/predict pass. Post-fix it is imported once at module top.
+    fit/predict pass. Post-fix it is imported once at module top of the module
+    that defines _create_dataset (the recurrent monolith was carved into
+    submodules; _create_dataset now lives in recurrent_dataset_helpers).
     """
-    import mlframe.training.neural.recurrent as rec
-    # Module top must expose ThreadPoolExecutor (imported there post-fix).
+    import inspect
+
+    import mlframe.training.neural.recurrent_dataset_helpers as ds
     from concurrent.futures import ThreadPoolExecutor
-    assert getattr(rec, "ThreadPoolExecutor") is ThreadPoolExecutor
+    # Module top of the owning module must expose ThreadPoolExecutor.
+    assert getattr(ds, "ThreadPoolExecutor") is ThreadPoolExecutor
+    # Real contract: ThreadPoolExecutor is NOT (re-)imported inside the hot function body.
+    src = inspect.getsource(ds._RecurrentWrapperBase._create_dataset)
+    assert "import ThreadPoolExecutor" not in src
+    assert "import concurrent" not in src
 
 
 def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:
     """Hash backend (xxhash / hashlib) was imported per-call inside
-    _compute_cache_key. Post-fix _HAS_XXHASH + _hashlib are module-top.
+    _compute_cache_key. Post-fix _HAS_XXHASH + _hashlib are module-top of the
+    module that defines _compute_cache_key (carved into _recurrent_cat_embeddings).
     """
-    import mlframe.training.neural.recurrent as rec
-    assert hasattr(rec, "_HAS_XXHASH")
-    assert hasattr(rec, "_hashlib")
+    import mlframe.training.neural._recurrent_cat_embeddings as ce
+    assert hasattr(ce, "_HAS_XXHASH")
+    assert hasattr(ce, "_hashlib")
 
 
 def test_m_neu_11_no_lazy_import_in_mlp_ranker_fit() -> None:

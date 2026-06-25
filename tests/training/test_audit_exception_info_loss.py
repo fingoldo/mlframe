@@ -66,7 +66,9 @@ def _read(rel: str) -> str:
 
 
 def test_io_save_uses_logger_exception() -> None:
-    src = _read("training/io.py")
+    # ``save_mlframe_model`` was carved from ``io.py`` into the ``_io_save.py`` sibling;
+    # read both so the structural pin matches wherever the save-fail handler lives.
+    src = _read("training/io.py") + "\n" + _read("training/_io_save.py")
     # The bad pattern (f-string with {e}) must be gone for the save-fail path.
     assert 'logger.error(f"Could not save model to file {file}: {e}")' not in src
     # The good pattern must be present.
@@ -128,7 +130,9 @@ def test_flat_metric_compute_uses_logger_exception() -> None:
 
 
 def test_recurrent_checkpoint_load_preserves_traceback() -> None:
-    src = _read("training/neural/recurrent.py")
+    # The fit/checkpoint loop was carved from ``recurrent.py`` into the
+    # ``recurrent_dataset_helpers.py`` sibling; read both for the structural pin.
+    src = _read("training/neural/recurrent.py") + "\n" + _read("training/neural/recurrent_dataset_helpers.py")
     assert 'logger.warning(f"Failed to load checkpoint, using final model: {e}")' not in src
     assert 'logger.warning("Failed to load checkpoint, using final model", exc_info=True)' in src
 

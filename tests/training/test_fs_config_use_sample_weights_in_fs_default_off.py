@@ -14,6 +14,13 @@ from __future__ import annotations
 import pytest
 
 
+def _rfecv_selectors(pipelines):
+    """The suite's RFECV is wrapped in GroupAwareMRMR (cluster-medoid pre-reduction, default-ON) before it
+    enters pre_pipelines, with the suite markers stamped on the OUTER wrapper. Identify the RFECV-kind
+    selectors by the dedicated dispatch marker rather than ``isinstance(p, RFECV)`` (which the wrapper isn't)."""
+    return [p for p in pipelines if getattr(p, "_mlframe_selector_kind_", None) == "RFECV"]
+
+
 def test_fs_config_use_sample_weights_in_fs_default_is_false():
     from mlframe.training.configs import FeatureSelectionConfig
 
@@ -57,7 +64,7 @@ def test_build_pre_pipelines_marker_on_when_flag_flipped():
         use_sample_weights_in_fs=True,
     )
     mrmrs = [p for p in pipelines if isinstance(p, MRMR)]
-    rfecvs = [p for p in pipelines if isinstance(p, RFECV)]
+    rfecvs = _rfecv_selectors(pipelines)
     assert len(mrmrs) == 1
     assert len(rfecvs) == 1
     assert getattr(mrmrs[0], "_mlframe_use_sample_weights_in_fs_", None) is True
@@ -77,6 +84,6 @@ def test_build_pre_pipelines_marker_default_off_on_rfecv():
         use_mrmr_fs=False,
         mrmr_kwargs={},
     )
-    rfecvs = [p for p in pipelines if isinstance(p, RFECV)]
+    rfecvs = _rfecv_selectors(pipelines)
     assert len(rfecvs) == 1
     assert getattr(rfecvs[0], "_mlframe_use_sample_weights_in_fs_", None) is False

@@ -217,6 +217,9 @@ def test_discovery_cache_touch_lru_uses_filelock_when_available(tmp_path):
     t2 = threading.Thread(target=_writer, args=("b",))
     t1.start(); t2.start()
     t1.join(); t2.join()
+    # ``_touch_lru`` now mutates the in-memory ledger and flushes to disk lazily (eviction / close),
+    # so flush before reading the on-disk file under the filelock.
+    cache.close()
     lru = cache._load_lru()
     # Subset assertion: both tags must have produced at least one entry, and the file is valid JSON.
     assert any(k.startswith("a_") for k in lru)

@@ -201,11 +201,13 @@ class TestWrapperContract:
             wrapped.fit(X, y2d)
 
     def test_predict_before_fit_rejects(self, reg_data):
+        from sklearn.exceptions import NotFittedError
         from sklearn.linear_model import QuantileRegressor
         X, _ = reg_data
         wrapped = _QuantileMultiOutputWrapper(
             base_estimator=QuantileRegressor(solver="highs", alpha=0.0),
             alphas=(0.1, 0.9),
         )
-        with pytest.raises(RuntimeError, match="before fit"):
+        # sklearn convention: predict-before-fit raises NotFittedError, not a bare RuntimeError.
+        with pytest.raises(NotFittedError, match="before fit"):
             wrapped.predict(X)

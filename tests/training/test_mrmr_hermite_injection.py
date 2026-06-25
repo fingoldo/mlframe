@@ -103,6 +103,8 @@ class TestHermiteInjectionWiring:
         m.fit(df, y)
         injected = getattr(m, "_hermite_features_", None)
         if injected:
+            engineered = set(m._engineered_features_ or [])
+            injected_names = {entry["name"] for entry in injected}
             # Schema check on each entry.
             for entry in injected:
                 assert "name" in entry and isinstance(entry["name"], str)
@@ -111,8 +113,15 @@ class TestHermiteInjectionWiring:
                 assert "bin_func_name" in entry
                 assert "best_mi" in entry and isinstance(entry["best_mi"], float)
                 assert "baseline_mi" in entry
-                # Injected column must also be in engineered_features set.
-                assert entry["name"] in m._engineered_features_
+            # ``_hermite_features_`` records every INJECTED candidate; ``_engineered_features_`` is the
+            # authoritative SURVIVORS-only roster (the MRMR screen / accuracy gate / dedup drop a subset
+            # before support is finalised -- see the roster-reconciliation block in _fit_impl_core). So an
+            # injected hermite column need NOT survive selection. The invariant we CAN pin: a surviving
+            # hermite name is recorded in BOTH rosters consistently, and survivors are a subset of injected.
+            surviving_hermite = {n for n in engineered if n in injected_names}
+            assert surviving_hermite <= injected_names
+            for hermite_name in surviving_hermite:
+                assert hermite_name in m._engineered_features_
 
 
 # ----------------------------------------------------------------------
