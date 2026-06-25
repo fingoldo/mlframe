@@ -201,6 +201,55 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     return np.digitize(y, edges_y)
 
 
+def _binnedmi_gpu_enabled() -> bool:
+    """Route wavelet leg-rank binned-MI to the GPU when STRICT-GPU / MLFRAME_CMI_GPU is on. Default OFF."""
+    import os as _os
+    if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
+        return True
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        return bool(fe_gpu_strict_enabled())
+    except Exception:
+        return False
+
+
+def _binned_mi_cupy(feat, y, nbins: int, y_codes) -> float:
+    """Device twin of :func:`_binned_mi`: bin feat/y + MI = H(feat)+H(y)-H(feat,y) via cp.unique partition
+    counts. Same partition -> same MI -> same leg ranking (selection-identical, fp-order ~1e-15)."""
+    import cupy as cp
+
+    df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
+    n = int(df.size)
+    inv_n = 1.0 / float(n)
+    uf = cp.unique(df)
+    if int(uf.size) <= nbins:
+        fb = cp.searchsorted(uf, df)
+    else:
+        edges = cp.quantile(df, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
+        fb = cp.digitize(df, edges)
+    if y_codes is not None:
+        yb = cp.asarray(np.asarray(y_codes).ravel())
+    else:
+        dy = cp.asarray(np.asarray(y).ravel()) if not isinstance(y, cp.ndarray) else y.ravel()
+        uy = cp.unique(dy)
+        if int(uy.size) <= 20:
+            yb = cp.searchsorted(uy, dy)
+        else:
+            ey = cp.quantile(dy.astype(cp.float64), cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
+            yb = cp.digitize(dy.astype(cp.float64), ey)
+
+    def _ent(keys):
+        c = cp.unique(keys, return_counts=True)[1].astype(cp.float64)
+        p = c * inv_n
+        return float(-(p * cp.log(p)).sum())
+
+    fa = cp.unique(fb, return_inverse=True)[1]
+    yv = cp.unique(yb, return_inverse=True)[1]
+    kb = int(yv.max()) + 1 if yv.size else 1
+    mi = _ent(fa) + _ent(yv) - _ent(fa * kb + yv)
+    return float(max(mi, 0.0))
+
+
 def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Optional[np.ndarray] = None) -> float:
     """Plug-in binned MI(feat; y) in nats. y is treated as discrete classes if it
     has <= 20 unique values, else quantile-binned into ``nbins``. Used only for
@@ -215,6 +264,14 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     n = feat.size
     if n == 0 or n != y.size:
         return 0.0
+    # GPU route (2026-06-25): MI(feat;y) = H(feat)+H(y)-H(feat,y) on device via cp.unique partition counts
+    # (the binning's np.unique/digitize over n rows is the wavelet leg-rank hot cost). Same partition ->
+    # same MI -> same leg RANKING (selection-identical). Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
+    if _binnedmi_gpu_enabled():
+        try:
+            return _binned_mi_cupy(feat, y, int(nbins), y_codes)
+        except Exception:
+            pass
     # Feature is a Haar leg taking values in {-1, 0, +1} -> use those as classes
     # directly (3 cells); avoids quantile-binning a ternary column.
     uniq_f = np.unique(feat)

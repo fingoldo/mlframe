@@ -422,6 +422,15 @@ Before concluding ANYTHING about an optimization:
 5. **The only valid rejection is a measured, multi-size, end-to-end one — written down with the numbers.** "Felt
    marginal" is not a rejection; it is a skipped investigation. If you catch yourself reaching for a one-line dismissal
    of a measured speedup, STOP — that is the warning sign you are about to waste the win.
+6. **GPU kernels: ALWAYS measure the data-ALREADY-RESIDENT scenario, not just the host-input path.** A per-call
+   `cp.asarray` H2D + `cudaMalloc` churn (fresh array each call) + on-device contention distort the estimate and can
+   make a kernel that is several-x faster look SLOWER. Time three points with a `Stream.null.synchronize()` after each
+   GPU call: (a) host/njit, (b) GPU on pre-uploaded device arrays (NO H2D in the timed region), (c) GPU with the H2D.
+   If (b) wins big but the end-to-end loses, the verdict is "the kernel is good, RESIDENCY is the fix" — NOT "GPU
+   loses"; the lever is then making the operands device-resident (born-on-device / matrix-native), not flipping the
+   backend on host data. (2026-06-25: `_plugin_mi_classif_batch` end-to-end with host inputs read cuda 90.4s vs njit
+   71.1s → wrongly "GPU loses"; the resident microbench was njit 1020ms vs cuda_resident 203ms at n=1M/k=20 = 5x. The
+   distortion was per-call H2D + malloc churn, not the kernel.)
 
 ## A/B perf-validation methodology — the procedure for validating every optimization (CRITICAL)
 
