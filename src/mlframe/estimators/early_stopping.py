@@ -122,12 +122,14 @@ class EarlyStoppingWrapper(BaseEstimator):
             )
         from sklearn.model_selection import train_test_split
 
-        # Stratify only when classification AND every class has >=2 rows (train_test_split rejects a stratify
-        # vector with a singleton class); otherwise fall back to a plain shuffled split.
+        # Stratify only when classification AND every class has >=2 rows AND the val fold can hold at least one
+        # row per class (StratifiedShuffleSplit rejects test_size < n_classes and a stratify vector with a
+        # singleton class). When the requested val size is too small to stratify, fall back to a plain shuffled
+        # split rather than crashing -- a 1-row val on a 2-class target is a legitimate tiny-fraction request.
         stratify = None
         if not self._is_regressor:
-            _, counts = np.unique(np.asarray(y), return_counts=True)
-            if counts.min() >= 2:
+            classes, counts = np.unique(np.asarray(y), return_counts=True)
+            if counts.min() >= 2 and n_val_samples >= classes.size:
                 stratify = y
         return train_test_split(
             X, y, test_size=n_val_samples, random_state=self.random_state, shuffle=True, stratify=stratify,

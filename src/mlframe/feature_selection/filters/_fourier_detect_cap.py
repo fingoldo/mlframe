@@ -19,6 +19,7 @@ def set_fourier_detect_cap(max_n: int | None) -> None:
 
 
 def clear_fourier_detect_cap() -> None:
+    """Reset the thread-local Fourier-detect cap to unset (``None``) so the next fit recomputes it."""
     _state.cap = None
 
 

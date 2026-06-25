@@ -79,7 +79,7 @@ def screen_predictors(
     # order-1 relevance SWEEP + its maxT FDR floor are computed on THESE rows (consistent estimator scale,
     # and the full-n permutation work disappears); the RETURNED target encodings (classes_y / freqs_y)
     # are recomputed at FULL n so the downstream FE pipeline stays row-aligned. None -> full-n screen.
-    subsample_idx=None,
+    subsample_idx: np.ndarray = None,
     use_gpu: bool = False,
     n_workers: int = 1,
     # confidence

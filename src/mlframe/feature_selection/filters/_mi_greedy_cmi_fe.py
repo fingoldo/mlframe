@@ -604,7 +604,7 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     return max(0.0, cmi_plugin - cmi_bias)
 
 
-def joint_cardinalities_cupy(x, y, z):
+def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tuple[int, int, int, int]:
     """Occupied-cell counts (k_z, k_xz, k_yz, k_xyz) for the analytic CMI-null df, via device cp.unique.
     Only the cardinalities (number of distinct joint codes) are needed -> cp.unique(...).size on the
     device replaces the host renumber+entropy. Value-order densify -> SAME occupied-cell count (the df is

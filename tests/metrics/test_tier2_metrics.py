@@ -229,18 +229,23 @@ def test_crps_rejects_mismatched_shapes():
 
 
 def test_crps_proportional_to_pinball():
-    """CRPS ~= 2 * mean(pinball loss) for a single-alpha set at 0.5
-    (the median). Sanity check on the integration formula."""
+    """CRPS == 2 * integral_0^1 pinball(alpha) d alpha (Gneiting & Raftery identity).
+
+    The same prediction is used for every alpha column, so the predicted quantile function is a
+    flat constant clamped over the WHOLE [0, 1] range. ``crps_from_quantiles`` integrates the full
+    [0, 1] (constant-extrapolation tail clamp below ``a[0]`` and above ``a[-1]``), NOT just the
+    [0.4, 0.6] window of the supplied grid -- dropping the tails would under-estimate CRPS and break
+    cross-grid comparability. With a constant predictor the per-alpha pinball is near-flat ~= pl_05,
+    so CRPS ~= 2 * pl_05 over the full unit interval.
+    """
     rng = np.random.default_rng(11)
     N = 500
     y = rng.standard_normal(N)
     median_pred = y + rng.normal(0, 0.5, N)
-    # Single-point grid degenerates - trapezoid yields 0 (trivial integral).
-    # Use 3-point grid around 0.5 instead.
     alphas = np.array([0.4, 0.5, 0.6])
     preds_NK = np.stack([median_pred] * 3, axis=1)
     crps = crps_from_quantiles(y, preds_NK, alphas)
     pl_05 = pinball_loss(y, median_pred, 0.5)
-    # Trapezoidal integration over [0.4, 0.6] with constant pinball
-    # ~ pl_05 -> integral = 0.2 * pl_05; *2 = 0.4 * pl_05.
-    assert crps == pytest.approx(0.4 * pl_05, abs=1e-3)
+    # Full-range integral of a near-constant pinball: 2 * 1.0 * pl_05. The tolerance absorbs the
+    # tiny alpha-tilt of pinball across [0, 1] for this single-point clamped predictor.
+    assert crps == pytest.approx(2.0 * pl_05, rel=0.01)

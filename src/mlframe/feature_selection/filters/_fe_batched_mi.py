@@ -28,7 +28,7 @@ def _rows_entropy_and_k(counts, inv_n):
     return h, k
 
 
-def batched_cmi_gpu(x_cols: np.ndarray, y: np.ndarray, z=None):
+def batched_cmi_gpu(x_cols: np.ndarray, y: np.ndarray, z: np.ndarray | None = None) -> np.ndarray:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes; ``y`` (n,) int codes; ``z`` (n,) int codes or None (marginal MI). Returns a

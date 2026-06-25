@@ -190,7 +190,7 @@ def mine_mi(
                 best_mi = dv
                 best_mi_epoch = epoch
         if verbose and epoch % 50 == 0:
-            logger.info(f"MINE epoch {epoch}: dv={dv:.4f}")
+            logger.info("MINE epoch %s: dv=%s", epoch, f"{dv:.4f}")
         # Early stopping: bail if no new best in ``early_stop_patience`` epochs
         # AND we've trained at least 200 epochs (give MINE time to escape
         # local minima). 2026-05-29 fix: shaves ~50% of MINE bench wall-time
@@ -471,7 +471,7 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
         if nats_sorted[i] < nats_sorted[i - 1]:
             nats_sorted[i] = nats_sorted[i - 1]
     _MIST_CALIBRATION_CACHE[cache_key] = (raw_sorted, nats_sorted)
-    logger.info(f"MIST calibration ({device}, {y_kind}): raw {raw_sorted.tolist()} -> nats {nats_sorted.tolist()}")
+    logger.info("MIST calibration (%s, %s): raw %s -> nats %s", device, y_kind, raw_sorted.tolist(), nats_sorted.tolist())
     return raw_sorted, nats_sorted
 
 
@@ -640,7 +640,7 @@ def minde_mi(x: np.ndarray, y: np.ndarray, *,
                 mi_est = 0.5 * ((score_joint - score_marg) ** 2).sum(dim=1).mean().item()
                 mi_trace.append(mi_est)
                 if verbose:
-                    logger.info(f"MINDE step {step}: mi={mi_est:.4f}, loss={loss.item():.4f}")
+                    logger.info("MINDE step %s: mi=%s, loss=%s", step, f"{mi_est:.4f}", f"{loss.item():.4f}")
     if mi_trace:
         converged = float(np.median(mi_trace[-10:])) if len(mi_trace) >= 10 \
             else float(np.median(mi_trace))
@@ -721,7 +721,7 @@ def dpmine_mi(x: np.ndarray, y: np.ndarray, *,
         opt.step()
         if verbose and step % 50 == 0:
             mi_est = (log_p_xy - log_p_x - log_p_y).mean().item()
-            logger.info(f"DPMINE step {step}: mi~{mi_est:.4f}")
+            logger.info("DPMINE step %s: mi~%s", step, f"{mi_est:.4f}")
     with torch.no_grad():
         mi = (log_p_xy - log_p_x - log_p_y).mean().item()
     return max(0.0, float(mi))

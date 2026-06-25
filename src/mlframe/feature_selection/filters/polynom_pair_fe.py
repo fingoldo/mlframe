@@ -102,7 +102,7 @@ def run_polynom_pair_fe(
     # draw, the inner-search subsample REUSES it verbatim instead of drawing its own per-pair slice, so
     # the polynom path scores the SAME rows as the pair-search / sufficiency floor (one draw per fit).
     # ``None`` keeps the legacy per-pair uniform/stratified draw below.
-    shared_subsample_idx=None,
+    shared_subsample_idx: np.ndarray = None,
     # 2026-06-02 CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
     # search only earns its cost on pairs whose signal a trivial library
     # unary/binary feature CANNOT already capture (non-monotone inners like

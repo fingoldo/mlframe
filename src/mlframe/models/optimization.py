@@ -430,7 +430,10 @@ class MBHOptimizer:
                     if next_candidate not in known_candidates_set and next_candidate not in self.suggested_candidates:
                         self.suggested_candidates[next_candidate] = eval_start_time
                         logger.info(
-                            f"I became greedy! Recommending {next_candidate} that is closest unchecked to the best known so far {self.best_candidate} with eval={self.best_evaluation}"
+                            "I became greedy! Recommending %s that is closest unchecked to the best known so far %s with eval=%s",
+                            next_candidate,
+                            self.best_candidate,
+                            self.best_evaluation,
                         )
                         return next_candidate
             else:
@@ -619,7 +622,7 @@ class MBHOptimizer:
                     self.worst_candidate = next_candidate
 
             if self.verbose and self.n_noimproving_iters == 0:
-                logger.info(f"Next optimum found at point ({self.best_candidate}): {self.best_evaluation:_.6f}")
+                logger.info("Next optimum found at point (%s): %s", self.best_candidate, f"{self.best_evaluation:_.6f}")
 
             new_candidates_batch.append(next_candidate)
             new_evaluations_batch.append(next_evaluation)
@@ -845,24 +848,24 @@ def optimize_finite_onedimensional_search_space(
             if direction == OptimizationDirection.Maximize:
                 if optimizer.best_evaluation >= best_desired_score:
                     if verbose:
-                        logger.info(f"best_desired_score={optimizer.best_evaluation:_.6f} reached.")
+                        logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
                     break
             elif direction == OptimizationDirection.Minimize:
                 if optimizer.best_evaluation <= best_desired_score:
                     if verbose:
-                        logger.info(f"best_desired_score={optimizer.best_evaluation:_.6f} reached.")
+                        logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
                     break
 
         if max_runtime_mins and not ran_out_of_time:
             ran_out_of_time = (timer() - start_time) > max_runtime_mins * 60
             if ran_out_of_time:
                 if verbose:
-                    logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
+                    logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
                 break
 
         if max_fevals and optimizer.nsteps >= max_fevals:
             if verbose:
-                logger.info(f"max_fevals={max_fevals:_} reached.")
+                logger.info("max_fevals=%s reached.", f"{max_fevals:_}")
             break
 
         if max_noimproving_iters and optimizer.n_noimproving_iters >= max_noimproving_iters:

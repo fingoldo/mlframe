@@ -121,11 +121,11 @@ def create_fairness_subgroups(
                 feature_vals = feature_vals.copy().replace({cat: rare_group_name for cat in cats})
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now
                 cats_to_use = val_cnts.index.values.tolist()
-                logger.info(f"For feature {feature_name}, had to merge {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
+                logger.info("For feature %s, had to merge %s bins %s, %s records.", feature_name, f"{len(cats):_}", ",".join(map(str, cats)), f"{rarecats.sum():_}")
             else:
                 if exclude_terminal_lowpop_cats:
                     cats_to_use = val_cnts[val_cnts >= min_pop_cat_thresh].index.values.tolist()
-                    logger.info(f"For feature {feature_name}, had to exclude {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
+                    logger.info("For feature %s, had to exclude %s bins %s, %s records.", feature_name, f"{len(cats):_}", ",".join(map(str, cats)), f"{rarecats.sum():_}")
         else:
             cats_to_use = val_cnts.index.values.tolist()
 

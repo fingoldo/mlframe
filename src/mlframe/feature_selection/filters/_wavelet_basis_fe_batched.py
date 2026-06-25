@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col=None, ky: int = 0):
+def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col: np.ndarray | None = None, ky: int = 0) -> np.ndarray:
     """Plug-in MI(col_k; y) in nats for EVERY column of ``code_cols`` in ONE device workload.
 
     Parameters
@@ -72,7 +72,7 @@ def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
     return codes, int(u.size)
 
 
-def select_wavelet_legs_batched(x, y, lo, span, *, max_scale, max_legs, scale_sigma):
+def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: float, *, max_scale: int, max_legs: int, scale_sigma: float) -> list:
     """BATCHED born-on-device twin of ``_wavelet_basis_fe._select_wavelet_legs``: returns the SAME admitted
     ``(j, k)`` legs, but scores every candidate leg's train + held-out MI in TWO batched device workloads
     (one per split) instead of ~2 per-leg ``_binned_mi`` calls. Selection-equivalent (plug-in MI is

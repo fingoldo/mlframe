@@ -37,11 +37,18 @@ def test_sklearn_matrix_runs_compliance_composite() -> None:
 
 
 def test_sklearn_matrix_pins_all_four_minors() -> None:
-    """The matrix must still pin 1.5 / 1.6 / 1.7 / 1.8 so a sklearn minor regression on any of them is caught."""
+    """The matrix must pin every SUPPORTED sklearn minor so a minor-specific regression is caught.
+
+    1.5 is intentionally NOT pinned: category-encoders (a hard mlframe dependency) does an unconditional
+    ``from sklearn.utils import Tags`` at module top, and ``sklearn.utils.Tags`` only exists from 1.6, so
+    sklearn 1.5 cannot import mlframe at all. The supported floor is therefore 1.6 and the matrix pins
+    1.6 / 1.7 / 1.8 (mirrored by the workflow's own floor comment).
+    """
 
     text = _read_yaml_text()
-    for minor_prefix in ("1.5.", "1.6.", "1.7.", "1.8."):
+    for minor_prefix in ("1.6.", "1.7.", "1.8."):
         assert minor_prefix in text, f"sklearn-matrix must pin a {minor_prefix}x release"
+    assert "1.5." not in text, "sklearn 1.5 cannot import mlframe (category-encoders needs sklearn.utils.Tags from 1.6); it must NOT be pinned"
 
 
 if __name__ == "__main__":

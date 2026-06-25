@@ -82,11 +82,11 @@ def _build_combo_index_arrays(nu: int, nb: int):
 def score_pair_combos_table_resident(
     operands: Sequence[tuple],
     y_codes: np.ndarray,
-    y_terms,
+    y_terms: tuple,
     nbins: int,
-    ua_codes,
-    ub_codes,
-    bn_codes,
+    ua_codes: np.ndarray,
+    ub_codes: np.ndarray,
+    bn_codes: np.ndarray,
 ) -> Optional[np.ndarray]:
     """Compute the FULL ``(npairs, nc)`` pair-combo MI table for ALL pairs in ONE resident GPU pass.
 

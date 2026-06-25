@@ -34,7 +34,10 @@ def _fit():
 
 def test_best_model_is_a_snapshot_not_a_live_reference():
     m, _, _ = _fit()
-    # Pre-fix this was True (same object); the model kept mutating after best.
+    # ``fit`` trains a clone (``estimator_``), never the caller's ``base_model`` (sklearn no-mutate
+    # contract), and ``best_model_`` is a deep copy taken at the best iteration -- so it is a distinct
+    # object from BOTH the live fitted ``estimator_`` and the untouched ``base_model``.
+    assert m.best_model_ is not m.estimator_
     assert m.best_model_ is not m.base_model
 
 
@@ -46,6 +49,8 @@ def test_best_model_val_score_matches_recorded_best_score():
     assert realized >= m.best_score_ - 1e-9, (
         f"best_model_ val score {realized} should match best_score_ {m.best_score_}"
     )
-    # And the live model genuinely degraded -- proves the snapshot mattered.
-    degraded = accuracy_score(yv, m.base_model.predict(Xv))
+    # And the live fitted model (``estimator_``, the clone fit kept overshooting after the best iter)
+    # genuinely degraded -- proves the snapshot mattered. ``base_model`` stays unfitted by contract,
+    # so the degradation comparison uses the live ``estimator_``, not ``base_model``.
+    degraded = accuracy_score(yv, m.estimator_.predict(Xv))
     assert realized > degraded

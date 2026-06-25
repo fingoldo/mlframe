@@ -48,7 +48,7 @@ def _process_special_values(
     is_polars = isinstance(df, pl.DataFrame)
 
     if verbose:
-        logger.info(f"{'Identifying' if drop_columns else 'Counting'} {kind}{'s' if not kind.endswith('columns') else ''}...")
+        logger.info("%s %s%s...", "Identifying" if drop_columns else "Counting", kind, "s" if not kind.endswith("columns") else "")
 
     if is_polars:
         # Polars: use provided expr_func
@@ -107,7 +107,7 @@ def _process_special_values(
     # Log and handle errors
     if len(errors_df) > 0:
         if verbose:
-            logger.info(f"Found {len(errors_df)} {kind} out of {ncols} columns:")
+            logger.info("Found %s %s out of %s columns:", len(errors_df), kind, ncols)
             logger.info("\n%s", errors_df)
 
         if drop_columns:
@@ -124,7 +124,7 @@ def _process_special_values(
                     if existing_cols:
                         df = df.drop(columns=existing_cols)
             if verbose:
-                logger.info(f"Dropped {len(cols_to_drop)} {kind}.")
+                logger.info("Dropped %s %s.", len(cols_to_drop), kind)
         elif fill_value is not None:
             if is_polars:
                 if fill_func_name is None:
@@ -155,7 +155,7 @@ def _process_special_values(
             if verbose:
                 from ._ram_helpers import log_ram_usage  # local import: ._ram_helpers <-> .utils <-> ._nan_processing cycle
 
-                logger.info(f"{kind.capitalize()}s filled with {fill_value} value.")
+                logger.info("%ss filled with %s value.", kind.capitalize(), fill_value)
                 log_ram_usage()
 
     return df
@@ -387,7 +387,7 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
         constant_cols = list(constant_num_cols) + list(constant_cat_cols)
 
         if constant_cols and verbose:
-            logger.info(f"Removing {len(constant_cols)} constant columns: {constant_cols}")
+            logger.info("Removing %s constant columns: %s", len(constant_cols), constant_cols)
 
         if constant_cols:
             df = df.drop(columns=constant_cols)

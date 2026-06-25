@@ -46,7 +46,7 @@ def _make_heavy_ties(n: int, n_distinct: int, seed: int = 0) -> np.ndarray:
 
 def main() -> None:
     if not _HAS_NUMBA:
-        print("numba unavailable — kernel is the @njit path; skipping bench")
+        print("numba unavailable -- kernel is the @njit path; skipping bench")
         return
 
     # Warm the JIT.

@@ -6,9 +6,15 @@ re-export; _numerical_numba needs these constants at @njit-decoration time).
 
 from __future__ import annotations
 
+from typing import Tuple
+
 from scipy import stats
 
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
+
+# Default quantile marks for the nunique/modes/quantiles aggregates. Tuple is hashable + immutable; callers that need a
+# list/ndarray convert via list(default_quantiles) where the ~10% per-loop speed difference matters.
+default_quantiles: Tuple[float, ...] = (0.1, 0.25, 0.5, 0.75, 0.9)
 
 distributions = (stats.levy_l,)
 

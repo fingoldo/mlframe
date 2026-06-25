@@ -192,7 +192,9 @@ def test_biz_val_wrapper_classifier_best_beats_overshot_final():
     es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1, random_state=0)
     es.fit(X, y)
     _, Xv, _, yv = es._split(X, y)
-    final_acc = accuracy_score(yv, es.base_model.predict(Xv))
+    # The live fully-iterated model is the wrapper's internal clone ``estimator_``; ``base_model`` is left
+    # unfitted by sklearn no-mutate contract, so the overshot-final comparison uses ``estimator_``.
+    final_acc = accuracy_score(yv, es.estimator_.predict(Xv))
     best_acc = accuracy_score(yv, es.best_model_.predict(Xv))
     assert best_acc >= final_acc, f"best snapshot acc {best_acc:.3f} should beat overshot final {final_acc:.3f}"
 
@@ -204,7 +206,9 @@ def test_biz_val_wrapper_regressor_best_beats_overshot_final():
     es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1, random_state=0)
     es.fit(X, y)
     _, Xv, _, yv = es._split(X, y)
-    final_rmse = _rmse(yv, es.base_model.predict(Xv))
+    # The live fully-iterated model is the wrapper's internal clone ``estimator_``; ``base_model`` is left
+    # unfitted by sklearn no-mutate contract, so the overshot-final comparison uses ``estimator_``.
+    final_rmse = _rmse(yv, es.estimator_.predict(Xv))
     best_rmse = _rmse(yv, es.best_model_.predict(Xv))
     assert best_rmse <= final_rmse, f"best snapshot RMSE {best_rmse:.3f} should beat overshot final {final_rmse:.3f}"
 

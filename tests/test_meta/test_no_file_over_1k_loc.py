@@ -106,6 +106,33 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # (de-exempted 2026-06-22: kernels carved to _batch_mi_noise_gate_kernels.py)
     # (de-exempted 2026-06-22: candidate-evaluation driver carved to _evaluation_driver.py)
     # (de-exempted 2026-06-22: _orthogonal_univariate_fe/__init__.py carved to ~860 LOC via _orth_dedup.py)
+    # FIXME(carve-wave-next): filters/_feature_engineering_pairs/_pairs_score.py -- single irreducible
+    # ``score_pair_combos``-family function body (1 top-level def spanning the whole file) after the
+    # _feature_engineering_pairs subpackage split; same shape as ``_step_core.py``/``_pairs_core.py``. Not
+    # cleanly carvable without threading the per-pair scoring closure's ~dozen locals out as an arg list.
+    "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_score.py -- single irreducible per-candidate
+    # CMI-scoring function body (1 top-level def spanning the whole file) after the _mrmr_fe_step subpackage
+    # split. Mirrors ``_pairs_score.py``; the surrounding pool/pair-rank/pair-MI stages already live in siblings.
+    "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py",
+    # FIXME(carve-wave-next): filters/_feature_engineering_pairs/_pairs_core.py -- the irreducible per-pair
+    # orchestration body (biggest def ~934 LOC) after the _feature_engineering_pairs split; the scoring /
+    # emit / setup blocks already carved to sibling modules, only the orchestration loop remains over budget.
+    "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py",
+    # FIXME(carve-wave-next): the four GPU-resident FE / discretization / CMI-FE modules below are the
+    # in-flight born-on-device perf-replatform work (committed within the last day, mid perf-loop). They are
+    # carvable (multiple top-level defs) but actively churning under that effort; carving them here would
+    # collide with the in-flight rewrite. Carve to be folded into the next FE perf-loop wave that owns them.
+    "src/mlframe/feature_selection/filters/_gpu_resident_select.py",
+    "src/mlframe/feature_selection/filters/_gpu_resident_basis.py",
+    "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
+    "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py",
+    "src/mlframe/feature_selection/filters/discretization/__init__.py",
+    # FIXME(carve-wave-next): training/composite/transforms/nonlinear.py -- the residual-transform registry
+    # (quantile / monotonic / EWMA / frac-diff fit+forward+inverse families) plus a module-top ``if _HAS_NUMBA:``
+    # conditional kernel block the transforms reference. Tightly coupled (the transform functions close over the
+    # conditionally-defined kernels); a clean carve must move the kernel block + its consumers together. Pending.
+    "src/mlframe/training/composite/transforms/nonlinear.py",
 }
 
 

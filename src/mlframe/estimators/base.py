@@ -67,8 +67,9 @@ class EstimatorWithEarlyStopping(BaseEstimator):
             fitted_estimator.fit(X_train, y_train, eval_set=[(X_val, y_val)], **fit_params_train)
         else:
             logger.warning(
-                f"Estimator of type {type(self.base_estimator)} accepts no eval_set; the early-stopping split "
-                f"params (test_size/stratify/shuffle/random_state) do not apply and are ignored for this fit."
+                "Early stopping not applicable: estimator of type %s accepts no eval_set; the split "
+                "params (test_size/stratify/shuffle/random_state) do not apply and are ignored for this fit.",
+                type(self.base_estimator),
             )
             fitted_estimator.fit(X, y, **fit_params)
 

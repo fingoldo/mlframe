@@ -107,11 +107,11 @@ def propose_additive_fusions(
     raw_name_set: set,
     cols: list,
     classes_y: np.ndarray,
-    X,
+    X: object,
     nbins: int,
     seed: int = 0,
     verbose: int = 0,
-):
+) -> tuple:
     """Propose ``add(half_a, half_b)`` fusions of disjoint, additively-separable engineered halves.
 
     Returns ``(admitted, subsumed_names)`` where ``admitted`` is a list of

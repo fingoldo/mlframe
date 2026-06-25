@@ -316,7 +316,7 @@ def compute_ece_brier_full_and_debiased(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     nbins: int,
-):
+) -> tuple:
     """Fused single-pass plug-in + debiased ECE / Brier decomposition on the shared fixed ``[0,1]`` grid.
 
     Returns ``(ece_plugin, rel_plugin, res_plugin, unc, brier_binned_plugin,

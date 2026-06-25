@@ -62,7 +62,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 
 def best_existing_op_mi_resident(
     arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int,
-    *, y_gpu=None, y_min=None, n_classes=None,
+    *, y_gpu: object = None, y_min: object = None, n_classes: object = None,
 ) -> Optional[float]:
     """Resident-GPU twin of ``_conditional_gate_fe.best_existing_op_mi``: build the candidate columns on the
     device + score MI via the resident plug-in kernel, NO host round-trip. Returns the max MI (float), or

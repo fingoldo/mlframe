@@ -45,7 +45,10 @@ def _fit_sgd(X, y, *, monotonic, patience, eta0, max_iter=120):
     es = EarlyStoppingWrapper(
         SGDRegressor(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=eta0),
         max_iter=max_iter, validation_fraction=0.2,
-        patience=patience, monotonic_decline_patience=monotonic,
+        # Seed the wrapper so its held-out val fold (and thus the monotonic-decline trajectory + the
+        # iteration at which it stops) is deterministic; without it the split is reshuffled every call and
+        # the mono-vs-none iteration comparison flickers run-to-run.
+        patience=patience, monotonic_decline_patience=monotonic, random_state=0,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -54,15 +57,17 @@ def _fit_sgd(X, y, *, monotonic, patience, eta0, max_iter=120):
 
 
 def test_biz_val_monotonic_stops_earlier_without_holdout_loss():
-    # Aggressive learning rate on a mostly-noise target -> the val curve peaks then monotonically
-    # diverges, exactly the confident-overfitting shape the monotonic detector is built to catch.
+    # A moderate constant learning rate on a mostly-noise target -> the val curve converges, peaks early,
+    # then strictly diverges, exactly the confident-overfitting shape the monotonic detector is built to catch.
+    # (Too-aggressive eta0 puts SGD in a chaotic-divergence regime where NO iterate is good and "stop early
+    # vs run long" is a coin-flip on which catastrophic point you land -- not the early-peak shape under test.)
     X, y = _overfit_data()
     n_val = max(1, int(len(X) * 0.2))
     Xv, yv = X[-n_val:], y[-n_val:]
 
     # Large patience so the patience counter essentially never trips -> isolates the monotonic effect.
-    es_mono = _fit_sgd(X, y, monotonic=3, patience=999, eta0=0.3)
-    es_none = _fit_sgd(X, y, monotonic=None, patience=999, eta0=0.3)
+    es_mono = _fit_sgd(X, y, monotonic=3, patience=999, eta0=0.03)
+    es_none = _fit_sgd(X, y, monotonic=None, patience=999, eta0=0.03)
 
     # Work-saving: the monotonic stop ends training STRICTLY earlier than the patience-only run.
     assert es_mono.n_iterations_ < es_none.n_iterations_, (
