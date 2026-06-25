@@ -123,7 +123,7 @@ def materialise_and_finalise_fe_candidates(
                 retain_frac=_retain,
                 significance_escape_margin=_escape,
                 max_candidates=_cmi_max_cands,
-                seed=int(getattr(self, "random_state", 0) or 0),
+                seed=int(self._effective_random_seed() or 0),
                 verbose=int(bool(verbose)),
             )
             _cmi_dropped = set(_cmi_cands) - _accepted
