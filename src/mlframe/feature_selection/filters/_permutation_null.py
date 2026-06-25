@@ -330,7 +330,28 @@ def pooled_permutation_null_gain_floor(
     # Shuffle-gen is the DOMINANT large-n cost of this floor (~88% of wall at n>=600k); the K shuffles are
     # independent, so at large n a KTC crossover routes generation to a thread-parallel njit Fisher-Yates
     # (2.7x), while small n stays on the exact sequential numpy stream (byte-stable canonical/F2 selection).
-    y_perms = _generate_target_shuffles(y_codes, nperm, _fdr_dt, rng, random_seed=random_seed)
+    # Decide the resident-GPU floor + DEVICE shuffle-gen up front: when the matrix can be born on the device
+    # (KTC says a big-VRAM host where it beats host gen + H2D), SKIP the host Fisher-Yates gen AND the H2D of
+    # the (nperm,n) matrix entirely. Else generate on the host (default; small-VRAM cards stay here).
+    _resident_ok = False
+    try:
+        from ._permutation_null_resident_ktc import permnull_use_resident
+        from ._gpu_policy import gpu_globally_disabled
+        _resident_ok = bool(permnull_use_resident(n, n_cand, nperm)) and not gpu_globally_disabled()
+    except Exception:
+        _resident_ok = False
+    y_perms = None
+    y_perms_dev = None
+    if _resident_ok:
+        try:
+            from ._permutation_null_shufflegen_ktc import shufflegen_use_gpu
+            if shufflegen_use_gpu(n, nperm):
+                from ._permutation_null_resident import gen_target_shuffles_cupy
+                y_perms_dev = gen_target_shuffles_cupy(y_codes, nperm, _fdr_dt, random_seed)
+        except Exception:
+            y_perms_dev = None
+    if y_perms_dev is None:
+        y_perms = _generate_target_shuffles(y_codes, nperm, _fdr_dt, rng, random_seed=random_seed)
     scaled_flat = np.concatenate(scaled_codes).astype(_fdr_dt)
     offsets = np.arange(n_cand + 1, dtype=np.int64) * n  # int64: true flat indices, can exceed 2^31
     _jc = np.asarray(joint_card, dtype=np.int64)
@@ -345,18 +366,21 @@ def pooled_permutation_null_gain_floor(
     # order ~1e-15; the host owns the final np.quantile). Any cupy/device error falls back to njit -- the
     # floor is NEVER broken by a GPU problem (correctness first).
     maxes = None
-    try:
-        from ._permutation_null_resident_ktc import permnull_use_resident
-        if permnull_use_resident(n, n_cand, nperm):
-            from ._gpu_policy import gpu_globally_disabled
-            if not gpu_globally_disabled():
-                from ._permutation_null_resident import pooled_gain_floor_perms_cupy
-                maxes = pooled_gain_floor_perms_cupy(
-                    scaled_flat, offsets, _jc, _hx, _mm, float(h_y), y_perms, float(inv_n),
-                )
-    except Exception:
-        maxes = None  # fall through to the exact njit kernel
+    if _resident_ok:
+        try:
+            from ._permutation_null_resident import pooled_gain_floor_perms_cupy
+            # y_perms_dev (device-born, no H2D) when the GPU shuffle-gen fired; else the host matrix
+            # (cp.asarray uploads it once). Either way the resident floor D2Hs only the (nperm,) maxes.
+            maxes = pooled_gain_floor_perms_cupy(
+                scaled_flat, offsets, _jc, _hx, _mm, float(h_y),
+                (y_perms_dev if y_perms_dev is not None else y_perms), float(inv_n),
+            )
+        except Exception:
+            maxes = None  # fall through to the exact njit kernel
     if maxes is None:
+        # njit fallback needs the HOST matrix; generate it now if the device path skipped the host gen.
+        if y_perms is None:
+            y_perms = _generate_target_shuffles(y_codes, nperm, _fdr_dt, rng, random_seed=random_seed)
         maxes = _pooled_gain_floor_perms_njit(
             scaled_flat, offsets, _jc, _hx, _mm, float(h_y), y_perms, float(inv_n),
         )

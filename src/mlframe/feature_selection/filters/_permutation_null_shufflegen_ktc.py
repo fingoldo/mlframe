@@ -84,13 +84,49 @@ def _shufflegen_numba(y, nperm):
     return np.sort(out, axis=1)
 
 
+def _shufflegen_gpu(y, nperm):
+    """Device argsort-keys gen brought back to host for the sweep's permutation-invariant equivalence check.
+    Raises (caught by the sweep -> marked unavailable/slow) on a card without the VRAM for the (nperm, n)
+    key+order buffers, so a small-VRAM host never selects it."""
+    import cupy as cp
+
+    from ._permutation_null_resident import gen_target_shuffles_cupy
+
+    out = gen_target_shuffles_cupy(y, int(nperm), y.dtype, 777)
+    if out is None:
+        raise RuntimeError("gpu shufflegen unavailable")
+    return np.sort(cp.asnumpy(out), axis=1)
+
+
+def shufflegen_use_gpu(n: int, nperm: int) -> bool:
+    """Per-host engage decision for the DEVICE-resident argsort-keys shuffle generator, from the
+    kernel_tuning_cache. ``True`` only on a measured-faster cache hit (a big-VRAM host where the device gen
+    + the resident floor beat the host gen + H2D); ``False`` on a miss / no-cupy / lookup failure (caller
+    uses the host gen). ``MLFRAME_FDR_SHUFFLEGEN=gpu`` forces it for an A/B."""
+    import os as _os
+
+    _force = _os.environ.get("MLFRAME_FDR_SHUFFLEGEN", "")
+    if _force == "gpu":
+        return True
+    if _force in ("numba", "numpy"):
+        return False
+    if _SHUFFLEGEN_SPEC is None:
+        return False
+    pb = min(_SHUFFLEGEN_SWEEP_NPERM, key=lambda b: abs(b - int(nperm)))
+    try:
+        choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
+    except Exception:
+        return False
+    return choice == "gpu"
+
+
 def _run_shufflegen_sweep() -> list:
     """Time the sequential numpy stream vs the parallel njit Fisher-Yates across the (n, nperm) grid; faster
     EQUIVALENT wins per region. Both yield true uniform permutations, so the per-row sorted multiset is
     IDENTICAL between backends -> equivalence holds exactly and the sweep ranks by WALL."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    variants = {"numpy": _shufflegen_numpy, "numba": _shufflegen_numba}
+    variants = {"numpy": _shufflegen_numpy, "numba": _shufflegen_numba, "gpu": _shufflegen_gpu}
     return sweep_backend_grid(
         variants,
         {"n_samples": _SHUFFLEGEN_SWEEP_N, "nperm": _SHUFFLEGEN_SWEEP_NPERM},
@@ -114,7 +150,7 @@ try:
         tuner=_run_shufflegen_sweep,
         axes={"n_samples": list(_SHUFFLEGEN_SWEEP_N), "nperm": list(_SHUFFLEGEN_SWEEP_NPERM)},
         fallback=_shufflegen_fallback_choice,
-        gpu_capable=False,
+        gpu_capable=True,
         salt=_SHUFFLEGEN_SALT,
         cli_label="fe_maxt_permnull_shufflegen_backend",
     )

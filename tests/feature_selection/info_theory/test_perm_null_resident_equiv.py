@@ -55,3 +55,21 @@ def test_resident_permnull_floor_selection_equivalent(n, ncand, nperm):
     assert np.max(np.abs(m_cpu - m_gpu)) < 1e-12
     # the FLOOR the caller uses (0.95 quantile) is identical to many digits -> selection unchanged
     assert abs(np.quantile(m_cpu, 0.95) - np.quantile(m_gpu, 0.95)) < 1e-12
+
+
+def test_gpu_device_shuffle_gen_valid_permutations():
+    """The device argsort-keys shuffle generator (KTC-gated for big-VRAM hosts) yields, per row, a TRUE
+    permutation of the target codes (identical sorted multiset) and distinct rows -- a valid uniform null
+    born on the device and fed resident to the floor with no host gen / no (nperm,n) H2D."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._permutation_null_resident import gen_target_shuffles_cupy
+
+    y = np.random.default_rng(0).integers(0, 7, size=8000).astype(np.int32)
+    out = gen_target_shuffles_cupy(y, 32, np.int32, 42)
+    if out is None:
+        pytest.skip("device shuffle-gen unavailable on this host (cupy/VRAM)")
+    h = cp.asnumpy(out)
+    assert h.shape == (32, y.shape[0])
+    ys = np.sort(y)
+    assert all(np.array_equal(np.sort(h[k]), ys) for k in range(h.shape[0])), "each row must be a permutation of y"
+    assert not np.array_equal(h[0], h[1]), "distinct permutations across rows"

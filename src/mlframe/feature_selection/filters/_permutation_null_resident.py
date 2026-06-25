@@ -115,3 +115,33 @@ def pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias,
             del joint, flat, counts_i, counts, p, safe, h_xy, mi
 
     return cp.asnumpy(d_best)
+
+
+def gen_target_shuffles_cupy(y_codes, nperm, dtype, random_seed):
+    """Generate the ``(nperm, n)`` target-shuffle matrix ON the device (argsort of random keys) and return it
+    as a CUPY array, fed DIRECTLY into :func:`pooled_gain_floor_perms_cupy` (whose ``cp.asarray`` is a no-op on
+    an already-device array). So the permutation matrix is BORN on the GPU: no host Fisher-Yates generation and
+    no H2D upload of the ``(nperm, n)`` matrix (only the small ``(n,)`` target codes go up once). This is the
+    residency-fair shuffle-gen the campaign left undone: on a small-VRAM card the ``(nperm, n)`` key+order
+    buffers OOM at large n, so it is KTC-gated (``shufflegen_use_gpu``) and only fires where a per-host sweep
+    measured it faster -- a big-VRAM host -- with the host njit/numpy gen as the default + fallback.
+
+    Each row is a uniform permutation of ``y_codes`` (argsort of i.i.d. keys), a DIFFERENT stream than the
+    host backends -> the floor is statistically equivalent, not byte-identical (same contract as the existing
+    njit-gen crossover). Returns ``None`` on any cupy error / OOM so the caller falls back to the host gen."""
+    try:
+        import cupy as cp
+
+        n = int(y_codes.shape[0])
+        nperm = int(nperm)
+        seed = 0x9E3779B9 if random_seed is None else (int(random_seed) & 0x7FFFFFFF)
+        _rng = cp.random.default_rng(seed)
+        d_y = cp.asarray(np.ascontiguousarray(y_codes).astype(dtype, copy=False))  # one tiny (n,) upload
+        keys = _rng.random((nperm, n), dtype=cp.float32)  # (nperm, n) i.i.d. sort keys, on device
+        order = cp.argsort(keys, axis=1)                  # per-row permutation indices
+        del keys
+        out = d_y[order]                                  # (nperm, n) gathered shuffles, on device
+        del order
+        return out
+    except Exception:
+        return None
