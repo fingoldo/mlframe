@@ -392,14 +392,26 @@ def _conditional_perm_null(
     if _cmi_gpu_enabled() and _nperm > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu
-            Xp = np.empty((x.size, _nperm), dtype=np.int64)
+            import cupy as cp
+            # DEVICE within-stratum shuffle (2026-06-25). The host built the _nperm shuffled candidate
+            # columns with a per-perm np.argsort (the dominant steady-state host cost on sparse conditional
+            # joints, where the analytic null falls back to permutations). Move only the ARGSORT + gather +
+            # CMI to the GPU while keeping the RNG KEY DRAW on the host (np ``rng.random``, cheap) so the
+            # permutations are BIT-IDENTICAL to the per-perm CPU loop below: ``z_rank+keys`` has distinct
+            # values per row (keys are distinct floats), so argsort has no ties and cp.argsort matches
+            # np.argsort(kind="stable") element-for-element -> identical Xp -> identical nulls -> identical
+            # floor/null-mean -> bit-identical selection (NOT merely statistically equivalent). One batched
+            # (n,_nperm) device argsort replaces _nperm host argsorts; codes stay resident for the CMI.
+            keys = np.empty((x.size, _nperm), dtype=np.float64)
             for i in range(_nperm):
-                keys = rng.random(x.size)
-                within = np.argsort(z_rank + keys, kind="stable")
-                xp = np.empty_like(x)
-                xp[order] = x_sorted[within]
-                Xp[:, i] = xp
-            nulls = np.asarray(batched_cmi_gpu(Xp, y_i, z_i), dtype=np.float64)
+                keys[:, i] = rng.random(x.size)                    # per-perm draw -> SAME sequence as the CPU loop
+            z_rank_d = cp.asarray(z_rank)[:, None]
+            within = cp.argsort(z_rank_d + cp.asarray(keys), axis=0)   # (n, _nperm) within-stratum orders
+            x_sorted_d = cp.asarray(x_sorted)
+            order_d = cp.asarray(order)
+            Xp_d = cp.empty((x.size, _nperm), dtype=cp.int64)
+            Xp_d[order_d, :] = x_sorted_d[within]                  # xp[order] = x_sorted[within], per perm
+            nulls = np.asarray(batched_cmi_gpu(Xp_d, y_i, z_i), dtype=np.float64)
             return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
         except Exception:
             pass  # any cupy error -> exact per-perm CPU loop below
