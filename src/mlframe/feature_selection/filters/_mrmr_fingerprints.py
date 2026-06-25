@@ -511,12 +511,7 @@ def _full_x_content_hash(X) -> str:
     calls this twice with the same X (signature key + store key);
     the second call returns the cached hash without re-hashing.
     """
-    # iter627 fast-path: id-tuple key with shape discrimination.
     sh = getattr(X, "shape", None)
-    id_shape = (id(X), sh if sh is not None else (None,))
-    if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
-        return _MRMR_LAST_X_HASH_CACHE["hash"]
-
     try:
         if hasattr(X, "to_numpy"):
             try:
@@ -532,6 +527,13 @@ def _full_x_content_hash(X) -> str:
         # Object dtype (mixed-type pandas frames) cannot be hashed via tobytes deterministically; skip cache.
         if arr.dtype == object:
             return ""
+        # iter627 fast-path memo: a recycled id(X) across fits (freed frame A, new frame B allocated at the
+        # same address + same shape) made the old (id, shape)-only key return A's digest for B. Fold the cheap
+        # 10-cell strided content signature into the key so a different B is a memo MISS (recompute), while the
+        # intra-fit second call on the SAME X (id+shape+content all identical) still hits and skips the full hash.
+        id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(arr))
+        if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
+            return _MRMR_LAST_X_HASH_CACHE["hash"]
         # blake2b reads the contiguous array via the buffer protocol directly
         # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
         h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)
