@@ -237,12 +237,27 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
             dy = cp.asarray(np.asarray(y).ravel()).astype(cp.int64, copy=False)
             yb = dy - dy.min()
         return float(max(float(binned_mi_from_codes_gpu(fb[:, None], yb)[0]), 0.0))
+    # Sort-free EXACT quantile edges via radix-select (launch-reduction): cp.quantile bins via a comparison
+    # MERGE-sort; _radix_select_interior_edges returns the SAME interior order-statistic edges WITHOUT a sort
+    # (bit-identical codes through cp.searchsorted/digitize, maxdiff 0). The cp.unique low-card check stays
+    # (it picks searchsorted-vs-quantile to MATCH the CPU _binned_mi decision). Falls back to cp.quantile
+    # when the radix path is inapplicable/disabled.
+    def _interior_edges(v):
+        try:
+            from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+            if fe_gpu_radix_edges_enabled():
+                e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
+                if e is not None:
+                    return e.ravel()
+        except Exception:
+            pass
+        return cp.quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
+
     uf = cp.unique(df)
     if int(uf.size) <= nbins:
         fb = cp.searchsorted(uf, df)
     else:
-        edges = cp.quantile(df, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
-        fb = cp.digitize(df, edges)
+        fb = cp.digitize(df, _interior_edges(df))
     if y_codes is not None:
         yb = cp.asarray(np.asarray(y_codes).ravel())
     else:
@@ -251,8 +266,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
         if int(uy.size) <= 20:
             yb = cp.searchsorted(uy, dy)
         else:
-            ey = cp.quantile(dy.astype(cp.float64), cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
-            yb = cp.digitize(dy.astype(cp.float64), ey)
+            yb = cp.digitize(dy.astype(cp.float64), _interior_edges(dy.astype(cp.float64)))
 
     # Fused one-launch MI-from-codes (launch-reduction): the binned feat/y codes ``fb``/``yb`` are already
     # valid bin indices, so MI(feat; y) = H(feat)+H(y)-H(feat,y) goes through the single RawKernel
