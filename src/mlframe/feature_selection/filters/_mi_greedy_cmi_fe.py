@@ -650,6 +650,27 @@ def _nnz_from_counts(c) -> int:
     return int(_NNZ_RK(c))
 
 
+# (id(host), size, endpoints) -> max(dev_codes)+1 cardinality. y is a fit-constant and z_support a
+# round-constant across the per-candidate CMI calls, so their dev .max() (a reduction + scalar D2H) recurs
+# identically; memoize it (keyed like _YZ_CARD_CACHE: endpoints guard id() reuse after GC). x varies -> never
+# cached. Selection-exact (same integer cardinality). Module-level -> never on a pickled instance.
+_CARD_MAX_CACHE: dict = {}
+
+
+def _cached_card(host_arr, dev_codes) -> int:
+    if dev_codes.size == 0:
+        return 1
+    ha = np.asarray(host_arr).ravel()
+    key = (id(host_arr), int(ha.size), int(ha[0]), int(ha[-1]))
+    v = _CARD_MAX_CACHE.get(key)
+    if v is None:
+        v = int(dev_codes.max()) + 1
+        if len(_CARD_MAX_CACHE) > 64:
+            _CARD_MAX_CACHE.clear()
+        _CARD_MAX_CACHE[key] = v
+    return v
+
+
 def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
     Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15)."""
@@ -668,14 +689,14 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
         return joint_entropy_gpu(codes, cards, inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
-    ky = (int(dy.max()) + 1) if dy.size else 1
+    ky = _cached_card(y, dy)               # y is a fit-constant -> its cardinality is cached
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
         h_x, k_x = _entc([dx], [Kx])
         h_y, k_y = _entc([dy], [ky])
         h_xy, k_xy = _entc([dx, dy], [Kx, ky])
         return max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
     dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
-    kz = (int(dz.max()) + 1) if dz.size else 1
+    kz = _cached_card(z_joint, dz)         # z_support is round-constant -> cardinality cached
     h_z, k_z = _entc([dz], [kz])
     h_xz, k_xz = _entc([dx, dz], [Kx, kz])
     h_yz, k_yz = _entc([dy, dz], [ky, kz])
@@ -753,7 +774,7 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
         return joint_entropy_gpu(codes, cards, inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
-    ky = (int(dy.max()) + 1) if dy.size else 1
+    ky = _cached_card(y_i, dy)             # y is a fit-constant -> cardinality cached
     kz = int(k_z) if int(k_z) > 0 else (int(dz.max()) + 1 if dz.size else 1)
     h_xz, k_xz = _entc([dx, dz], [Kx, kz])
     h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
