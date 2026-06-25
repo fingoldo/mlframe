@@ -314,7 +314,10 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # exact contract, no test re-frame. Falls back to cp.percentile when the radix path is inapplicable
     # (R over cap / shared-mem over limit / k==1 cupy-axis bug) or disabled (MLFRAME_FE_GPU_RADIX_EDGES=0).
     interior = None
-    if k > 1:
+    # k >= 1: radix-select is correct for single-column too (verified maxdiff 0 vs np.percentile) -- unlike
+    # cp.percentile(axis=0) which has the k==1 axis bug, so the k==1 fallback below only fires if radix
+    # returns None. Routing k==1 here uses the sort-free path on single-column chunks too.
+    if k >= 1:
         try:
             from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
             if fe_gpu_radix_edges_enabled():
