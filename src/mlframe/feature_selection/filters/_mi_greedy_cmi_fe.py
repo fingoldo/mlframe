@@ -1026,6 +1026,21 @@ def greedy_cmi_fe_construct(
         sample_names = rng_floor.choice(
             np.array(cand_names, dtype=object), size=sample_size, replace=False,
         )
+        # BATCHED (launch-reduction): y_shuf / z_joint are fixed across the sampled candidates -> score their
+        # CMI in ONE batched_cmi_gpu workload instead of a per-candidate loop. The floor is the 0.95 quantile
+        # (order-independent) -> selection-equivalent. Per-candidate loop fallback on any error / GPU-off.
+        try:
+            if _cmi_gpu_enabled() and len(sample_names) > 1:
+                from ._fe_batched_mi import batched_cmi_gpu
+
+                _Xs = np.empty((int(y_shuf.shape[0]), len(sample_names)), dtype=np.int64)
+                for _j, _nm in enumerate(sample_names):
+                    _Xs[:, _j] = cand_bins[_nm]
+                _zc = z_joint if (z_joint is not None and z_joint.size > 0) else None
+                _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)
+                return float(np.quantile(_cmis, 0.95))
+        except Exception:
+            pass
         cmis_shuf = []
         for nm in sample_names:
             cmis_shuf.append(_cmi_from_binned(cand_bins[nm], y_shuf, z_joint))
@@ -1061,22 +1076,37 @@ def greedy_cmi_fe_construct(
         if _have_z:
             _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(
                 y_bin, z_joint)
-        for name in remaining:
-            # Skip candidates that are monotone-equivalent (bin-pattern-
-            # identical) to an already-picked winner. Important when Z
-            # is frozen at the fragmentation cap: identical-bin
-            # candidates carry identical CMI and would all be picked
-            # otherwise.
-            if cand_fp[name] in winner_fps:
-                continue
-            if _have_z:
-                cmi = cmi_from_binned_fixed_yz(
-                    cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n)
-            else:
-                cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
-            if cmi > best_cmi:
-                best_cmi = cmi
-                best_name = name
+        # The fingerprint-skip set is fixed for this step -> the candidates to score are
+        # ``_scan`` (a list over ``remaining`` preserving its iteration order). y_bin / z_joint are fixed
+        # across them, so score ALL their CMI in ONE batched_cmi_gpu workload and take the first-max argmax
+        # (== the sequential ``cmi > best_cmi`` tie-break). Same MM plug-in CMI -> selection-equivalent;
+        # per-candidate loop fallback on any error / GPU-off.
+        _scan = [name for name in remaining if cand_fp[name] not in winner_fps]
+        _batched_cmis = None
+        try:
+            if _cmi_gpu_enabled() and len(_scan) > 1:
+                from ._fe_batched_mi import batched_cmi_gpu
+
+                _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
+                for _j, _nm in enumerate(_scan):
+                    _Xc[:, _j] = cand_bins[_nm]
+                _zc = z_joint if _have_z else None
+                _batched_cmis = np.asarray(batched_cmi_gpu(_Xc, y_bin, _zc), dtype=np.float64)
+        except Exception:
+            _batched_cmis = None
+        if _batched_cmis is not None:
+            _bi = int(np.argmax(_batched_cmis))   # first-max == the sequential cmi > best_cmi tie-break
+            best_cmi = float(_batched_cmis[_bi]); best_name = _scan[_bi]
+        else:
+            for name in _scan:
+                if _have_z:
+                    cmi = cmi_from_binned_fixed_yz(
+                        cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n)
+                else:
+                    cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
+                if cmi > best_cmi:
+                    best_cmi = cmi
+                    best_name = name
         if best_name is None:
             break
         if best_cmi < effective_floor:

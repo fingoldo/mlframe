@@ -120,7 +120,7 @@ def propose_additive_fusions(
     names the caller must drop from ``selected_vars`` / ``engineered_recipes`` (they are
     now carried by the fused compound). Pure / no live state captured (picklable fit).
     """
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _quantile_bin
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
     from .engineered_recipes import build_unary_binary_recipe
 
@@ -151,6 +151,10 @@ def propose_additive_fusions(
     # recipe AND continuous values on hand (the fused operand is built on continuous
     # values, exactly as the nested-parent replay reconstructs them at transform time).
     halves: list[dict] = []
+    # Pre-pass: collect the candidate halves (cheap host filters + binning), then score their RELEVANCE MI
+    # in ONE batched_cmi_gpu workload (y_dense fixed, marginal) instead of a per-half _cmi_from_binned. Same
+    # MM plug-in marginal MI -> selection-equivalent; the per-half permutation floor is unchanged.
+    _pre: list[tuple] = []
     for nm in newly_engineered_names:
         rec = engineered_recipes.get(nm)
         vals = engineered_continuous.get(nm)
@@ -163,7 +167,20 @@ def propose_additive_fusions(
         if not toks:
             continue
         vb = _quantile_bin(vals, nbins=int(nbins))
-        mi = float(_cmi_from_binned(vb, y_dense, None))
+        _pre.append((nm, rec, vals, toks, vb))
+    _mis = None
+    try:
+        if _cmi_gpu_enabled() and len(_pre) > 1:
+            from ._fe_batched_mi import batched_cmi_gpu
+
+            _Xh = np.empty((int(n_rows), len(_pre)), dtype=np.int64)
+            for _j, _t in enumerate(_pre):
+                _Xh[:, _j] = _t[4]
+            _mis = np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64)
+    except Exception:
+        _mis = None
+    for _j, (nm, rec, vals, toks, vb) in enumerate(_pre):
+        mi = float(_mis[_j]) if _mis is not None else float(_cmi_from_binned(vb, y_dense, None))
         floor, _ = _conditional_perm_null(vb, y_dense, None, seed=seed)
         if mi <= floor:
             continue  # not relevant -- never a fusion half
