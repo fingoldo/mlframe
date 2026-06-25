@@ -410,6 +410,14 @@ def _cmi_from_binned(
     When ``z_joint is None`` (empty support), reduces to marginal
     ``MI(X; Y) = H(X) + H(Y) - H(X, Y)`` (also Miller-Madow corrected).
     """
+    # GPU route (2026-06-25): same partition-entropy-via-cp.unique offload as cmi_from_binned_fixed_yz,
+    # covering the general CMI callers (conditional-perm null, candidate scoring). value-order densify ->
+    # same partition -> same CMI; selection-identical. Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
+    if _cmi_gpu_enabled():
+        try:
+            return _cmi_from_binned_cupy(x, y, z_joint)
+        except Exception:
+            pass
     x_i = np.ascontiguousarray(x, dtype=np.int64)
     y_i = np.ascontiguousarray(y, dtype=np.int64)
     n = float(max(1, x_i.size))
@@ -557,6 +565,40 @@ def _cmi_gpu_enabled() -> bool:
         return bool(fe_gpu_strict_enabled())
     except Exception:
         return False
+
+
+def _cmi_from_binned_cupy(x, y, z_joint) -> float:
+    """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
+    Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15)."""
+    import cupy as cp
+
+    dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
+    dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
+    n = float(max(1, int(dx.size)))
+    inv_n = 1.0 / n
+
+    def _ent(keys):
+        c = cp.unique(keys, return_counts=True)[1].astype(cp.float64)
+        p = c * inv_n
+        return float(-(p * cp.log(p)).sum()), int(c.shape[0])
+
+    ky = (int(dy.max()) + 1) if dy.size else 1
+    if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
+        h_x, k_x = _ent(dx)
+        h_y, k_y = _ent(dy)
+        h_xy, k_xy = _ent(dx * ky + dy)
+        return max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
+    dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
+    kz = (int(dz.max()) + 1) if dz.size else 1
+    h_z, k_z = _ent(dz)
+    h_xz, k_xz = _ent(dx * kz + dz)
+    yz = dy * kz + dz
+    h_yz, k_yz = _ent(yz)
+    _big = (int(yz.max()) + 1) if yz.size else 1
+    h_xyz, k_xyz = _ent(dx * _big + yz)
+    cmi_plugin = h_xz + h_yz - h_z - h_xyz
+    cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+    return max(0.0, cmi_plugin - cmi_bias)
 
 
 def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> float:
