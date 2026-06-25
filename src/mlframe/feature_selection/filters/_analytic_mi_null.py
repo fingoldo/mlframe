@@ -194,6 +194,12 @@ def analytic_batch_noise_gate(
             fe_mi[k] = 0.0
             continue
         bx = int(bx_per_col[k])                          # occupied x bins for this candidate
+        # Only trust the G-test tail to REJECT where its chi-square asymptotic is valid (large n AND
+        # non-sparse cells). On a sparse / high-cardinality contingency table analytic_null_applicable is
+        # False and the analytic p is unreliable, so keep the observed MI rather than reject what may be
+        # genuine signal on an invalid test -- mirroring the documented "use the permutation test" fallback.
+        if not analytic_null_applicable(int(n_rows), bx, by):
+            continue
         _nm, p = analytic_mi_null(mi_k, int(n_rows), bx, by)
         if p >= alpha_reject:
             fe_mi[k] = 0.0
