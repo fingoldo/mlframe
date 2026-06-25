@@ -288,13 +288,19 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 freqs_y=freqs_y,
                 use_gpu=use_gpu,
                 freqs_y_safe=freqs_y_safe,
-                partial_gains=partial_gains,
+                # Per-worker COPIES of the two dicts the worker writes in-place (unlike cond_MIs/entropy,
+                # which each worker re-copies into its own numba dict). Sharing one object let several
+                # threading workers __setitem__ it concurrently -> a "dict changed size during iteration"
+                # crash at scale. sanitize() is evaluated once per workload so each worker owns its copy;
+                # the merge-back below consolidates them (workers own disjoint candidate keys, so the
+                # merged result is byte-identical to the old shared-write path).
+                partial_gains=sanitize(partial_gains),
                 baseline_npermutations=baseline_npermutations,
                 mrmr_relevance_algo=mrmr_relevance_algo,
                 mrmr_redundancy_algo=mrmr_redundancy_algo,
                 max_veteranes_interactions_order=max_veteranes_interactions_order,
                 selected_vars=selected_vars,
-                cached_MIs=cached_MIs,
+                cached_MIs=sanitize(cached_MIs),
                 cached_confident_MIs=cached_confident_MIs,
                 cached_cond_MIs=temp_cached_cond_MIs,
                 entropy_cache=temp_entropy_cache,
