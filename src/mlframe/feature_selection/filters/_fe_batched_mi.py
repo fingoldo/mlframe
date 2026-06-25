@@ -230,6 +230,33 @@ void joint_hist3(const long long* __restrict__ a, const long long* __restrict__ 
     long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) atomicAdd((unsigned long long*)&counts[(a[i] * Kb + b[i]) * Kc + c[i]], 1ULL);
 }
+// BATCHED (K columns at once) joint histograms. X is (n,K) row-major int codes; one thread per (row,col)
+// cell builds the flat key IN-KERNEL and atomicAdds into the caller-zeroed (K*Kx*Kb,) counts buffer (reshape
+// to (K, Kx*Kb) for the entropy reduction). Replaces the per-joint cupy flat-key build
+// (X*Kb + b[:,None] + col_off*(Kx*Kb)).ravel() + cp.bincount(scan+cub) with ONE launch, no key array.
+extern "C" __global__
+void batched_joint_hist2(const long long* __restrict__ X, const long long* __restrict__ b,
+                         const int Kx, const int Kb, const long long n, const int K,
+                         long long* __restrict__ counts) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    long long xv = X[row * (long long)K + col];
+    atomicAdd((unsigned long long*)&counts[(col * (long long)Kx + xv) * Kb + b[row]], 1ULL);
+}
+extern "C" __global__
+void batched_joint_hist1(const long long* __restrict__ X, const int Kx, const long long n, const int K,
+                         long long* __restrict__ counts) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    long long xv = X[row * (long long)K + col];
+    atomicAdd((unsigned long long*)&counts[col * (long long)Kx + xv], 1ULL);
+}
 """
 _JOINT_HIST_KERNELS = None
 
@@ -243,6 +270,48 @@ def _get_joint_hist_kernels():
                                mod.get_function("joint_hist2"),
                                mod.get_function("joint_hist3"))
     return _JOINT_HIST_KERNELS
+
+
+_BATCHED_JOINT_HIST_KERNELS = None
+
+
+def _get_batched_joint_hist_kernels():
+    global _BATCHED_JOINT_HIST_KERNELS
+    if _BATCHED_JOINT_HIST_KERNELS is None:
+        import cupy as cp
+        mod = cp.RawModule(code=_JOINT_HIST_SRC)
+        _BATCHED_JOINT_HIST_KERNELS = (mod.get_function("batched_joint_hist1"),
+                                       mod.get_function("batched_joint_hist2"))
+    return _BATCHED_JOINT_HIST_KERNELS
+
+
+def _batched_joint_counts2(X, b, Kx, Kb):
+    """Per-column joint counts of (n,K) int codes ``X`` with a single (n,) code ``b`` -> (K, Kx*Kb) int64,
+    via ONE in-kernel-flat-key atomicAdd launch. Identical counts to
+    ``cp.bincount((X*Kb + b[:,None] + col_off*(Kx*Kb)).ravel(), minlength=K*Kx*Kb).reshape(K, Kx*Kb)``."""
+    import cupy as cp
+
+    n, K = int(X.shape[0]), int(X.shape[1])
+    counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int64)
+    _, h2 = _get_batched_joint_hist_kernels()
+    threads = 256
+    blocks = (n * K + threads - 1) // threads
+    h2((blocks,), (threads,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), counts))
+    return counts.reshape(K, int(Kx) * int(Kb))
+
+
+def _batched_marginal_counts(X, Kx):
+    """Per-column marginal counts of (n,K) int codes ``X`` -> (K, Kx) int64, via ONE atomicAdd launch.
+    Identical counts to ``cp.bincount((X + col_off*Kx).ravel(), minlength=K*Kx).reshape(K, Kx)``."""
+    import cupy as cp
+
+    n, K = int(X.shape[0]), int(X.shape[1])
+    counts = cp.zeros(int(K) * int(Kx), dtype=cp.int64)
+    h1, _ = _get_batched_joint_hist_kernels()
+    threads = 256
+    blocks = (n * K + threads - 1) // threads
+    h1((blocks,), (threads,), (X, np.int32(int(Kx)), np.int64(n), np.int32(K), counts))
+    return counts.reshape(K, int(Kx))
 
 
 def joint_counts_gpu(codes, cards):
@@ -325,20 +394,19 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
         X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
     if X.ndim == 1:
         X = X[:, None]
+    X = cp.ascontiguousarray(X)   # batched joint-hist kernels read X[row*K+col] (C-order (n,K)); no-op if already
     n, K = int(X.shape[0]), int(X.shape[1])
     dy = cp.asarray(np.ascontiguousarray(y).astype(np.int64).ravel())
     nf = float(max(1, n))
     inv_n = 1.0 / nf
     Kx = int(X.max()) + 1 if X.size else 1
-    col_off = (cp.arange(K, dtype=cp.int64))[None, :]
 
     if z is None or (hasattr(z, "size") and np.asarray(z).size == 0):
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
         Ky = int(dy.max()) + 1 if dy.size else 1
-        cnt_xy = cp.bincount((X * Ky + dy[:, None] + col_off * (Kx * Ky)).ravel(),
-                             minlength=K * Kx * Ky).astype(cp.float64).reshape(K, Kx * Ky)
+        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky).astype(cp.float64)   # (K, Kx*Ky), in-kernel flat key
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
-        cnt_x = cp.bincount((X + col_off * Kx).ravel(), minlength=K * Kx).astype(cp.float64).reshape(K, Kx)
+        cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
         yc = cp.bincount(dy, minlength=Ky).astype(cp.float64)
         py = yc[yc > 0] * inv_n
@@ -362,13 +430,11 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
     k_yz = int((yzc > 0).sum())
     Kyz = int(yz.max()) + 1
 
-    # H(x_k, z) for all k: flat = k*(Kx*Kz) + x*Kz + z
-    cnt_xz = cp.bincount((X * Kz + dz[:, None] + col_off * (Kx * Kz)).ravel(),
-                         minlength=K * Kx * Kz).astype(cp.float64).reshape(K, Kx * Kz)
+    # H(x_k, z) for all k: in-kernel flat key k*(Kx*Kz) + x*Kz + z (one atomicAdd launch, no bincount)
+    cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)       # (K, Kx*Kz)
     h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
-    # H(x_k, y, z) for all k: flat = k*(Kx*Kyz) + x*Kyz + yz
-    cnt_xyz = cp.bincount((X * Kyz + yz[:, None] + col_off * (Kx * Kyz)).ravel(),
-                          minlength=K * Kx * Kyz).astype(cp.float64).reshape(K, Kx * Kyz)
+    # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz
+    cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz).astype(cp.float64)     # (K, Kx*Kyz)
     h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
     cmi = h_xz + h_yz - h_z - h_xyz
