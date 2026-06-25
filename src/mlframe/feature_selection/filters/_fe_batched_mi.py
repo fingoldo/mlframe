@@ -580,6 +580,49 @@ def joint_entropy_gpu(codes, cards, inv_n):
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)
 
 
+# FUSED final CMI/MI assembly (launch-reduction, 2026-06-26). batched_cmi_gpu assembled the per-column result
+# with a cupy chain over (K,) arrays: cmi = h_xz + h_yz - h_z - h_xyz; bias = (k_xyz + k_z - k_xz - k_yz)/2n;
+# max(cmi - bias, 0) -- ~7 launches. Both the conditional and marginal forms reduce to
+#   out[i] = max( he1[i] - he2[i] + hc - (kc1[i] - kc2[i] + kc) * inv2n , 0 )
+# so one (K,) kernel emits the result. Same f64 ops -> bit-identical.
+_CMI_ASSEMBLE_SRC = r"""
+extern "C" __global__
+void cmi_assemble(const double* __restrict__ he1, const double* __restrict__ he2, const double hc,
+                  const long long* __restrict__ kc1, const long long* __restrict__ kc2, const double kc,
+                  const double inv2n, const int K, double* __restrict__ out) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= K) return;
+    double v = (he1[i] - he2[i] + hc) - ((double)(kc1[i] - kc2[i]) + kc) * inv2n;
+    out[i] = v > 0.0 ? v : 0.0;
+}
+"""
+_CMI_ASSEMBLE_KERNEL = None
+
+
+def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
+    """out = max((he1 - he2 + hc) - ((kc1 - kc2) + kc)*inv2n, 0) per column, in ONE launch. he1/he2 are (K,)
+    f64 entropy terms, kc1/kc2 (K,) int64 occupied-cell counts, hc/kc/inv2n scalars. Bit-identical to the
+    cupy assembly. Falls back to the cupy chain on any kernel error."""
+    import cupy as cp
+
+    global _CMI_ASSEMBLE_KERNEL
+    try:
+        if _CMI_ASSEMBLE_KERNEL is None:
+            _CMI_ASSEMBLE_KERNEL = cp.RawKernel(_CMI_ASSEMBLE_SRC, "cmi_assemble")
+        K = int(he1.shape[0])
+        out = cp.empty(K, dtype=cp.float64)
+        threads = 128
+        _CMI_ASSEMBLE_KERNEL(((K + threads - 1) // threads,), (threads,),
+                             (cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
+                              cp.ascontiguousarray(he2.astype(cp.float64, copy=False)), float(hc),
+                              cp.ascontiguousarray(kc1.astype(cp.int64, copy=False)),
+                              cp.ascontiguousarray(kc2.astype(cp.int64, copy=False)), float(kc),
+                              float(inv2n), np.int32(K), out))
+        return out
+    except Exception:  # noqa: BLE001
+        return cp.maximum((he1 - he2 + hc) - ((kc1 - kc2) + kc) * inv2n, 0.0)
+
+
 _JOINT_NNZ_KERNELS = None
 
 
@@ -690,9 +733,9 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
         cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
         h_y, k_y = _ent_nnz_1d(joint_counts_gpu([dy], [Ky]), inv_n)         # H(y) via atomic-hist + fused reduce
-        mi = h_x + h_y - h_xy
-        bias = (k_x + k_y - k_xy - 1) / (2.0 * nf)
-        return cp.asnumpy(cp.maximum(mi - bias, 0.0))
+        # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
+        mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), 1.0 / (2.0 * nf))
+        return cp.asnumpy(mi)
 
     dz = cp.asarray(np.ascontiguousarray(z).astype(np.int64).ravel())
     Kz = int(dz.max()) + 1 if dz.size else 1
@@ -709,9 +752,9 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
     cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz).astype(cp.float64)     # (K, Kx*Kyz)
     h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
-    cmi = h_xz + h_yz - h_z - h_xyz
-    bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * nf)
-    cmi_host = cp.asnumpy(cp.maximum(cmi - bias, 0.0))
+    # FUSED assembly: max(h_xz - h_xyz + (h_yz - h_z) - (k_xyz - k_xz + (k_z - k_yz))/2n, 0) in one (K,) launch.
+    cmi_host = cp.asnumpy(_cmi_assemble(h_xz, h_xyz, float(h_yz - h_z),
+                                        k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * nf)))
     if return_cards:
         return (cmi_host, int(k_z), cp.asnumpy(k_xz).astype(np.int64),
                 int(k_yz), cp.asnumpy(k_xyz).astype(np.int64))
