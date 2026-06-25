@@ -567,6 +567,26 @@ def _cmi_gpu_enabled() -> bool:
         return False
 
 
+# Fused entropy + occupied-cell reduction over a bincount histogram (launch-reduction, 2026-06-25). The
+# entropy tail ``c[c>0]; p=c*inv_n; -(p*log p).sum()`` plus the ``c.shape[0]`` count expanded to a
+# boolean-mask getitem + astype + multiply + log + sum (~5 cuLaunchKernel). Two cupy ReductionKernels
+# (each ONE launch, same cuLaunchKernel driver API -> genuine count reduction) fold it: ENT_RK maps each
+# count to ``(c*inv_n)*log(c*inv_n)`` (0 when c==0) and reduces, NNZ_RK counts occupied cells. The c>0
+# guard inside the map removes the separate boolean filter. Same plug-in entropy math -> selection-equiv.
+_ENT_RK = None
+_NNZ_RK = None
+
+
+def _ent_from_counts(c, inv_n: float):
+    import cupy as cp
+    global _ENT_RK, _NNZ_RK
+    if _ENT_RK is None:
+        _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
+                                     "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
+        _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
+    return float(_ENT_RK(c, float(inv_n))), int(_NNZ_RK(c))
+
+
 def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
     Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15)."""
@@ -578,12 +598,8 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     inv_n = 1.0 / n
 
     def _ent(keys):
-        # cp.bincount (one kernel) instead of cp.unique (sort = 5-10 cub launches): same partition
-        # counts, selection-equivalent. Mirrors the batched born-on-device path (_fe_batched_mi).
-        c = cp.bincount(keys)
-        c = c[c > 0].astype(cp.float64)
-        p = c * inv_n
-        return float(-(p * cp.log(p)).sum()), int(c.shape[0])
+        # bincount histogram + fused two-ReductionKernel entropy/count (vs filter+astype+multiply+log+sum).
+        return _ent_from_counts(cp.bincount(keys), inv_n)
 
     ky = (int(dy.max()) + 1) if dy.size else 1
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
@@ -638,11 +654,8 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     inv_n = 1.0 / float(n)
 
     def _ent(keys):
-        # cp.bincount (one kernel) instead of cp.unique (sort): same counts, selection-equivalent.
-        c = cp.bincount(keys)
-        c = c[c > 0].astype(cp.float64)
-        p = c * inv_n
-        return float(-(p * cp.log(p)).sum()), int(c.shape[0])
+        # bincount histogram + fused two-ReductionKernel entropy/count (launch-reduction; selection-equiv).
+        return _ent_from_counts(cp.bincount(keys), inv_n)
 
     kz = int(k_z) if int(k_z) > 0 else (int(dz.max()) + 1 if dz.size else 1)
     h_xz, k_xz = _ent(dx * kz + dz)
