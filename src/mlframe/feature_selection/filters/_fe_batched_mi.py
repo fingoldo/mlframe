@@ -469,6 +469,117 @@ def joint_counts_gpu(codes, cards):
     return counts
 
 
+# FUSED joint histogram + plug-in entropy in ONE launch (launch-reduction, 2026-06-25). The per-candidate
+# CMI path computed each term as joint_counts_gpu (atomicAdd hist) + _ent_from_counts (entropy reduce) = TWO
+# launches. When the joint cell count M = prod(cards) fits in shared memory, ONE block builds the histogram in
+# SHARED via atomicAdd, then reduces the plug-in entropy (-sum p log p) + occupied-cell count in the same
+# launch. out[0] = sum xlogx (h = -out[0]), out[1] = nnz. Same float64 plug-in entropy / occupied-cell
+# definition -> selection-equivalent (exact integer counts; reduction-order ~1e-14). Falls back to the
+# two-kernel path (joint_counts_gpu + ent_nnz_1d) when M is over the shared-memory budget.
+_JOINT_ENTROPY_SRC = r"""
+extern "C" __global__
+void joint_entropy1(const long long* __restrict__ a, const long long n, const int M,
+                    const double inv_n, double* __restrict__ out) {
+    extern __shared__ unsigned int hist[];
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) atomicAdd(&hist[a[i]], 1u);
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out[0] = sh_h[0]; out[1] = sh_k[0]; }
+}
+extern "C" __global__
+void joint_entropy2(const long long* __restrict__ a, const long long* __restrict__ b, const int Kb,
+                    const long long n, const int M, const double inv_n, double* __restrict__ out) {
+    extern __shared__ unsigned int hist[];
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) atomicAdd(&hist[a[i] * Kb + b[i]], 1u);
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out[0] = sh_h[0]; out[1] = sh_k[0]; }
+}
+extern "C" __global__
+void joint_entropy3(const long long* __restrict__ a, const long long* __restrict__ b,
+                    const long long* __restrict__ c, const int Kb, const int Kc, const long long n,
+                    const int M, const double inv_n, double* __restrict__ out) {
+    extern __shared__ unsigned int hist[];
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) atomicAdd(&hist[(a[i] * Kb + b[i]) * Kc + c[i]], 1u);
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int cc = tid; cc < M; cc += nt) { unsigned int v = hist[cc]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out[0] = sh_h[0]; out[1] = sh_k[0]; }
+}
+"""
+_JOINT_ENTROPY_KERNELS = None
+_JOINT_ENTROPY_SH_LIMIT = None
+
+
+def _get_joint_entropy_kernels():
+    global _JOINT_ENTROPY_KERNELS, _JOINT_ENTROPY_SH_LIMIT
+    if _JOINT_ENTROPY_KERNELS is None:
+        import cupy as cp
+        mod = cp.RawModule(code=_JOINT_ENTROPY_SRC)
+        _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"),
+                                  mod.get_function("joint_entropy2"),
+                                  mod.get_function("joint_entropy3"))
+        try:
+            _JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+        except Exception:
+            _JOINT_ENTROPY_SH_LIMIT = 48 * 1024
+    return _JOINT_ENTROPY_KERNELS
+
+
+def joint_entropy_gpu(codes, cards, inv_n):
+    """Plug-in entropy (h) + occupied-cell count (k) of the joint of 1-3 device code arrays in ONE launch
+    when the joint cell count fits shared memory (block builds the histogram in shared + reduces entropy);
+    else the two-kernel path (joint_counts_gpu + ent_nnz_1d). ``codes`` cupy int64 (n,); ``cards`` the
+    matching cardinalities. Returns (float h, int k). Selection-equivalent to _ent_from_counts(joint_counts)."""
+    import cupy as cp
+
+    M = 1
+    for kc in cards:
+        M *= int(kc)
+    M = int(max(M, 1))
+    kers = _get_joint_entropy_kernels()
+    # static shared (sh_h+sh_k = 256*8*2 = 4096 B) + dynamic hist (M*4 B) must clear the per-block limit.
+    if M * 4 + 4096 <= _JOINT_ENTROPY_SH_LIMIT:
+        try:
+            n = int(codes[0].size)
+            out = cp.zeros(2, dtype=cp.float64)
+            shmem = M * 4
+            if len(codes) == 1:
+                kers[0]((1,), (256,), (codes[0], np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
+            elif len(codes) == 2:
+                kers[1]((1,), (256,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n),
+                                       np.int32(M), float(inv_n), out), shared_mem=shmem)
+            else:
+                kers[2]((1,), (256,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
+                                       np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
+                        shared_mem=shmem)
+            hk = cp.asnumpy(out)
+            return float(-hk[0]), int(round(hk[1]))
+        except Exception:  # noqa: BLE001
+            pass
+    return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)
+
+
 _JOINT_NNZ_KERNELS = None
 
 

@@ -660,12 +660,12 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
 
-    from ._fe_batched_mi import joint_counts_gpu
+    from ._fe_batched_mi import joint_entropy_gpu
 
     def _entc(codes, cards):
-        # in-kernel flat-key joint histogram (one atomic-hist launch, no cp.bincount cub_any, no key arith)
-        # + fused entropy/NNZ ReductionKernels. Same partition counts -> selection-equivalent.
-        return _ent_from_counts(joint_counts_gpu(codes, cards), inv_n)
+        # FUSED histogram + plug-in entropy in ONE launch (shared-mem hist + entropy reduce) when the joint
+        # fits shared, else the two-kernel path. Same partition counts -> selection-equivalent.
+        return joint_entropy_gpu(codes, cards, inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
     ky = (int(dy.max()) + 1) if dy.size else 1
@@ -740,7 +740,7 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     Value-order densification -> same partition -> same CMI (selection-identical, fp-order ~1e-15)."""
     import cupy as cp
 
-    from ._fe_batched_mi import joint_counts_gpu
+    from ._fe_batched_mi import joint_entropy_gpu
 
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
     dy = cp.asarray(np.ascontiguousarray(y_i, dtype=np.int64).ravel())
@@ -748,8 +748,9 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     inv_n = 1.0 / float(n)
 
     def _entc(codes, cards):
-        # in-kernel flat-key joint histogram (one atomic-hist launch) + fused entropy/NNZ reductions.
-        return _ent_from_counts(joint_counts_gpu(codes, cards), inv_n)
+        # FUSED histogram + plug-in entropy in ONE launch (shared-mem hist + entropy reduce) when the joint
+        # fits shared, else the two-kernel path. Same partition counts -> selection-equivalent.
+        return joint_entropy_gpu(codes, cards, inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
     ky = (int(dy.max()) + 1) if dy.size else 1
