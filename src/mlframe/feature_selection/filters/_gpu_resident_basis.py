@@ -362,25 +362,91 @@ def _gpu_robust_lo_hi_batched(cp, M, med, scale):
     return lo, hi
 
 
+_HEAVY_TAIL_STATS_SRC = r"""
+extern "C" __global__
+void heavy_tail_stats(const double* __restrict__ M, const double* __restrict__ med,
+                      const double* __restrict__ scale, const double outerK, const double gapthr,
+                      const double maxfrac, const long long n, const int K,
+                      signed char* __restrict__ out_v) {
+    int col = blockIdx.x;
+    if (col >= K) return;
+    double mc = med[col];
+    double sc = scale[col];
+    double thr = outerK * sc;
+    int tid = threadIdx.x;
+    long long nloc = 0;
+    double bulk = -1e308, omin = 1e308;
+    for (long long i = tid; i < n; i += blockDim.x) {
+        double dev = fabs(M[i * (long long)K + col] - mc);
+        if (dev > thr) { nloc += 1; if (dev < omin) omin = dev; }
+        else if (dev > bulk) bulk = dev;
+    }
+    __shared__ long long sh_n[256];
+    __shared__ double sh_b[256];
+    __shared__ double sh_o[256];
+    sh_n[tid] = nloc; sh_b[tid] = bulk; sh_o[tid] = omin;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) {
+            sh_n[tid] += sh_n[tid + s];
+            if (sh_b[tid + s] > sh_b[tid]) sh_b[tid] = sh_b[tid + s];
+            if (sh_o[tid + s] < sh_o[tid]) sh_o[tid] = sh_o[tid + s];
+        }
+        __syncthreads();
+    }
+    if (tid == 0) {
+        long long no = sh_n[0];
+        double bk = sh_b[0] > 1e-12 ? sh_b[0] : 1e-12;
+        double gap = sh_o[0] / bk;
+        out_v[col] = ((sc > 1e-12) && (no > 0) && ((double)no <= maxfrac * (double)n) && (gap >= gapthr)) ? 1 : 0;
+    }
+}
+"""
+_HEAVY_TAIL_STATS_KERNEL = None
+
+
+def _get_heavy_tail_stats_kernel(cp):
+    global _HEAVY_TAIL_STATS_KERNEL
+    if _HEAVY_TAIL_STATS_KERNEL is None:
+        _HEAVY_TAIL_STATS_KERNEL = cp.RawKernel(_HEAVY_TAIL_STATS_SRC, "heavy_tail_stats")
+    return _HEAVY_TAIL_STATS_KERNEL
+
+
 def _gpu_detect_heavy_tail_batched(cp, M):
     """Vectorized per-column heavy-tail over a FINITE (n, K) matrix (caller skips non-finite cols).
-    Returns (K,) cupy bool, matching _gpu_detect_heavy_tail per column."""
-    n = M.shape[0]
+    Returns (K,) cupy bool, matching _gpu_detect_heavy_tail per column.
+
+    The post-quantile outlier stats + verdict (dev=|M-med|, outer mask, n_outer, bulk_edge max, outer_min,
+    gap, the bool AND-chain -- ~10 cuLaunchKernel) fuse into ONE block-per-column RawKernel: max/min reduce
+    order-independently (bit-identical to cp.max/min), n_outer is an exact int, and thread 0 emits the final
+    bool. Falls back to the cupy reduction chain on any kernel error."""
+    n = int(M.shape[0])
     # med + q25 + q75 of M fold into ONE radix-select call (same M); MAD's median(|M-med|) stays separate
     # (needs med first). Bit-identical to cp.median(M)/cp.percentile(M,[25,75]).
     q = _batched_quantiles(cp, M, [0.25, 0.5, 0.75])
     med = q[1]
     scale = _gpu_robust_scale_batched(cp, M, med, q25=q[0], q75=q[2])
-    dev = cp.abs(M - med)
-    outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
-    n_outer = outer.sum(axis=0)
-    bulk_edge = cp.where(outer, -cp.inf, dev).max(axis=0)
-    outer_min = cp.where(outer, dev, cp.inf).min(axis=0)
-    gap_ok = (outer_min / cp.maximum(bulk_edge, 1e-12)) >= _GPU_ROBUST_AXIS_GAP
-    return (
-        (scale > 1e-12) & (n_outer > 0)
-        & (n_outer <= _GPU_ROBUST_AXIS_MAX_FRAC * n) & gap_ok
-    )
+    try:
+        Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
+        K = int(Mc.shape[1])
+        out_v = cp.empty(K, dtype=cp.int8)
+        _get_heavy_tail_stats_kernel(cp)((K,), (256,),
+            (Mc, cp.ascontiguousarray(med.astype(cp.float64, copy=False)),
+             cp.ascontiguousarray(scale.astype(cp.float64, copy=False)),
+             float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
+             float(_GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(K), out_v))
+        return out_v.astype(cp.bool_)
+    except Exception:  # noqa: BLE001
+        dev = cp.abs(M - med)
+        outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
+        n_outer = outer.sum(axis=0)
+        bulk_edge = cp.where(outer, -cp.inf, dev).max(axis=0)
+        outer_min = cp.where(outer, dev, cp.inf).min(axis=0)
+        gap_ok = (outer_min / cp.maximum(bulk_edge, 1e-12)) >= _GPU_ROBUST_AXIS_GAP
+        return (
+            (scale > 1e-12) & (n_outer > 0)
+            & (n_outer <= _GPU_ROBUST_AXIS_MAX_FRAC * n) & gap_ok
+        )
 
 
 def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
