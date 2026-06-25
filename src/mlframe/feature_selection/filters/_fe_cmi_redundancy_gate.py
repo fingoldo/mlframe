@@ -237,7 +237,7 @@ def _conditional_perm_null(
     # point estimate are directly comparable, and the memory stays bounded by n
     # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
     # joint cardinality climbs into the thousands).
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
 
     x = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
@@ -276,13 +276,26 @@ def _conditional_perm_null(
                 _cells = max(1, int(k_x) * int(k_y))
             else:
                 _z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
-                xz, _ = _renumber_joint(x, _z)
-                yz, _ = _renumber_joint(y, _z)
-                xyz, _ = _renumber_joint(x, y, _z)
-                _, k_z = _entropy_from_classes(_z)
-                _, k_xz = _entropy_from_classes(xz)
-                _, k_yz = _entropy_from_classes(yz)
-                _, k_xyz = _entropy_from_classes(xyz)
+                # GPU route (2026-06-25): the analytic-null df needs only the OCCUPIED-cell counts
+                # (k_z/k_xz/k_yz/k_xyz) -> device cp.unique(...).size replaces the host renumber+entropy.
+                # Label-invariant -> same df. Gated (STRICT / MLFRAME_CMI_GPU), falls back to CPU on error.
+                _ks = None
+                if _cmi_gpu_enabled():
+                    try:
+                        from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
+                        _ks = joint_cardinalities_cupy(x, y, _z)
+                    except Exception:
+                        _ks = None
+                if _ks is not None:
+                    k_z, k_xz, k_yz, k_xyz = _ks
+                else:
+                    xz, _ = _renumber_joint(x, _z)
+                    yz, _ = _renumber_joint(y, _z)
+                    xyz, _ = _renumber_joint(x, y, _z)
+                    _, k_z = _entropy_from_classes(_z)
+                    _, k_xz = _entropy_from_classes(xz)
+                    _, k_yz = _entropy_from_classes(yz)
+                    _, k_xyz = _entropy_from_classes(xyz)
                 # df = sum_z (Bx_z - 1)(By_z - 1) over OCCUPIED strata = k_xyz - k_xz - k_yz + k_z
                 # (occupied-cell expansion). This is EXACTLY the Miller-Madow CMI bias numerator
                 # ``_cmi_from_binned`` uses (``cmi_bias = (k_xyz + k_z - k_xz - k_yz)/(2n)``), so

@@ -601,6 +601,26 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     return max(0.0, cmi_plugin - cmi_bias)
 
 
+def joint_cardinalities_cupy(x, y, z):
+    """Occupied-cell counts (k_z, k_xz, k_yz, k_xyz) for the analytic CMI-null df, via device cp.unique.
+    Only the cardinalities (number of distinct joint codes) are needed -> cp.unique(...).size on the
+    device replaces the host renumber+entropy. Value-order densify -> SAME occupied-cell count (the df is
+    label-invariant). Raises on any cupy error so the caller falls back to the host path."""
+    import cupy as cp
+
+    dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
+    dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
+    dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
+    kz = (int(dz.max()) + 1) if dz.size else 1
+    k_z = int(cp.unique(dz).size)
+    k_xz = int(cp.unique(dx * kz + dz).size)
+    yz = dy * kz + dz
+    k_yz = int(cp.unique(yz).size)
+    _big = (int(yz.max()) + 1) if yz.size else 1
+    k_xyz = int(cp.unique(dx * _big + yz).size)
+    return k_z, k_xz, k_yz, k_xyz
+
+
 def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> float:
     """Device twin of :func:`cmi_from_binned_fixed_yz`: the xz / xyz joint entropies via cp.unique counts.
     Value-order densification -> same partition -> same CMI (selection-identical, fp-order ~1e-15)."""
