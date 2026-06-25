@@ -187,22 +187,75 @@ def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0):
 _XLOGX_ROWS_EK = None
 
 
+# FUSED per-row entropy + occupied-cell in ONE RawKernel (launch-reduction, 2026-06-25). The prior path was
+# _XLOGX_ROWS_EK (1) + .sum(axis=1) (1) + (counts>0).sum(axis=1) (1) = 3 cuLaunchKernel per call; with 2-4
+# calls per batched_cmi_gpu it was the residual #1 launch source. One block per row (candidate) grid-strides
+# its M cells accumulating (sum xlogx, nnz), a shared-mem tree reduction folds the block, and thread 0 writes
+# out_h[row] (negated) + out_k[row]. ONE launch; out_h/out_k are cp.empty (cudaMalloc, not a cuLaunchKernel).
+# One-block-per-row -> deterministic tree-order sum (no cross-block atomics); same float64 plug-in entropy /
+# occupied-cell definition -> selection-equivalent.
+_ROWS_ENT_NNZ_SRC = r"""
+extern "C" __global__
+void rows_ent_nnz(const double* __restrict__ counts, const double inv_n, const int K, const long long M,
+                  double* __restrict__ out_h, long long* __restrict__ out_k) {
+    int row = blockIdx.x;
+    if (row >= K) return;
+    const double* cr = counts + (long long)row * M;
+    int tid = threadIdx.x;
+    double hloc = 0.0, kloc = 0.0;
+    for (long long i = tid; i < M; i += blockDim.x) {
+        double ci = cr[i];
+        if (ci > 0.0) { double p = ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+    }
+    __shared__ double sh_h[256];
+    __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { out_h[row] = -sh_h[0]; out_k[row] = (long long)(sh_k[0] + 0.5); }
+}
+"""
+_ROWS_ENT_NNZ_KERNEL = None
+
+
+def _get_rows_ent_nnz_kernel(cp):
+    global _ROWS_ENT_NNZ_KERNEL
+    if _ROWS_ENT_NNZ_KERNEL is None:
+        _ROWS_ENT_NNZ_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
+    return _ROWS_ENT_NNZ_KERNEL
+
+
 def _rows_entropy_and_k(counts, inv_n):
     """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix.
 
-    The x*log(x) contribution (counts*inv_n + where + log + where + multiply, ~5 cuLaunchKernel) is folded
-    into ONE ElementwiseKernel ``c>0 ? (c*invn)*log(c*invn) : 0`` (launches via the same cuLaunchKernel
-    driver API -> genuine count reduction), leaving the per-row sum + the occupied-cell sum. Same float64
-    plug-in entropy -> selection-equivalent."""
+    Fused into ONE RawKernel (one block per row, shared-mem reduction) -> a single cuLaunchKernel replacing
+    the elementwise + two axis sums. ``counts`` is float64 (K, M). Returns (h (K,) float64, k (K,) int64),
+    selection-equivalent to the prior path (deterministic per-row tree-order sum). Falls back to the
+    ElementwiseKernel + axis sums on any kernel error."""
     import cupy as cp
 
     global _XLOGX_ROWS_EK
-    if _XLOGX_ROWS_EK is None:
-        _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o",
-                                              "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
-    h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
-    k = cp.sum(counts > 0, axis=1)
-    return h, k
+    try:
+        c = counts if counts.dtype == cp.float64 else counts.astype(cp.float64)
+        c = cp.ascontiguousarray(c)
+        K = int(c.shape[0])
+        M = int(c.shape[1]) if c.ndim > 1 else int(c.size)
+        out_h = cp.empty(K, dtype=cp.float64)
+        out_k = cp.empty(K, dtype=cp.int64)
+        threads = 256
+        _get_rows_ent_nnz_kernel(cp)((K,), (threads,),
+                                     (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
+        return out_h, out_k
+    except Exception:  # noqa: BLE001
+        if _XLOGX_ROWS_EK is None:
+            _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o",
+                                                  "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
+        h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
+        k = cp.sum(counts > 0, axis=1)
+        return h, k
 
 
 # FUSED joint-histogram RawKernels (launch-reduction, 2026-06-25). The per-call cupy CMI built each joint
