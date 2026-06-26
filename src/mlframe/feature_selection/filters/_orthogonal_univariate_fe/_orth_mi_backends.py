@@ -245,6 +245,28 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
     #       CPU on this path absent that replatform. cProfile remainder (34.7s wall): _plugin_mi 2.94s,
     #       gpu_materialise_discretize_codes_host 1.12s (GPU launch/sync, already resident), _pair_combo_mi
     #       1.03s, permutation-null/CMI njit ~1.9s (orchestration), the rest one-time JIT + cuda driver.
+    # FULL GPU-RESIDENCY (STRICT, 2026-06-26). Priority #1 is that the FE path runs entirely on the GPU with
+    # no CPU MI compute. Under MLFRAME_FE_GPU_STRICT the batch MI routes to the resident GPU plug-in kernel
+    # (host candidate matrix -> device once -> resident percentile-edge binning + plug-in MI), so EVERY
+    # _mi_classif_batch caller (gate-grid, pairwise-modular, perm-null, unified-gate, chunked) becomes GPU.
+    # Selection-equivalent to the CPU njit (percentile-edge vs rank binning; recipe-hash byte-identical in the
+    # bench-note force-test). Falls back to the CPU njit on any GPU failure / when STRICT is off (the default
+    # path stays byte-for-byte the numba batch). Launches rise (priority #2) but residency is the goal.
+    try:
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+
+        if fe_gpu_strict_enabled():
+            import cupy as cp
+
+            from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
+
+            Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
+            if Xd.ndim == 1:
+                Xd = Xd[:, None]
+            yd = cp.asarray(np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel())
+            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins)), dtype=np.float64)
+    except Exception:
+        pass   # any GPU failure -> exact CPU njit below
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
