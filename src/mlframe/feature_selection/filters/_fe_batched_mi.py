@@ -951,18 +951,19 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
         cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
-        h_y, k_y = _ent_nnz_1d(joint_counts_gpu([dy], [Ky]), inv_n)         # H(y) via atomic-hist + fused reduce
+        h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)                     # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
         # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
         mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), 1.0 / (2.0 * nf))
         return cp.asnumpy(mi)
 
     dz = cp.asarray(np.ascontiguousarray(z).astype(np.int64).ravel())
     Kz = int(dz.max()) + 1 if dz.size else 1
-    # shared y/z terms (column-invariant) -- atomic-hist + fused 1D entropy/NNZ reduce, no cp.bincount chain
-    h_z, k_z = _ent_nnz_1d(joint_counts_gpu([dz], [Kz]), inv_n)
+    # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
+    # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
+    h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
     yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
     Kyz = int(yz.max()) + 1
-    h_yz, k_yz = _ent_nnz_1d(joint_counts_gpu([yz], [Kyz]), inv_n)
+    h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
 
     # H(x_k, z) for all k: in-kernel flat key k*(Kx*Kz) + x*Kz + z (one atomicAdd launch, no bincount)
     cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)       # (K, Kx*Kz)
