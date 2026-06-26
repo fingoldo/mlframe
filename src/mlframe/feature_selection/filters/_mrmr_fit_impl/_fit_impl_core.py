@@ -8021,7 +8021,47 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         v for v in selected_vars if cols[v] in set(self.feature_names_in_)
                     ]
                     if not _remaining_raw_after_drop:
-                        self._redundancy_emptied_raw_ = True
+                        # NEVER-EMPTY RAW FLOOR. The drop is allowed to remove a raw subsumed by a
+                        # surviving engineered child WHILE other raws remain (the I4b contract), but it
+                        # must never empty the raw support entirely: ``support_`` must expose >=1 raw
+                        # representative even when only engineered features were confirmed. When dropping
+                        # the redundant raws would leave ZERO raw survivors, re-add the single STRONGEST
+                        # dropped raw (highest marginal MI toward y) as the raw stand-in -- the engineered
+                        # child still rides along via the recipe. Minimal: this floor fires ONLY in the
+                        # would-be-empty case, so a genuinely-subsumed raw is still dropped whenever another
+                        # raw survives (I4b is untouched).
+                        _best_floor_idx, _best_floor_rel = None, float("-inf")
+                        _tgt_floor = np.asarray(target_indices, dtype=np.int64)
+                        _fn_floor = np.asarray(nbins, dtype=np.int64)
+                        for _dn in _dropped_redund_names:
+                            try:
+                                _ci = cols.index(_dn)
+                            except ValueError:
+                                continue
+                            try:
+                                from ..info_theory import mi as _floor_mi
+                                _rel = float(_floor_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
+                            except Exception:
+                                _rel = 0.0
+                            if _rel > _best_floor_rel:
+                                _best_floor_rel, _best_floor_idx = _rel, int(_ci)
+                        if _best_floor_idx is not None:
+                            selected_vars = list(_kept_redund) + [_best_floor_idx]
+                            _kept_name_floor = cols[_best_floor_idx]
+                            # The re-kept raw is no longer "dropped": remove it from the verdict set so the
+                            # downstream retention / rescue passes treat it as a genuine survivor.
+                            self._raw_redundancy_dropped_ = set(
+                                getattr(self, "_raw_redundancy_dropped_", None) or set()
+                            ) - {_kept_name_floor}
+                            if verbose:
+                                logger.info(
+                                    "MRMR raw-redundancy never-empty floor: dropping all raw operands would "
+                                    "empty support_; retained strongest raw %r (marginal MI %.4f) as the raw "
+                                    "representative beside the surviving engineered child.",
+                                    _kept_name_floor, _best_floor_rel,
+                                )
+                        else:
+                            self._redundancy_emptied_raw_ = True
                     if verbose:
                         logger.info(
                             "MRMR raw-redundancy drop: removed %d raw operand(s) conditionally "
@@ -9336,6 +9376,30 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             if not (0 <= int(v) < len(self.feature_names_in_)
                                     and self.feature_names_in_[int(v)] in _post_drop_set)
                         ]
+                        # NEVER-EMPTY RAW FLOOR (mirrors the main sweep): the post-retention drop may not
+                        # empty the raw support. If no raw survives, re-add the strongest dropped raw (by
+                        # marginal MI) as the representative; the engineered survivor still rides along.
+                        if not selected_vars:
+                            _bf_idx, _bf_rel = None, float("-inf")
+                            _tgt_pf = np.asarray(target_indices, dtype=np.int64)
+                            _fn_pf = np.asarray(nbins, dtype=np.int64)
+                            for _dn in _post_drop_set:
+                                try:
+                                    _ci = cols.index(_dn)
+                                except ValueError:
+                                    continue
+                                try:
+                                    from ..info_theory import mi as _pf_mi
+                                    _rel = float(_pf_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
+                                except Exception:
+                                    _rel = 0.0
+                                if _rel > _bf_rel:
+                                    _bf_rel, _bf_idx = _rel, _dn
+                            if _bf_idx is not None and _bf_idx in self.feature_names_in_:
+                                selected_vars = [self.feature_names_in_.index(_bf_idx)]
+                                self._raw_redundancy_dropped_ = set(
+                                    getattr(self, "_raw_redundancy_dropped_", None) or set()
+                                ) - {_bf_idx}
                         self.support_ = np.array(selected_vars, dtype=np.int64)
                         if verbose:
                             logger.info(
