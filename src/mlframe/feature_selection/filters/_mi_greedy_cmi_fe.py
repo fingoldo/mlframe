@@ -395,8 +395,8 @@ def _entropy_from_classes(classes: np.ndarray) -> tuple[float, int]:
 
 
 def _cmi_from_binned(
-    x: np.ndarray, y: np.ndarray, z_joint: Optional[np.ndarray],
-) -> float:
+    x: np.ndarray, y: np.ndarray, z_joint: Optional[np.ndarray], return_cards: bool = False,
+):
     """``CMI(X; Y | Z) = H(X,Z) + H(Y,Z) - H(Z) - H(X,Y,Z)`` from binned
     integer arrays. Miller-Madow bias correction applied: each plug-in
     entropy is reduced by ``(K-1)/(2n)`` where K is the number of
@@ -409,13 +409,17 @@ def _cmi_from_binned(
 
     When ``z_joint is None`` (empty support), reduces to marginal
     ``MI(X; Y) = H(X) + H(Y) - H(X, Y)`` (also Miller-Madow corrected).
+
+    ``return_cards`` (conditional path only): also return the OCCUPIED-cell cards ``(k_z, k_xz, k_yz, k_xyz)``
+    already computed here, so a same-(x,y,z) analytic CMI null can reuse them (``precomp_cards``) instead of
+    recomputing the four joints. Returns ``(cmi, cards)``; ``cards`` is ``None`` on the marginal path.
     """
     # GPU route (2026-06-25): same partition-entropy-via-cp.unique offload as cmi_from_binned_fixed_yz,
     # covering the general CMI callers (conditional-perm null, candidate scoring). value-order densify ->
     # same partition -> same CMI; selection-identical. Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
     if _cmi_gpu_enabled():
         try:
-            return _cmi_from_binned_cupy(x, y, z_joint)
+            return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards)
         except Exception:
             pass
     x_i = np.ascontiguousarray(x, dtype=np.int64)
@@ -434,7 +438,8 @@ def _cmi_from_binned(
         # = ``(K_x + K_y - K_xy - 1)/(2n)``. Subtract this bias from
         # the plug-in to denoise.
         mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
-        return max(0.0, mi_plugin - mi_bias)
+        mi = max(0.0, mi_plugin - mi_bias)
+        return (mi, None) if return_cards else mi
     z_i = np.ascontiguousarray(z_joint, dtype=np.int64)
     xz, _ = _renumber_joint(x_i, z_i)
     yz, _ = _renumber_joint(y_i, z_i)
@@ -455,7 +460,8 @@ def _cmi_from_binned(
     # filled by noise) so plug-in CMI is biased UP -- subtract the
     # bias to denoise.
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
-    return max(0.0, cmi_plugin - cmi_bias)
+    cmi = max(0.0, cmi_plugin - cmi_bias)
+    return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
 
 def precompute_marginal_y_terms(y_codes: np.ndarray) -> tuple[np.ndarray, float, int]:
@@ -670,10 +676,22 @@ def _cached_card(host_arr, dev_codes) -> int:
         _CARD_MAX_CACHE[key] = v
     return v
 
+# bench-attempt-rejected (2026-06-26): caching the y/z device codes (a _cached_dev resident-operand cache) to
+# skip re-uploading the fit-constant y / round-constant z H2D per candidate saved only ~61 MB / ~10 ms on the
+# F2 300k STRICT wall (below the 0.5% ship bar) -- nsys shows the redundancy gate is overhead/orchestration-
+# bound (GPU idle ~90%), NOT operand-H2D-bound (only ~118 operand uploads; the 1790 cudaMemcpyAsync are
+# per-kernel scalar D2H, not operand re-uploads). Not worth a DATA cache's stale id()-reuse collision risk for
+# ~10 ms. The real redundancy is the DOUBLE card computation, eliminated by the precomp_cards reuse below.
 
-def _cmi_from_binned_cupy(x, y, z_joint) -> float:
+
+def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
-    Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15)."""
+    Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15).
+
+    ``return_cards`` (conditional path only): also return the OCCUPIED-cell cards ``(k_z, k_xz, k_yz, k_xyz)``
+    this call already computes as the byproduct of the fused entropy+nnz kernel, so the caller can feed them to
+    the analytic CMI null's ``precomp_cards`` instead of recomputing the identical four histograms in
+    ``joint_cardinalities_cupy``. Returns ``(cmi, cards)``; ``cards`` is ``None`` on the marginal path."""
     # bench-attempt-rejected (2026-06-26): fusing dx/dy/dz.max() into one multi_max RawKernel REGRESSED F2
     # STRICT (2021 -> 2066, +45). The y/z cardinalities are already cache-hits via _cached_card on the
     # stable-id greedy/perm paths (free), so the kernel only ADDED a launch where the cache had removed one.
@@ -698,7 +716,8 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
         h_x, k_x = _entc([dx], [Kx])
         h_y, k_y = _entc([dy], [ky])
         h_xy, k_xy = _entc([dx, dy], [Kx, ky])
-        return max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
+        mi = max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
+        return (mi, None) if return_cards else mi
     dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
     kz = _cached_card(z_joint, dz)         # z_support is round-constant -> cardinality cached
     h_z, k_z = _entc([dz], [kz])
@@ -707,7 +726,10 @@ def _cmi_from_binned_cupy(x, y, z_joint) -> float:
     h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
     cmi_plugin = h_xz + h_yz - h_z - h_xyz
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
-    return max(0.0, cmi_plugin - cmi_bias)
+    cmi = max(0.0, cmi_plugin - cmi_bias)
+    # the analytic-null df needs EXACTLY these occupied-cell cards (same joints, same value-order densify) ->
+    # hand them back so the perm-null reuses them instead of recomputing the four histograms (precomp_cards).
+    return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
 
 _YZ_CARD_CACHE: dict = {}   # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant across a round's candidates

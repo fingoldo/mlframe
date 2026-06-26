@@ -271,8 +271,18 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
     # heavier (~11 launches) than _cmi_from_binned (~5) + joint_cardinalities (~4) separately. This path is
     # genuinely per-raw with VARYING conditioning z (base / full-composite / sibling), so it is not
     # batchable with the fixed-y/z primitives -- keep the per-call _cmi_from_binned.
-    cmi = float(_cmi_from_binned(cand_bin, y_bin, z_support))
-    floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed)
+    if z_support is None:
+        cmi = float(_cmi_from_binned(cand_bin, y_bin, z_support))
+        floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed)
+    else:
+        # CONDITIONAL: the observed CMI call already computes the four occupied-cell cards
+        # (k_z, k_xz, k_yz, k_xyz) as a byproduct of its fused entropy+nnz pass; hand them to the analytic
+        # null via precomp_cards so it skips recomputing the IDENTICAL four joints (joint_cardinalities on
+        # GPU / renumber+entropy on CPU). Same occupied-cell definition -> bit-identical df -> selection-
+        # identical; removes ~4 histograms per conditional raw on the redundancy gate (both backends).
+        cmi_v, _cards = _cmi_from_binned(cand_bin, y_bin, z_support, return_cards=True)
+        cmi = float(cmi_v)
+        floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed, precomp_cards=_cards)
     return cmi, floor, max(0.0, cmi - null_mean)
 
 
