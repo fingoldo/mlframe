@@ -115,6 +115,54 @@ def test_select_single_best_no_secondary_is_pure_max_primary():
 
 
 # ---------------------------------------------------------------------------
+# Quantised exact-MI tiebreaker (2026-06-26): the CPU and GPU scoring backends
+# compute MI separately and can differ by fp reduction order (~1e-12). The
+# exact-MI tiebreaker leg is SNAPPED to a 1e-7 grid so that sub-grid jitter
+# never flips the pick between backends, while genuine within-band MI gaps
+# still order correctly. These pin the contract in ``_fe_mi_contract``.
+# ---------------------------------------------------------------------------
+def test_quantize_mi_tiebreak_collapses_subgrid_preserves_genuine():
+    from mlframe.feature_selection.filters._fe_mi_contract import quantize_mi_tiebreak
+    # sub-grid jitter (< 1e-7) -> identical key
+    assert quantize_mi_tiebreak(0.30000000) == quantize_mi_tiebreak(0.30000001)
+    # genuine gap (>> 1e-7) -> distinct, order preserved
+    assert quantize_mi_tiebreak(0.1180) > quantize_mi_tiebreak(0.1167)
+    # quantum<=0 -> identity (no quantisation)
+    assert quantize_mi_tiebreak(0.123456789, quantum=0.0) == 0.123456789
+
+
+def test_select_single_best_tiebreak_is_backend_stable_under_fp_jitter():
+    """Two band+usability-tied forms whose EXACT MI differs only by sub-grid fp
+    jitter (~1e-8, the cross-backend reduction-order scale) must select the SAME
+    form regardless of which backend's value is marginally higher -- i.e. the pick
+    falls through to the deterministic name key, not the jitter. Pre-quantisation
+    (raw ``float(kv[1])`` leg) this FLIPPED between the two jitter orderings."""
+    band = 0.004  # > the jitter, so both forms are band-tied -> exact-MI leg decides
+    # _CFG_ALT name 'add(log(c),reciproc(d))' < _CFG_TRUE 'mul(log(c),sin(d))' -> ALT wins on a name tie.
+    cpu_view = {_CFG_TRUE: 0.30000001, _CFG_ALT: 0.30000000}  # TRUE marginally higher (one backend)
+    gpu_view = {_CFG_TRUE: 0.30000000, _CFG_ALT: 0.30000001}  # ALT marginally higher (other backend)
+    w_cpu = _select_single_best(cpu_view, _COLS, mi_band=band)
+    w_gpu = _select_single_best(gpu_view, _COLS, mi_band=band)
+    assert w_cpu == w_gpu == _CFG_ALT, (
+        f"sub-grid jitter must not flip the pick: cpu={get_new_feature_name(w_cpu, _COLS)} "
+        f"gpu={get_new_feature_name(w_gpu, _COLS)} (both must be the name-key winner _CFG_ALT)"
+    )
+
+
+def test_select_single_best_exact_mi_leg_still_resolves_genuine_within_band_gap():
+    """Quantisation must NOT defang the exact-MI leg for a GENUINE within-band gap:
+    the F2 'mixed' case (0.1180 vs 0.1167, gap 1.3e-3 >> the 1e-7 grid) is band-tied
+    (band 0.004) and usability-tied, so the higher EXACT MI must still win."""
+    band = 0.004
+    primary = {_CFG_TRUE: 0.1180, _CFG_ALT: 0.1167}
+    winner = _select_single_best(primary, _COLS, mi_band=band)
+    assert winner == _CFG_TRUE, (
+        "the exact-MI leg must still pick the higher within-band MI form; quantisation "
+        "only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Integration: the search recovers a near-optimal (c,d) form on the canonical
 # fixture (uniform[0,1] inputs, the regime the user reported).
 # ---------------------------------------------------------------------------

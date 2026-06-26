@@ -231,6 +231,9 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
     # Lazy import (parent re-imports this module at its bottom -> avoid a
     # top-level cycle); mirrors the in-function import at the call sites.
     from ..feature_engineering import get_new_feature_name
+    # Leaf module (numpy/stdlib only) -> no cycle; snaps the exact-MI tiebreaker leg to a
+    # hardware-independent grid so the CPU and GPU scoring backends pick the SAME form at sub-noise ties.
+    from .._fe_mi_contract import quantize_mi_tiebreak
     _sec = secondary or {}
     _use = usability or {}
     # Tie-band width in ABSOLUTE MI (the plug-in MI bias scale; see ``mi_tie_band``). Forms whose MI
@@ -247,10 +250,14 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
         # band is anchored at the top so it (and everything within ``_band`` below it) ties.
         return math.floor((_max_mi - float(_mi)) / _band) * -1.0
 
-    # Key order: banded MI -> linear usability -> EXACT MI -> external-validation -> name. The EXACT-MI
-    # leg (2026-06-24) is decisive ONLY among band-tied forms whose usability ALSO ties -- it restores
-    # the baseline strict-MI winner for that sub-class, so the band can NEVER flip a winner unless
-    # usability STRICTLY improves. This is critical for sign-variant forms: ``div(x,neg(b))`` and
+    # Key order: banded MI -> linear usability -> EXACT MI (quantised) -> external-validation -> name. The
+    # EXACT-MI leg (2026-06-24) is decisive ONLY among band-tied forms whose usability ALSO ties -- it
+    # restores the baseline strict-MI winner for that sub-class, so the band can NEVER flip a winner unless
+    # usability STRICTLY improves. It is SNAPPED to a hardware-independent grid (``quantize_mi_tiebreak``,
+    # 2026-06-26) so the separate CPU and GPU scoring backends -- whose MI can differ by fp reduction order
+    # (~1e-12) -- resolve this leg IDENTICALLY: sub-grid jitter falls through to the deterministic name key
+    # below, genuine within-band gaps (>> the grid, e.g. the F2 mixed 1.3e-3) still order correctly. This is
+    # critical for sign-variant forms: ``div(x,neg(b))`` and
     # ``div(x,abs(b))`` (b>0) are exact sign flips -> identical binned MI AND identical |corr(y)| (corr is
     # abs), so without the exact-MI leg the band would group them as tied and the lexicographic name
     # tie-break would flip ``neg(b)`` -> ``abs(b)``, silently changing the form a downstream additive
@@ -262,7 +269,7 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
         key=lambda kv: (
             _primary(kv[1]),
             float(_use.get(kv[0], 0.0)),
-            float(kv[1]),
+            quantize_mi_tiebreak(kv[1]),
             float(_sec.get(kv[0], 0.0)),
             _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
         ),

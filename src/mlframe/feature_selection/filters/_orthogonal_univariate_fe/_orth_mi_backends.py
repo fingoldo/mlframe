@@ -64,20 +64,24 @@ def _orth_mi_gpu_enabled() -> bool:
 def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.ndarray:
     """Numba prange batch MI(X_j; y) for classification.
 
-    Defers to ``plugin_mi_classif_batch_dispatch`` from ``hermite_fe``, which
-    routes (n, k) to the njit prange kernel (CPU) or cupy batch kernel (GPU)
-    via ``pyutilz.performance.kernel_tuning.cache`` and uses argsort-based
-    equi-frequency binning. Bench at p=200 n=2000: ~6ms vs ~317ms for the
-    per-column sklearn loop (~53x speedup).
+    Defers to ``plugin_mi_classif_batch_dispatch`` from ``hermite_fe``, which routes (n, k) to the njit
+    prange kernel (CPU, argsort equi-frequency RANK binning) or cupy batch kernel (GPU) via the kernel
+    tuning cache. Bench at p=200 n=2000: ~6ms vs ~317ms for the per-column sklearn loop (~53x speedup).
 
-    Numerical equivalence vs the sklearn reference (``_mi_classif_batch_sklearn``)
-    holds to within machine epsilon — verified across 40 seeds (Gaussian and
-    integer-with-noise) max abs diff < 2e-15. The argsort equi-frequency
-    binning and the ``np.quantile``+``searchsorted`` binning produce different
-    bin assignments only when source values have ties, but the resulting MI
-    on a discrete y is numerically identical because both partitions yield
-    the same effective contingency table marginals once the histogram math
-    sums the per-bin entropy contributions.
+    BINNING CHOICE (2026-06-26): the CPU default stays RANK binning. The GPU STRICT-residency twin
+    ``_plugin_mi_classif_batch_cuda_resident`` uses PERCENTILE-EDGE binning, and its bit-faithful CPU twin
+    ``_fe_edge_mi.plugin_mi_classif_batch_edge_njit`` is proven equal to it to ~1e-9 on continuous AND tied
+    columns (``test_fe_edge_mi_parity``). Edge and rank agree bit-for-bit ONLY on tie-free data; on tied
+    columns they diverge (rank splits equal values across a bin boundary, edge keeps them together). It is
+    TEMPTING to switch this default to edge so the CPU and GPU FE paths bin identically -- but doing so
+    regresses the canonical OVER-DROP pin (``test_private_raw_a_kept_alongside_engineered_multi_seed``,
+    seeds 1-4): on that fixture the ~1e-12 rank-vs-edge MI perturbation, even on continuous data, is enough
+    to push a SPURIOUS cross-signal form ``mul(qubed(a),cbrt(c))`` over the redundancy admission gate, which
+    then drops the genuine private-signal raw ``a`` (verified by causality A/B). The GPU-edge path has the
+    same latent fragility. True CPU==GPU identity therefore needs the redundancy/admission gate HARDENED
+    with a tolerance band (so a sub-noise MI perturbation cannot flip the decision), tracked separately;
+    until then the CPU default keeps rank to avoid the quality regression, and the edge twin is reserved for
+    the FE batcher path where both backends bin edge-identically. See ``_fe_mi_contract``.
 
     Handles partial-NaN columns by masking to the finite subset per column,
     matching ``_mi_classif_batch_sklearn`` semantics. An all-NaN column or a
