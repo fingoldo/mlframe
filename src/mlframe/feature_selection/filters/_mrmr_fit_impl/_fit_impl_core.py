@@ -7798,6 +7798,134 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 len(_readd_cf), [cols[i] for i in _readd_cf],
                             )
 
+    # POST-SELECTION DCD CLUSTER DISCOVERY. DCD's in-screen hook (``screen_dcd_discover_and_swap``) anchors a cluster ONLY on a column the greedy screen actually SELECTED. On a duplicate-feature
+    # fixture the greedy screen selects ONE representative (a strong column or an engineered composite) and gates the redundant duplicates out as mutually-redundant, so no duplicate is ever an
+    # anchor: DCD discovers 0 clusters and ``dcd_["n_pruned"]`` stays 0 even though the duplicates re-enter ``selected_vars`` via the floor-drop / retention rescues above. The cluster the screen never
+    # saw is exactly the one DCD exists to own. Run a discovery pass over the FINAL selected RAW columns (anchoring on each in selection order, growing from the other selected raws by SU >= tau): the
+    # duplicate cluster is found and its redundant members pruned by DCD BEFORE the raw-redundancy / monotone-twin drops below -- DCD owns exact-duplicate clusters, the redundancy drops own engineered-
+    # child subsumption. When the grown cluster reaches ``dcd_cluster_size_threshold`` the same anchor->aggregate swap the screen would have evaluated is evaluated + committed here (registering the
+    # ``_dcd_pc1_`` cluster_aggregate recipe into ``engineered_recipes`` so it lands in the ``_produced_recipes_`` ledger snapshotted below). Pruned duplicate members are removed from ``selected_vars``
+    # (mirroring the in-screen prune); ``dcd_`` is re-published so ``n_pruned`` / ``n_swaps`` / ``cluster_anchors`` reflect the discovered cluster.
+    # GATE: fire ONLY when the in-screen DCD discovered NOTHING -- no pool member pruned AND no swap committed. That is exactly the duplicate-cluster-missed case (screen selected one representative +
+    # engineered children, never anchored on a duplicate). When the in-screen DCD already clustered (FE-rich sensor-mesh / financial / embedding fixtures) it owns the support-shrinkage contract; re-
+    # discovering here would double-act and could GROW support (an extra aggregate the screen-time bake-off deliberately did not add), violating the "DCD must not grow support" invariant. ``cluster_anchors``
+    # is NOT a usable signal: ``discover_cluster_members`` does ``setdefault(anchor, set())`` for every selected predictor, so it carries EMPTY anchor entries even when no member joined -- the real
+    # "discovered a cluster" signal is a non-zero pruned-mask / a non-empty swap_log.
+    if (_persisted_dcd_state is not None and len(selected_vars) >= 2
+            and _persisted_dcd_state.pool_pruned_mask is not None
+            and int(_persisted_dcd_state.pool_pruned_mask.sum()) == 0
+            and not (getattr(_persisted_dcd_state, "swap_log", None) or [])):
+        try:
+            from .._dynamic_cluster_discovery import (
+                discover_cluster_members as _post_dcd_discover,
+                evaluate_swap_candidate as _post_dcd_eval_swap,
+                commit_swap as _post_dcd_commit_swap,
+                dcd_summary as _post_dcd_summary,
+            )
+            _dcd_st = _persisted_dcd_state
+            _mask_w0 = int(_dcd_st.pool_pruned_mask.shape[0]) if _dcd_st.pool_pruned_mask is not None else 0
+            _raw_name_set_dcd = set(self.feature_names_in_)
+            # Selected RAW columns: stable low indices within the DCD mask width, NUMERIC only (a
+            # string/categorical raw can never enter the PC1/Pearson aggregate -- it would raise
+            # "could not convert string to float" in the swap's combiner -- and is not a numeric
+            # duplicate cluster anyway), in selection order.
+            _num_cols_dcd = set(getattr(self, "numeric_features_in_", None) or [])
+            _sel_raw_dcd = [
+                int(v) for v in selected_vars
+                if 0 <= int(v) < _mask_w0 and cols[int(v)] in _raw_name_set_dcd
+                and (not _num_cols_dcd or cols[int(v)] in _num_cols_dcd)
+                and np.issubdtype(np.asarray(data[:, int(v)]).dtype, np.number)
+            ]
+            _newly_pruned_dcd: set = set()
+            _did_swap_dcd = False
+            for _anchor in list(_sel_raw_dcd):
+                if _dcd_st.pool_pruned_mask[_anchor]:
+                    continue  # already pruned as a member of an earlier anchor's cluster
+                _pool_dcd = [
+                    c for c in _sel_raw_dcd
+                    if c != _anchor and not _dcd_st.pool_pruned_mask[c]
+                ]
+                if not _pool_dcd:
+                    continue
+                _added = _post_dcd_discover(
+                    _dcd_st, _anchor, _pool_dcd,
+                    entropy_cache=None,
+                    factors_data=data,
+                    factors_nbins=np.asarray(nbins, dtype=np.int64),
+                    selected_vars=selected_vars,
+                )
+                _newly_pruned_dcd |= set(int(a) for a in _added)
+                # Mirror the in-screen anchor->aggregate swap: when the grown cluster reaches the size
+                # threshold, evaluate + commit the PC1/mean_z aggregate swap so n_swaps / swap_log /
+                # the cluster_aggregate recipe are produced exactly as the screen would have.
+                _members = _dcd_st.cluster_anchors.get(int(_anchor), set())
+                if len(_members) >= int(_dcd_st.cluster_size_threshold):
+                    # Sync the state's matrix to the LIVE (post-FE) matrix so the swap's S\{anchor}
+                    # conditioning set -- which may reference engineered columns appended AFTER the
+                    # screen built the state's matrix -- indexes valid columns (else conditional_mi
+                    # raises "negative dimensions" on an out-of-range column).
+                    if int(data.shape[1]) >= int(_dcd_st.factors_data.shape[1]):
+                        _dcd_st.factors_data = data
+                        _dcd_st.factors_nbins = np.asarray(nbins, dtype=np.int64)
+                        _dcd_st.cols = list(cols)
+                        if _dcd_st.pool_pruned_mask is not None and int(data.shape[1]) > int(_dcd_st.pool_pruned_mask.shape[0]):
+                            _dcd_st.pool_pruned_mask = np.concatenate([
+                                _dcd_st.pool_pruned_mask,
+                                np.zeros(int(data.shape[1]) - int(_dcd_st.pool_pruned_mask.shape[0]), dtype=bool),
+                            ])
+                    # Swap conditioning set: the anchor + the OTHER selected RAW non-cluster columns
+                    # only. The in-screen swap evaluates early when ``selected_vars`` is still small;
+                    # post-selection the full ``selected_vars`` also holds engineered children of the
+                    # SAME cluster latent (e.g. ``add(log(strong),prewarp(dup_c))``), and conditioning
+                    # the aggregate-vs-anchor relevance comparison on those children removes the shared
+                    # latent entirely -> both sides read ~0 residual -> the swap never fires. Restricting
+                    # the conditioning set to selected raws outside the cluster restores the screen-time
+                    # comparison (aggregate's denoised latent vs the single noisy anchor dup).
+                    _cluster_idx_set = set(_members) | {int(_anchor)}
+                    _swap_sel_vars = [
+                        int(v) for v in selected_vars
+                        if int(v) == int(_anchor)
+                        or (int(v) not in _cluster_idx_set
+                            and 0 <= int(v) < _mask_w0
+                            and cols[int(v)] in _raw_name_set_dcd)
+                    ]
+                    _dec = _post_dcd_eval_swap(
+                        _dcd_st, int(_anchor), _swap_sel_vars,
+                        target_y=target_indices,
+                        factors_data=data,
+                        factors_nbins=np.asarray(nbins, dtype=np.int64),
+                        entropy_cache=None,
+                        cached_MIs=None,
+                        full_npermutations=int(getattr(self, "full_npermutations", 0) or 0),
+                    )
+                    if getattr(_dec, "accept", False):
+                        _dref: dict = {}
+                        _post_dcd_commit_swap(
+                            _dcd_st, int(_anchor), _dec,
+                            selected_vars=selected_vars,
+                            data_ref=_dref,
+                            engineered_recipes=engineered_recipes,
+                            predictors_log=None,
+                        )
+                        data = _dref.get("data", data)
+                        nbins = _dref.get("nbins", nbins)
+                        cols = _dref.get("cols", cols)
+                        _did_swap_dcd = True
+            if _newly_pruned_dcd or _did_swap_dcd:
+                selected_vars = [v for v in selected_vars if int(v) not in _newly_pruned_dcd]
+                self.dcd_ = _post_dcd_summary(_dcd_st)
+                if isinstance(self.dcd_, dict):
+                    self.cluster_members_ = dict(self.dcd_.get("cluster_anchors_names", {}))
+                if verbose:
+                    logger.info(
+                        "MRMR post-selection DCD: discovered a duplicate cluster the greedy screen never anchored on; "
+                        "pruned %d redundant member(s)%s.",
+                        len(_newly_pruned_dcd),
+                        " + committed an aggregate swap" if _did_swap_dcd else "",
+                    )
+        except Exception as _exc_post_dcd:
+            logger.warning("MRMR post-selection DCD discovery failed: %s; keeping support as-is.", _exc_post_dcd)
+
     # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the
     # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors -- it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
