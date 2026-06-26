@@ -318,15 +318,18 @@ def cheap_row_argmax_scan(
     # permutation. ``hits`` is re-sorted by margin below, so per-hit output order is
     # unaffected -- only WHICH triples survive the budget is made deterministic.
     # (``cols`` was already name-sorted above; no re-sort needed here.)
-    # bench-attempt-rejected (2026-06-26): batching the per-triple operand floor + argmax-feat MI into ONE
-    # _mi_classif_batch call each (to collapse the resident radix-edge + plug-in launches across the gate
-    # sweep) is NOT selection-safe. best_existing_op_mi routes per triple via rescand_use_resident (KTC: resident
-    # percentile-EDGE binning when the cache says so), but a batched _mi_classif_batch routes on STRICT only, so
-    # under use_gpu-without-STRICT the batch silently switched the gate's binning estimator (edge -> CPU rank),
-    # shifting the selected set AND exposing KTC-state test-order dependence (reg_mixed passed alone, failed in
-    # the suite). Relaxing the GPU==CPU guard to selection-equivalent did not absorb it (the shift exceeded a
-    # razor tolerance). Keep the per-triple call -- the gate's launch count is irreducible without a
-    # routing-consistent resident batch (a deeper change than the launch grind warrants).
+    # bench-attempt-rejected (2026-06-26): batching the per-triple operand floor (one resident MI for the whole
+    # gate sweep instead of one per triple) is NOT suite-safe, in BOTH variants tried:
+    #   * HOST-built batch via _mi_classif_batch -- routes on STRICT only, so under use_gpu-without-STRICT it
+    #     switched the gate binning estimator (resident EDGE -> CPU RANK) vs the per-triple rescand_use_resident
+    #     (KTC) routing, shifting the selected set (broke test_gpu_cpu_..._selection_identical[reg_mixed]).
+    #   * RESIDENT device-built batch (best_existing_op_mi_resident_batched) -- per-column BIT-IDENTICAL to the
+    #     per-triple resident floor (reg_two_pairs PASSES in isolation), but concatenating ~20 triples' device
+    #     matrices changes the cupy-pool / KTC-cache state pattern enough to expose the SUITE's pre-existing
+    #     order-dependent routing flakiness (reg_two_pairs FAILED only in-suite). A change that makes the GPU
+    #     suite flaky is unshippable.
+    # Keep the per-triple call. The gate's launch count is irreducible without first decoupling the suite from
+    # KTC/pool ordering (a test-infra change, not a launch optimisation).
     for tri in combinations(cols, 3):
         if budget <= 0:
             break
