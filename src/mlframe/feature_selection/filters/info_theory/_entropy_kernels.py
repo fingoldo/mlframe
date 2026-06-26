@@ -297,7 +297,11 @@ def conditional_symmetric_uncertainty(
     # Floor the conditional-MI numerator at 0 (matching the ``conditional_mi`` clamp): float round-off in ``H(XZ)+H(YZ)-H(Z)-H(XYZ)`` on near-deterministic slices can leave ``cmi`` slightly negative, yielding a tiny negative CSU instead of 0.
     if cmi < 0.0:
         cmi = 0.0
-    return 2.0 * cmi / denom
+    csu = 2.0 * cmi / denom
+    # CSU is bounded by [0, 1] in exact arithmetic (I(X;Y|Z) <= min(H(X|Z), H(Y|Z)) <= denom/2). A value above 1
+    # is a numerical artifact -- a tiny-but-positive denom just above the 1e-12 guard divided into an
+    # MM-correction-inflated numerator -- which would spuriously dominate the redundancy ranking. Clamp it.
+    return csu if csu <= 1.0 else 1.0
 
 
 @njit(cache=True)
