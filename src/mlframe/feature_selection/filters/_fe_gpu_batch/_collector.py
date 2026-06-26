@@ -6,10 +6,14 @@ per-call overhead (H2D + radix-edge + MI launch) each time. This collector conca
 candidate columns into ONE (n, sum_K) matrix and scores them in ONE batched MI call, amortising the
 per-call overhead and raising GPU occupancy (the bigger grid fills more SMs).
 
-Measured on a GTX 1050 Ti (6 SM): scoring F=20 families x 30 cols batched vs separate is ~1.32x faster in
-f32 (the launch/occupancy-bound regime); the win grows with the number of small families and is largest in
-f32 (f64 is compute-bound, ~1.0x). Per-column MI is independent, so the batched result is BIT-IDENTICAL to
-the per-family results (just reassembled by column offset) -- the collector never changes selection.
+Measured on a GTX 1050 Ti (F=20 families x 30 cols, batched vs separate), DEFAULT-ACTIVE on both backends:
+  * CPU (the dispatcher's default on this card): ~1.44-1.57x -- batching N small njit prange calls into one
+    amortises per-call dispatch + fills the cores better (the win this card actually realises by default).
+  * GPU f32: ~1.32x -- amortises the per-call H2D + launch overhead (nsys: 20 H2D + 20 launch-sets -> 1).
+The win grows with the number of small families. (A column-major MI kernel to "coalesce" the big batched read
+was tried and REJECTED: the transpose costs more than it saves, 0.38x.) Per-column MI is independent, so the
+batched result is BIT-IDENTICAL to the per-family results (just reassembled by column offset) -- the collector
+never changes selection.
 """
 from __future__ import annotations
 
