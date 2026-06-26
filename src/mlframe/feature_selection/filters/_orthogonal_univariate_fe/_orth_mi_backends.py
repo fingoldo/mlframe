@@ -61,6 +61,15 @@ def _orth_mi_gpu_enabled() -> bool:
         return False
 
 
+def _fe_edge_binning_enabled() -> bool:
+    """Whether the CPU orth-MI uses PERCENTILE-EDGE binning (``MLFRAME_FE_EDGE_BINNING``, default OFF -> the
+    legacy RANK binning). Edge matches the GPU twin on tied columns too (full CPU==GPU), but on tie-bearing
+    fixtures it perturbs a razor-edge redundancy decision (the over-drop pin), so it is gated until the
+    redundancy/admission gate is hardened to absorb a sub-noise MI perturbation. See gate-hardening."""
+    import os as _os
+    return _os.environ.get("MLFRAME_FE_EDGE_BINNING", "").strip().lower() in ("1", "true", "on", "yes")
+
+
 def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.ndarray:
     """Numba prange batch MI(X_j; y) for classification.
 
@@ -126,6 +135,9 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
                 # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
                 _dt = np.float32 if fe_gpu_f32_enabled() else np.float64
                 mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
+            elif _fe_edge_binning_enabled():
+                from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
+                mis[dense_cols] = plugin_mi_classif_batch_edge_njit(X_dense, y_i64, nbins)
             else:
                 mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
                 mis[dense_cols] = mis_dense
