@@ -49,7 +49,7 @@ from .evaluation import (
 )
 from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
-from .permutation import mi_direct
+from .permutation import mi_direct, _addone_pvalue_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -793,7 +793,22 @@ def confirm_one_predictor(
 
                     nconsec_unconfirmed = 0
 
-                    next_best_gain = next_best_gain * confidence
+                    # Budget-aware confidence for the gain multiplier. The marginal bootstrap confidence
+                    # from ``mi_direct`` uses the add-one Monte-Carlo p-value (calibrated for the REPORTED
+                    # significance), whose ceiling at a clean null is ``budget/(budget+1)`` -- only 0.75 at
+                    # the screen's tiny default budget (full_npermutations=3). Multiplying the gain by that
+                    # ceiling deflates a perfectly clean signal ~25%, dropping it below ``min_relevance_gain``
+                    # and starving the FE pair-pool (engineered features collapse to ~0). Dividing by the
+                    # add-one ceiling exactly recovers the raw exceedance-rate confidence (1.0 at a clean
+                    # null) the screen used pre-add-one, so genuine signals clear the small-budget screen
+                    # while the calibrated add-one confidence is still what gets STORED/reported. No-op when
+                    # add-one is disabled (ceiling == 1.0) and on large budgets (ceiling -> 1.0).
+                    _conf_for_gain = confidence
+                    if _addone_pvalue_enabled() and full_npermutations:
+                        _addone_ceiling = full_npermutations / (full_npermutations + 1.0)
+                        if _addone_ceiling > 0.0:
+                            _conf_for_gain = min(1.0, confidence / _addone_ceiling)
+                    next_best_gain = next_best_gain * _conf_for_gain
                     expected_gains[next_best_candidate_idx] = next_best_gain
 
                     best_partial_gain, best_key = find_best_partial_gain(
