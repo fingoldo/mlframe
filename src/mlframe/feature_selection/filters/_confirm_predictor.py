@@ -49,7 +49,7 @@ from .evaluation import (
 )
 from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
-from .permutation import mi_direct
+from .permutation import mi_direct, _perm_pvalue
 
 logger = logging.getLogger(__name__)
 
@@ -665,7 +665,11 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     extra_x_shuffling=extra_x_shuffling,
                     base_seed=np.uint64(_fleuret_base_seed),
                 )
-                confidence = 1 - nfailed / nchecked
+                # Match the parallel Fleuret path (get_fleuret_criteria_confidence_parallel -> fleuret._perm_pvalue):
+                # use the add-one (Monte-Carlo) p-value estimator, not the raw nfailed/nchecked. The raw form reports
+                # confidence exactly 1.0 on a clean null (nfailed=0), which the parallel path never does, so serial
+                # (n_workers<=1) and parallel runs diverged in the confidence that feeds the ranking.
+                confidence = 1.0 - _perm_pvalue(nfailed, nchecked, full_budget=full_npermutations)
                 if nfailed >= max_failed:
                     bootstrapped_gain = 0.0
 
