@@ -172,15 +172,29 @@ def _qbin_into(val, nbins, qs, codes_out):
     ``q*(n-1)``), the same ``np.unique`` edge dedup, the same ``searchsorted(edges[1:-1], side='right')``.
     The kernel value is already scrubbed finite, so only the finite fast path is needed."""
     n = val.shape[0]
-    srt = np.sort(val)
     nq = qs.shape[0]
-    q = np.empty(nq, dtype=np.float64)
+    # Only the order statistics at the lerp anchors (lo, lo+1 of each quantile) are needed, so np.partition
+    # at exactly those ~2*nq positions (O(n) introselect) replaces the O(n log n) full np.sort. part[lo] /
+    # part[hi] are the identical order statistics np.sort gives, so q/edges/codes are BIT-IDENTICAL.
+    kths = np.empty(2 * nq, dtype=np.int64)
+    los = np.empty(nq, dtype=np.int64)
+    fracs = np.empty(nq, dtype=np.float64)
+    m2 = 0
     for k in range(nq):
         pos = qs[k] * (n - 1)
         lo = int(np.floor(pos))
         hi = lo + 1 if lo < n - 1 else lo
-        frac = pos - lo
-        q[k] = srt[lo] + (srt[hi] - srt[lo]) * frac
+        los[k] = lo
+        fracs[k] = pos - lo
+        kths[m2] = lo
+        kths[m2 + 1] = hi
+        m2 += 2
+    part = np.partition(val, kths[:m2])
+    q = np.empty(nq, dtype=np.float64)
+    for k in range(nq):
+        lo = los[k]
+        hi = lo + 1 if lo < n - 1 else lo
+        q[k] = part[lo] + (part[hi] - part[lo]) * fracs[k]
     # np.unique(q) -- q is ascending, so dedup adjacent equals in one pass.
     edges = np.empty(nq, dtype=np.float64)
     m = 0
