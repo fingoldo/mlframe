@@ -30,6 +30,7 @@ def gpu_fe_batch_mi(
     *,
     device: int | None = None,
     free_blocks: bool = True,
+    scrub: bool = True,
 ) -> np.ndarray:
     """Edge-binned plain plug-in MI of every column of ``X_cands`` (n, K) vs discrete ``y_codes`` (n,),
     computed on a single GPU. Returns a host (K,) float64 MI array. ``device`` selects the CUDA device
@@ -63,7 +64,12 @@ def gpu_fe_batch_mi(
             sl = slice(s, min(s + chunk, k))
             block = np.ascontiguousarray(X[:, sl])
             Xg = cp.asarray(block)
-            cp.nan_to_num(Xg, copy=False)  # FE scrub: no-op on finite, matches CPU dense path
+            # FE scrub (inf/-inf/nan -> 0, the FE convention -- NOT cupy's default inf->float-max). cupy's
+            # nan_to_num always runs a full array scan (_check_nan_inf, ~12% of the GPU wall here), so callers
+            # that already guarantee finite columns (e.g. the orth path's dense finite-filtered subset) pass
+            # scrub=False to skip it entirely. Default True keeps the generic path safe on non-finite input.
+            if scrub:
+                cp.nan_to_num(Xg, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             out[sl] = np.asarray(
                 _plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes)
             )
@@ -79,6 +85,7 @@ def multi_gpu_fe_batch_mi(
     nbins: int = 10,
     *,
     profiles=None,
+    scrub: bool = True,
 ) -> np.ndarray:
     """Edge-binned plug-in MI of (n, K) ``X_cands`` spread across HETEROGENEOUS GPUs to minimise wall time.
 
@@ -105,7 +112,7 @@ def multi_gpu_fe_batch_mi(
     profs = list(profiles) if profiles is not None else enumerate_device_profiles()
     if len(profs) <= 1:
         dev = profs[0].device if profs else None
-        return gpu_fe_batch_mi(X, y_codes, nbins, device=dev)
+        return gpu_fe_batch_mi(X, y_codes, nbins, device=dev, scrub=scrub)
 
     g = len(profs)
     # Column blocks: enough for the packer to balance across devices; the per-device executor re-chunks
@@ -127,7 +134,7 @@ def multi_gpu_fe_batch_mi(
             return
         idx = np.asarray(cols, dtype=np.int64)
         sub = np.ascontiguousarray(X[:, idx])
-        out[idx] = gpu_fe_batch_mi(sub, y_codes, nbins, device=profs[dev_slot].device)
+        out[idx] = gpu_fe_batch_mi(sub, y_codes, nbins, device=profs[dev_slot].device, scrub=scrub)
 
     with ThreadPoolExecutor(max_workers=g) as pool:
         list(pool.map(_score_on, [d for d in range(g) if cols_per_dev[d]]))

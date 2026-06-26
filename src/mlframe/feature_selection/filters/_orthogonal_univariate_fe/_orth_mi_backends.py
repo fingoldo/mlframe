@@ -120,7 +120,9 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
                 # call, so selection is unchanged vs the pre-batcher STRICT path; it only adds VRAM-chunking
                 # + multi-GPU. The CPU default branch below stays RANK binning (see the docstring).
                 from .._fe_gpu_batch import multi_gpu_fe_batch_mi
-                mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins)
+                # X_dense is the FINITE-filtered dense subset (finite_per_col) -> scrub=False skips cupy's
+                # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
+                mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False)
             else:
                 mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
                 mis[dense_cols] = mis_dense
