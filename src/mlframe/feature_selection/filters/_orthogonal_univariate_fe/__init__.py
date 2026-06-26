@@ -422,13 +422,15 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # calls below, instead of each recomputing it (cp.min/max + scalar D2H). Bit-identical (y is invariant).
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
     _ymin = int(_ymm[0]); _ncls = int(_ymm[1]) - _ymin + 1
-    # Baseline RAW-column MI (resident), for the uplift denominator.
+    # Baseline RAW-column MI (resident), for the uplift denominator. Built here but SCORED BELOW in ONE
+    # resident MI call stacked with eng_mat -- per-column MI is independent, so the values are identical to
+    # two separate calls while issuing one launch set instead of two (raw_mi feeds raw_mi_map at the rows
+    # loop, which runs after eng_mat exists, so deferring the score is safe).
     raw_cols = [c for c in cols if pd.api.types.is_numeric_dtype(X[c])]
     raw_mi_map: dict = {}
+    raw_mat = None
     if raw_cols:
         raw_mat = cp.asarray(np.ascontiguousarray(X[raw_cols].to_numpy(dtype=np.float64)))
-        raw_mi = _plugin_mi_classif_batch_cuda_resident(raw_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
-        raw_mi_map = dict(zip(raw_cols, [float(v) for v in raw_mi]))
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
     # only the heavy per-(col,basis,degree) eval + the MI move to the GPU -- and the eval is BATCHED.
@@ -504,7 +506,17 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # directly rather than re-parsing the name via ``split("__", 1)[0]`` (which mis-stems a
     # one-hot source ``"city__NY"`` and collapses the uplift denominator to the 1e-12 floor).
     name_src = [used_src[_ci] for (_ci, _b, _d) in meta]
-    eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
+    # ONE resident MI over [raw_mat | eng_mat] stacked -- per-column independent, so raw_mi/eng_mi are
+    # bit-identical to two separate calls, with one launch set instead of two. Both are already device-
+    # resident, so this stays H2D-free (do NOT route through the host-input batcher, which would round-trip).
+    if raw_mat is not None:
+        _stacked = cp.concatenate((raw_mat, eng_mat.astype(cp.float64, copy=False)), axis=1)
+        _all_mi = _plugin_mi_classif_batch_cuda_resident(_stacked, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
+        _rk = int(raw_mat.shape[1])
+        raw_mi_map = dict(zip(raw_cols, [float(v) for v in _all_mi[:_rk]]))
+        eng_mi = _all_mi[_rk:]
+    else:
+        eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
     rows = []
     for j, nm in enumerate(names):
         src = name_src[j]
