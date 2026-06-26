@@ -102,3 +102,18 @@ def test_biz_val_stability_sample_fraction_too_high_correlates_bootstraps():
     assert fp_default == 0, f"default sample_fraction should stay clean; FP={fp_default}"
     assert fp_high >= 2, f"near-1 sample_fraction should leak noise via correlated bootstraps; FP={fp_high}"
     assert true.issubset(set(default.support_.tolist()))
+
+
+def test_biz_val_stability_balanced_target_skips_stratification_quota():
+    """On a near-balanced target the default ``stratify=True`` must be a NO-OP vs ``stratify=False``: every class survives an unstratified subsample with
+    overwhelming probability, so forcing per-class quotas only perturbs the subsample composition and can push a borderline noise feature over threshold.
+    The stratify gate engages only when a class is genuinely at risk (rare-class regime), so here the two modes produce identical support / probabilities."""
+    X, y, true = _noisy_signal_frame()  # balanced binary (~50/50), n=600
+    kw = dict(n_bootstraps=25, sample_fraction=0.75, support_threshold=0.6, random_state=0)
+    strat_on = StabilityMRMR(_NoisyTopK(k=5), stratify=True, **kw).fit(X, y)
+    strat_off = StabilityMRMR(_NoisyTopK(k=5), stratify=False, **kw).fit(X, y)
+    assert set(strat_on.support_.tolist()) == set(strat_off.support_.tolist()), (
+        "stratify must not change support on a balanced target where no class is at risk"
+    )
+    assert np.array_equal(strat_on.selection_probabilities_, strat_off.selection_probabilities_)
+    assert len(set(strat_on.support_.tolist()) - true) == 0
