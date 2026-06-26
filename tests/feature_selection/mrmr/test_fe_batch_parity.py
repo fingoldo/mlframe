@@ -94,6 +94,28 @@ def test_cpu_batcher_matches_gpu_batcher(fixture):
 
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
+@pytest.mark.parametrize("fixture", [_continuous, _tied], ids=["continuous", "tied"])
+def test_gpu_f32_batch_is_selection_equivalent_to_f64(fixture):
+    """The opt-in f32 GPU batch path (MLFRAME_FE_VRAM_F32) is ~2.2x faster but only SELECTION-EQUIVALENT to
+    f64 (not 1e-9): the MI values drift ~5e-6 from f32 order statistics, but the RANKING is preserved, so
+    the same features are selected. Pin rank-equivalence (Spearman 1.0, identical argmax + top-K), NOT a
+    tight value tolerance."""
+    import cupy as cp
+    from scipy.stats import spearmanr
+    from mlframe.feature_selection.filters._fe_gpu_batch import gpu_fe_batch_mi
+
+    X, y, nb = fixture()
+    mi64 = gpu_fe_batch_mi(X, y, nb, dtype=np.float64)
+    mi32 = gpu_fe_batch_mi(X, y, nb, dtype=np.float32)
+    cp.get_default_memory_pool().free_all_blocks()
+    assert spearmanr(mi64, mi32).correlation > 0.99999, "f32 must preserve the MI ranking"
+    assert np.argmax(mi64) == np.argmax(mi32), "f32 must keep the same top feature"
+    top = min(20, X.shape[1])
+    assert set(np.argsort(-mi64)[:top]) == set(np.argsort(-mi32)[:top]), "f32 top-K set must match f64"
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_gpu_batcher_vram_chunk_invariant():
     """The GPU executor's VRAM column-chunk boundaries must not change per-column MI."""
     import cupy as cp

@@ -33,6 +33,14 @@ def _cores_per_sm(cc_major: int, cc_minor: int) -> int:
     return _CORES_PER_SM.get((int(cc_major), int(cc_minor)), _DEFAULT_CORES_PER_SM)
 
 
+def fe_gpu_f32_enabled() -> bool:
+    """Whether the GPU FE-batch path scores in float32 (``MLFRAME_FE_VRAM_F32`` truthy). Default OFF -> f64,
+    which keeps the GPU MI bit-~ (1e-9) to the CPU njit. f32 is ~2.2x faster (half H2D + f32 radix-select)
+    and SELECTION-EQUIVALENT (Spearman rank 1.0, identical top-K; values drift ~5e-6 only), but NOT 1e-9
+    bit-identical -- so it is opt-in, validated by the f32 selection-equivalence test."""
+    return os.environ.get("MLFRAME_FE_VRAM_F32", "").strip().lower() in ("1", "true", "on", "yes")
+
+
 @dataclass(frozen=True)
 class DeviceProfile:
     """Immutable per-device capability snapshot (transient; built fresh each fit)."""

@@ -82,8 +82,11 @@ def fe_batch_mi(
 
     if chosen == "gpu":
         try:
+            import numpy as _np
             from ._fe_gpu_batch import multi_gpu_fe_batch_mi
-            return multi_gpu_fe_batch_mi(X, y_codes, nbins)  # spreads across GPUs; single-GPU = 1 device
+            from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
+            _dt = _np.float32 if fe_gpu_f32_enabled() else _np.float64  # f32 opt-in: 2.2x, selection-equiv
+            return multi_gpu_fe_batch_mi(X, y_codes, nbins, dtype=_dt)  # spreads across GPUs; single-GPU = 1 device
         except Exception:
             pass  # fall through to the selection-identical CPU path
     from ._fe_cpu_batch import cpu_fe_batch_mi

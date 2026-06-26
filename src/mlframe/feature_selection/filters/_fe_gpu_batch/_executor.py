@@ -31,6 +31,7 @@ def gpu_fe_batch_mi(
     device: int | None = None,
     free_blocks: bool = True,
     scrub: bool = True,
+    dtype: "np.dtype | type" = np.float64,
 ) -> np.ndarray:
     """Edge-binned plain plug-in MI of every column of ``X_cands`` (n, K) vs discrete ``y_codes`` (n,),
     computed on a single GPU. Returns a host (K,) float64 MI array. ``device`` selects the CUDA device
@@ -38,7 +39,8 @@ def gpu_fe_batch_mi(
     """
     import cupy as cp
 
-    X = np.ascontiguousarray(X_cands, dtype=np.float64)
+    _f32 = np.dtype(dtype) == np.float32  # f32: half the H2D + f32 radix-select (selection-equivalent, not 1e-9)
+    X = np.ascontiguousarray(X_cands, dtype=(np.float32 if _f32 else np.float64))
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     n, k = X.shape
@@ -58,8 +60,8 @@ def gpu_fe_batch_mi(
         y_gpu = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
         y_min = int(y_gpu.min().item())
         n_classes = int(y_gpu.max().item()) - y_min + 1
-        # VRAM-budget column chunk: f64 candidate matrix is the dominant resident footprint.
-        chunk = _gpu_k_chunk(n, bytes_per_elem=8, max_cols=k)
+        # VRAM-budget column chunk: the candidate matrix is the dominant resident footprint (4B f32 / 8B f64).
+        chunk = _gpu_k_chunk(n, bytes_per_elem=(4 if _f32 else 8), max_cols=k)
         for s in range(0, k, chunk):
             sl = slice(s, min(s + chunk, k))
             block = np.ascontiguousarray(X[:, sl])
@@ -71,7 +73,8 @@ def gpu_fe_batch_mi(
             if scrub:
                 cp.nan_to_num(Xg, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             out[sl] = np.asarray(
-                _plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes)
+                _plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+                                                       keep_dtype=_f32)
             )
             del Xg
             if free_blocks:
@@ -86,6 +89,7 @@ def multi_gpu_fe_batch_mi(
     *,
     profiles=None,
     scrub: bool = True,
+    dtype: "np.dtype | type" = np.float64,
 ) -> np.ndarray:
     """Edge-binned plug-in MI of (n, K) ``X_cands`` spread across HETEROGENEOUS GPUs to minimise wall time.
 
@@ -112,7 +116,7 @@ def multi_gpu_fe_batch_mi(
     profs = list(profiles) if profiles is not None else enumerate_device_profiles()
     if len(profs) <= 1:
         dev = profs[0].device if profs else None
-        return gpu_fe_batch_mi(X, y_codes, nbins, device=dev, scrub=scrub)
+        return gpu_fe_batch_mi(X, y_codes, nbins, device=dev, scrub=scrub, dtype=dtype)
 
     g = len(profs)
     # Column blocks: enough for the packer to balance across devices; the per-device executor re-chunks
@@ -134,7 +138,7 @@ def multi_gpu_fe_batch_mi(
             return
         idx = np.asarray(cols, dtype=np.int64)
         sub = np.ascontiguousarray(X[:, idx])
-        out[idx] = gpu_fe_batch_mi(sub, y_codes, nbins, device=profs[dev_slot].device, scrub=scrub)
+        out[idx] = gpu_fe_batch_mi(sub, y_codes, nbins, device=profs[dev_slot].device, scrub=scrub, dtype=dtype)
 
     with ThreadPoolExecutor(max_workers=g) as pool:
         list(pool.map(_score_on, [d for d in range(g) if cols_per_dev[d]]))
