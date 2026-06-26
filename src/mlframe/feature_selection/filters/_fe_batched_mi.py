@@ -740,6 +740,65 @@ def cmi_joint_entropies_gpu(dx, dy, dz, Kx, ky, kz, inv_n):
 # the fixed-yz path on the two per-joint joint_entropy_gpu launches.
 
 
+# FUSED three-joint marginal-MI entropies in ONE launch -- the marginal MI(x;y) path (the seed anchor and the
+# redundancy gate's per-raw marginal anchor) needs H(x), H(y), H(x,y), three separate joint_entropy_gpu
+# launches per call. Three blocks of one grid (block 0: x, M=Kx; block 1: y, M=Ky; block 2: xy, M=Kx*Ky),
+# each the same per-block histogram + tree reduction. All three terms come from THIS kernel (the marginal MI
+# combines only its own h_x/h_y/h_xy, no precomputed cross-path term), so it is self-consistent like the
+# four-block conditional fusion -- not the rejected two-block fixed-yz split. Engages when the (x,y) joint
+# fits the per-block shared limit (it is tiny: Kx*Ky). Same f64 plug-in entropy, occupied-cell definition,
+# and cell-index reduction order -> bit-identical.
+_MARGINAL_MI_ENTROPIES_SRC = r"""
+extern "C" __global__
+void marginal_mi_entropies(const long long* __restrict__ x, const long long* __restrict__ y,
+                           const int Kx, const int Ky, const long long n, const double inv_n,
+                           double* __restrict__ out) {
+    extern __shared__ unsigned int hist[];
+    int blk = blockIdx.x, tid = threadIdx.x, nt = blockDim.x;
+    int M = (blk == 0) ? Kx : (blk == 1) ? Ky : (Kx * Ky);
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        int idx = (blk == 0) ? (int)x[i] : (blk == 1) ? (int)y[i] : (int)(x[i] * Ky + y[i]);
+        atomicAdd(&hist[idx], 1u);
+    }
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out[blk * 2] = -sh_h[0]; out[blk * 2 + 1] = sh_k[0]; }
+}
+"""
+_MARGINAL_MI_ENTROPIES_KERNEL = None
+
+
+def marginal_mi_entropies_gpu(dx, dy, Kx, ky, inv_n):
+    """The three marginal-MI joint terms -- (x), (y), (x,y) -- in ONE launch. Returns
+    ((h_x,k_x),(h_y,k_y),(h_xy,k_xy)), or None when the (x,y) joint won't fit the per-block shared limit
+    (caller falls back to three joint_entropy_gpu launches). Bit-identical to the three separate calls."""
+    import cupy as cp
+
+    global _MARGINAL_MI_ENTROPIES_KERNEL
+    _get_joint_entropy_kernels()  # ensures _JOINT_ENTROPY_SH_LIMIT is populated
+    Mmax = int(Kx) * int(ky)
+    if Mmax <= 0 or Mmax * 4 + 4096 > int(_JOINT_ENTROPY_SH_LIMIT):
+        return None
+    try:
+        if _MARGINAL_MI_ENTROPIES_KERNEL is None:
+            _MARGINAL_MI_ENTROPIES_KERNEL = cp.RawKernel(_MARGINAL_MI_ENTROPIES_SRC, "marginal_mi_entropies")
+        n = int(dx.size)
+        out = cp.zeros(6, dtype=cp.float64)
+        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)),
+                                      np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        hk = cp.asnumpy(out)
+        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))),
+                (float(hk[4]), int(round(hk[5]))))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # FUSED final CMI/MI assembly (launch-reduction, 2026-06-26). batched_cmi_gpu assembled the per-column result
 # with a cupy chain over (K,) arrays: cmi = h_xz + h_yz - h_z - h_xyz; bias = (k_xyz + k_z - k_xz - k_yz)/2n;
 # max(cmi - bias, 0) -- ~7 launches. Both the conditional and marginal forms reduce to

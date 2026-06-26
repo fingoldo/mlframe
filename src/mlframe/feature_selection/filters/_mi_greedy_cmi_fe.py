@@ -713,9 +713,16 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     Kx = (int(dx.max()) + 1) if dx.size else 1
     ky = _cached_card(y, dy)               # y is a fit-constant -> its cardinality is cached
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
-        h_x, k_x = _entc([dx], [Kx])
-        h_y, k_y = _entc([dy], [ky])
-        h_xy, k_xy = _entc([dx, dy], [Kx, ky])
+        # H(x), H(y), H(x,y) in ONE launch when the (x,y) joint fits shared (always tiny). All three from this
+        # kernel -> self-consistent (the safe fusion pattern); bit-identical, falls back to the per-joint path.
+        from ._fe_batched_mi import marginal_mi_entropies_gpu
+        _three = marginal_mi_entropies_gpu(dx, dy, Kx, ky, inv_n)
+        if _three is not None:
+            (h_x, k_x), (h_y, k_y), (h_xy, k_xy) = _three
+        else:
+            h_x, k_x = _entc([dx], [Kx])
+            h_y, k_y = _entc([dy], [ky])
+            h_xy, k_xy = _entc([dx, dy], [Kx, ky])
         mi = max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
         return (mi, None) if return_cards else mi
     dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
