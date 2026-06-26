@@ -49,6 +49,16 @@ from ._pairs_emit import _emit_pair_features
 
 logger = logging.getLogger(__name__)
 
+# DEGENERATE-PAIR |corr| threshold (2026-06-27). A prospective pair is DEGENERATE when its winning
+# composite is numerically ~= a SINGLE one of its own (warped) operands -- the other operand's transform
+# collapsed to ~constant so the binary op is just a re-wrap of one source and adds NO genuine joint
+# information (e.g. ``mul(prewarp(b),prewarp(a__L2))`` where ``prewarp(b)`` is ~constant -> the column is
+# essentially ``prewarp(a__L2)`` ~= a**2). Such a pair keeps |corr|~=1.0 with that one operand, clears the
+# joint-prevalence gate, and DISPLACES the clean single-source univariate basis (a__L2). A GENUINE 2-var
+# pair (a/b, a*b) has |corr| well below this with EITHER single operand, so the bar leaves it untouched.
+# 0.999 is intentionally near-1.0: it fires only on a true single-operand re-wrap, never on a real pair.
+_DEGENERATE_PAIR_SINGLE_OPERAND_CORR: float = 0.999
+
 
 def _score_one_pair(
     *,
@@ -994,6 +1004,42 @@ def _score_one_pair(
                         f"a near-noise operand (binned-MI inflated by an extreme transform) -- rejecting "
                         f"so it cannot displace the clean operand."
                     )
+
+            # DEGENERATE-PAIR (single-operand re-wrap) VETO (2026-06-27). The noise-wrap veto above catches a
+            # composite whose |corr| with the TARGET collapsed; this catches the dual failure where the
+            # composite numerically EQUALS a single one of its own (warped) operands -- the other operand's
+            # transform collapsed to ~constant so the binary op carries no genuine joint information. Such a
+            # "pair" keeps |corr|~=1.0 with that one operand and full target tracking, so the noise-wrap veto
+            # never fires, yet it DISPLACES the clean single-source univariate basis (``a__L2``) it re-wraps
+            # (``mul(prewarp(b),prewarp(a__L2))`` ~= ``prewarp(a__L2)`` ~= a**2). Compare the winning column
+            # to EACH operand's chosen-unary continuous values: if it is ~= ONE operand (|corr| >= 0.999) the
+            # pair adds nothing a single warped operand does not -- veto so the clean single-source form wins.
+            # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
+            if (
+                (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept)
+                and _win_vals is not None
+            ):
+                _tp2 = best_config[0]
+                _max_single_op_corr = 0.0
+                for _side in (0, 1):
+                    _opk = _tp2[_side] if isinstance(_tp2, (tuple, list)) and len(_tp2) > _side else None
+                    if _opk is not None and _opk in vars_transformations:
+                        _ov = transformed_vars[:, vars_transformations[_opk]]
+                        _r = np.corrcoef(
+                            np.nan_to_num(np.asarray(_win_vals, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0),
+                            np.nan_to_num(np.asarray(_ov, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0),
+                        )[0, 1]
+                        if np.isfinite(_r):
+                            _max_single_op_corr = max(_max_single_op_corr, abs(float(_r)))
+                if _max_single_op_corr >= _DEGENERATE_PAIR_SINGLE_OPERAND_CORR:
+                    _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
+                    if verbose:
+                        messages.append(
+                            f"degenerate-pair veto: winning composite is numerically ~= a SINGLE warped "
+                            f"operand (|corr|={_max_single_op_corr:.4f} >= {_DEGENERATE_PAIR_SINGLE_OPERAND_CORR}); "
+                            f"the other operand's transform collapsed to ~constant so the pair adds no genuine "
+                            f"joint information -- rejecting so it cannot displace the clean single-source form."
+                        )
         except Exception:
             # Load-bearing selection logic (the noise-wrap corr-collapse veto): log rather than swallow
             # silently, so a failure that lets a noise-wrapped pair through is visible at debug level.
