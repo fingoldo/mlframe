@@ -111,6 +111,84 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
 """
 _MI_FROM_VALUES_KERNEL = None
 
+# FUSED VALUES->BIN->HIST->MILLER-MADOW-MI (2026-06-26). Same one-block-per-column fused bin+joint-hist as
+# mi_from_values, but emits the Miller-Madow-corrected MARGINAL MI matching _usability_njit_pool's
+# _marginal_mi_njit / _gpu_marginal_mi: mi = H(x)+H(y)-H(x,y) - (kx_occ + k_y - kxy - 1)/(2n), clamped >=0.
+# h_y / k_y are the shared (fit-constant) target entropy + class count, passed in (computed once). This is the
+# sync-free, batched, MM-correct kernel the resident pair-combo MI table needs (replaces the per-row
+# cp.bincount + .max() sync loop in _gpu_marginal_mi). Selection-equivalent to the njit table (plug-in
+# entropies in fp64; reduction-order ~1e-15).
+_MI_MM_FROM_VALUES_SRC = r"""
+extern "C" __global__
+void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ edges,
+                       const long long* __restrict__ y, const long long n, const int K, const int nbins,
+                       const int Ky, const double inv_n, const double h_y, const int k_y,
+                       double* __restrict__ mi_out) {
+    extern __shared__ int sh[];          // (nbins*Ky) joint histogram for this column
+    int c = blockIdx.x;
+    if (c >= K) return;
+    int ne = nbins - 1, M = nbins * Ky;
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        double v = X[i * (long long)K + c];
+        int lo = 0, hi = ne;                          // upper_bound == cp.searchsorted side='right'
+        while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
+        atomicAdd(&sh[lo * Ky + y[i]], 1);
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double hx = 0.0, hxy = 0.0;
+        int kx_occ = 0, kxy = 0;
+        for (int xx = 0; xx < nbins; ++xx) {
+            long long rx = 0;
+            for (int yy = 0; yy < Ky; ++yy) { int nxy = sh[xx * Ky + yy]; rx += nxy; if (nxy > 0) kxy++; }
+            if (rx == 0) continue;
+            kx_occ++;
+            double px = (double)rx * inv_n; hx -= px * log(px);
+            for (int yy = 0; yy < Ky; ++yy) { int nxy = sh[xx * Ky + yy]; if (nxy > 0) { double pxy = (double)nxy * inv_n; hxy -= pxy * log(pxy); } }
+        }
+        double mi = hx + h_y - hxy - ((double)(kx_occ + k_y - kxy - 1)) * 0.5 * inv_n;
+        mi_out[c] = mi > 0.0 ? mi : 0.0;
+    }
+}
+"""
+_MI_MM_FROM_VALUES_KERNEL = None
+
+
+def _get_mi_mm_from_values_kernel():
+    global _MI_MM_FROM_VALUES_KERNEL
+    if _MI_MM_FROM_VALUES_KERNEL is None:
+        import cupy as cp
+        _MI_MM_FROM_VALUES_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_SRC, "mi_mm_from_values")
+    return _MI_MM_FROM_VALUES_KERNEL
+
+
+def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y, k_y):
+    """Miller-Madow MARGINAL MI(col_k; y) for an (n,K) float matrix binned by per-column ``interior_edges``
+    ((nbins-1, K) cupy), in ONE fused RawKernel (bin + joint hist + MM-MI). ``ky`` is the y-cardinality
+    (histogram width; y codes in [0, ky)); ``h_y`` / ``k_y`` are the shared target plug-in entropy +
+    OCCUPIED class count used in the bias. Returns a host (K,) float64 array (clamped >=0), matching
+    _gpu_marginal_mi / _marginal_mi_njit. Returns None if the (nbins*ky) shared tile won't fit."""
+    import cupy as cp
+
+    Xd = x_vals.astype(cp.float64, copy=False)
+    if Xd.ndim == 1:
+        Xd = Xd[:, None]
+    n, K = int(Xd.shape[0]), int(Xd.shape[1])
+    Ky = int(ky)
+    if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
+        return None
+    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))
+    yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
+    mi_out = cp.empty(K, dtype=cp.float64)
+    _get_mi_mm_from_values_kernel()((K,), (256,),
+        (cp.ascontiguousarray(Xd), E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
+         np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), mi_out),
+        shared_mem=int(nbins) * Ky * 4)
+    return cp.asnumpy(mi_out)
+
 
 def _get_mi_from_values_kernel():
     global _MI_FROM_VALUES_KERNEL

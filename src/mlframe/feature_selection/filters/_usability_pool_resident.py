@@ -129,44 +129,41 @@ def score_pair_combos_table_resident(
         qs = np.linspace(0.0, 1.0, int(nbins) + 1)
         d_qs = cp.asarray(qs, dtype=cp.float64)
         d_y = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
+        ky_w = int(d_y.max()) + 1 if n else 1   # y-cardinality (histogram width) for the fused MM kernel
+        # SYNC-FREE fused bin+hist+MM-MI (2026-06-26): the resident table's per-flush scoring used
+        # _gpu_quantile_bin_codes + _gpu_marginal_mi, whose per-ROW cp.bincount + .max() device->host sync
+        # (~one per combo column) made the whole resident table a 0.5x LOSS on a 6-SM card. The fused
+        # radix-edges + mi_mm_from_values kernels score the whole flush chunk in ONE launch each (no per-row
+        # sync), MM-correct and partition-identical to _gpu_marginal_mi (maxdiff ~1e-15, rank identical).
+        from ._fe_batched_mi import binned_mm_mi_from_values_gpu
+        from ._gpu_resident_select import _radix_select_interior_edges
 
         ua_codes_l = [int(c) for c in ua_codes]
         ub_codes_l = [int(c) for c in ub_codes]
         bn_codes_l = [int(c) for c in bn_codes]
         ua_idx, ub_idx, bn_idx = _build_combo_index_arrays(nu, nb)
+        from ._gpu_resident_fe import _get_fused_gen_kernel
 
+        # FULLY-FUSED MATRIX-NATIVE (2026-06-26): generate AND score every combo on the device with NO
+        # per-combo work. Per pair the nu distinct unaries of each operand are applied ONCE into a (nu, n)
+        # column-major stack; then for each VRAM-bounded combo chunk ONE fused_gen launch builds the (n, kk)
+        # candidate block (binary(unary_a, unary_b) by op-code, NaN/inf scrubbed) and ONE radix-edges +
+        # mi_mm_from_values pair scores its MM-MI. So the per-pair cost is ~(nu unary applies + n_chunks*(gen
+        # + edges + MI)) launches, NOT the nc per-combo elementwise + per-row-sync of the old path. MM-MI is
+        # partition-identical to the njit table (~1e-15). Combo enumeration order (ua_idx/ub_idx/bn_idx) is the
+        # SAME for ub/x2 -> the flat output index maps 1:1 to the caller's for ua: for ub: for bn loop.
         out = np.empty(npairs * nc, dtype=np.float64)
-
-        # VRAM-BOUNDED CHUNKED STACK. The full (npairs*nc, n) float64 stack overflows a small card (e.g. on a
-        # 4GB GTX 1050 Ti, npairs=8 x nc=1734 x n=50k = 5.5GB > free VRAM). So we accumulate combo columns
-        # into a chunk buffer sized to a fraction of FREE device memory and flush (bin + MI) when full -- the
-        # operand H2D and per-pair unary transforms are still done ONCE per pair (the launch-amortisation win
-        # over the per-pair twin), but the scoring runs over LARGE batched chunks instead of one giant matrix.
-        # We compute a max number of combo-ROWS per flush; each row needs n*8 (column) + working binning
-        # buffers (~3x), so budget ~25% of free VRAM / (n*8) rows, clamped to [1, npairs*nc].
+        ua_idx_d = cp.asarray(np.asarray(ua_idx, dtype=np.int32))
+        ub_idx_d = cp.asarray(np.asarray(ub_idx, dtype=np.int32))
+        bop_d = cp.asarray(np.asarray([bn_codes_l[int(bn_idx[j])] for j in range(nc)], dtype=np.int32))
+        fused_gen = _get_fused_gen_kernel()
         try:
             free_b = int(cp.cuda.runtime.memGetInfo()[0])
         except Exception:
             free_b = 512 * 1024 * 1024
-        bytes_per_row = max(1, n * 8)
-        chunk_rows = int(max(1, min(npairs * nc, (free_b // 4) // (bytes_per_row * 3))))
-
-        buf = cp.empty((chunk_rows, n), dtype=cp.float64)
-        buf_idx = np.empty(chunk_rows, dtype=np.int64)  # global flat output index for each buffered row
-        fill = 0
-
-        def _flush(fill_n):
-            if fill_n == 0:
-                return
-            Vc = buf[:fill_n]
-            mean = Vc.mean(axis=1)
-            var = (Vc * Vc).mean(axis=1) - mean * mean
-            live = var > 1e-18
-            codes, kx = _gpu_quantile_bin_codes(Vc, d_qs)
-            mi = _gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n)
-            mi = cp.where(live, mi, cp.float64(-1.0))
-            mi_h = cp.asnumpy(mi)
-            out[buf_idx[:fill_n]] = mi_h
+        # cand block (n, kk) f64 + radix/MI working (~3x): combo_chunk = ~25% free VRAM / (n*8*3), clamped.
+        combo_chunk = int(max(1, min(nc, (free_b // 4) // (max(1, n * 8) * 3))))
+        threads = 256
 
         for p in range(npairs):
             x1, x2 = operands[p]
@@ -174,21 +171,34 @@ def score_pair_combos_table_resident(
             d_x2 = cp.asarray(np.ascontiguousarray(x2, dtype=np.float64))
             xmin_a = float(cp.asnumpy(cp.nanmin(d_x1))) if n else 0.0
             xmin_b = float(cp.asnumpy(cp.nanmin(d_x2))) if n else 0.0
-            # distinct unary transforms of each operand, computed ONCE (reused across combos).
-            ua_cache = {c: _gpu_apply_unary(d_x1, c, xmin_a) for c in set(ua_codes_l)}
-            ub_cache = {c: _gpu_apply_unary(d_x2, c, xmin_b) for c in set(ub_codes_l)}
+            # (nu, n) column-major stacks: each operand's nu unaries applied ONCE (reused across all combos).
+            ua_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x1, ua_codes_l[ia], xmin_a) for ia in range(nu)]))
+            ub_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x2, ub_codes_l[ib], xmin_b) for ib in range(nu)]))
             base = p * nc
-            for j in range(nc):
-                a = ua_cache[ua_codes_l[ua_idx[j]]]
-                b = ub_cache[ub_codes_l[ub_idx[j]]]
-                buf[fill] = _gpu_apply_binary(a, b, bn_codes_l[bn_idx[j]])
-                buf_idx[fill] = base + j
-                fill += 1
-                if fill == chunk_rows:
-                    _flush(fill)
-                    fill = 0
-            del d_x1, d_x2, ua_cache, ub_cache
-        _flush(fill)
+            for c0 in range(0, nc, combo_chunk):
+                c1 = min(c0 + combo_chunk, nc)
+                kk = c1 - c0
+                cand = cp.empty((n, kk), dtype=cp.float64)          # (n, kk) row-major
+                total = n * kk
+                fused_gen(((total + threads - 1) // threads,), (threads,),
+                          (ua_stack, ub_stack, ua_idx_d[c0:c1], ub_idx_d[c0:c1], bop_d[c0:c1],
+                           np.int64(n), np.int32(kk), cand))
+                mean = cand.mean(axis=0)
+                var = (cand * cand).mean(axis=0) - mean * mean
+                live = cp.asnumpy(var > 1e-18)
+                mi_h = None
+                try:
+                    interior = _radix_select_interior_edges(cand, int(nbins))
+                    if interior is not None:
+                        mi_h = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y)
+                except Exception:
+                    mi_h = None
+                if mi_h is None:                                    # per-row sync fallback (bit-faithful)
+                    codes, kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(cand.T), d_qs)
+                    mi_h = cp.asnumpy(_gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n))
+                out[base + c0:base + c1] = np.where(live, mi_h, -1.0)
+                del cand
+            del d_x1, d_x2, ua_stack, ub_stack
         return out.reshape(npairs, nc)
     except Exception as _exc:  # noqa: BLE001
         logger.debug("score_pair_combos_table_resident: GPU path failed (%s); host fallback", _exc)
