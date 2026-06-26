@@ -318,6 +318,15 @@ def cheap_row_argmax_scan(
     # permutation. ``hits`` is re-sorted by margin below, so per-hit output order is
     # unaffected -- only WHICH triples survive the budget is made deterministic.
     # (``cols`` was already name-sorted above; no re-sort needed here.)
+    # bench-attempt-rejected (2026-06-26): batching the per-triple operand floor + argmax-feat MI into ONE
+    # _mi_classif_batch call each (to collapse the resident radix-edge + plug-in launches across the gate
+    # sweep) is NOT selection-safe. best_existing_op_mi routes per triple via rescand_use_resident (KTC: resident
+    # percentile-EDGE binning when the cache says so), but a batched _mi_classif_batch routes on STRICT only, so
+    # under use_gpu-without-STRICT the batch silently switched the gate's binning estimator (edge -> CPU rank),
+    # shifting the selected set AND exposing KTC-state test-order dependence (reg_mixed passed alone, failed in
+    # the suite). Relaxing the GPU==CPU guard to selection-equivalent did not absorb it (the shift exceeded a
+    # razor tolerance). Keep the per-triple call -- the gate's launch count is irreducible without a
+    # routing-consistent resident batch (a deeper change than the launch grind warrants).
     for tri in combinations(cols, 3):
         if budget <= 0:
             break
