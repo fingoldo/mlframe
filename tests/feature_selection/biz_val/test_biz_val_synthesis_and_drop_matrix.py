@@ -68,6 +68,10 @@ _RAW_ONLY = dict(
     fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
     fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
     fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
+    # The MASTER hybrid-orth switch: the univariate orthogonal-poly basis (e.g. x0__He2) is produced via this,
+    # NOT via fe_univariate_basis_enable / fe_hybrid_orth_pair_enable (a separate family), so a univariate He2
+    # leaks into "raw-only" and collapses the FE-vs-raw delta unless the master is off here too.
+    fe_hybrid_orth_enable=False,
     fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
     fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
     cluster_aggregate_enable=False, dcd_enable=False,
