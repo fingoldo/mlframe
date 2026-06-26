@@ -243,35 +243,62 @@ class TestPolarsPandasParity:
         except TypeError as e:
             pytest.xfail(f"{spec.name}: rejects polars input ({type(e).__name__}) -- "
                          "no polars support declared")
-        except AttributeError as e:
-            # HybridSelector fit on a polars frame crashes inside the LGBM member
-            # with "property 'feature_names_in_' of 'LGBMClassifier' has no setter"
-            # (the LightGBM 4.x + sklearn feature_names_in_ write-path defect). The
-            # CORRECT behaviour is a successful fit with names captured; until the
-            # member's polars handling is fixed this is a visible prod-bug xfail.
-            pytest.xfail(f"PROD BUG: {spec.name} fit on polars crashes the inner LGBM "
-                         f"feature_names_in_ setter ({str(e)[:70]})")
+        # A polars fit must capture the frame's REAL column names (from its schema), never synthesize ``f_{i}`` placeholders; the selected NAMES
+        # must therefore match the pandas fit, not just the selected positions.
+        assert list(pl_sel.feature_names_in_) == list(_BINARY_X.columns), (
+            f"{spec.name}: polars fit recorded {list(pl_sel.feature_names_in_)[:5]} instead of the real column names "
+            f"{list(_BINARY_X.columns)[:5]} (placeholder-name capture bug)")
         pd_names, pl_names = set(selected_names(pd_sel)), set(selected_names(pl_sel))
         # Tolerate a symmetric difference of <=1 raw column: a single boundary
         # column can flip on the polars Arrow-bridge dtype roundtrip even for a
         # "deterministic" selector, which is a parity artefact not a regression.
         sym = pd_names.symmetric_difference(pl_names)
-        if len(sym) > 1:
-            # Distinguish a genuine SELECTION divergence from a NAME-CAPTURE bug:
-            # if the selected column POSITIONS match (same support indices) but the
-            # names disagree, the selector fitted polars but synthesized placeholder
-            # feature_names_in_ (e.g. GroupAware(RFECV) records "f_0" not "f0") --
-            # a real prod bug in polars column-name capture, written to the correct
-            # behaviour (names MUST match) and surfaced as a visible xfail.
-            pd_idx = np.flatnonzero(selected_mask(pd_sel)).tolist()
-            pl_idx = np.flatnonzero(selected_mask(pl_sel)).tolist()
-            if pd_idx == pl_idx:
-                pytest.xfail(f"PROD BUG: {spec.name} selects identical positions on polars "
-                             f"({pd_idx}) but records placeholder feature_names_in_ "
-                             f"(pandas names {sorted(pd_names)} vs polars {sorted(pl_names)})")
         assert len(sym) <= 1, (
             f"{spec.name}: polars selection differs from pandas by {sorted(sym)} "
             f"(pandas={sorted(pd_names)}, polars={sorted(pl_names)})")
+
+
+# ===========================================================================
+# Regression sensors: polars fit must not crash / must capture real names
+# ===========================================================================
+
+
+@pytest.mark.slow
+def test_hybrid_selector_fits_polars_and_captures_real_names():
+    """Regression: HybridSelector.fit on a polars frame must succeed (the pandas-only glue previously crashed at
+    ``X.columns.has_duplicates`` -- polars ``.columns`` is a list) and capture the frame's REAL column names, with the
+    selected raw set matching the pandas fit."""
+    pl = pytest.importorskip("polars")
+    from mlframe.feature_selection.hybrid_selector import HybridSelector
+    pd_sel = _fit(HybridSelector(use_fe=False, use_tree_member=False, random_state=0), _BINARY_X.copy(), _BINARY_Y)
+    pl_sel = _fit(HybridSelector(use_fe=False, use_tree_member=False, random_state=0), pl.from_pandas(_BINARY_X), _BINARY_Y)
+    assert list(pl_sel.feature_names_in_) == list(_BINARY_X.columns)
+    assert set(_raw_selected(pl_sel)) == set(_raw_selected(pd_sel))
+    # transform on a polars frame replays + slices without crashing
+    out = pl_sel.transform(pl.from_pandas(_BINARY_X))
+    assert out.shape[0] == len(_BINARY_X)
+
+
+@pytest.mark.slow
+def test_group_aware_rfecv_polars_records_real_names_not_placeholders():
+    """Regression: GroupAware(RFECV).fit on a polars frame must record the REAL column names in feature_names_in_,
+    not synthesized ``f_{i}`` placeholders (the bare-ndarray branch), so its selected NAMES match the pandas fit."""
+    pl = pytest.importorskip("polars")
+    from sklearn.linear_model import LogisticRegression
+    from mlframe.feature_selection import registry
+
+    def _mk():
+        return registry.get("RFECV").instantiate(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+            n_features_selection_rule="argmax",
+        )
+
+    pd_sel = _fit(_mk(), _BINARY_X.copy(), _BINARY_Y)
+    pl_sel = _fit(_mk(), pl.from_pandas(_BINARY_X), _BINARY_Y)
+    assert list(pl_sel.feature_names_in_) == list(_BINARY_X.columns)
+    assert not any(str(n).startswith("f_") for n in pl_sel.feature_names_in_)
+    assert set(selected_names(pl_sel)) == set(selected_names(pd_sel))
 
 
 # ===========================================================================

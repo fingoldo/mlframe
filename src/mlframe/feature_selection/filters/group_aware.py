@@ -306,6 +306,16 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
         # are row-aligned, so they pass straight through to the inner selector
         # whether it fits on the medoid subset or the full X (same rows).
+        # A polars frame carries its REAL column names in ``X.columns`` (a list); bridge it to a pandas frame preserving those names so the medoid /
+        # corr pass (positional ``.iloc``) runs unchanged AND ``feature_names_in_`` records the true names -- not the ``f_{i}`` placeholders the
+        # bare-ndarray branch below synthesizes. Without this a polars fit silently divergeed its selected NAMES from the pandas fit (same positions,
+        # wrong names).
+        try:
+            import polars as pl
+            if isinstance(X, pl.DataFrame):
+                X = pd.DataFrame(X.to_numpy(), columns=list(X.columns))
+        except ImportError:
+            pass
         is_df = isinstance(X, pd.DataFrame)
         # GroupAwareMRMR itself tolerates duplicate column names (FE-expansion lag/one-hot collisions -- positional ``.iloc`` throughout the corr / medoid pass), so it does NOT blanket-reject. But when the inner selector itself rejects duplicate names (RFECV's _fit_init guard), the wrapper must surface that rejection at its OWN fit entry: the inner only sees the cluster-MEDOID subset (deduped), so without this propagation a duplicate-named X would silently slip past the inner's guard. Mirrors the inner contract for the wrapped-RFECV path while leaving the graceful MRMR-inner path untouched.
         if is_df and X.columns.has_duplicates and getattr(self.estimator, "rejects_duplicate_feature_names", False):

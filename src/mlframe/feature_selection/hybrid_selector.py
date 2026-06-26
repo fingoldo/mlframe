@@ -30,6 +30,22 @@ import pandas as pd
 from mlframe.utils.misc import rng_hygienic_fit
 
 
+def _as_pandas_view(X):
+    """Bridge a polars frame to an Arrow-backed pandas VIEW (zero-copy for numeric/bool/string columns) so HybridSelector's pandas-only glue
+    (corr_clusters on ``X.values``, ``X.iloc`` / ``X[col]`` member feeds, ``pd.concat`` augment) operates on a real pandas frame. The internal
+    members (LightGBM FI, ShapProxiedFS, BorutaShap) want pandas / ndarray anyway and would each convert independently; bridging once at the fit
+    boundary captures the real column names from the polars schema and is NOT a full materialisation (numeric columns stay zero-copy Arrow views).
+    Non-polars inputs pass through untouched."""
+    try:
+        import polars as pl
+    except ImportError:
+        return X
+    if not isinstance(X, pl.DataFrame):
+        return X
+    from mlframe.training.utils import get_pandas_view_of_polars_df
+    return get_pandas_view_of_polars_df(X)
+
+
 # Tree-member feature-engineering operators applied per co-occurrence pair (a, b). "mul" is the product; the rich
 # operators (absdiff/signed/ratio) recover NON-product interaction signal a bilinear term cannot linearize (measured:
 # |a-b| logit 0.49->0.88; sign(a)|b| 0.79->0.88; products+rich on madelon +0.020 3-seed, variance halved). All are
@@ -484,6 +500,13 @@ class HybridSelector:
     # ------------------------------------------------------------------ fit / transform
     @rng_hygienic_fit
     def fit(self, X, y):
+        # Polars frames carry their column names in a plain ``list`` (no ``.has_duplicates`` / ``.iloc`` / ``.values``), so the pandas-only glue below
+        # would crash at the first ``X.columns.has_duplicates``. Bridge to an Arrow-backed pandas VIEW once at the boundary (zero-copy for numeric cols),
+        # which captures the REAL polars column names. The defensive LGBM ``feature_names_in_`` setter shim guards the inner LightGBM fits against the
+        # LightGBM 4.x + sklearn read-only-property write-path defect when a non-pandas input slips through to a member.
+        from mlframe.training._model_factories import _patch_lgb_feature_names_in_setter
+        _patch_lgb_feature_names_in_setter()
+        X = _as_pandas_view(X)
         # Duplicate column names make ``X[label]`` return a DataFrame (not a Series) and crash the member selectors (MRMR / LightGBM FI / cluster expand) that assume unique names. Surface a clear error at fit entry.
         if hasattr(X, "columns") and X.columns.has_duplicates:
             dup_names = X.columns[X.columns.duplicated()].unique().tolist()
@@ -721,6 +744,7 @@ class HybridSelector:
 
     def transform(self, X):
         # replay FE so engineered selections (eng_N) are available, then slice to the selected set
+        X = _as_pandas_view(X)
         X_aug = self._augment(X)
         keep = [c for c in self.raw_selected_ if c in X_aug.columns]
         return X_aug[keep] if keep else X_aug.iloc[:, :1]
