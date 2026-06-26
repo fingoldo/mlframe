@@ -730,6 +730,16 @@ def cmi_joint_entropies_gpu(dx, dy, dz, Kx, ky, kz, inv_n):
         return None
 
 
+# bench-attempt-rejected (2026-06-26): a two-block fused (x,z)+(x,y,z) kernel for the FIXED-yz greedy CMI path
+# (cmi_from_binned_fixed_yz_cupy, where H(z)/H(y,z) are precomputed so only xz/xyz remain) was BIT-IDENTICAL
+# to the two separate joint_entropy_gpu calls on random codes (10/10 A/B) yet FLIPPED the full-MRMR selection
+# on test_gpu_cpu_mi_selection_equivalence[reg_two_pairs] and [adv_wide_p60] -- a real divergence the random
+# A/B did not surface (interaction with the precomputed-yz terms at a card combo). The four-block conditional
+# fusion (cmi_joint_entropies_gpu) is SAFE there (all four joints come from the one kernel -> self-consistent;
+# full suite green); the fixed-yz two-block split mixing fused xz/xyz with precomputed h_z/h_yz is not. Kept
+# the fixed-yz path on the two per-joint joint_entropy_gpu launches.
+
+
 # FUSED final CMI/MI assembly (launch-reduction, 2026-06-26). batched_cmi_gpu assembled the per-column result
 # with a cupy chain over (K,) arrays: cmi = h_xz + h_yz - h_z - h_xyz; bias = (k_xyz + k_z - k_xz - k_yz)/2n;
 # max(cmi - bias, 0) -- ~7 launches. Both the conditional and marginal forms reduce to
