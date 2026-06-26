@@ -246,6 +246,10 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "_partial_fit_y_buffer_": None,
     "_partial_fit_n_seen_": 0,
     "_partial_fit_n_since_refit_": 0,
+    # Per-batch row counts backing the decay-weight schedule. Sibling buffers above are in the roster but
+    # this one was omitted, so a pickled-then-resumed partial_fit instance fell back to a single fictional
+    # batch (getattr default) -- collapsing multi-batch history and zeroing recency decay. Empty = no history.
+    "_partial_fit_batch_sizes_": [],
     # FE provenance tracking.
     # Legacy pickles default to ``None`` and the empty predictor log;
     # the next fit() repopulates from the live greedy run.
