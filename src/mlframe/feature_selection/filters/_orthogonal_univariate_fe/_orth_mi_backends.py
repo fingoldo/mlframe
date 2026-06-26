@@ -114,12 +114,13 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
             X_dense = np.ascontiguousarray(X[:, dense_cols])
         try:
             if _orth_mi_gpu_enabled():
-                import cupy as cp
-
-                from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
-                _Xg = cp.asarray(X_dense, dtype=cp.float64)
-                _yg = cp.asarray(y_i64, dtype=cp.int64)
-                mis[dense_cols] = _plugin_mi_classif_batch_cuda_resident(_Xg, _yg, nbins)
+                # Full-residency GPU path -> the FE batcher: VRAM-budget column-chunked, CP-SAT-packed across
+                # heterogeneous GPUs (multi_gpu_fe_batch_mi collapses to one device on a 1-GPU host). Same
+                # resident edge-binned plug-in MI as the prior direct _plugin_mi_classif_batch_cuda_resident
+                # call, so selection is unchanged vs the pre-batcher STRICT path; it only adds VRAM-chunking
+                # + multi-GPU. The CPU default branch below stays RANK binning (see the docstring).
+                from .._fe_gpu_batch import multi_gpu_fe_batch_mi
+                mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins)
             else:
                 mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
                 mis[dense_cols] = mis_dense
