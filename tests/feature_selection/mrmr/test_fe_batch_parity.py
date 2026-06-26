@@ -49,6 +49,21 @@ def test_cpu_batcher_matches_primitive_and_is_chunk_invariant(fixture):
     assert np.allclose(whole, chunked, atol=1e-12, rtol=0), "column chunking must not change MI"
 
 
+def test_collector_matches_per_family_separate():
+    """The cross-family collector scores concatenated family matrices in ONE batch; per-column MI is
+    independent, so each family's slice must be bit-identical to scoring that family alone."""
+    from mlframe.feature_selection.filters._fe_gpu_batch import collect_and_score
+    X, y, nb = _continuous(n=4000, k=40)
+    fams = [X[:, 0:10], X[:, 10:25], X[:, 25:40]]   # 3 "families"
+    collected = collect_and_score(fams, y, nb)
+    for fm, mi_c in zip(fams, collected):
+        mi_sep = fe_batch_mi(np.ascontiguousarray(fm), y, nb, backend="cpu")
+        assert np.array_equal(mi_sep, mi_c), "collector slice must equal the per-family separate score"
+    # None / empty families map to empty results, others unaffected
+    out = collect_and_score([fams[0], None, fams[1]], y, nb)
+    assert out[1].size == 0 and out[0].size == 10 and out[2].size == 15
+
+
 def test_dispatcher_force_env(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_VRAM_BACKEND", "cpu")
     assert choose_fe_batch_backend(10_000, 100) == "cpu"

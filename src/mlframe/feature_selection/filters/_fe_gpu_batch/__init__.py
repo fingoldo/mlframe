@@ -8,6 +8,7 @@ device profiling (``_devices``) + CP-SAT VRAM packing (``_packer``) on top of th
 """
 from __future__ import annotations
 
+from ._collector import collect_and_score
 from ._executor import gpu_fe_batch_mi, multi_gpu_fe_batch_mi
 
-__all__ = ["gpu_fe_batch_mi", "multi_gpu_fe_batch_mi"]
+__all__ = ["gpu_fe_batch_mi", "multi_gpu_fe_batch_mi", "collect_and_score"]
