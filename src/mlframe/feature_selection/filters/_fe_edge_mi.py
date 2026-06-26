@@ -38,15 +38,27 @@ def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
     test_fe_edge_mi_parity 'tied' case). Returns ``n_bins`` (the fixed bin count)."""
     n = val.shape[0]
     nq = n_bins + 1
-    srt = np.sort(val)
-    # FULL n_bins+1 quantile points; interior = edges[1:nq-1] (n_bins-1 of them), NOT deduped.
-    edges = np.empty(nq, dtype=np.float64)
+    # Edges need only the order statistics at the lerp anchors (lo, lo+1) of each of the nq quantile
+    # points -- ~2*nq positions, not the whole sorted array. np.partition places EXACTLY those positions
+    # at their sorted values in O(n) (introselect) vs the O(n log n) full sort; part[lo]/part[hi] are then
+    # the identical order statistics np.sort would give, so the edges (and MI) are BIT-IDENTICAL.
+    los = np.empty(nq, dtype=np.int64)
+    fracs = np.empty(nq, dtype=np.float64)
+    kths = np.empty(2 * nq, dtype=np.int64)
+    m = 0
     for k in range(nq):
         pos = (k / (nq - 1)) * (n - 1)  # quantile fraction k/n_bins -> virtual index q*(n-1)
         lo = int(np.floor(pos))
         hi = lo + 1 if lo < n - 1 else lo
-        frac = pos - lo
-        edges[k] = srt[lo] + (srt[hi] - srt[lo]) * frac
+        los[k] = lo
+        fracs[k] = pos - lo
+        kths[m] = lo; kths[m + 1] = hi; m += 2
+    part = np.partition(val, kths[:m])
+    edges = np.empty(nq, dtype=np.float64)
+    for k in range(nq):
+        lo = los[k]
+        hi = lo + 1 if lo < n - 1 else lo
+        edges[k] = part[lo] + (part[hi] - part[lo]) * fracs[k]
     ni = n_bins - 1  # interior edges live at edges[1 .. n_bins-1]; searchsorted-right via bisect
     if ni <= 0:
         for i in range(n):
