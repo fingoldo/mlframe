@@ -49,7 +49,7 @@ from .evaluation import (
 )
 from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
-from .permutation import mi_direct, _perm_pvalue
+from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
 
@@ -665,11 +665,13 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     extra_x_shuffling=extra_x_shuffling,
                     base_seed=np.uint64(_fleuret_base_seed),
                 )
-                # Match the parallel Fleuret path (get_fleuret_criteria_confidence_parallel -> fleuret._perm_pvalue):
-                # use the add-one (Monte-Carlo) p-value estimator, not the raw nfailed/nchecked. The raw form reports
-                # confidence exactly 1.0 on a clean null (nfailed=0), which the parallel path never does, so serial
-                # (n_workers<=1) and parallel runs diverged in the confidence that feeds the ranking.
-                confidence = 1.0 - _perm_pvalue(nfailed, nchecked, full_budget=full_npermutations)
+                # The SERIAL confirm runs only at the screen's tiny default budget (full_npermutations=3,
+                # below NMAX_NONPARALLEL_ITERS) where the parallel path is never taken -- so there is no serial-vs-
+                # parallel comparison to reconcile here. The add-one estimator's ceiling at budget 3 is 1-1/4=0.75,
+                # which lowers gain*confidence ~25% below min_relevance_gain and STARVES the screen (a prior C4
+                # attempt to add-one this path regressed cluster-aggregate / FE recovery). Keep the raw rate: a clean
+                # null (nfailed=0) correctly yields confidence 1.0 so genuine signals clear the small-budget screen.
+                confidence = 1 - nfailed / nchecked
                 if nfailed >= max_failed:
                     bootstrapped_gain = 0.0
 
