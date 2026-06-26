@@ -21,6 +21,11 @@ from sklearn.base import BaseEstimator, TransformerMixin, clone
 
 logger = logging.getLogger(__name__)
 
+# Stratified bootstrap subsampling fires only when the smallest class's expected count in a plain subsample falls below this floor (i.e. the class is at
+# real risk of being dropped/starved). Above it, an unstratified draw preserves every class with overwhelming probability, so quota-forcing only perturbs
+# the subsample composition without correcting anything.
+_STRATIFY_MIN_EXPECTED_PER_CLASS = 25.0
+
 
 def _support_to_indices(support, n_features: int) -> np.ndarray:
     """Normalise an estimator's ``support_`` to integer column indices.
@@ -73,8 +78,10 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         Preserve the per-class proportions of ``y`` in each bootstrap subsample (class-stratified sampling without replacement). On rare / imbalanced targets an
         unstratified subsample can omit the minority class entirely, giving a single-class fit that the base MI/MRMR selector degenerates on -- its garbage support is then
         silently folded into the inclusion counts. Stratification draws ``round(sample_fraction * n_class)`` rows from each class (floored at 1 per present class) so every
-        class survives every bootstrap. ON by default per the corrective-mechanism convention; falls back to the plain unstratified draw when ``y`` is not class-like (more
-        than ``max(50, n/2)`` distinct values -- i.e. a regression / continuous target where stratification is meaningless). Set ``stratify=False`` for the legacy behaviour.
+        class survives every bootstrap. ON by default per the corrective-mechanism convention, but it ENGAGES only when a class is genuinely at risk -- when the
+        smallest class's expected count in a plain subsample (``sample_fraction * min_class_size``) is below ~25; on a near-balanced target every class survives an
+        unstratified draw anyway, so the plain draw is kept (quota-forcing there is a pure perturbation that needlessly shifts inclusion probabilities). Also falls back
+        to the plain unstratified draw when ``y`` is not class-like (more than ``max(50, n/2)`` distinct values -- a regression / continuous target). Set ``stratify=False`` for the legacy behaviour.
         Rare classes still need adequate n: per the project rule a 1%-prevalence class needs n >~ 5000 for a reliable split even with stratification.
     """
     def __init__(
@@ -148,9 +155,16 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         _y_arr = np.asarray(y.values if hasattr(y, "values") else y)
         _class_groups = None
         if self.stratify and _y_arr.ndim == 1:
-            _uniq = np.unique(_y_arr)
+            _uniq, _counts = np.unique(_y_arr, return_counts=True)
+            # Stratify only when a class is genuinely AT RISK in the plain draw. Forcing per-class quotas on a near-balanced target is a no-op for class
+            # coverage (every class survives an unstratified subsample with overwhelming probability) but still perturbs the subsample composition -- it shifts
+            # the noise-feature inclusion probabilities and can push a borderline false positive over ``support_threshold``. The corrective mechanism should
+            # fire exactly where it corrects something: when the smallest class's EXPECTED count in an unstratified subsample is small enough that a draw could
+            # realistically drop or starve it (``sample_fraction * min_class_size < _STRATIFY_MIN_EXPECTED_PER_CLASS``), per the rare-imbalance regime.
             if _uniq.size <= max(50, n_samples // 2):
-                _class_groups = [np.flatnonzero(_y_arr == c) for c in _uniq]
+                _expected_min_class = float(self.sample_fraction) * int(_counts.min())
+                if _expected_min_class < _STRATIFY_MIN_EXPECTED_PER_CLASS:
+                    _class_groups = [np.flatnonzero(_y_arr == c) for c in _uniq]
 
         def _stratified_indices(local_rng) -> np.ndarray:
             # Draw round(sample_fraction * n_class) rows from each class (>=1 per present class) so no class is dropped; the global floor of 2 total rows still holds.
