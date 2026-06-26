@@ -285,8 +285,16 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
             Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
             if Xd.ndim == 1:
                 Xd = Xd[:, None]
-            yd = cp.asarray(np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel())
-            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins)), dtype=np.float64)
+            _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
+            yd = cp.asarray(_yi)
+            # y is a fit-constant: derive y_min / n_classes on the HOST (cheap O(n) pass) and pass them down so
+            # the resident plug-in skips the per-call GPU cp.min + cp.max + stack reduction (nsys's #1
+            # cuLaunchKernel source on this STRICT MI path, hit by every gate-grid / pairwise / perm-null /
+            # chunked caller). Same data -> identical min/max -> bit-identical bincount layout and MI.
+            _ymin = int(_yi.min()) if _yi.size else 0
+            _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin,
+                                                                     n_classes=_ncls), dtype=np.float64)
     except Exception:
         pass   # any GPU failure -> exact CPU njit below
     if _MI_BACKEND == "numba":

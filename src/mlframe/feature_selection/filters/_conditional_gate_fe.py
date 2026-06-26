@@ -172,7 +172,12 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
         from ._resident_candidate_mi_ktc import rescand_use_resident
         if rescand_use_resident(int(np.asarray(arrs[names[0]]).shape[0]), _k):
             from ._resident_candidate_mi import best_existing_op_mi_resident
-            _r = best_existing_op_mi_resident(arrs, names, yi, nbins)
+            # y is a fit-constant -> host-derive y_min / n_classes once and pass them so the resident plug-in
+            # skips the per-call GPU cp.min + cp.max reduction (same data -> bit-identical bincount layout).
+            _yi = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
+            _ym = int(_yi.min()) if _yi.size else 0
+            _nc = (int(_yi.max()) - _ym + 1) if _yi.size else 1
+            _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc)
             if _r is not None:
                 return _r
     except Exception:
