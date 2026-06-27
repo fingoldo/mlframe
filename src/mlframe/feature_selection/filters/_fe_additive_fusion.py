@@ -124,6 +124,36 @@ def propose_additive_fusions(
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
     from .engineered_recipes import build_unary_binary_recipe
 
+    # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
+    # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the candidate-half values + the target
+    # resident on the device and run the per-candidate binning, relevance MIs, and each fused-pair sum/bin/MI/
+    # OLS-R resident. Selection-equivalent to (NOT byte-identical) this CPU path. Any cupy/device/import error
+    # falls through to the CPU body below, so the default (flag-off) path is byte-identical and a GPU fault never
+    # breaks a fit. This twin is EXPECTED slower on the small-n / sequential-pair-scan HW -- a PASS by the contract.
+    try:
+        from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fusion_resident_flag_on  # type: ignore
+    except Exception:
+        _fusion_resident_flag_on = None  # type: ignore
+    if _fusion_resident_flag_on is not None:
+        try:
+            if _fusion_resident_flag_on():
+                from ._fe_additive_fusion_gpu_resident import propose_additive_fusions_gpu
+                return propose_additive_fusions_gpu(
+                    self,
+                    engineered_recipes=engineered_recipes,
+                    engineered_continuous=engineered_continuous,
+                    newly_engineered_names=newly_engineered_names,
+                    raw_name_set=raw_name_set,
+                    cols=cols,
+                    classes_y=classes_y,
+                    X=X,
+                    nbins=nbins,
+                    seed=seed,
+                    verbose=verbose,
+                )
+        except Exception:
+            pass  # any cupy/device/import error -> fall through to the CPU path (byte-identical default)
+
     if not engineered_recipes or not newly_engineered_names:
         return [], set(), set()
 
