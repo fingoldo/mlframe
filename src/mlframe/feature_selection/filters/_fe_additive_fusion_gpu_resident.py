@@ -15,24 +15,30 @@ per-candidate bulk (n-scaled) H2D/D2H.
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT (one bulk H2D at entry): the (n, H) matrix of all candidate-half
     continuous values + the dense y codes. From it the device computes the (n, H)
-    equi-frequency bin-code matrix (``batched_quantile_bin_gpu``), every half's
-    marginal relevance MI (``batched_cmi_gpu`` over the resident codes), and -- in
-    the disjoint-pair loop -- the fused ``vals_a + vals_b`` sum, its bin codes, its
-    joint MI, and the three OLS multiple-R fits, ALL on resident device arrays.
-  * HOST scalar / bounded D2H (allowed): the relevance-MI vector (H floats, one per
-    half -- a per-FAMILY result, not per-row), the per-half / per-pair bin-code rows
-    pulled back ONCE when a half clears relevance or a pair is admitted (to feed the
-    permutation-null floor + raw-subsumption probes, which are themselves GPU-routed
-    via ``_cmi_gpu_enabled`` and operate on host int code arrays exactly as the CPU
-    pre-pass already builds them), the fused-pair scalar MI / OLS-R compares, and the
-    argmax-free admission gate compares. These mirror the CPU path's OWN host code
-    arrays (the CPU pre-pass builds ``_Xh`` host codes too), so the residency audit
-    sees NO NEW per-candidate bulk D2H beyond what the flag-off path performs.
+    equi-frequency bin-code matrix RESIDENT via the distinct-edge-dedup binner
+    ``_usability_njit_pool._gpu_quantile_bin_codes`` (cp.unique adjacent dedup +
+    searchsorted side='right' -- documented BIT-IDENTICAL to the njit ``_qbin_into`` /
+    host ``_quantile_bin`` per row, and crucially it does NOT interpolate across edges
+    the way ``cp.percentile`` does, so the partition is selection-equivalent), every
+    half's marginal relevance MI (``batched_cmi_gpu`` over the resident codes), and --
+    in the disjoint-pair loop -- the fused ``vals_a + vals_b`` sum, its bin codes (same
+    resident dedup binner), its joint MI, and the three OLS multiple-R fits, ALL on
+    resident device arrays. Binning is fully on the device with NO binning D2H.
+  * HOST scalar / bounded D2H (allowed; NOT binning -- the binning above stays
+    resident): the relevance-MI vector (H floats, a per-FAMILY result), and the
+    PROBE-INPUT code pulls -- each relevant half's resident code row pulled ONCE for
+    the permutation-null floor and, per ADMITTED pair, the fused code row + the
+    required fused-values return array. The floor / ``_cmi_from_binned`` / raw-
+    subsumption probes are CPU-interface helpers (host int codes; themselves GPU-routed
+    internally via ``_cmi_gpu_enabled``), so feeding them needs a host code array -- but
+    that D2H is for the PROBE, not the binning, and is bounded O(H + n_fusions), never
+    per-candidate. ``fused_vals`` is a REQUIRED return (the same single array the CPU
+    path holds). Audited: NO binning D2H; only these bounded probe-input/return pulls.
 
 Selection-equivalence: the proposed ``add(half_a, half_b)`` fusions (names + order
 + subsumed fragments/raws) MATCH the CPU :func:`propose_additive_fusions` -- the
-same equi-frequency partition (``batched_quantile_bin_gpu`` mirrors the host
-``_quantile_bin`` value-edge binning), the same Miller-Madow plug-in MI
+same equi-frequency partition (``_gpu_quantile_bin_codes`` is bit-identical to the
+host ``_quantile_bin`` value-edge binning), the same Miller-Madow plug-in MI
 (``batched_cmi_gpu`` / ``_cmi_from_binned`` per pair), the same relevance floor,
 the same binned-MI / OLS-R separability gates, and the same raw-subsumption probe.
 Only float reduction order differs (~1e-15 for the MI/entropy, the OLS solve), to
@@ -124,6 +130,7 @@ def propose_additive_fusions_gpu(
     from .engineered_recipes import build_unary_binary_recipe
     from ._fe_batched_mi import batched_cmi_gpu
     from ._fe_additive_fusion import _bare_tokens
+    from ._usability_njit_pool import _gpu_quantile_bin_codes
 
     if not engineered_recipes or not newly_engineered_names:
         return [], set(), set()
@@ -174,23 +181,27 @@ def propose_additive_fusions_gpu(
     vals_dev = cp.asarray(vals_host)                                   # (n, H) resident
     y_dev = cp.asarray(y_dense)                                        # (n,) resident
 
-    # Per-half bin codes via the HOST value-edge ``_quantile_bin`` -- the SAME partition the CPU pre-pass
-    # produces (the floor + raw-subsumption probes are partition-sensitive, so byte-equal binning is what keeps
-    # the verdicts SELECTION-EQUIVALENT; the device ``cp.percentile`` interpolation can shift a value across a
-    # bin edge and flip a raw-subsumption verdict). This is O(n*H) host work; the n-scaled NUMERIC work (the
-    # marginal/fused MIs and the OLS multiple-R fits) is what stays resident. Mirrors the CPU pre-pass's _Xh.
-    codes_host = np.empty((n_rows, H), dtype=np.int64)
-    for j in range(H):
-        codes_host[:, j] = _quantile_bin(vals_host[:, j], nbins=int(nbins))
+    # Per-half bin codes ON THE DEVICE via the distinct-edge-dedup resident binner ``_gpu_quantile_bin_codes``
+    # (cp.unique adjacent dedup + searchsorted side='right', the SAME np.quantile linear-interp edges as the host
+    # ``_quantile_bin`` / njit ``_qbin_into`` -- it is documented BIT-IDENTICAL to ``_qbin_into`` per row, so the
+    # partition is SELECTION-EQUIVALENT to the CPU pre-pass). Unlike ``cp.percentile`` it does NOT shift values
+    # across edges. The binner is row-oriented ((m, n)), so the (n, H) operand is binned as its transpose
+    # (H, n); codes come back resident (H, n) -- no code H2D/D2H for the binning itself.
+    qs = cp.linspace(0.0, 1.0, int(nbins) + 1)
+    codes_T_dev, _kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(vals_dev.T), qs)   # (H, n) resident codes
+    codes_dev = cp.ascontiguousarray(codes_T_dev.T)                    # (n, H) resident
 
-    # Every half's marginal relevance MI(half; y) in ONE batched device workload (batched_cmi_gpu over the
-    # host code matrix -> uploaded once inside the helper). Same Miller-Madow plug-in MI as the CPU pre-pass.
-    mis = np.asarray(batched_cmi_gpu(codes_host, y_dense, None), dtype=np.float64)
+    # Every half's marginal relevance MI(half; y) in ONE batched device workload over the RESIDENT codes (no
+    # code H2D). Same Miller-Madow plug-in MI as the CPU pre-pass's batched_cmi_gpu.
+    mis = np.asarray(batched_cmi_gpu(codes_dev, y_dense, None), dtype=np.float64)
 
     halves: list[dict] = []
     for j in range(H):
         mi = float(mis[j])
-        vb = np.ascontiguousarray(codes_host[:, j])
+        # The permutation-null floor is a CPU-interface helper (host int codes, GPU-routed internally). Pull
+        # THIS half's resident code row back ONCE for the floor probe -- a probe-input D2H, not a binning D2H
+        # (binning stayed resident above). Mirrors the CPU pre-pass's own host code array (_Xh).
+        vb = cp.asnumpy(cp.ascontiguousarray(codes_dev[:, j]))
         floor, _ = _conditional_perm_null(vb, y_dense, None, seed=seed)
         if mi <= floor:
             continue  # not relevant -- never a fusion half
@@ -227,15 +238,19 @@ def propose_additive_fusions_gpu(
                 continue
             if ha["tokens"] & hb["tokens"]:
                 continue
-            # FUSED SUM resident: vals_a + vals_b on the device. The sum is the genuinely n-scaled arithmetic
-            # kept resident; its bin codes use the HOST value-edge ``_quantile_bin`` (byte-equal partition to the
-            # CPU path -> the fused MI + the raw-subsumption probe stay selection-equivalent).
+            # FUSED SUM + its bin codes RESIDENT: vals_a + vals_b on the device, then the distinct-edge-dedup
+            # resident binner ``_gpu_quantile_bin_codes`` (selection-equivalent to the host ``_quantile_bin``;
+            # no interpolation drift). The sum + binning both stay resident -- no binning D2H.
             ca = vals_dev[:, ha["col"]]
             cb = vals_dev[:, hb["col"]]
             fused_dev = ca + cb
             fused_dev = cp.nan_to_num(fused_dev, nan=0.0, posinf=0.0, neginf=0.0)
-            fused_vals = cp.asnumpy(fused_dev)                         # one bounded D2H of the fused values
-            fvb = _quantile_bin(fused_vals, nbins=int(nbins))
+            fvb_dev, _kxf = _gpu_quantile_bin_codes(fused_dev[None, :], qs)   # (1, n) resident codes
+            fvb_dev = fvb_dev[0]
+            # ``_cmi_from_binned`` + the raw-subsumption probe are CPU-interface helpers (host int codes,
+            # GPU-routed internally). Pull the fused codes back ONCE -- a per-ACCEPTED-pair probe-input D2H,
+            # not a binning D2H (binning stayed resident above). Bounded by the number of admitted fusions.
+            fvb = cp.asnumpy(fvb_dev)
             fused_mi = float(_cmi_from_binned(fvb, y_dense, None))     # GPU-routed internally under the flag
             _strong = ha if ha["mi"] >= hb["mi"] else hb
             _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
@@ -251,8 +266,10 @@ def propose_additive_fusions_gpu(
             if not (_binned_mi_passes or _ols_passes):
                 continue
             # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery (host; replays
-            # byte-exactly). ``fused_vals`` (the host sum already pulled back above) is the SAME single
-            # fused-values array the CPU path holds (recipe fit_values_for_edges + the admitted "values").
+            # byte-exactly). The fused VALUES are a REQUIRED return (recipe fit_values_for_edges + the admitted
+            # "values" the caller materialises) -- the SAME single array the CPU path holds -- so pull the
+            # resident sum back ONCE here, only on an ADMITTED pair (bounded by the number of fusions).
+            fused_vals = cp.asnumpy(fused_dev)
             name = f"add({ha['name']},{hb['name']})"
             base = name
             k = 2
