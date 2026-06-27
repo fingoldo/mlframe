@@ -254,18 +254,30 @@ def build_usability_candidate_pool(
     # e.g. mul(invsquared(a),neg(b)) vs mul(invsquared(a),identity(b))). Selection must stay byte-identical on
     # this path, so the resident MI is not fed in. NEEDS-X to ship: a BIT-EXACT (not just bit-faithful) GPU MI
     # matching the njit reduction order, AND a row-vectorised sync-free bin+MI kernel, AND a card where it wins.
-    # bench-attempt-rejected (Phase 1, 2026-06-27): wiring score_pair_combos_table_resident here is NOT a wall
-    # win on the F2 path, but NOT for the "3x loss" reason a contaminated single end-to-end run first suggested
-    # (that 36.7s figure was a kernel-compile/re-entry artifact in the timed region). The decisive measured
-    # facts: (1) the usability pool runs on the FE SUBSAMPLE n=3000 (NOT the 100k dataset), where the resident
-    # table is BREAK-EVEN vs the njit pool -- warmed isolation A/B 1.52s resident vs 1.70s njit for 15 pairs,
-    # 1.12x, i.e. a wash (the 4x resident win only materialises at n>=100k rows, a regime this stage never
-    # sees). (2) the pool is only ~1.0-1.2s of the ~12.5s fit (cProfile), so even a clean win here cannot move
-    # the wall -- the wall levers are the per-candidate D2H pulls (Phase 2) and fourier detect, not the pool.
-    # (3) the fused resident binning still diverges from the njit on low-cardinality columns (the full-edge
-    # dedup it omits; see the xfail parity test), so it is not yet selection-exact here. Kept the njit pool:
-    # equal speed at this n, exact, simpler.
-    for n1, n2 in pairs:
+    # RESIDENT PAIR-COMBO MI TABLE NOW WIRED (2026-06-27): ``score_pair_combos_table_resident`` is fed into the
+    # retention loop under the resident GPU-strict flag (``_seleq``) only. The (3) blocker the iter17 note below
+    # records -- the fused resident binning diverged from the njit on low-cardinality columns -- was fixed in
+    # 71e31818 (the resident binner now matches the njit distinct-edge dedup), so the resident table is now
+    # SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos`` (parity test green:
+    # tests/feature_selection/gpu/test_usability_pool_resident_parity.py). The ULP-tie sensitivity is absorbed by
+    # the ``_mi_key`` grid-snap (already engaged under ``_seleq``). The DEFAULT (flag-off) path is BYTE-IDENTICAL
+    # -- it never computes the resident table and uses the per-pair njit ``score_pair_combos`` exactly as before.
+    # If the resident table errors (no cupy / device fault) it returns None and we fall back per-pair. This is a
+    # residency win (the MI runs on-device under the flag), not necessarily a wall win at the FE-subsample n.
+    _resident_table = None
+    if _seleq and _ua_codes is not None:
+        try:
+            from ._usability_pool_resident import score_pair_combos_table_resident
+            _res_ops = [
+                (_f64(_scrub(X_df[n1].to_numpy())), _f64(_scrub(X_df[n2].to_numpy())))
+                for n1, n2 in pairs
+            ]
+            _resident_table = score_pair_combos_table_resident(
+                _res_ops, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
+            )
+        except Exception:
+            _resident_table = None
+    for _pidx, (n1, n2) in enumerate(pairs):
         x1 = _f64(_scrub(X_df[n1].to_numpy()))
         x2 = _f64(_scrub(X_df[n2].to_numpy()))
         cand_here: list[UsableCandidate] = []
@@ -274,9 +286,14 @@ def build_usability_candidate_pool(
             # order as the Python loop, so the flat combo index maps 1:1 to (ua, ub, bn) below.
             _unary_names = list(unary.keys())
             _binary_names = list(binary.keys())
-            mis = score_pair_combos(
-                x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
-            )
+            if _resident_table is not None:
+                # resident GPU table row p == score_pair_combos for pair p (selection-equivalent after the
+                # distinct-edge dedup fix; ULP ties absorbed by ``_mi_key`` grid-snap engaged under ``_seleq``).
+                mis = _resident_table[_pidx]
+            else:
+                mis = score_pair_combos(
+                    x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
+                )
             nu = len(_unary_names)
             nb = len(_binary_names)
             # LAZY-RECOMPUTE (2026-06-21): the njit kernel already produced the MI of EVERY combo, and the
