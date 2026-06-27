@@ -431,7 +431,9 @@ def _emit_pair_features(
         _div_corr = float(fe_multi_emit_diversity_corr)
         _already = {c for c, _ in this_pair_features}
         _emitted_cols = []
-        for _c in _already:
+        # Stable, hash-independent order (set of name-string-bearing configs); see the determinism
+        # note at the survivor-packing loop below.
+        for _c in sorted(_already, key=lambda _cfg: get_new_feature_name(fe_tuple=_cfg, cols_names=cols)):
             try:
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
             except Exception:
@@ -513,7 +515,19 @@ def _emit_pair_features(
         _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
         _kept_names = []
 
-        for idx, (config, j) in enumerate(this_pair_features):
+        # ``this_pair_features`` is a SET of ``(config, j)`` tuples whose ``config`` holds
+        # transformation-NAME strings, so a bare ``enumerate(set)`` iterates in PYTHONHASHSEED-
+        # randomised order (string hashing is salted per process) whenever a pair emits more than
+        # one form (multi-emit). That order becomes the ``new_cols`` / ``transformed_vals`` column
+        # order below, which propagates into the engineered-column ordering downstream tie-breaks
+        # depend on -- a latent cross-process determinism hole. Iterate in a STABLE, hash-independent
+        # order keyed on the engineered feature NAME (the canonical algebraic identity of the form)
+        # so the emitted column order is reproducible across processes.
+        _ordered_pair_features = sorted(
+            this_pair_features,
+            key=lambda _cj: get_new_feature_name(fe_tuple=_cj[0], cols_names=cols),
+        )
+        for idx, (config, j) in enumerate(_ordered_pair_features):
             new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
             transformations_pair, bin_func_name, i = config
 

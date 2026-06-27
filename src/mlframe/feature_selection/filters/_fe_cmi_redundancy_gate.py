@@ -625,7 +625,29 @@ def apply_cmi_redundancy_gate(
     # anchor lives on the SAME n-invariant debiased scale as the conditional
     # candidate excesses below (the raw marginal MI would re-introduce the bias the
     # excess removes).
-    seed_name = max(remaining, key=lambda nm: marg[nm])
+    # Deterministic, hash-INDEPENDENT seed selection. ``remaining`` is a SET, so a bare
+    # ``max(remaining, key=marg)`` over candidates with EQUAL marginal MI returns whichever
+    # element the set happened to iterate first -- PYTHONHASHSEED-randomised for string names,
+    # so the seed (and therefore which equal-MI form anchors the support and which redundant
+    # siblings are dropped) flipped across processes. This was the root cause of the non-
+    # deterministic F2 ``heavy_tailed`` fusion flake: two RANK-EQUAL a/b forms (the raw (a,b)
+    # ratio ``mul(sqr(a),reciproc(b))`` vs a prewarp form ``div(abs(b),a__p2sin1)`` over an
+    # engineered/warped operand, both at marginal MI 0.81220) tie for the seed; the raw form
+    # fuses cleanly into the target compound while the prewarp form does not, so the per-process
+    # set ordering decided whether the compound was recovered (~40% of seeds failed).
+    #
+    # MI is a RANK statistic and cannot separate the two (their bins are rank-equivalent), so the
+    # tie is resolved by a STRUCTURAL preference: among equal-MI candidates prefer the SIMPLEST
+    # representative -- fewest WARPED operand tokens (``base__warp`` prewarp/engineered operands,
+    # counted by ``__``), then fewest total operator tokens, then ascending name. This is the
+    # project's "prefer the simpler/raw member of an MI-equivalence class" rule (raw operands carry
+    # no fitted warp -> lower overfit risk AND they remain fusable by the downstream additive-fusion
+    # step, which a prewarp-operand form is not), made deterministic. ``_tie_key`` orders so that
+    # ``min`` picks the most-preferred candidate; ``-marg[nm]`` keeps marginal MI the primary key.
+    def _tie_key(nm: str) -> tuple:
+        return (-marg[nm], nm.count("__"), nm.count("("), nm)
+
+    seed_name = min(remaining, key=_tie_key)
     seed_floor, seed_null_mean = _conditional_perm_null(
         cand_bins[seed_name], y_dense, None,
         n_permutations=n_permutations, quantile=quantile, seed=seed,
@@ -664,7 +686,13 @@ def apply_cmi_redundancy_gate(
         _round_cmi: dict = {}
         _round_floor: dict = {}
         _round_cards: dict = {}   # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
-        _rem_list = list(remaining)
+        # Stable, hash-independent iteration order: ``remaining`` is a set of name strings, so a
+        # bare ``list(remaining)`` is PYTHONHASHSEED-randomised and the per-round winner tie-break
+        # (``cmi_excess > best_excess``, first-wins) would flip across processes on equal-excess
+        # candidates. Order by the SAME structural-preference key as the seed (simplest/raw form
+        # first) so the winner among equal-excess candidates is reproducible AND consistent with
+        # the seed's preference.
+        _rem_list = sorted(remaining, key=_tie_key)
         try:
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
             if _cmi_gpu_enabled() and len(_rem_list) > 1:
