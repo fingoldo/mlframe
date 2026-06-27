@@ -83,6 +83,18 @@ def _run_fe_step(
     ``(data, cols, nbins, X, selected_vars, n_recommended_features)``. ``n_recommended_features == 0`` signals
     the outer loop to stop. Private; external callers should use ``MRMR.fit()`` or ``MRMR.fit_transform()``.
     """
+    # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT, default
+    # OFF). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per
+    # device, all compute on GPU kernels, no bulk D2H). Phase 0: the entry is a stub that raises
+    # NotImplementedError, so this is INERT (falls through to the existing per-family path below) until later
+    # phases implement it. ``locals()`` here (before any local is bound) is exactly the call params.
+    from .._gpu_strict_fe import fe_gpu_strict_resident_enabled, run_fe_step_gpu_strict
+    if fe_gpu_strict_resident_enabled():
+        _fe_args = {k: v for k, v in locals().items() if k not in ("self", "fe_gpu_strict_resident_enabled", "run_fe_step_gpu_strict")}
+        try:
+            return run_fe_step_gpu_strict(self, **_fe_args)
+        except NotImplementedError:
+            pass  # Phase 0 scaffold / unported config -> existing per-family FE path below
     # GUARDED-ADAPTIVE PREVALENCE (2026-06-13, hardcoded-threshold conversion). When
     # ``fe_min_pair_mi_prevalence == "auto"``, keep the proven 1.05 ratio bar but apply it to the
     # MILLER-MADOW-DEBIASED pair MI (the analytic finite-sample joint-MI bias subtracted, the value

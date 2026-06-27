@@ -146,6 +146,19 @@ def build_usability_candidate_pool(
     from .feature_engineering import create_unary_transformations, create_binary_transformations
     from .engineered_recipes import build_unary_binary_recipe, apply_recipe
     from ._mi_greedy_cmi_fe import _quantile_bin, marginal_mi_binned_fixed_y, precompute_marginal_y_terms
+    from ._fe_mi_contract import quantize_mi_tiebreak
+
+    # SELECTION-EQUIVALENT retention key: snap the MI sort key to the shared grid ONLY under the resident
+    # GPU-strict path (where the resident MI differs from the CPU njit by ~1e-15 and the ULP-tie-sensitive
+    # retention sort must not flip the kept set). On the default / non-resident path the CPU njit MI has no
+    # such drift, so the sort stays on the raw MI -> BYTE-IDENTICAL default selection (the plan's non-STRICT
+    # invariant). Stable sort: exact ties keep enumeration order either way; only sub-quantum near-ties differ.
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        _seleq = bool(fe_gpu_strict_resident_enabled())
+    except Exception:
+        _seleq = False
+    _mi_key = (lambda m: quantize_mi_tiebreak(m)) if _seleq else (lambda m: m)
 
     if not isinstance(X_df, pd.DataFrame):
         X_df = pd.DataFrame(np.asarray(X_df))
@@ -274,8 +287,10 @@ def build_usability_candidate_pool(
                         if m < mi_floor:   # also rejects the -1.0 std<=1e-9 sentinel
                             continue
                         metas.append((m, ia, ib, ibn))
-            # stable sort by MI desc (matches the old cand_here.sort(key=c.mi, reverse=True) tie order).
-            metas.sort(key=lambda t: t[0], reverse=True)
+            # stable sort by MI desc; under the resident path the key is grid-snapped (``_mi_key``) so a
+            # sub-quantum (~1e-15) CPU-vs-GPU MI difference can't flip the kept set. Default path: raw MI
+            # (byte-identical). Exact ties keep enumeration order; only within-quantum near-ties differ.
+            metas.sort(key=lambda t: _mi_key(t[0]), reverse=True)
             _ta_cache: dict = {}   # unary(x1) by ua index -- reused across combos sharing ua
             _tb_cache: dict = {}   # unary(x2) by ub index
             _njit_kept: list[UsableCandidate] = []
@@ -327,8 +342,9 @@ def build_usability_candidate_pool(
                             continue
                         name = f"{bn}({ua}({n1}),{ub}({n2}))"
                         cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
-        # keep diverse top-MI forms for this pair.
-        cand_here.sort(key=lambda c: c.mi, reverse=True)
+        # keep diverse top-MI forms for this pair. ``_mi_key`` grid-snaps under the resident path (invariant to
+        # sub-quantum CPU-vs-GPU MI reassociation); raw MI on the default path (byte-identical). Stable sort.
+        cand_here.sort(key=lambda c: _mi_key(c.mi), reverse=True)
         kept: list[UsableCandidate] = []
         for c in cand_here:
             if len(kept) >= max_per_pair:
