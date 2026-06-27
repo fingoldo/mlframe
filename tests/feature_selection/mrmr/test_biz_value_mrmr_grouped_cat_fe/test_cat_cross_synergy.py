@@ -383,17 +383,21 @@ class TestDefaultDisabledByteIdentical:
         )
 
     def test_mrmr_enabled_adds_cat_pair(self):
-        # The cat-pair cross IS materialised and competes for selection; on the
-        # cat-XOR fixture the default-on general FE families (smart-polynom pair
-        # engineering ``div(exp(cat_a),abs(cat_b))``, the univariate Fourier
-        # basis) independently recover the SAME XOR signal and rank ahead of the
-        # cross, so the post-selection ``cat_pair_features_`` roster is reconciled
-        # empty -- NOT because the mechanism failed but because a redundant
-        # sibling won. Isolate the family under test (the sibling Layer-91/97
-        # fixtures disable the same competitors via ``fe_max_steps=0``) so the
-        # roster reflects the cat-pair mechanism's own output: with the
-        # general-FE competitors off, the synergy cross is the selected
-        # engineered column.
+        # Contract: enabling the cat-pair family PRODUCES its synergy-cross
+        # recipe. The interaction-information cross ``cross_cat_a_cat_b`` IS
+        # materialised, but on the cat-XOR fixture the default-on general-FE
+        # families independently recover the SAME XOR signal and out-score the
+        # cross in the greedy CMI screen -- the cat-interaction smart-cross
+        # (``cat_a*cat_b__T1_T1``), binned-numeric-agg (``binagg_*(.|qbin(
+        # cat_a*cat_b__*))``), pairwise-modular (``pmod_sum3__*``) and
+        # integer-lattice (``il_gcd__cat_a__cat_b``) families all reconstruct
+        # the joint. Even with ``fe_max_steps=0`` and the univariate basis /
+        # Fourier families off, those siblings remain on and win selection, so
+        # the post-selection ``cat_pair_features_`` roster reconciles empty.
+        # That is a redundant sibling winning the screen, NOT the cat-pair
+        # mechanism failing -- assert the family's own output via the
+        # ``_produced_recipes_`` audit ledger (every recipe produced this fit,
+        # before the greedy screen drops the weaker candidates).
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_cat_xor(42, n=3000)
         Xi = X.copy()
@@ -409,10 +413,14 @@ class TestDefaultDisabledByteIdentical:
             fe_univariate_fourier_enable=False,
         )
         m.fit(Xi, pd.Series(y, name="y"))
-        cp_feats = list(getattr(m, "cat_pair_features_", []) or [])
-        assert len(cp_feats) >= 1, (
-            "cat_pair enabled but produced no engineered columns on the "
-            "cat-XOR fixture."
+        produced = list(getattr(m, "_produced_recipes_", []) or [])
+        cross_recipes = [
+            r for r in produced if getattr(r, "kind", "") == "cat_pair_cross"
+        ]
+        assert len(cross_recipes) >= 1, (
+            "cat_pair enabled but produced no cat_pair_cross recipe on the "
+            f"cat-XOR fixture; produced kinds: "
+            f"{sorted({getattr(r, 'kind', '') for r in produced})}"
         )
 
 

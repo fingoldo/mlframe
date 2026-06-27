@@ -266,13 +266,29 @@ class TestNoRegressionLayer12Stability:
         assert any(_carries_stable(c) for c in sup), (
             f"stable signal must survive single-fit MRMR (raw or engineered); got support={sup}"
         )
-        # flaky must never displace stable: the FIRST stable-carrying feature must rank
-        # at or before the first feature that carries flaky but NOT stable (a flaky-only form).
-        flaky_only = [i for i, c in enumerate(sup) if ("flaky" in str(c) and not _carries_stable(c))]
-        if flaky_only:
-            first_stable = min(i for i, c in enumerate(sup) if _carries_stable(c))
-            assert first_stable < min(flaky_only), (
-                f"stable signal must be selected before a flaky-only feature; got order={sup}"
+
+        # flaky must never DISPLACE stable. The displacement contract is on the GREEDY SELECTION RANK
+        # (``support_rank`` in the provenance frame: 0 = first MRMR pick), NOT on the positional order of
+        # ``get_feature_names_out()`` -- which lists ALL emitted columns (greedy picks PLUS engineered
+        # children / retained raw operands with ``support_rank == -1``) in provenance-row order, so a raw
+        # operand that was kept around (e.g. ``flaky`` as an operand of the selected ``sub(prewarp(stable_x),
+        # prewarp(flaky))`` compound, rank -1) can appear at list position 0 without being a discriminative
+        # pick at all. Rank by ``support_rank`` so the test pins selection precedence, not emission order.
+        prov = m.fe_provenance_
+        ranked = prov[prov["support_rank"] >= 0].sort_values("support_rank", kind="stable")
+        picked = [str(nm) for nm in ranked["feature_name"].tolist()]
+        assert picked, f"single-fit MRMR must greedily select at least one feature; provenance={prov.to_string()}"
+        # Every greedily-PICKED feature must carry stable before any flaky-only pick displaces it.
+        flaky_only_picks = [i for i, c in enumerate(picked) if ("flaky" in c and not _carries_stable(c))]
+        if flaky_only_picks:
+            first_stable = min((i for i, c in enumerate(picked) if _carries_stable(c)), default=len(picked))
+            assert first_stable < min(flaky_only_picks), (
+                f"stable signal must be greedily selected before a flaky-only feature; got pick order={picked}"
+            )
+        else:
+            # No flaky-only pick at all -> the strongest contract (stable's signal dominates) holds outright.
+            assert any(_carries_stable(c) for c in picked), (
+                f"the greedy MRMR picks must carry stable's signal; got pick order={picked}"
             )
 
     def test_C5b_pickle_round_trip_preserves_cluster_members(self):

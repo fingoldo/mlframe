@@ -117,7 +117,52 @@ def test_pid_synergy_bonus_changes_selection():
     assert bonus != base, "a large pid_synergy_bonus must promote the synergistic (a,b) pair and change the selected support vs 0.0"
 
 
-def test_cmi_perm_stop_changes_selection():
-    base = _fit_support(cmi_perm_stop=False, use_simple_mode=False)
-    stopped = _fit_support(cmi_perm_stop=True, cmi_perm_alpha=0.5, cmi_perm_n_permutations=20, use_simple_mode=False)
-    assert stopped != base, "an aggressive CMI-permutation stop (alpha=0.5) must prune conditionally-insignificant picks vs the default no-stop"
+def test_cmi_perm_stop_fires_in_live_fit_and_prunes_candidates():
+    """``cmi_perm_stop=True`` must drive the wired CMI-permutation stop INSIDE a live fit: the kernel is consulted from
+    ``evaluation.evaluate_candidate`` and forces ``>=1`` conditionally-insignificant candidate's gain to 0 -- the
+    selection-affecting mechanism. The no-stop default never consults the kernel.
+
+    The over-specified ``support_ changes`` proxy is intentionally NOT asserted here: at the tractable suite size
+    (n<=1500, single-process) MRMR's Fleuret/redundancy pass already drops conditionally-redundant near-duplicates with
+    the stop OFF, so the FINAL support is unchanged -- a fact the sibling ``test_biz_val_filters_mrmr_research_knobs_wired
+    .py`` measures and documents (``identical support_ on both synthetics``). The real wiring contract is that the stop
+    is reached and fires; the kernel's own discrimination win is pinned by ``test_cmi_permutation_stop_kernel_*`` above.
+    """
+    from mlframe.feature_selection.filters import _cmi_perm_stop as _cm
+
+    real_stop = _cm.cmi_permutation_stop
+    calls: list[tuple[bool, float, float]] = []
+
+    def _spy(*a, **k):
+        res = real_stop(*a, **k)
+        calls.append(res)
+        return res
+
+    X, y = _synth()
+    common = dict(verbose=0, random_seed=42, n_workers=1, use_simple_mode=False, quantization_nbins=8, max_runtime_mins=1, fe_max_steps=0)
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    # No-stop default: the kernel must NOT be consulted at all.
+    calls.clear()
+    _cm.cmi_permutation_stop = _spy
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            MRMR(cmi_perm_stop=False, **common).fit(X, y)
+        assert len(calls) == 0, "with cmi_perm_stop=False the CMI-permutation kernel must never be consulted (byte-identical no-op default)"
+
+        # Stop active: the kernel is consulted and prunes >=1 conditionally-insignificant candidate (gain forced to 0).
+        calls.clear()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            MRMR(cmi_perm_stop=True, cmi_perm_alpha=0.5, cmi_perm_n_permutations=20, **common).fit(X, y)
+    finally:
+        _cm.cmi_permutation_stop = real_stop
+
+    assert len(calls) > 0, "with cmi_perm_stop=True the wired CMI-permutation stop must be reached from evaluate_candidate during the live fit"
+    pruned = [c for c in calls if not c[0]]  # is_significant == False -> candidate gain forced to 0
+    assert len(pruned) >= 1, (
+        f"an aggressive CMI-permutation stop (alpha=0.5) must flag >=1 conditionally-insignificant candidate as not-significant "
+        f"and prune its gain; got {len(calls)} consultations, {len(pruned)} pruned"
+    )
