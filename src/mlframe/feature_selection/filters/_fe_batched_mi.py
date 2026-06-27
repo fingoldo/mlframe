@@ -658,6 +658,147 @@ def joint_entropy_gpu(codes, cards, inv_n):
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)
 
 
+# FUSED four-joint conditional-CMI entropies in ONE launch (launch-reduction, 2026-06-26). The conditional
+# CMI(x;y|z) needs the plug-in entropy + occupied-cell count of FOUR joints -- (z), (x,z), (y,z), (x,y,z) --
+# which _cmi_from_binned_cupy computed as four separate joint_entropy_gpu launches (the #1 cuLaunchKernel
+# source on the F2 STRICT redundancy gate after the analytic-null card reuse removed joint_cardinalities).
+# This kernel runs all four as FOUR BLOCKS of one grid (block b builds joint b's histogram from the shared
+# x/y/z code arrays into its own dynamic-shared hist, then the same tree-reduction over the block's threads
+# emits (entropy, nnz) for that joint). All threads in a block share blockIdx -> no branch divergence. The
+# dynamic shared is sized to the largest joint (x,y,z); engages only when that fits the per-block limit (the
+# SAME condition under which joint_entropy_gpu took its fast single-launch path for x,y,z), else the caller
+# uses the per-joint path. Same f64 plug-in entropy, same occupied-cell (c>0) definition, same cell-index
+# reduction order as joint_entropy1/2/3 -> the assembled CMI is bit-identical.
+_CMI_JOINT_ENTROPIES_SRC = r"""
+extern "C" __global__
+void cmi_joint_entropies(const long long* __restrict__ x, const long long* __restrict__ y,
+                         const long long* __restrict__ z, const int Kx, const int Ky, const int Kz,
+                         const long long n, const double inv_n, double* __restrict__ out) {
+    extern __shared__ unsigned int hist[];
+    int blk = blockIdx.x, tid = threadIdx.x, nt = blockDim.x;
+    int M;
+    if (blk == 0) M = Kz;
+    else if (blk == 1) M = Kx * Kz;
+    else if (blk == 2) M = Ky * Kz;
+    else M = Kx * Ky * Kz;
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        long long zi = z[i];
+        int idx;
+        if (blk == 0) idx = (int)zi;
+        else if (blk == 1) idx = (int)(x[i] * Kz + zi);
+        else if (blk == 2) idx = (int)(y[i] * Kz + zi);
+        else idx = (int)((x[i] * Ky + y[i]) * Kz + zi);
+        atomicAdd(&hist[idx], 1u);
+    }
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out[blk * 2] = -sh_h[0]; out[blk * 2 + 1] = sh_k[0]; }
+}
+"""
+_CMI_JOINT_ENTROPIES_KERNEL = None
+
+
+def cmi_joint_entropies_gpu(dx, dy, dz, Kx, ky, kz, inv_n):
+    """The four conditional-CMI joint (plug-in entropy, occupied-cell count) terms -- (z), (x,z), (y,z),
+    (x,y,z) -- in ONE launch. Returns ((h_z,k_z),(h_xz,k_xz),(h_yz,k_yz),(h_xyz,k_xyz)), or None when the
+    largest (x,y,z) joint won't fit the per-block shared limit (caller falls back to four joint_entropy_gpu
+    launches). Bit-identical to four separate joint_entropy_gpu calls."""
+    import cupy as cp
+
+    global _CMI_JOINT_ENTROPIES_KERNEL
+    _get_joint_entropy_kernels()  # ensures _JOINT_ENTROPY_SH_LIMIT is populated
+    Mmax = int(Kx) * int(ky) * int(kz)
+    if Mmax <= 0 or Mmax * 4 + 4096 > int(_JOINT_ENTROPY_SH_LIMIT):
+        return None
+    try:
+        if _CMI_JOINT_ENTROPIES_KERNEL is None:
+            _CMI_JOINT_ENTROPIES_KERNEL = cp.RawKernel(_CMI_JOINT_ENTROPIES_SRC, "cmi_joint_entropies")
+        n = int(dz.size)
+        out = cp.zeros(8, dtype=cp.float64)
+        _CMI_JOINT_ENTROPIES_KERNEL((4,), (256,), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
+                                    np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        hk = cp.asnumpy(out)
+        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))),
+                (float(hk[4]), int(round(hk[5]))), (float(hk[6]), int(round(hk[7]))))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# bench-attempt-rejected (2026-06-26): a two-block fused (x,z)+(x,y,z) kernel for the FIXED-yz greedy CMI path
+# (cmi_from_binned_fixed_yz_cupy, where H(z)/H(y,z) are precomputed so only xz/xyz remain) was BIT-IDENTICAL
+# to the two separate joint_entropy_gpu calls on random codes (10/10 A/B) yet FLIPPED the full-MRMR selection
+# on test_gpu_cpu_mi_selection_equivalence[reg_two_pairs] and [adv_wide_p60] -- a real divergence the random
+# A/B did not surface (interaction with the precomputed-yz terms at a card combo). The four-block conditional
+# fusion (cmi_joint_entropies_gpu) is SAFE there (all four joints come from the one kernel -> self-consistent;
+# full suite green); the fixed-yz two-block split mixing fused xz/xyz with precomputed h_z/h_yz is not. Kept
+# the fixed-yz path on the two per-joint joint_entropy_gpu launches.
+
+
+# FUSED three-joint marginal-MI entropies in ONE launch -- the marginal MI(x;y) path (the seed anchor and the
+# redundancy gate's per-raw marginal anchor) needs H(x), H(y), H(x,y), three separate joint_entropy_gpu
+# launches per call. Three blocks of one grid (block 0: x, M=Kx; block 1: y, M=Ky; block 2: xy, M=Kx*Ky),
+# each the same per-block histogram + tree reduction. All three terms come from THIS kernel (the marginal MI
+# combines only its own h_x/h_y/h_xy, no precomputed cross-path term), so it is self-consistent like the
+# four-block conditional fusion -- not the rejected two-block fixed-yz split. Engages when the (x,y) joint
+# fits the per-block shared limit (it is tiny: Kx*Ky). Same f64 plug-in entropy, occupied-cell definition,
+# and cell-index reduction order -> bit-identical.
+_MARGINAL_MI_ENTROPIES_SRC = r"""
+extern "C" __global__
+void marginal_mi_entropies(const long long* __restrict__ x, const long long* __restrict__ y,
+                           const int Kx, const int Ky, const long long n, const double inv_n,
+                           double* __restrict__ out) {
+    extern __shared__ unsigned int hist[];
+    int blk = blockIdx.x, tid = threadIdx.x, nt = blockDim.x;
+    int M = (blk == 0) ? Kx : (blk == 1) ? Ky : (Kx * Ky);
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        int idx = (blk == 0) ? (int)x[i] : (blk == 1) ? (int)y[i] : (int)(x[i] * Ky + y[i]);
+        atomicAdd(&hist[idx], 1u);
+    }
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out[blk * 2] = -sh_h[0]; out[blk * 2 + 1] = sh_k[0]; }
+}
+"""
+_MARGINAL_MI_ENTROPIES_KERNEL = None
+
+
+def marginal_mi_entropies_gpu(dx, dy, Kx, ky, inv_n):
+    """The three marginal-MI joint terms -- (x), (y), (x,y) -- in ONE launch. Returns
+    ((h_x,k_x),(h_y,k_y),(h_xy,k_xy)), or None when the (x,y) joint won't fit the per-block shared limit
+    (caller falls back to three joint_entropy_gpu launches). Bit-identical to the three separate calls."""
+    import cupy as cp
+
+    global _MARGINAL_MI_ENTROPIES_KERNEL
+    _get_joint_entropy_kernels()  # ensures _JOINT_ENTROPY_SH_LIMIT is populated
+    Mmax = int(Kx) * int(ky)
+    if Mmax <= 0 or Mmax * 4 + 4096 > int(_JOINT_ENTROPY_SH_LIMIT):
+        return None
+    try:
+        if _MARGINAL_MI_ENTROPIES_KERNEL is None:
+            _MARGINAL_MI_ENTROPIES_KERNEL = cp.RawKernel(_MARGINAL_MI_ENTROPIES_SRC, "marginal_mi_entropies")
+        n = int(dx.size)
+        out = cp.zeros(6, dtype=cp.float64)
+        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)),
+                                      np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        hk = cp.asnumpy(out)
+        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))),
+                (float(hk[4]), int(round(hk[5]))))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # FUSED final CMI/MI assembly (launch-reduction, 2026-06-26). batched_cmi_gpu assembled the per-column result
 # with a cupy chain over (K,) arrays: cmi = h_xz + h_yz - h_z - h_xyz; bias = (k_xyz + k_z - k_xz - k_yz)/2n;
 # max(cmi - bias, 0) -- ~7 launches. Both the conditional and marginal forms reduce to
@@ -810,18 +951,19 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
         cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
-        h_y, k_y = _ent_nnz_1d(joint_counts_gpu([dy], [Ky]), inv_n)         # H(y) via atomic-hist + fused reduce
+        h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)                     # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
         # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
         mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), 1.0 / (2.0 * nf))
         return cp.asnumpy(mi)
 
     dz = cp.asarray(np.ascontiguousarray(z).astype(np.int64).ravel())
     Kz = int(dz.max()) + 1 if dz.size else 1
-    # shared y/z terms (column-invariant) -- atomic-hist + fused 1D entropy/NNZ reduce, no cp.bincount chain
-    h_z, k_z = _ent_nnz_1d(joint_counts_gpu([dz], [Kz]), inv_n)
+    # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
+    # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
+    h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
     yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
     Kyz = int(yz.max()) + 1
-    h_yz, k_yz = _ent_nnz_1d(joint_counts_gpu([yz], [Kyz]), inv_n)
+    h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
 
     # H(x_k, z) for all k: in-kernel flat key k*(Kx*Kz) + x*Kz + z (one atomicAdd launch, no bincount)
     cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)       # (K, Kx*Kz)

@@ -713,17 +713,31 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     Kx = (int(dx.max()) + 1) if dx.size else 1
     ky = _cached_card(y, dy)               # y is a fit-constant -> its cardinality is cached
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
-        h_x, k_x = _entc([dx], [Kx])
-        h_y, k_y = _entc([dy], [ky])
-        h_xy, k_xy = _entc([dx, dy], [Kx, ky])
+        # H(x), H(y), H(x,y) in ONE launch when the (x,y) joint fits shared (always tiny). All three from this
+        # kernel -> self-consistent (the safe fusion pattern); bit-identical, falls back to the per-joint path.
+        from ._fe_batched_mi import marginal_mi_entropies_gpu
+        _three = marginal_mi_entropies_gpu(dx, dy, Kx, ky, inv_n)
+        if _three is not None:
+            (h_x, k_x), (h_y, k_y), (h_xy, k_xy) = _three
+        else:
+            h_x, k_x = _entc([dx], [Kx])
+            h_y, k_y = _entc([dy], [ky])
+            h_xy, k_xy = _entc([dx, dy], [Kx, ky])
         mi = max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
         return (mi, None) if return_cards else mi
     dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
     kz = _cached_card(z_joint, dz)         # z_support is round-constant -> cardinality cached
-    h_z, k_z = _entc([dz], [kz])
-    h_xz, k_xz = _entc([dx, dz], [Kx, kz])
-    h_yz, k_yz = _entc([dy, dz], [ky, kz])
-    h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
+    # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared -- the #1
+    # cuLaunchKernel source on the STRICT redundancy gate. Bit-identical; falls back to the per-joint path.
+    from ._fe_batched_mi import cmi_joint_entropies_gpu
+    _four = cmi_joint_entropies_gpu(dx, dy, dz, Kx, ky, kz, inv_n)
+    if _four is not None:
+        (h_z, k_z), (h_xz, k_xz), (h_yz, k_yz), (h_xyz, k_xyz) = _four
+    else:
+        h_z, k_z = _entc([dz], [kz])
+        h_xz, k_xz = _entc([dx, dz], [Kx, kz])
+        h_yz, k_yz = _entc([dy, dz], [ky, kz])
+        h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
     cmi_plugin = h_xz + h_yz - h_z - h_xyz
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
     cmi = max(0.0, cmi_plugin - cmi_bias)

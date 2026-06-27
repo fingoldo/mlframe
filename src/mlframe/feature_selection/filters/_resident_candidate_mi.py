@@ -89,7 +89,13 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 
     FUSED (launch-reduction): one op-table RawKernel builds ALL candidate columns (raw + 4 pairwise ops +
     row max/min/sum) in ONE launch instead of ~4*pairs + reductions cupy elementwise ops. Same f64 ops in
-    the same column order -> bit-identical; falls back to the cupy build on any kernel error."""
+    the same column order -> bit-identical; falls back to the cupy build on any kernel error.
+
+    bench-attempt-rejected (2026-06-26): host-stacking the operand columns (np.column_stack + one H2D) to drop
+    the device cp.stack launch was selection-IDENTICAL by construction (same f64 matrix) yet flipped
+    test_gpu_cpu_mi_selection_equivalence[reg_mixed] -- the host column_stack of the operand views does not
+    reproduce the exact device cp.stack byte layout/order this razor-edge case depends on. Kept the device
+    cp.stack."""
     m = len(cols_arr_gpu)
     try:
         n = int(cols_arr_gpu[0].shape[0])
