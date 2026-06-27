@@ -32,6 +32,22 @@ validation in-loop and proceed to the next item. The only legitimate turn-ends
 are the (a)-(d) pauses above or genuinely running out of context mid-edit
 (commit what is safe, state exactly what remains — still do not ask).
 
+## Drive every discovery to resolution — never drop a found issue (CRITICAL, 2026-06-27)
+
+When I find a real bug, correctness gap, or quality issue WHILE doing other
+work, it becomes a commitment, not an optional aside. Either resolve it now, or
+at the very minimum add it to the ACTIVE plan/todos with a concrete next action
+and finish it the SAME session. NEVER drop or indefinitely defer a discovery
+with rationalizations like "context is running out", "the main goal is
+different", "it's pre-existing / not mine", or "it's heavily-tuned / too risky
+right now". Risk is a reason for RIGOR (dispatch an agent, do a full-suite A/B),
+never for abandonment. "Pre-existing / not mine" still gets verified, surfaced,
+and either fixed or tracked as an owned plan item. The banned pattern (user,
+2026-06-27): finding a genuine F2 selection bug, then writing "let me not risk
+the tuned selection logic right now and instead land another deterministic wall
+item" — sidestepping the very issue I just surfaced. Closure = fixed + tested,
+OR a written plan item with a concrete path; never a hand-wave.
+
 ## Build new code in focused submodules from the START (CRITICAL)
 
 When adding non-trivial functionality, put it in a NEW, appropriately-named submodule/subpackage (sibling
