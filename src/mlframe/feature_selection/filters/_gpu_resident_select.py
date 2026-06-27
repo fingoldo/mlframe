@@ -931,6 +931,17 @@ def _radix_quantiles(cand_gpu, q_fracs):
 # promoted to double for the compare -- EXACTLY what cp.searchsorted(f64_edges, f32_value) does (it
 # upcasts the value to the edges' dtype). Comparing in the value's f32 instead would 1-off at boundaries
 # (a downcast of the f64 edge loses precision) -- the bug that broke bit-identity on the first cut.
+#
+# bench-attempt-rejected (2026-06-27): nsys re-profile (iter 2) made bin_codes_f32 the #3 GPU kernel (171ms/
+# 12 inst); nvprof showed gld_efficiency=51.7% (the divergent f64 edge reads drag the f32 cand read down)
+# while gst=100%, achieved_occupancy=0.92, DRAM ~38GB/s (40% of the card's ~96GB/s). Two BIT-IDENTICAL
+# (maxdiff 0) alternatives to lift gld, both SLOWER at the production shape (n=100k, K=583, nbins=10, GTX
+# 1050 Ti, interleaved-min >=20 reps): (a) unrolled LINEAR scan of all ne edges (uniform coalesced row order,
+# no branch divergence) 11.6->16.1ms = SLOWER (ne=9 extra edge reads outweigh the divergence saving); (b)
+# stage the whole (ne,K) edge table (~40KB) into SHARED so divergent edge reads hit shared not global
+# 11.6->82.7ms = 7x SLOWER (40KB shared caps the block to 1/SM, occupancy collapses). The gld inefficiency is
+# the intrinsic f64-vs-f32 mixed-width access of per-element binning; lifting it costs more than it saves on
+# Pascal. VERDICT: at its practical floor for this card.
 _BIN_CODES_SRC = r"""
 extern "C" __global__
 void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict__ edges,
