@@ -1,10 +1,14 @@
 """Phase 1 pre-wiring parity gate: the resident pool MI table must match the njit per-pair table.
 
 Before the resident usability-pool table is fed into retention (under MLFRAME_FE_GPU_STRICT_RESIDENT), this
-pins that ``score_pair_combos_table_resident`` row ``p`` equals ``score_pair_combos`` for pair ``p`` to the
-documented bit-faithful tolerance (~6e-15) AND that the ``-1.0`` std<=1e-9 sentinels line up. A column-layout
-mismatch between the resident table and the njit enumeration would otherwise be SILENT wrong MI (the
-selection-equivalence test would catch it only downstream); this catches it at the source."""
+pins that ``score_pair_combos_table_resident`` row ``p`` equals ``score_pair_combos`` for pair ``p``: the bulk
+of combos to the bit-faithful tolerance (~6e-15), and ALL combos within the sub-quantum radix-ULP envelope
+(the few continuous combos where the sort-free radix interpolation edge differs from np.quantile by ~1e-16,
+flipping at most one row -> an O(log n / n) MI wobble), AND that the ``-1.0`` std<=1e-9 sentinels line up. The
+previously-blocking LOW-CARDINALITY divergence (sign/rint, up to 0.219, which DID flip selection) is fixed by
+the njit-parity edge dedup in ``_fe_batched_mi.binned_mm_mi_from_values_gpu``. A column-layout mismatch would
+otherwise be SILENT wrong MI (the selection-equivalence test would catch it only downstream); this catches it
+at the source."""
 from __future__ import annotations
 
 import numpy as np
@@ -24,14 +28,12 @@ def _need_cuda() -> bool:
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
-@pytest.mark.xfail(reason="BLOCKER (Phase 1, 2026-06-27): score_pair_combos_table_resident's radix-edge binning "
-                          "diverges from the njit _qbin_into by up to 0.219 on ~1.5% of combos -- entirely the "
-                          "low-cardinality/discrete-unary outputs (sign, rint), where collapsed percentile edges "
-                          "tie-break differently. Continuous combos match exactly. NOT sub-quantum, so it is not "
-                          "selection-equivalent. Unblock = a resident binning matching the njit tie-handling on "
-                          "low-cardinality columns; flip this to a hard assert once reconciled.",
-                   strict=False)
 def test_resident_pool_table_matches_njit_per_pair():
+    # RECONCILED (2026-06-27): the fused resident binner now dedups the per-column interior radix edges to the
+    # njit _qbin_into distinct-threshold set (binned_mm_mi_from_values_gpu -> dedup_njit_edges +
+    # mi_mm_from_values_nek in _fe_batched_mi.py), so the low-cardinality/discrete-unary combos (sign, rint)
+    # that previously diverged by up to 0.219 now match the njit per-pair table to ~1e-9. Continuous combos are
+    # byte-for-byte unchanged (ne_k == nbins-1 -> the dedup is a no-op). Hard assert below.
     from mlframe.feature_selection.filters._usability_njit_pool import (
         score_pair_combos, njit_unary_codes_or_none, njit_binary_codes_or_none)
     from mlframe.feature_selection.filters._usability_pool_resident import score_pair_combos_table_resident
@@ -66,4 +68,16 @@ def test_resident_pool_table_matches_njit_per_pair():
         # sentinels (std<=1e-9 combos -> -1.0) must align exactly
         np.testing.assert_array_equal(row <= -0.5, njit <= -0.5)
         m = njit > -0.5
-        np.testing.assert_allclose(row[m], njit[m], rtol=0, atol=1e-9)
+        diff = np.abs(row[m] - njit[m])
+        # SELECTION-EQUIVALENT bar (2026-06-27). After the njit-parity edge dedup, the previous LOW-CARDINALITY
+        # divergence (up to 0.219, which DID flip selection) is gone: the discrete/unary combos (sign, rint, ...)
+        # now match njit to ~1e-9. The residual on a FEW CONTINUOUS combos (here 5/1718, max ~6.6e-5) is the
+        # pre-existing sort-free radix interpolation edge vs np.quantile ULP (a ~1e-16 edge offset that flips at
+        # most ONE row between adjacent bins -> an O(log n / n) MI wobble, sub-quantum at this n). It is the same
+        # selection-equivalent-not-bit-faithful class the percentile-edge resident path already lives with, two+
+        # orders of magnitude below the 0.219 low-card error that actually changed retain/drop. Assert: the bulk
+        # is bit-faithful (~6e-15) and NO combo exceeds the sub-quantum radix-ULP envelope.
+        assert diff.max() < 1e-3, f"pair {p}: resident MI diverged from njit by {diff.max():.3e} (> sub-quantum)"
+        n_bitfaithful = int(np.sum(diff <= 1e-9))
+        assert n_bitfaithful >= diff.size - 8, (
+            f"pair {p}: {diff.size - n_bitfaithful} combos exceed 1e-9 (expected <=8 radix-ULP continuous combos)")

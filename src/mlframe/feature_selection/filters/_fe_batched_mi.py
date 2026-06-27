@@ -156,6 +156,71 @@ void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ 
 """
 _MI_MM_FROM_VALUES_KERNEL = None
 
+# NJIT-PARITY EDGE DEDUP for low-cardinality columns (2026-06-27). The fused mi_mm_from_values binary-searches
+# over the FULL (nbins-1) interior radix edges; on a LOW-CARDINALITY / discrete column those edges contain
+# DUPLICATES and BOUNDARY values (== the column min/max), which the njit reference _qbin_into does NOT: it
+# dedups the FULL (nbins+1)-level quantile set (np.unique, INCLUDING the level-0 min and level-nbins max
+# quantiles) then bins on only the strictly-interior distinct thresholds. The level-0/level-nbins quantiles
+# are exactly the column min/max, so njit's deduped threshold set is reconstructed on device per column as:
+#   de = adjacent-unique([cmin] + interior_edges + [cmax])   (the edges are ascending)
+#   thresholds = de[1:]; drop the LAST element iff that leaves >= 2 entries
+#   (== njit de[1:-1] for m>=3 distinct values, == [de[1]] for m==2, == [] for m<=1)
+# Binary-searching only this compacted per-column prefix (length ne_k) yields the SAME data partition as njit
+# -> identical occupied-bin entropies -> identical MM-MI (verified bit-faithful CODES on discrete/continuous/
+# constant columns). Continuous columns have no duplicate/boundary interior edges so ne_k == nbins-1 and the
+# binning -> MI is byte-for-byte unchanged from the no-dedup path.
+_DEDUP_EDGES_SRC = r"""
+extern "C" __global__
+void dedup_njit_edges(const double* __restrict__ edges, const double* __restrict__ cmin,
+                      const double* __restrict__ cmax, const int ne, const int K,
+                      double* __restrict__ out, int* __restrict__ ne_out) {
+    int c = blockIdx.x * blockDim.x + threadIdx.x;   // one thread per column
+    if (c >= K) return;
+    // de[0] is cmin; emit de[1:] (everything strictly AFTER the first distinct value) into out[*, c].
+    double prev = cmin[c];
+    int w = 0;
+    for (int e = 0; e < ne; ++e) {
+        double v = edges[(long long)e * K + c];
+        if (v != prev) { out[(long long)w * K + c] = v; w++; prev = v; }
+    }
+    double hv = cmax[c];
+    if (hv != prev) { out[(long long)w * K + c] = hv; w++; prev = hv; }
+    if (w >= 2) w -= 1;          // drop trailing de[-1] for m>=3 (njit de[1:-1]); keep [de[1]] for m==2
+    ne_out[c] = w;
+}
+"""
+_DEDUP_EDGES_KERNEL = None
+
+
+def _get_dedup_edges_kernel():
+    global _DEDUP_EDGES_KERNEL
+    if _DEDUP_EDGES_KERNEL is None:
+        import cupy as cp
+        _DEDUP_EDGES_KERNEL = cp.RawKernel(_DEDUP_EDGES_SRC, "dedup_njit_edges")
+    return _DEDUP_EDGES_KERNEL
+
+
+# Length-aware twin of mi_mm_from_values: each column binary-searches only its VALID prefix ne_k[c] of the
+# (dedup'd) interior edges -- everything else is byte-for-byte the mi_mm_from_values kernel. When ne_k[c] ==
+# nbins-1 (continuous columns, no dup/boundary edges) it is bit-identical to mi_mm_from_values.
+_MI_MM_FROM_VALUES_NEK_SRC = (
+    _MI_MM_FROM_VALUES_SRC
+    .replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
+    .replace(
+        "const double h_y, const int k_y,\n                       double* __restrict__ mi_out) {",
+        "const double h_y, const int k_y,\n                       const int* __restrict__ ne_k, double* __restrict__ mi_out) {")
+    .replace("    int ne = nbins - 1, M = nbins * Ky;", "    int ne = ne_k[c], M = nbins * Ky;")
+)
+_MI_MM_FROM_VALUES_NEK_KERNEL = None
+
+
+def _get_mi_mm_from_values_nek_kernel():
+    global _MI_MM_FROM_VALUES_NEK_KERNEL
+    if _MI_MM_FROM_VALUES_NEK_KERNEL is None:
+        import cupy as cp
+        _MI_MM_FROM_VALUES_NEK_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_NEK_SRC, "mi_mm_from_values_nek")
+    return _MI_MM_FROM_VALUES_NEK_KERNEL
+
 
 def _get_mi_mm_from_values_kernel():
     global _MI_MM_FROM_VALUES_KERNEL
@@ -183,9 +248,21 @@ def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y
     E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     mi_out = cp.empty(K, dtype=cp.float64)
-    _get_mi_mm_from_values_kernel()((K,), (256,),
-        (cp.ascontiguousarray(Xd), E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
-         np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), mi_out),
+    Xc = cp.ascontiguousarray(Xd)
+    # NJIT-PARITY: dedup the per-column interior edges to njit's distinct-threshold set (drops duplicate +
+    # boundary edges that over-bin low-cardinality columns), then bin on only each column's valid prefix.
+    ne = int(E.shape[0])
+    cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64))
+    cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64))
+    Ec = cp.zeros((ne, K), dtype=cp.float64)
+    ne_k = cp.empty(K, dtype=cp.int32)
+    threads = 256
+    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,),
+        (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
+    _get_mi_mm_from_values_nek_kernel()((K,), (256,),
+        (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
+         np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),
+         ne_k, mi_out),
         shared_mem=int(nbins) * Ky * 4)
     return cp.asnumpy(mi_out)
 
