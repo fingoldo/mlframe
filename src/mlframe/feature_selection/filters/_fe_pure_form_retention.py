@@ -408,6 +408,43 @@ def retain_usable_pure_forms(
         pool = build_usability_candidate_pool(
             X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True,
         )
+        # GPU-RESIDENT non-separability filter (MLFRAME_FE_GPU_STRICT + ..._RESIDENT, default OFF). The
+        # per-candidate ``_adds_nonlinear_value`` gate (each call re-uploads the form column + both raw
+        # operand columns and pulls the (n,) residual back -- ~3P bulk H2D + P bulk D2H over the pool) is
+        # replaced under the resident flag by ONE batched call that uploads the candidate value matrix +
+        # every distinct raw operand column ONCE and pulls back only the bounded per-candidate scalars the
+        # gate compares. REGRESSION only (the classification relevance gate is a different discriminator);
+        # any cupy/device/import error or flag-off -> ``_resid_verdicts`` stays None and the loop runs the
+        # exact per-candidate CPU/sklearn ``_adds_nonlinear_value`` (default byte-identical).
+        _resid_verdicts = None
+        if not is_clf:
+            try:
+                from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled
+            except Exception:
+                try:
+                    from ._gpu_strict_fe import fe_gpu_strict_resident_enabled  # type: ignore
+                except Exception:
+                    fe_gpu_strict_resident_enabled = None  # type: ignore
+            if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():
+                try:
+                    from ._fe_pure_form_retention_gpu_resident import adds_nonlinear_value_batch_gpu_resident
+                    _pair_cands = [
+                        c for c in pool
+                        if getattr(c, "recipe", None) is not None and len(set(getattr(c, "src", ()) or ())) == 2
+                    ]
+                    if _pair_cands:
+                        _form_vals = [getattr(c, "values", None) for c in _pair_cands]
+                        _src_pairs = [tuple(getattr(c, "src", ()) or ()) for c in _pair_cands]
+                        _base_cols = [_scrub(X_fit[nm].to_numpy()) for nm in base_names]
+                        _verdicts = adds_nonlinear_value_batch_gpu_resident(
+                            _form_vals, _src_pairs, base_names, _base_cols, _rel_y,
+                            min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr,
+                        )
+                        if _verdicts is not None and len(_verdicts) == len(_pair_cands):
+                            _resid_verdicts = {id(c): bool(v) for c, v in zip(_pair_cands, _verdicts)}
+                except Exception:
+                    _resid_verdicts = None  # any failure -> exact per-candidate CPU path below
+
         filtered = []
         for cand in pool:
             recipe = getattr(cand, "recipe", None)
@@ -417,7 +454,10 @@ def retain_usable_pure_forms(
             src = tuple(getattr(cand, "src", ()) or ())
             if len(set(src)) != 2:
                 continue
-            if _adds_nonlinear_value(getattr(cand, "values", None), src[0], src[1]):
+            if _resid_verdicts is not None:
+                if _resid_verdicts.get(id(cand), False):
+                    filtered.append(cand)
+            elif _adds_nonlinear_value(getattr(cand, "values", None), src[0], src[1]):
                 filtered.append(cand)
         usable = usability_greedy(
             filtered, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15, classification=is_clf,
