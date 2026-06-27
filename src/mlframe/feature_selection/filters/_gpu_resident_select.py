@@ -562,10 +562,93 @@ void radix_select_interp_f64(const double* __restrict__ data, const long long n,
 _RADIX_SELECT_INTERP_F64_KERNEL = None
 
 
+# V2 FUSED select+interp f64 (2026-06-27, nvprof-driven). The original radix_select_interp_f64 still runs the
+# per-pass window dedup AND the per-rank cumulative scan SERIALLY in tid==0 while the other 1023 threads idle
+# (8 byte-passes x R ranks x up-to-256 bins each in one thread). This v2 ports the two parallelisations the
+# f32 ``v3`` kernel already proved bit-identical: (a) the data-loop window match becomes a BINARY SEARCH over
+# the sorted active-window prefixes (was a divergent linear scan), and (b) the per-rank cumulative-scan +
+# prefix advance runs PARALLEL -- thread r owns rank r (disjoint below/prefix slots, own histogram slice) --
+# identical result to the serial tid==0 loop. radix_select_interp_f64 was the #1 GPU kernel (33% of GPU time);
+# it is on the critical path (each resident twin syncs to read edges). The radix body is byte-for-byte the
+# original select (same f64 bit-flip, same histogram, same chosen-digit rule) and the interp tail is identical
+# -> BIT-IDENTICAL interior edges. Original kept as the automatic fallback on any compile/launch failure.
+_RADIX_SELECT_INTERP_F64_V2_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_interp_f64_v2(const double* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R,
+                      const long long* __restrict__ bi, const long long* __restrict__ ai,
+                      const double* __restrict__ w, const int ne, double* __restrict__ edges){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned long long prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned long long wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ unsigned long long wsort[MAXR];   // wpref sorted ascending (distinct active window prefixes)
+    __shared__ int wsort2w[MAXR];                // sorted position -> ORIGINAL window index (into wpref / sh)
+    __shared__ int W;
+    __shared__ double osv_sh[MAXR];
+    if(tid<R){prefix[tid]=0ULL;below[tid]=0ULL;}
+    __syncthreads();
+    for(int byte=7;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned long long hmask=(byte==7)?0ULL:(0xFFFFFFFFFFFFFFFFULL<<((byte+1)*8));
+        if(tid==0){int w_=0;for(int r=0;r<R;++r){unsigned long long p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w_;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w_]=p;rank2w[r]=w_;w_++;}else rank2w[r]=f;} W=w_;
+            for(int q=0;q<w_;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+            for(int a=1;a<w_;++a){unsigned long long kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        __syncthreads();
+        int Wl=W;
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        for(long long i=tid;i<n;i+=nt){
+            double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);
+            u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+            unsigned long long pm=u&hmask;
+            int lo=0,hi=Wl;
+            while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+            if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
+        }
+        __syncthreads();
+        // PARALLEL per-rank cumulative scan + prefix advance (identical result to the serial tid==0 loop).
+        if(tid<R){int w2=rank2w[tid];unsigned long long acc=below[tid];int chosen=0;long long want=ranks[tid];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w2*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[tid]=acc;prefix[tid]=(prefix[tid]&hmask)|((unsigned long long)chosen<<shift);}
+        __syncthreads();
+    }
+    if(tid<R){unsigned long long u=prefix[tid];u=(u&0x8000000000000000ULL)?(u&0x7FFFFFFFFFFFFFFFULL):~u;
+        double d;memcpy(&d,&u,8);osv_sh[tid]=d;}
+    __syncthreads();
+    for(int e=tid;e<ne;e+=nt){
+        double ab=osv_sh[bi[e]], aa=osv_sh[ai[e]], ww=w[e]; double diff=aa-ab;
+        edges[(long long)e*K+col] = ww<0.5 ? (ab+diff*ww) : (aa-diff*(1.0-ww));
+    }
+}
+"""
+_RADIX_SELECT_INTERP_F64_V2_KERNEL = None
+
+
 def _get_radix_select_interp_f64_kernel():
-    global _RADIX_SELECT_INTERP_F64_KERNEL
+    """The fused f64 select+interp kernel. Returns the parallel-per-rank-scan + binary-search v2 (the measured
+    win) when it compiles, else the original serial-tid0 kernel. Both produce BIT-IDENTICAL interior edges."""
+    global _RADIX_SELECT_INTERP_F64_KERNEL, _RADIX_SELECT_INTERP_F64_V2_KERNEL
+    import cupy as cp
+    if os.environ.get("MLFRAME_RADIX_F64_V2", "1").strip().lower() in ("1", "true", "on", "yes"):
+        if _RADIX_SELECT_INTERP_F64_V2_KERNEL is None:
+            try:
+                _RADIX_SELECT_INTERP_F64_V2_KERNEL = cp.RawKernel(
+                    _RADIX_SELECT_INTERP_F64_V2_SRC, "radix_select_interp_f64_v2")
+            except Exception:
+                import logging
+                logging.getLogger(__name__).debug("f64 v2 fused kernel compile failed; original", exc_info=True)
+                _RADIX_SELECT_INTERP_F64_V2_KERNEL = False
+        if _RADIX_SELECT_INTERP_F64_V2_KERNEL:
+            return _RADIX_SELECT_INTERP_F64_V2_KERNEL
     if _RADIX_SELECT_INTERP_F64_KERNEL is None:
-        import cupy as cp
         _RADIX_SELECT_INTERP_F64_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_SRC, "radix_select_interp_f64")
     return _RADIX_SELECT_INTERP_F64_KERNEL
 
