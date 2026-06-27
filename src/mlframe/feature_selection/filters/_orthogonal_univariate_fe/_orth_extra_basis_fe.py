@@ -417,6 +417,27 @@ def _detect_fourier_freqs_for_col(
     66k vector to compute ONE float, pure overhead. All three are already at the CPU optimum (fused
     njit(parallel) machine code, 2.45-9.2x over the numpy loop), gated below the parallel-crossover for small n.
     """
+    # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
+    # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the column operand + target resident on the
+    # device and run the deflation loop on cupy. Selection-equivalent to (NOT byte-identical with) this CPU path
+    # within the coarse-grid tolerance. Any cupy/device error falls through to the CPU njit path below, so the
+    # default (flag-off) path is byte-identical and a GPU fault never breaks a fit. See the bench-note: this twin
+    # is EXPECTED slower on small-n / sequential-loop HW and that is a PASS by the residency contract.
+    try:
+        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on  # type: ignore
+    except Exception:
+        _fourier_resident_flag_on = None  # type: ignore
+    if _fourier_resident_flag_on is not None:
+        try:
+            if _fourier_resident_flag_on():
+                from ._fourier_detect_gpu_resident import detect_fourier_freqs_for_col_gpu
+                from .._fourier_detect_cap import get_fourier_detect_max_n
+                return detect_fourier_freqs_for_col_gpu(
+                    z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows,
+                    max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(),
+                )
+        except Exception:
+            pass  # any cupy/device/import error -> fall through to the CPU njit path (byte-identical default)
     z01 = np.asarray(z01, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
     n = z01.size
