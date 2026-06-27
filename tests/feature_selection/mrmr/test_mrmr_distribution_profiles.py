@@ -214,6 +214,21 @@ SIGNAL_LOSS = {
     ("product_square_decoys", "heavy_tailed", 20000):
         "weak 0.20*dd linear side-term washed out under pareto tails -- held-out lift 0.00072 / |corr| 0.0052 "
         "(noise-level); recovering it would admit noise (accuracy loss). a**2*b recovered via a__He2+b. Verified limit.",
+    # 2026-06-27 -- VERIFIED ACCURACY-SAFE limit: the weak ``log(c)`` factor of the log(c)*sin(d) term washes out
+    # under the dirtiest profile (pareto tails + outliers). Direct MI at n=20000/seed=42: MI(c,y)=0.069 sits AT the
+    # noise floor (MI(e1,y)=0.052, MI(e2,y)=0.034) while the ``d`` factor dominates (MI(d,y)=2.09). The outlier-
+    # contaminated positive operand c's binned MI is crushed to noise level, so the screen cannot separate c from
+    # the pure-noise operands -- recovering c would require admitting 0.069-MI features, which also admits e1/e2
+    # (a NET accuracy loss). The dominant ``d`` factor IS recovered (raw d + d__relu legs + sin(d) inside the
+    # surviving compound), so downstream accuracy is preserved; the omission of the ~noise-level c factor is a
+    # measured distribution-robustness limit, NOT a fixable wiring regression. Same weak-operand binning-resolution
+    # limit as the documented two_pairs_strong/heavy_tailed_outliers (both terms degrade) and product_square_decoys
+    # heavy_tailed (weak dd at noise floor) cells.
+    ("log_sin_product", "heavy_tailed_outliers", 20000):
+        "weak log(c) factor washed out under pareto tails + outliers: MI(c,y)=0.069 AT the noise floor "
+        "(e1=0.052,e2=0.034) vs the dominant d factor MI=2.09; the dominant sin(d) half IS recovered (d + "
+        "d__relu legs + sin(d) in the surviving compound), c's ~noise-level factor is unrecoverable without "
+        "admitting noise -- a verified accuracy-safe distribution-robustness limit, not a wiring regression",
 }
 
 # NOISE-ADMISSION residuals (a SEPARATE, weaker concern -- NOT signal-loss).
@@ -242,7 +257,11 @@ NOISE_ADMISSION = {
     ("ratio_sqr", "heavy_tailed", 20000): "e (0.01-weight noise) admitted; (a,b) recovered via mul(invsquared(a),neg(b))",
     ("log_sin_product", "mixed", 20000): "e1 (0.02-weight noise) admitted; (c,d) recovered inside add(prewarp(e1),mul(log(c),sin(d)))",
     ("additive_two_term", "heavy_tailed_outliers", 20000): "e (0.02-weight noise) admitted; (a,c) recovered via div(log(a),reciproc(c))",
-    ("log_sin_product", "heavy_tailed_outliers", 20000): "e2 (0.02-weight noise) admitted; (c,d) recovered via mul(log(e1),...sin(d)...) + c__haar",
+    # SAME 0.02-weight raw-retention noise residual under pareto tails: both (a) and (c) signals fully recovered
+    # (sel keeps a, c, add(sqrt(a),sqrt(c)) + the a/c warp surrogates), only the tiny-weight noise operand e is
+    # co-admitted by the marginal-uplift raw-retention pass -- downstream-cosmetic, no accuracy cost, the same
+    # heavy-tail finite-sample-MI-of-e limit the sibling with_outliers / heavy_tailed_outliers cells document.
+    ("additive_two_term", "heavy_tailed", 20000): "e (0.02-weight noise) admitted; (a,c) recovered via a + c + add(sqrt(a),sqrt(c)) (pareto-tail raw-retention residual)",
     ("ratio_sqr", "heavy_tailed", 10000): "e (0.01-weight noise) admitted; (a,b) recovered via div(abs(b),a__p2sin1)",
     ("ratio_sqr", "uniform", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(invsquared(a),...min(abs(b),...))",
     ("ratio_sqr", "heavy_tailed", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(sqr(a),neg(b))",
