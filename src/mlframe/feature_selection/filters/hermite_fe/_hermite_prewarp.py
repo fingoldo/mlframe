@@ -146,6 +146,23 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     sweep is different and the params are kept only for call-site symmetry / future
     work. See the ``# bench-attempt-rejected`` note in the body for the numbers.
     """
+    # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
+    # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the design matrices + target resident on the
+    # device and run the alternating normal-equation sweep on cupy. Selection-equivalent to (== ~1e-13, NOT
+    # byte-identical) this CPU path. Any cupy/device/import error falls through to the CPU normal-eq path below, so
+    # the default (flag-off) path is byte-identical and a GPU fault never breaks a fit. See the bench-note below:
+    # this twin is EXPECTED slower on the small-n / sequential-sweep HW and that is a PASS by the residency contract.
+    try:
+        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _als_resident_flag_on  # type: ignore
+    except Exception:
+        _als_resident_flag_on = None  # type: ignore
+    if _als_resident_flag_on is not None:
+        try:
+            if _als_resident_flag_on():
+                from ._hermite_prewarp_gpu_resident import warm_start_als_seed_gpu
+                return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
+        except Exception:
+            pass  # any cupy/device/import error -> fall through to the CPU normal-eq path (byte-identical default)
     yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
     yc = yc - yc.mean()
     if float(np.std(yc)) < 1e-12:
