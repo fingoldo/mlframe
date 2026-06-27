@@ -271,7 +271,11 @@ def usability_greedy_gpu_resident(
                     Sc_tr = Sc_va = mu = Gs = bs = None
                 per_fold.append((tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs))
 
-            out: dict = {}
+            # Accumulate EVERY candidate's per-fold MAE row resident, then do ONE D2H for the whole
+            # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate -- the values
+            # are unchanged, just coalesced into a single device->host sync per round.
+            errs_rows = []          # resident (nf,) row per candidate, in cand_list order
+            cand_keys = []
             for i in cand_list:
                 ci = Vdev[:, i]
                 errs_dev = cp.empty(nf, dtype=cp.float64)   # accumulate fold MAEs resident; ONE D2H/candidate
@@ -312,7 +316,13 @@ def usability_greedy_gpu_resident(
                     errs_dev[fo] = cp.mean(cp.abs(ydev[va] - pred))
                 if singular:
                     raise _ResidentFallback()
-                out[i] = cp.asnumpy(errs_dev)   # bounded (nf,) result vector, ONE D2H per candidate
+                errs_rows.append(errs_dev)
+                cand_keys.append(i)
+            out: dict = {}
+            if errs_rows:
+                errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))   # ONE D2H for the whole shortlist
+                for r, i in enumerate(cand_keys):
+                    out[i] = errs_host[r]
             return out
 
         min_improving_folds = max(1, int(math.ceil(0.75 * nf)))

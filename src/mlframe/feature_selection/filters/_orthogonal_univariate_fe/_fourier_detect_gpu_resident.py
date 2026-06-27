@@ -64,22 +64,51 @@ def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
     return _corr_sq_centered_gpu(cp, s, yc, y_ss) + _corr_sq_centered_gpu(cp, c, yc, y_ss)
 
 
+def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
+    """Periodogram power against pre-centered resident ``yc`` for EVERY frequency in
+    resident ``freqs_dev`` (F,) in ONE batched pass -- the (F, n) sin/cos planes and
+    all centered dots run as matmuls, returning a resident (F,) power vector (no
+    per-frequency scalar D2H). Selection-equivalent to calling ``_power_centered_gpu``
+    per frequency: same raw-moment v_ss = v@v - sum(v)^2/n, same num = v@yc, same
+    relative degeneracy guard, summed over the sin + cos planes."""
+    n = z.shape[0]
+    ang = (_TWO_PI * freqs_dev)[:, None] * z[None, :]      # (F, n)
+    s = cp.sin(ang)
+    c = cp.cos(ang)
+
+    def _corr_sq_rows(plane):
+        sv = plane.sum(axis=1)                              # (F,)
+        vv = (plane * plane).sum(axis=1)                    # (F,)
+        vy = plane @ yc                                     # (F,)
+        v_ss = vv - sv * sv / n
+        ok = (v_ss > 1e-12 * vv) & (v_ss >= 1e-24)
+        denom = v_ss * y_ss
+        val = cp.where(denom > 0.0, (vy * vy) / cp.where(denom > 0.0, denom, 1.0), 0.0)
+        return cp.where(ok & (y_ss >= 1e-24), val, 0.0)
+
+    return _corr_sq_rows(s) + _corr_sq_rows(c)
+
+
 def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
     """GPU twin of ``_refine_peak_freq``: two-stage local scan (+-0.25 @ 0.05,
-    then +-0.05 @ 0.0125) maximising resident periodogram power. Scalar argmax."""
+    then +-0.05 @ 0.0125) maximising resident periodogram power. Each scan's
+    candidate frequencies (the center + the swept grid) are powered in ONE batched
+    matmul pass and the argmax is a single scalar D2H -- selection-equivalent to the
+    per-frequency scan (same powers, ``cp.argmax`` first-max ties matching the
+    original strictly-greater earliest-wins order)."""
     def _scan(center: float, half_width: float, step: float):
         lo_r = max(0.05, center - half_width)
         hi_r = center + half_width
         n_steps = int(round((hi_r - lo_r) / step)) + 1
-        best_f = center
-        best_p = _power_centered_gpu(cp, z_tr, yc, y_ss, center)
-        for k in range(n_steps):
-            f = lo_r + step * k
-            p = _power_centered_gpu(cp, z_tr, yc, y_ss, f)
-            if p > best_p:
-                best_p = p
-                best_f = f
-        return best_f, best_p
+        # freq order = [center, lo_r+0*step, ..., lo_r+(n_steps-1)*step]: the center is
+        # the initial best, then strictly-greater earliest-wins -> argmax first-max.
+        freqs_host = np.empty(n_steps + 1, dtype=np.float64)
+        freqs_host[0] = center
+        freqs_host[1:] = lo_r + step * np.arange(n_steps, dtype=np.float64)
+        freqs_dev = cp.asarray(freqs_host)
+        powers = _power_grid_centered_gpu(cp, z_tr, yc, y_ss, freqs_dev)
+        bi = int(cp.argmax(powers))                        # single scalar D2H per scan
+        return float(freqs_host[bi]), 0.0
     f1, _ = _scan(coarse_f, 0.25, 0.05)
     f2, _ = _scan(f1, 0.05, 0.0125)
     return float(f2)
