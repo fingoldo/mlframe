@@ -17,6 +17,40 @@ from __future__ import annotations
 import numpy as np
 
 
+def _assert_codes_in_range(arr, K: int, name: str) -> None:
+    """Guard integer code inputs to the device histogram kernels against out-of-range codes.
+
+    The fused kernels use a code value DIRECTLY as a shared-memory / flat-histogram offset
+    (e.g. ``sh[lo*Ky + y[i]]``, ``(col*Kx+xv)*Kb+b[row]``, ``(x*Ky+y)*Kz+zi``). The histogram
+    width is sized from ``max()+1`` only, so any code < 0 (a -1 missing/sentinel) or >= K writes
+    OUTSIDE the allocated histogram -> cudaErrorIllegalAddress (a hard GPU crash, not a Python
+    error). The njit reference (_hermite_fe_mi) guards this exact class explicitly; mirror it here.
+
+    O(1) device reductions (min/max), no per-element Python. Raises ValueError so an upstream -1
+    sentinel surfaces as a clear error instead of a GPU illegal-address crash. The resident binner
+    never emits negative codes, so on the happy path this only ever fires on a genuine upstream bug.
+    """
+    try:
+        import cupy as cp
+        xp = cp if isinstance(arr, cp.ndarray) else np
+    except Exception:
+        xp = np
+    if getattr(arr, "size", 1) == 0:
+        return
+    lo = int(xp.min(arr))
+    hi = int(xp.max(arr))
+    if lo < 0:
+        raise ValueError(
+            "%s contains a negative integer code (min=%d); codes must be 0-based in [0, %d). A -1 "
+            "missing/sentinel would index outside the device histogram (illegal address)." % (name, lo, int(K))
+        )
+    if hi >= int(K):
+        raise ValueError(
+            "%s code out of range (max=%d >= K=%d); a code >= histogram width would index outside "
+            "the device histogram (illegal address)." % (name, hi, int(K))
+        )
+
+
 # FUSED MI-FROM-CODES RawKernel (launch-reduction rewrite, 2026-06-25). ONE launch computes plug-in
 # MI(col_k; y) for EVERY column of an (n,K) int code matrix, replacing the cupy chain bincount + reshape
 # + sum(axis) x2 + where + log + multiply + sum (~7 cuLaunchKernel) with a single kernel launch (also via
@@ -247,6 +281,7 @@ def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y
         return None
     E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
+    _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_values_gpu y codes")
     mi_out = cp.empty(K, dtype=cp.float64)
     Xc = cp.ascontiguousarray(Xd)
     # NJIT-PARITY: dedup the per-column interior edges to njit's distinct-threshold set (drops duplicate +
@@ -291,6 +326,7 @@ def binned_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins: int, ky: i
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
+    _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes")
     mi_out = cp.empty(K, dtype=cp.float64)
     _get_mi_from_values_kernel()((K,), (256,), (cp.ascontiguousarray(Xd), E, yv, np.int64(n), np.int32(K),
                                               np.int32(int(nbins)), np.int32(Ky), np.float64(1.0 / float(max(1, n))), mi_out),
@@ -1020,10 +1056,12 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
     nf = float(max(1, n))
     inv_n = 1.0 / nf
     Kx = int(X.max()) + 1 if X.size else 1
+    _assert_codes_in_range(X, Kx, "batched_cmi_gpu X codes")
 
     if z is None or (hasattr(z, "size") and np.asarray(z).size == 0):
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
         Ky = int(dy.max()) + 1 if dy.size else 1
+        _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes")
         cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky).astype(cp.float64)   # (K, Kx*Ky), in-kernel flat key
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
         cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
@@ -1035,6 +1073,10 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
 
     dz = cp.asarray(np.ascontiguousarray(z).astype(np.int64).ravel())
     Kz = int(dz.max()) + 1 if dz.size else 1
+    # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
+    Ky_cond = int(dy.max()) + 1 if dy.size else 1
+    _assert_codes_in_range(dy, Ky_cond, "batched_cmi_gpu y codes")
+    _assert_codes_in_range(dz, Kz, "batched_cmi_gpu z codes")
     # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
     # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
     h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)

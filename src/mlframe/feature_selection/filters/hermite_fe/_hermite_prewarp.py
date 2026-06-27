@@ -156,13 +156,28 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _als_resident_flag_on  # type: ignore
     except Exception:
         _als_resident_flag_on = None  # type: ignore
-    if _als_resident_flag_on is not None:
+    if _als_resident_flag_on is not None and _als_resident_flag_on():
+        # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
+        # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
+        # propagates to tests instead of silently degrading to CPU as a "device fallback".
         try:
-            if _als_resident_flag_on():
-                from ._hermite_prewarp_gpu_resident import warm_start_als_seed_gpu
-                return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
+            from ._hermite_prewarp_gpu_resident import warm_start_als_seed_gpu
+            _twin_ready = True
         except Exception:
-            pass  # any cupy/device/import error -> fall through to the CPU normal-eq path (byte-identical default)
+            _twin_ready = False
+        if _twin_ready:
+            _dev_errs = []
+            try:
+                _dev_errs.append(np.linalg.LinAlgError)
+                import cupy as _cp  # type: ignore
+                _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
+                _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
+            except Exception:
+                pass
+            try:
+                return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
+            except tuple(_dev_errs):
+                pass  # genuine cupy/device/linalg fault -> CPU normal-eq path (byte-identical default); logic bugs propagate
     yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
     yc = yc - yc.mean()
     if float(np.std(yc)) < 1e-12:

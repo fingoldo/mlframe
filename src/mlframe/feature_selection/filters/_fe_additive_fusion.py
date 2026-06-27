@@ -134,10 +134,25 @@ def propose_additive_fusions(
         from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fusion_resident_flag_on  # type: ignore
     except Exception:
         _fusion_resident_flag_on = None  # type: ignore
-    if _fusion_resident_flag_on is not None:
+    if _fusion_resident_flag_on is not None and _fusion_resident_flag_on():
+        # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
+        # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
+        # propagates to tests instead of silently degrading to CPU as a "device fallback".
         try:
-            if _fusion_resident_flag_on():
-                from ._fe_additive_fusion_gpu_resident import propose_additive_fusions_gpu
+            from ._fe_additive_fusion_gpu_resident import propose_additive_fusions_gpu
+            _twin_ready = True
+        except Exception:
+            _twin_ready = False
+        if _twin_ready:
+            _dev_errs = []
+            try:
+                _dev_errs.append(np.linalg.LinAlgError)
+                import cupy as _cp  # type: ignore
+                _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
+                _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
+            except Exception:
+                pass
+            try:
                 return propose_additive_fusions_gpu(
                     self,
                     engineered_recipes=engineered_recipes,
@@ -151,8 +166,8 @@ def propose_additive_fusions(
                     seed=seed,
                     verbose=verbose,
                 )
-        except Exception:
-            pass  # any cupy/device/import error -> fall through to the CPU path (byte-identical default)
+            except tuple(_dev_errs):
+                pass  # genuine cupy/device/linalg fault -> CPU path (byte-identical default); logic bugs propagate
 
     if not engineered_recipes or not newly_engineered_names:
         return [], set(), set()

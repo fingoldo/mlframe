@@ -427,17 +427,32 @@ def _detect_fourier_freqs_for_col(
         from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on  # type: ignore
     except Exception:
         _fourier_resident_flag_on = None  # type: ignore
-    if _fourier_resident_flag_on is not None:
+    if _fourier_resident_flag_on is not None and _fourier_resident_flag_on():
+        # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
+        # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
+        # propagates to tests instead of silently degrading to CPU as a "device fallback".
         try:
-            if _fourier_resident_flag_on():
-                from ._fourier_detect_gpu_resident import detect_fourier_freqs_for_col_gpu
-                from .._fourier_detect_cap import get_fourier_detect_max_n
+            from ._fourier_detect_gpu_resident import detect_fourier_freqs_for_col_gpu
+            from .._fourier_detect_cap import get_fourier_detect_max_n
+            _twin_ready = True
+        except Exception:
+            _twin_ready = False
+        if _twin_ready:
+            _dev_errs = []
+            try:
+                _dev_errs.append(np.linalg.LinAlgError)
+                import cupy as _cp  # type: ignore
+                _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
+                _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
+            except Exception:
+                pass
+            try:
                 return detect_fourier_freqs_for_col_gpu(
                     z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows,
                     max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(),
                 )
-        except Exception:
-            pass  # any cupy/device/import error -> fall through to the CPU njit path (byte-identical default)
+            except tuple(_dev_errs):
+                pass  # genuine cupy/device/linalg fault -> CPU njit path (byte-identical default); logic bugs propagate
     z01 = np.asarray(z01, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
     n = z01.size

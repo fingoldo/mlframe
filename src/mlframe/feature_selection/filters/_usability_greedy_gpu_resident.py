@@ -276,10 +276,19 @@ def usability_greedy_gpu_resident(
             # are unchanged, just coalesced into a single device->host sync per round.
             errs_rows = []          # resident (nf,) row per candidate, in cand_list order
             cand_keys = []
+            # Round-1 (empty selection) singular-border guard, kept RESIDENT: the per-candidate-per-fold
+            # cc_tr.cc_tr was previously pulled back as a float() scalar PER CANDIDATE PER FOLD (a per-candidate
+            # scalar D2H that contradicts this round's "one coalesced D2H" contract). Instead accumulate each
+            # candidate's MINIMUM fold cc_tr.cc_tr resident and coalesce ALL of them into the SAME single D2H
+            # as the fold-MAE matrix below; the border is then checked host-side once per round. Same verdict:
+            # if any round-1 candidate-fold has cc_tr.cc_tr <= 1e-12 the round raises _ResidentFallback (the
+            # whole resident path then refits exactly on CPU), identical to the prior mid-loop break.
+            mind_rows = []          # resident scalar (min fold d) per candidate when Sc_tr is None; else None
             for i in cand_list:
                 ci = Vdev[:, i]
                 errs_dev = cp.empty(nf, dtype=cp.float64)   # accumulate fold MAEs resident; ONE D2H/candidate
                 singular = False
+                cand_mind = None     # resident running-min cc_tr.cc_tr over folds (round-1 border)
                 for fo in range(nf):
                     tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
                     ctr = ci[tr]
@@ -288,10 +297,10 @@ def usability_greedy_gpu_resident(
                     cc_tr = ctr - cmu
                     cc_va = cva - cmu
                     if Sc_tr is None:
-                        d = float(cp.dot(cc_tr, cc_tr))   # scalar sync: the singular-border guard (bounded)
-                        if d <= 1e-12:
-                            singular = True
-                            break
+                        d = cp.dot(cc_tr, cc_tr)          # resident; border checked in the coalesced D2H below
+                        cand_mind = d if cand_mind is None else cp.minimum(cand_mind, d)
+                        # cc_tr.cc_tr == 0 only on a constant train operand; the divide then yields inf/nan,
+                        # the fold MAE is nan, and the host-side border check below converts that to a fallback.
                         beta = cp.dot(cc_tr, yc) / d
                         pred = ybar + cc_va * beta
                     else:
@@ -318,9 +327,16 @@ def usability_greedy_gpu_resident(
                     raise _ResidentFallback()
                 errs_rows.append(errs_dev)
                 cand_keys.append(i)
+                mind_rows.append(cand_mind)
             out: dict = {}
             if errs_rows:
                 errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))   # ONE D2H for the whole shortlist
+                # Coalesced round-1 border check: pull the per-candidate min cc_tr.cc_tr back in the SAME
+                # round (one stacked D2H), then fall back exactly if any candidate sits on the singular border.
+                if any(m is not None for m in mind_rows):
+                    mind_host = cp.asnumpy(cp.stack([m for m in mind_rows if m is not None]))
+                    if float(mind_host.min()) <= 1e-12:
+                        raise _ResidentFallback()
                 for r, i in enumerate(cand_keys):
                     out[i] = errs_host[r]
             return out
