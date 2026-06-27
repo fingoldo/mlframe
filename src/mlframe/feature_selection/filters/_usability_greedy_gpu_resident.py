@@ -42,11 +42,12 @@ float reduction ORDER differs between cupy and numpy (~1e-12), to which the gate
 are tolerant; on a near-tie that a reduction-order shift would flip, the result
 falls back to the CPU value (the singular-border fallback already refits exactly).
 
-CLASSIFICATION is NOT ported here: its scorer is an sklearn LogisticRegression
-CV-logloss (an iterative solver with no closed-form bordered update), so the
-resident twin only covers the REGRESSION CV-MAE greedy and the caller passes
-``classification`` straight through -- a classification call returns ``None`` so
-the dispatcher falls through to the exact CPU logistic path.
+CLASSIFICATION is handled by the resident logistic sibling
+:mod:`_usability_greedy_clf_gpu_resident` (an L2 Newton / IRLS on the standardized
+bordered design giving the same strictly-convex optimum sklearn's lbfgs finds, scored
+by resident CV-logloss). This module's ``classification=True`` entry delegates to that
+sibling so each module stays under the LOC budget; both keep the ``None``-on-failure /
+flag-off byte-identical CPU contract.
 
 Any cupy / device / import error returns ``None`` so the caller falls back to the
 unchanged CPU greedy, keeping the default (flag-off) path byte-identical and a GPU
@@ -84,7 +85,18 @@ def usability_greedy_gpu_resident(
     kwarg unchanged); the RAM-governor ``K``-shrink the CPU path applies is also
     applied here so the resident selection matches under memory pressure."""
     if classification:
-        return None  # logistic CV-logloss has no bordered closed form -> CPU path
+        # CLASSIFICATION is handled by the resident logistic twin (its own module so each stays
+        # under the LOC budget). It returns ``None`` for a single-class target, a non-convergent /
+        # singular / degenerate fold fit, or any cupy/device error -> the dispatcher then falls
+        # through to the exact CPU logistic greedy, keeping flag-off + failures byte-identical CPU.
+        try:
+            from ._usability_greedy_clf_gpu_resident import usability_greedy_clf_gpu_resident
+        except Exception:
+            return None
+        return usability_greedy_clf_gpu_resident(
+            pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
+            mae_improve_rel=mae_improve_rel, shortlist=shortlist,
+        )
     if not pool:
         return None
     try:
