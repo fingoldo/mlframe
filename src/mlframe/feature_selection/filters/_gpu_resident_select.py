@@ -765,12 +765,20 @@ def _get_radix_interp_kernel():
     return _RADIX_INTERP_KERNEL
 
 
-def _radix_select_interior_edges(cand_gpu, nbins: int):
+def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
     sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
     are BIT-IDENTICAL (in the resulting codes) to ``cp.percentile(cand, linspace(0,100,nbins+1))[1:-1]``.
     Returns ``None`` if the radix path is inapplicable (R over the kernel cap, shared-mem over the device
-    limit) so the caller uses the cp.percentile fallback. ``cand_gpu`` must be C-contiguous (n, K)."""
+    limit) so the caller uses the cp.percentile fallback. ``cand_gpu`` must be C-contiguous (n, K).
+
+    ``cm_hint`` (LAUNCH-FUSION 2026-06-27): an OPTIONAL (K, n) C-order column-major view of the SAME data as
+    ``cand_gpu`` (e.g. the materialise kernel's pre-transpose cm buffer). When supplied, the internal
+    ``_transpose_to_cm(cand_gpu)`` is SKIPPED -- the chunk path already produced this exact buffer (the
+    materialise kernel wrote cm then transposed it to the rm ``cand_gpu``), so the round-trip transpose pair
+    (rm->cm here + cm->rm in materialise) collapses to ONE. The order statistics read the same values ->
+    BIT-IDENTICAL edges. Validated shape (K, n) == (cand_gpu.shape[1], cand_gpu.shape[0]); any mismatch
+    ignores the hint and transposes (safe)."""
     import cupy as cp
 
     n, K = cand_gpu.shape
@@ -799,7 +807,13 @@ def _radix_select_interior_edges(cand_gpu, nbins: int):
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
     # (data[col*n+i]) -- one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
-    data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
+    # Reuse the materialise kernel's pre-transpose (K, n) cm buffer when handed in (launch-fusion: skip the
+    # rm->cm transpose that exactly inverts materialise's cm->rm). Validate shape/contiguity/dtype; else transpose.
+    if (cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous
+            and cm_hint.dtype == cand_gpu.dtype):
+        data_cm = cm_hint
+    else:
+        data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
     threads = _resolve_radix_threads(n)    # Lever B: per-host KTC-tuned block size (bit-identical edges)
     # cupy 'linear' interp gather indices + weight (bi/ai/w), cached per (n, nbins) -- needed BEFORE the kernel
     # for the fused f64 path, which interpolates in-kernel.
@@ -945,7 +959,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
 _BIN_CODES_SRC = r"""
 extern "C" __global__
 void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict__ edges,
-                        const long long n, const int K, const int ne, int* __restrict__ out) {
+                        const long long n, const int K, const int ne, OUTTYPE* __restrict__ out) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (idx >= total) return;
@@ -956,28 +970,46 @@ void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict_
         int mid = (lo + hi) >> 1;
         if (edges[(long long)mid * K + col] <= v) lo = mid + 1; else hi = mid;
     }
-    out[idx] = lo;                             // = #(edges <= v) = searchsorted(.., 'right')
+    out[idx] = (OUTTYPE)lo;                     // = #(edges <= v) = searchsorted(.., 'right')
 }
 """
+
+# LAUNCH-FUSION (2026-06-27, bit-identical): emit the NARROW code dtype (int8/int16) straight from the
+# binning kernel instead of int32-then-astype. The resident chunk path discretized to int32 (this kernel)
+# then immediately cast int32->int8 per VRAM chunk (a separate launch + a full (n,K) int32 intermediate,
+# ~12-24x/fit). Instantiating the kernel's OUTPUT type directly (OUTTYPE) drops that cast launch + the int32
+# buffer. nbins<=255 -> int8 cannot overflow (codes are in [0, nbins-1]); the on-device write is the same
+# upper_bound value, only narrower -- BIT-IDENTICAL to int32-then-astype. The default out_dtype stays int32
+# so every other caller (basis/hermite) is byte-for-byte unchanged.
+_BIN_CODES_OUTTYPE = {"int8": "signed char", "int16": "short", "int32": "int", "int64": "long long"}
 
 _BIN_CODES_KERNELS: dict = {}
 
 
-def _get_bin_codes_kernel(dtype):
-    """Lazy-compiled (pickle-safe, module-level cache) fused binning RawKernel for f32 / f64."""
+def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
+    """Lazy-compiled (pickle-safe, module-level cache) fused binning RawKernel for f32 / f64 input
+    and a templated narrow OUTPUT dtype (int8/int16/int32/int64). Keyed on (input, output)."""
     import cupy as cp
 
-    key = "f64" if dtype == cp.float64 else "f32"
-    k = _BIN_CODES_KERNELS.get(key)
+    in_key = "f64" if dtype == cp.float64 else "f32"
+    cache_key = in_key + "_" + out_name
+    k = _BIN_CODES_KERNELS.get(cache_key)
     if k is None:
-        ctype = "double" if key == "f64" else "float"
-        src = _BIN_CODES_SRC.replace("TYPENAME", key).replace("TYPE", ctype)
-        k = cp.RawKernel(src, "bin_codes_" + key)
-        _BIN_CODES_KERNELS[key] = k
+        ctype = "double" if in_key == "f64" else "float"
+        out_ctype = _BIN_CODES_OUTTYPE.get(out_name, "int")
+        # TYPENAME is part of the C symbol name (must be a valid identifier); fold the output dtype into it
+        # so the int8/int16/int32 kernels get distinct symbols within one translation unit per instantiation.
+        sym = "bin_codes_" + in_key + "_" + out_name
+        src = (_BIN_CODES_SRC
+               .replace("bin_codes_TYPENAME", sym)
+               .replace("OUTTYPE", out_ctype)     # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
+               .replace("TYPE", ctype))
+        k = cp.RawKernel(src, sym)
+        _BIN_CODES_KERNELS[cache_key] = k
     return k
 
 
-def _searchsorted_codes(cand_gpu, interior_edges):
+def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
     """Bin (n,K) ``cand_gpu`` against per-column ascending ``interior_edges`` (ne,K) -> int32 (n,K) codes,
     code = #(interior edges <= value) (== per-column cp.searchsorted side='right'). One fused kernel
     launch (no K searchsorted launches, no int64->int32 cast). Falls back to the per-column loop on any
@@ -993,11 +1025,15 @@ def _searchsorted_codes(cand_gpu, interior_edges):
         cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
         edges_c = cp.ascontiguousarray(interior_edges, dtype=cp.float64)  # edges f64 (match cp.searchsorted promotion)
         ne = int(edges_c.shape[0])
-        out = cp.empty((n, K), dtype=cp.int32)
+        # out_dtype lets the resident chunk path emit the NARROW code dtype (int8/int16) DIRECTLY (launch-fusion:
+        # drops the downstream int32->int8 astype launch + the int32 (n,K) intermediate). Default int32 keeps
+        # every other caller byte-identical. nbins<=255 -> int8 cannot overflow (codes in [0, nbins-1]).
+        _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
+        out = cp.empty((n, K), dtype=_od)
         total = n * K
         threads = 256
         blocks = (total + threads - 1) // threads
-        _get_bin_codes_kernel(cand_c.dtype)(
+        _get_bin_codes_kernel(cand_c.dtype, _od.name)(
             (blocks,), (threads,),
             (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),
         )
@@ -1005,14 +1041,15 @@ def _searchsorted_codes(cand_gpu, interior_edges):
     except Exception:
         import logging
         logging.getLogger(__name__).debug("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
-        out = cp.empty((n, K), dtype=cp.int32)
+        _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
+        out = cp.empty((n, K), dtype=_od)
         ec = cp.ascontiguousarray(interior_edges)
         for j in range(K):
             out[:, j] = cp.searchsorted(ec[:, j], cand_gpu[:, j], side="right")
         return out
 
 
-def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
+def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint=None):
     """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
     ``discretize_2d_array_cuda`` -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
     edges + per-column ``cp.searchsorted(edges[1:-1], col, side='right')`` -- but keeps the input + output
@@ -1051,13 +1088,15 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
             # OWN coalescing transpose internally and only needs C-order input, so skip the redundant full
             # (n,K) f32 copy when contiguous (bit-identical edges -> codes). The KEEP transpose stays inside it.
             _cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
-            interior = _radix_select_interior_edges(_cand_c, int(nbins))
+            # cm_hint only valid when cand wasn't re-copied (else its shape/values may not match _cand_c bytes).
+            _hint = cm_hint if _cand_c is cand_gpu else None
+            interior = _radix_select_interior_edges(_cand_c, int(nbins), cm_hint=_hint)
         except Exception:
             import logging
             logging.getLogger(__name__).debug("radix-select edges failed; cp.percentile fallback", exc_info=True)
             interior = None
         if interior is not None:
-            return _searchsorted_codes(cand_gpu, interior)
+            return _searchsorted_codes(cand_gpu, interior, out_dtype=out_dtype)
 
     qs = _quantile_levels_dev(cp, nbins, work)
     if K == 1:
@@ -1068,7 +1107,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int):
         bin_edges = cp.percentile(cand_gpu.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
     else:
         bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
-    return _searchsorted_codes(cand_gpu, bin_edges[1:-1])
+    return _searchsorted_codes(cand_gpu, bin_edges[1:-1], out_dtype=out_dtype)
 
 
 # CHUNK-MATERIALISE CUDA RawKernel (2026-06-20). The FE chunk path's #1 CPU hotspot is
@@ -1256,7 +1295,7 @@ def _operand_table_cm(cp, tv_gpu):
     return cm
 
 
-def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
+def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, return_cm=False):
     """Generate the (n, len(ops_block)) float32 candidate matrix for the given column blocks in ONE kernel
     launch, RESIDENT on the GPU. ``tv_gpu`` is the (n, n_operands) row-major float32 operand table already
     on the device. ``a_cols_block`` / ``b_cols_block`` (int64) / ``ops_block`` (int8) are host or device
@@ -1286,7 +1325,10 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
                 (blocks,), (threads,),
                 (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
             )
-            return _transpose_cm_to_rm(cm_out)                   # (K, n) -> (n, K) row-major (coalesced)
+            rm = _transpose_cm_to_rm(cm_out)                     # (K, n) -> (n, K) row-major (coalesced)
+            # LAUNCH-FUSION (2026-06-27): hand the cm buffer back so the radix-select edges step reuses it
+            # instead of transposing rm back to cm (the inverse of the transpose just done). Bit-identical.
+            return (rm, cm_out) if return_cm else rm
         except Exception:
             import logging
             logging.getLogger(__name__).debug("column-major fe_materialise failed; row-major fallback", exc_info=True)
@@ -1296,7 +1338,8 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block):
         (blocks,), (threads,),
         (tv_gpu, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), out),
     )
-    return out
+    # No cm buffer on the row-major fallback path (cm_hint=None -> discretize transposes as before).
+    return (out, None) if return_cm else out
 
 
 # PINNED D2H STAGING for the out_cand float buffer (2026-06-21, nvprof+paired-microbench driven).
@@ -1724,8 +1767,11 @@ def gpu_materialise_discretize_codes_host(
     k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
     for start in range(0, K, k_chunk):
         stop = min(start + k_chunk, K)
-        cand = _fe_materialise_block_gpu(
-            tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop]
+        # return_cm: capture the materialise kernel's pre-transpose (K, n) cm buffer so the binning step's
+        # radix-select edges reuse it (launch-fusion: skip the rm->cm transpose that inverts materialise's
+        # cm->rm). cand_cm is None on the row-major fallback -> discretize transposes as before (bit-identical).
+        cand, cand_cm = _fe_materialise_block_gpu(
+            tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop], return_cm=True
         )  # resident (n, blk) float32 -- bit-equal to _materialise_chunk_njit
         if out_cand is not None:
             # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
@@ -1746,14 +1792,22 @@ def gpu_materialise_discretize_codes_host(
         # cast AND halves the bandwidth-bound percentile sort, while preserving the FE selection. The exact
         # f64 fallback (bit-identical to the CPU pipeline) is one env flip away (MLFRAME_FE_GPU_BINNING_DTYPE
         # =float64). _gpu_resident_discretize_codes applies the working dtype internally.
-        codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))
-        # Cast int32 codes -> target narrow ``dtype`` (int8/int16) ON the GPU before the D2H so the
-        # transfer moves 1/4 (int8) the bytes of the int32 codes AND skips the host-side astype copy.
-        # bench (GTX 1050 Ti, n=100k K=384): int32-D2H+host-cast 170ms -> gpu-cast+D2H 25ms = 6.7x on
-        # the codes export, BIT-IDENTICAL. The narrow dtype is the FE code dtype (nbins<=255 -> int8),
-        # so the on-device cast cannot overflow.
+        # LAUNCH-FUSION (2026-06-27): bin DIRECTLY into the target narrow ``dtype`` (int8/int16) -- the binning
+        # kernel writes the narrow code dtype itself (OUTTYPE-templated), so the separate int32->narrow astype
+        # launch + the int32 (n,K) intermediate are gone (was: discretize int32 then astype). nbins<=255 -> the
+        # codes are in [0, nbins-1] -> int8 cannot overflow; BIT-IDENTICAL to int32-then-astype. The D2H still
+        # moves 1/4 (int8) the bytes of int32 codes. (Prior bench GTX 1050 Ti n=100k K=384: int32-D2H+host-cast
+        # 170ms -> gpu-narrow+D2H 25ms = 6.7x; this fusion additionally removes the astype launch + int32 buffer.)
         _cd = np.dtype(dtype)
-        codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
+        # MLFRAME_FE_FUSION_AB=0 disables the f1 (narrow-emit) + f2 (cm reuse) fusions for nsys/wall A/B ONLY
+        # (default fused). When off: bin int32 with an internal transpose, then astype to narrow (the pre-fusion
+        # path) -- BIT-IDENTICAL output, just the extra cast launch + transpose for the launch-count baseline.
+        if os.environ.get("MLFRAME_FE_FUSION_AB", "1").strip() == "0":
+            codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))   # int32, internal transpose
+            codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
+        else:
+            codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins), out_dtype=_cd, cm_hint=cand_cm)
+            codes_out = codes_gpu
         if dev_codes is not None:
             # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below). Bit-identical to the
             # host ``out`` slice -> selection-equivalent when the resident gate consumes the device copy.
@@ -1761,7 +1815,7 @@ def gpu_materialise_discretize_codes_host(
         if not _defer_host_codes:
             # Eager host fill (deferral off, or no resident copy): D2H this block's codes into ``out`` now.
             out[:, start:stop] = cp.asnumpy(codes_out)
-        del cand, codes_gpu, codes_out
+        del cand, cand_cm, codes_gpu, codes_out
     if dev_codes is not None:
         # Stash by the returned host array's identity so the dispatch can pick the device codes up without
         # the chunk path threading a new argument (see _RESIDENT_CODES_HANDOFF). Any consumer that is NOT

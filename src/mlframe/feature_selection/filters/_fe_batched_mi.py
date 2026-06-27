@@ -14,6 +14,8 @@ one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 
@@ -581,6 +583,98 @@ def _batched_marginal_counts(X, Kx):
     return counts.reshape(K, int(Kx))
 
 
+# LAUNCH-FUSION (2026-06-27): per-column joint ENTROPY+NNZ in ONE launch -- the per-column analogue of the
+# single-joint ``joint_entropy2``. The conditional CMI path fired _batched_joint_counts2 (atomicAdd launch ->
+# global (K, Kx*Kb) f64 counts) THEN _rows_entropy_and_k (a second launch reducing that matrix) for BOTH the
+# (x,z) and (x,y*z) joints (4 launches + 2 large f64 intermediates / fit). This kernel runs ONE BLOCK PER
+# COLUMN: build that column's (Kx*Kb) histogram in SHARED uint, then fused shared tree-reduce -> (h_k, k_k).
+# Counts are identical (same flat key (col,x,b)->x*Kb+b), so plug-in entropy + nnz are BIT-IDENTICAL to the
+# count-then-reduce path (verified maxdiff 0). Gated on the per-column hist (M=Kx*Kb uint) fitting shared mem;
+# over the limit -> caller falls back to the unfused two-launch path (bit-identical).
+_BATCHED_JOINT_ENTROPY_SRC = r"""
+extern "C" __global__
+void batched_joint_entropy2(const long long* __restrict__ X, const long long* __restrict__ b,
+                            const int Kx, const int Kb, const long long n, const int K, const int M,
+                            const double inv_n, double* __restrict__ out_h, long long* __restrict__ out_k) {
+    extern __shared__ unsigned int hist[];
+    int col = blockIdx.x;
+    if (col >= K) return;
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int i = tid; i < M; i += nt) hist[i] = 0u;
+    __syncthreads();
+    for (long long i = tid; i < n; i += nt) {
+        long long xv = X[i * (long long)K + col];
+        atomicAdd(&hist[(unsigned int)(xv * Kb + b[i])], 1u);
+    }
+    __syncthreads();
+    double hloc = 0.0, kloc = 0.0;
+    for (int c = tid; c < M; c += nt) { unsigned int v = hist[c]; if (v > 0u) { double p = (double)v * inv_n; hloc += p * log(p); kloc += 1.0; } }
+    __shared__ double sh_h[256]; __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc; __syncthreads();
+    for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; } __syncthreads(); }
+    if (tid == 0) { out_h[col] = -sh_h[0]; out_k[col] = (long long)(sh_k[0] + 0.5); }
+}
+"""
+_BATCHED_JOINT_ENTROPY_KERNEL = None
+_BATCHED_JOINT_ENTROPY_SH_LIMIT = None
+
+
+def _get_batched_joint_entropy_kernel(cp):
+    global _BATCHED_JOINT_ENTROPY_KERNEL, _BATCHED_JOINT_ENTROPY_SH_LIMIT
+    if _BATCHED_JOINT_ENTROPY_KERNEL is None:
+        _BATCHED_JOINT_ENTROPY_KERNEL = cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2")
+        try:
+            _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+        except Exception:
+            _BATCHED_JOINT_ENTROPY_SH_LIMIT = 48 * 1024
+    return _BATCHED_JOINT_ENTROPY_KERNEL
+
+
+def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
+    """Fused per-column joint entropy+nnz of (n,K) codes ``X`` with (n,) code ``b`` -> (h (K,) f64, k (K,) int64).
+    ONE launch (block/column, shared hist + tree-reduce). BIT-IDENTICAL to
+    ``_rows_entropy_and_k(_batched_joint_counts2(X,b,Kx,Kb).astype(f64), inv_n)``. Returns None when the per-
+    column hist won't fit shared memory (caller uses the unfused two-launch path) or on any kernel error.
+
+    DISABLED by default (bench-attempt-rejected, see below); set MLFRAME_FE_GPU_FUSE_CMI_ENTROPY=1 to opt in."""
+    # bench-attempt-rejected (2026-06-27): count+reduce -> 1 fused launch. nsys: removed ~18-36 cuLaunchKernel/
+    # fit (total launch APIs 159->135 across the combined A/B). BIT-IDENTICAL (h/k maxdiff 0; full batched_cmi
+    # + return_cards maxdiff 0). REJECTED on GPU KERNEL TIME: the one-block-per-column shared-hist kernel runs at
+    # a near-CONSTANT ~36ms (n=100k, K=384, GTX 1050 Ti) regardless of M -- it serializes n shared-mem atomicAdds
+    # per column across only K blocks x 256 threads (Pascal shared-atomic + low-occupancy bound). The unfused
+    # count+reduce is GLOBAL-atomic over n*K threads (massively parallel) + a cheap reduce: 4.5ms at the joint
+    # sizes the conditional CMI path actually hits (Kx*Kz, Kx*Kyz ~ 40-500 since Ky/Kz are small). Measured
+    # fused/unfused: M=40 -> 8.05x SLOWER, M=100 -> 8.24x SLOWER, M=400 -> ~par, M=1000 -> 0.50x (only wins for
+    # rare huge joints). Net GPU time far worse at production cardinalities despite the launch-count win; nsys
+    # made batched_joint_entropy2 62% of GPU time (284ms/8) vs hist2 17% (44ms/8). Kept gated for the rare
+    # large-M case + as a documented bench artifact; default OFF.
+    import cupy as cp
+
+    if os.environ.get("MLFRAME_FE_GPU_FUSE_CMI_ENTROPY", "0").strip() not in ("1", "true", "True", "yes", "on"):
+        return None
+    try:
+        n, K = int(X.shape[0]), int(X.shape[1])
+        M = int(Kx) * int(Kb)
+        ker = _get_batched_joint_entropy_kernel(cp)
+        # shared = M uint32 hist + 2*256 f64 reduction scratch (the sh_h/sh_k arrays are static, not counted here);
+        # gate the dynamic hist against the device per-block limit (leave headroom for the static doubles).
+        if M <= 0 or M * 4 + 4096 > int(_BATCHED_JOINT_ENTROPY_SH_LIMIT):
+            return None
+        Xc = cp.ascontiguousarray(X)
+        out_h = cp.empty(K, dtype=cp.float64)
+        out_k = cp.empty(K, dtype=cp.int64)
+        threads = 256
+        ker((K,), (threads,),
+            (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M),
+             float(inv_n), out_h, out_k),
+            shared_mem=M * 4)
+        return out_h, out_k
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).debug("fused batched joint entropy failed; count+reduce fallback", exc_info=True)
+        return None
+
+
 # FUSED 1D scalar entropy + occupied-cell (launch-reduction, 2026-06-25). The column-invariant H(z)/H(y,z)/
 # H(y) terms in batched_cmi_gpu were cp.bincount (scan+cub) -> boolean-mask getitem -> *inv_n -> log -> mul
 # -> sum (~6-7 cuLaunchKernel) plus a separate (c>0).sum() nnz. Computing the histogram with the in-kernel
@@ -1084,12 +1178,22 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False):
     Kyz = int(yz.max()) + 1
     h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
 
-    # H(x_k, z) for all k: in-kernel flat key k*(Kx*Kz) + x*Kz + z (one atomicAdd launch, no bincount)
-    cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)       # (K, Kx*Kz)
-    h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
-    # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz
-    cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz).astype(cp.float64)     # (K, Kx*Kyz)
-    h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
+    # H(x_k, z) for all k. LAUNCH-FUSION: ONE block/column kernel (shared hist + tree-reduce) collapses the
+    # atomicAdd-count + reduce into a single launch (drops the (K, Kx*Kz) f64 intermediate); falls back to the
+    # two-launch count+reduce (in-kernel flat key k*(Kx*Kz)+x*Kz+z) when the per-column hist won't fit shared.
+    _fused = _batched_joint_entropy_and_k2(X, dz, Kx, Kz, inv_n)
+    if _fused is not None:
+        h_xz, k_xz = _fused
+    else:
+        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)   # (K, Kx*Kz)
+        h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
+    # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz (same fuse; large Kyz -> fallback)
+    _fused = _batched_joint_entropy_and_k2(X, yz, Kx, Kyz, inv_n)
+    if _fused is not None:
+        h_xyz, k_xyz = _fused
+    else:
+        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz).astype(cp.float64) # (K, Kx*Kyz)
+        h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
     # FUSED assembly: max(h_xz - h_xyz + (h_yz - h_z) - (k_xyz - k_xz + (k_z - k_yz))/2n, 0) in one (K,) launch.
     cmi_host = cp.asnumpy(_cmi_assemble(h_xz, h_xyz, float(h_yz - h_z),
