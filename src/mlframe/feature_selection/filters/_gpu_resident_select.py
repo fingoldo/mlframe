@@ -1775,7 +1775,7 @@ def gpu_materialise_discretize_codes_host(
     return out
 
 
-def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) -> np.ndarray:
+def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8, defer_host_fill: bool = False) -> np.ndarray:
     """Quantile-bin a host (n, K) float candidate matrix to ordinal codes via the GPU, returning a host
     ``(n, K)`` array of ``dtype``. The FE candidate buffer is ALREADY float32, so the matrix is kept at
     its native dtype (NO f64 up-cast) and binned in float32 (the input's native dtype) -- removing a
@@ -1805,13 +1805,20 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
     # by identity). Bit-identical to the host codes -> selection unchanged.
     _resident_codes_on = fe_gpu_resident_codes_enabled()
     dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
-    # NOTE: this binning-only leg does NOT defer the host-codes D2H. Its documented contract is to RETURN a
-    # filled host (n, K) codes array (direct callers -- gpu_pairs_fe_mi's analytic path + the bit-identity
-    # tests -- read the return directly, not through the dispatch's ensure_host_codes_filled), and at the
-    # canonical fit it is OFF the hot path (the fused gpu_materialise_discretize_codes_host leg, which DOES
-    # defer, produces ~all the codes D2H). Keeping it eager keeps the contract intact for ~0 measured cost.
+    # HOST-CODES D2H DEFERRAL (2026-06-27). Direct callers (gpu_pairs_fe_mi's analytic path + the bit-identity
+    # tests) read the returned host array IMMEDIATELY, so this leg's DEFAULT stays eager (defer_host_fill=False)
+    # to keep that contract. But the per-pair FE-score leg (_pairs_score._score_one_pair) hands the return
+    # straight to ``_dispatch_batch_mi_with_noise_gate``, whose resident-CUDA gate consumes the DEVICE codes in
+    # place (via take_resident_codes) and never reads host ``disc_2d`` -- so under the strict-resident path the
+    # eager (n, K) codes D2H here is the single largest D2H of the fit and is PURE WASTE (measured n=100k: 24/24
+    # dispatches hit the resident handoff; the host buffer was filled but never read). When that caller opts in
+    # (defer_host_fill=True) AND the deferral is enabled, return an UNFILLED host buffer + register a lazy
+    # device->host fill (ensure_host_codes_filled) keyed on the buffer id, exactly like the fused
+    # gpu_materialise_discretize_codes_host leg. Bit-identical: the host buffer, if any consumer ever reads it,
+    # is device_codes.get() -- the exact bytes the eager D2H produced -> FE selection unchanged.
     # f32 codes-path footprint (see gpu_materialise_discretize_codes_host) -> wider VRAM sub-chunk, ~3x
     # fewer bin/edge launches; per-column-independent -> bit-identical codes.
+    _defer_host_codes = bool(defer_host_fill and dev_codes is not None and fe_gpu_defer_host_codes_enabled())
     k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
     for start in range(0, K, k_chunk):
         block = cand[:, start:start + k_chunk]
@@ -1824,8 +1831,14 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8) ->
         if dev_codes is not None:
             # Keep this block's narrow codes RESIDENT (the EXACT bytes we D2H below) for the gate consumer.
             dev_codes[:, start:stop] = codes_out
-        out[:, start:stop] = cp.asnumpy(codes_out)
+        if not _defer_host_codes:
+            out[:, start:stop] = cp.asnumpy(codes_out)
         del codes_gpu, codes_out
     if dev_codes is not None:
         _stash_resident_codes(out, dev_codes)
+    if _defer_host_codes:
+        # ``out`` is UNFILLED -- register the lazy device->host fill so a host-reading consumer (analytic /
+        # CPU / non-resident GPU) can materialise it on demand via ensure_host_codes_filled. The eager
+        # per-block D2H above was skipped; the resident gate reads the device codes directly (no host read).
+        _stash_deferred_host_fill(out, dev_codes)
     return out

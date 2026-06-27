@@ -500,8 +500,14 @@ def _score_one_pair(
                             from ._pairs_core import _fe_gpu_binning_enabled
                             if _fe_gpu_binning_enabled(final_transformed_vals.shape[0], i):
                                 from .._gpu_resident_fe import gpu_discretize_codes_host
+                                # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
+                                # whose resident-CUDA gate consumes the DEVICE codes in place (take_resident_codes)
+                                # and only triggers the lazy host fill (ensure_host_codes_filled) on a host-reading
+                                # branch. Skips the (n, K) codes D2H -- the fit's single largest -- whenever the
+                                # resident gate is the consumer. Bit-identical (host buffer, if read, == device.get()).
                                 _disc_2d = gpu_discretize_codes_host(
-                                    final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype
+                                    final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype,
+                                    defer_host_fill=True,
                                 )
                         except Exception:
                             logger.debug("FE per-pair GPU binning failed; CPU discretise", exc_info=True)

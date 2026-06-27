@@ -307,8 +307,13 @@ def _emit_pair_features(
                         from ._pairs_core import _fe_gpu_binning_enabled
                         if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
                             from .._gpu_resident_fe import gpu_discretize_codes_host
+                            # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
+                            # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
+                            # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
+                            # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
                             _ev_disc = gpu_discretize_codes_host(
-                                _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype
+                                _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
+                                defer_host_fill=True,
                             )
                     except Exception:
                         _ev_disc = None
