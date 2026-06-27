@@ -383,7 +383,8 @@ mlframe = ["py.typed"]
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra -s --no-cov --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling"
+# -p no:anyio: the repo has zero async tests, and loading anyio's (transitively-installed) pytest plugin segfaults the interpreter during collection when CUDA_VISIBLE_DEVICES="" (CPU-only / CI runs). Unused plugin, so unloading it is pure upside.
+addopts = "-ra -s --no-cov --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
