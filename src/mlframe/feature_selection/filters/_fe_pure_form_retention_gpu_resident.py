@@ -93,6 +93,20 @@ def adds_nonlinear_value_batch_gpu_resident(
         import cupy as cp
     except Exception:
         return None
+    # Narrow device-fault set for the resident fallbacks below. A genuine cupy/device/linalg fault
+    # (singular OLS, OOM, CUDA runtime error) legitimately routes to the exact CPU path; a logic/shape
+    # bug (ValueError/KeyError/IndexError) must SURFACE to tests, not be silently swallowed as a
+    # "device fallback" -- so the per-candidate and outer guards catch only these, not bare Exception.
+    _dev_errs = [np.linalg.LinAlgError]
+    try:
+        _dev_errs.append(cp.cuda.runtime.CUDARuntimeError)
+    except Exception:
+        pass
+    try:
+        _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
+    except Exception:
+        pass
+    _DEV_ERRS = tuple(_dev_errs)
     try:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
@@ -191,11 +205,11 @@ def adds_nonlinear_value_batch_gpu_resident(
                 denom = float(np.sqrt(ss_rc * ss_yrel))
                 corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
                 out[j] = corr >= min_resid_corr
-            except Exception:
-                return None  # any cupy/device error mid-batch -> exact per-candidate CPU path
+            except _DEV_ERRS:
+                return None  # genuine cupy/device/linalg fault mid-batch -> exact CPU path (logic bugs propagate)
         return out
-    except Exception:
-        return None
+    except _DEV_ERRS:
+        return None  # genuine cupy/device/linalg fault in setup/upload -> exact CPU path (logic bugs propagate)
 
 
 __all__ = ["adds_nonlinear_value_batch_gpu_resident"]
