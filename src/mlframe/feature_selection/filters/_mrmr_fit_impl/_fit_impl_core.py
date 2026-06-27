@@ -8149,22 +8149,77 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         v for v in selected_vars if cols[v] in set(self.feature_names_in_)
                     ]
                     if not _remaining_raw_after_drop:
-                        # NEVER-EMPTY RAW FLOOR. The drop is allowed to remove a raw subsumed by a
-                        # surviving engineered child WHILE other raws remain (the I4b contract), but it
-                        # must never empty the raw support entirely: ``support_`` must expose >=1 raw
-                        # representative even when only engineered features were confirmed. When dropping
-                        # the redundant raws would leave ZERO raw survivors, re-add the single STRONGEST
-                        # dropped raw (highest marginal MI toward y) as the raw stand-in -- the engineered
-                        # child still rides along via the recipe. Minimal: this floor fires ONLY in the
-                        # would-be-empty case, so a genuinely-subsumed raw is still dropped whenever another
-                        # raw survives (I4b is untouched).
+                        # NEVER-EMPTY RAW FLOOR (2026-06-27 subsumption-aware fix). The drop is allowed to
+                        # remove a raw subsumed by a surviving engineered child WHILE other raws remain (the
+                        # I4b contract). When dropping the redundant raws would leave ZERO raw survivors, the
+                        # PRIOR floor unconditionally re-added the single STRONGEST dropped raw by MARGINAL MI
+                        # as a raw stand-in. That marginal-MI pick is exactly the trap the rest of this module
+                        # warns about: a fully-subsumed DOMINANT operand (``a`` in ``a**2/b``, whose ratio is
+                        # captured byte-for-byte by the surviving fused compound) has the LARGEST marginal MI
+                        # yet ZERO conditional/private residual, so the floor resurrected the very operand the
+                        # n-invariant CMI sweep had just correctly dropped (the scaled_1_5 / heavy_tailed F2
+                        # failure: the compound ``add(div(sqr(a),b),mul(log(c),sin(d)))`` fully reconstructs y,
+                        # the sweep dropped a/b/d, and this floor re-added raw ``a`` beside the compound that
+                        # subsumes it). When the main sweep empties the raw support EVERY dropped raw was judged
+                        # fully subsumed by a surviving multi-source child, so the engineered survivor(s) ARE the
+                        # complete feature set -- the SAME engineered-only outcome the ``uniform`` profile and the
+                        # never-empty re-attach block's all-operands-subsumed ``elif`` reach. Defer to that:
+                        # re-add a dropped raw ONLY if it still carries a SIGNIFICANT PRIVATE LINEAR residual the
+                        # engineered survivors do not linearly reproduce (a genuine partial-signal raw a downstream
+                        # linear model needs); otherwise flag the intended engineered-only support so the
+                        # downstream empty-raw rescue does not re-pollute it. The linear-usability re-add is a
+                        # SIMPLE-mode concept ONLY: in full FE mode a subsumed MONOTONE operand (``a`` in ``a**2/b``
+                        # on a positive domain, whose rank tracks ``y`` so a partial-rank-correlation reads a
+                        # SPURIOUS private residual) is statistically indistinguishable from a genuine linear term
+                        # and MUST still drop (I4b) -- this mirrors ``drop_redundant_raw_operands``'s own
+                        # ``allow_linear_usability=False`` policy in full FE mode (see its docstring / keep-leg).
+                        # So the floor re-adds a dropped raw ONLY in simple mode and ONLY when it clears the same
+                        # permutation-floored partial-rank-correlation probe; in full FE mode the empty raw support
+                        # is the intended engineered-only outcome (the ``uniform`` profile's result).
+                        _floor_simple = bool(getattr(self, "use_simple_mode", False))
+                        from .._fe_raw_redundancy_drop import raw_retains_linear_signal_given_children as _floor_lin
                         _best_floor_idx, _best_floor_rel = None, float("-inf")
                         _tgt_floor = np.asarray(target_indices, dtype=np.int64)
                         _fn_floor = np.asarray(nbins, dtype=np.int64)
+                        # Continuous engineered survivor values (for the linear-usability child design).
+                        _floor_child_vals = []
+                        for _ei in _kept_redund:
+                            _enm = cols[_ei]
+                            if _enm in set(self.feature_names_in_):
+                                continue
+                            _cv = (_eng_continuous_snapshot or {}).get(_enm)
+                            if _cv is not None and np.asarray(_cv).shape[0] == int(data.shape[0]):
+                                _floor_child_vals.append(np.asarray(_cv, dtype=np.float64).ravel())
+                            else:
+                                _floor_child_vals.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
+                        try:
+                            _yv_floor = y.values if hasattr(y, "values") else np.asarray(y)
+                            _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
+                        except Exception:
+                            _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
                         for _dn in _dropped_redund_names:
                             try:
                                 _ci = cols.index(_dn)
                             except ValueError:
+                                continue
+                            # Only a dropped raw with genuine PRIVATE linear signal beyond the engineered
+                            # survivors is eligible to be the raw representative; a fully-subsumed operand is not.
+                            # Full FE mode: no operand is eligible (defer to engineered-only -- the I4b contract).
+                            _eligible_floor = _floor_simple
+                            if _floor_simple and _floor_child_vals:
+                                try:
+                                    _rawv = None
+                                    if isinstance(X, pd.DataFrame) and _dn in X.columns:
+                                        _rawv = np.asarray(X[_dn], dtype=np.float64).ravel()
+                                    if _rawv is None:
+                                        _rawv = np.asarray(data[:, _ci], dtype=np.float64).ravel()
+                                    _eligible_floor = bool(_floor_lin(
+                                        _rawv, _yv_floor, _floor_child_vals,
+                                        seed=int(getattr(self, "random_seed", 0) or 0),
+                                    ))
+                                except Exception:
+                                    _eligible_floor = False
+                            if not _eligible_floor:
                                 continue
                             try:
                                 from ..info_theory import mi as _floor_mi
@@ -8184,11 +8239,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             if verbose:
                                 logger.info(
                                     "MRMR raw-redundancy never-empty floor: dropping all raw operands would "
-                                    "empty support_; retained strongest raw %r (marginal MI %.4f) as the raw "
-                                    "representative beside the surviving engineered child.",
+                                    "empty support_; retained strongest LINEAR-USABLE raw %r (marginal MI %.4f) "
+                                    "as the raw representative beside the surviving engineered child.",
                                     _kept_name_floor, _best_floor_rel,
                                 )
                         else:
+                            # Every dropped raw is fully subsumed by a surviving engineered child -- the
+                            # engineered recipe(s) ARE the complete feature set (the uniform-profile outcome).
                             self._redundancy_emptied_raw_ = True
                     if verbose:
                         logger.info(
