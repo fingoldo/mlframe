@@ -125,7 +125,7 @@ def propose_additive_fusions_gpu(
     pre-pass's OWN host code arrays."""
     import cupy as cp
 
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+    from ._mi_greedy_cmi_fe import _cmi_from_binned
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
     from .engineered_recipes import build_unary_binary_recipe
     from ._fe_batched_mi import batched_cmi_gpu
@@ -297,9 +297,12 @@ def propose_additive_fusions_gpu(
             subsumed.add(hb["name"])
             used.add(ha["name"])
             used.add(hb["name"])
-            # RAW-OPERAND SUBSUMPTION -- identical verdict to the CPU path. The keep-probe consumes host bin
-            # codes (and is GPU-routed internally); the raw value vector comes from X (host) exactly as the CPU
-            # path reads it, so no NEW device transfer pattern. ``fvb`` (the fused codes) is the genuine child.
+            # RAW-OPERAND SUBSUMPTION -- identical verdict to the CPU path. The raw operand originates on host
+            # (a column of X), so it is uploaded with a BOUNDED H2D (one column, per ACCEPTED fusion -- bounded,
+            # NOT per-candidate) and binned RESIDENT via the same distinct-edge-dedup binner, keeping ALL binning
+            # on the device. The keep-probe (``raw_retains_signal_given_genuine_children``) is a CPU-interface
+            # helper (GPU-routed internally), so its raw bin codes are pulled back ONCE -- a bounded probe-input
+            # D2H, not a binning D2H. ``fvb`` (the fused codes) is the genuine child.
             from ._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
             for _rn in (ha["tokens"] | hb["tokens"]):
                 if _rn in subsumed_raws:
@@ -312,7 +315,9 @@ def propose_additive_fusions_gpu(
                     _rv = None
                 if _rv is None or _rv.shape[0] != n_rows:
                     continue
-                _rvb = _quantile_bin(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0), nbins=int(nbins))
+                _rv_dev = cp.asarray(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0))   # bounded H2D (1 col)
+                _rvb_dev, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)              # resident bin codes
+                _rvb = cp.asnumpy(_rvb_dev[0])                                              # probe-input D2H
                 _retains = raw_retains_signal_given_genuine_children(
                     raw_bin=_rvb, y_bin=y_dense, genuine_child_bins=[fvb], seed=seed,
                 )
