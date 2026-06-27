@@ -439,7 +439,28 @@ def usability_greedy(
 
     A cheap usability pre-rank (``MI + |corr with the post-dominant residual|``) shortlists the pool
     to ``shortlist`` candidates so the per-step CV cost is bounded; ``w`` weights the MI vs the
-    residual-corr in that pre-rank only (the COMMIT decision is always the CV-MAE improvement)."""
+    residual-corr in that pre-rank only (the COMMIT decision is always the CV-MAE improvement).
+
+    GPU-RESIDENT DISPATCH (``MLFRAME_FE_GPU_STRICT`` + ``MLFRAME_FE_GPU_STRICT_RESIDENT``, default OFF):
+    under the resident flag the REGRESSION greedy is computed by the resident twin
+    (:func:`_usability_greedy_gpu_resident.usability_greedy_gpu_resident`) with the candidate value
+    matrix + target uploaded ONCE and the per-round residual/|corr| shortlist + bordered CV-MAE solve
+    kept resident -- killing the per-candidate value D2H the gated ``_usability_gpu`` primitives incur.
+    It is SELECTION-EQUIVALENT (same algorithm; only float reduction order differs ~1e-12) and returns
+    ``None`` -> the exact CPU body below for classification, a degenerate pool, a singular border, or any
+    cupy/device error. The default (flag-off) path never imports it -> byte-identical."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        if fe_gpu_strict_resident_enabled():
+            from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
+            _res = usability_greedy_gpu_resident(
+                pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
+                mae_improve_rel=mae_improve_rel, shortlist=shortlist, classification=classification,
+            )
+            if _res is not None:
+                return _res
+    except Exception:
+        pass  # any import/device error -> the exact CPU greedy below
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
