@@ -41,6 +41,28 @@ from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 from ._helpers import _synergy_bootstrap_can_supply_pool
 
 
+def _free_gpu_fe_mempool() -> bool:
+    """Free the cupy default pool's UNUSED blocks at GPU FE-step teardown; return whether a free was issued.
+
+    When the FE step ran GPU kernels (``MLFRAME_FE_GPU_STRICT`` / ``MLFRAME_CMI_GPU``), the cupy default pool
+    RETAINS every block it cached this step for reuse. Across repeated fits (CV folds, repeated ``MRMR().fit``
+    on a 4 GB card) the retained pool sits at its high-water mark near the device cap and the allocator thrashes
+    cudaMalloc/sync -- measured: consecutive 100k f32 STRICT fits degrade 11.2s -> 31.8s -> 32.3s, while freeing
+    the unused blocks at each step teardown holds the footprint flat (~2.9 GB) and the wall at ~11.2s.
+    ``free_all_blocks`` only returns blocks with no live reference, so a resident operand table held across the
+    fit is untouched; this is post-compute teardown, never mid-pipeline. Best-effort + env-gated so CPU users /
+    other backends are not touched."""
+    import os as _os
+    if not (_os.environ.get("MLFRAME_FE_GPU_STRICT") or _os.environ.get("MLFRAME_CMI_GPU")):
+        return False
+    try:
+        import cupy as _cp
+        _cp.get_default_memory_pool().free_all_blocks()
+        return True
+    except Exception:
+        return False
+
+
 def _run_fe_step(
     self,
     *,
@@ -912,6 +934,15 @@ def _run_fe_step(
         _is_polars_input=_is_polars_input,
         verbose=verbose,
     )
+
+    # GPU memory-pool teardown (2026-06-27): when the FE step ran GPU kernels (STRICT / CMI_GPU), the cupy
+    # default pool RETAINS every block it cached this step for reuse. Across repeated fits (CV folds, repeated
+    # MRMR().fit on a 4 GB card) the pool grows toward the device cap and the allocator starts thrashing
+    # cudaMalloc/sync -- measured: consecutive 100k f32 STRICT fits degrade 11.2s -> 31.8s -> 32.3s, while
+    # freeing the UNUSED blocks at each step teardown holds it flat at ~11.2s (pool total stays well under the
+    # cap). free_all_blocks only returns blocks with no live reference, so a resident operand table held across
+    # the fit is untouched; this is post-compute teardown, never mid-pipeline. Guarded + best-effort.
+    _free_gpu_fe_mempool()
 
     return data, cols, nbins, X, selected_vars, n_recommended_features
 
