@@ -129,13 +129,19 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 def best_existing_op_mi_resident(
     arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int,
     *, y_gpu: object = None, y_min: object = None, n_classes: object = None,
+    rank_binning: bool = False,
 ) -> Optional[float]:
     """Resident-GPU twin of ``_conditional_gate_fe.best_existing_op_mi``: build the candidate columns on the
     device + score MI via the resident plug-in kernel, NO host round-trip. Returns the max MI (float), or
     ``None`` if cupy is unavailable / the build fails (caller then takes the exact njit path).
 
     ``y_gpu`` / ``y_min`` / ``n_classes`` may be passed pre-computed (y is a fit-constant) to skip the
-    per-call label H2D + min/max reduction."""
+    per-call label H2D + min/max reduction.
+
+    ``rank_binning`` (default False): when True, score the candidates with the RANK (argsort equi-frequency)
+    resident kernel instead of the percentile-EDGE one, so the gate's resident baseline MI byte-matches the
+    CPU njit rank MI on tied operator outputs (the gate's heavily-tied gate_mask). Returns ``None`` if the
+    rank kernel is unavailable so the caller falls back to the edge path / host njit."""
     try:
         import cupy as cp
     except Exception:
@@ -148,9 +154,17 @@ def best_existing_op_mi_resident(
         mat_gpu = _build_best_existing_op_candidates_gpu(cols_arr_gpu, cp)
         if y_gpu is None:
             y_gpu = cp.asarray(np.ascontiguousarray(yi, dtype=np.int64))
-        mis = _plugin_mi_classif_batch_cuda_resident(
-            mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
-        )
+        if rank_binning:
+            from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
+            mis = plugin_mi_classif_batch_rank_cuda_resident(
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+            )
+            if mis is None:
+                return None
+        else:
+            mis = _plugin_mi_classif_batch_cuda_resident(
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+            )
         return float(np.max(mis))
     except Exception as _exc:  # noqa: BLE001
         logger.debug("best_existing_op_mi_resident: GPU path failed (%s); host fallback", _exc)

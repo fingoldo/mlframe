@@ -197,8 +197,16 @@ def _select_mi_backend() -> str:
 _MI_BACKEND = _select_mi_backend()
 
 
-def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.ndarray:
+def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Batch MI(X_j; y) for classification target.
+
+    ``rank_binning`` (GATE MI ONLY, default False): the STRICT-residency MI core bins by percentile EDGES,
+    which does NOT byte-match the CPU njit RANK binning the conditional-gate scoring uses on heavily-tied
+    columns (the gate_mask output ``1[c>0]*a`` is ~50% exact zeros). When ``rank_binning=True`` AND the
+    resident opt-in ``MLFRAME_FE_GPU_STRICT_RESIDENT`` is on, the resident MI is computed over RANK codes
+    (argsort equi-frequency, ``_gpu_resident_rank_bin``) so the gate STRICT MI matches the CPU rank MI. The
+    FE-candidate path leaves this False -> the edge path is untouched. Falls back to the CPU njit rank path on
+    any GPU failure; default flag-off is byte-for-byte unchanged regardless of this flag.
 
     Layer 31 (2026-05-31): routes to the numba prange batch dispatcher
     (``_mi_classif_batch_numba``) when available — ~53x speedup at
@@ -293,6 +301,23 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
             # chunked caller). Same data -> identical min/max -> bit-identical bincount layout and MI.
             _ymin = int(_yi.min()) if _yi.size else 0
             _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+            # GATE MI rank route: when the caller is the conditional gate (rank_binning=True) AND the resident
+            # opt-in is on, bin by argsort equi-frequency RANK so the STRICT gate MI byte-matches the CPU njit
+            # rank MI on the gate's heavily-tied columns (edge would lump tied zeros into one bin -> lower MI).
+            # Returns None on any GPU failure -> the exact CPU njit rank path below. The FE-candidate path
+            # leaves rank_binning=False so the radix-edge resident MI is untouched.
+            if rank_binning:
+                try:
+                    from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
+                    _resident_on = fe_gpu_strict_resident_enabled()
+                except Exception:
+                    _resident_on = False
+                if _resident_on:
+                    from .._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
+                    _rank_mi = plugin_mi_classif_batch_rank_cuda_resident(Xd, yd, int(nbins), y_min=_ymin,
+                                                                          n_classes=_ncls)
+                    if _rank_mi is not None:
+                        return np.asarray(_rank_mi, dtype=np.float64)
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin,
                                                                      n_classes=_ncls), dtype=np.float64)
     except Exception:

@@ -168,6 +168,10 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     # the approved FE-PAIR trade); on any failure / no-cupy it returns None and the exact njit path runs.
     _m = len(names)
     _k = _m + 4 * (_m * (_m - 1) // 2) + (3 if _m >= 3 else 2)
+    # GATE rank residency: under MLFRAME_FE_GPU_STRICT_RESIDENT the gate baseline MI must byte-match the CPU
+    # njit RANK MI (the gate output gate_mask is ~50% tied zeros where edge != rank). Route the resident
+    # candidate MI through the RANK kernel; on any failure it returns None and the host njit rank path runs.
+    _gate_rank = _gate_rank_binning()
     try:
         from ._resident_candidate_mi_ktc import rescand_use_resident
         if rescand_use_resident(int(np.asarray(arrs[names[0]]).shape[0]), _k):
@@ -177,7 +181,8 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             _yi = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
             _ym = int(_yi.min()) if _yi.size else 0
             _nc = (int(_yi.max()) - _ym + 1) if _yi.size else 1
-            _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc)
+            _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc,
+                                              rank_binning=_gate_rank)
             if _r is not None:
                 return _r
     except Exception:
@@ -197,7 +202,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     if len(cols_arr) >= 3:
         cands.append(stk.sum(axis=1))  # full additive sum a+b+c -- the multi-driver additive signal the gate must not reconstruct
     mat = np.column_stack(cands).astype(np.float64, copy=False)
-    mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins)
+    mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins, rank_binning=_gate_rank)
     return float(np.max(mis))
 
 
@@ -220,12 +225,25 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12,
     return float(vals.mean() + z * vals.std())
 
 
+def _gate_rank_binning() -> bool:
+    """Whether the conditional-gate MI uses the RANK resident binner (``MLFRAME_FE_GPU_STRICT_RESIDENT`` on).
+    Default OFF -> the gate MI is byte-for-byte its prior path. When on under STRICT, the gate's resident MI
+    bins by argsort equi-frequency RANK so it byte-matches the CPU njit rank MI on tied operator outputs (the
+    edge resident path lumps tied zeros into one bin -> lower MI on gate_mask)."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        return bool(fe_gpu_strict_resident_enabled())
+    except Exception:
+        return False
+
+
 def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
     """MI of every column of the (n, k) tau-grid feature matrix vs y, in one batched kernel call (bit-identical to per-column --
     ``_mi_classif_batch`` bins each column independently, only the per-call dispatch overhead is amortised)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins), dtype=np.float64)
+    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins,
+                                        rank_binning=_gate_rank_binning()), dtype=np.float64)
 
 
 def _is_argmax_eligible(x: np.ndarray) -> bool:
@@ -366,13 +384,14 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     Both signals are O(p) one-shot batched MI calls; the resulting O(k_operand^2 * k_gate) sweep is independent of p."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
+    _rb = _gate_rank_binning()
     # Canonicalize column order so the stable argsort tie-breaks below resolve by feature name, not by the caller's input column order (reversed-column invariance).
     cols = sorted(cols, key=lambda c: str(c))
     if not cols:
         return [], []
     arrs = [np.asarray(X[c], dtype=np.float64) for c in cols]
     mat = np.ascontiguousarray(np.column_stack(arrs))
-    mis = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
+    mis = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins, rank_binning=_rb), dtype=np.float64)
     operand_order = list(np.argsort(mis)[::-1])  # marginal relevance, descending
     operand_cols = [cols[i] for i in operand_order][: max(2, int(k_operand))]
 
@@ -388,8 +407,8 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         lo = ~hi
         if hi.sum() < nbins or lo.sum() < nbins:
             continue  # degenerate split (near-constant gate column) -> no usable regime
-        mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins), dtype=np.float64)
-        mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins), dtype=np.float64)
+        mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+        mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins, rank_binning=_rb), dtype=np.float64)
         div[gi] = float(np.abs(mi_hi - mi_lo).sum())
     gate_order = list(np.argsort(div)[::-1])
     gate_cols = [cols[i] for i in gate_order][: max(1, int(k_gate))]

@@ -103,11 +103,20 @@ _MIN_NULL_MARGIN = 0.05
 
 
 def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
-    """Binned MI of one column vs y, via the shipped classif-MI batch kernel."""
+    """Binned MI of one column vs y, via the shipped classif-MI batch kernel.
+
+    Routes the gate/operator-edge MI through the RANK resident binner under ``MLFRAME_FE_GPU_STRICT_RESIDENT``
+    (default OFF -> byte-for-byte the prior path) so the STRICT gate MI byte-matches the CPU njit rank MI on
+    tied operator outputs (the edge resident path would lower MI on the ~50%-tied gate_mask)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        _rb = fe_gpu_strict_resident_enabled()
+    except Exception:
+        _rb = False
     arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
-    return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])
+    return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins, rank_binning=_rb)[0])
 
 
 def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: int) -> np.ndarray:
