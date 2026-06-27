@@ -241,7 +241,11 @@ def _build_operand_table(
     # (col_idx, raw_vals, unary_name) so a GPU-resident mirror of ``transformed_vars`` can be produced ON
     # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
     # the host) -- removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
-    from .._gpu_resident_fe import _cuda_present, fe_gpu_resident_operands_enabled
+    from .._gpu_resident_fe import _cuda_present
+    # fe_gpu_resident_operands_enabled is defined in _gpu_resident_select (its home module); import it from
+    # THERE, not via a re-export through _gpu_resident_fe -- the re-export is not guaranteed present and a
+    # missing one made this a hard ImportError that broke the whole pair-search path under the resident flag.
+    from .._gpu_resident_select import fe_gpu_resident_operands_enabled
     _resident_operands_on = False
     try:
         _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()
