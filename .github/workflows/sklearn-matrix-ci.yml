@@ -56,6 +56,10 @@ jobs:
     name: sklearn ${{ matrix.sklearn-version }} on py${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      # Persist numba's JIT cache (see the cache step below) so the heavy composite+FE tests (RFECV / MRMR /
+      # BorutaShap -> composite) don't pay cold-compilation on top of model training and blow the per-test timeout.
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
     # Force bash on every OS: the run steps below use bash backslash line-continuations, which the
     # windows-latest default shell (PowerShell) cannot parse (ParserError). Git Bash ships on the Windows runner.
     defaults:
@@ -135,6 +139,17 @@ jobs:
         # by the editable install above, so --no-deps keeps the numpy 2.4.x the cap resolved.
         run: pip install --force-reinstall --no-deps "scikit-learn==${{ matrix.sklearn-version }}"
 
+      - name: Restore numba JIT cache
+        # Same persisted-cache pattern as ci.yml: numba recompiles kernels cold every run otherwise, and the
+        # composite+FE tests trigger many kernels. restore-keys falls back to the newest prior cache (numba
+        # invalidates per-kernel internally, so a stale restore still reuses unchanged kernels).
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.numba-cache
+          key: numba-sklmatrix-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            numba-sklmatrix-${{ runner.os }}-py${{ matrix.python-version }}-
+
       - name: Show installed versions
         run: |
           python -c "import sklearn; print('sklearn', sklearn.__version__)"
@@ -155,7 +170,7 @@ jobs:
           pytest tests/training/ -m sklearn_matrix \
             --no-cov \
             -p no:randomly \
-            --timeout=120 \
+            --timeout=300 \
             -v
 
       - name: Sklearn-compliance harness
@@ -174,5 +189,5 @@ jobs:
             tests/test_sklearn_compliance_composite.py \
             --no-cov \
             -p no:randomly \
-            --timeout=120 \
+            --timeout=300 \
             -v
