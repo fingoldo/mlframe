@@ -18,9 +18,40 @@ from mlframe.feature_selection.filters._conditional_gate_fe_proto import (
     scan_conditional_gate,
     scan_row_argmax,
 )
-from mlframe.feature_selection.filters._pairwise_modular_fe import _mi
-
 NBINS = 12
+
+
+def _mi(col, y, nbins: int = NBINS) -> float:
+    """Binned MI of one column vs y under the catalog's CPU RANK estimator (argsort equi-frequency binning).
+
+    ESTIMATOR-PINNED ON PURPOSE. These are operator-EDGE biz-value contracts: they pin how much MI the gate /
+    argmax operators expose OVER the shipped catalog UNDER THE RANK-MI ESTIMATOR THE CATALOG SCORING USES
+    (``_quantile_bin_njit`` argsort binning -> ``_plugin_mi_classif_njit``). The measured floors (+0.31 gate_mask,
+    +0.55 argmax/gate_select) are rank-MI numbers. The full-GPU-residency STRICT path bins the gate MI by
+    PERCENTILE EDGES by default (fast, selection-equivalent on F2); rank byte-match is opt-in behind
+    ``MLFRAME_FE_GPU_STRICT_BYTEMATCH``. On the gate_mask target (~50% of rows are EXACTLY 0.0 -- ``1[c>0]*a``)
+    edge binning lumps all tied zeros into ONE bin while rank splits the ties, so edge MI is LEGITIMATELY lower
+    on this heavily-tied output (resident GPU MI is bit-faithful to its CPU edge twin to ~1e-16 -- NOT a binning
+    bug; rank-vs-edge is a deliberate, documented estimator difference). Were ``_mi`` routed through the flag-
+    sensitive ``_mi_classif_batch``, this contract would measure DIFFERENT estimators across flag states (gate_mask
+    lift 0.32 -> 0.20) and the operator-edge claim would become flag-dependent. Pinning the rank estimator here
+    (forced njit, strict swap bypassed) keeps the contract measuring exactly the property it documents under ALL
+    flag states; the >=0.25 threshold is unchanged. MRMR selection-equivalence under STRICT is covered by the F2
+    selection-equiv suite, not by this estimator-specific operator-edge contract."""
+    import os
+
+    from mlframe.feature_selection.filters.hermite_fe import plugin_mi_classif_batch_dispatch
+
+    _prev = os.environ.get("MLFRAME_MI_BACKEND")
+    os.environ["MLFRAME_MI_BACKEND"] = "njit"   # bypass the STRICT percentile-edge swap; this contract is rank-MI
+    try:
+        arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
+        return float(plugin_mi_classif_batch_dispatch(arr, np.asarray(y).astype(np.int64), nbins)[0])
+    finally:
+        if _prev is None:
+            os.environ.pop("MLFRAME_MI_BACKEND", None)
+        else:
+            os.environ["MLFRAME_MI_BACKEND"] = _prev
 
 
 def _best_existing_mi(X: pd.DataFrame, y, cols) -> float:

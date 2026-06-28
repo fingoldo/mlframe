@@ -226,13 +226,17 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12,
 
 
 def _gate_rank_binning() -> bool:
-    """Whether the conditional-gate MI uses the RANK resident binner (``MLFRAME_FE_GPU_STRICT_RESIDENT`` on).
-    Default OFF -> the gate MI is byte-for-byte its prior path. When on under STRICT, the gate's resident MI
-    bins by argsort equi-frequency RANK so it byte-matches the CPU njit rank MI on tied operator outputs (the
-    edge resident path lumps tied zeros into one bin -> lower MI on gate_mask)."""
+    """Whether the conditional-gate MI uses the RANK resident binner -- opt-in BYTE-MATCH only.
+
+    Default OFF, AND off under the plain resident flag: the resident gate MI uses the FAST percentile-edge
+    binner, which is selection-equivalent to CPU on F2 (the gate edge-vs-rank difference shifts the gate lift
+    MAGNITUDE on heavily-tied operator outputs but does not flip the F2 selection). Only when the dedicated
+    ``MLFRAME_FE_GPU_STRICT_BYTEMATCH`` opt-in is set (which also requires the resident path) does the gate MI
+    bin by argsort equi-frequency RANK to byte-match the CPU njit rank MI -- paying an irreducible per-gate
+    argsort (~1s/fit on the GTX 1050 Ti). Fast-by-default, byte-match-on-request."""
     try:
-        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-        return bool(fe_gpu_strict_resident_enabled())
+        from ._gpu_strict_fe import fe_gpu_strict_bytematch_enabled
+        return bool(fe_gpu_strict_bytematch_enabled())
     except Exception:
         return False
 

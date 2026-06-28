@@ -23,6 +23,20 @@ def fe_gpu_strict_resident_enabled() -> bool:
         return False
 
 
+def fe_gpu_strict_bytematch_enabled() -> bool:
+    """Whether the STRICT-resident gate MI uses the RANK binner for a byte-match with the CPU rank MI.
+
+    DEFAULT OFF. Requires the resident path (``fe_gpu_strict_resident_enabled``) AND the opt-in
+    ``MLFRAME_FE_GPU_STRICT_BYTEMATCH=1``. With it OFF the resident gate MI uses the FAST percentile-edge
+    binner (selection-equivalent to CPU on F2 -- the gate's edge-vs-rank difference does not flip the F2
+    selection, only the gate's lift MAGNITUDE on heavily-tied operator outputs). With it ON the gate MI bins by
+    argsort equi-frequency RANK so it byte-matches the CPU njit rank MI, at the cost of an irreducible per-gate
+    argsort (~1s on a full fit, GTX 1050 Ti). Read live (no frozen cache) so it tracks the env per call."""
+    if os.environ.get("MLFRAME_FE_GPU_STRICT_BYTEMATCH", "").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def run_fe_step_gpu_strict(self, **kwargs):
     """One FE step, fully GPU-resident, multi-GPU + hw-spec aware. Returns the SAME contract as
     ``_run_fe_step`` (``data, cols, nbins, X, selected_vars, n_recommended_features`` + mutated
