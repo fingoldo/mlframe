@@ -26,6 +26,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from pyutilz.parallel import cpu_count_physical
 
 from ..transforms import UnknownTransformError, get_transform
 from .screening import (
@@ -203,15 +204,15 @@ def rescore_specs_on_holdout(
     random_state = int(getattr(cfg, "random_state", 0))
     y_holdout = y_full[holdout_idx]
 
-    for spec in kept_specs:
+    def _rescore_one(spec) -> None:
         try:
             transform = get_transform(spec.transform_name)
         except UnknownTransformError:
-            continue
+            return
         base_columns = _spec_base_columns(spec)
         x_remaining = _build_x_remaining_holdout(df, usable_features, base_columns, holdout_idx)
         if x_remaining.shape[1] == 0:
-            continue
+            return
         # Materialise the base argument shape the transform.forward expects:
         # a (n,) vector for single-base / a (n, k) matrix for multi-base /
         # a zeros placeholder for unary (forward ignores it).
@@ -231,9 +232,9 @@ def rescore_specs_on_holdout(
             valid = np.asarray(transform.domain_check(y_h, base_arg), dtype=bool)
         except Exception as exc:  # noqa: BLE001 -- degenerate holdout for this spec
             logger.debug("honest-holdout domain_check failed for %s: %s", spec.name, exc)
-            continue
+            return
         if valid.shape != y_h.shape:
-            continue
+            return
         params = dict(spec.fitted_params)
         _dcf = getattr(transform, "domain_check_fitted", None)
         if _dcf is not None:
@@ -249,13 +250,13 @@ def rescore_specs_on_holdout(
                 "honest-holdout: spec %s has only %d valid holdout rows (<50); "
                 "leaving honest_holdout_gain=None.", spec.name, n_valid,
             )
-            continue
+            return
         base_valid = base_arg[valid] if base_arg.ndim == 1 else base_arg[valid, :]
         try:
             t_holdout = transform.forward(y_h[valid], base_valid, params)
         except Exception as exc:  # noqa: BLE001 -- transform raised on holdout rows
             logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
-            continue
+            return
         x_valid = x_remaining[valid]
         _mi_kwargs = dict(nbins=nbins, aggregation=aggregation)
         mi_t = _mi_to_target(
@@ -273,3 +274,15 @@ def rescore_specs_on_holdout(
         object.__setattr__(spec, "honest_holdout_mi_t", float(mi_t))
         object.__setattr__(spec, "honest_holdout_mi_y", float(mi_y))
         object.__setattr__(spec, "honest_holdout_n_rows", n_valid)
+
+    # Per-spec re-scores are independent (each writes only its OWN frozen spec via object.__setattr__,
+    # reads shared read-only arrays). The MI kernels release the GIL, so thread across physical cores.
+    n_jobs = min(len(kept_specs), cpu_count_physical())
+    if n_jobs > 1:
+        from joblib import Parallel, delayed
+        Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
+            delayed(_rescore_one)(s) for s in kept_specs
+        )
+    else:
+        for s in kept_specs:
+            _rescore_one(s)
