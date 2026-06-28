@@ -737,7 +737,36 @@ def fit(
         logger.warning(msg + f" (fail_on_no_gain={mode!r})")
 
     # Multi-base forward-stepwise auto-promotion of linear_residual specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, look at each kept ``linear_residual`` spec and try greedily adding more bases from the auto-base candidate pool. When the marginal RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 0.02 = 2%), upgrade the spec to ``linear_residual_multi`` with the expanded base list. Measure-first benchmark in ``benchmarks/composite_multi_base_benchmark.py`` validates: geo-mean gain 83% on positive scenarios, no-harm on negative scenarios -> auto-promote=True. Gated by ``self.config.multi_base_enabled``; opt-out via config.
-    if kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None):
+    # Auto-skip multi-base promotion when the base pool is uniformly highly-correlated: stacking two
+    # near-identical bases into a multi-base residual adds NO orthogonal signal but DOUBLES the
+    # base-shift amplification of the inverse on unseen groups. (On the prod TVT pool every base was
+    # >=0.999 correlated -- a multi-base upgrade there would have made the collapse strictly worse.)
+    _multibase_pool_corr_skip = False
+    if (kept_specs and getattr(self.config, "multi_base_enabled", False)
+            and getattr(self, "_auto_base_pool", None)):
+        _pool_corr_thresh = float(getattr(self.config, "multi_base_skip_when_pool_corr_above", 0.98))
+        if _pool_corr_thresh < 1.0:
+            try:
+                _pa = [np.asarray(v, dtype=np.float64).ravel()
+                       for v in self._auto_base_pool.values() if v is not None]
+                _pa = [a for a in _pa if a.size > 2 and float(a.std()) > 0]
+                if len(_pa) >= 2:
+                    _M = np.vstack(_pa)
+                    _C = np.corrcoef(_M)
+                    _off = _C[~np.eye(_C.shape[0], dtype=bool)]
+                    _off = np.abs(_off[np.isfinite(_off)])
+                    if _off.size and float(_off.mean()) > _pool_corr_thresh:
+                        _multibase_pool_corr_skip = True
+                        logger.info(
+                            "[CompositeTargetDiscovery] multi-base promotion SKIPPED: base pool is "
+                            "uniformly highly-correlated (mean |pair-corr|=%.4f > %.4g) -- a multi-base "
+                            "residual would add no orthogonal signal and double the inverse's base-shift "
+                            "amplification.", float(_off.mean()), _pool_corr_thresh,
+                        )
+            except Exception:  # noqa: BLE001 -- the corr guard is a heuristic; never abort discovery on it
+                _multibase_pool_corr_skip = False
+    if (kept_specs and getattr(self.config, "multi_base_enabled", False)
+            and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
         _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
         _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
         _cv_sel_mode = str(getattr(self.config, "cv_selector_mode", "mean"))

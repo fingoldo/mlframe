@@ -130,6 +130,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     multi_base_max_k: int = 3
     # Marginal relative CV-RMSE gain a candidate base must clear to be ADDED. Default 0.005 (= 0.5%). The old 2% gate stopped early and left genuinely-helpful weak orthogonal bases out: on a disjoint honest holdout (discovery never sees it), 0.005 beats 0.02 in 20/20 non-tied seeds across additive multi-base DGPs (16-19% holdout-RMSE win) with ZERO regression on the single-dominant + noise-decoy DGP (the paired-fold majority gate in forward_stepwise_multi_base independently rejects noise bases regardless of this relative threshold). Bench: ``discovery/_benchmarks/bench_multibase_min_marginal_gain.py``. Set to 0.02 for the legacy conservative gate.
     multi_base_min_marginal_rmse_gain: float = 0.005
+    # Auto-skip multi-base promotion when the base pool's mean pairwise |corr| exceeds this: stacking
+    # near-identical bases adds no orthogonal signal but doubles the inverse's base-shift amplification
+    # on unseen groups. Default 0.98 (1.0 disables). Detects the "highly-correlated pool" case the
+    # ``multi_base_enabled`` docstring says to set False for, instead of relying on the user to do it.
+    multi_base_skip_when_pool_corr_above: float = 0.98
 
     # Robust CV-selector: argmin(mean(fold_rmses)) silently rewards lucky candidates whose mean wins by less than the per-fold std. ``cv_selector_mode`` != "mean" augments the per-fold scores with a dispersion penalty before the argmin (stable mediocre beats unstable lucky); see ``_cv_aggregation.aggregate_fold_scores``. Default "mean" is bit-identical.
     cv_selector_mode: Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"] = "mean"
