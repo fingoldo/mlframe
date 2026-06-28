@@ -642,7 +642,16 @@ def test_conditional_perm_null_fixed_yz_bit_identical():
     """The hoisted y/z-invariant CMI path in ``_conditional_perm_null`` (recompute
     only x-dependent xz/xyz per permutation) must be bit-identical to the full
     per-permutation ``_cmi_from_binned`` it replaced. Pins the optimization so a
-    future refactor of either helper cannot silently diverge the null."""
+    future refactor of either helper cannot silently diverge the null.
+
+    This is a CPU-vs-CPU exactness contract: both helpers are deterministic njit, so the
+    hoisted path is EXACTLY (``==``) the full path in CPU mode. It is pinned bit-exact
+    on purpose (a tolerance would let a future ~1e-15 CPU refactor bug slip through). The
+    test therefore FORCES the CPU backend -- under a suite-global ``MLFRAME_CMI_GPU=1`` both
+    helpers would reroute to GPU and diverge by ~1e-15 from fp reduction ORDER (not a
+    refactor bug; CPU/GPU bit-identity is not a real contract). CPU/GPU agreement to ULPs
+    is covered separately by the perm-null GPU parity test."""
+    import os
     import numpy as np
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
         _cmi_from_binned,
@@ -650,16 +659,24 @@ def test_conditional_perm_null_fixed_yz_bit_identical():
         precompute_cmi_yz_terms,
     )
 
-    rng = np.random.default_rng(7)
-    for _ in range(200):
-        n = int(rng.integers(500, 3000))
-        x = rng.integers(0, int(rng.integers(2, 12)), n).astype(np.int64)
-        y = rng.integers(0, int(rng.integers(2, 8)), n).astype(np.int64)
-        z = rng.integers(0, int(rng.integers(2, 30)), n).astype(np.int64)
-        ref = _cmi_from_binned(x, y, z)
-        yi, zi, h_yz, h_z, k_yz, k_z, nf = precompute_cmi_yz_terms(y, z)
-        got = cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)
-        assert ref == got, f"fixed-yz CMI diverged: ref={ref!r} got={got!r}"
+    _prev = os.environ.get("MLFRAME_CMI_GPU")
+    os.environ["MLFRAME_CMI_GPU"] = "0"   # CPU-vs-CPU exactness contract; the suite's GPU env must not reroute it
+    try:
+        rng = np.random.default_rng(7)
+        for _ in range(200):
+            n = int(rng.integers(500, 3000))
+            x = rng.integers(0, int(rng.integers(2, 12)), n).astype(np.int64)
+            y = rng.integers(0, int(rng.integers(2, 8)), n).astype(np.int64)
+            z = rng.integers(0, int(rng.integers(2, 30)), n).astype(np.int64)
+            ref = _cmi_from_binned(x, y, z)
+            yi, zi, h_yz, h_z, k_yz, k_z, nf = precompute_cmi_yz_terms(y, z)
+            got = cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)
+            assert ref == got, f"fixed-yz CMI diverged: ref={ref!r} got={got!r}"
+    finally:
+        if _prev is None:
+            os.environ.pop("MLFRAME_CMI_GPU", None)
+        else:
+            os.environ["MLFRAME_CMI_GPU"] = _prev
 
 
 def test_analytic_cmi_null_matches_permutation_decision():
