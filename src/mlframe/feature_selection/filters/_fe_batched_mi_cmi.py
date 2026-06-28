@@ -15,6 +15,19 @@ import os
 import numpy as np
 
 
+# bench-attempt-rejected (2026-06-28): fit-amortised reuse of the joint-histogram atomicAdd count buffers in
+# joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) -- one
+# grow-to-max int64 buffer per site, .fill(0) the live [:M] slice instead of cp.zeros (alloc+memset) -- to kill
+# the 669 cp.zeros that cProfile reported as the #1 tottime (~29-34s) on the GPU-strict-resident F2 1M/200k fit.
+# Bit-identical counts (4/1 F2 selection-equiv flag-on AND flag-off; gpu_cpu_mi_selection_equivalence + joint-hist
+# identity all green). REJECTED on WALL: the 34s was a cProfile async-CUDA artifact (cp.zeros' memset is attributed
+# tottime but the cost is the implicit sync draining queued kernels; eliminating it just moves the drain). A
+# SYNCHRONIZED micro-bench gives the real per-call delta: ~2.7ms at 22M (227x -> ~0.6s, lost in +-2s wall noise)
+# and ~221ms at 320M (15x -> ~3.3s). But the 320M reuse pins ~2.5GB for the whole fit, and on this 4GB GTX 1050 Ti
+# that starves the resident mempool and REGRESSES wall (clean master 126.6/127.2s -> reuse 127.4/136.6s). The
+# 22M-only variant is also within noise (127.4/129.4s). Net: no measurable wall win, and the only path with real
+# savings (320M reuse) regresses. Kept cp.zeros so the large buffers return to the pool after each use. NEVER
+# free_all_blocks the shared pool.
 _XLOGX_ROWS_EK = None
 
 
@@ -199,6 +212,10 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     import cupy as cp
 
     n, K = int(X.shape[0]), int(X.shape[1])
+    # bench-attempt-rejected (2026-06-28): fit-amortised reuse buffer here grows to ~2.5GB (up to 320M int64 at
+    # 1M rows) and stays pinned all fit -> on a 4GB GTX 1050 Ti it starves the resident mempool and REGRESSES
+    # wall (~122s -> ~132s). The .fill(0) of 2.5GB also costs ~the same as cp.zeros' memset, so the only saving
+    # was the (warm-pool-cheap) malloc. Keep cp.zeros so this large buffer is returned to the pool after use.
     counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int64)
     _, h2 = _get_batched_joint_hist_kernels()
     threads = 256
