@@ -887,9 +887,14 @@ def materialise_and_finalise_fe_candidates(
     # matter). The two now-subsumed fragments are popped from the recipe dict + dropped from
     # selection BEFORE the vote, so the vote never sees them. Self-gates to a no-op (byte-identical)
     # when fewer than two relevant disjoint engineered halves are present -- the common case.
+    # ``fe_max_engineered_operands == 0`` is the documented raw-only-pool contract (no composites
+    # whose operands are themselves engineered features). Additive fusion combines two engineered
+    # halves into ``add(half_a, half_b)``, i.e. a composite of engineered operands, so it must honor
+    # that contract and stay off when the feed-forward cap is 0.
     if (
         engineered_recipes is not None
         and bool(getattr(self, "fe_additive_fusion_enable", True))
+        and int(getattr(self, "fe_max_engineered_operands", 8)) != 0
         and _newly_engineered_indices
     ):
         try:

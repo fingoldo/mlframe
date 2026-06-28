@@ -75,7 +75,16 @@ def test_build_pre_pipelines_threads_cache_to_mrmr():
         mrmr_identity_cache=ctx_cache,
     )
     assert len(pre_pipelines) == 1
-    assert pre_pipelines[0]._mlframe_identity_cache_override_ is ctx_cache
+    # The override is a non-pickling view that DELEGATES to the shared ctx dict (so the runtime cache
+    # does not enter the persisted model); writes through it must land in the same backing ``ctx_cache``,
+    # and it must collapse to an empty plain dict at pickle time.
+    override = pre_pipelines[0]._mlframe_identity_cache_override_
+    override["probe"] = 1
+    assert ctx_cache.get("probe") == 1
+    assert override.get("probe") == 1
+    import pickle
+
+    assert pickle.loads(pickle.dumps(override)) == {}
 
 
 def test_build_pre_pipelines_no_cache_when_none():
