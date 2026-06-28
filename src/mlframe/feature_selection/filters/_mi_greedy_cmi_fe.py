@@ -66,6 +66,48 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 
 logger = logging.getLogger(__name__)
 
+# GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
+# 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
+# cp.percentile sort + cp.searchsorted + code D2H) only beats the host introselect-partition np.quantile path
+# well above the launch/transfer floor -- n=20k CPU 0.92ms vs GPU 1.67ms; n=35k near-tie 1.53 vs 1.71ms; n=100k
+# GPU 2.10 vs CPU 4.12ms = 2x; n=300k GPU 3.06 vs CPU 14.1ms = 4.6x. The gate is set at 50k (clear of the 35k
+# near-tie) so every routed call is a decisive win; the small (3k/20k) gate-redundancy columns stay on the
+# host, where the fixed ~1.7ms device round-trip overhead loses to numpy.
+_GPU_QBIN_MIN_ROWS = 50_000
+
+
+def _quantile_bin_gpu(a: np.ndarray, nbins: int):
+    """Device equi-frequency bin of an all-finite 1-D float column -> host int64 codes, selection-equivalent
+    to the numpy ``_quantile_bin`` fast path.
+    Returns ``None`` on any failure so the caller transparently keeps the numpy path. NEVER frees the cupy
+    memory pool. Codes can 1-off the numpy codes at <~1e-5 of rows where cp.percentile and np.quantile round a
+    boundary differently -- below the bin resolution, MI/cardinality selection-equivalent (the acceptance bar).
+
+    Device 1-D twin of the numpy fast path: ``cp.percentile`` (on the RAVELLED array -- cp.percentile(X,axis=0)
+    returns WRONG edges for an (n,1) column, the known cupy single-column bug guarded in
+    ``_gpu_resident_discretize_codes``) + ``cp.unique`` edge-dedup + ``cp.searchsorted`` on the deduped interior
+    edges. The unique-dedup is load-bearing on low-cardinality / mass-point columns: skipping it (or hitting the
+    (n,1) percentile bug) splits a tied bin and breaks the occupied-bin partition the redundancy gate keys on.
+    This mirrors the numpy ``np.unique(np.quantile(a,qs))`` + ``searchsorted(edges[1:-1], a, 'right')`` exactly
+    (cp.percentile uses [0,100] vs np.quantile's [0,1] -- same linear-interpolation edges)."""
+    try:
+        import cupy as cp
+
+        xd = cp.asarray(np.ascontiguousarray(a, dtype=np.float64))
+        qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
+        edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
+        if int(edges.size) <= 2:
+            out = cp.zeros(xd.size, dtype=cp.int64)
+            if int(edges.size) == 2:
+                out[:] = (xd >= edges[1]).astype(cp.int64)
+            return cp.asnumpy(out)
+        codes = cp.searchsorted(edges[1:-1], xd, side="right").astype(cp.int64)
+        return cp.asnumpy(codes)
+    except Exception:
+        logger.debug("GPU _quantile_bin failed; numpy fallback", exc_info=True)
+        return None
+
+
 __all__ = [
     "score_candidates_by_cmi",
     "greedy_cmi_fe_construct",
@@ -109,6 +151,20 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
     # ``a`` in place. Bit-identical (when every value is finite, finite == a and
     # finite_mask selects every row). ~1.3x at the CMI-greedy call volume.
     if np.isfinite(a).all():
+        # GPU fast path (STRICT-resident, large-operand only): the n-sized equi-frequency binning of the
+        # gate-redundancy / subsumption / additive-fusion continuous columns is 6x on-device at n=300k
+        # (synchronized bench). Size-gated (_GPU_QBIN_MIN_ROWS) so only above-crossover columns route to the
+        # GPU; the small columns and the no-CUDA / non-strict default keep the byte-identical numpy path.
+        if a.size >= _GPU_QBIN_MIN_ROWS:
+            try:
+                from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+                _gpu_on = fe_gpu_strict_resident_enabled()
+            except Exception:
+                _gpu_on = False
+            if _gpu_on:
+                _g = _quantile_bin_gpu(a, nbins)
+                if _g is not None:
+                    return _g
         edges = np.unique(np.quantile(a, qs))
         out = np.zeros(a.size, dtype=np.int64)
         if edges.size <= 2:
