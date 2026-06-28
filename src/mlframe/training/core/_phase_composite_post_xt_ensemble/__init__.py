@@ -22,6 +22,48 @@ logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 _DEFAULT_OOF_RANDOM_STATE = 42
 
 
+def _oof_subsample_positions(n: int, groups, cap: int, seed: int):
+    """Row positions for a bounded OOF weight-estimation subsample.
+
+    Group-aware when ``groups`` is supplied: keep WHOLE groups (sorted by a seeded permutation) until
+    ~``cap`` rows are collected, so the group-disjoint OOF structure the weights consume is preserved.
+    Falls back to a plain seeded random subsample without groups. Returns sorted positions, or ``None``
+    when no subsample is needed / possible.
+    """
+    if cap <= 0 or n <= cap:
+        return None
+    rng = np.random.default_rng(seed)
+    if groups is not None:
+        g = np.asarray(groups)
+        if g.shape[0] == n:
+            uniq = rng.permutation(np.unique(g))
+            keep, total = [], 0
+            for gid in uniq:
+                keep.append(gid)
+                total += int(np.count_nonzero(g == gid))
+                if total >= cap:
+                    break
+            pos = np.nonzero(np.isin(g, keep))[0]
+            if 0 < pos.size < n:
+                return np.sort(pos)
+    return np.sort(rng.choice(n, size=cap, replace=False))
+
+
+def _slice_frame_rows(frame, pos):
+    """Row-subset a polars / pandas / ndarray frame by integer positions (REDUCES rows -- never a full copy)."""
+    try:
+        import polars as pl  # type: ignore
+        if isinstance(frame, pl.DataFrame):
+            mask = np.zeros(frame.height, dtype=bool)
+            mask[pos] = True
+            return frame.filter(pl.Series(mask))
+    except ImportError:
+        pass
+    if hasattr(frame, "iloc"):
+        return frame.iloc[pos].reset_index(drop=True)
+    return frame[pos]
+
+
 def _build_cross_target_ensemble_for_target(
     *,
     _tt_e,
@@ -503,27 +545,52 @@ def _build_cross_target_ensemble_for_target(
                     "refit.", _prescreen_err,
                 )
 
+        # Bound the OOF weight-estimation refits to a train subsample (group-aware: keep whole groups).
+        # The NNLS / dummy-floor blend weights saturate far below millions of rows, so this turns the
+        # K-fold x N-component refit from hours to minutes with ensemble RMSE within ~1e-4 of full-data
+        # (bench_oof_subsample_speedup.py). Slices REDUCE rows -> bounded, never a 100GB copy. The
+        # deployed per-target components are untouched; only the weighting surface is subsampled.
+        _oof_train_X = filtered_train_df
+        _oof_y_arr = np.asarray(_oof_y_full)[filtered_train_idx]
+        _oof_base_per_spec = _base_full_per_spec
+        _oof_groups_arg = _group_ids_for_oof
+        _oof_rs = int(getattr(composite_target_discovery_config, "oof_random_state", _DEFAULT_OOF_RANDOM_STATE))
+        _oof_cap = int(getattr(composite_target_discovery_config, "oof_max_train_rows", 0) or 0)
+        _n_oof_rows = len(_oof_y_arr)
+        _sub_pos = _oof_subsample_positions(_n_oof_rows, _oof_groups_arg, _oof_cap, _oof_rs)
+        if _sub_pos is not None and _sub_pos.size < _n_oof_rows:
+            _oof_train_X = _slice_frame_rows(filtered_train_df, _sub_pos)
+            _oof_y_arr = _oof_y_arr[_sub_pos]
+            _oof_base_per_spec = {k: np.asarray(v)[_sub_pos] for k, v in (_base_full_per_spec or {}).items()}
+            _oof_groups_arg = None if _oof_groups_arg is None else np.asarray(_oof_groups_arg)[_sub_pos]
+            # Reassign the ctx-derived kwargs IN PLACE (subsampled) so the call site keeps threading
+            # ``sample_weight=_sw_for_oof`` / ``time_ordering=_time_ordering`` (pinned by the call-site
+            # propagation test) while still honouring the subsample.
+            _sw_for_oof = None if _sw_for_oof is None else np.asarray(_sw_for_oof)[_sub_pos]
+            _time_ordering = None if _time_ordering is None else np.asarray(_time_ordering)[_sub_pos]
+            logger.info(
+                "[CompositeCrossTargetEnsemble] target='%s' OOF weight-estimation subsampled %d -> %d "
+                "train rows (group-aware cap=%d); deployed components unaffected.",
+                _orig_tname, _n_oof_rows, int(_sub_pos.size), _oof_cap,
+            )
         try:
             _oof_pred_matrix, _oof_y_holdout, _surviving = (
                 compute_oof_holdout_predictions(
                     component_models=_components,
                     component_names=_component_names,
                     component_specs=_component_specs,
-                    train_X=filtered_train_df,
-                    y_train_full=np.asarray(_oof_y_full)[filtered_train_idx],
-                    base_train_full_per_spec=_base_full_per_spec,
+                    train_X=_oof_train_X,
+                    y_train_full=_oof_y_arr,
+                    base_train_full_per_spec=_oof_base_per_spec,
                     holdout_frac=_oof_frac,
-                    random_state=getattr(
-                        composite_target_discovery_config,
-                        "oof_random_state", _DEFAULT_OOF_RANDOM_STATE,
-                    ),
+                    random_state=_oof_rs,
                     time_ordering=_time_ordering,
                     kfold=_kfold_for_oof,
                     sample_weight=_sw_for_oof,
                     external_holdout_X=_ext_X,
                     external_holdout_y=_ext_y,
                     external_holdout_base_per_spec=_ext_base_per_spec,
-                    group_ids=_group_ids_for_oof,
+                    group_ids=_oof_groups_arg,
                 )
             )
         except Exception as _oof_err:

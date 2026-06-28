@@ -565,6 +565,17 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     yscale_holdout_gate_min_groups: int = 4
     yscale_holdout_gate_holdout_group_frac: float = 0.3
 
+    # Cross-target ensemble honest-OOF stacking: cap the number of TRAIN rows the K-fold OOF refit
+    # uses to estimate the (~dozen-component) NNLS / dummy-floor blend weights. The weights are a tiny
+    # convex-ish solve that saturates far below millions of rows -- bench
+    # (_benchmarks/bench_oof_subsample_speedup.py) shows a group-aware subsample to ~30k yields an
+    # ensemble RMSE within ~1e-4 of the full-data weights while the refit wall drops ~Nx (6.5x@200k on
+    # cheap Ridge; ~100x at 2.96M on boosters -- the prod 4.5h -> minutes). The subsample keeps WHOLE
+    # groups so the group-aware OOF structure is preserved. 0 / None disables the cap (use every train
+    # row, the legacy behaviour). The full per-target models are unaffected -- this only bounds the
+    # WEIGHT-ESTIMATION refits, never the deployed components.
+    oof_max_train_rows: int = 200_000
+
     # Bootstrap CI on mi_gain. The point-estimate
     # mi_gain has noise floor that scales with the screening sample
     # size and the heaviness of the y-tail; the eps_mi_gain absolute
