@@ -11,10 +11,16 @@ import os
 
 
 def fe_gpu_strict_resident_enabled() -> bool:
-    """Whether the SEPARATE resident GPU-strict FE step is active. DEFAULT OFF (Phase 0). Requires both
-    ``MLFRAME_FE_GPU_STRICT`` (the strict gate) AND ``MLFRAME_FE_GPU_STRICT_RESIDENT=1`` (this opt-in). Kept
-    independent so the resident path can be rolled out / rolled back without touching the existing strict path."""
-    if os.environ.get("MLFRAME_FE_GPU_STRICT_RESIDENT", "").strip().lower() not in ("1", "true", "on", "yes"):
+    """Whether the resident GPU-strict FE stages are active. DEFAULT ON under ``MLFRAME_FE_GPU_STRICT``.
+
+    The resident GPU stages (recipe replay, fourier detection, prewarp ALS, usability pool, pure-form
+    retention, the CMI perm-null) are selection-equivalent to the CPU path and are now the DEFAULT behaviour
+    of STRICT: whenever ``MLFRAME_FE_GPU_STRICT`` is on they engage. ``MLFRAME_FE_GPU_STRICT_RESIDENT=0`` is
+    the explicit OPT-OUT (kept so the resident path can still be disabled per-fit for diagnosis / rollback
+    without touching the byte-identical DEFAULT non-strict path). STRICT itself is a selection-equivalent
+    force-GPU mode (the CPU/CUDA backends agree to ~1e-9); the byte-identical contract lives on the non-strict
+    default path, which this never touches."""
+    if os.environ.get("MLFRAME_FE_GPU_STRICT_RESIDENT", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled

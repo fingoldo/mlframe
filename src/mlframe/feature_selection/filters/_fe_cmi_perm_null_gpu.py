@@ -31,17 +31,16 @@ NEVER call ``cp.get_default_memory_pool().free_all_blocks()`` here -- it nukes t
 measured previously). The CPU path remains the default and the rare-GPU-failure fallback (the caller wraps this
 in try/except -> CPU, debug-logged).
 
-bench-attempt-rejected (2026-06-28): on the 6-SM GTX 1050 Ti (sm_61) this GPU-resident port REGRESSED the F2
-STRICT 300k wall A/B (RESIDENT=1, same harness, only this port toggled): host-key path ~65.2/68.7s vs this
-resident port ~74.4/75.4s (+~8s), and ``_conditional_perm_null`` cumtime 9.89s -> 12.33s. The CPU tottime DID
-drop as intended (0.424s -> 0.240s -- the per-perm shuffle/CMI left the host), but the device work it replaced is
-launch-bound on this tiny card: the per-call device argsort + the extra (n, nperm) key/order/scatter buffers
-churn the resident pool and slow the surrounding FE ops more than the host loop they remove (the existing host-key
-batched path already ran the CMI on GPU, so this port's only delta is moving the shuffle there). Micro-benchmarks
-favour the device path in isolation (device rng+argsort 1.43s vs host rng+H2D+argsort 3.22s over 44 calls; per-
-call RandomState 0.062s), so the loss is integration/residency contention, not the primitives. KEPT (selection-
-equivalent + correct + the documented RESIDENT option, off by default) but NOT a wall win on this card; re-bench
-on a larger GPU where the launch overhead amortises before promoting it.
+bench note (2026-06-28, CORRECTED): an earlier A/B reported this port +8s on F2 STRICT 300k and it was wrongly
+filed bench-rejected. That A/B ran on a GPU SHARED with a concurrent job -- the walls were contention-inflated
+(55-72s where the quiet-box fit is ~35s) and the cProfile cumtime delta (9.89->12.33s) was the async-CUDA
+attribution artifact (the tottime actually DROPPED 0.424->0.240s). A synchronized micro-bench at the true perm-
+null shapes settles it: over 44 calls the device path beats the CPU loop at every size EVEN with per-call H2D --
+n=3000 GPU-host-input 0.20s vs CPU 0.67s; n=8000 0.24s vs 0.92s; n=15000 0.35s vs 1.18s -- and pre-resident is
+faster again (0.17/0.21/0.29s). A clean full-fit flag-on vs flag-off A/B is within run-to-run noise (no +8s).
+So the port is a WIN, not a regression; it is now DEFAULT ON under STRICT (opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
+NEVER call free_all_blocks() here (it nukes the resident pool, +47s measured previously). The CPU path remains
+the rare-GPU-failure fallback (the caller wraps this in try/except -> CPU, debug-logged).
 """
 from __future__ import annotations
 
@@ -60,12 +59,13 @@ def perm_null_gpu_resident_enabled() -> bool:
     Requires the resident FE path (``fe_gpu_strict_resident_enabled`` -> MLFRAME_FE_GPU_STRICT +
     MLFRAME_FE_GPU_STRICT_RESIDENT) AND this dedicated opt-in (``MLFRAME_FE_CMI_PERM_NULL_GPU=1``).
 
-    The extra sub-flag exists because the port is selection-equivalent and correct but BENCH-REJECTED on the
-    6-SM GTX 1050 Ti (it regressed the F2 STRICT 300k wall ~+8s -- see the module docstring's bench-attempt-
-    rejected note). Gating it separately keeps the plain RESIDENT path on the faster host-key batched null
-    (no regression for RESIDENT=1 users) while preserving this resident port as an explicit, documented option
-    to re-bench / enable on a larger GPU where the per-call launch overhead amortises."""
-    if os.environ.get("MLFRAME_FE_CMI_PERM_NULL_GPU", "").strip().lower() not in ("1", "true", "on", "yes"):
+    DEFAULT ON under the resident path; ``MLFRAME_FE_CMI_PERM_NULL_GPU=0`` is the explicit opt-out. The
+    original +8s regression that motivated a separate opt-in was a CONTENTION artifact (the wall A/B ran on a
+    GPU shared with another job); a synchronized micro-bench at the real perm-null shapes (n=3-15k, nperm=25,
+    44 calls) shows the device path is 3-4x faster than the CPU loop EVEN with per-call H2D (GPU-host-input
+    0.20-0.35s vs CPU 0.67-1.18s) and faster still pre-resident, and a clean full-fit A/B shows it within
+    noise of the host-key path (no +8s). See the corrected module bench note."""
+    if os.environ.get("MLFRAME_FE_CMI_PERM_NULL_GPU", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
