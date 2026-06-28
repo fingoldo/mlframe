@@ -282,6 +282,24 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # Selection-equivalent to the CPU njit (percentile-edge vs rank binning; recipe-hash byte-identical in the
     # bench-note force-test). Falls back to the CPU njit on any GPU failure / when STRICT is off (the default
     # path stays byte-for-byte the numba batch). Launches rise (priority #2) but residency is the goal.
+    # Narrow device-fault set (FIX1, 2026-06-28): the prior broad ``except Exception: pass`` here
+    # SWALLOWED the ValueError that ``_assert_codes_in_range`` raises on a -1 / out-of-range code,
+    # silently degrading a genuine OOB (illegal-address) bug to the CPU njit and DEFEATING the guard
+    # added in 6c127567. Catch only genuine cupy/device faults below so a true device error still
+    # falls back to CPU, while a ValueError/IndexError (real OOB / logic bug) propagates to surface.
+    _dev_errs = [np.linalg.LinAlgError]
+    try:
+        import cupy as _cp_e  # type: ignore
+
+        _dev_errs.append(_cp_e.cuda.runtime.CUDARuntimeError)
+        _dev_errs.append(_cp_e.cuda.memory.OutOfMemoryError)
+        from cupy_backends.cuda.libs import cusolver as _cusolver_e  # type: ignore
+        _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
+        from cupy_backends.cuda.libs import cublas as _cublas_e  # type: ignore
+        _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
+    except Exception:
+        pass
+    _DEV_ERRS = tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
 
@@ -320,8 +338,10 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                         return np.asarray(_rank_mi, dtype=np.float64)
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin,
                                                                      n_classes=_ncls), dtype=np.float64)
-    except Exception:
-        pass   # any GPU failure -> exact CPU njit below
+    except (ImportError, *_DEV_ERRS):
+        pass   # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
+        # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here -- a -1 / out-of-range
+        # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)

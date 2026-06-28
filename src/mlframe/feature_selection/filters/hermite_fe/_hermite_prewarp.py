@@ -172,8 +172,16 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 import cupy as _cp  # type: ignore
                 _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
                 _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
+                # FIX4 (2026-06-28): cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
+                # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
+                # back. getattr so an absent symbol can't break the tuple builder.
+                from cupy_backends.cuda.libs import cusolver as _cusolver  # type: ignore
+                _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
+                from cupy_backends.cuda.libs import cublas as _cublas  # type: ignore
+                _dev_errs.append(getattr(_cublas, "CUBLASError", None))
             except Exception:
                 pass
+            _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
                 return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
             except tuple(_dev_errs):

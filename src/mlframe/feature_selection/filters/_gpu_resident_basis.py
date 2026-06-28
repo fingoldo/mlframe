@@ -1292,6 +1292,18 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
         ua_idx, ub_idx, bop = _cc
     col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
     P1 = int(y_all_dev.shape[0])
+    # OOB SCREEN (FIX2, 2026-06-28): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
+    # DIRECTLY as a shared-mem offset (``sh[p*nbky + slot + yp]``); the X side is generated + binned
+    # in-kernel (slot bounded by nbins by construction) so only ``y_all`` can drive an illegal address.
+    # A y code < 0 or >= K_y indexes outside the (P1,nbins,K_y) shared histogram -> cudaErrorIllegalAddress.
+    # One stacked min/max .get() (single blocking sync) so an upstream OOB surfaces as a clear ValueError.
+    if y_all_dev.size:
+        _ymm = cp.stack((y_all_dev.min(), y_all_dev.max())).get()
+        if int(_ymm[0]) < 0 or int(_ymm[1]) >= int(K_y):
+            raise ValueError(
+                "grand-fusion y_all codes out of range (min=%d, max=%d) for K_y=%d; a -1 / over-range "
+                "code would index outside the device histogram (illegal address)." % (int(_ymm[0]), int(_ymm[1]), int(K_y))
+            )
     counts = cp.zeros((P1, int(total_size)), dtype=cp.int64)
     # ONE BLOCK PER CANDIDATE: shared-mem histogram is (P1, nbins, K_y) int32. Check it fits this device's
     # per-block shared-memory limit; if not, the caller must fall back (the host gates on this).

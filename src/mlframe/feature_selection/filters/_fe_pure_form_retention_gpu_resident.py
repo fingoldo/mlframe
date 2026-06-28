@@ -106,6 +106,20 @@ def adds_nonlinear_value_batch_gpu_resident(
         _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
     except Exception:
         pass
+    # FIX4 (2026-06-28): the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
+    # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
+    # the exact CPU path. getattr so an absent symbol can't break the tuple builder.
+    try:
+        from cupy_backends.cuda.libs import cusolver as _cusolver  # type: ignore
+        _e = getattr(_cusolver, "CUSOLVERError", None)
+        if _e is not None:
+            _dev_errs.append(_e)
+        from cupy_backends.cuda.libs import cublas as _cublas  # type: ignore
+        _e = getattr(_cublas, "CUBLASError", None)
+        if _e is not None:
+            _dev_errs.append(_e)
+    except Exception:
+        pass
     _DEV_ERRS = tuple(_dev_errs)
     try:
         from ._gpu_policy import gpu_globally_disabled

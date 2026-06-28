@@ -239,6 +239,62 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
 
 _XLOGX_EK = None
 
+# FIX3 (2026-06-28): y and z are fit-CONSTANTS across the greedy CMI loop (the same target / just-selected
+# columns for every candidate batch in a round, and z changes only ONCE per greedy round). The prior code
+# re-uploaded BOTH via cp.asarray on EVERY call -> per-candidate-batch H2D churn (the measured safe_cuda_api
+# 0.63s + .get() 0.45s overhead on the CPU-strict path, where the CMI GPU launch is neutral-to-hurting vs the
+# njit pool MI it replaces). Cache the uploaded device copy keyed on array IDENTITY (id + shape + dtype) so
+# repeated calls in the same greedy loop reuse it. Selection-equivalent (same values, just not re-uploaded).
+# Pickle-safe: module-level (never on an instance), cleared at FE-step teardown via clear_cmi_resident_cache().
+# WALL A/B (2026-06-28, CPU-strict 90k uniform, quiet box, MLFRAME_CMI_RESIDENT_CACHE 0 vs 1): warm median
+# 8.82s -> 8.96s, min 8.79s -> 8.84s == FLAT (within run-to-run noise). At this shape (n_feat=1) the greedy
+# CMI loop runs too few rounds/candidate-batches for the per-call y/z H2D to be on the critical path, so the
+# cache does not move the wall here. Mechanism verified (5 same-y/z dispatch calls -> exactly 2 cache entries
+# = y,z uploaded ONCE not per call). KEPT: it is selection-equivalent and can only help (never hurt) at the
+# many-round shapes where the H2D churn IS the safe_cuda_api/.get() overhead; the value is shape-dependent.
+_CMI_RESIDENT_CACHE: dict = {}
+
+
+def _resident_upload(arr, key):
+    """Return a device int32 copy of host ``arr``, reusing a cached upload keyed on the caller's ``key``.
+
+    The dispatch keys on ``(id(factors_data), column_index, nbins)`` -- a STABLE identity across the greedy
+    loop (the freshly-sliced host column is re-allocated every call, so keying on the slice's own id would
+    never hit; the parent ``factors_data`` + column index is the fit-constant). ``id()`` can be recycled
+    after factors_data is GC'd, so shape/dtype are folded into the cached entry and a recycled id with a
+    different shape simply misses and re-uploads (never a stale wrong-shape buffer). Bounded; cleared at
+    FE-step teardown.
+    """
+    import cupy as cp
+
+    # Diagnostic A/B switch only (default ON): MLFRAME_CMI_RESIDENT_CACHE=0 forces a fresh upload every call
+    # to reproduce the pre-FIX3 H2D churn for the wall A/B. NOT a perf gate -- the cache is always on in prod.
+    import os as _os
+    if _os.environ.get("MLFRAME_CMI_RESIDENT_CACHE", "1").strip().lower() in ("0", "false", "off", "no"):
+        return cp.asarray(arr)
+    # CONTENT FINGERPRINT (recycled-id guard): id(factors_data) is reused by the allocator after the parent
+    # is GC'd, so a recycled id with the SAME column index + shape + dtype but DIFFERENT values would return a
+    # STALE device copy (a silent correctness bug -- caught by the cmi parity tests). Fold a cheap O(n) host
+    # content hash of the (small, 1-D, int) array into the key so different contents never alias. The hash is
+    # pure CPU and far cheaper than the H2D it guards; on a real greedy loop the same y/z hash identically ->
+    # the cache still hits every candidate batch.
+    sig = (arr.shape, arr.dtype.str, hash(arr.tobytes()))
+    cached = _CMI_RESIDENT_CACHE.get(key)
+    if cached is not None:
+        g, csig = cached
+        if csig == sig:
+            return g
+    if len(_CMI_RESIDENT_CACHE) > 16:
+        _CMI_RESIDENT_CACHE.clear()
+    g = cp.asarray(arr)
+    _CMI_RESIDENT_CACHE[key] = (g, sig)
+    return g
+
+
+def clear_cmi_resident_cache() -> None:
+    """Drop the resident y/z device cache (call at FE-step teardown; mirrors the mempool teardown)."""
+    _CMI_RESIDENT_CACHE.clear()
+
 
 def conditional_mi_batched_cuda(
     Xc: np.ndarray,
@@ -248,6 +304,8 @@ def conditional_mi_batched_cuda(
     nbins_y: int,
     nbins_z: int,
     block_size: int = 256,
+    y_g=None,
+    z_g=None,
 ) -> np.ndarray:
     """Compute ``I(X_j; Y | Z)`` for all ``p`` candidate columns in one launch -> (p,) float64.
 
@@ -269,11 +327,28 @@ def conditional_mi_batched_cuda(
     p, n = Xc.shape
     joint_size = int(nbins_x) * int(nbins_y) * int(nbins_z)
 
+    # OOB SCREEN (FIX2, 2026-06-28): the joint-hist kernel uses raw codes DIRECTLY as a flat shared-mem
+    # offset (``cell = cz + cx*nbz + cy*(nbx*nbz)``) sized from nbins_* (= factors_nbins.max()). A -1
+    # sentinel or a code >= its nbins indexes OUTSIDE the histogram -> cudaErrorIllegalAddress (a hard,
+    # unrecoverable GPU crash, NOT a Python error). Mirror the host min/max screen batch_pair_mi_cuda
+    # already does so an upstream OOB surfaces as a clear ValueError instead. Cheap: one min+max per
+    # array on the host inputs (already materialized as numpy above).
+    from .._fe_batched_mi import _assert_codes_in_range
+    _assert_codes_in_range(Xc, int(nbins_x), "conditional_mi_batched_cuda X codes")
+    _assert_codes_in_range(y, int(nbins_y), "conditional_mi_batched_cuda y codes")
+    _assert_codes_in_range(z, int(nbins_z), "conditional_mi_batched_cuda z codes")
+
     kern = _get_kernel()
 
     Xc_g = cp.asarray(Xc)
-    y_g = cp.asarray(y)
-    z_g = cp.asarray(z)
+    # FIX3: y and z are fit-constants across the greedy CMI loop -> the dispatch passes their cached device
+    # uploads (keyed on factors_data identity + column index) so they are NOT re-uploaded per candidate
+    # batch (kills the per-call H2D churn). When called directly (tests/benches) they arrive None -> upload
+    # once here. Xc IS per-candidate -> uploaded fresh every call. Same values -> selection-equivalent.
+    if y_g is None:
+        y_g = cp.asarray(y)
+    if z_g is None:
+        z_g = cp.asarray(z)
     joint = cp.zeros((p, joint_size), dtype=cp.int32)
 
     kern(
@@ -442,11 +517,25 @@ def conditional_mi_batched_dispatch(
         use_cuda = False
 
     if use_cuda:
+        Xc = np.ascontiguousarray(factors_data[:, cand_indices].T, dtype=np.int32)
+        y = np.ascontiguousarray(factors_data[:, y_index], dtype=np.int32)
+        z = np.ascontiguousarray(factors_data[:, z_index], dtype=np.int32)
+        # OOB SCREEN (FIX2, 2026-06-28): screen HERE, BEFORE the GPU try/except below, so a -1 /
+        # out-of-range code (illegal-address) surfaces as a ValueError instead of being swallowed by
+        # the device-fault fallback (which would silently mask a real bug -> CPU). Cheap host min/max.
+        from .._fe_batched_mi import _assert_codes_in_range
+        _assert_codes_in_range(Xc, int(nbins_x), "conditional_mi_batched_dispatch X codes")
+        _assert_codes_in_range(y, int(nbins_y), "conditional_mi_batched_dispatch y codes")
+        _assert_codes_in_range(z, int(nbins_z), "conditional_mi_batched_dispatch z codes")
         try:
-            Xc = np.ascontiguousarray(factors_data[:, cand_indices].T, dtype=np.int32)
-            y = np.ascontiguousarray(factors_data[:, y_index], dtype=np.int32)
-            z = np.ascontiguousarray(factors_data[:, z_index], dtype=np.int32)
-            return conditional_mi_batched_cuda(Xc, y, z, nbins_x, nbins_y, nbins_z)
+            # FIX3: y/z are fit-constants across the greedy loop -> upload ONCE per (factors_data, column)
+            # and reuse the device copy on every candidate batch, eliminating the per-call H2D churn (the
+            # safe_cuda_api / .get() overhead measured on the CPU-strict path). Keyed on the stable parent
+            # factors_data identity + column index (the freshly-sliced y/z host arrays change id per call).
+            _fid = id(factors_data)
+            y_g = _resident_upload(y, (_fid, "y", int(y_index), int(nbins_y)))
+            z_g = _resident_upload(z, (_fid, "z", int(z_index), int(nbins_z)))
+            return conditional_mi_batched_cuda(Xc, y, z, nbins_x, nbins_y, nbins_z, y_g=y_g, z_g=z_g)
         except Exception as _exc:  # noqa: BLE001 - any GPU failure -> exact CPU fallback
             logger.warning("cmi_cuda: GPU path failed (%s); falling back to CPU", _exc)
 
@@ -457,4 +546,5 @@ __all__ = [
     "conditional_mi_batched_cuda",
     "conditional_mi_batched_dispatch",
     "cupy_available",
+    "clear_cmi_resident_cache",
 ]

@@ -443,6 +443,30 @@ def batch_mi_with_noise_gate_cuda_resident(
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
+
+    # OOB SCREEN (FIX2, 2026-06-28): the batched-hist kernels use raw codes DIRECTLY as a flat shared-mem
+    # / counts offset (``cx * K_y + cy`` -- _batch_mi_noise_gate_kernels.py:428/482) sized from
+    # nbins_col[k] and K_y. A -1 sentinel or a code >= its cardinality indexes outside the histogram ->
+    # cudaErrorIllegalAddress (a hard GPU crash). Screen the HOST codes here (cheap min/max) so an
+    # upstream OOB surfaces as a clear ValueError. Skipped when the codes are resident (binner-produced,
+    # already on-device): re-syncing them would defeat the resident-handoff and they are dense by contract.
+    if d_disc_resident is None:
+        _dmin = int(disc_2d.min()); _dmax = int(disc_2d.max())
+        _kx_max = int(np.asarray(factors_nbins, dtype=np.int64).max())
+        if _dmin < 0 or _dmax >= _kx_max:
+            raise ValueError(
+                "batch_mi_with_noise_gate_cuda_resident disc_2d codes out of range "
+                "(min=%d, max=%d) for nbins max=%d; a -1 sentinel or over-range code would index "
+                "outside the device histogram (illegal address)." % (_dmin, _dmax, _kx_max)
+            )
+        if classes_y.size:
+            _cy_min = int(classes_y.min()); _cy_max = int(classes_y.max())
+            _ky = int(freqs_y.shape[0])
+            if _cy_min < 0 or _cy_max >= _ky:
+                raise ValueError(
+                    "batch_mi_with_noise_gate_cuda_resident classes_y out of range "
+                    "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
+                )
     # Lever C (2026-06-23): HW-aware + KTC-tuned threads/block for the batched-hist launch (default 128 left
     # the SM ~1/16 occupied; the row-loop parallelises across threads). When the caller did not pin a count
     # (threads_per_block is None) look the per-host tuned count up from the kernel_tuning_cache (candidate set

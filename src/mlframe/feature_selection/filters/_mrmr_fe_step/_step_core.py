@@ -55,6 +55,13 @@ def _free_gpu_fe_mempool() -> bool:
     import os as _os
     if not (_os.environ.get("MLFRAME_FE_GPU_STRICT") or _os.environ.get("MLFRAME_CMI_GPU")):
         return False
+    # FIX3 (2026-06-28): drop the resident y/z device cache in _cmi_cuda FIRST so its device arrays carry no
+    # live reference -> free_all_blocks below can actually reclaim them (a fit-scoped cache, never persisted).
+    try:
+        from ..info_theory._cmi_cuda import clear_cmi_resident_cache
+        clear_cmi_resident_cache()
+    except Exception:
+        pass
     try:
         import cupy as _cp
         _cp.get_default_memory_pool().free_all_blocks()
