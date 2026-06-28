@@ -39,6 +39,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from pyutilz.parallel import cpu_count_physical
 
 from ..spec import CompositeSpec
 from ..transforms import compose_target_name
@@ -65,29 +66,47 @@ def _run_region_adaptive(
     ``iter_transform`` consumes).
     """
     k = int(getattr(self.config, "region_adaptive_k", 4))
-    out: list[Any] = []
+    rs = int(self.config.random_state)
+    # Unique single-base columns, in first-seen order (region-adaptive needs exactly one base).
+    bases: list[str] = []
     seen_bases: set[str] = set()
     for spec in kept_specs:
         base_col = getattr(spec, "base_column", "")
         if not base_col or getattr(spec, "extra_base_columns", ()):
             continue
-        if base_col in seen_bases:
-            continue
-        seen_bases.add(base_col)
+        if base_col not in seen_bases:
+            seen_bases.add(base_col)
+            bases.append(base_col)
+    if not bases:
+        return []
+
+    def _fit_one(base_col: str):
         try:
             base_screen = _extract_column_array(df, base_col, rows=screen_idx)
-            ra_spec = fit_region_adaptive(
+            return fit_region_adaptive(
                 y_screen, base_screen,
                 base_column=base_col, target_col=target_col,
-                k=k, random_state=int(self.config.random_state),
+                k=k, random_state=rs,
             )
         except Exception as exc:  # noqa: BLE001 -- a degenerate base must not abort fit
             logger.warning(
                 "[CompositeTargetDiscovery.region_adaptive] base=%s failed: %s",
                 base_col, exc,
             )
-            continue
-        out.append(ra_spec)
+            return None
+
+    # Per-base fits are independent; parallelise across physical cores (threading backend -- the
+    # tiny RegionAdaptive fits release the GIL). joblib preserves input order, so ``out`` matches
+    # the serial order. Mutation-free workers: results are reduced on the main thread.
+    n_jobs = min(len(bases), cpu_count_physical())
+    if n_jobs > 1:
+        from joblib import Parallel, delayed
+        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
+            delayed(_fit_one)(b) for b in bases
+        )
+    else:
+        results = [_fit_one(b) for b in bases]
+    out: list[Any] = [r for r in results if r is not None]
     if out:
         logger.info(
             "[CompositeTargetDiscovery.region_adaptive] fitted %d region-adaptive "
@@ -162,16 +181,27 @@ def _run_auto_chain(
     if not bases:
         return []
     feat_cols = [c for c in usable_features if c != target_col]
-    extra_specs: list[CompositeSpec] = []
-    self._auto_chains_diag: list[Any] = []
-    for base_col in bases:
-        x_cols = [c for c in feat_cols if c != base_col]
-        if not x_cols:
-            continue
+    if not feat_cols:
+        return []
+    # Build the screen-sample feature matrix ONCE (per-column pull from the Polars/pandas frame),
+    # then derive each base's "all features except this base" matrix via np.delete on the in-RAM
+    # matrix -- bit-identical to a per-base ``column_stack`` of ``feat_cols`` minus the base (the
+    # surviving column order is preserved), but it re-gathers ~400 columns from the frame ONCE
+    # instead of once per base.
+    x_full = np.column_stack(
+        [_extract_column_array(df, c, rows=screen_idx) for c in feat_cols]
+    )
+    col_index = {c: i for i, c in enumerate(feat_cols)}
+
+    def _chains_for_base(base_col: str):
+        # x_cols == feat_cols minus this base; empty only when the base is the sole feature.
+        if len(feat_cols) == 1 and feat_cols[0] == base_col:
+            return base_col, []
         try:
             base_screen = _extract_column_array(df, base_col, rows=screen_idx)
-            x_matrix = np.column_stack(
-                [_extract_column_array(df, c, rows=screen_idx) for c in x_cols]
+            x_matrix = (
+                np.delete(x_full, col_index[base_col], axis=1)
+                if base_col in col_index else x_full
             )
             chains = discover_chains(
                 y=y_screen, base=base_screen, x_matrix=x_matrix,
@@ -183,18 +213,35 @@ def _run_auto_chain(
                 mi_nbins=int(self.config.mi_nbins),
                 top_k=int(getattr(self.config, "auto_chain_top_k", 2)),
             )
+            return base_col, chains
         except Exception as exc:  # noqa: BLE001 -- a degenerate base must not abort fit
             logger.warning(
                 "[CompositeTargetDiscovery.auto_chain] base=%s failed: %s",
                 base_col, exc,
             )
-            continue
+            return base_col, []
+
+    # Per-base chain searches are independent (``discover_chains`` is serial internally); run them
+    # across physical cores. Workers stay mutation-free -- registry / provenance / diag writes all
+    # happen on the main thread below so the shared ``_TRANSFORMS_REGISTRY`` is never raced.
+    n_jobs = min(len(bases), cpu_count_physical())
+    if n_jobs > 1:
+        from joblib import Parallel, delayed
+        per_base = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
+            delayed(_chains_for_base)(b) for b in bases
+        )
+    else:
+        per_base = [_chains_for_base(b) for b in bases]
+
+    extra_specs: list[CompositeSpec] = []
+    self._auto_chains_diag: list[Any] = []
+    from ..provenance import register_chain_provenance
+    for base_col, chains in per_base:
         for cand in chains:
             # Register the composed transform so name-based lookup resolves it,
             # plus its provenance so the chain self-describes in reports (and is
             # not a coverage gap now that auto-chaining is default-ON).
             _TRANSFORMS_REGISTRY.setdefault(cand.chain_name, cand.transform)
-            from ..provenance import register_chain_provenance
             register_chain_provenance(cand.chain_name, cand.residual_name, cand.unary_name)
             spec = CompositeSpec(
                 name=compose_target_name(target_col, cand.chain_name, base_col),

@@ -372,7 +372,14 @@ def test_features(self, iteration):
 
     acceptance_p_values = self.binomial_H0_test(self.hits, n=iteration, p=null_hit_p, alternative="greater")
 
-    regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=null_hit_p, alternative="less")
+    # Only the ACCEPT side is calibrated to the shadow percentile; the REJECT side keeps the classic p=0.5 reference.
+    # Sharing ``null_hit_p`` across both tails (as a prior change did) collapses the reject test at the canonical
+    # MAX-shadow gate (percentile=100 -> null_hit_p~1e-9): H0 then expects ~0 hits, so a 0-hit noise column is consistent
+    # with it and NOTHING is ever rejected (every noise column lingers as tentative -> ``optimistic`` keeps it). A pure-
+    # noise column hits at ~null_hit_p << 0.5, so its hit count is significantly below 0.5*n and it is correctly rejected,
+    # while a borderline-redundant column (hit rate near 0.5) stays tentative -- preserving Boruta's three-way verdict.
+    reject_hit_p = 0.5
+    regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=reject_hit_p, alternative="less")
 
     # [1] as function returns a tuple. Bonferroni base is the FULL original feature count (all_columns), not the
     # shrinking current column set: self.hits and the accept/reject indexing are full-length, and using the live

@@ -156,6 +156,17 @@ def _tiny_model_rerank(
         )
         return kept_specs
     _tiny_rerank_ram_checkpoint("entry")
+    # Resolve the CV-fold joblib parallelism for the tiny models. ``tiny_model_n_jobs=0`` means
+    # auto -> physical core count (cpu_count_physical, NOT logical: oversubscribing CV-fold
+    # joblib past physical cores only adds context-switch churn). The serial raw-y baseline gate
+    # below runs AFTER the per-spec parallel barrier, so it gets the full machine; the per-spec
+    # worker (which already runs under an outer threading Parallel) keeps fold-joblib at 1 to
+    # avoid 3-level nesting (outer spec-threads x fold-joblib x LightGBM inner_n_jobs).
+    from pyutilz.parallel import cpu_count_physical
+    _raw_njobs_cfg = getattr(self.config, "tiny_model_n_jobs", 0)
+    _tiny_n_jobs_auto = (
+        cpu_count_physical() if _raw_njobs_cfg in (0, None) else max(1, int(_raw_njobs_cfg))
+    )
     sample_n = min(self.config.tiny_model_sample_n, train_idx.size)
     # Phase B benefits from stratified sampling on heavy-tail y
     # for the same reason Phase A does -- tiny-model CV-RMSE on a
@@ -318,7 +329,7 @@ def _tiny_model_rerank(
                     num_leaves=self.config.tiny_model_num_leaves,
                     learning_rate=self.config.tiny_model_learning_rate,
                     cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    n_jobs=_worker_fold_n_jobs,
                     deterministic=getattr(
                         self.config, "deterministic_screening_models", False,
                     ),
@@ -355,7 +366,7 @@ def _tiny_model_rerank(
                     num_leaves=self.config.tiny_model_num_leaves,
                     learning_rate=self.config.tiny_model_learning_rate,
                     cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    n_jobs=_worker_fold_n_jobs,
                     deterministic=getattr(
                         self.config, "deterministic_screening_models", False,
                     ),
@@ -387,13 +398,10 @@ def _tiny_model_rerank(
     _rerank_raw = getattr(self.config, "tiny_rerank_n_jobs", 1)
     _rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)
     if _rerank_n_jobs_cfg == 0:
-        # Auto: cap at len(kept_specs) and at cpu_count to avoid
-        # oversubscription when tiny_model_n_jobs > 1 internally.
-        try:
-            import os as _os
-            _cpu = _os.cpu_count() or 1
-        except Exception:
-            _cpu = 1
+        # Auto: cap at len(kept_specs) and at the PHYSICAL core count to avoid
+        # oversubscription (logical/SMT siblings don't help GIL-releasing booster
+        # threads and just add scheduler churn).
+        _cpu = cpu_count_physical()
         _rerank_n_jobs = max(1, min(len(kept_specs), _cpu))
     else:
         _rerank_n_jobs = max(1, _rerank_n_jobs_cfg)
@@ -403,15 +411,15 @@ def _tiny_model_rerank(
     # phase: the existing fold-level cap only fires when tiny_model_n_jobs>1
     # (default 1), so it never applied here. -1 (all cores) when sequential.
     if _rerank_n_jobs > 1:
-        try:
-            import os as _os
-            _cpu_total = _os.cpu_count() or 1
-        except Exception:
-            _cpu_total = 1
+        _cpu_total = cpu_count_physical()
         _rerank_inner_n_jobs = max(1, _cpu_total // _rerank_n_jobs)
     else:
         _rerank_inner_n_jobs = -1
-    _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs}, inner_n_jobs={_rerank_inner_n_jobs})")
+    # Per-spec worker fold-joblib: under an outer threading Parallel keep it serial (1) so the
+    # core budget is outer-spec-threads x inner_n_jobs, never x a third fold-joblib layer. Only
+    # the sequential rerank path (outer == 1) lets the worker parallelise CV folds across cores.
+    _worker_fold_n_jobs = 1 if _rerank_n_jobs > 1 else _tiny_n_jobs_auto
+    _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs}, inner_n_jobs={_rerank_inner_n_jobs}, worker_fold_n_jobs={_worker_fold_n_jobs})")
     if _rerank_n_jobs > 1 and len(kept_specs) > 1:
         from joblib import Parallel as _Parallel, delayed as _delayed
         _rerank_results = _Parallel(
@@ -518,7 +526,7 @@ def _tiny_model_rerank(
                 learning_rate=self.config.tiny_model_learning_rate,
                 cv_folds=self.config.tiny_model_cv_folds,
                 random_state=self.config.random_state,
-                n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                n_jobs=_tiny_n_jobs_auto,
                 deterministic=getattr(
                     self.config, "deterministic_screening_models", False,
                 ),
@@ -582,7 +590,7 @@ def _tiny_model_rerank(
                     num_leaves=self.config.tiny_model_num_leaves,
                     learning_rate=self.config.tiny_model_learning_rate,
                     cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    n_jobs=_tiny_n_jobs_auto,
                     deterministic=getattr(
                         self.config, "deterministic_screening_models", False,
                     ),
@@ -607,7 +615,7 @@ def _tiny_model_rerank(
                     num_leaves=self.config.tiny_model_num_leaves,
                     learning_rate=self.config.tiny_model_learning_rate,
                     cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    n_jobs=_tiny_n_jobs_auto,
                     deterministic=getattr(
                         self.config, "deterministic_screening_models", False,
                     ),
@@ -651,7 +659,7 @@ def _tiny_model_rerank(
                         learning_rate=self.config.tiny_model_learning_rate,
                         cv_folds=self.config.tiny_model_cv_folds,
                         random_state=self.config.random_state,
-                        n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                        n_jobs=_tiny_n_jobs_auto,
                         deterministic=getattr(
                             self.config, "deterministic_screening_models", False,
                         ),

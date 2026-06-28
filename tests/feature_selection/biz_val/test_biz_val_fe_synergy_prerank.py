@@ -42,7 +42,12 @@ def _make_wide_interaction(seed):
 
 
 def _fit(prerank, Xtr, ytr):
-    m = MRMR(fe_synergy_prerank=prerank, fe_synergy_screen_max_features=250)
+    # fe_synergy_exhaustive="never" isolates the lever under test. The default "auto" mode now escalates to the
+    # FULL C(p,2) exhaustive sweep whenever it is affordable (no time budget set -> always), which runs over ALL
+    # raw columns regardless of fe_synergy_prerank -- so ON and OFF become identical and the knob looks like a
+    # no-op. Pinning "never" forces the pre-rank-vs-legacy-skip path this test exists to exercise (the production
+    # regime where the exhaustive sweep is declined as too expensive on a very wide frame).
+    m = MRMR(fe_synergy_prerank=prerank, fe_synergy_screen_max_features=250, fe_synergy_exhaustive="never")
     m.fit(Xtr, ytr)
     return m
 

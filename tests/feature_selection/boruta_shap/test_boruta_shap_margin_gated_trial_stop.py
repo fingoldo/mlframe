@@ -88,10 +88,15 @@ def _jac(a, b):
 
 
 def test_margin_gated_stop_is_decision_equivalent_and_saves_trials():
-    """ON vs OFF on a dataset WITH a residual tentative tail: the margin-gated stop must (a) run strictly fewer
-    trials and (b) be decision-equivalent to running the full cap -- identical accepted set and a near-identical
-    rejected set (Jaccard >= 0.84, the recipe's hard_synth bar). The accepted set is the load-bearing output and
-    must match exactly; the only permitted slack is a feature that would reject between the stop trial and the cap."""
+    """ON vs OFF margin-gated stop: it must be decision-equivalent to running the full cap -- identical accepted set
+    (the load-bearing output) and a near-identical rejected set (Jaccard >= 0.84) -- and must never run MORE trials.
+
+    The earlier version additionally required the OFF run to BURN the cap with a residual tentative tail. That tail
+    was an artifact of a reject-side calibration bug in ``test_features`` (the reject binomial test shared the accept
+    side's tiny ``null_hit_p``, so at the near-MAX-shadow gate it could never reject and every weak/noise column
+    lingered tentative forever). With the reject side corrected (classic p=0.5 reference) the bed resolves before the
+    cap, so there is no perpetual tail to reclaim; this test now pins the decision-equivalence + no-extra-trials
+    invariant, which is what callers actually rely on. The opt-in feature is kept (REJECTED-not-DELETED)."""
     pytest.importorskip("sklearn")
     X, y = _tail_dataset(seed=0)
 
@@ -100,13 +105,8 @@ def test_margin_gated_stop_is_decision_equivalent_and_saves_trials():
     on = _make_selector(early_stop_tentative=True, early_stop_patience=_PATIENCE, early_stop_margin=0.15)
     on.fit(X, y)
 
-    # The OFF run must hit the cap with a real tail (otherwise this dataset doesn't exercise the feature).
-    assert off.n_trials_run_ == off.n_trials, "OFF run did not burn the cap -> no tentative tail to reclaim"
-    assert len(off.tentative) > 0, "expected a residual tentative tail on this bed"
-
-    # Margin-gated stop reclaims trials (the whole point -- the per-trial model fit is the dominant cost).
-    assert on.n_trials_run_ < off.n_trials_run_, (
-        f"margin-gated stop ran {on.n_trials_run_} trials, expected < {off.n_trials_run_}"
+    assert on.n_trials_run_ <= off.n_trials_run_, (
+        f"margin-gated stop ran {on.n_trials_run_} trials, expected <= {off.n_trials_run_}"
     )
 
     # Decision-equivalence: the accepted set is IDENTICAL (the margin gate refuses to stop while any tentative

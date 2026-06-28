@@ -64,13 +64,18 @@ def test_biz_val_boruta_shap_filters_noise_keeps_informative():
     assert support_named == selected, f"support_ disagrees with selected_features_: {support_named} vs {selected}"
 
 
-def test_biz_val_boruta_early_stop_tentative_saves_wall_at_accepted_equivalence():
-    """biz_value for the opt-in ``early_stop_tentative`` margin-gated trial-stop: on a dataset with a residual
-    tentative tail it must (a) reclaim a large fraction of trials/wall vs the full ``n_trials`` cap and (b) keep the
-    ACCEPTED (confirmed) set IDENTICAL -- the load-bearing decision. Floors set below the committed bench
-    (bench_boruta_early_stop_tentative.py: mean 47.9% wall saved, accepted-Jaccard mean 0.982): require >= 30% trials
-    saved AND identical accepted set. This pins the measured win even though the default stays OFF (the bench's
-    per-scenario accepted-Jaccard dips to 0.944 on noise-heavy beds -> kept opt-in, REJECTED-not-DELETED)."""
+def test_biz_val_boruta_early_stop_tentative_is_no_harm_to_accepted_set():
+    """Contract for the opt-in ``early_stop_tentative`` margin-gated trial-stop: enabling it must NEVER change the
+    ACCEPTED (confirmed) set and must never run MORE trials than the cap path -- i.e. it is strictly no-harm.
+
+    History: the prior version of this test asserted a >=30% trial reclaim. That reclaim was an artifact of a reject-
+    side calibration bug in ``test_features`` (the reject binomial test shared the accept side's tiny ``null_hit_p``,
+    so at the canonical MAX/near-MAX-shadow gate it could never reject and EVERY noise/weak column lingered tentative
+    forever -- a residual tail that "never resolved"). With the reject side corrected (classic p=0.5 reference), the
+    canonical beds resolve to a confirmed/rejected partition well before the cap (OFF terminates with 0 tentative), so
+    there is no large tail to reclaim and the trial-reclaim win is no longer reproducible. The feature is retained
+    opt-in (REJECTED-not-DELETED) for genuinely-borderline data, and this test now pins only its load-bearing
+    invariant: it cannot alter which features are confirmed."""
     pytest.importorskip("shap")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
@@ -100,9 +105,9 @@ def test_biz_val_boruta_early_stop_tentative_saves_wall_at_accepted_equivalence(
     off = _mk(False); off.fit(X, y)
     on = _mk(True); on.fit(X, y)
 
-    assert off.n_trials_run_ == off.n_trials, "OFF run must burn the cap (else no tail to reclaim)"
-    trials_saved = (off.n_trials_run_ - on.n_trials_run_) / off.n_trials_run_
-    assert trials_saved >= 0.30, f"early-stop reclaimed only {trials_saved:.1%} of trials (floor 30%)"
+    assert on.n_trials_run_ <= off.n_trials_run_, (
+        f"early-stop must never run more trials than the cap path: on={on.n_trials_run_} off={off.n_trials_run_}"
+    )
     assert set(on.accepted) == set(off.accepted), (
         f"early-stop accepted set diverged: on={sorted(on.accepted)} off={sorted(off.accepted)}"
     )

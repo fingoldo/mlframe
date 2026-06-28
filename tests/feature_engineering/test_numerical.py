@@ -822,19 +822,21 @@ class TestNcrossingsMarkParallel:
 
     def test_int32_path_uses_parallel_kernel(self, monkeypatch):
         # The default int32 path MUST route through the mark-parallel kernel; pre-fix there was only the serial kernel.
-        import mlframe.feature_engineering.numerical as num
+        # ``compute_ncrossings`` lives in ``_numerical_counts`` and resolves the kernel against that module's globals,
+        # so the spy must replace the binding THERE, not on the ``numerical`` facade that merely re-exports it.
+        import mlframe.feature_engineering._numerical_counts as counts
 
         called = {"n": 0}
-        real = num._compute_ncrossings_marks_prange
+        real = counts._compute_ncrossings_marks_prange
 
         def spy(arr, marks):
             called["n"] += 1
             return real(arr, marks)
 
-        monkeypatch.setattr(num, "_compute_ncrossings_marks_prange", spy)
+        monkeypatch.setattr(counts, "_compute_ncrossings_marks_prange", spy)
         rng = np.random.default_rng(1)
         arr = rng.standard_normal(5000)
-        num.compute_ncrossings(arr, np.array([0.0, 0.5, 1.0]))
+        counts.compute_ncrossings(arr, np.array([0.0, 0.5, 1.0]))
         assert called["n"] == 1, "int32 compute_ncrossings must dispatch to the mark-parallel kernel"
 
     def test_nondefault_dtype_uses_serial(self):

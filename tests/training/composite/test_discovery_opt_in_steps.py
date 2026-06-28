@@ -202,3 +202,35 @@ def test_discover_incremental_rescores_on_appended_frame():
     # Different frame => the cheap MI re-score actually ran on each prior spec.
     assert decision.n_rescored == len(disc.specs_)
     assert decision.new_signature != decision.prior_signature
+
+
+# ----------------------------------------------------------------------
+# Parallel per-base opt-in steps are bit-identical to the serial path
+# ----------------------------------------------------------------------
+
+
+def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
+    """region-adaptive + auto-chain run a per-base loop parallelised across physical cores.
+
+    The workers are mutation-free (registry / spec reduction happen on the main thread) and the
+    feature matrix is built once then sliced per base via np.delete, so the discovered specs must
+    be order- and content-identical whether the loop runs serial (1 core) or parallel (N cores).
+    """
+    import mlframe.training.composite.discovery._opt_in_steps as ois
+
+    cfg = dict(
+        region_adaptive_enabled=True,
+        auto_chain_discovery_enabled=True,
+        interaction_base_discovery_enabled=True,
+        base_candidates=["base", "x1", "x2"],  # >=2 kept bases so the parallel branch fires
+    )
+
+    monkeypatch.setattr(ois, "cpu_count_physical", lambda *a, **k: 1)
+    serial = _fit(_base_config(**cfg))
+
+    monkeypatch.setattr(ois, "cpu_count_physical", lambda *a, **k: 8)
+    parallel = _fit(_base_config(**cfg))
+
+    assert _spec_keys(serial.specs_) == _spec_keys(parallel.specs_)
+    ra_keys = lambda specs: [(s.name, s.base_column, s.edges) for s in specs]
+    assert ra_keys(serial.region_adaptive_specs_) == ra_keys(parallel.region_adaptive_specs_)

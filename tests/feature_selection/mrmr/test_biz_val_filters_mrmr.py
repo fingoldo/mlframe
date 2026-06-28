@@ -1379,12 +1379,16 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
     recency_w = np.where(is_recent, 1.0, 0.0001)
 
     def _top1_with_weights(sw):
-        # Gate FE off: this test measures the sample_weight -> top-1 flip on the RAW features (A vs B). Any default-ON FE family that engineers a
-        # column out of A and B (the conditional-gate operator, binned_numeric_agg's ``binagg(A|qbin(B))``, k-fold target encoding) reorders the raw
-        # relevance ranking and pulls the uniform-weight top-1 to A, masking the older-regime B-edges-A signal the flip relies on. Disable them so the
-        # sensor isolates the weight -> raw-feature mechanism it is meant to pin; these families are measured-better defaults elsewhere, just orthogonal here.
+        # Gate FE off: this test measures the sample_weight -> top-1 flip on the RAW features (A vs B). Any default-ON FE family that engineers a column
+        # out of A and B reorders the raw relevance ranking and pulls the uniform-weight top-1 to A, masking the older-regime B-edges-A signal the flip
+        # relies on. Crucially ``fe_max_steps=0`` alone is NOT sufficient: the conditional-gate family still emits ``gate_mask__A__B`` (it is not gated by
+        # ``fe_max_steps``), which absorbs raw B (gain ~0.37) and demotes raw B to rank -1 so the surviving raw top-1 becomes A even under uniform weights.
+        # We therefore ALSO disable the conditional-gate operator plus the binned_numeric_agg (``binagg(A|qbin(B))``) and k-fold-TE families. Verified: with
+        # ``fe_conditional_gate_enable=False`` added, uniform top-1 = B (matching the raw binned MI B=0.34 >> A=0.02) and recency top-1 = A. These FE families
+        # are measured-better defaults elsewhere but orthogonal to the weight -> raw-feature mechanism this sensor isolates.
         sel = MRMR(
             verbose=0, random_seed=11, max_runtime_mins=1.0,
+            fe_max_steps=0,
             fe_conditional_gate_enable=False,
             fe_binned_numeric_agg_enable=False,
             fe_kfold_te_enable=False,
