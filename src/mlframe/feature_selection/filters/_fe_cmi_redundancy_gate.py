@@ -190,24 +190,6 @@ def _cmi_analytic_null_min_n() -> int:
 _DEFAULT_MAX_CANDIDATES = 64
 
 
-def _perm_chunk_cols(nperm: int) -> int:
-    """Initial permutation-COLUMN block size for the device-batched conditional perm null.
-
-    Default is the FULL batch (``nperm`` -> a single launch, the fast resident path); the caller halves the
-    block on OutOfMemoryError, so this only sets the starting point. ``MLFRAME_CMI_PERM_CHUNK`` (positive int)
-    caps the block to pre-empt the first OOM on a host known to be tight, skipping the failed full-batch
-    attempt. Bit-identical regardless of block size (perm columns are independent; all keys drawn up front)."""
-    raw = _os.environ.get("MLFRAME_CMI_PERM_CHUNK", "").strip()
-    if raw:
-        try:
-            v = int(raw)
-            if v > 0:
-                return min(v, int(nperm))
-        except ValueError:
-            pass
-    return max(1, int(nperm))
-
-
 def _conditional_perm_null(
     cand_bin: np.ndarray,
     y_bin: np.ndarray,
@@ -433,43 +415,13 @@ def _conditional_perm_null(
             keys = np.empty((x.size, _nperm), dtype=np.float64)
             for i in range(_nperm):
                 keys[:, i] = rng.random(x.size)                    # per-perm draw -> SAME sequence as the CPU loop
-            # OOM-RESILIENT PERM BLOCKING (perf, 2026-06-28). The single-launch all-at-once build (the fast
-            # GPU-RESIDENT path) materialises THREE (n, _nperm) device arrays (keys + within-order + Xp) PLUS
-            # the batched CMI's per-column joint histograms; at n=1M with a SPARSE conditional joint (k_xyz ~
-            # 5e5 occupied cells -> the batched joint-hist falls back to a dense (cols, Kx*Kyz) intermediate)
-            # this OOMs on the 4GB card whenever the FE pipeline already holds large arrays in VRAM. Before the
-            # fix the OOM dropped the WHOLE call to the per-perm CPU loop (full-n np.argsort + host renumber
-            # x25 -> ~12s/call at n=1M, the single biggest steady-state FE hotspot). Now the permutation columns
-            # (INDEPENDENT, all keys drawn up front) are processed in BLOCKS: try the full _nperm in one launch
-            # (no overhead where VRAM allows -> the resident path is unchanged), and ONLY on OutOfMemoryError
-            # halve the block and retry (down to 1 column) before conceding to the CPU loop. The null values
-            # concatenate in column order, so the produced ``nulls`` is ELEMENT-FOR-ELEMENT identical to the
-            # all-at-once path (and to the CPU loop) regardless of block size -> identical quantile/mean ->
-            # bit-identical selection. Env cap MLFRAME_CMI_PERM_CHUNK forces a max block (else start at _nperm).
             z_rank_d = cp.asarray(z_rank)[:, None]
+            within = cp.argsort(z_rank_d + cp.asarray(keys), axis=0)   # (n, _nperm) within-stratum orders
             x_sorted_d = cp.asarray(x_sorted)
             order_d = cp.asarray(order)
-            keys_d = cp.asarray(keys)
-            nulls = np.empty(_nperm, dtype=np.float64)
-            _chunk = _perm_chunk_cols(_nperm)   # full batch unless MLFRAME_CMI_PERM_CHUNK caps it
-            _j = 0
-            while _j < _nperm:
-                _c = min(_chunk, _nperm - _j)
-                while True:
-                    try:
-                        within = cp.argsort(z_rank_d + keys_d[:, _j:_j + _c], axis=0)   # (n, _c) within-stratum orders
-                        Xp_d = cp.empty((x.size, _c), dtype=cp.int64)
-                        Xp_d[order_d, :] = x_sorted_d[within]                            # xp[order] = x_sorted[within]
-                        nulls[_j:_j + _c] = np.asarray(batched_cmi_gpu(Xp_d, y_i, z_i), dtype=np.float64)
-                        del within, Xp_d
-                        break
-                    except cp.cuda.memory.OutOfMemoryError:
-                        cp.get_default_memory_pool().free_all_blocks()
-                        if _c == 1:
-                            raise                                                       # even 1 col won't fit -> CPU loop
-                        _c = max(1, _c // 2)
-                        _chunk = _c                                                     # shrink the rest of the run too
-                _j += _c
+            Xp_d = cp.empty((x.size, _nperm), dtype=cp.int64)
+            Xp_d[order_d, :] = x_sorted_d[within]                  # xp[order] = x_sorted[within], per perm
+            nulls = np.asarray(batched_cmi_gpu(Xp_d, y_i, z_i), dtype=np.float64)
             return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
         except Exception:
             pass  # any cupy error -> exact per-perm CPU loop below
