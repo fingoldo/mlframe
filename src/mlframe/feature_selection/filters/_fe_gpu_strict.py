@@ -32,6 +32,12 @@ from __future__ import annotations
 
 import os
 
+# Quiet the intermittent cupy<->numba illegal-address race at interpreter teardown (cosmetic; suppressed ONLY
+# during finalization, never mid-fit -- see _gpu_teardown_guard). Cheap import (no cupy), idempotent install.
+from ._gpu_teardown_guard import install_cuda_teardown_guard as _install_cuda_teardown_guard
+
+_install_cuda_teardown_guard()
+
 # Only the device-availability probe is cached (CUDA presence is immutable for the process); the ENV FLAG is
 # read LIVE on every call. Caching the flag's first-seen value was a latent bug: a process that toggled
 # MLFRAME_FE_GPU_STRICT mid-run (or a test suite where one test sets/unsets it before another) would freeze on
