@@ -38,7 +38,7 @@ def _holdout_auc(X, y, selected, seed):
     return float(roc_auc_score(yte, clf.predict_proba(Xte)[:, 1]))
 
 
-def _fit(measure, X, y, seed, n_trials=18):
+def _fit(measure, X, y, seed, n_trials=12):
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     kw = dict(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=seed),
@@ -56,9 +56,14 @@ def _fit(measure, X, y, seed, n_trials=18):
     return sel, wall, getattr(b, "_resolved_importance_measure_", measure)
 
 
+@pytest.mark.slow
 def test_biz_val_boruta_auto_beats_gini_on_noisy_replicated():
     """auto (-> permutation) honest-holdout AUC >= gini's on the MAJORITY of noisy seeds. Replicated
-    across 3 seeds; floor is a >= 0 mean delta (noise-control win, gini leaks spurious columns)."""
+    across 3 seeds; floor is a >= 0 mean delta (noise-control win, gini leaks spurious columns).
+
+    Inherently heavy: the permutation-vs-gini win needs a real RF (n_estimators=80) + permutation_n_repeats=3 over
+    3 seeds, so it cannot meet the <5s biz_value budget (n_estimators=40 / n_repeats=2 both flip the delta negative).
+    n_trials trimmed 18->12 (the one cost lever that preserves the win) and marked slow for CI lane routing."""
     deltas = []
     routed = []
     for seed in (0, 1, 2):
