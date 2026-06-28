@@ -11,6 +11,7 @@ nested-parent recursion (same reason).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -18,8 +19,28 @@ import numpy as np
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
 
+logger = logging.getLogger(__name__)
+
 
 def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    # GPU-RESIDENT REPLAY (2026-06-28): the elementwise ``binary(unary_a(X[a]),
+    # unary_b(X[b]))`` materialisation on full-n (300k-1M) operands is
+    # embarrassingly parallel and was the dominant FE-replay cost (~3.4s) on the
+    # F2 STRICT path. Under the resident opt-in we apply the operator chain on
+    # device (one H2D up, one D2H back), selection-equivalent to the numpy path.
+    # GPU-ineligible recipes (nested parents / prewarp / gate_med / unmapped ops)
+    # return None -> fall through to numpy; any cupy failure falls back too. The
+    # numpy path below stays the DEFAULT and the rare-failure fallback.
+    try:
+        from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        if fe_gpu_strict_resident_enabled():
+            from ._recipe_unary_binary_gpu import apply_unary_binary_gpu
+            _gpu_out = apply_unary_binary_gpu(recipe, X)
+            if _gpu_out is not None:
+                return _gpu_out
+    except Exception as _e:  # pragma: no cover - rare GPU runtime failure
+        logger.debug("GPU unary_binary replay fell back to numpy: %r", _e)
+
     if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
         raise ValueError(
             f"unary_binary recipe '{recipe.name}' must have exactly 2 src_names "
