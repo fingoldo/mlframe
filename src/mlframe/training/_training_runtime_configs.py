@@ -451,10 +451,9 @@ class FeatureImportanceConfig(BaseConfig):
     #   surfacing the next band of signals. Override via
     #   ``FeatureImportanceConfig(num_factors=N)``.
     num_factors: int = 15
-    # 2026-05-13 (user request): default figsize reduced to half the
-    # 3-panel regression diagnostic chart (DEFAULT_FIGSIZE=(15, 5)). The
-    # previous unified (15, 5) FI plot still dominated suite reports.
-    figsize: Tuple[float, float] = (7.5, 2.5)
+    # Height must give each of the ``num_factors`` horizontal bars enough room to read its label;
+    # 2.5in across 15 bars (~0.16in/bar) crushed them. ~0.35in/bar + margin keeps the top-15 legible.
+    figsize: Tuple[float, float] = (8.0, 6.0)
     positive_fi_only: bool = False
     show_plots: bool = True
     # 2026-05-12 (user request): cap zero-FI bars so the chart stays

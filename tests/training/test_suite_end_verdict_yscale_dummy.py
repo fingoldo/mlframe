@@ -67,3 +67,44 @@ def test_verdict_raw_y_map_still_preferred_over_yscale_inv():
     assert m, f"composite row not found:\n{out}"
     assert abs(float(m.group(1)) - 510.0) < 1e-6, "raw-y trivial dummy must win over y-scale inv"
     assert "raw-y trivial" in out
+
+
+def test_composite_without_yscale_model_metric_does_not_fall_through_to_t_scale(caplog):
+    """A composite whose y-scale MODEL metric is missing must NOT borrow its T-scale (residual) model
+    metric for the verdict -- that mixed a ~1.2 residual RMSE against a ~13 y-scale dummy and printed a
+    false 9x lift / TASK_NON_TRIVIAL_AND_MODELS_HEALTHY while the model's real y-scale R^2 was -146.
+    With no usable y-scale model metric the composite row must honestly show best_model='-'.
+    """
+    import logging
+    from types import SimpleNamespace
+
+    from mlframe.training.configs import DummyBaselinesConfig
+    from mlframe.training.core._phase_composite_post_summary import _run_suite_end_dummy_baselines_summary
+
+    # Model entry carries only T-scale (residual) metrics ~1.2.
+    entry = SimpleNamespace(metrics={"val": {"RMSE": 1.2}, "test": {"RMSE": 1.2}}, model_name="Composite")
+    models = {"regression": {"TVT-linres-base": [entry]}}
+    metadata = {
+        "dummy_baselines": {
+            "regression": {
+                "TVT-linres-base": {
+                    "strongest": "median",
+                    "primary_metric": "val_RMSE",
+                    "data": {"median": {"val_RMSE": 13.0}},
+                    "y_scale_strongest_metrics": {"val": {"RMSE": 13.0}, "MAE": 0.0},
+                }
+            }
+        },
+        # Composite target: KEY PRESENT but no usable y-scale model metric (empty list).
+        "composite_target_y_scale_metrics": {"regression": {"TVT-linres-base": []}},
+    }
+    with caplog.at_level(logging.INFO):
+        _run_suite_end_dummy_baselines_summary(
+            models=models, metadata=metadata, dummy_baselines_config=DummyBaselinesConfig(),
+        )
+    text = caplog.text
+    assert "TVT-linres-base" in text, f"composite row missing from verdict:\n{text}"
+    # Must NOT manufacture a TASK_HEALTHY verdict from the T-scale residual metric.
+    assert "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY" not in text, (
+        f"false TASK_HEALTHY from T-scale fallthrough:\n{text}"
+    )

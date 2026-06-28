@@ -52,11 +52,10 @@ def _run_suite_end_dummy_baselines_summary(
                 _direction = _mhb(_metric_name)
                 _is_minimize = True if _direction is None else (not _direction)
                 # For composite targets prefer y-scale metrics (post-inverse, comparable to raw / y-scale dummy).
-                _yscale_entries = (
-                    metadata.get("composite_target_y_scale_metrics", {})
-                    .get(str(_tt), {})
-                    .get(_tname, [])
-                )
+                _yscale_by_tt = metadata.get("composite_target_y_scale_metrics", {}).get(str(_tt), {})
+                # A composite target HAS a key here (possibly an empty list); a raw target does not.
+                _is_composite = _tname in _yscale_by_tt
+                _yscale_entries = _yscale_by_tt.get(_tname, [])
                 _best_val: float | None = None
                 _best_name = "-"
                 _best_split = None  # "val" or "test" -- track for tag
@@ -90,7 +89,12 @@ def _run_suite_end_dummy_baselines_summary(
                                 _best_name = _ye.get("model_name") or "Composite"
                                 _best_split = "test"
                 # When y-scale entries are absent OR carry no usable metric, fall through to the T-scale model-list metrics.
-                if _best_val is None:
+                # NOT for composite targets: their model_list metrics are on the T (residual) scale, while the dummy this
+                # is compared against is y-scale -- mixing them produced a FALSE "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"
+                # verdict (a residual RMSE of ~1.5 "beat" a y-scale dummy RMSE of ~13 by 9x while the model's actual
+                # y-scale R^2 was -146). For a composite with no usable y-scale metric, leave best_model unset so the
+                # verdict honestly shows "-" rather than an apples-to-oranges lift.
+                if _best_val is None and not _is_composite:
                     # First pass: prefer VAL metrics (aligned with dummy's
                     # primary_metric which is val_*).
                     for _m in _model_list:
