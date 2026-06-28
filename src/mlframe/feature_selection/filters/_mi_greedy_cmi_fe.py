@@ -888,13 +888,15 @@ def score_candidates_by_cmi(
                 # sort) and keep the codes RESIDENT, scoring CMI on them without a code H2D round-trip.
                 import cupy as cp
                 X_codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float), nbins)
-                cmis = batched_cmi_gpu(X_codes_dev, y_bin, z_joint)
+                # codes_trusted: binner-produced (batched_quantile_bin_gpu) + dense renumbered y/z are 0-based ->
+                # the range guard cannot fire; skip its 2 blocking min/max syncs on the resident hot path (FIX1).
+                cmis = batched_cmi_gpu(X_codes_dev, y_bin, z_joint, codes_trusted=True)
             else:
                 # Non-finite columns -> host equi-freq binning (handles nan/inf), then device CMI.
                 X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
                 for j in range(len(cand_cols)):
                     X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
-                cmis = batched_cmi_gpu(X_codes, y_bin, z_joint)
+                cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)   # host equi-freq binner -> 0-based
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
         except Exception:
             pass  # any cupy error -> exact CPU loop below

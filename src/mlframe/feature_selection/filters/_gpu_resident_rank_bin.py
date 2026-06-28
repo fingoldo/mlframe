@@ -112,6 +112,22 @@ def rank_bin_codes_batch_gpu_resident(X_gpu, n_bins: int):
         nb = int(n_bins)
         if nb <= 1:
             return cp.zeros((n, k), dtype=cp.int32)
+        # ARGSORT IS IRREDUCIBLE for the rank byte-match (FIX2 investigation, 2026-06-28). The equi-frequency
+        # RANK code needs every row's GLOBAL sorted position (rank) so the n//nb-row block assignment matches
+        # _quantile_bin_njit; that is a total order == a full sort. No partition / edge / quantile-cut shortcut
+        # reproduces it: an edge/searchsorted cut (the radix-edge resident path) assigns by VALUE not by RANK and
+        # is NOT bit-identical on tie-free columns -- it is exactly the divergence this rank binner exists to
+        # avoid (89dd47c7). argpartition gives only the nb-1 cut elements, not each row's bin, so it cannot bin
+        # the rest without a further sort. The argsort is ~85% of the rank-MI cost (wall_gate_rank_ab.py: rank
+        # 5.2x edge) and stays.
+        # bench-attempt-rejected (2026-06-28): argsort an f32 VIEW of an f64 operand to halve the sort width.
+        # Byte-identical codes ONLY when the input is natively f32 (fix2_f32_byte_match.py maxdiff 0); for general
+        # f64 input an f32 downcast can COLLAPSE distinct f64 values, reordering what were tie-free columns ->
+        # breaks the bit-identity contract. _mi_classif_batch upcasts the operand to f64 before the binner, so the
+        # safe-f32 case is not reachable in-scope. Rejected (correctness).
+        # bench-attempt-rejected (2026-06-28): flat-index scatter (si*k+coloff) instead of the 2D fancy scatter.
+        # Byte-identical but only ~1% faster (scatter is ~12% of the path; argsort dominates) -- not worth the
+        # less-readable flat indexing. Kept the 2D scatter.
         si = cp.argsort(Xg, axis=0)  # (n, k) stable per-column sort indices
         bnd = cp.asarray(_bin_boundaries(n, nb))
         pos = cp.arange(n, dtype=cp.int64)

@@ -364,7 +364,9 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # selection-equivalent (resident-FE recovery is rank/Spearman-checked). Falls back to the codes path when
     # the (n_bins*n_classes) shared tile won't fit.
     from ._fe_batched_mi import binned_mi_from_values_gpu, binned_mi_from_codes_gpu
-    _mi_v = binned_mi_from_values_gpu(X_gpu, interior, y_gpu, int(n_bins), int(n_classes))
+    # codes_trusted: y_gpu was shifted to dense 0-based above (y_min subtracted) -> the y-range guard cannot
+    # fire; skip its blocking min/max sync on the resident MI hot path (FIX1).
+    _mi_v = binned_mi_from_values_gpu(X_gpu, interior, y_gpu, int(n_bins), int(n_classes), codes_trusted=True)
     if _mi_v is not None:
         return _mi_v
     from ._gpu_resident_fe import _searchsorted_codes

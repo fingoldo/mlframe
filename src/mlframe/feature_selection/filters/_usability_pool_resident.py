@@ -190,7 +190,7 @@ def score_pair_combos_table_resident(
                 try:
                     interior = _radix_select_interior_edges(cand, int(nbins))
                     if interior is not None:
-                        mi_h = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y)
+                        mi_h = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y, codes_trusted=True)   # d_y dense 0-based fit-constant (FIX1)
                 except Exception:
                     mi_h = None
                 if mi_h is None:                                    # per-row sync fallback (bit-faithful)
