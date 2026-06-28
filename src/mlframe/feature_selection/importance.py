@@ -110,12 +110,10 @@ _FI_LOG_DEFAULT_TOP_N: int = 15
 # from the bottom of the magnitude-sorted list.
 _FI_DEFAULT_MAX_ZERO: int = 4
 
-# 2026-05-13 (user request): default FI figsize is intentionally half the
-# regression-diagnostic 3-panel chart (DEFAULT_FIGSIZE = (15, 5) in
-# evaluation.py). Direct callers outside the suite (tests, notebooks) get the
-# compact size too; the suite layer still passes
-# ``reporting_config.feature_importance_config.figsize`` explicitly.
-_FI_DEFAULT_FIGSIZE: tuple = (7.5, 2.5)
+# Each horizontal bar needs ~0.35in of height to keep its feature label legible; the previous 2.5in
+# crushed 15 bars into an unreadable band. The suite layer still passes
+# ``reporting_config.feature_importance_config.figsize`` explicitly (same height bump there).
+_FI_DEFAULT_FIGSIZE: tuple = (8.0, 6.0)
 
 
 def plot_feature_importance(

@@ -120,8 +120,8 @@ def compose_training_curve_figure(
     metrics: Optional[Sequence[str]] = None,
     suptitle: str = "",
     max_cols: int = 2,
-    cell_width: float = 6.0,
-    cell_height: float = 4.0,
+    cell_width: float = 9.0,
+    cell_height: float = 4.5,
 ) -> FigureSpec:
     """Build a train-vs-val training-curve FigureSpec, one panel per metric.
 

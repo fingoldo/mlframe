@@ -541,18 +541,23 @@ def _render_post_fit_diagnostics(
 
     if getattr(cfg, "model_card", True) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
+        # Card title must carry the ESTIMATOR identity (e.g. "LGBMRegressor"), not the target_type --
+        # ``model_name_for_title(target_type)`` returns "regression"/"classification", which rendered a
+        # nameless "Model card -- regression (test)" suptitle. Fall back to the target-type label only
+        # when the estimator object isn't available.
+        _card_name = type(model).__name__ if model is not None else model_name_for_title(target_type)
         # Card is defined for binary + regression; multiclass/multilabel have no single positive-class score.
         if _mc_task == "regression" and y_pred is not None and len(y_pred) == len(y_arr):
             render_model_card_diagnostic(
                 task="regression", y_true=y_arr, y_pred=y_pred, plot_outputs=plot_outputs,
-                base_path=plot_file, metrics_dict=metrics, model_name=model_name_for_title(target_type), split=_split,
+                base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
             )
         elif _mc_task == "binary":
             _bs = _binary_positive_score(probs)
             if _bs is not None and len(_bs) == len(y_arr):
                 render_model_card_diagnostic(
                     task="binary", y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs,
-                    base_path=plot_file, metrics_dict=metrics, model_name=model_name_for_title(target_type), split=_split,
+                    base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
                 )
 
     if getattr(cfg, "shap_panels", True) and model is not None and df is not None:

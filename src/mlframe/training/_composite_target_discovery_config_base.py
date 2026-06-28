@@ -542,11 +542,28 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # that LR's point-estimate alpha silently degrades on at test.
     detect_linear_residual_alpha_drift: bool = True
     alpha_drift_z_threshold: float = 3.0
-    # When True, drop linear_residual specs that fail the drift
-    # check; when False, keep them but log a warning + record in
-    # metadata. Default False -- drift is informational only by
-    # default; flag to True on series with known non-stationarity.
-    reject_on_alpha_drift: bool = False
+    # When True, drop linear_residual specs that fail the drift check; when False, keep them but
+    # log a warning + record in metadata. Default True ("enable corrective mechanisms by default"):
+    # a drifting alpha means the residual T = y - alpha*base is fit on a non-stationary y/base
+    # relationship, so the inverse y = T_hat + alpha*base is unstable out-of-distribution -- exactly
+    # the catastrophic group-aware test collapse observed in prod (R^2=-146 on unseen wells). Set
+    # False to keep the legacy informational-only behaviour.
+    reject_on_alpha_drift: bool = True
+
+    # y-scale group-aware holdout gate. The MI-gain / i.i.d. honest-holdout screens the FORWARD
+    # transform but never the predict-T -> invert-to-y pipeline production actually runs. On a
+    # group-aware split (unseen groups/wells) a residual spec whose inverse amplifies a standardized
+    # base by ~std(y) blows up: y_hat slams the prediction envelope -> constant -> R^2 << 0. This
+    # gate replicates the prod path with a tiny model on a GROUP-DISJOINT holdout carved from the
+    # training groups and DROPS any spec whose inverted y-scale RMSE collapses (predictions degenerate
+    # to ~constant) or loses to the raw-y tiny baseline by more than ``yscale_holdout_gate_tolerance``.
+    # Default ON; the gate no-ops (keeps all specs) when group ids are absent or too few groups exist
+    # to carve a disjoint holdout. Set enabled False to restore the pre-gate behaviour.
+    yscale_holdout_gate_enabled: bool = True
+    yscale_holdout_gate_tolerance: float = 1.10
+    yscale_holdout_gate_sample_n: int = 30_000
+    yscale_holdout_gate_min_groups: int = 4
+    yscale_holdout_gate_holdout_group_frac: float = 0.3
 
     # Bootstrap CI on mi_gain. The point-estimate
     # mi_gain has noise floor that scales with the screening sample

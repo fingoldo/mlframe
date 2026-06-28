@@ -21,6 +21,23 @@ from mlframe.reporting.spec import (
 
 logger = logging.getLogger(__name__)
 
+# Panel-title rendering: wrap long titles onto multiple lines (so a verbose diagnostic title doesn't
+# overflow a narrow panel) and cap the font so it can't dwarf the panel. ~46 chars/line is a good fit
+# for the default ~6-inch panel width.
+_TITLE_WRAP_CHARS = 46
+_TITLE_FONTSIZE = 10
+
+
+def _set_panel_title(ax, title) -> None:
+    if not title:
+        return
+    import textwrap
+    s = str(title)
+    if len(s) > _TITLE_WRAP_CHARS:
+        s = "\n".join(textwrap.wrap(s, width=_TITLE_WRAP_CHARS, break_long_words=False))
+    ax.set_title(s, fontsize=_TITLE_FONTSIZE)
+
+
 # Above this many raw scatter points, cap (downsample preserving extremes) and rasterize so the saved vector
 # file (pdf/svg) doesn't embed millions of DOM nodes (3.2s + bloat at 2M).
 _SCATTER_MAX_POINTS = 50_000
@@ -209,7 +226,7 @@ class MatplotlibRenderer:
     def _annotation(self, ax, p: AnnotationPanelSpec) -> None:
         ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize,
                 transform=ax.transAxes, wrap=True)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         ax.set_xticks([])
         ax.set_yticks([])
         for spine in ax.spines.values():
@@ -315,7 +332,7 @@ class MatplotlibRenderer:
 
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         if (p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None
                 or p.overlay_band is not None or p.highlight_indices is not None):
             ax.legend(loc="best", fontsize=8, framealpha=0.7)
@@ -378,7 +395,7 @@ class MatplotlibRenderer:
 
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         ax.set_yscale(p.yscale)
         if p.xlim is not None:
             ax.set_xlim(*p.xlim)
@@ -435,7 +452,7 @@ class MatplotlibRenderer:
             cbar.set_label(p.colorbar_label)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
 
     def _confusion_margins(self, ax, p: ConfusionMarginsPanelSpec, fig) -> None:
         import matplotlib
@@ -534,12 +551,26 @@ class MatplotlibRenderer:
             ax.set_yticklabels(p.categories, fontsize=8)
             ax.invert_yaxis()  # first category on top -> worst-first ranking reads top-down
         else:
-            ax.set_xticks(pos)
-            ax.set_xticklabels(p.categories, rotation=p.xtick_rotation,
-                               ha="right" if p.xtick_rotation else "center", fontsize=8)
+            # Thin the x-tick labels when there are many categories so they don't overlap into an
+            # unreadable smear (e.g. a 50-lag residual-ACF bar chart). Keep ~20 evenly-spaced labels;
+            # the bars themselves stay 1-per-category, only the LABELS are subsampled.
+            n_cat = len(p.categories)
+            if n_cat > 25:
+                step = int(np.ceil(n_cat / 20))
+                sel = np.arange(0, n_cat, step)
+                ax.set_xticks(pos[sel])
+                ax.set_xticklabels(
+                    [p.categories[i] for i in sel],
+                    rotation=p.xtick_rotation or 0,
+                    ha="right" if p.xtick_rotation else "center", fontsize=8,
+                )
+            else:
+                ax.set_xticks(pos)
+                ax.set_xticklabels(p.categories, rotation=p.xtick_rotation,
+                                   ha="right" if p.xtick_rotation else "center", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         if p.grid:
             ax.grid(True, alpha=0.3, axis="x" if horizontal else "y")
 
@@ -622,7 +653,7 @@ class MatplotlibRenderer:
                               ncol=max(1, int(getattr(p, "legend_ncol", 1))))
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         if p.grid:
             ax.grid(True, alpha=0.3)
         if p.x_is_time and fig is not None:
@@ -635,7 +666,7 @@ class MatplotlibRenderer:
         ax.set_xticklabels(p.group_labels, rotation=30, ha="right", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         if p.grid:
             ax.grid(True, alpha=0.3, axis="y")
 
@@ -698,7 +729,7 @@ class MatplotlibRenderer:
                               markersize=8, label=lbl) for lbl, col in p.node_legend]
             ax.legend(handles=handles, loc="best", fontsize=8, framealpha=0.7)
 
-        ax.set_title(p.title)
+        _set_panel_title(ax, p.title)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_xticks([])
