@@ -32,33 +32,45 @@ from __future__ import annotations
 
 import os
 
-_STRICT_CACHE: bool | None = None
+# Only the device-availability probe is cached (CUDA presence is immutable for the process); the ENV FLAG is
+# read LIVE on every call. Caching the flag's first-seen value was a latent bug: a process that toggled
+# MLFRAME_FE_GPU_STRICT mid-run (or a test suite where one test sets/unsets it before another) would freeze on
+# the stale first value -> order-dependent dispatch. The live env read is ~1.5us/call (measured), negligible
+# next to a greedy round; the expensive ~17us pyutilz/numba CUDA probe stays memoised below.
+_CUDA_USABLE_CACHE: bool | None = None
 
 
 def _cuda_usable() -> bool:
-    """Best-effort CUDA-availability probe (mirrors ``_gpu_resident_fe._cuda_present``); any failure -> False."""
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
-        return False
-    try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        return bool(is_cuda_available())
-    except Exception:
-        try:
-            from numba import cuda as _c
-            return bool(getattr(_c, "is_available", lambda: False)())
-        except Exception:
-            return False
+    """Best-effort CUDA-availability probe (mirrors ``_gpu_resident_fe._cuda_present``); any failure -> False.
+
+    Memoised for the process lifetime: device presence does not change mid-run, and this probe shells into
+    pyutilz/numba (~17us/call) which the per-greedy-round dispatch must not pay repeatedly. The CUDA_VISIBLE_DEVICES
+    / MLFRAME_DISABLE_GPU short-circuits are part of the cached result -- those are start-of-process device gates,
+    not the runtime STRICT toggle which is read live in ``fe_gpu_strict_enabled``."""
+    global _CUDA_USABLE_CACHE
+    if _CUDA_USABLE_CACHE is None:
+        _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+        if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+            _CUDA_USABLE_CACHE = False
+        else:
+            try:
+                from pyutilz.core.pythonlib import is_cuda_available
+                _CUDA_USABLE_CACHE = bool(is_cuda_available())
+            except Exception:
+                try:
+                    from numba import cuda as _c
+                    _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
+                except Exception:
+                    _CUDA_USABLE_CACHE = False
+    return _CUDA_USABLE_CACHE
 
 
 def fe_gpu_strict_enabled() -> bool:
     """Whether STRICT GPU mode is active: ``MLFRAME_FE_GPU_STRICT`` truthy AND a CUDA device is usable.
 
-    Read ONCE and cached for the process lifetime (the dispatch gates call this on every greedy round, so a
-    per-call ``os.environ`` read would add measurable overhead). Default OFF -> the cached value is False and
-    every gate keeps its current KTC-crossover behavior, so this is purely additive. No-op without CUDA."""
-    global _STRICT_CACHE
-    if _STRICT_CACHE is None:
-        _on = os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("1", "true", "on", "yes")
-        _STRICT_CACHE = bool(_on and _cuda_usable())
-    return _STRICT_CACHE
+    The env flag is read LIVE on every call so a mid-process toggle (or per-test set/unset) is observed
+    immediately -- the only cached part is the immutable CUDA-device probe (see ``_cuda_usable``). Default OFF ->
+    returns False and every gate keeps its current KTC-crossover behavior, so this is purely additive. No-op
+    without CUDA."""
+    _on = os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("1", "true", "on", "yes")
+    return bool(_on and _cuda_usable())
