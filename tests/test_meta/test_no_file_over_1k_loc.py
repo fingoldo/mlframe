@@ -123,7 +123,13 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # in-flight born-on-device perf-replatform work (committed within the last day, mid perf-loop). They are
     # carvable (multiple top-level defs) but actively churning under that effort; carving them here would
     # collide with the in-flight rewrite. Carve to be folded into the next FE perf-loop wave that owns them.
-    "src/mlframe/feature_selection/filters/_gpu_resident_select.py",
+    # (de-exempted: _gpu_resident_select carved -- fused-binning/discretize block -> _gpu_resident_discretize.py,
+    # materialise/operand-table/host-fast-path block -> _gpu_resident_materialise.py; parent now <1k)
+    # FIXME(carve-wave-next): _fe_batched_mi.py crossed the ceiling (~1.2k LOC) under the same in-flight
+    # born-on-device MI perf-replatform churn as the modules below; carvable (28 top-level defs: the binned-MI
+    # RawKernels + their lazy getters lift cleanly into a sibling) but actively churning -- fold into the FE
+    # perf-loop wave that owns it.
+    "src/mlframe/feature_selection/filters/_fe_batched_mi.py",
     "src/mlframe/feature_selection/filters/_gpu_resident_basis.py",
     "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
     "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py",
