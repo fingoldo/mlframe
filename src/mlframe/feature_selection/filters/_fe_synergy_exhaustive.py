@@ -19,14 +19,16 @@ exhaustive sweep over every raw numeric column instead of the capped pre-rank pa
 
 Decision policy (``decide_exhaustive_sweep``)
 ---------------------------------------------
-* ``fe_synergy_exhaustive == "auto"`` (default): keep today's behaviour (pre-rank + capped
-  sweep). The exhaustive path does NOT fire.
-* ``fe_synergy_exhaustive in {"force", True}``: run the FULL exhaustive C(p,2) sweep over ALL
-  raw numeric columns WHEN
-    (1) a CUDA GPU is available (``batch_pair_mi_gpu._CUDA_AVAIL``), AND
-    (2) the PREDICTED wall-time (n_pairs / measured_pairs_per_second(n, p)) is under
-        ``fe_synergy_exhaustive_max_seconds`` (default 180 s).
-  Otherwise it LOGS why it declined and falls back to the pre-rank path.
+* ``fe_synergy_exhaustive == "never"``: always take the pre-rank + capped sweep path; the
+  exhaustive path does NOT fire (this is what isolates ``fe_synergy_prerank``).
+* ``fe_synergy_exhaustive == "auto"`` (default): ESCALATE to the full exhaustive C(p,2) sweep
+  whenever it is affordable -- i.e. unless a time budget is set (``max_runtime_mins`` /
+  ``fe_synergy_exhaustive_max_seconds``) AND the PREDICTED wall-time exceeds it; with no budget set,
+  auto always sweeps. The prediction uses the available backend (CUDA where present, else the CPU
+  njit-prange fallback) so the affordable-or-not verdict is hardware-independent. Falls back to the
+  pre-rank path only when the predicted sweep would blow the budget.
+* ``fe_synergy_exhaustive in {"force", True}``: run the FULL exhaustive C(p,2) sweep over ALL raw
+  numeric columns whenever a backend exists, regardless of the budget.
 
 The throughput (pairs/s) is NEVER hardcoded into the decision: it is measured-and-cached
 per host + (n, p) region via ``pyutilz.performance.kernel_tuning`` (mirroring the
