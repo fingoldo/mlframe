@@ -861,6 +861,19 @@ def fit(
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "opt_in_steps_done")
 
+    # y-scale group-aware holdout gate. Drop specs whose predict-T -> invert-to-y pipeline collapses
+    # on a group-disjoint holdout (the prod failure the forward-only MI / i.i.d. honest-holdout never
+    # sees). No-op without group ids. Runs BEFORE the honest re-score so the (heavier) MI re-score only
+    # touches survivors.
+    if kept_specs and getattr(self.config, "yscale_holdout_gate_enabled", True):
+        from ._yscale_holdout_gate import apply_yscale_holdout_gate
+
+        kept_specs = apply_yscale_holdout_gate(
+            self, df, target_col, kept_specs, usable_features, train_idx, y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "yscale_holdout_gate_done")
+
     # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
     # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
     if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
