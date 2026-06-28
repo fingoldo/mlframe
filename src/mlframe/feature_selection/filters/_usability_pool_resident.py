@@ -185,18 +185,24 @@ def score_pair_combos_table_resident(
                            np.int64(n), np.int32(kk), cand))
                 mean = cand.mean(axis=0)
                 var = (cand * cand).mean(axis=0) - mean * mean
-                live = cp.asnumpy(var > 1e-18)
-                mi_h = None
+                live_d = var > 1e-18                                # device std<=1e-9 mask; D2H deferred (see below)
+                mi_seg = None
                 try:
                     interior = _radix_select_interior_edges(cand, int(nbins))
                     if interior is not None:
-                        mi_h = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y, codes_trusted=True)   # d_y dense 0-based fit-constant (FIX1)
+                        # ONE D2H per chunk (was two: a separate var-mask .get() + the mi .get()): the MM-MI
+                        # stays resident, the sentinel mask is applied on device, then a SINGLE .get() returns
+                        # the masked row (halves the per-chunk syncs; ~17k asnumpy/fit removed at 1M/200k).
+                        mi_d = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y,
+                                                            codes_trusted=True, return_device=True)   # d_y dense 0-based fit-constant (FIX1)
+                        mi_seg = cp.asnumpy(cp.where(live_d, mi_d, -1.0))
                 except Exception:
-                    mi_h = None
-                if mi_h is None:                                    # per-row sync fallback (bit-faithful)
+                    mi_seg = None
+                if mi_seg is None:                                  # per-row sync fallback (bit-faithful)
                     codes, kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(cand.T), d_qs)
                     mi_h = cp.asnumpy(_gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n))
-                out[base + c0:base + c1] = np.where(live, mi_h, -1.0)
+                    mi_seg = np.where(cp.asnumpy(live_d), mi_h, -1.0)
+                out[base + c0:base + c1] = mi_seg
                 del cand
             del d_x1, d_x2, ua_stack, ub_stack
         return out.reshape(npairs, nc)

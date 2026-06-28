@@ -283,7 +283,8 @@ def _get_mi_mm_from_values_kernel():
     return _MI_MM_FROM_VALUES_KERNEL
 
 
-def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y, k_y, codes_trusted: bool = False):
+def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y, k_y, codes_trusted: bool = False,
+                                 return_device: bool = False):
     """Miller-Madow MARGINAL MI(col_k; y) for an (n,K) float matrix binned by per-column ``interior_edges``
     ((nbins-1, K) cupy), in ONE fused RawKernel (bin + joint hist + MM-MI). ``ky`` is the y-cardinality
     (histogram width; y codes in [0, ky)); ``h_y`` / ``k_y`` are the shared target plug-in entropy +
@@ -308,7 +309,10 @@ def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y
     ne = int(E.shape[0])
     cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64))
     cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64))
-    Ec = cp.zeros((ne, K), dtype=cp.float64)
+    # cp.empty (not cp.zeros): the dedup kernel writes out[0:ne_k[c], c] for every column and the nek MI
+    # kernel binary-searches ONLY each column's valid prefix (ne = ne_k[c]), so the uninitialised tail rows
+    # of Ec are never read -> dropping the per-call (ne,K) zero-fill is bit-identical (was 17k zero-fills/fit).
+    Ec = cp.empty((ne, K), dtype=cp.float64)
     ne_k = cp.empty(K, dtype=cp.int32)
     threads = 256
     _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,),
@@ -318,6 +322,10 @@ def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y
          np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),
          ne_k, mi_out),
         shared_mem=int(nbins) * Ky * 4)
+    # return_device: hand the resident (K,) mi_out back so the caller can fuse a device-side mask + ONE D2H
+    # (the resident pool path masks std<=1e-9 combos and gets both in a single sync) instead of two .get()s.
+    if return_device:
+        return mi_out
     return cp.asnumpy(mi_out)
 
 
