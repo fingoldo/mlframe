@@ -104,15 +104,34 @@ def usability_greedy_clf_gpu_resident(
         if n_classes < 2:
             return None  # CPU returns [] for <2 classes; [] != a selection here, so defer to CPU
         if n_classes > 2:
-            # MULTICLASS is kept on the CPU path (evidence-based, not assumed). sklearn's default
-            # multinomial logistic is fit by lbfgs in the SYMMETRIC (over-parametrised) coefficient
-            # space, whose Hessian is RANK-DEFICIENT (the softmax sum-to-zero null space). A resident
-            # Newton on that same symmetric objective hits a singular block Hessian (cp.linalg.solve
-            # fails / NaNs) -> it cannot reproduce sklearn's probabilities, and a reduced (C-1)-class
-            # re-parametrisation gives DIFFERENT coefficients/probabilities than sklearn's symmetric
-            # fit, which flips CV-logloss selections on near-ties. Measured on a 3-class fixture: the
-            # resident multinomial Newton diverged from sklearn (singular Hessian / empty selection vs
-            # the CPU 4-feature set). The bar is selection-equivalence, so multiclass stays CPU.
+            # MULTICLASS is kept on the CPU path (evidence-based, not assumed). sklearn 1.x
+            # LogisticRegression ALWAYS fits multinomial (softmax) for >2 classes via lbfgs, in the
+            # SYMMETRIC (over-parametrised, full C-class) coefficient space, applying the L2 penalty
+            # (C=1.0) to those symmetric coefficients with the intercept UNPENALISED. Two roads, both
+            # re-measured with fresh evidence (2026-06-28, sklearn 1.8.0, GTX 1050 Ti / cupy 13.6):
+            #
+            #   (1) A resident Newton in sklearn's OWN symmetric basis is structurally SINGULAR. The
+            #       per-class block Hessian has the softmax sum-to-zero null direction; the L2 penalty
+            #       does break the slope null but the intercept is UNPENALISED (reg=0), so the null
+            #       survives in the intercept and ``cp.linalg.solve`` returns a garbage step along it
+            #       -> the line search collapses to t~1e-16 and the objective blows up to NaN. lbfgs
+            #       (gradient-only, no Hessian inverse) tolerates this; a direct Newton cannot.
+            #   (2) A resident Newton in a NON-singular REDUCED (C-1, baseline-class-0) basis converges,
+            #       but to a DIFFERENT regularised optimum: the L2 penalty in the baseline-relative basis
+            #       is a genuinely different regulariser than sklearn's symmetric-basis penalty, so the
+            #       probabilities differ (single 3-class fit: sklearn train-logloss 0.65829 vs reduced
+            #       0.65879) and the per-fold CV-logloss differs at the improvement gate. Measured with a
+            #       GUARANTEED-CONVERGED reduced multinomial (scipy L-BFGS-B to the optimum, ftol 1e-14,
+            #       gtol 1e-10 -- so this is the GAUGE effect, not solver instability): on the 3-class +
+            #       4-class usability fixtures x 6 seeds x {strong,weak} (24 cases) the reduced selection
+            #       FLIPPED sklearn's on 9/24 (systematically over-selecting, e.g. appending 'ab'/'c'):
+            #         3cls strong seed2: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab]
+            #         4cls strong seed0: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab,c]
+            #         4cls weak   seed3: sklearn [a,cd,b,f,ab]   vs reduced [a,cd,b,f,ab,c]   (+6 more)
+            #
+            # The bar is SELECTION-EQUIVALENCE. (1) cannot run, (2) flips 9/24 selections by the gauge
+            # alone, so a resident multinomial must NOT ship; multiclass stays on the exact CPU sklearn
+            # path. (Binary is selection-equivalent and DOES run -- the binary L2 Newton is non-singular.)
             return None
         n = int(y_enc.shape[0])
         if n < 2:
@@ -213,7 +232,15 @@ def usability_greedy_clf_gpu_resident(
 
         def _fit_multinomial(Xs, yc):
             """Symmetric multinomial L2 Newton (full block Hessian) on standardized design. ``yc`` is a
-            resident int code vector. Returns W (k+1, C) or raises. sklearn 1.x multinomial default."""
+            resident int code vector. Returns W (k+1, C) or raises. sklearn 1.x multinomial default.
+
+            RETAINED REJECTED PROTOTYPE (bench-attempt-rejected 2026-06-28): unreachable -- the >2-class
+            guard above returns ``None`` BEFORE any fit. Kept (per the keep-all-kernel-versions policy) as
+            the documented symmetric attempt: its block Hessian is SINGULAR in the unpenalised-intercept
+            null direction, so ``cp.linalg.solve`` returns a garbage step and the fit blows up to NaN (re-
+            measured 2026-06-28). The non-singular reduced (C-1) alternative converges but flips 9/24
+            multiclass selections by the gauge alone -- see the >2-class guard's evidence block. Do not wire
+            either into the dispatch; multiclass stays on the exact CPU sklearn path."""
             nn, k = Xs.shape
             d = k + 1
             A = cp.empty((nn, d), dtype=cp.float64)

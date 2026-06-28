@@ -108,7 +108,13 @@ def test_binary_clf_flag_on_dispatch_matches_cpu():
 
 
 def test_multiclass_defers_to_cpu():
-    """>2 classes: the resident twin returns None and the dispatch falls back to the exact CPU selection."""
+    """>2 classes: the resident twin returns None and the dispatch falls back to the exact CPU selection.
+
+    Re-confirmed with fresh evidence (2026-06-28, sklearn 1.8.0): sklearn's symmetric multinomial basis
+    yields a singular Newton Hessian (unpenalised-intercept null -> NaN), and a non-singular reduced
+    (C-1) basis converges to a different L2 optimum that flips 9/24 multiclass selections by the gauge
+    alone. See the >2-class guard's evidence block in ``_usability_greedy_clf_gpu_resident``.
+    """
     from mlframe.feature_selection.filters._usability_aware_selection import usability_greedy
     from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import (
         usability_greedy_clf_gpu_resident,
