@@ -49,7 +49,10 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # only APPENDS chains that already beat both single stages on held-out RMSE
     # (empty when none win). All three are compute-bounded by their caps below.
     # Set False to skip the extra discovery passes for the fastest possible fit.
-    region_adaptive_enabled: bool = True
+    # Default OFF: region-adaptive is a committed-but-REJECTED research prototype (see
+    # discovery/_region_adaptive.py module docstring). On a large prod run it burned ~7.5 min fitting
+    # specs that collapsed at deploy. Keep the opt-in flag for benches; do not run it by default.
+    region_adaptive_enabled: bool = False
     region_adaptive_k: int = 4
     interaction_base_discovery_enabled: bool = True
     interaction_base_top_k: int = 4
@@ -67,6 +70,19 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     #   are skipped with a warning.
     base_candidates: Union[List[str], str] = "auto"
     auto_base_top_k: int = 3
+
+    # Reject a base candidate whose |corr(base, y)| on the screening sample exceeds this -- such a base
+    # is a near-COPY of y (e.g. a kalman/particle-filter posterior or a lag that reproduces y up to
+    # noise). The residual T = y - alpha*base is then ~noise and the inverse y = T_hat + alpha*base is
+    # carried ENTIRELY by base, so any base distribution shift on unseen groups blows the inversion up
+    # (the prod TVT collapse: every composite built on pf_tvt_post_* / TVT_prev, |corr(base,base)|=1.000
+    # with each other and ~1.0 with y). Default 0.9995 keeps legitimate strong-AR lags (|corr|~0.99) but
+    # excludes literal copies. 1.0 / None disables the filter (legacy behaviour).
+    base_max_abs_corr_with_y: float = 0.9995
+    # Do NOT apply the structural "near-affine predictor of y -> prime linear_residual base" boost to a
+    # column that is itself a near-copy of y (|corr(col, y)| above this) -- boosting promotes exactly the
+    # fragile leaked columns to the top of the base ranking. Default 0.98. 1.0 disables the gate.
+    auto_base_structural_boost_corr_gate: float = 0.98
 
     # Priority-base hint: features treated as base candidates regardless of pairwise ``MI(y, x)`` ranking. ``_auto_base`` puts these first (given order) and fills the rest up to ``auto_base_top_k`` with the top MI-ranked features. Exists because pairwise MI is fooled by features with global trend but no structural residual (e.g. spatial coords on geo-trended targets); ``BaselineDiagnostics`` ablation (drop-feature RMSE delta) is far more reliable for "what drives prediction" and ``train_mlframe_models_suite`` populates the hint from it automatically. Hint features still pass the standard filters (forbidden_pattern / non_numeric / constant / corr_threshold); failures are logged + dropped.
     dominant_features_hint: Optional[List[str]] = None
@@ -549,6 +565,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # the catastrophic group-aware test collapse observed in prod (R^2=-146 on unseen wells). Set
     # False to keep the legacy informational-only behaviour.
     reject_on_alpha_drift: bool = True
+    # When alpha-drift rejects the linear_residual spec for a base, ALSO drop every other spec on that
+    # SAME base (poly2 / yj / cbrt / monres ...). A base whose simplest bounded-inverse residual is
+    # non-stationary (fails the Chow slope test) cannot be safe under a MORE violent nonlinear inverse:
+    # keeping the base and switching to poly2/yj just trades a bounded blow-up for an O(base^2) one
+    # (prod TVT: the drift gate stripped the 3 safe linres specs, leaving the fragile families that then
+    # collapsed to R^2=-146). Only active when ``reject_on_alpha_drift`` is also True.
+    reject_base_on_alpha_drift: bool = True
 
     # y-scale group-aware holdout gate. The MI-gain / i.i.d. honest-holdout screens the FORWARD
     # transform but never the predict-T -> invert-to-y pipeline production actually runs. On a

@@ -594,6 +594,27 @@ def _auto_base(
     # be re-promoted by the time detector here. A monotone column the
     # time-index demoter would sink is not boosted as a ``time`` base when the
     # demoter is active, so the two stay consistent.
+    # Per-column |corr(col, y)| on the screen sample. Used to (a) gate the structural boost away from
+    # near-copies of y and (b) exclude near-copy bases after ranking (a base ~= y makes the residual
+    # inverse fragile under group shift). Computed once, vectorised.
+    _abs_corr_to_y: dict[str, float] = {}
+    try:
+        _xm_c = np.asarray(x_matrix[finite], dtype=np.float64)
+        _ys_c = np.asarray(y_screen[finite], dtype=np.float64).ravel()
+        if _xm_c.shape[0] > 2 and _ys_c.size == _xm_c.shape[0]:
+            _yc = _ys_c - _ys_c.mean()
+            _yden = float(np.sqrt(np.dot(_yc, _yc)))
+            if _yden > 0:
+                _xc = _xm_c - _xm_c.mean(axis=0, keepdims=True)
+                _xden = np.sqrt(np.einsum("ij,ij->j", _xc, _xc))
+                _num = _xc.T @ _yc
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    _corr = np.where(_xden > 0, _num / (_xden * _yden), 0.0)
+                _abs_corr_to_y = {c: abs(float(_corr[j])) for j, c in enumerate(usable_features)}
+    except Exception:  # noqa: BLE001 -- corr is a heuristic gate; never abort discovery on it
+        _abs_corr_to_y = {}
+
+    _boost_corr_gate = float(getattr(self.config, "auto_base_structural_boost_corr_gate", 0.98))
     if getattr(self.config, "auto_base_structural_boost", True):
         finite_mi = [m for m in mi_for_ranking.tolist() if math.isfinite(m)]
         mi_spread = (max(finite_mi) - min(finite_mi)) if len(finite_mi) >= 2 else 0.0
@@ -607,6 +628,7 @@ def _auto_base(
         if kinds:
             hint_set_boost = set(hint_kept)
             applied: list[tuple[str, str, float]] = []
+            _boost_corr_skipped = 0
             for j, col_name in enumerate(usable_features):
                 if boost[j] <= 0.0:
                     continue
@@ -614,10 +636,20 @@ def _auto_base(
                 # (the demoter's verdict is authoritative for that column).
                 if col_name in hint_set_boost or col_name in demote_set:
                     continue
+                # Don't boost a near-copy of y: boosting promotes exactly the fragile leaked columns.
+                if _boost_corr_gate < 1.0 and _abs_corr_to_y.get(col_name, 0.0) > _boost_corr_gate:
+                    _boost_corr_skipped += 1
+                    continue
                 if not math.isfinite(mi_for_ranking[j]):
                     continue
                 mi_for_ranking[j] += boost[j]
                 applied.append((col_name, kinds.get(col_name, "?"), float(boost[j])))
+            if _boost_corr_skipped:
+                logger.info(
+                    "[CompositeTargetDiscovery] auto-base structural boost withheld from %d "
+                    "near-copy-of-y candidate(s) (|corr(col,y)| > %.4g).",
+                    _boost_corr_skipped, _boost_corr_gate,
+                )
             if applied:
                 preview = ", ".join(
                     f"{n}({k},+{b:.4g})" for n, k, b in
@@ -643,6 +675,25 @@ def _auto_base(
     # Strip features whose MI was masked out (-inf) so the ranking
     # tail doesn't include null-failed candidates.
     ranked = [(m, c) for m, c in ranked if math.isfinite(m)]
+    # Near-copy-of-y exclusion. A base whose |corr(base, y)| is ~1.0 is y itself up to noise; the
+    # residual inverse y = T_hat + alpha*base is then carried entirely by base and blows up on any
+    # group/feature shift. Drop such bases (hint or not -- a literal copy is never a safe base), but
+    # log loudly when a hint candidate is removed so the operator sees why the hint didn't lead.
+    _copy_thresh = getattr(self.config, "base_max_abs_corr_with_y", 0.9995)
+    if _copy_thresh is not None and float(_copy_thresh) < 1.0 and _abs_corr_to_y:
+        _ct = float(_copy_thresh)
+        _excluded = [(m, c) for m, c in ranked if _abs_corr_to_y.get(c, 0.0) > _ct]
+        if _excluded:
+            ranked = [(m, c) for m, c in ranked if _abs_corr_to_y.get(c, 0.0) <= _ct]
+            _hint_excl = [c for _m, c in _excluded if c in set(hint_kept)]
+            logger.info(
+                "[CompositeTargetDiscovery] auto-base excluded %d near-copy-of-y base candidate(s) "
+                "(|corr(base,y)| > %.4g; residual inverse would be carried entirely by base and is "
+                "fragile under group shift): %s%s",
+                len(_excluded), _ct,
+                ", ".join(f"{c}({_abs_corr_to_y.get(c, 0.0):.4f})" for _m, c in _excluded[:5]),
+                f" -- INCLUDING hint(s): {_hint_excl}" if _hint_excl else "",
+            )
     # Cross-base correlation dedup. Two highly-correlated bases
     # (typical: ``y_prev``, ``y_prev_lag2``, ``y_smooth_3``)
     # produce near-identical composites that waste Phase B compute

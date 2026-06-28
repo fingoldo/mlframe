@@ -44,6 +44,7 @@ def split_screening_holdout(
     *,
     min_screen_rows: int = 50,
     min_holdout_rows: int = 50,
+    group_ids: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Carve ``train_idx`` into (screening_pool, honest_holdout) by index.
 
@@ -80,6 +81,33 @@ def split_screening_holdout(
         )
         return train_idx, None
     rng = np.random.default_rng(random_state)
+    # GROUP-DISJOINT holdout when group ids align to ``train_idx``: hold out WHOLE groups so the
+    # winner's-curse de-bias measures generalisation to UNSEEN groups -- the actual deployment regime
+    # under a group-aware split. An i.i.d. row holdout keeps same-group rows on both sides, so its
+    # "honest gain" is blind to the only failure mode that matters here (a residual whose inverse
+    # extrapolates on unseen groups). Falls back to the i.i.d. row split when groups are absent /
+    # mis-aligned / too few to hit the holdout fraction.
+    if group_ids is not None:
+        g = np.asarray(group_ids)
+        try:
+            g_train = g[train_idx] if g.shape[0] != n else g
+        except (IndexError, TypeError):
+            g_train = None
+        if g_train is not None and g_train.shape[0] == n:
+            uniq = rng.permutation(np.unique(g_train))
+            keep, total = [], 0
+            for gid in uniq:
+                sz = int(np.count_nonzero(g_train == gid))
+                if total + sz > n_holdout and total >= min_holdout_rows:
+                    break
+                keep.append(gid)
+                total += sz
+            hmask = np.isin(g_train, keep)
+            n_h = int(hmask.sum())
+            if min_holdout_rows <= n_h <= (n - min_screen_rows):
+                holdout_pos = np.nonzero(hmask)[0]
+                screen_pos = np.nonzero(~hmask)[0]
+                return train_idx[screen_pos], train_idx[holdout_pos]
     perm = rng.permutation(n)
     holdout_pos = np.sort(perm[:n_holdout])
     screen_pos = np.sort(perm[n_holdout:])
@@ -100,6 +128,7 @@ def carve_screening_holdout(self, train_idx: np.ndarray) -> tuple[np.ndarray, np
         train_idx,
         getattr(self.config, "honest_holdout_frac", 0.2),
         int(getattr(self.config, "random_state", 0)),
+        group_ids=getattr(self, "_group_ids_for_rerank", None),
     )
     self.honest_holdout_idx_ = holdout_idx
     self.train_idx_ = screen_idx

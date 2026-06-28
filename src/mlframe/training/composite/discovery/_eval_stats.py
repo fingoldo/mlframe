@@ -292,6 +292,7 @@ def apply_alpha_drift_gate(
         return kept_specs
     drift_dropped: list[tuple[str, float]] = []
     drift_kept: list = []
+    _drift_dropped_bases: set = set()
     y_train_for_drift = y_full[train_idx]
     for s in kept_specs:
         if s.transform_name != "linear_residual":
@@ -363,6 +364,7 @@ def apply_alpha_drift_gate(
         if z > drift_threshold:
             if reject_on_drift:
                 drift_dropped.append((s.name, float(z)))
+                _drift_dropped_bases.add(s.base_column)
                 continue
             # DEBUG not WARNING: many drift-flagged specs are later rejected by the raw-y baseline / Wilcoxon gate, so a per-spec WARNING here is dead-noise; a summary WARNING is emitted only for survivors at the end of discovery.
             logger.debug(
@@ -371,12 +373,28 @@ def apply_alpha_drift_gate(
                 s.name, a1, a2, z, drift_threshold,
             )
         drift_kept.append(s)
+    # When the simplest (bounded-inverse) linear_residual on a base drifts, the base itself is
+    # non-stationary -- drop EVERY other spec on it too, rather than letting a more violent nonlinear
+    # inverse (poly2/yj/cbrt) survive on the same fragile base.
+    _base_dropped: list[str] = []
+    if (reject_on_drift and _drift_dropped_bases
+            and bool(getattr(self.config, "reject_base_on_alpha_drift", True))):
+        _before = drift_kept
+        drift_kept = [s for s in _before if s.base_column not in _drift_dropped_bases]
+        _base_dropped = [s.name for s in _before if s.base_column in _drift_dropped_bases]
     if drift_dropped:
         logger.info(
             "[CompositeTargetDiscovery] alpha drift gate dropped %d "
             "linear_residual spec(s): %s",
             len(drift_dropped),
             ", ".join(f"{n}(z={z:.2f})" for n, z in drift_dropped[:5]),
+        )
+    if _base_dropped:
+        logger.info(
+            "[CompositeTargetDiscovery] alpha drift gate also dropped %d non-linear-residual spec(s) "
+            "on the same drifted base(s) %s (a base whose linear residual is non-stationary is unsafe "
+            "under a more violent nonlinear inverse): %s",
+            len(_base_dropped), sorted(_drift_dropped_bases), _base_dropped[:5],
         )
     return drift_kept
 

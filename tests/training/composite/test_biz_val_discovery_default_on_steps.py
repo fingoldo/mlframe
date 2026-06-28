@@ -45,12 +45,13 @@ def _fit(df, feats, **overrides):
     return disc
 
 
-def test_biz_val_region_adaptive_default_on_fires_nonempty():
-    """region_adaptive default-ON -> >=1 region_adaptive_spec on multi-base data.
+def test_biz_val_region_adaptive_when_enabled_fires_nonempty():
+    """region_adaptive WHEN EXPLICITLY ENABLED -> >=1 region_adaptive_spec on multi-base data.
 
-    Two informative bases ``a`` / ``b`` each survive the gate, so the
-    per-distinct-base region-adaptive step must fit at least one spec. A silent
-    no-op (default flipped off / gate too strict) yields an empty list -> FAIL.
+    region_adaptive is a committed-but-rejected research prototype and now defaults OFF (it burned
+    ~7.5 min on a prod run fitting specs that collapsed at deploy), so this test opts in explicitly to
+    exercise the step's business value. Two informative bases ``a`` / ``b`` each survive the gate, so
+    the per-distinct-base region-adaptive step must fit at least one spec when enabled.
     """
     rng = np.random.default_rng(0)
     n = 2000
@@ -59,10 +60,9 @@ def test_biz_val_region_adaptive_default_on_fires_nonempty():
     c = rng.normal(size=n)
     y = 0.9 * a + 0.6 * b + 0.5 * c + 0.1 * rng.normal(size=n)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "y": y})
-    disc = _fit(df, ["a", "b", "c"])
+    disc = _fit(df, ["a", "b", "c"], region_adaptive_enabled=True)
     assert disc.region_adaptive_specs_, (
-        "region_adaptive default-ON produced ZERO specs on multi-base data "
-        "(silent no-op)"
+        "region_adaptive (explicitly enabled) produced ZERO specs on multi-base data (silent no-op)"
     )
     for ra in disc.region_adaptive_specs_:
         assert ra.k >= 1
@@ -124,9 +124,13 @@ def test_biz_val_auto_chain_default_on_appends_chain_specs():
         get_transform(s.transform_name)  # registered -> resolvable by name
 
 
-def test_biz_val_default_config_has_all_three_steps_on():
-    """The three opt-in discovery flags default ON (regression guards the flip)."""
+def test_biz_val_default_config_opt_in_step_flags():
+    """Opt-in discovery flag defaults: interaction_base / auto_chain ON; region_adaptive OFF.
+
+    region_adaptive is a committed-but-rejected research prototype (heavy + collapses at deploy), so
+    it defaults OFF; the other two carry test-confirmed business value and stay ON.
+    """
     cfg = CompositeTargetDiscoveryConfig(enabled=True)
-    assert cfg.region_adaptive_enabled is True
+    assert cfg.region_adaptive_enabled is False
     assert cfg.interaction_base_discovery_enabled is True
     assert cfg.auto_chain_discovery_enabled is True
