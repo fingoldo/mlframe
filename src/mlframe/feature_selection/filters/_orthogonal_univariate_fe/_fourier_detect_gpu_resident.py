@@ -126,10 +126,13 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
         Aty = A.T @ y
         try:
             coef = cp.linalg.solve(AtA, Aty)
-        except Exception:
+        except np.linalg.LinAlgError:
             coef = cp.linalg.lstsq(A, y, rcond=None)[0]
         return y - A @ coef
-    except Exception:
+    except np.linalg.LinAlgError:
+        # Degenerate [1,sin,cos] design (singular even for lstsq) -> no deflation this freq (graceful).
+        # Narrowed from bare Exception: a device fault now propagates to the dispatch-site CPU fallback and a
+        # logic bug surfaces, instead of silently returning an UN-DEFLATED y (which would diverge from CPU).
         return y
 
 
@@ -208,11 +211,14 @@ def detect_fourier_freqs_for_col_gpu(
     try:
         try:
             _poly_coef = cp.linalg.solve(_V_tr.T @ _V_tr, _V_tr.T @ y_tr)
-        except Exception:
+        except np.linalg.LinAlgError:
             _poly_coef = cp.linalg.lstsq(_V_tr, y_tr, rcond=None)[0]
         y_tr = y_tr - _V_tr @ _poly_coef
         y_va = y_va - _vander4_gpu(cp, z_va) @ _poly_coef
-    except Exception:
+    except np.linalg.LinAlgError:
+        # Singular cubic Vandermonde (constant/degenerate z) -> skip detrend, run detection on raw y (graceful).
+        # Narrowed from bare Exception so a device fault propagates to the dispatch CPU fallback and a logic bug
+        # surfaces instead of silently skipping the detrend (which would diverge from the CPU detector).
         pass
     if float(cp.std(y_tr)) < 1e-9 or float(cp.std(y_va)) < 1e-9:
         return []
@@ -258,6 +264,9 @@ def detect_fourier_freqs_for_col_gpu(
         if yv_ss < 1e-24:
             break
         val_power = _power_centered_gpu(cp, z_va, yvc, yv_ss, refined_f)
+        # Held-out admission razor (not grid-snapped): the cupy-vs-numpy reduction-order delta (~1e-12) is far
+        # below the >=0.30 _eff_min_val_corr margin, so it cannot flip this gate in practice; F2 + the fourier
+        # parity suite confirm the resident detector returns the same frequency list as CPU. Accept-and-documented.
         if val_power <= 0.0 or np.sqrt(val_power) < _eff_min_val_corr:
             break
         out.append(float(refined_f))

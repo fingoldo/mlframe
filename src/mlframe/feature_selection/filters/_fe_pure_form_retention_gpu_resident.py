@@ -197,6 +197,11 @@ def adds_nonlinear_value_batch_gpu_resident(
                 Xc = Xr - Xr.mean(axis=0, keepdims=True)
                 fbar = fv.mean()
                 fc = fv - fbar
+                # rcond=None (cupy uses the eps*max(M,N) singular-value cutoff) on the 12-col additive basis.
+                # Accepted vs sklearn LinearRegression's lstsq: on the well-conditioned basis the two agree;
+                # on a near-collinear basis the rank cutoff can differ, but only the std(resid)/|corr| GATE
+                # SCALARS feed the verdict and the F2 selection-equivalence suite confirms no flip. A device
+                # fault here routes to the exact CPU path via _DEV_ERRS; not a silent divergence.
                 beta, *_ = cp.linalg.lstsq(Xc, fc, rcond=None)
                 pred = fbar + Xc @ beta
                 resid = fv - pred

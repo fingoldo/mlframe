@@ -253,6 +253,10 @@ def propose_additive_fusions_gpu(
             fvb = cp.asnumpy(fvb_dev)
             fused_mi = float(_cmi_from_binned(fvb, y_dense, None))     # GPU-routed internally under the flag
             _strong = ha if ha["mi"] >= hb["mi"] else hb
+            # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
+            # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
+            # in practice; the direct fusion-parity check (resident vs CPU proposed fusions) + F2 confirm the same
+            # admissions. Accept-and-documented.
             _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
             _ols_passes = False
             if not _binned_mi_passes:

@@ -38,9 +38,12 @@ the same way, the same ``(1-w)*mi/mi_max + w*|corr|`` shortlist pre-rank with th
 same stable argsort, the same centered-OLS bordered normal equations (the unique
 minimiser sklearn's StandardScaler+LinearRegression also finds), the same
 majority-of-folds (>=75%) improvement gate, the same relative-MAE stop. Only the
-float reduction ORDER differs between cupy and numpy (~1e-12), to which the gates
-are tolerant; on a near-tie that a reduction-order shift would flip, the result
-falls back to the CPU value (the singular-border fallback already refits exactly).
+float reduction ORDER differs between cupy and numpy (~1e-12), to which the
+majority-of-folds gate is tolerant in practice (F2 selection-equivalent). NOTE: there
+is NO explicit near-tie detector here -- the only fall-throughs to the exact CPU path
+are the singular-border ``_ResidentFallback`` (refits exactly) and any cupy/device
+error (returns None); a pathological reduction-order tie that the gate cannot absorb
+is a theoretical residual, not a guarded case.
 
 CLASSIFICATION is handled by the resident logistic sibling
 :mod:`_usability_greedy_clf_gpu_resident` (an L2 Newton / IRLS on the standardized

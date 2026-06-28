@@ -365,12 +365,16 @@ def _get_mi_from_codes_kernel():
     return _MI_FROM_CODES_KERNEL
 
 
-def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0):
+def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0, codes_trusted: bool = False):
     """Plug-in MI(col_k; y) for EVERY column of ``code_cols`` (n,K) in ONE fused RawKernel launch.
 
     Drop-in for ``_wavelet_basis_fe_batched.batched_binned_mi_gpu`` (same plain plug-in MI, no MM bias).
     Falls back to that cupy path when the (Kx*Ky) shared tile would exceed the shared-memory cap. Returns
-    a host (K,) float64 array. Accepts a host ndarray or a resident cupy code matrix."""
+    a host (K,) float64 array. Accepts a host ndarray or a resident cupy code matrix.
+
+    ``codes_trusted`` (default False): the kernel uses each code directly as a shared-tile offset
+    (``sh[c*Ky + y]``), so a negative/out-of-range code is an illegal-memory-access crash. The range guard
+    screens it (raise ValueError) unless the caller passes binner-produced 0-based codes (then skipped, free)."""
     import cupy as cp
 
     C = code_cols if isinstance(code_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(code_cols).astype(np.int64))
@@ -382,6 +386,8 @@ def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0):
     Ky = int(ky) if ky > 0 else (int(y.max()) + 1 if y.size else 1)
     Kx = int(np.max(np.asarray(kx_per_col))) if kx_per_col is not None else (int(C.max()) + 1 if C.size else 1)
     Kx = max(Kx, 1)
+    _assert_codes_in_range(C, Kx, "binned_mi_from_codes_gpu X codes", codes_trusted)
+    _assert_codes_in_range(y, Ky, "binned_mi_from_codes_gpu y codes", codes_trusted)
     if Kx * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         from ._wavelet_basis_fe_batched import batched_binned_mi_gpu
         return batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
