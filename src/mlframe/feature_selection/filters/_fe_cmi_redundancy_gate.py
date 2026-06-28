@@ -334,6 +334,26 @@ def _conditional_perm_null(
         # -> null MARGINAL MI(cand; y). Mean estimates the marginal MI bias at
         # this n; the seed's debiased excess = max(0, marginal_mi - this mean).
         nperm = int(n_permutations)
+        # GPU-RESIDENT marginal null (default OFF -> MLFRAME_FE_CMI_PERM_NULL_GPU, requires the RESIDENT path).
+        # Draws the shuffle KEYS on device (cupy RandomState, no per-perm key H2D) and reduces the floor/mean on
+        # device; only the two scalars return. Selection-EQUIVALENT (device RNG stream != numpy's; same
+        # (seed,salt)). BENCH-REJECTED on the 6-SM GTX 1050 Ti (regressed wall; see _fe_cmi_perm_null_gpu module
+        # docstring) -> behind its own sub-flag so plain RESIDENT keeps the faster host-key path below. Falls back
+        # to the host-key batched path then the CPU loop on any cupy error. Plain STRICT stays byte-identical.
+        try:
+            from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
+            _resident = perm_null_gpu_resident_enabled()
+        except Exception:
+            _resident = False
+        if _resident and _cmi_gpu_enabled() and nperm > 1:
+            try:
+                from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+                return conditional_perm_null_gpu(
+                    x, y, None, order=None, z_rank=None,
+                    n_permutations=nperm, quantile=quantile, seed=seed, salt=salt,
+                )
+            except Exception:
+                logger.debug("GPU-resident marginal perm-null failed; using host/CPU path", exc_info=True)
         # BATCHED marginal null under STRICT (default OFF -> CPU loop): all nperm free-shuffled columns
         # into one (n, nperm) matrix (SAME rng draws) -> one batched_cmi_gpu(..., z=None) call.
         if _cmi_gpu_enabled() and nperm > 1:
@@ -395,6 +415,30 @@ def _conditional_perm_null(
     if x.size > 1:
         z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
     _nperm = int(n_permutations)
+    # GPU-RESIDENT conditional null (default OFF -> MLFRAME_FE_CMI_PERM_NULL_GPU, requires the RESIDENT path).
+    # Holds the candidate / target / support codes resident on device, draws the within-stratum shuffle KEYS on
+    # device (cupy RandomState -- no per-perm key H2D), builds all _nperm shuffled columns + scores CMI in ONE
+    # batched_cmi_gpu workload, and reduces the floor/mean on device; only the two scalars return. Selection-
+    # EQUIVALENT (the device RNG stream differs from numpy's, but the same (seed,salt) makes it reproducible and
+    # the 0.95 quantile / mean over the draws agree within the gate's razor tolerance -> identical F2 selection).
+    # BENCH-REJECTED on the 6-SM GTX 1050 Ti (regressed the F2 STRICT 300k wall ~+8s; see _fe_cmi_perm_null_gpu
+    # module docstring's bench-attempt-rejected note) -> behind its own sub-flag so the plain RESIDENT path keeps
+    # the faster host-key batched null below. Falls back to the host-key batched path, then the exact per-perm CPU
+    # loop, on any cupy error. Plain STRICT (RESIDENT off) is byte-identical -- this branch is skipped entirely.
+    try:
+        from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
+        _resident = perm_null_gpu_resident_enabled()
+    except Exception:
+        _resident = False
+    if _resident and _cmi_gpu_enabled() and _nperm > 1:
+        try:
+            from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+            return conditional_perm_null_gpu(
+                x, y_i, z_i, order=order, z_rank=z_rank,
+                n_permutations=_nperm, quantile=quantile, seed=seed, salt=salt,
+            )
+        except Exception:
+            logger.debug("GPU-resident conditional perm-null failed; using host/CPU path", exc_info=True)
     # BATCHED born-on-device null under STRICT (default OFF -> per-perm CPU loop below). y_i/z_i are
     # shuffle-invariant; only the within-stratum-shuffled candidate varies per perm -> build all _nperm
     # shuffled columns into one (n, _nperm) matrix (SAME rng draws as the loop) and score CMI(x_perm; y|z)

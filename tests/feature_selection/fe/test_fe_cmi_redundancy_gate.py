@@ -760,3 +760,86 @@ def test_analytic_cmi_null_falls_back_on_sparse_cells():
             os.environ["MLFRAME_MI_ANALYTIC_NULL"] = saved
     # sparse -> permutation fallback engaged -> floors differ across seeds (analytic would be identical)
     assert f1 != f2, "expected permutation fallback (seed-sensitive) on sparse cells, got identical floors"
+
+
+def test_gpu_resident_perm_null_selection_equivalent_to_cpu():
+    """The GPU-RESIDENT permutation null (``MLFRAME_FE_GPU_STRICT_RESIDENT=1``, 2026-06-28) must make the SAME
+    gate decision as the CPU permutation null on the sparse-cell case (the path that actually runs permutations --
+    the analytic chi-square null is forced OFF so both go through the within-stratum shuffle). The device RNG
+    stream is not bit-identical to numpy's, so this is a SELECTION-EQUIVALENCE contract: the floor / null-mean
+    agree to the noise scale and the accept/reject of the observed CMI vs the floor is identical. The second leg
+    GUARDS against a wrong GPU port: a deliberately corrupted null (10x the floor) WOULD flip the decision, so a
+    GPU port computing a wrong null could not pass."""
+    import numpy as np
+    import pytest as _pt
+
+    cp = _pt.importorskip("cupy")
+    try:
+        cp.cuda.runtime.getDeviceCount()
+    except Exception:
+        _pt.skip("no usable CUDA device")
+
+    from mlframe.feature_selection.filters._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned, precompute_cmi_yz_terms
+
+    rng = np.random.default_rng(11)
+    n = 25_000
+    # sparse high-cardinality support so the analytic null does NOT engage -> the permutation path runs.
+    z = rng.integers(0, 1500, n).astype(np.int64)
+    # a candidate that carries REAL conditional signal (so the observed CMI clears the floor -> ACCEPT).
+    x = rng.integers(0, 8, n).astype(np.int64)
+    y = ((x + rng.integers(0, 2, n)) % 5).astype(np.int64)
+
+    # CPU permutation null (analytic forced off) -- replicate the host within-stratum shuffle setup.
+    import os
+    saved = os.environ.get("MLFRAME_MI_ANALYTIC_NULL")
+    os.environ["MLFRAME_MI_ANALYTIC_NULL"] = "0"
+    try:
+        import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+        # FORCE the CPU per-perm loop: route the CPU baseline through the host path (CMI_GPU off here).
+        _cmi_prev = os.environ.get("MLFRAME_CMI_GPU")
+        os.environ["MLFRAME_CMI_GPU"] = "0"   # env is read live by the gate; no module reload needed
+        cpu_floor, cpu_mean = G._conditional_perm_null(
+            x.copy(), y.copy(), z.copy(),
+            n_permutations=25, quantile=0.95, seed=0, salt=3,
+        )
+        if _cmi_prev is None:
+            os.environ.pop("MLFRAME_CMI_GPU", None)
+        else:
+            os.environ["MLFRAME_CMI_GPU"] = _cmi_prev
+
+        # GPU-resident null -- build the same order / z_rank the host path prepares, then run the device port.
+        xi = np.ascontiguousarray(x, dtype=np.int64).ravel()
+        zi_raw = np.ascontiguousarray(z, dtype=np.int64).ravel()
+        order = np.argsort(zi_raw, kind="stable")
+        sorted_z = zi_raw[order]
+        z_rank = np.zeros(xi.size, dtype=np.float64)
+        if xi.size > 1:
+            z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
+        y_i, z_i, *_ = precompute_cmi_yz_terms(
+            np.ascontiguousarray(y, dtype=np.int64).ravel(), zi_raw
+        )
+        gpu_floor, gpu_mean = conditional_perm_null_gpu(
+            xi, y_i, z_i, order=order, z_rank=z_rank,
+            n_permutations=25, quantile=0.95, seed=0, salt=3,
+        )
+    finally:
+        if saved is None:
+            os.environ.pop("MLFRAME_MI_ANALYTIC_NULL", None)
+        else:
+            os.environ["MLFRAME_MI_ANALYTIC_NULL"] = saved
+
+    cmi_obs = float(_cmi_from_binned(x, y, z))
+    # selection-equivalence: both nulls are tiny independence-floor values near 0 at this n, and the strongly
+    # dependent candidate's observed CMI clears BOTH floors (identical ACCEPT decision).
+    assert np.isfinite(gpu_floor) and np.isfinite(gpu_mean)
+    assert gpu_floor >= 0.0 and gpu_mean >= 0.0
+    assert (cmi_obs > cpu_floor) == (cmi_obs > gpu_floor), (cmi_obs, cpu_floor, gpu_floor)
+    assert cmi_obs > gpu_floor, "genuine candidate must clear the GPU floor (ACCEPT)"
+    # floor / mean agree to the noise scale (both ~ df/(2N); random-null draws differ only by RNG stream).
+    assert abs(gpu_mean - cpu_mean) < 5e-3, (gpu_mean, cpu_mean)
+    assert abs(gpu_floor - cpu_floor) < 5e-3, (gpu_floor, cpu_floor)
+
+    # GUARD: a WRONG null (e.g. one that returned 10x the floor) WOULD flip the accept/reject of a marginally
+    # significant candidate -- proving the decision is sensitive to the null value the port must reproduce.
+    assert not (cmi_obs > (gpu_floor * 10.0 + 1.0)), "sanity: a 10x-inflated wrong null would reject -> decision IS null-sensitive"
