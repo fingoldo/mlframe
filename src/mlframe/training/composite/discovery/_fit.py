@@ -870,6 +870,7 @@ def fit(
 
         kept_specs = apply_yscale_holdout_gate(
             self, df, target_col, kept_specs, usable_features, train_idx, y_full,
+            val_idx=val_idx,
         )
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "yscale_holdout_gate_done")

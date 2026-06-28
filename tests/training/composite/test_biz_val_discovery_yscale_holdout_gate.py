@@ -92,3 +92,33 @@ def test_biz_val_yscale_gate_noop_without_group_ids():
     bad = _spec("y-linres-base-BADalpha", alpha=50.0)
     out = apply_yscale_holdout_gate(disc, df, "y", [bad], ["base", "x1", "x2"], np.arange(len(df)), y)
     assert [s.name for s in out] == ["y-linres-base-BADalpha"], "no-group gate must keep every spec"
+
+
+def _train_val_extrapolating(n_groups=12, per=150, n_train_groups=8, seed=3):
+    """Group levels are MONOTONE in group id, so the held-out val groups (highest ids) have base values
+    OUTSIDE the train range -- the real unseen-well extrapolation that collapses a high-alpha inverse."""
+    rng = np.random.default_rng(seed)
+    levels = np.linspace(100.0, 1000.0, n_groups)  # monotone: high-id groups = high base
+    groups = np.repeat(np.arange(n_groups), per)
+    base = levels[groups] + rng.normal(0.0, 5.0, groups.size)
+    x1 = rng.normal(size=groups.size)
+    y = base + 3.0 * x1 + rng.normal(0.0, 5.0, groups.size)
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": rng.normal(size=groups.size), "y": y.astype(np.float64)})
+    train_idx = np.where(groups < n_train_groups)[0]
+    val_idx = np.where(groups >= n_train_groups)[0]
+    return df, groups.astype(np.int64), y.astype(np.float64), train_idx, val_idx
+
+
+def test_biz_val_yscale_gate_drops_collapsing_spec_on_val_split():
+    df, groups, y, train_idx, val_idx = _train_val_extrapolating()
+    disc = _make_gate_ctx(groups)
+    bad = _spec("y-linres-base-BADalpha", alpha=50.0)
+    good = _spec("y-linres-base-unit", alpha=1.0)
+    survivors = apply_yscale_holdout_gate(
+        disc, df, "y", [bad, good], ["base", "x1", "x2"], train_idx, y, val_idx=val_idx,
+    )
+    names = {s.name for s in survivors}
+    assert "y-linres-base-BADalpha" not in names, (
+        "high-alpha spec must be dropped: it collapses on the unseen-well VAL split"
+    )
+    assert "y-linres-base-unit" in names, "stable unit-alpha spec must survive the val-split gate"

@@ -88,52 +88,76 @@ def apply_yscale_holdout_gate(
     usable_features: Sequence[str],
     screen_idx: np.ndarray,
     y_full: np.ndarray,
+    val_idx: np.ndarray | None = None,
 ) -> list:
-    """Drop specs whose predict-T -> invert-to-y pipeline collapses on a group-disjoint holdout.
+    """Drop specs whose predict-T -> invert-to-y pipeline collapses on UNSEEN groups.
 
-    Returns the surviving spec list (possibly empty -- an empty result is the CORRECT outcome when
-    every candidate collapses: better to train no composite than ten doomed ones). No-ops (returns
-    ``kept_specs`` unchanged) when the gate is disabled, there are no specs, or group ids / group
-    count are insufficient to carve a disjoint holdout.
+    Evaluation set, in priority order:
+
+    1. **The VAL split** (``val_idx``) when supplied -- the production unseen-WELL distribution. Train
+       groups and val groups are DISJOINT under the group-aware split, so fitting a tiny model on
+       (a subsample of) train and predicting on (a subsample of) val reproduces the exact regime where
+       a residual inverse extrapolates: the held-out wells' base values fall outside the train range,
+       the tree's T_hat is clamped, ``y = T_hat + alpha*base`` blows past the envelope and collapses to
+       ~constant (R^2 << 0). A holdout carved from TRAIN groups CANNOT show this -- its base stays
+       in-distribution -- which is exactly why the train-group gate passed 10 specs that then collapsed
+       to R^2=-146 on the real test split.
+    2. **Group-disjoint carve from train** (fallback) when no val split is available but group ids are.
+
+    Returns the surviving spec list (possibly empty -- the CORRECT outcome when every candidate
+    collapses: better to train no composite than ten doomed ones). No-ops when the gate is disabled,
+    there are no specs, or no usable unseen-group evaluation set can be formed.
     """
     cfg = self.config
     if not getattr(cfg, "yscale_holdout_gate_enabled", True) or not kept_specs:
         return kept_specs
-    group_ids = getattr(self, "_group_ids_for_rerank", None)
-    if group_ids is None:
-        logger.info(
-            "[CompositeTargetDiscovery.yscale_gate] no group ids supplied -- gate skipped "
-            "(the inverse-collapse regime is group-aware; nothing to validate without groups)."
-        )
-        return kept_specs
-    group_ids = np.asarray(group_ids)
 
     screen_idx = np.asarray(screen_idx)
-    sample_n = min(int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000)), screen_idx.size)
+    cap = int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
-    sample_idx = screen_idx if sample_n >= screen_idx.size else np.sort(
-        rng.choice(screen_idx, size=sample_n, replace=False)
-    )
-    try:
-        groups_sample = group_ids[sample_idx]
-    except (IndexError, TypeError):
-        logger.warning("[CompositeTargetDiscovery.yscale_gate] group ids not row-aligned -- gate skipped.")
-        return kept_specs
 
-    min_groups = int(getattr(cfg, "yscale_holdout_gate_min_groups", 4))
-    if np.unique(groups_sample).size < min_groups:
-        logger.info(
-            "[CompositeTargetDiscovery.yscale_gate] only %d group(s) in the gate sample (<%d) -- "
-            "cannot carve a disjoint holdout; gate skipped.",
-            np.unique(groups_sample).size, min_groups,
+    def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
+        idx = np.asarray(idx)
+        if n_cap <= 0 or idx.size <= n_cap:
+            return idx
+        return np.sort(rng.choice(idx, size=n_cap, replace=False))
+
+    val_idx = None if val_idx is None else np.asarray(val_idx)
+    if val_idx is not None and val_idx.size >= 50:
+        # Preferred path: train (seen wells) -> val (unseen wells); group-disjoint by construction.
+        fit_idx = _subsample(screen_idx, cap)
+        eval_idx = _subsample(val_idx, cap)
+        _gate_mode = "val-split"
+    else:
+        # Fallback: carve a group-disjoint holdout out of the training groups themselves.
+        group_ids = getattr(self, "_group_ids_for_rerank", None)
+        if group_ids is None:
+            logger.info(
+                "[CompositeTargetDiscovery.yscale_gate] no val split and no group ids -- gate skipped "
+                "(the inverse-collapse regime is unseen-group; nothing to validate against)."
+            )
+            return kept_specs
+        group_ids = np.asarray(group_ids)
+        sample_idx = _subsample(screen_idx, cap)
+        try:
+            groups_sample = group_ids[sample_idx]
+        except (IndexError, TypeError):
+            logger.warning("[CompositeTargetDiscovery.yscale_gate] group ids not row-aligned -- gate skipped.")
+            return kept_specs
+        min_groups = int(getattr(cfg, "yscale_holdout_gate_min_groups", 4))
+        if np.unique(groups_sample).size < min_groups:
+            logger.info(
+                "[CompositeTargetDiscovery.yscale_gate] only %d group(s) in the gate sample (<%d) and no "
+                "val split -- cannot carve a disjoint holdout; gate skipped.",
+                np.unique(groups_sample).size, min_groups,
+            )
+            return kept_specs
+        fit_idx, eval_idx = _carve_group_disjoint(
+            sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng
         )
-        return kept_specs
-
-    fit_idx, eval_idx = _carve_group_disjoint(
-        sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng
-    )
+        _gate_mode = "train-group-holdout"
     if fit_idx.size < 50 or eval_idx.size < 50:
-        logger.info("[CompositeTargetDiscovery.yscale_gate] group-disjoint carve too small -- gate skipped.")
+        logger.info("[CompositeTargetDiscovery.yscale_gate] unseen-group eval set too small -- gate skipped.")
         return kept_specs
 
     feats = list(usable_features)
@@ -233,13 +257,13 @@ def apply_yscale_holdout_gate(
     if rejected:
         logger.warning(
             "[CompositeTargetDiscovery.yscale_gate] dropped %d/%d spec(s) that collapse on the "
-            "group-disjoint y-scale holdout (raw-y baseline RMSE=%.4g, tol=%.2f): %s",
-            len(rejected), len(kept_specs), raw_rmse, tol,
+            "%s y-scale eval (raw-y baseline RMSE=%.4g, tol=%.2f): %s",
+            len(rejected), len(kept_specs), _gate_mode, raw_rmse, tol,
             ", ".join(f"{n}({why})" for n, why, _ in rejected),
         )
     else:
         logger.info(
-            "[CompositeTargetDiscovery.yscale_gate] all %d spec(s) passed the group-disjoint "
-            "y-scale holdout (raw-y baseline RMSE=%.4g).", len(kept_specs), raw_rmse,
+            "[CompositeTargetDiscovery.yscale_gate] all %d spec(s) passed the %s "
+            "y-scale eval (raw-y baseline RMSE=%.4g).", len(kept_specs), _gate_mode, raw_rmse,
         )
     return survivors
