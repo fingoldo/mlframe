@@ -89,7 +89,7 @@ DEFAULT_NBINS: int = 4
 # A slice covering less than this fraction of rows is statistical noise, not an actionable weak region.
 DEFAULT_MIN_SUPPORT_FRACTION: float = 0.01
 # How many worst slices to surface in the table + bar panel.
-DEFAULT_TOP_K: int = 15
+DEFAULT_TOP_K: int = 7
 # Pair / triple enumeration is bounded by this; beyond it lower-arity feature pairs are kept and the rest are dropped
 # (logged). At the default 4 bins a 2-way slice grid is 16 cells, so 5000 combos covers ~300 feature pairs.
 DEFAULT_MAX_COMBOS: int = 5_000
@@ -319,7 +319,10 @@ def find_weak_slices(
         return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)),
                                  empty, global_error, ((), "", float("nan"), 0), tuple(capped))
 
-    order = np.argsort(np.asarray(rec_score))[::-1][:top_k]
+    # Display order is worst-ERROR-first: rank the surfaced slices by mean error descending (stable mergesort so equal
+    # errors keep their score-built order), then take the top_k. The candidate pool itself is still built by the
+    # degradation x support score above -- only the displayed ordering is by error.
+    order = np.argsort(np.asarray(rec_mean), kind="stable")[::-1][:top_k]
     support_arr = np.asarray(rec_support, dtype=np.float64)
     table = pd.DataFrame({
         "features": [rec_features[i] for i in order],
