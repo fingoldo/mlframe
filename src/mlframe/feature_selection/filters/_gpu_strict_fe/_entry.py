@@ -43,6 +43,23 @@ def fe_gpu_strict_bytematch_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
+def fe_gpu_device_born_gate_enabled() -> bool:
+    """Whether the conditional-gate / unified-gate tau-grid candidates are built DEVICE-BORN (cupy elementwise
+    from resident operand columns) and scored by the resident plug-in MI, instead of host-materialised + uploaded
+    at ``_orth_mi_backends.py:311``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the dominant H2D of a
+    GPU-strict FE fit (the host gate-grid matrix upload, ~2.8 GB / 65% on a 300k fit) by keeping the candidate
+    matrix on the device and uploading only the small operand columns once per fit. The resident batch is
+    per-column bit-identical to the host estimator (each column binned independently) AND threads the SAME
+    ``rank_binning`` flag the per-triple / host path would have used, so the binning estimator never switches
+    (no EDGE<->RANK shift). ``MLFRAME_FE_GPU_DEVICE_BORN_GATE=0`` is the explicit OPT-OUT for diagnosis /
+    rollback. The non-strict DEFAULT path is untouched (the host ``_gate_grid_mi`` runs) -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_GATE", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def run_fe_step_gpu_strict(self, **kwargs):
     """One FE step, fully GPU-resident, multi-GPU + hw-spec aware. Returns the SAME contract as
     ``_run_fe_step`` (``data, cols, nbins, X, selected_vars, n_recommended_features`` + mutated

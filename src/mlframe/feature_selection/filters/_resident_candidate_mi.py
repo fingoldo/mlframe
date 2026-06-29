@@ -176,3 +176,85 @@ def best_existing_op_mi_resident(
     except Exception as _exc:  # noqa: BLE001
         logger.debug("best_existing_op_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None
+
+
+def gate_grid_mi_resident(
+    specs: Sequence[tuple], yi: np.ndarray, nbins: int,
+    *, rank_binning: bool = False, y_gpu: object = None, y_min: object = None, n_classes: object = None,
+) -> Optional[np.ndarray]:
+    """Resident-GPU twin of ``_conditional_gate_fe._gate_grid_mi`` that builds the tau-grid candidate columns
+    ON THE DEVICE (no host-built matrix uploaded) and scores per-column MI with the resident plug-in kernel.
+
+    DEVICE-BORN TAU-GRID (2026-06-29): the host gate-grid path materialises an ``(n, sum_k)`` float64 matrix on
+    the HOST then ``cp.asarray``-uploads it at ``_orth_mi_backends.py:311`` -- the dominant H2D of a GPU-strict
+    F2 fit (~2.8 GB / 65% on a 300k fit). Here each combo's tau-grid block is built directly on the device from
+    the RESIDENT operand columns (uploaded once per fit via the operand cache), so ONLY the small operand
+    columns cross H2D, never the (much larger) candidate matrix.
+
+    ``specs`` is a list of per-combo build descriptors, each one of:
+        ("mask",   ctup, (cv_arr, av_arr),        taus)  -> column j = (cv > taus[j]) * av
+        ("select", ctup, (cv_arr, av_arr, bv_arr), taus) -> column j = where(cv > taus[j], av, bv)
+    where ``cv_arr`` / ``av_arr`` / ``bv_arr`` are HOST float64 operand columns and ``ctup`` is the operand
+    column-name tuple ((a, c) for mask = operands (cv=c, av=a); (a, b, c) for select = operands (cv=c, av=a,
+    bv=b)) used as the STABLE resident-operand cache key so each recurring column uploads ONCE per fit (not once
+    per spec). ``taus`` is a host 1-D float64 array of thresholds. The returned (sum_k,) host MI vector
+    concatenates each combo's per-tau MIs in spec order -- IDENTICAL layout to the host ``_gate_grid_mi`` of the
+    concatenated blocks, so the caller's per-combo argmax slicing is unchanged.
+
+    ESTIMATOR CONSISTENCY: ``rank_binning`` is threaded through verbatim so the resident batch bins with the
+    SAME estimator (RANK vs percentile-EDGE) the per-triple / host path would have used -- no EDGE<->RANK switch
+    that could shift selection (the reg_mixed failure mode). Each column is binned INDEPENDENTLY, so the MI is
+    per-column bit-identical to the host estimator's per-column MI.
+
+    Returns the host (sum_k,) float64 MI vector, or ``None`` on any cupy failure / no-cupy (caller falls back to
+    the exact host ``_gate_grid_mi``)."""
+    try:
+        import cupy as cp
+    except Exception:
+        return None
+    try:
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+        from ._fe_resident_operands import resident_operand
+
+        if not specs:
+            return np.zeros(0, dtype=np.float64)
+        blocks = []  # device (n, k_combo) matrices, built op-for-op like the host tau-grid
+        for (mode, ctup, cols, taus) in specs:
+            taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)
+            if mode == "mask":
+                cv, av = cols
+                a_name, c_name = ctup  # mask ctup = (a, c); operands = (cv=c, av=a)
+                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)
+                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)
+                # column j = (cv > taus[j]) * av ; broadcast (n,1) > (k,) -> (n,k), * (n,1)
+                blk = (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]
+            elif mode == "select":
+                cv, av, bv = cols
+                a_name, b_name, c_name = ctup  # select ctup = (a, b, c); operands = (cv=c, av=a, bv=b)
+                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)
+                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)
+                bv_g = resident_operand(bv, ("gate_op", b_name), dtype=cp.float64)
+                # column j = where(cv > taus[j], av, bv)
+                mask = cv_g[:, None] > taus_g[None, :]
+                blk = cp.where(mask, av_g[:, None], bv_g[:, None])
+            else:
+                return None  # unknown mode -> host fallback
+            blocks.append(cp.ascontiguousarray(blk.astype(cp.float64, copy=False)))
+        mat_gpu = cp.ascontiguousarray(cp.concatenate(blocks, axis=1)) if len(blocks) > 1 else blocks[0]
+        if y_gpu is None:
+            y_gpu = resident_operand(yi, "y", dtype=np.int64)
+        if rank_binning:
+            from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
+            mis = plugin_mi_classif_batch_rank_cuda_resident(
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+            )
+            if mis is None:
+                return None
+        else:
+            mis = _plugin_mi_classif_batch_cuda_resident(
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+            )
+        return np.asarray(mis, dtype=np.float64)
+    except Exception as _exc:  # noqa: BLE001
+        logger.debug("gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
+        return None

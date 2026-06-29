@@ -495,30 +495,78 @@ def cheap_conditional_gate_scan(
     # the per-best-j permutation null is unchanged). Column budget bounds peak memory at any n.
     _GATE_MI_COL_BUDGET = 512
     hits: list[GateHit] = []
-    _pending: list = []   # (mode, cols_tuple, feats, taus, baseline_key)
+    # Each pending entry carries the BUILD SPEC (operand columns + taus) so the tau-grid candidates can be built
+    # DEVICE-BORN under STRICT residency (no host matrix uploaded); the host fallback materialises ``feats`` from
+    # the same spec. (mode, cols_tuple, operand_arrays, taus, baseline_key) where operand_arrays is (cv, av) for
+    # "mask" and (cv, av, bv) for "select".
+    _pending: list = []
     _pending_cols = 0
+
+    def _build_feats(mode, operands, taus):
+        """Host tau-grid block for one combo -- the exact host candidate columns (used by the host fallback MI
+        and by ``_perm_null_hi`` for the best column)."""
+        cv = operands[0]
+        feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
+        if mode == "mask":
+            av = operands[1]
+            for j, tau in enumerate(taus):
+                feats[:, j] = (cv > tau).astype(np.float64) * av
+        else:  # select
+            av, bv = operands[1], operands[2]
+            for j, tau in enumerate(taus):
+                feats[:, j] = np.where(cv > tau, av, bv)
+        return feats
+
+    # DEVICE-BORN gate-grid (2026-06-29): under STRICT residency, build the tau-grid candidates on the device
+    # from resident operand columns + score per-column MI via the resident plug-in -- the host gate-grid matrix
+    # is never materialised + uploaded (collapses the dominant :311 H2D). Threads the SAME rank_binning the host
+    # path uses so the binning estimator never switches. Per-column bit-identical; on any cupy failure / non-strict
+    # default the host ``_gate_grid_mi`` of the materialised blocks runs (byte-identical).
+    def _device_born_all_mi():
+        try:
+            from ._gpu_strict_fe import fe_gpu_device_born_gate_enabled
+            if not fe_gpu_device_born_gate_enabled():
+                return None
+            from ._resident_candidate_mi import gate_grid_mi_resident
+            _yi64 = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
+            _ym = int(_yi64.min()) if _yi64.size else 0
+            _nc = (int(_yi64.max()) - _ym + 1) if _yi64.size else 1
+            # Carry the operand COLUMN NAMES (ctup) so the resident operand cache keys stably per column (the
+            # same gate / operand column recurs across many specs -> uploaded ONCE per fit, not per spec).
+            specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
+            return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(),
+                                         y_min=_ym, n_classes=_nc)
+        except Exception:
+            return None
 
     def _flush():
         nonlocal _pending, _pending_cols
         if not _pending:
             return
-        big = np.ascontiguousarray(np.concatenate([p[2] for p in _pending], axis=1))
-        all_mi = _gate_grid_mi(big, yi, nbins)
+        all_mi = _device_born_all_mi()
+        if all_mi is None:
+            big = np.ascontiguousarray(np.concatenate([_build_feats(m, o, t) for (m, _c, o, t, _b) in _pending], axis=1))
+            all_mi = _gate_grid_mi(big, yi, nbins)
         off = 0
-        for mode, ctup, feats, taus, bkey in _pending:
-            k = feats.shape[1]
+        for mode, ctup, operands, taus, bkey in _pending:
+            k = len(taus)
             grid = all_mi[off:off + k]; off += k
             best_j = int(np.argmax(grid))
             best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
             baseline = _baseline(bkey)
-            null_hi = _perm_null_hi(feats[:, best_j], yi, nbins, seed=seed) if (best_mi - baseline) >= _MIN_MARGIN else float("inf")
+            if (best_mi - baseline) >= _MIN_MARGIN:
+                # Recompute just the best column on host for the cheap permutation null (one column, not the grid).
+                best_col = _build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
+                null_hi = _perm_null_hi(best_col, yi, nbins, seed=seed)
+            else:
+                null_hi = float("inf")
             hits.append(GateHit(mode, ctup, best_tau, best_mi, baseline, null_hi))
         _pending = []; _pending_cols = 0
 
-    def _add(mode, ctup, feats, taus, bkey):
+    def _add(mode, ctup, operands, taus, bkey):
         nonlocal _pending_cols
-        _pending.append((mode, ctup, feats, taus, bkey))
-        _pending_cols += feats.shape[1]
+        _pending.append((mode, ctup, operands, taus, bkey))
+        _pending_cols += len(taus)
         if _pending_cols >= _GATE_MI_COL_BUDGET:
             _flush()
 
@@ -529,20 +577,14 @@ def cheap_conditional_gate_scan(
         # mask: one active column a (cols = (a, c)); baseline over {a, c}.
         for a in others:
             av = arrs[a]
-            feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
-            for j, tau in enumerate(taus):
-                feats[:, j] = (cv > tau).astype(np.float64) * av
-            _add("mask", (a, cgate), feats, taus, (a, cgate))
+            _add("mask", (a, cgate), (cv, av), taus, (a, cgate))
         # select: ordered (a, b), cols = (a, b, c); baseline over {a, b, c}.
         for a in others:
             for b in others:
                 if a == b:
                     continue
                 av, bv = arrs[a], arrs[b]
-                feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
-                for j, tau in enumerate(taus):
-                    feats[:, j] = np.where(cv > tau, av, bv)
-                _add("select", (a, b, cgate), feats, taus, (a, b, cgate))
+                _add("select", (a, b, cgate), (cv, av, bv), taus, (a, b, cgate))
     _flush()
 
     # Canonical secondary key on (mode, operand names) so near-ties don't break by ranking/enumeration (column) order.
