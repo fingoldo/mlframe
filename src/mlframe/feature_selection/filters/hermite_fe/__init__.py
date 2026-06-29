@@ -106,6 +106,15 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
     #   Both reach ~1.02-1.06x only at n=100k, below the noise floor. The numpy-argsort split
     #   (``plugin_mi_classif_batch_fast``) is faster at tiny k but is NOT bit-identical here (numpy quicksort vs numba
     #   argsort break ties differently -> ~1e-5 MI drift -> selection-risky), so it is ruled out for the canonical fit.
+    # bench-attempt-rejected (2026-06-29): this function is ALREADY parallel over the embarrassingly-parallel
+    #   axis (columns, race-free: each ``out[j]`` is written only by its own iteration). Synchronized micro-bench
+    #   (8 threads) shows the inner per-column ``_quantile_bin_njit`` argsort is ~97% of single-column time and is
+    #   memory-bandwidth-bound with NO internal parallelism, so column-parallelism is the only lever and it is
+    #   already taken: the heavy F2 calls are k=527 (4.6s @4thr -> 3.4s @8thr = 1.35x, scales with threads). Two
+    #   dead ends measured: (a) swapping numba argsort for numpy's faster SIMD argsort breaks bit-identity on TIES
+    #   (card=5 @1M -> 283k bin diffs -> partition shift -> selection-risky); (b) a k==1 fast-path skipping prange
+    #   saves only ~6ms/call @1M (4%, negative at 200k) -> ~70ms over the 24 k=1 calls = sub-0.1% of a ~90s fit,
+    #   not worth the branch. Left as-is: optimal safe form.
     k = X_cols.shape[1]
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):

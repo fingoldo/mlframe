@@ -48,7 +48,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    from numba import njit
+    from numba import njit, prange
     from numba.core import types as _nb_types
     from numba.typed import Dict as _NbDict
     _NUMBA_AVAILABLE = True
@@ -56,6 +56,9 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     _NUMBA_AVAILABLE = False
     _nb_types = None
     _NbDict = None
+
+    def prange(*a):  # no-op fallback (serial range) when numba is absent
+        return range(*a)
 
     def njit(*args, **kwargs):  # no-op fallback so the module imports
         if len(args) == 1 and callable(args[0]):
@@ -257,23 +260,21 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
     return inv, nc
 
 
+# Parallel-memset crossover for the dense ``seen`` buffer in ``_combine_factorize_njit``. The first-seen
+# factorize WALK is irreducibly sequential (each id depends on the running ``seen``/``nc`` state), but its
+# ``np.full(kmax+1, -1)`` initialisation is an independent fill that prange-splits across threads. The fill
+# is only worth the thread spin-up once it is large: synchronized micro-bench (2026-06-29, 4 threads, GTX
+# box, n=1M) put the crossover near kmax~500k -- below it parallel loses (kmax~40k 0.99x, ~200k 0.92x),
+# above it wins and scales (500k 1.08x, 1M 1.06x, 2M 1.09x, 4M 1.12x, 16M 1.24x). At the cap (16M int64 =
+# 128 MB) the fill alone is ~28ms of the ~55ms call, so parallelising it is the single largest safe win on
+# this sequential kernel. Below the gate the fill stays serial -> bit-identical, zero regression.
+_FAC_PAR_MEMSET_MIN = 500_000
+
+
 @njit(cache=True)
-def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
-    """Fused ``factorize(joint + c*mult)`` in ONE pass, no temporaries.
-
-    Equivalent to ``_factorize_dense_njit(joint + c*mult)`` but folds the
-    multiply-add into the factorize walk -- avoids the two numpy temp arrays
-    (``c*mult`` and the sum) the `_renumber_joint` per-column step allocated, and
-    walks the data once instead of three times. First-seen dense ids, so the
-    induced partition + nclasses match the numpy form exactly (bit-identical).
-
-    bench-note (iter16, 2026-06-23, resident-GPU /loop): NOT routed to GPU. The dense renumber is a
-    first-seen sequential scan -- each output id depends on the running ``seen`` table + ``nc`` counter, a
-    data-dependent sequential dependency with no parallel form that preserves the FIRST-SEEN id assignment
-    ORDER. A GPU sort+unique+searchsorted twin would assign ids in VALUE order, not first-seen order, changing
-    the dense codes (the partition is equivalent but the integer labels differ) -> downstream joint-MI bin
-    indices shift, breaking bit-identity. cProfile ~0.87s is single-pass njit already; the resident win this
-    iter went to the maxT permutation-null floor instead (see _permutation_null_resident.py)."""
+def _combine_factorize_serial_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
+    """Fully-serial reference form of :func:`_combine_factorize_njit` (the bit-identical baseline + the
+    numba-absent fallback). Kept per the repo "keep all kernel versions" rule and used by the parity test."""
     n = joint.size
     if n == 0:
         return joint, 0
@@ -286,6 +287,74 @@ def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tupl
     nc = 0
     if 0 <= kmax < _FAC_ARRAY_CAP:
         seen = np.full(kmax + 1, -1, dtype=np.int64)
+        for i in range(n):
+            v = joint[i] + c[i] * mult
+            s = seen[v]
+            if s >= 0:
+                inv[i] = s
+            else:
+                seen[v] = nc
+                inv[i] = nc
+                nc += 1
+    else:
+        d = _NbDict.empty(key_type=_nb_types.int64, value_type=_nb_types.int64)
+        for i in range(n):
+            v = joint[i] + c[i] * mult
+            s = d.get(v, -1)
+            if s >= 0:
+                inv[i] = s
+            else:
+                d[v] = nc
+                inv[i] = nc
+                nc += 1
+    return inv, nc
+
+
+@njit(cache=True, parallel=True)
+def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
+    """Fused ``factorize(joint + c*mult)`` in ONE pass, no temporaries.
+
+    Equivalent to ``_factorize_dense_njit(joint + c*mult)`` but folds the
+    multiply-add into the factorize walk -- avoids the two numpy temp arrays
+    (``c*mult`` and the sum) the `_renumber_joint` per-column step allocated, and
+    walks the data once instead of three times. First-seen dense ids, so the
+    induced partition + nclasses match the numpy form exactly (bit-identical).
+
+    The first-seen WALK stays serial (data-dependent on the running ``seen``/``nc`` state -- see the
+    iter16 GPU bench-note below). The only parallel part is the large dense ``seen`` initialisation, prange-
+    filled when ``kmax+1 >= _FAC_PAR_MEMSET_MIN`` (gate keeps small buffers serial -> bit-identical, no spin-
+    up tax). Result is bit-identical to :func:`_combine_factorize_serial_njit` for every input (parity-tested).
+
+    bench-note (iter16, 2026-06-23, resident-GPU /loop): NOT routed to GPU. The dense renumber is a
+    first-seen sequential scan -- each output id depends on the running ``seen`` table + ``nc`` counter, a
+    data-dependent sequential dependency with no parallel form that preserves the FIRST-SEEN id assignment
+    ORDER. A GPU sort+unique+searchsorted twin would assign ids in VALUE order, not first-seen order, changing
+    the dense codes (the partition is equivalent but the integer labels differ) -> downstream joint-MI bin
+    indices shift, breaking bit-identity. cProfile ~0.87s is single-pass njit already; the resident win this
+    iter went to the maxT permutation-null floor instead (see _permutation_null_resident.py).
+
+    bench-attempt-rejected (2026-06-29): full ``parallel=True`` over the factorize walk is impossible (first-
+    seen race); parallel max-scan reduction via ``prange`` + ``if v>kmax`` hung/mis-compiled (numba does not
+    recognise conditional-max as a parallel reduction) so the cheap ~1ms max scan stays serial."""
+    n = joint.size
+    if n == 0:
+        return joint, 0
+    kmax = 0
+    for i in range(n):
+        v = joint[i] + c[i] * mult
+        if v > kmax:
+            kmax = v
+    inv = np.empty(n, dtype=np.int64)
+    nc = 0
+    if 0 <= kmax < _FAC_ARRAY_CAP:
+        span = kmax + 1
+        seen = np.empty(span, dtype=np.int64)
+        if span >= _FAC_PAR_MEMSET_MIN:
+            for i in prange(span):  # parallel fill of the large dense lookup buffer
+                seen[i] = -1
+        else:
+            for i in range(span):
+                seen[i] = -1
         for i in range(n):
             v = joint[i] + c[i] * mult
             s = seen[v]
