@@ -489,18 +489,19 @@ def _render_post_fit_diagnostics(
             _yp = np.asarray(y_pred, dtype=np.float64).ravel()
             _fin = np.isfinite(_ya) & np.isfinite(_yp)
             if int(_fin.sum()) > 2:
-                _ystd = float(np.std(_ya[_fin]))
-                _pstd = float(np.std(_yp[_fin]))
-                if _ystd > 0 and _pstd < 0.2 * _ystd:
-                    _ss_res = float(np.sum((_ya[_fin] - _yp[_fin]) ** 2))
-                    _ss_tot = float(np.sum((_ya[_fin] - _ya[_fin].mean()) ** 2))
-                    _collapsed = (_ss_tot > 0) and (1.0 - _ss_res / _ss_tot < 0.0)
+                _ss_res = float(np.sum((_ya[_fin] - _yp[_fin]) ** 2))
+                _ss_tot = float(np.sum((_ya[_fin] - _ya[_fin].mean()) ** 2))
+                # A model with R^2 < 0 is worse than predicting the mean -> NO learnable structure to
+                # slice/explain. Trigger on R^2 < 0 regardless of prediction spread: the constant-collapse
+                # (pred_std ~ 0) AND the group-OOD-shift collapse (HIGH pred_std but predictions drift far
+                # off, e.g. addres/diff on an extrapolating per-well base, R^2=-333) are both pathological.
+                _collapsed = (_ss_tot > 0) and (1.0 - _ss_res / _ss_tot < 0.0)
         except Exception:  # noqa: BLE001 -- collapse gate is a perf heuristic; never abort reporting
             _collapsed = False
     if _collapsed and getattr(cfg, "skip_expensive_diagnostics_on_collapse", True):
         logger.info(
-            "[diagnostics] %s [%s]: predictions collapsed to ~constant (R2<0) -- skipping expensive "
-            "slice_finder / PDP / SHAP panels (no signal to explain); cheap tabular diagnostics still run.",
+            "[diagnostics] %s [%s]: R2<0 (predictions worse than the mean -- collapse / OOD-shift) -- "
+            "skipping expensive slice_finder / PDP / SHAP panels (no signal to explain); cheap tabular diagnostics still run.",
             type(model).__name__ if model is not None else "model", _split,
         )
     else:

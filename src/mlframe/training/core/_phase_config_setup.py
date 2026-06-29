@@ -281,7 +281,21 @@ def setup_configuration(
             _po = getattr(reporting_config, "plot_outputs", "") or ""
         except NameError:
             _po = ""
-        if save_charts and "plotly" in _po and "png" in _po:
+        # Warn ONLY when the PLOTLY backend itself emits a kaleido raster (png/svg/pdf) -- NOT when the
+        # raster comes from matplotlib. The old ``"plotly" in _po and "png" in _po`` test false-fired on
+        # the DEFAULT ``plotly[html] + matplotlib[png]`` (html via plotly, png via matplotlib, ZERO
+        # kaleido), scaring operators into thinking kaleido dominated wall-time when it never ran.
+        _plotly_kaleido = False
+        if save_charts and _po:
+            try:
+                from mlframe.reporting.output import parse_plot_output_dsl as _parse_po
+                for _bk, _fmts in _parse_po(_po).backends:
+                    if _bk == "plotly" and (set(_fmts) & {"png", "svg", "pdf"}):
+                        _plotly_kaleido = True
+                        break
+            except Exception:  # noqa: BLE001 -- parse failure -> fall back to the substring heuristic
+                _plotly_kaleido = "plotly" in _po and ("png" in _po or "svg" in _po or "pdf" in _po)
+        if _plotly_kaleido:
             logger.warning(
                 "[reporting] plot_outputs=%r emits PNG via kaleido, which "
                 "spawns ~12-15s per chart on Chromium reload (Win/Linux). "
