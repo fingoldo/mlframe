@@ -625,10 +625,22 @@ def hybrid_orth_mi_fe(
     """
     # MATRIX-NATIVE resident path (Piece 3, gated default-off): build the candidate matrix ON the device +
     # score plug-in MI resident (no H2D). Falls back to the host build/scoring on any failure or when off.
+    # STRICT (2026-06-28): under MLFRAME_FE_GPU_STRICT this device-born build is FORCED even when the
+    # MLFRAME_FE_GPU_RESIDENT_BASIS_MI opt-out turned it off -- the STRICT mandate is "every selection-
+    # equivalent GPU twin runs on the device", and the orth-univariate basis build IS one (already default-on,
+    # parity-validated). Without this, STRICT + that opt-out would host-materialise the (n, cols*bases*degrees)
+    # expansion and upload it at _orth_mi_backends._mi_classif_batch:311; with it the operands upload once and
+    # the basis is evaluated on-device (line 311 is never reached for THIS family). Scope note: the orth-uni
+    # hybrid is NOT the dominant :311 H2D site -- a full-fit byte-audit (2026-06-28, F2 300k strict) attributes
+    # ~78% of the :311 upload to the conditional-gate _gate_grid_mi (host-built tau-grid (n, k<=527) matrices,
+    # which have NO device operand/basis handoff and whose residency was separately bench-rejected, see
+    # _conditional_gate_fe.cheap_row_argmax_scan). This edit closes only the narrow STRICT+opt-out orth-uni
+    # residual; it is selection-equivalent and wall-neutral. Any GPU failure resets _gpu_eng -> host fallback.
     _gpu_eng = None  # (eng_matrix_cupy, names) when the GPU path produced candidates
     try:
         from .._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, _cuda_present
-        if fe_gpu_resident_basis_mi_enabled() and _cuda_present():
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+        if (fe_gpu_resident_basis_mi_enabled() or fe_gpu_strict_enabled()) and _cuda_present():
             _g_mat, _g_names, scores = _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins)
             if _g_mat is None:
                 return X.copy(), scores
