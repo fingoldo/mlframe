@@ -168,7 +168,7 @@ def build_risk_coverage_spec(
     confidence: Optional[np.ndarray] = None,
     model_label: str = "model",
     title: str = "Risk-coverage (selective prediction)",
-    figsize: Tuple[float, float] = (8.0, 5.0),
+    figsize: Tuple[float, float] = (8.0, 5.8),
 ) -> RiskCoverageResult:
     """Risk-coverage FigureSpec: accuracy (or error) vs coverage with the flat random-rejection reference.
 
@@ -180,6 +180,16 @@ def build_risk_coverage_spec(
     coverage, accuracy, risk, aurc, full_risk, has_signal = compute_risk_coverage(
         y_true, y_score, task=task, confidence=confidence)
     is_regression = task == "regression"
+
+    # Plain-language explainer wired into the title so a reader who has never seen a risk-coverage curve knows what it
+    # shows and how to read it: sort by model confidence, drop the least-confident tail, and watch the error on what
+    # is kept. A downward (regression error) / upward (classification accuracy) curve means confidence is informative
+    # and you can defer the low-confidence tail; a flat curve means confidence carries no signal.
+    how_to_read = (
+        "Sort predictions by model confidence; x = coverage (fraction kept after dropping the least-confident tail), "
+        "y = error/accuracy on the kept rows. Curve improving as coverage drops => confidence is informative: defer/"
+        "flag the low-confidence tail to trade coverage for accuracy. Flat => confidence carries no signal."
+    )
     # The random reference (constant full_risk) must be integrated over the SAME coverage domain as `aurc`
     # (np.trapezoid over coverage in [1/n, 1]), not over [0, 1]; otherwise "AURC vs random" is biased by the
     # domain mismatch. trapezoid of a constant c over [a, b] = c * (b - a) = full_risk * (coverage[-1] - coverage[0]).
@@ -209,6 +219,25 @@ def build_risk_coverage_spec(
 
     note = "" if has_signal else "  [constant confidence: no ranking signal -> flat curve]"
 
+    # Auto-verdict: quantify what deferring the worst 20% buys. Error at 100% vs 80% coverage is the concrete,
+    # actionable number a reader wants -- "deferring the least-confident 20% cuts error by X%" (or "no measurable gain").
+    err_at_100 = full_risk
+    err_at_80 = (1.0 - metric_at_80) if (not is_regression and np.isfinite(metric_at_80)) else metric_at_80
+    if not has_signal:
+        verdict = "Verdict: confidence is constant -> no rows to defer, deferral cannot help."
+    elif np.isfinite(err_at_100) and np.isfinite(err_at_80) and err_at_100 > 0:
+        rel = (err_at_100 - err_at_80) / err_at_100 * 100.0
+        if rel >= 1.0:
+            verdict = f"Verdict: deferring the least-confident 20% cuts error {rel:.0f}% ({err_at_100:.3g} -> {err_at_80:.3g} on the kept 80%)."
+        elif rel <= -1.0:
+            verdict = f"Verdict: confidence is anti-informative -- deferring the 'worst' 20% RAISES error {abs(rel):.0f}%; do not gate on it."
+        else:
+            verdict = f"Verdict: deferring the worst 20% barely moves error ({err_at_100:.3g} -> {err_at_80:.3g}); confidence carries little signal."
+    else:
+        verdict = "Verdict: insufficient data to quantify a selective gain."
+
+    title_full = f"{title}{note}\n{how_to_read}\n{verdict}"
+
     if is_regression:
         flat = np.full_like(cov_p, full_risk)
         markers = ()
@@ -223,7 +252,7 @@ def build_risk_coverage_spec(
             ),
             line_styles=("-", "--"),
             colors=("#1f77b4", "#7f7f7f"),
-            title=title + note,
+            title=title_full,
             xlabel="Coverage (fraction retained, most-confident first)",
             ylabel="Retained error (MAE)",
             point_markers=markers,
@@ -245,7 +274,7 @@ def build_risk_coverage_spec(
             colors=("#2ca02c", "#7f7f7f", "#d62728"),
             secondary_y=(False, False, True),
             secondary_ylabel="Risk (1 - accuracy)",
-            title=title + note,
+            title=title_full,
             xlabel="Coverage (fraction retained, most-confident first)",
             ylabel="Accuracy on retained",
             point_markers=markers,

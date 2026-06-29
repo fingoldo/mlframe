@@ -551,6 +551,11 @@ def error_bias_per_feature(
     names = _resolve_feature_names(X, feature_names)
     signed = _signed_error(y_true, y_pred)
     masks = _tag_error_groups(signed, tail_fraction)
+    # Signed residual on the y_true - y_pred convention: > 0 in a segment => model UNDER-predicts there (truth above
+    # prediction), < 0 => OVER-predicts. This is the per-segment bias direction the title/annotations report. (Note the
+    # OVER/UNDER GROUP tagging above uses y_pred - y_true; the segment-bias readout below uses the residual convention so
+    # the "positive => UNDER-predict" rule the user asked for holds.)
+    resid_signed = _as_float_1d(y_true) - _as_float_1d(y_pred)
 
     if features is not None:
         sel = [names.index(f) for f in features if f in names]
@@ -567,6 +572,9 @@ def error_bias_per_feature(
     panels: List[PanelSpec] = []
     rows: Dict[str, List[float]] = {g: [] for g in ("OVER", "UNDER", "MAJORITY")}
     feat_index: List[str] = []
+    # Track the single worst-bias segment across every feature for the figure title: (|mean signed resid|, signed text).
+    global_worst_abs = -1.0
+    global_worst_text = ""
 
     for j in sel:
         col = col_vals[j]
@@ -587,13 +595,35 @@ def error_bias_per_feature(
             cols.append(group_colors[g])
             rows[g].append(float(gvals.mean()) if gvals.size else float("nan"))
         feat_index.append(names[j])
+
+        # Per-segment signed-residual bias: bin this feature's values, take the mean residual (y_true - y_pred) in each
+        # bin. The segment with the largest |mean residual| is the model's worst-bias slice for this feature; its sign
+        # tells direction (> 0 UNDER-predict, < 0 OVER-predict). Aggregated O(n) via two bincounts, no per-row Python.
+        bin_idx = np.clip(np.digitize(col[finite], edges[1:-1]), 0, len(centers) - 1)
+        nbin = len(centers)
+        cnt = np.bincount(bin_idx, minlength=nbin).astype(np.float64)
+        ssum = np.bincount(bin_idx, weights=resid_signed[finite], minlength=nbin)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            seg_bias = np.where(cnt > 0, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
+        worst_b = int(np.nanargmax(np.where(np.isfinite(seg_bias), np.abs(seg_bias), -np.inf))) if np.isfinite(seg_bias).any() else -1
+        if worst_b >= 0:
+            wb = float(seg_bias[worst_b])
+            direction = "UNDER-predicts" if wb > 0 else "OVER-predicts"
+            seg_lo, seg_hi = float(edges[worst_b]), float(edges[worst_b + 1])
+            worst_note = f"worst-bias segment: {names[j]} in [{seg_lo:.3g}, {seg_hi:.3g}] -> model {direction} (mean resid {wb:+.3g})"
+            if abs(wb) > global_worst_abs:
+                global_worst_abs = abs(wb)
+                global_worst_text = f"{names[j]} in [{seg_lo:.3g}, {seg_hi:.3g}] {direction} (resid {wb:+.3g})"
+        else:
+            worst_note = "worst-bias segment: n/a"
+
         panels.append(LinePanelSpec(
             x=centers,
             y=tuple(series),
             series_labels=tuple(labels),
             colors=tuple(cols),
             line_styles=("-", "-", "--"),
-            title=f"{names[j]} value distribution by error group",
+            title=f"{names[j]} value distribution by error group\n{worst_note}",
             xlabel=names[j],
             ylabel="Density",
         ))
@@ -608,8 +638,13 @@ def error_bias_per_feature(
         return ErrorBiasResult(FigureSpec(suptitle=title, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
+    worst_line = f"Worst-bias segment overall: {global_worst_text}" if global_worst_text else "Worst-bias segment overall: n/a"
+    suptitle = (
+        f"{title}\nSigned residual = y_true - y_pred; > 0 in a segment => model UNDER-predicts there, < 0 => OVER-predicts.\n"
+        f"{worst_line}"
+    )
     fig = FigureSpec(
-        suptitle=title,
+        suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(max(n_rows, 1), 2, cell_width=6.0, cell_height=4.0),
     )
@@ -728,6 +763,50 @@ def _classrate_panel(
     )
 
 
+def _target_drift_verdict(
+    y_true_by_split: Dict[str, np.ndarray],
+    *,
+    train_key: str,
+    task: str,
+) -> str:
+    """One-line distribution-shift verdict: how far each non-train split's target mean drifts from train.
+
+    Material drift is flagged when |mean(split) - mean(train)| exceeds 0.25 * train_std (a quarter of a standard
+    deviation -- a conventional "small but real" effect size). Classification means are class-1 rates (base-rate drift).
+    Returns a reader-facing sentence appended to the figure title so a train/val/test target shift is called out, not
+    just drawn.
+    """
+    if train_key not in y_true_by_split:
+        return "Distribution-shift check: no 'train' split provided -> cannot compare drift."
+    tr = _as_float_1d(y_true_by_split[train_key])
+    tr = tr[np.isfinite(tr)]
+    if tr.size == 0:
+        return "Distribution-shift check: train split empty -> cannot compare drift."
+    tr_mean = float(tr.mean())
+    tr_std = float(tr.std()) if task != "classification" else 1.0
+    thr = 0.25 * tr_std if tr_std > 0 else 0.0
+    parts: List[str] = []
+    flagged: List[str] = []
+    for lab, arr in y_true_by_split.items():
+        if lab == train_key:
+            continue
+        a = _as_float_1d(arr)
+        a = a[np.isfinite(a)]
+        if a.size == 0:
+            continue
+        shift = float(a.mean()) - tr_mean
+        parts.append(f"{lab} {shift:+.3g}")
+        if thr > 0 and abs(shift) > thr:
+            flagged.append(lab)
+    if not parts:
+        return "Distribution-shift check: only the train split present -> no drift to assess."
+    scale = " (vs train, in target units; >0.25*train_std flagged)" if task != "classification" else " (class-1 rate shift vs train)"
+    head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}."
+    if flagged:
+        return head + f" WARNING: {', '.join(flagged)} drift materially from train -> distribution-shift risk; holdout metrics may not transfer."
+    return head + " No material drift from train."
+
+
 def target_dist_overlay(
     y_true_by_split: Dict[str, np.ndarray],
     *,
@@ -747,6 +826,7 @@ def target_dist_overlay(
     vertices regardless of row count.
     """
     panels: List[PanelSpec] = []
+    drift_line = _target_drift_verdict(y_true_by_split, train_key=train_key, task=task)
     if task == "classification":
         panels.append(_classrate_panel(y_true_by_split, title="Target class rate by split", xlabel="class"))
         if pred_by_split:
@@ -763,7 +843,7 @@ def target_dist_overlay(
             ))
     grid = pack_panels(panels, max_cols=2)
     return FigureSpec(
-        suptitle=title,
+        suptitle=f"{title}\n{drift_line}",
         panels=grid,
         figsize=figsize_for_grid(1, max(len(panels), 1), cell_width=7.0, cell_height=4.5),
     )
