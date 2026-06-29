@@ -93,12 +93,15 @@ def test_tree_unit_paths_ordering_and_no_leak(tmp_path):
     means = [name_to_mean[nm] for nm in res.top_features]
     assert means == sorted(means, reverse=True)
 
-    # 1 beeswarm + 4 dependence = 5 figures and 5 files on disk.
-    assert len(res.figures) == 5
-    assert len(res.paths) == 5
+    # Dependence panels are PACKED INTO ONE GRID (user-requested "сгруппируй по 4"), so a top_k=4 run is
+    # 1 beeswarm + 1 dependence-grid figure = 2 figures / 2 files, and the grid figure holds the 4 panels.
+    assert len(res.figures) == 2
+    assert len(res.paths) == 2
     assert all(os.path.exists(p) for p in res.paths)
     assert any("beeswarm" in p for p in res.paths)
-    assert sum("dependence" in p for p in res.paths) == 4
+    assert sum("dependence" in p for p in res.paths) == 1
+    # The grid figure (drawn after the beeswarm) packs exactly the top-K=4 dependence panels.
+    assert len(res.figures[1].axes) == 4
 
     # No leak: the producer closed every figure it opened.
     assert plt.get_fignums() == []
