@@ -311,8 +311,14 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
             if Xd.ndim == 1:
                 Xd = Xd[:, None]
+            # X is the per-candidate batch (transient, device-bound only for this call) -> NOT cached. y is a
+            # FIT-CONSTANT re-uploaded on every gate-grid / pairwise / perm-null / chunked call (H2D
+            # instrumentation: 54x / 86 MB on a 250k F2 strict fit). Read it from the resident operand cache
+            # keyed on the y array identity + content fingerprint so it is uploaded ONCE per fit
+            # (selection-equivalent: same int64 labels, just not re-uploaded).
             _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
-            yd = cp.asarray(_yi)
+            from .._fe_resident_operands import resident_operand
+            yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
             # y is a fit-constant: derive y_min / n_classes on the HOST (cheap O(n) pass) and pass them down so
             # the resident plug-in skips the per-call GPU cp.min + cp.max + stack reduction (nsys's #1
             # cuLaunchKernel source on this STRICT MI path, hit by every gate-grid / pairwise / perm-null /

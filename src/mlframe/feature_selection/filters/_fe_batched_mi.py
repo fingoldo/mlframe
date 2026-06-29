@@ -300,7 +300,13 @@ def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
     E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))
-    yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
+    # x_vals / interior_edges are per-candidate (transient) -> NOT cached. A host y_codes is a fit-constant
+    # re-uploaded on every candidate column's MM-MI -> resident operand cache (uploaded once per fit).
+    if isinstance(y_codes, cp.ndarray):
+        yv = y_codes.astype(cp.int64, copy=False).ravel()
+    else:
+        from ._fe_resident_operands import resident_operand
+        yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)
     Xc = cp.ascontiguousarray(Xd)
@@ -390,7 +396,13 @@ def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0, c
         C = C[:, None]
     C = cp.ascontiguousarray(C.astype(cp.int64, copy=False))
     n, K = int(C.shape[0]), int(C.shape[1])
-    y = cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel()) if not isinstance(y_codes, cp.ndarray) else y_codes.astype(cp.int64, copy=False).ravel()
+    # code_cols is the per-candidate code matrix (transient) -> NOT cached. A host y_codes is a fit-constant
+    # re-uploaded per candidate batch -> resident operand cache (uploaded once per fit; same int64 labels).
+    if isinstance(y_codes, cp.ndarray):
+        y = y_codes.astype(cp.int64, copy=False).ravel()
+    else:
+        from ._fe_resident_operands import resident_operand
+        y = resident_operand(np.asarray(y_codes).ravel(), "binned_mi_ycodes", dtype=np.int64)
     Ky = int(ky) if ky > 0 else (int(y.max()) + 1 if y.size else 1)
     Kx = int(np.max(np.asarray(kx_per_col))) if kx_per_col is not None else (int(C.max()) + 1 if C.size else 1)
     Kx = max(Kx, 1)

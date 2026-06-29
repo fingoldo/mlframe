@@ -824,7 +824,11 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     import cupy as cp
 
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
-    dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
+    # x is the per-candidate binned column (transient) -> NOT cached. y is a FIT-CONSTANT re-uploaded on every
+    # CMI/MI call (H2D instrumentation: ~74x on a 250k F2 strict fit) -> resident operand cache (uploaded once
+    # per fit; selection-equivalent, same int64 codes). z_joint below is round-constant -> cached likewise.
+    from ._fe_resident_operands import resident_operand
+    dy = resident_operand(y, "cmi_y", dtype=np.int64)
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
 
@@ -850,7 +854,7 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
             h_xy, k_xy = _entc([dx, dy], [Kx, ky])
         mi = max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
         return (mi, None) if return_cards else mi
-    dz = cp.asarray(np.ascontiguousarray(z_joint, dtype=np.int64).ravel())
+    dz = resident_operand(z_joint, "cmi_z", dtype=np.int64)  # z_support round-constant -> cached
     kz = _cached_card(z_joint, dz)         # z_support is round-constant -> cardinality cached
     # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared -- the #1
     # cuLaunchKernel source on the STRICT redundancy gate. Bit-identical; falls back to the per-joint path.
@@ -883,9 +887,12 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 
     from ._fe_batched_mi import joint_counts_gpu
 
+    # x is the per-candidate column (transient) -> NOT cached. y / z are fit/round-constants re-uploaded per
+    # candidate -> resident operand cache (uploaded once per fit; the cardinalities are label-invariant).
+    from ._fe_resident_operands import resident_operand
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
-    dy = cp.asarray(np.ascontiguousarray(y, dtype=np.int64).ravel())
-    dz = cp.asarray(np.ascontiguousarray(z, dtype=np.int64).ravel())
+    dy = resident_operand(y, "card_y", dtype=np.int64)
+    dz = resident_operand(z, "card_z", dtype=np.int64)
     Kx = (int(dx.max()) + 1) if dx.size else 1
 
     from ._fe_batched_mi import joint_nnz_gpu
@@ -928,9 +935,13 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
 
     from ._fe_batched_mi import joint_entropy_gpu
 
+    # x is the per-permutation candidate (transient) -> NOT cached. y_i / z_i are fit/round-constants reused
+    # across every permutation in this CMI-null loop (H2D instrumentation: 100x / 800 MB each at 1M) ->
+    # resident operand cache (uploaded once per fit; CMI is value-order invariant).
+    from ._fe_resident_operands import resident_operand
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
-    dy = cp.asarray(np.ascontiguousarray(y_i, dtype=np.int64).ravel())
-    dz = cp.asarray(np.ascontiguousarray(z_i, dtype=np.int64).ravel())
+    dy = resident_operand(y_i, "fixedyz_y", dtype=np.int64)
+    dz = resident_operand(z_i, "fixedyz_z", dtype=np.int64)
     inv_n = 1.0 / float(n)
 
     def _entc(codes, cards):

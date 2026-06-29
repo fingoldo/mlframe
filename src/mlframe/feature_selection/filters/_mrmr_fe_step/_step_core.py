@@ -62,6 +62,13 @@ def _free_gpu_fe_mempool() -> bool:
         clear_cmi_resident_cache()
     except Exception:
         pass
+    # FE operand resident cache: drop the fit-constant operand device copies (y / z / base columns) so their
+    # device arrays carry no live reference -> free_all_blocks below can reclaim them (a fit-scoped cache).
+    try:
+        from .._fe_resident_operands import clear_fe_resident_operands
+        clear_fe_resident_operands()
+    except Exception:
+        pass
     try:
         import cupy as _cp
         _cp.get_default_memory_pool().free_all_blocks()

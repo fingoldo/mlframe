@@ -150,10 +150,17 @@ def best_existing_op_mi_resident(
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
         names = list(names)
-        cols_arr_gpu = [cp.asarray(arrs[c], dtype=cp.float64) for c in names]
+        # The base operand columns in ``arrs`` are FIT-CONSTANTS re-uploaded on every gate call (H2D
+        # instrumentation: this listcomp 80x / 140 MB on a 250k F2 strict fit). Read them from a resident
+        # device cache keyed on the parent-array identity + content fingerprint so each is uploaded ONCE per
+        # fit (selection-equivalent: same f64 values, just not re-uploaded). The candidate MATRIX built from
+        # them below is device-born + transient and is NOT cached.
+        from ._fe_resident_operands import resident_operand
+        cols_arr_gpu = [resident_operand(arrs[c], ("op", c), dtype=cp.float64) for c in names]
         mat_gpu = _build_best_existing_op_candidates_gpu(cols_arr_gpu, cp)
         if y_gpu is None:
-            y_gpu = cp.asarray(np.ascontiguousarray(yi, dtype=np.int64))
+            # y is a fit-constant -> resident cache (instrumentation: 30x re-upload here when y_gpu is None).
+            y_gpu = resident_operand(yi, "y", dtype=np.int64)
         if rank_binning:
             from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
             mis = plugin_mi_classif_batch_rank_cuda_resident(
