@@ -68,6 +68,8 @@ def fit(
     val_idx: np.ndarray | None = None,
     test_idx: np.ndarray | None = None,
     time_ordering: Any = None,
+    val_df: Any = None,
+    val_y: np.ndarray | None = None,
 ) -> "CompositeTargetDiscovery":  # noqa: F821 -- forward ref to parent class
     """Discover composite-target specs.
 
@@ -899,7 +901,7 @@ def fit(
 
         kept_specs = apply_yscale_holdout_gate(
             self, df, target_col, kept_specs, usable_features, train_idx, y_full,
-            val_idx=val_idx,
+            val_df=val_df, val_y=val_y,
         )
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "yscale_holdout_gate_done")

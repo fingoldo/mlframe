@@ -672,12 +672,29 @@ def run_composite_target_discovery(
                                     _tcol, _tc_err,
                                 )
                                 _time_ordering = None
+                        # Supply the VAL frame + val targets so the y-scale gate can validate the
+                        # predict-T -> invert-to-y pipeline on UNSEEN wells (val groups are disjoint
+                        # from train under the group-aware split) -- the regime where a residual inverse
+                        # extrapolates and collapses, which a train-group holdout cannot reproduce. The
+                        # discovery ``df`` is train-only, so the val split is passed as a separate frame.
+                        _disc_val_df = None
+                        _disc_val_y = None
+                        try:
+                            if val_df_pd is not None and val_idx is not None:
+                                _vy = np.asarray(_y_arr)[val_idx]
+                                if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
+                                    _disc_val_df = val_df_pd
+                                    _disc_val_y = _vy
+                        except Exception:  # noqa: BLE001 -- val gate is best-effort; fall back to train-group holdout
+                            _disc_val_df, _disc_val_y = None, None
                         _disc = _disc_instance.fit(
                             df=_disc_df,
                             target_col=_tname_disc,
                             feature_cols=_disc_feature_cols,
                             train_idx=_disc_train_idx,
                             time_ordering=_time_ordering,
+                            val_df=_disc_val_df,
+                            val_y=_disc_val_y,
                         )
                 except Exception as _disc_err:
                     logger.warning(

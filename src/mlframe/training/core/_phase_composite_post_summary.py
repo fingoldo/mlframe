@@ -35,6 +35,19 @@ def _run_suite_end_dummy_baselines_summary(
         # Build {(target_type, target_name): {primary_metric: best_val, "model_name": ...}} from trained models.
         # Model metrics key is the bare metric name (e.g. "RMSE"); dummy primary_metric is split-prefixed ("val_RMSE").
         _best_metrics: dict[tuple[str, str], dict[str, Any]] = {}
+        # Composite-target names per target-type, sourced from the SPEC list (always populated for
+        # composites), NOT from composite_target_y_scale_metrics -- the latter is skipped when
+        # skip_wrap_pass_predict=True, which left ``_is_composite`` False so the verdict fell through to
+        # the composite's T-scale (residual) model metric and printed a misleading y-vs-T comparison.
+        _composite_names_by_tt: dict[str, set] = {}
+        for _tt_str, _by_tn in metadata.get("composite_target_specs", {}).items():
+            _names: set = set()
+            for _raw_tn, _spec_list in (_by_tn or {}).items():
+                for _s in _spec_list or []:
+                    _nm = _s.get("name") if isinstance(_s, dict) else getattr(_s, "name", None)
+                    if _nm:
+                        _names.add(_nm)
+            _composite_names_by_tt[str(_tt_str)] = _names
         for _tt, _by_name in metadata.get("dummy_baselines", {}).items():
             for _tname, _rep_dict in _by_name.items():
                 _pm = _rep_dict.get("primary_metric")
@@ -54,7 +67,10 @@ def _run_suite_end_dummy_baselines_summary(
                 # For composite targets prefer y-scale metrics (post-inverse, comparable to raw / y-scale dummy).
                 _yscale_by_tt = metadata.get("composite_target_y_scale_metrics", {}).get(str(_tt), {})
                 # A composite target HAS a key here (possibly an empty list); a raw target does not.
-                _is_composite = _tname in _yscale_by_tt
+                _is_composite = (
+                    _tname in _yscale_by_tt
+                    or _tname in _composite_names_by_tt.get(str(_tt), set())
+                )
                 _yscale_entries = _yscale_by_tt.get(_tname, [])
                 _best_val: float | None = None
                 _best_name = "-"

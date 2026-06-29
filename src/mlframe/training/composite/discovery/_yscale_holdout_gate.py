@@ -88,21 +88,25 @@ def apply_yscale_holdout_gate(
     usable_features: Sequence[str],
     screen_idx: np.ndarray,
     y_full: np.ndarray,
-    val_idx: np.ndarray | None = None,
+    val_df: Any = None,
+    val_y: np.ndarray | None = None,
 ) -> list:
     """Drop specs whose predict-T -> invert-to-y pipeline collapses on UNSEEN groups.
 
     Evaluation set, in priority order:
 
-    1. **The VAL split** (``val_idx``) when supplied -- the production unseen-WELL distribution. Train
-       groups and val groups are DISJOINT under the group-aware split, so fitting a tiny model on
-       (a subsample of) train and predicting on (a subsample of) val reproduces the exact regime where
-       a residual inverse extrapolates: the held-out wells' base values fall outside the train range,
-       the tree's T_hat is clamped, ``y = T_hat + alpha*base`` blows past the envelope and collapses to
-       ~constant (R^2 << 0). A holdout carved from TRAIN groups CANNOT show this -- its base stays
-       in-distribution -- which is exactly why the train-group gate passed 10 specs that then collapsed
-       to R^2=-146 on the real test split.
-    2. **Group-disjoint carve from train** (fallback) when no val split is available but group ids are.
+    1. **The VAL split** (``val_df`` + ``val_y``) when supplied -- the production unseen-WELL
+       distribution. Train groups and val groups are DISJOINT under the group-aware split, so fitting a
+       tiny model on a train subsample and predicting on a val subsample reproduces the exact regime
+       where a residual inverse extrapolates: the held-out wells' base values fall outside the train
+       range, the tree's T_hat is clamped, ``y = T_hat + alpha*base`` blows past the envelope and
+       collapses (R^2 << 0). A holdout carved from TRAIN groups CANNOT show this -- its base stays
+       in-distribution -- which is why the train-group gate passed specs that then collapsed on test.
+    2. **Group-disjoint carve from train** (fallback) when no val frame is available but group ids are.
+
+    The discovery frame ``df`` is TRAIN-only, so the val split must be supplied as a separate frame
+    (``val_df``, same feature columns) + its targets (``val_y``); the gate fits on ``df``/``y_full`` and
+    evaluates the inversion on ``val_df``/``val_y``.
 
     Returns the surviving spec list (possibly empty -- the CORRECT outcome when every candidate
     collapses: better to train no composite than ten doomed ones). No-ops when the gate is disabled,
@@ -122,18 +126,24 @@ def apply_yscale_holdout_gate(
             return idx
         return np.sort(rng.choice(idx, size=n_cap, replace=False))
 
-    val_idx = None if val_idx is None else np.asarray(val_idx)
-    if val_idx is not None and val_idx.size >= 50:
-        # Preferred path: train (seen wells) -> val (unseen wells); group-disjoint by construction.
+    feats = list(usable_features)
+    val_y = None if val_y is None else np.asarray(val_y)
+    _eval_df = df  # frame the eval rows are gathered from; df (train) for the fallback path
+    if val_df is not None and val_y is not None and val_y.size >= 50:
+        # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells);
+        # group-disjoint by construction under the group-aware split.
         fit_idx = _subsample(screen_idx, cap)
-        eval_idx = _subsample(val_idx, cap)
+        eval_idx = _subsample(np.arange(val_y.size), cap)
+        _eval_df = val_df
+        y_fit = y_full[fit_idx].astype(np.float64)
+        y_eval = val_y[eval_idx].astype(np.float64)
         _gate_mode = "val-split"
     else:
         # Fallback: carve a group-disjoint holdout out of the training groups themselves.
         group_ids = getattr(self, "_group_ids_for_rerank", None)
         if group_ids is None:
             logger.info(
-                "[CompositeTargetDiscovery.yscale_gate] no val split and no group ids -- gate skipped "
+                "[CompositeTargetDiscovery.yscale_gate] no val frame and no group ids -- gate skipped "
                 "(the inverse-collapse regime is unseen-group; nothing to validate against)."
             )
             return kept_specs
@@ -148,23 +158,22 @@ def apply_yscale_holdout_gate(
         if np.unique(groups_sample).size < min_groups:
             logger.info(
                 "[CompositeTargetDiscovery.yscale_gate] only %d group(s) in the gate sample (<%d) and no "
-                "val split -- cannot carve a disjoint holdout; gate skipped.",
+                "val frame -- cannot carve a disjoint holdout; gate skipped.",
                 np.unique(groups_sample).size, min_groups,
             )
             return kept_specs
         fit_idx, eval_idx = _carve_group_disjoint(
             sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng
         )
+        y_fit = y_full[fit_idx].astype(np.float64)
+        y_eval = y_full[eval_idx].astype(np.float64)
         _gate_mode = "train-group-holdout"
     if fit_idx.size < 50 or eval_idx.size < 50:
         logger.info("[CompositeTargetDiscovery.yscale_gate] unseen-group eval set too small -- gate skipped.")
         return kept_specs
 
-    feats = list(usable_features)
     x_fit = self._build_feature_matrix(df, feats, fit_idx)
-    x_eval = self._build_feature_matrix(df, feats, eval_idx)
-    y_fit = y_full[fit_idx].astype(np.float64)
-    y_eval = y_full[eval_idx].astype(np.float64)
+    x_eval = self._build_feature_matrix(_eval_df, feats, eval_idx)
     y_eval_std = float(np.std(y_eval))
 
     n_estimators = int(getattr(cfg, "tiny_model_n_estimators", 60))
@@ -206,7 +215,7 @@ def apply_yscale_holdout_gate(
         params = dict(spec.fitted_params)
         base_cols = _spec_base_columns(spec)
         base_fit = _base_arg(df, base_cols, fit_idx)
-        base_eval = _base_arg(df, base_cols, eval_idx)
+        base_eval = _base_arg(_eval_df, base_cols, eval_idx)
         try:
             valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
             if valid.shape != y_fit.shape:
