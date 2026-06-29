@@ -179,3 +179,24 @@ def test_biz_val_structural_gate_noop_without_group_ids():
     diff_spec = _spec_t("y-diff-base", "diff", "base", {})
     out = apply_structural_fragility_gate(disc, df, [diff_spec], np.arange(len(df)), y)
     assert [s.name for s in out] == ["y-diff-base"], "no group ids -> structural gate is a no-op"
+
+
+def test_biz_val_structural_gate_drops_chain_linres_variants_on_per_well_base():
+    """chain_linres_* (linresYj / linresCbrt) wrap a linear_residual bivariate under a unary tail; the inverse still
+    re-injects alpha*base, so on a per-well-level base they must be dropped exactly like plain linear_residual. Prod
+    TVT 2026-06: these slipped the gate (sensitivity returned None) and collapsed to R^2=-146 on unseen wells."""
+    df, groups, y = _per_well_base_frame()
+    disc = _make_gate_ctx(groups)
+    # The chain nests the OLS-fitted linear_residual params under ``bivariate_params``.
+    chain_params = {"bivariate_params": {"alpha": 1.0, "beta": 0.0}, "unary_stage_params": [{}]}
+    yj = _spec_t("y-linresYj-base", "chain_linres_yj", "base", chain_params)
+    cbrt = _spec_t("y-linresCbrt-base", "chain_linres_cbrt", "base", chain_params)
+    alt = _spec_t("y-chainlinres-base", "chain_linear_residual_yj", "base", chain_params)
+    good = _spec_t("y-linresYj-x1", "chain_linres_yj", "x1",
+                   {"bivariate_params": {"alpha": 0.5, "beta": 0.0}, "unary_stage_params": [{}]})
+    survivors = apply_structural_fragility_gate(disc, df, [yj, cbrt, alt, good], np.arange(len(df)), y)
+    names = {s.name for s in survivors}
+    assert "y-linresYj-base" not in names, "chain_linres_yj on a per-well base must be dropped (re-injects alpha*base)"
+    assert "y-linresCbrt-base" not in names, "chain_linres_cbrt on a per-well base must be dropped"
+    assert "y-chainlinres-base" not in names, "chain_linear_residual_yj on a per-well base must be dropped"
+    assert "y-linresYj-x1" in names, "a row-level base (no between-well level) chain must still survive"

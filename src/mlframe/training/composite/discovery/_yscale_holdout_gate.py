@@ -113,6 +113,17 @@ def _inverse_base_sensitivity(spec, base_train: np.ndarray) -> float | None:
             if bf.size:
                 bmax = float(np.percentile(np.abs(bf), 99))
         return a1 + 2.0 * a2 * bmax
+    # Chain transforms (chain_linres_cbrt / chain_linres_yj / chain_linres_cbrt_qn / chain_linear_residual_yj) wrap a
+    # base-additive bivariate stage (linear_residual: T1 = y - alpha*base - beta) under a unary tail (cbrt / Yeo-Johnson
+    # / quantile-normal). The unary only reshapes the residual; the inverse STILL re-injects alpha*base, so the
+    # group-shift fragility is identical to plain linear_residual. (Prod TVT 2026-06: linresYj / linresCbrt on
+    # pf_tvt_post_p90 slipped this gate -- _inverse_base_sensitivity returned None for them -- and collapsed to
+    # R^2=-146 on unseen wells while plain linres / linresR / poly2 on the same base were correctly dropped.)
+    if name.startswith("chain_") and isinstance(p.get("bivariate_params"), dict):
+        bp = p["bivariate_params"]
+        if "alpha" in bp:  # linear_residual-family bivariate -> y = T_hat + alpha*base + beta
+            return abs(float(bp.get("alpha", 1.0)))
+        return 1.0  # diff / additive-residual-family bivariate re-injects base with unit sensitivity
     return None
 
 
