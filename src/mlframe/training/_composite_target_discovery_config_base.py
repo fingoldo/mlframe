@@ -563,6 +563,14 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # that LR's point-estimate alpha silently degrades on at test.
     detect_linear_residual_alpha_drift: bool = True
     alpha_drift_z_threshold: float = 3.0
+    # Effect-size floor that the slope drift must ALSO clear before a spec is rejected. The z-test alone is sample-size
+    # sensitive: SE(alpha) shrinks ~1/sqrt(n), so at multi-million-row train a practically negligible slope shift gives
+    # z >> 3 and cascade-drops every spec on the base (prod TVT 4.1M rows: 23 of 62 candidates). ``effect_size`` is the
+    # half-to-half slope change scaled into y-units as a fraction of y_std: ``|a1-a2| * std(base) / std(y)``. A spec is
+    # dropped only when z > threshold AND effect_size >= this floor, so a drift must be both statistically detectable
+    # and practically meaningful. Default 0.01 (the inverse must move predictions by >=1% of y_std). Set 0.0 for the
+    # legacy z-only behaviour.
+    alpha_drift_min_effect_size: float = 0.01
     # When True, drop linear_residual specs that fail the drift check; when False, keep them but
     # log a warning + record in metadata. Default True ("enable corrective mechanisms by default"):
     # a drifting alpha means the residual T = y - alpha*base is fit on a non-stationary y/base

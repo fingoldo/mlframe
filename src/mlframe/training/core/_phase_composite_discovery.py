@@ -24,6 +24,7 @@ from ..composite.cache import (
     make_discovery_cache_key,
 )
 from ..configs import TargetTypes
+from ..models import is_neural_model
 from .utils import (
     _build_full_column_from_splits,
     _defensive_copy_and_expand_multilabel_regression,
@@ -31,6 +32,56 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Plain (unregularised) linear models extrapolate unboundedly on unseen groups like neural nets do; Ridge is
+# regularised and was the prod-safe baseline (R^2=1.00 where Identity-MLP collapsed to -326), so it is NOT unbounded.
+_UNBOUNDED_LINEAR_TOKENS = ("linear", "ols", "lstsq")
+
+# When the zoo is bounded-only and the user left ``composite_skip_when_raw_dominates_ratio`` at 0 (never skip), default
+# it to this conservative ratio: fires only when the raw-y screen RMSE is < 2% of y_std (raw R^2 > 0.9996), i.e. the
+# raw features already predict y near-perfectly so a composite has no headroom. This is the documented prior default,
+# safe to re-enable now that the unbounded-extrapolation case is excluded by the bounded-zoo gate.
+_RERANK_SKIP_RATIO_BOUNDED_DEFAULT = 0.02
+
+
+def _zoo_is_bounded_only(models) -> bool:
+    """True iff no model in the zoo can extrapolate unboundedly on unseen groups (no neural / plain-linear estimator).
+
+    When the zoo is bounded-only (tree ensembles, Ridge), an extreme-AR group-aware target can safely SKIP composite
+    discovery: the AR failsafe carries the signal and no model needs a residualised target to avoid catastrophic
+    extrapolation. An unknown / empty zoo returns False -- conservative, never auto-skip when we cannot prove safety.
+    """
+    names = [str(m).lower() for m in (models or [])]
+    if not names:
+        return False
+    for nm in names:
+        if is_neural_model(nm):
+            return False
+        if "ridge" not in nm and any(tok in nm for tok in _UNBOUNDED_LINEAR_TOKENS):
+            return False
+    return True
+
+
+def _extreme_ar_discovery_skip(
+    *, skip_enabled: bool, group_aware_active: bool, bounded_only_zoo: bool,
+    lag1_ar, is_picked_target: bool, threshold: float,
+) -> bool:
+    """Decide whether to SKIP the whole composite-discovery block for an extreme-AR group-aware target.
+
+    Fires only when ALL hold: the skip is enabled; the REAL split is group-aware (``group_aware_active`` -- the analyzer
+    hint OR the configured splitter, not the hint alone -- a config-only group-aware run must skip too); the zoo is
+    bounded-only (no model needs a residual target to avoid extrapolation); a per-group lag-1 autocorr is available and
+    ``>= threshold``; and this is the analyzer's picked target. On a strongly-AR group-aware target the residual signal
+    is near-zero on unseen groups and lag_predict already carries it, so discovery is wasted compute.
+    """
+    return bool(
+        skip_enabled
+        and group_aware_active
+        and bounded_only_zoo
+        and lag1_ar is not None
+        and is_picked_target
+        and float(lag1_ar) >= threshold
+    )
 
 
 def _render_composite_discovery_diagnostics(
@@ -271,6 +322,31 @@ def run_composite_target_discovery(
     _splitter_group_aware = _split_cfg_use_groups and group_ids is not None
     _group_aware_active = _group_aware_recommended or _splitter_group_aware
 
+    # Extreme-AR skip safety gate: only auto-skip discovery when the model zoo cannot extrapolate unboundedly on unseen
+    # groups (tree ensembles / Ridge). A neural or plain-linear model could be rescued by a residualised target, so its
+    # presence keeps discovery running even on a strongly-AR target.
+    _bounded_only_zoo = _zoo_is_bounded_only(mlframe_models)
+
+    # Part B (zoo-aware rerank-skip): on a bounded-only zoo the "raw already near-perfect -> composite has no headroom"
+    # rerank-skip is safe to re-enable (no unbounded model needs a residual target). Default the ratio to a conservative
+    # value when the user left it at 0; unbounded zoos keep the user's value (0 = never skip). One model_copy reused for
+    # every target so the shared config object is never mutated.
+    _disc_cfg_base = composite_target_discovery_config
+    if (_bounded_only_zoo
+            and float(getattr(composite_target_discovery_config,
+                              "composite_skip_when_raw_dominates_ratio", 0.0)) <= 0.0):
+        try:
+            _disc_cfg_base = composite_target_discovery_config.model_copy(
+                update={"composite_skip_when_raw_dominates_ratio": _RERANK_SKIP_RATIO_BOUNDED_DEFAULT},
+            )
+            logger.info(
+                "[CompositeTargetDiscovery] bounded-only zoo: rerank raw-dominance skip ratio "
+                "defaulted to %.3f (raw R^2 > 0.9996 -> composite has no headroom).",
+                _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
+            )
+        except Exception:
+            _disc_cfg_base = composite_target_discovery_config
+
     # Suite-constant group_ids: coerce once + materialise the filtered slice + length cap; the per-target loop below otherwise pays a fresh
     # ``np.asarray`` + ``np.max`` per regression target inside the tiny-rerank wiring block (group_ids is invariant across targets).
     _grp_arr_hoisted: np.ndarray | None = None
@@ -304,16 +380,19 @@ def run_composite_target_discovery(
                     }]
                 continue
 
-            if (_extreme_ar_skip
-                    and _group_aware_recommended
-                    and _lag1_ar is not None
-                    and _td_report.get("picked_target_name") == _tname_disc
-                    and float(_lag1_ar) >= _extreme_ar_threshold):
+            if _extreme_ar_discovery_skip(
+                skip_enabled=_extreme_ar_skip,
+                group_aware_active=_group_aware_active,
+                bounded_only_zoo=_bounded_only_zoo,
+                lag1_ar=_lag1_ar,
+                is_picked_target=(_td_report.get("picked_target_name") == _tname_disc),
+                threshold=_extreme_ar_threshold,
+            ):
                 logger.warning(
                     "[CompositeTargetDiscovery] extreme-AR + group-aware "
                     "skip fired for target='%s' (lag1_autocorr_per_group="
-                    "%.4f >= %.2f, split prefers group-aware). Residual "
-                    "targets have near-zero signal on unseen groups and "
+                    "%.4f >= %.2f, group-aware split active, zoo is bounded-only). "
+                    "Residual targets have near-zero signal on unseen groups and "
                     "every trained model on T overfits per-group patterns "
                     "to ship predictions worse than the median(T) dummy "
                     "in y-scale. Discovery skipped; lag_predict in "
@@ -422,7 +501,7 @@ def run_composite_target_discovery(
             _disc_df = _build_disc_df_for_target(filtered_train_df, _tname_disc, _y_train_aligned)
 
             # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
-            _disc_cfg = composite_target_discovery_config
+            _disc_cfg = _disc_cfg_base
             if _use_hint and _diag is not None:
                 _hint_top_k = max(1, int(getattr(
                     composite_target_discovery_config,
@@ -445,7 +524,7 @@ def run_composite_target_discovery(
                 ]
                 if _hint_cols:
                     try:
-                        _disc_cfg = composite_target_discovery_config.model_copy(
+                        _disc_cfg = _disc_cfg_base.model_copy(
                             update={"dominant_features_hint": _hint_cols},
                         )
                         logger.info(

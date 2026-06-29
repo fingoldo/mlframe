@@ -356,12 +356,19 @@ def apply_alpha_drift_gate(
         # a1-a2 is a difference of two independent half-fits, so Var(a1-a2)=2*sigma^2/(half*var_base); the sqrt(2) keeps the drift z from being inflated ~1.41x.
         se_alpha = sigma_resid * np.sqrt(2.0) / (np.sqrt(half) * base_std)
         z = abs(a1 - a2) / max(se_alpha, 1e-12)
+        # Effect size: the half-to-half slope change scaled into y-units as a fraction of y_std. The z-test is
+        # sample-size sensitive (SE ~ 1/sqrt(n)), so at multi-million-row train a negligible slope shift trips z >> 3;
+        # requiring a practically-meaningful effect alongside z stops the cascade-drop of every spec on a base.
+        y_std_drift = float(y_finite.std()) if y_finite.size > 1 else 1.0
+        effect_size = abs(a1 - a2) * base_std / max(y_std_drift, 1e-12)
+        _min_effect = float(getattr(self.config, "alpha_drift_min_effect_size", 0.01))
         self._alpha_drift_flags[s.name] = {
             "alpha_first_half": a1,
             "alpha_second_half": a2,
             "z_score": float(z),
+            "effect_size": float(effect_size),
         }
-        if z > drift_threshold:
+        if z > drift_threshold and effect_size >= _min_effect:
             if reject_on_drift:
                 drift_dropped.append((s.name, float(z)))
                 _drift_dropped_bases.add(s.base_column)
@@ -369,8 +376,15 @@ def apply_alpha_drift_gate(
             # DEBUG not WARNING: many drift-flagged specs are later rejected by the raw-y baseline / Wilcoxon gate, so a per-spec WARNING here is dead-noise; a summary WARNING is emitted only for survivors at the end of discovery.
             logger.debug(
                 "[CompositeTargetDiscovery] alpha drift candidate spec=%s "
-                "(alpha first-half=%.4f, second-half=%.4f, z=%.2f > %.2f).",
-                s.name, a1, a2, z, drift_threshold,
+                "(alpha first-half=%.4f, second-half=%.4f, z=%.2f > %.2f, effect_size=%.4f).",
+                s.name, a1, a2, z, drift_threshold, effect_size,
+            )
+        elif z > drift_threshold:
+            # Statistically detectable drift whose practical effect on the inverse is below the floor -- keep the spec.
+            logger.debug(
+                "[CompositeTargetDiscovery] alpha drift z=%.2f > %.2f for spec=%s but effect_size=%.4f < %.4f "
+                "(negligible slope change at this n); keeping.",
+                z, drift_threshold, s.name, effect_size, _min_effect,
             )
         drift_kept.append(s)
     # When the simplest (bounded-inverse) linear_residual on a base drifts, the base itself is
