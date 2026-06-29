@@ -131,3 +131,51 @@ def test_biz_val_yscale_gate_drops_collapsing_spec_on_val_split():
         "high-alpha spec must be dropped: it collapses on the unseen-well VAL split"
     )
     assert "y-linres-base-unit" in names, "stable unit-alpha spec must survive the val-split gate"
+
+
+# ----------------------------------------------------------------------
+# Structural fragility gate: catch base-additive inverses on per-well-level bases from TRAIN alone
+# ----------------------------------------------------------------------
+from mlframe.training.composite.discovery._yscale_holdout_gate import apply_structural_fragility_gate
+
+
+def _spec_t(name: str, transform_name: str, base_column: str, params: dict) -> CompositeSpec:
+    return CompositeSpec(
+        name=name, target_col="y", transform_name=transform_name, base_column=base_column,
+        fitted_params=dict(params), mi_gain=1.0, mi_y=0.0, mi_t=1.0,
+        valid_domain_frac=1.0, n_train_rows=100,
+    )
+
+
+def _per_well_base_frame(n_groups=12, per=200, seed=5):
+    """``base`` is a PER-WELL LEVEL (variance dominated by between-well differences spanning ~std(y));
+    ``x1`` is a row-level predictor (no between-well level). y = base + within-well signal."""
+    rng = np.random.default_rng(seed)
+    well_level = rng.uniform(10000.0, 13000.0, n_groups)
+    groups = np.repeat(np.arange(n_groups), per)
+    base = well_level[groups] + rng.normal(0.0, 30.0, groups.size)   # ~all between-well level
+    x1 = rng.normal(size=groups.size)                                # row-level, no well level
+    y = base + 600.0 * x1 + rng.normal(0.0, 50.0, groups.size)
+    df = pd.DataFrame({"base": base, "x1": x1, "y": y.astype(np.float64)})
+    return df, groups.astype(np.int64), y.astype(np.float64)
+
+
+def test_biz_val_structural_gate_drops_additive_inverse_on_per_well_base():
+    df, groups, y = _per_well_base_frame()
+    disc = _make_gate_ctx(groups)
+    diff_spec = _spec_t("y-diff-base", "diff", "base", {})
+    addres_spec = _spec_t("y-addres-base", "additive_residual", "base", {"beta": 0.0})
+    good = _spec_t("y-linres-x1", "linear_residual", "x1", {"alpha": 0.5, "beta": 0.0})
+    survivors = apply_structural_fragility_gate(disc, df, [diff_spec, addres_spec, good], np.arange(len(df)), y)
+    names = {s.name for s in survivors}
+    assert "y-diff-base" not in names, "diff on a per-well-level base must be dropped (additive inverse extrapolates)"
+    assert "y-addres-base" not in names, "additive_residual on a per-well-level base must be dropped"
+    assert "y-linres-x1" in names, "row-level base (no between-well level) must survive the structural gate"
+
+
+def test_biz_val_structural_gate_noop_without_group_ids():
+    df, _g, y = _per_well_base_frame()
+    disc = _make_gate_ctx(None)
+    diff_spec = _spec_t("y-diff-base", "diff", "base", {})
+    out = apply_structural_fragility_gate(disc, df, [diff_spec], np.arange(len(df)), y)
+    assert [s.name for s in out] == ["y-diff-base"], "no group ids -> structural gate is a no-op"

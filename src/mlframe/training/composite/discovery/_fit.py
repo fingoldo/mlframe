@@ -896,6 +896,14 @@ def fit(
     # on a group-disjoint holdout (the prod failure the forward-only MI / i.i.d. honest-holdout never
     # sees). No-op without group ids. Runs BEFORE the honest re-score so the (heavier) MI re-score only
     # touches survivors.
+    # Structural fragility gate (train-only, before the val gate): drop base-additive specs whose
+    # inverse re-injects a per-group-level base -- fragile on unseen groups even when a single val
+    # sample happens not to expose it.
+    if kept_specs and getattr(self.config, "structural_fragility_gate_enabled", True):
+        from ._yscale_holdout_gate import apply_structural_fragility_gate
+
+        kept_specs = apply_structural_fragility_gate(self, df, kept_specs, train_idx, y_full)
+
     if kept_specs and getattr(self.config, "yscale_holdout_gate_enabled", True):
         from ._yscale_holdout_gate import apply_yscale_holdout_gate
 

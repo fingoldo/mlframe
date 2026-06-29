@@ -80,6 +80,147 @@ def _carve_group_disjoint(
     return sample_idx[~eval_mask], sample_idx[eval_mask]
 
 
+def _inverse_base_sensitivity(spec, base_train: np.ndarray) -> float | None:
+    """|dy/dbase| of the spec's inverse for the BASE-ADDITIVE transform family, else ``None``.
+
+    The structural-fragility class is exactly the inverse forms that re-inject the base linearly:
+    ``diff``/``additive_residual`` -> ``y = T_hat + base`` (s=1); ``linear_residual*`` ->
+    ``y = T_hat + alpha*base`` (s=|alpha|); ``polynomial_residual_deg2`` ->
+    ``y = T_hat + a1*base + a2*base^2`` (worst-case slope |a1| + 2|a2|*p99(|base|)). Unary / ratio /
+    reciprocal / chain transforms are not in this class (return None) -- their fragility, when present,
+    is caught by the val-split RMSE gate, not the additive-amplification structural gate.
+    """
+    name = spec.transform_name
+    p = dict(getattr(spec, "fitted_params", {}) or {})
+    if name in ("diff", "additive_residual"):
+        return 1.0
+    if name in ("linear_residual", "linear_residual_robust", "linear_residual_grouped"):
+        return abs(float(p.get("alpha", 1.0)))
+    if name == "linear_residual_multi":
+        alphas = p.get("alphas")
+        if alphas is not None:
+            try:
+                return float(sum(abs(float(a)) for a in alphas))
+            except (TypeError, ValueError):
+                pass
+        return abs(float(p.get("alpha", 1.0)))
+    if name == "polynomial_residual_deg2":
+        a1 = abs(float(p.get("alpha1", 0.0)))
+        a2 = abs(float(p.get("alpha2", 0.0)))
+        bmax = 0.0
+        if base_train is not None:
+            bf = base_train[np.isfinite(base_train)]
+            if bf.size:
+                bmax = float(np.percentile(np.abs(bf), 99))
+        return a1 + 2.0 * a2 * bmax
+    return None
+
+
+def apply_structural_fragility_gate(
+    self,
+    df: Any,
+    kept_specs: list,
+    train_idx: np.ndarray,
+    y_full: np.ndarray,
+) -> list:
+    """Drop base-ADDITIVE specs whose inverse re-injects a PER-GROUP-LEVEL base (fragile on unseen groups).
+
+    Mechanism (the prod TVT residual): for a base-additive inverse ``y = T_hat + s*base``, an unseen
+    well's base takes values OUTSIDE the train range; the tree's ``T_hat`` is clamped to the train
+    range while ``s*base`` extrapolates, so ``y_hat`` blows past the envelope. The val-split gate
+    catches most of these, but val is only ONE sample of unseen wells -- a base that extrapolates
+    harder on TEST than on VAL slips through (observed: addres/diff on ``expected_tvt_in_layer_p50``
+    passed val at y-RMSE~14 yet collapsed to R^2=-333 on test).
+
+    This gate detects the risk from TRAIN ALONE: a base whose variance is dominated by BETWEEN-group
+    (well) level differences (``between_var/total_var > frac``) will, on unseen groups, take
+    out-of-range values; combined with a base-additive inverse of sensitivity ``s``, the reconstructed
+    ``y`` shifts by ``s * between_group_std`` per unseen-group level offset. When that exceeds
+    ``max_amplification_ratio * std(y)`` the spec is rejected. Only meaningful under a group-aware
+    split (no group ids -> no-op); non-additive transforms are out of scope (return ``None``).
+    """
+    cfg = self.config
+    if not getattr(cfg, "structural_fragility_gate_enabled", True) or not kept_specs:
+        return kept_specs
+    group_ids = getattr(self, "_group_ids_for_rerank", None)
+    if group_ids is None:
+        return kept_specs
+    group_ids = np.asarray(group_ids)
+    train_idx = np.asarray(train_idx)
+    try:
+        y_tr = np.asarray(y_full)[train_idx].astype(np.float64)
+        g_tr = group_ids[train_idx]
+    except (IndexError, TypeError):
+        return kept_specs
+    std_y = float(np.std(y_tr[np.isfinite(y_tr)])) if y_tr.size else 0.0
+    if std_y <= 0:
+        return kept_specs
+
+    frac = float(getattr(cfg, "structural_fragility_between_group_var_frac", 0.5))
+    amp_ratio = float(getattr(cfg, "structural_fragility_max_amplification_ratio", 0.5))
+    s_min = float(getattr(cfg, "structural_fragility_min_base_sensitivity", 0.5))
+
+    n = train_idx.size
+    cap = min(int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000)), n)
+    rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
+    sub = np.arange(n) if cap >= n else np.sort(rng.choice(n, size=cap, replace=False))
+    rows = train_idx[sub]
+    g_sub = g_tr[sub]
+
+    survivors: list = []
+    rejected: list[tuple] = []
+    for spec in kept_specs:
+        base_col = getattr(spec, "base_column", "")
+        if not base_col or getattr(spec, "extra_base_columns", ()):  # single-base only
+            survivors.append(spec)
+            continue
+        try:
+            base = _extract_column_array(df, base_col, rows=rows).astype(np.float64)
+        except Exception:  # noqa: BLE001
+            survivors.append(spec)
+            continue
+        s = _inverse_base_sensitivity(spec, base)
+        if s is None or s < s_min:
+            survivors.append(spec)
+            continue
+        fin = np.isfinite(base)
+        if int(fin.sum()) < 50:
+            survivors.append(spec)
+            continue
+        b = base[fin]
+        gg = g_sub[fin]
+        total_var = float(np.var(b))
+        if total_var <= 0:
+            survivors.append(spec)
+            continue
+        uniq, inv = np.unique(gg, return_inverse=True)
+        if uniq.size < 3:
+            survivors.append(spec)
+            continue
+        gsum = np.zeros(uniq.size, dtype=np.float64)
+        gcnt = np.zeros(uniq.size, dtype=np.float64)
+        np.add.at(gsum, inv, b)
+        np.add.at(gcnt, inv, 1.0)
+        gmean = gsum / np.maximum(gcnt, 1.0)
+        between_var = float(np.var(gmean))
+        ratio = between_var / total_var
+        amp = s * float(np.sqrt(between_var))
+        if ratio > frac and amp > amp_ratio * std_y:
+            rejected.append((spec.name, s, ratio, amp / std_y))
+            continue
+        survivors.append(spec)
+
+    if rejected:
+        logger.warning(
+            "[CompositeTargetDiscovery.structural_fragility_gate] dropped %d/%d base-additive spec(s) "
+            "whose inverse re-injects a per-group-level base (fragile on unseen groups, before the "
+            "val-split gate even runs): %s",
+            len(rejected), len(kept_specs),
+            ", ".join(f"{nm}(s={s:.2g}, between/total={r:.2f}, amp/std_y={a:.2f})" for nm, s, r, a in rejected[:5]),
+        )
+    return survivors
+
+
 def apply_yscale_holdout_gate(
     self,
     df: Any,

@@ -593,6 +593,18 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     yscale_holdout_gate_min_groups: int = 4
     yscale_holdout_gate_holdout_group_frac: float = 0.3
 
+    # Structural fragility gate (runs BEFORE the val-split gate, from train alone). Drops base-ADDITIVE
+    # specs (diff / additive_residual / linear_residual* / poly2 -- inverse y = T_hat + s*base) whose
+    # base variance is dominated by BETWEEN-group (well) level differences, because such a base takes
+    # out-of-range values on unseen groups and the additive inverse re-injects them. Catches the
+    # val-passes-but-test-collapses case the single val sample can miss (addres/diff on a per-well
+    # aggregate). Reject when between_var/total_var > frac AND s*between_group_std > ratio*std(y).
+    # Default ON; group-aware only (no-op without group ids). 1.0 thresholds effectively disable.
+    structural_fragility_gate_enabled: bool = True
+    structural_fragility_between_group_var_frac: float = 0.5
+    structural_fragility_max_amplification_ratio: float = 0.5
+    structural_fragility_min_base_sensitivity: float = 0.5
+
     # Cross-target ensemble honest-OOF stacking: cap the number of TRAIN rows the K-fold OOF refit
     # uses to estimate the (~dozen-component) NNLS / dummy-floor blend weights. The weights are a tiny
     # convex-ish solve that saturates far below millions of rows -- bench
