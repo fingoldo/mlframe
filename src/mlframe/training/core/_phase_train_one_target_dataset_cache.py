@@ -318,6 +318,13 @@ def _release_ctx_polars_frames(
         _reuse_cache = artifacts.get(_DATASET_REUSE_CACHE_KEY)
         if isinstance(_reuse_cache, dict) and _reuse_cache:
             _reuse_cache.clear()
+    # The single-entry get_pandas_view_of_polars_df memo retains an Arrow-backed pandas view that shares (pins) the
+    # released frame's buffers zero-copy; without dropping it the gigabytes stay resident and the reclaim shows ~0 MB.
+    try:
+        from mlframe.training.utils import clear_pandas_view_cache
+        clear_pandas_view_cache()
+    except Exception:
+        pass
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
     # Only emit the lingering-refs warning when the expected reclaim is large enough for the
     # actual delta to be measurable above RSS-measurement noise. Windows / Linux RSS reporting

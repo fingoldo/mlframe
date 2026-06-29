@@ -423,6 +423,15 @@ def compute_model_input_fingerprint(
 _PD_VIEW_LAST_CACHE: dict = {"id_key": None, "result": None}
 
 
+def clear_pandas_view_cache() -> None:
+    """Drop the single-entry ``get_pandas_view_of_polars_df`` memo. The cached pandas view is Arrow-backed and shares
+    the polars frame's buffers zero-copy, so while it lives it PINS those buffers. Call this when releasing ctx polars
+    frames to reclaim RAM -- otherwise the last-converted frame's gigabytes stay resident behind the memo and the
+    release shows a ~0 MB delta (observed prod 2026: 8 GB expected, 0 reclaimed)."""
+    _PD_VIEW_LAST_CACHE["id_key"] = None
+    _PD_VIEW_LAST_CACHE["result"] = None
+
+
 def get_pandas_view_of_polars_df(
     df: pl.DataFrame,
     self_destruct: bool = False,
