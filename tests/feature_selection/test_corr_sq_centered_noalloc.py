@@ -72,6 +72,52 @@ def test_power_centered_parallel_path_matches_serial_reference(n):
     assert max_rel < 1e-10, f"_power_centered diverged {max_rel:.2e} from the centered reference at n={n}"
 
 
+@pytest.mark.parametrize("n", [4000, 4096, 20000])  # at + above the parallel gate
+def test_power_centered_parallel_path_bitidentical_across_thread_counts(n):
+    """The parallel periodogram kernel ``_power_centered_fused_par_njit`` must return a BIT-IDENTICAL float
+    regardless of the live numba thread count.
+
+    It is the only ``@njit(parallel=True)`` kernel on the CPU FE path with a genuine cross-thread float
+    reduction. A naive numba auto-reduction over ``prange(n)`` lets the per-thread partial-COMBINE order drift
+    with the thread schedule (float ``+`` is non-associative), so the result wobbles ~1e-15 across process
+    starts -- enough to FLIP a razor-tie frequency argmax in ``_refine_peak_freq`` and silently diverge the CPU
+    MRMR selection run-to-run. The kernel uses a FIXED contiguous-block reduction (constant block count, fixed
+    combine order) so the output is identical across thread counts. This pins that determinism: pre-block-fix
+    (auto-reduction) the bytes differed across 1/4/8 threads; post-fix they are identical."""
+    import numba
+
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_extra_basis_fe import (
+        _power_centered_fused_par_njit,
+    )
+
+    rng = np.random.default_rng(n + 7)
+    z = np.ascontiguousarray(np.sort(rng.random(n)))
+    y = np.sin(2.0 * np.pi * 3.0 * z) + 0.3 * rng.standard_normal(n)
+    yc = np.ascontiguousarray(y - y.mean())
+    y_ss = float(yc @ yc)
+    freqs = [0.05 + 0.0125 * k for k in range(120)]
+
+    prev = numba.get_num_threads()
+    try:
+        results = {}
+        for nthreads in (1, 2, 4):
+            numba.set_num_threads(nthreads)
+            vals = np.array(
+                [_power_centered_fused_par_njit(z, yc, y_ss, float(f)) for f in freqs],
+                dtype=np.float64,
+            )
+            results[nthreads] = vals.tobytes()
+    finally:
+        numba.set_num_threads(prev)
+
+    ref = results[1]
+    for nthreads, b in results.items():
+        assert b == ref, (
+            f"_power_centered_fused_par_njit not bit-identical at n={n}: thread count {nthreads} differs "
+            f"from 1 thread -- the cross-thread float reduction order is not deterministic."
+        )
+
+
 def test_periodogram_power_nonnegative_and_phase_invariant():
     rng = np.random.default_rng(7)
     n = 1000

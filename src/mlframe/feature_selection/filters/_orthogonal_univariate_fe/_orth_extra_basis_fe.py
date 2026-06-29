@@ -257,20 +257,60 @@ def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
 _POWER_CENTERED_PAR_MIN_N = 4000
 
 
+# Fixed contiguous-block count for the parallel periodogram reduction. Process- AND thread-count-STABLE:
+# the row range is split into a constant ``_POWER_CENTERED_PAR_NBLOCKS`` contiguous blocks regardless of how
+# many numba threads run, each block sums its six accumulators SERIALLY (so a block's partial is exact for that
+# block), the prange parallelises ACROSS blocks, and the per-block partials are combined in a FIXED 0..NB-1
+# order afterwards. Because both the within-block order and the cross-block combine order are independent of the
+# thread schedule, the float result is bit-identical across thread counts / process starts -- unlike a numba
+# auto-reduction over ``prange(n)``, whose per-thread partial-combine order drifts in the low ULPs with the
+# thread count and silently flips razor-tie frequency-rank selections downstream (_refine_peak_freq argmax).
+_POWER_CENTERED_PAR_NBLOCKS = 64
+
+
 @numba.njit(fastmath=True, parallel=True, cache=True)
 def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
-    """Periodogram power = corr(sin)^2 + corr(cos)^2 in ONE prange pass: sin/cos + both centered-SS
-    reductions fused, no length-n temporaries. Parallel over rows. Bit-close to ~1e-15 (reduction-order)
-    of the numpy-sin/cos + _corr_sq_centered path -- far below any frequency-rank scale."""
+    """Periodogram power = corr(sin)^2 + corr(cos)^2 with sin/cos + both centered-SS reductions fused, no
+    length-n temporaries. Parallel over a FIXED number of contiguous row-blocks (not a numba auto-reduction
+    over ``prange(n)``): each block sums serially into a private partial row, then the partials combine in a
+    fixed block order. The result is bit-IDENTICAL across thread counts / process starts (deterministic float
+    reduction order), so the downstream razor-tie frequency argmax (_refine_peak_freq) is process-stable.
+    Bit-close to ~1e-15 (reduction-order) of the numpy-sin/cos + _corr_sq_centered path -- far below any
+    frequency-rank scale."""
     n = z.shape[0]
     tp = 2.0 * np.pi * freq
+    nblocks = _POWER_CENTERED_PAR_NBLOCKS
+    if nblocks > n:
+        nblocks = n
+    if nblocks < 1:
+        nblocks = 1
+    # 6 partial accumulators per block: sums, ss_s, sy, sumc, ss_c, cy.
+    partials = np.zeros((nblocks, 6))
+    base = n // nblocks
+    rem = n % nblocks
+    for b in prange(nblocks):
+        # Contiguous, thread-independent block bounds: the first ``rem`` blocks take one extra row.
+        if b < rem:
+            start = b * (base + 1)
+            stop = start + (base + 1)
+        else:
+            start = rem * (base + 1) + (b - rem) * base
+            stop = start + base
+        psums = 0.0; pss_s = 0.0; psy = 0.0
+        psumc = 0.0; pss_c = 0.0; pcy = 0.0
+        for i in range(start, stop):
+            a = tp * z[i]
+            s = np.sin(a); c = np.cos(a); yv = yc[i]
+            psums += s; pss_s += s * s; psy += s * yv
+            psumc += c; pss_c += c * c; pcy += c * yv
+        partials[b, 0] = psums; partials[b, 1] = pss_s; partials[b, 2] = psy
+        partials[b, 3] = psumc; partials[b, 4] = pss_c; partials[b, 5] = pcy
+    # Fixed-order serial combine across blocks -- thread-count-independent reduction order.
     sums = 0.0; ss_s = 0.0; sy = 0.0
     sumc = 0.0; ss_c = 0.0; cy = 0.0
-    for i in prange(n):
-        a = tp * z[i]
-        s = np.sin(a); c = np.cos(a); yv = yc[i]
-        sums += s; ss_s += s * s; sy += s * yv
-        sumc += c; ss_c += c * c; cy += c * yv
+    for b in range(nblocks):
+        sums += partials[b, 0]; ss_s += partials[b, 1]; sy += partials[b, 2]
+        sumc += partials[b, 3]; ss_c += partials[b, 4]; cy += partials[b, 5]
     out = 0.0
     # RELATIVE degeneracy guard (P1-4): reject when the centered SS is a negligible fraction of the raw
     # SS (catastrophic-cancellation residual for a near-constant sin/cos projection) -- an absolute 1e-24
