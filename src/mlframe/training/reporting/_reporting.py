@@ -446,6 +446,7 @@ def _render_post_fit_diagnostics(
     plot_outputs,
     metrics,
     reporting_config,
+    model_name=None,
 ):
     """Fire the model/preds-based standalone diagnostics default-ON (PDP, slice-finder, decision-curve, SHAP, learning
     curve) and stitch the combined HTML index. Each is gated by a ``ReportingConfig`` knob and skips cheaply when its
@@ -572,9 +573,17 @@ def _render_post_fit_diagnostics(
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
         # Card title must carry the ESTIMATOR identity (e.g. "LGBMRegressor"), not the target_type --
         # ``model_name_for_title(target_type)`` returns "regression"/"classification", which rendered a
-        # nameless "Model card -- regression (test)" suptitle. Fall back to the target-type label only
-        # when the estimator object isn't available.
-        _card_name = type(model).__name__ if model is not None else model_name_for_title(target_type)
+        # nameless "Model card -- regression (test)" suptitle. Prefer the estimator class name (with the
+        # internal shim suffix stripped so "LGBMRegressorWithDatasetReuse" displays as "LGBMRegressor");
+        # for model-less paths (dummy baselines pass model=None + a descriptive ``model_name`` such as
+        # "DummyBaseline:mean") use that explicit name so the card is never blank. Fall back to the
+        # target-type label only when neither is available.
+        if model is not None:
+            _card_name = display_estimator_name(type(model).__name__)
+        elif model_name:
+            _card_name = str(model_name).strip()
+        else:
+            _card_name = model_name_for_title(target_type)
         # Card is defined for binary + regression; multiclass/multilabel have no single positive-class score.
         if _mc_task == "regression" and y_pred is not None and len(y_pred) == len(y_arr):
             render_model_card_diagnostic(
@@ -639,6 +648,29 @@ def _render_post_fit_diagnostics(
 def model_name_for_title(target_type) -> str:
     """Short report-title tag from the target_type (combined-HTML page heading)."""
     return (str(target_type) if target_type else "Model")
+
+
+# Internal shim-wrapper suffixes that mlframe appends to an estimator class to add dataset/eval-set plumbing (e.g.
+# ``LGBMRegressorWithDatasetReuse``, ``...WithEvalSetScaling``). They are an implementation detail and must never leak
+# into a public model-card / chart title -- strip them so the user sees the real estimator name (``LGBMRegressor``).
+_SHIM_CLASS_SUFFIXES = ("WithDatasetReuse", "WithDMatrixReuse", "WithReuse", "WithEvalSetScaling")
+
+
+def display_estimator_name(name: str) -> str:
+    """Strip internal shim-wrapper suffixes from an estimator class name for public display.
+
+    ``LGBMRegressorWithDatasetReuse`` -> ``LGBMRegressor``. Applied repeatedly so stacked shims collapse. A bare
+    suffix (the whole name is a shim marker) is left untouched -- there is no real estimator name to recover.
+    """
+    out = str(name)
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _SHIM_CLASS_SUFFIXES:
+            if out.endswith(suffix) and len(out) > len(suffix):
+                out = out[: -len(suffix)]
+                changed = True
+    return out
 
 
 def report_model_perf(
@@ -989,7 +1021,7 @@ def report_model_perf(
         _render_post_fit_diagnostics(
             targets=targets, model=model, df=df, columns=columns, preds=preds, probs=probs,
             target_type=target_type, plot_file=plot_file, plot_outputs=plot_outputs,
-            metrics=metrics, reporting_config=reporting_config,
+            metrics=metrics, reporting_config=reporting_config, model_name=model_name,
         )
 
     return preds, probs

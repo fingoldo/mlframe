@@ -173,12 +173,21 @@ def _verdict_color_hex(color: str) -> str:
     return {"green": _GREEN, "amber": _AMBER, "red": _RED}.get(color, _RED)
 
 
+def _is_dummy_name(model_name: str) -> bool:
+    """A baseline/dummy estimator (model_name like "DummyBaseline:mean") -- tagged so its card is not mistaken for a real model's."""
+    return "dummy" in str(model_name).lower()
+
+
 def _header_panel(model_name: str, split: str, verdict: ModelCardVerdict, metric_fmt: List[Tuple[str, str]]) -> AnnotationPanelSpec:
     """Header text block: title + traffic-light verdict line + reason + headline metric key/value list."""
     dot = {"green": "[GREEN]", "amber": "[AMBER]", "red": "[RED]"}.get(verdict.color, "[RED]")
-    lines = [f"{model_name}  --  {split}", "", f"{dot} {verdict.label}", verdict.reason, ""]
+    # A DUMMY tag on the verdict line makes a baseline card visually distinct from a real model's card at a glance
+    # (the two are otherwise near-identical), so operators don't confuse the reference floor for a trained model.
+    tag = "[DUMMY] " if _is_dummy_name(model_name) else ""
+    lines = [f"{model_name}  --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
     lines.extend(f"{name:<10s} {val}" for name, val in metric_fmt)
-    return AnnotationPanelSpec(text="\n".join(lines), title="MODEL CARD", fontsize=11)
+    title = "MODEL CARD (DUMMY BASELINE)" if _is_dummy_name(model_name) else "MODEL CARD"
+    return AnnotationPanelSpec(text="\n".join(lines), title=title, fontsize=11)
 
 
 def _headline_bar(metric_fmt: List[Tuple[str, float, bool]], verdict_color: str) -> BarPanelSpec:
@@ -364,7 +373,7 @@ def compose_model_card_figure(
         minis = [_mini_roc(sort), _mini_score_dist(sort, yt, ys), _mini_gain(sort)]
         grid = ((header, bar, None), tuple(minis))
         return FigureSpec(
-            suptitle=f"Model card -- {model_name} ({split}) -- {verdict.label}",
+            suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
             panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0),
         )
 
@@ -396,7 +405,7 @@ def compose_model_card_figure(
         minis = [_mini_resid_vs_pred(yt, yp), _mini_resid_hist(yt, yp), _mini_pred_vs_actual(yt, yp)]
         grid = ((header, bar, None), tuple(minis))
         return FigureSpec(
-            suptitle=f"Model card -- {model_name} ({split}) -- {verdict.label}",
+            suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
             panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0),
         )
 
