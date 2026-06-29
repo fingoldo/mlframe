@@ -42,6 +42,51 @@ def _pandas_view_cache_bytes(cache) -> int:
     return total
 
 
+def resolve_pandas_view_cache_budget_bytes() -> float:
+    """Byte budget for the polars->pandas view cache, configurable by TYPE x SIZE.
+
+    Env:
+      ``MLFRAME_PANDAS_VIEW_CACHE_TYPE`` = ``FREE_RAM_SHARE`` (default) | ``TOTAL_RAM_SHARE`` | ``ABSOLUTE_MB``
+      ``MLFRAME_PANDAS_VIEW_CACHE_SIZE`` = ``0.2`` (default) -- a fraction in [0, 1] for the ``*_SHARE``
+        types, or a megabyte count for ``ABSOLUTE_MB``.
+
+    Default 0.2 of FREE RAM: on a 60 GB-free host that is a 12 GB budget -- enough to reuse a ~10 GB
+    transformed-feature view across the per-target loop (so 10 composite targets pay ONE polars->pandas
+    conversion, not ten); on a memory-tight host it scales DOWN automatically, preserving the OOM-safety
+    property the old fixed 2 GB cap provided. Deprecated alias ``MLFRAME_PANDAS_VIEW_CACHE_MAX_MB`` is
+    still honoured as ``ABSOLUTE_MB`` when the new vars are unset. Falls back to 2 GB absolute when
+    psutil is unavailable or the env is malformed.
+    """
+    _DEFAULT_ABS_BYTES = 2048.0 * (1024 ** 2)
+    _legacy_mb = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_MAX_MB")
+    ctype = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "").strip().upper()
+    size_raw = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "").strip()
+    # Deprecated-alias path: old MAX_MB set and the new vars not -> treat as ABSOLUTE_MB.
+    if _legacy_mb is not None and not ctype and not size_raw:
+        try:
+            return max(0.0, float(_legacy_mb)) * (1024 ** 2) or _DEFAULT_ABS_BYTES
+        except ValueError:
+            return _DEFAULT_ABS_BYTES
+    if not ctype:
+        ctype = "FREE_RAM_SHARE"
+    try:
+        size = float(size_raw) if size_raw else (0.2 if ctype != "ABSOLUTE_MB" else 2048.0)
+    except ValueError:
+        size = 0.2 if ctype != "ABSOLUTE_MB" else 2048.0
+    if size <= 0:
+        return _DEFAULT_ABS_BYTES
+    if ctype == "ABSOLUTE_MB":
+        return size * (1024 ** 2)
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        base = vm.available if ctype == "FREE_RAM_SHARE" else vm.total
+        budget = float(size) * float(base)
+        return budget if budget > 0 else _DEFAULT_ABS_BYTES
+    except Exception:
+        return _DEFAULT_ABS_BYTES
+
+
 def _prepare_strategy_inputs(
     *,
     polars_fastpath_active: bool,
@@ -243,13 +288,11 @@ def _prepare_strategy_inputs(
                 # Bound the cache to 4 entries (train/val/test + one slack) AND a byte budget so a
                 # single oversized pandas-view does not pin GB-scale blockmgr buffers across targets.
                 # Per CLAUDE.md the byte gate is the safety property; the count cap is a fallback.
-                # Threshold is overridable via ``MLFRAME_PANDAS_VIEW_CACHE_MAX_MB`` for HW with more RAM.
+                # Budget is RAM-relative by default (MLFRAME_PANDAS_VIEW_CACHE_TYPE=FREE_RAM_SHARE,
+                # SIZE=0.2 -> 20% of free RAM) so a ~10 GB view IS reused across the per-target loop on
+                # a high-RAM host but scales down on a tight one; see resolve_pandas_view_cache_budget_bytes.
                 _max_count = 4
-                _max_mb_env = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_MAX_MB", "2048")
-                try:
-                    _max_bytes = float(_max_mb_env) * (1024 ** 2)
-                except ValueError:
-                    _max_bytes = 2048 * (1024 ** 2)
+                _max_bytes = resolve_pandas_view_cache_budget_bytes()
                 while len(_view_cache) > _max_count or _pandas_view_cache_bytes(_view_cache) > _max_bytes:
                     if not _view_cache:
                         break

@@ -88,13 +88,23 @@ def _lookup_backend(
     if cache is None or cache is False:
         return fallback
     try:
-        result = cache.get_or_tune(
-            kernel_name,
-            dims=dims,
-            tuner=(lambda: []),  # sweep deferred: a miss falls to the fallback.
-            axes=axes,
-            fallback={"backend_choice": fallback},
-        )
+        if run_auto_tune:
+            result = cache.get_or_tune(
+                kernel_name,
+                dims=dims,
+                tuner=(lambda: []),  # placeholder until _run_sweep_* lands.
+                axes=axes,
+                fallback={"backend_choice": fallback},
+            )
+        else:
+            # Sweep is DEFERRED -- use a pure cache LOOKUP, never ``get_or_tune``. get_or_tune logs a
+            # "sweep starting" banner and runs the (no-op) tuner on every miss, which is misleading
+            # (no tuning happens) and pointless (the result is always the fallback until a sweep is
+            # persisted). ``lookup`` consults a persisted region if one exists and otherwise returns
+            # None -> fallback, silently.
+            result = cache.lookup(kernel_name, **dims)
+            if result is None:
+                return fallback
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
         if bc in _VALID_BACKENDS:
             return bc

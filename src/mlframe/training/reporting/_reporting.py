@@ -476,7 +476,36 @@ def _render_post_fit_diagnostics(
     # Split label for the model card: the per-split plot_file is suffixed ``_<split>`` (val / test / train / oof / ...).
     _split = os.path.basename(plot_file).rsplit("_", 1)[-1] if plot_file else "test"
 
-    if getattr(cfg, "pdp_ice", True) and y_arr is not None:
+    # Collapse short-circuit: when a regression model's predictions have degenerated to ~constant
+    # (pred_std << target_std AND R^2 < 0 -- the group-shift inverse-collapse the sensor flags), the
+    # EXPENSIVE diagnostics carry no signal to slice/explain and just burn minutes of slice_finder
+    # combo-enumeration + Chromium/kaleido PDP/SHAP charts per collapsed (composite) target. Detect it
+    # cheaply from the predictions already in hand and skip those panels; cheap tabular diagnostics run.
+    _collapsed = False
+    if task == "regression" and y_arr is not None and y_pred is not None and len(y_pred) == len(y_arr):
+        try:
+            _ya = np.asarray(y_arr, dtype=np.float64).ravel()
+            _yp = np.asarray(y_pred, dtype=np.float64).ravel()
+            _fin = np.isfinite(_ya) & np.isfinite(_yp)
+            if int(_fin.sum()) > 2:
+                _ystd = float(np.std(_ya[_fin]))
+                _pstd = float(np.std(_yp[_fin]))
+                if _ystd > 0 and _pstd < 0.2 * _ystd:
+                    _ss_res = float(np.sum((_ya[_fin] - _yp[_fin]) ** 2))
+                    _ss_tot = float(np.sum((_ya[_fin] - _ya[_fin].mean()) ** 2))
+                    _collapsed = (_ss_tot > 0) and (1.0 - _ss_res / _ss_tot < 0.0)
+        except Exception:  # noqa: BLE001 -- collapse gate is a perf heuristic; never abort reporting
+            _collapsed = False
+    if _collapsed and getattr(cfg, "skip_expensive_diagnostics_on_collapse", True):
+        logger.info(
+            "[diagnostics] %s [%s]: predictions collapsed to ~constant (R2<0) -- skipping expensive "
+            "slice_finder / PDP / SHAP panels (no signal to explain); cheap tabular diagnostics still run.",
+            type(model).__name__ if model is not None else "model", _split,
+        )
+    else:
+        _collapsed = False  # gate disabled -> behave as before
+
+    if getattr(cfg, "pdp_ice", True) and y_arr is not None and not _collapsed:
         render_pdp_ice_diagnostic(
             model=model, df=df, feature_names=names, feature_importances=importances,
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
@@ -484,7 +513,7 @@ def _render_post_fit_diagnostics(
             grid=getattr(cfg, "pdp_grid", 20),
         )
 
-    if getattr(cfg, "pdp_2d_charts", False) and y_arr is not None:
+    if getattr(cfg, "pdp_2d_charts", False) and y_arr is not None and not _collapsed:
         render_pdp_2d_diagnostic(
             model=model, df=df, feature_names=names, feature_importances=importances,
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
@@ -494,7 +523,7 @@ def _render_post_fit_diagnostics(
     if (
         getattr(cfg, "slice_finder", True) and df is not None
         and y_arr is not None and y_pred is not None and y_arr.ndim == 1
-        and len(y_pred) == len(y_arr)
+        and len(y_pred) == len(y_arr) and not _collapsed
     ):
         render_slice_finder_diagnostic(
             df=df, y_true=y_arr, y_pred=y_pred, task=task, feature_names=names,
@@ -560,14 +589,14 @@ def _render_post_fit_diagnostics(
                     base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
                 )
 
-    if getattr(cfg, "shap_panels", True) and model is not None and df is not None:
+    if getattr(cfg, "shap_panels", True) and model is not None and df is not None and not _collapsed:
         render_shap_diagnostic(
             model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
             metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000),
             top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
         )
 
-    if getattr(cfg, "shap_interactions", False) and model is not None and df is not None:
+    if getattr(cfg, "shap_interactions", False) and model is not None and df is not None and not _collapsed:
         render_shap_interactions_diagnostic(
             model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
             metrics_dict=metrics, max_rows=getattr(cfg, "shap_interaction_max_rows", 2000),

@@ -231,6 +231,12 @@ class ReportingConfig(BaseConfig):
     model_comparison: bool = True
     # Multi-dim weak-slice search on the precomputed per-row error (no model calls); finds the worst feature-value regions.
     slice_finder: bool = True
+    # Skip the EXPENSIVE post-fit diagnostics (slice_finder combo-enumeration, PDP/ICE, SHAP panels)
+    # when a regression model's predictions have COLLAPSED to ~constant (pred_std << target_std AND
+    # R^2 < 0). A collapsed model carries no signal to slice/explain, and those panels otherwise burn
+    # minutes of Chromium/kaleido + enumeration per collapsed (composite) target. Cheap tabular
+    # diagnostics still run. Default ON; set False to always render every panel.
+    skip_expensive_diagnostics_on_collapse: bool = True
     # Decision-curve net-benefit analysis for binary targets (needs only y_true + positive-class score).
     decision_curve: bool = True
     # Calibration-drift-over-time for binary targets that carry a split timestamp; reuses the warmed njit ECE kernel.
