@@ -1156,6 +1156,19 @@ def greedy_cmi_fe_construct(
     y_bin = y_bin.astype(np.int64)
     n_samples = int(y_bin.size)
     frag_cap = max(2, n_samples // 5)
+    # RESIDENT fit-constant y for the GPU-strict greedy hot path: upload y_bin to the device ONCE here and hand
+    # the SAME cupy array to every per-round ``batched_cmi_gpu`` call (it uses an already-resident y as-is, no
+    # re-upload). Routed through ``resident_operand`` only to upload (and to be cleared at FE teardown); kept on a
+    # DISTINCT role from the per-permutation shuffled y so the transient null-draw y can never evict it. None when
+    # GPU is off (host path uses y_bin directly, byte-identical).
+    y_bin_dev = None
+    if _cmi_gpu_enabled():
+        try:
+            import cupy as _cp  # noqa: F401
+            from ._fe_resident_operands import resident_operand as _resident_operand
+            y_bin_dev = _resident_operand(y_bin, "cmi_greedy_y_fixed", dtype=np.int64)
+        except Exception:
+            y_bin_dev = None
     z_joint: Optional[np.ndarray] = None
     z_card = 1
 
@@ -1256,21 +1269,29 @@ def greedy_cmi_fe_construct(
         # (== the sequential ``cmi > best_cmi`` tie-break). Same MM plug-in CMI -> selection-equivalent;
         # per-candidate loop fallback on any error / GPU-off.
         _scan = [name for name in remaining if cand_fp[name] not in winner_fps]
-        _batched_cmis = None
+        _batched_done = False
         try:
             if _cmi_gpu_enabled() and len(_scan) > 1:
-                from ._fe_batched_mi import batched_cmi_gpu
+                from ._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
 
                 _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
                 for _j, _nm in enumerate(_scan):
                     _Xc[:, _j] = cand_bins[_nm]
                 _zc = z_joint if _have_z else None
-                _batched_cmis = np.asarray(batched_cmi_gpu(_Xc, y_bin, _zc), dtype=np.float64)
+                # RESIDENCY: the greedy loop only needs the argmax of the (K,) CMI vector (rest is discarded),
+                # and y_bin is fit-constant / z_joint round-constant. Pass the RESIDENT y_bin_dev (uploaded once)
+                # so y never re-crosses H2D; return_device keeps the (K,) vector on the device (no per-round bulk
+                # D2H); cmi_device_argmax pulls only the winning (idx, val) scalars. first-max == the sequential
+                # ``cmi > best_cmi`` tie-break. Falls back to host y_bin if the one-time device upload failed.
+                _yarg = y_bin_dev if y_bin_dev is not None else y_bin
+                _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True)
+                _bi, _bv = cmi_device_argmax(_mi_d)
+                best_cmi = float(_bv); best_name = _scan[_bi]
+                _batched_done = True
         except Exception:
-            _batched_cmis = None
-        if _batched_cmis is not None:
-            _bi = int(np.argmax(_batched_cmis))   # first-max == the sequential cmi > best_cmi tie-break
-            best_cmi = float(_batched_cmis[_bi]); best_name = _scan[_bi]
+            _batched_done = False
+        if _batched_done:
+            pass
         else:
             for name in _scan:
                 if _have_z:

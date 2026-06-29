@@ -452,13 +452,40 @@ def batched_quantile_bin_gpu(x_cols, nbins: int):
     return codes
 
 
-def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, codes_trusted: bool = False):
+def cmi_device_argmax(mi_d):
+    """First-max argmax of a RESIDENT (K,) cupy CMI vector, returning ONLY ``(int best_idx, float best_val)``
+    via one tiny scalar D2H -- NOT the (K,) vector.
+
+    Tiebreak matches ``np.argmax`` (LOWEST index among ties): ``cp.argmax`` already returns the first
+    occurrence of the maximum on a contiguous 1-D array, and that value is byte-identical to the host vector
+    the kernel would have produced (same buffer), so ``np.argmax(mi_d.get())`` and this agree exactly. We pull
+    the scalar index (int64, 8 B) and gather its value (float64, 8 B) -- two sub-``BULK_BYTES`` D2Hs -- instead
+    of D2H-ing the whole (K,) vector and arg-maxing on the host."""
+    import cupy as cp
+
+    if mi_d.size == 0:
+        return -1, float("-inf")
+    idx_d = cp.argmax(mi_d)                       # first-max index on device (matches np.argmax tiebreak)
+    best_idx = int(idx_d.get())                   # 8-byte scalar D2H
+    best_val = float(mi_d[best_idx].get())        # 8-byte scalar D2H (gather the single winning value)
+    return best_idx, best_val
+
+
+def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, codes_trusted: bool = False,
+                    return_device: bool = False):
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
-    from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes; ``z`` (n,) int codes or None
-    (marginal MI). Returns a host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per
-    column (selection-equivalent).
+    from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes (host OR resident cupy -- the
+    FIT-CONSTANT label, uploaded ONCE via the resident-operand cache when host); ``z`` (n,) int codes or None
+    (marginal MI; host OR resident cupy -- the ROUND-CONSTANT conditioning support, also resident-cached).
+    Returns a host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per column
+    (selection-equivalent).
+
+    ``return_device`` (default False -> byte-identical to today's ``cp.asnumpy`` return): keep the (K,)
+    float64 ``mi`` RESIDENT and return the cupy device array instead of D2H-ing the whole vector. The greedy
+    loop then takes the argmax on-device (:func:`cmi_device_argmax`) so only the 2 winning scalars cross back
+    rather than the (K,) vector. With ``return_cards`` the card arrays are likewise returned resident.
 
     ``return_cards`` (conditional path only): also return the occupied-cell cardinalities the analytic
     CMI-null df needs -- ``(cmi[K], k_z, k_xz[K], k_yz, k_xyz[K])`` -- computed in the SAME workload (they
@@ -468,6 +495,7 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, c
     definition) -> df bit-identical.
     """
     import cupy as cp
+    from ._fe_resident_operands import resident_operand
 
     if isinstance(x_cols, cp.ndarray):
         X = x_cols.astype(cp.int64, copy=False)
@@ -477,13 +505,19 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, c
         X = X[:, None]
     X = cp.ascontiguousarray(X)   # batched joint-hist kernels read X[row*K+col] (C-order (n,K)); no-op if already
     n, K = int(X.shape[0]), int(X.shape[1])
-    dy = cp.asarray(np.ascontiguousarray(y).astype(np.int64).ravel())
+    # y is FIT-CONSTANT: when host, route through the resident-operand cache so it uploads ONCE per fit (keyed
+    # on role + shape + content fingerprint) instead of one H2D per candidate batch; when already resident
+    # (caller kept a born-on-device y), use as-is (no copy).
+    if isinstance(y, cp.ndarray):
+        dy = y.astype(cp.int64, copy=False).ravel()
+    else:
+        dy = resident_operand(np.asarray(y).ravel(), "cmi_y", dtype=np.int64)
     nf = float(max(1, n))
     inv_n = 1.0 / nf
     Kx = int(X.max()) + 1 if X.size else 1
     _assert_codes_in_range(X, Kx, "batched_cmi_gpu X codes", codes_trusted)
 
-    if z is None or (hasattr(z, "size") and np.asarray(z).size == 0):
+    if z is None or (hasattr(z, "size") and (z.size if isinstance(z, cp.ndarray) else np.asarray(z).size) == 0):
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
         Ky = int(dy.max()) + 1 if dy.size else 1
         _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes", codes_trusted)
@@ -494,9 +528,17 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, c
         h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)                     # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
         # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
         mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), 1.0 / (2.0 * nf))
+        # return_device: keep the (K,) vector resident (caller device-argmaxes -> 2 scalars cross back, not K).
+        if return_device:
+            return mi
         return cp.asnumpy(mi)
 
-    dz = cp.asarray(np.ascontiguousarray(z).astype(np.int64).ravel())
+    # z is ROUND-CONSTANT: when host, resident-cache it (one H2D per round, reused across candidate batches);
+    # when already resident, use as-is. The shape+content fingerprint distinguishes successive rounds' z.
+    if isinstance(z, cp.ndarray):
+        dz = z.astype(cp.int64, copy=False).ravel()
+    else:
+        dz = resident_operand(np.asarray(z).ravel(), "cmi_z", dtype=np.int64)
     Kz = int(dz.max()) + 1 if dz.size else 1
     # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
     Ky_cond = int(dy.max()) + 1 if dy.size else 1
@@ -527,12 +569,19 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, c
         h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
     # FUSED assembly: max(h_xz - h_xyz + (h_yz - h_z) - (k_xyz - k_xz + (k_z - k_yz))/2n, 0) in one (K,) launch.
-    cmi_host = cp.asnumpy(_cmi_assemble(h_xz, h_xyz, float(h_yz - h_z),
-                                        k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * nf)))
+    cmi_d = _cmi_assemble(h_xz, h_xyz, float(h_yz - h_z),
+                          k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * nf))
     if return_cards:
-        return (cmi_host, int(k_z), cp.asnumpy(k_xz).astype(np.int64),
+        # return_device: keep cmi + the per-column card arrays RESIDENT (k_z / k_yz are already host scalars);
+        # default False = byte-identical D2H of the cmi vector + the two (K,) int card arrays as today.
+        if return_device:
+            return (cmi_d, int(k_z), k_xz.astype(cp.int64),
+                    int(k_yz), k_xyz.astype(cp.int64))
+        return (cp.asnumpy(cmi_d), int(k_z), cp.asnumpy(k_xz).astype(np.int64),
                 int(k_yz), cp.asnumpy(k_xyz).astype(np.int64))
-    return cmi_host
+    if return_device:
+        return cmi_d
+    return cp.asnumpy(cmi_d)
 
 
 # Back-compat re-exports: the batched CMI count/entropy kernel infrastructure was carved into
