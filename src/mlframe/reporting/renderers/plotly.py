@@ -76,6 +76,16 @@ _SCATTER_DOWNSAMPLE_WARNED = False
 # Above this many heatmap cells, per-cell text is unreadable soup AND the plotly add_annotation loop (one layout
 # copy per cell) stalls; skip the text past it (matches the matplotlib renderer cap).
 _HEATMAP_CELL_TEXT_MAX = 400
+# A density heatmap bins into ~80x80 cells; one tick per cell-label overlaps into unreadable soup. Cap at this many
+# evenly-spaced ticks per axis (the full grid is still drawn).
+_HEATMAP_MAX_TICKS = 8
+
+
+def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
+    """Evenly-spaced tick indices for an axis of ``n`` labels, always including the first and last."""
+    if n <= max_ticks:
+        return list(range(n))
+    return sorted({int(round(i * (n - 1) / (max_ticks - 1))) for i in range(max_ticks)})
 
 
 def _finite_range(mat):
@@ -210,11 +220,23 @@ class PlotlyRenderer:
 
         top_margin = (40 + n_suptitle_lines * (spec.suptitle_fontsize + 8)) if spec.suptitle else 50  # base band + ~(fontsize+8)px/line clears row-1 subplot titles
 
+        # How-to-read footnote pinned to the bottom edge (paper coords), small + dim. Grows the bottom margin so it
+        # never overlaps the axes or the below-figure legend.
+        n_caption_lines = 0
+        if spec.caption:
+            wrapped_caption = _wrap_text(spec.caption, _SUPTITLE_WRAP_CHARS)
+            n_caption_lines = wrapped_caption.count("<br>") + 1
+            fig.add_annotation(
+                text=wrapped_caption, xref="paper", yref="paper", x=0.5, y=0, xanchor="center", yanchor="top",
+                yshift=-((90 if static_legend else 30) + 8), showarrow=False, font=dict(size=9, color="#595959"),
+            )
+        bottom_margin = (90 if static_legend else 50) + n_caption_lines * 16
+
         fig.update_layout(
             width=int(spec.figsize[0] * 80),   # ~80px per matplotlib inch
-            height=int(spec.figsize[1] * 80) + (top_margin if spec.suptitle else 0),
+            height=int(spec.figsize[1] * 80) + (top_margin if spec.suptitle else 0) + n_caption_lines * 16,
             # Bottom margin grows when the legend is shown so the below-figure legend has room.
-            margin=dict(l=60, r=40, t=top_margin, b=90 if static_legend else 50),
+            margin=dict(l=60, r=40, t=top_margin, b=bottom_margin),
             # Interactive HTML identifies series via hover tooltips, so the legend defaults off there to avoid
             # the multi-subplot soup (precision/recall/F1 mixed with reliability lines). A static export has no
             # hover; the caller flips ``static_legend`` when a png/svg/pdf is in the save set so it stays readable.
@@ -592,10 +614,15 @@ class PlotlyRenderer:
                     row=row, col=col,
                 )
 
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
-                         tickangle=-45)
+        # A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. Thin to <= _HEATMAP_MAX_TICKS
+        # evenly-spaced category ticks (the full grid is still drawn).
+        _xt = _thin_tick_positions(len(p.col_labels))
+        _yt = _thin_tick_positions(len(p.row_labels))
+        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45,
+                         tickmode="array", tickvals=[p.col_labels[i] for i in _xt])
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col,
-                         autorange="reversed")  # match matplotlib top-to-bottom row order
+                         autorange="reversed",  # match matplotlib top-to-bottom row order
+                         tickmode="array", tickvals=[p.row_labels[i] for i in _yt])
 
     def _bar(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go

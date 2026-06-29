@@ -362,6 +362,9 @@ class FigureSpec:
     # when bbox-aware solving is genuinely needed (e.g. multi-line suptitles).
     constrained_layout: bool = False
     suptitle_fontsize: int = 11
+    # Optional small-font explanatory footnote rendered at the BOTTOM of the figure (how-to-read text that would
+    # otherwise bloat a panel title). Kept out of the title so the chart area stays maximal.
+    caption: str = ""
     # Optional: row height ratios (e.g. (3, 1) for calibration scatter +
     # smaller bin-population panel). Length must equal len(panels).
     row_height_ratios: Optional[Tuple[float, ...]] = None

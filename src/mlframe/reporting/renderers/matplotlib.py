@@ -46,6 +46,16 @@ _HIST_PREBIN_THRESHOLD = 50_000
 # Above this many heatmap cells the per-cell text turns to unreadable soup; skip it (also keeps the plotly
 # per-annotation O(cells) loop from stalling on a degenerate huge-K grid).
 _HEATMAP_CELL_TEXT_MAX = 400
+# A density heatmap bins into ~80x80 cells, so one tick per cell-label overlaps into unreadable soup. Above this
+# many labels, show at most ``_HEATMAP_MAX_TICKS`` evenly-spaced ticks (the rest of the grid is still drawn).
+_HEATMAP_MAX_TICKS = 8
+
+
+def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
+    """Evenly-spaced tick indices for an axis of ``n`` labels, always including the first and last."""
+    if n <= max_ticks:
+        return list(range(n))
+    return sorted({int(round(i * (n - 1) / (max_ticks - 1))) for i in range(max_ticks)})
 
 
 def _finite_range(mat):
@@ -112,7 +122,7 @@ class MatplotlibRenderer:
         # band on figsize=(15, 4-5) — visible collision in saved PNGs.
         # constrained_layout reserves space for the suptitle. The ~800 ms
         # cost only fires when caller actually asked for a suptitle.
-        layout = "constrained" if (spec.constrained_layout or spec.suptitle) else None
+        layout = "constrained" if (spec.constrained_layout or spec.suptitle or spec.caption) else None
         fig_kwargs = {"figsize": spec.figsize, "layout": layout}
         if spec.dpi is not None:
             fig_kwargs["dpi"] = spec.dpi
@@ -159,6 +169,21 @@ class MatplotlibRenderer:
             for _ln in str(spec.suptitle).split("\n"):
                 _sup_lines.extend(textwrap.wrap(_ln, width=90, break_long_words=False) or [""])
             fig.suptitle("\n".join(_sup_lines), fontsize=spec.suptitle_fontsize)
+        if spec.caption:
+            # How-to-read footnote, small + dim, in a reserved bottom band so it never overlaps the x-axis label.
+            # constrained_layout (forced on above when a caption is present) is told to leave the band free via rect.
+            import textwrap
+            _cap_lines = textwrap.wrap(str(spec.caption), width=110, break_long_words=False) or [""]
+            _cap = "\n".join(_cap_lines)
+            _h_px = fig.get_size_inches()[1] * (fig.get_dpi() or 100.0)
+            _band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)  # bottom fraction reserved for the caption
+            _eng = fig.get_layout_engine()
+            if _eng is not None:
+                try:
+                    _eng.set(rect=(0.0, _band, 1.0, 1.0))
+                except Exception:
+                    pass
+            fig.text(0.5, _band * 0.5, _cap, ha="center", va="center", fontsize=7, color="0.35")
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
@@ -322,9 +347,12 @@ class MatplotlibRenderer:
                 # markers then drive x far past the data); "box" keeps the fixed limits and squares via the box.
                 ax.set_aspect("equal", "box")
             else:
+                # Equal lo..hi limits on both axes already make the diagonal a true 45-degree line; square via the box
+                # ("box" respects the fixed limits). "datalim" would instead adjust the limits to satisfy the aspect and
+                # log "Ignoring fixed x limits to fulfill fixed data aspect" on every scatter panel.
                 ax.set_xlim(lo, hi)
                 ax.set_ylim(lo, hi)
-                ax.set_aspect("equal", "datalim")
+                ax.set_aspect("equal", "box")
         if p.xlim is not None:
             ax.set_xlim(*p.xlim)
         if p.ylim is not None:
@@ -420,10 +448,12 @@ class MatplotlibRenderer:
         # default top-down matrix orientation.
         _heatmap_origin = "lower" if getattr(p, "trend_xy", None) is not None else "upper"
         im = ax.imshow(p.matrix, cmap=cm, aspect="auto", origin=_heatmap_origin)
-        ax.set_xticks(range(len(p.col_labels)))
-        ax.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
-        ax.set_yticks(range(len(p.row_labels)))
-        ax.set_yticklabels(p.row_labels, fontsize=8)
+        _xt = _thin_tick_positions(len(p.col_labels))
+        ax.set_xticks(_xt)
+        ax.set_xticklabels([p.col_labels[i] for i in _xt], rotation=45, ha="right", fontsize=8)
+        _yt = _thin_tick_positions(len(p.row_labels))
+        ax.set_yticks(_yt)
+        ax.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
             from mlframe.reporting.colors import auto_text_color

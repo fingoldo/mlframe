@@ -236,7 +236,9 @@ def build_risk_coverage_spec(
     else:
         verdict = "Verdict: insufficient data to quantify a selective gain."
 
-    title_full = f"{title}{note}\n{how_to_read}\n{verdict}"
+    # Title carries only the headline + the actionable verdict; the multi-sentence how-to-read goes to the figure
+    # caption (bottom footnote) so it doesn't swallow the chart area.
+    title_full = f"{title}{note}\n{verdict}"
 
     if is_regression:
         flat = np.full_like(cov_p, full_risk)
@@ -280,7 +282,7 @@ def build_risk_coverage_spec(
             point_markers=markers,
         )
 
-    fig = FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    fig = FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=how_to_read)
     return RiskCoverageResult(
         figure=fig,
         coverage=coverage,
