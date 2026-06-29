@@ -474,11 +474,32 @@ def _worm_panel(
     z95 = 1.959963984540054
     ci = z95 * se
     zero = np.zeros_like(zt)
+    # Auto-interpretation so the panel is self-explanatory: the worm tests whether the model's RESIDUALS
+    # are Gaussian. Flat-on-zero = normal (the usual prediction-interval / RMSE assumptions hold);
+    # both tails bending UP-and-down away from zero = heavy tails (a few errors much larger than Gaussian
+    # -> RMSE understates worst-case, prediction intervals too narrow); a consistent up- or down-tilt =
+    # skew (systematic over/under-prediction in one tail).
+    _frac_out = float(np.mean(np.abs(detrended) > ci)) if ci.size else 0.0
+    _rt = float(np.median(detrended[zt >= 1.0])) if np.any(zt >= 1.0) else 0.0
+    _lt = float(np.median(detrended[zt <= -1.0])) if np.any(zt <= -1.0) else 0.0
+    if _frac_out < 0.05:
+        _shape = "residuals ~ normal (interval/RMSE assumptions hold)"
+    elif _rt > 0 and _lt < 0:
+        _shape = "HEAVY TAILS -- a few errors far larger than Gaussian (RMSE understates worst-case)"
+    elif _rt > 0 and _lt > 0:
+        _shape = "RIGHT-SKEW residuals (under-prediction tail)"
+    elif _rt < 0 and _lt < 0:
+        _shape = "LEFT-SKEW residuals (over-prediction tail)"
+    else:
+        _shape = "light tails"
     return LinePanelSpec(
         x=zt,
         y=(detrended, zero),
         series_labels=("de-trended QQ (sample - theoretical)", "normal (zero)"),
-        title=f"Worm plot (de-trended normal QQ; n={n:,}, plotted {zt.size:,})",
+        title=(
+            f"Worm plot -- are residuals Gaussian? {_shape}\n"
+            f"({_frac_out:.0%} of points outside 95% CI; n={n:,}, plotted {zt.size:,})"
+        ),
         xlabel="Theoretical normal quantile",
         ylabel="Sample quantile - theoretical (standardised)",
         line_styles=("lines+markers", "--"),

@@ -150,7 +150,15 @@ class MatplotlibRenderer:
                 self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
 
         if spec.suptitle:
-            fig.suptitle(spec.suptitle, fontsize=spec.suptitle_fontsize)
+            # Wrap a long suptitle so it doesn't overflow the figure width (a verbose model identity
+            # like "TEST LGBMRegressor TVT basic_new ... trained on 4.1M rows @iter=298 training curves"
+            # ran off the right edge). Wrap each author-supplied line independently so explicit newlines
+            # are preserved; ~90 chars suits the full figure width (vs ~46 for a single panel).
+            import textwrap
+            _sup_lines = []
+            for _ln in str(spec.suptitle).split("\n"):
+                _sup_lines.extend(textwrap.wrap(_ln, width=90, break_long_words=False) or [""])
+            fig.suptitle("\n".join(_sup_lines), fontsize=spec.suptitle_fontsize)
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:

@@ -388,7 +388,7 @@ def compose_pdp_figure(
     suptitle: str = "Partial dependence / ICE",
     max_cols: int = 2,
     cell_width: float = 6.0,
-    cell_height: float = 4.0,
+    cell_height: float = 5.0,
     seed: int = 0,
 ) -> FigureSpec:
     """Grid of one-feature PDP/ICE panels for the caller-ranked ``features`` (top-N first).
@@ -402,6 +402,25 @@ def compose_pdp_figure(
     panels: List[PanelSpec] = [
         pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features
     ]
+    # Auto-conclusion in the suptitle: a feature whose PDP mean barely moves has ~no marginal effect on
+    # the prediction (the model isn't using it on average -- e.g. the two flat panels the operator
+    # spotted). Measure each 1-D panel's PDP-mean range (last series = bold mean) and flag those under
+    # 5% of the largest feature's range, so the reader sees the verdict without eyeballing every panel.
+    _ranges: list[tuple[str, float]] = []
+    for _pnl in panels[: len(features)]:
+        _ys = getattr(_pnl, "y", None)
+        if isinstance(_ys, tuple) and _ys:
+            _mean = np.asarray(_ys[-1], dtype=float)
+            if _mean.size and np.isfinite(_mean).any():
+                _ranges.append((getattr(_pnl, "xlabel", "?"), float(np.nanmax(_mean) - np.nanmin(_mean))))
+    if _ranges:
+        _max_rng = max((r for _, r in _ranges), default=0.0)
+        _flat = [name for name, r in _ranges if _max_rng > 0 and r < 0.05 * _max_rng]
+        if _flat:
+            suptitle = (
+                f"{suptitle}\nFlat PDP -- ~no marginal effect (range < 5% of top feature): "
+                f"{', '.join(_flat[:6])}"
+            )
     if interaction_pair is not None:
         panels.append(pdp_2d_panel(model, X, interaction_pair, grid=grid, sample=sample, seed=seed))
     packed = pack_panels(panels, max_cols=max_cols)
