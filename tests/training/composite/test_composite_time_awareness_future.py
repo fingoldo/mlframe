@@ -65,6 +65,31 @@ class TestM6TimeOrdering:
         assert cfg.time_column == "ts"
 
 
+class TestG1MonotoneBaseWithGroupsNoFalseWarning:
+    def test_groups_plus_monotone_base_no_timestamps_does_not_warn_temporal_leak(self, caplog) -> None:
+        """With groups present and NO time-ordering, a merely level-monotone base must NOT be treated as temporal:
+        the CV is GroupKFold regardless, so the 'temporal order is NOT preserved' warning is a false positive."""
+        import logging
+        rng = np.random.default_rng(3)
+        n, n_groups = 800, 8
+        g = np.repeat(np.arange(n_groups), n // n_groups)
+        # A GLOBALLY level-monotone base (depth-like, like prod's ``expected_tvt_in_layer_p50``): _is_monotone_nondecreasing
+        # reads it as "temporal", which pre-fix forced time_aware=True and fired the warning despite groups + no timestamps.
+        # mi_sample_n == n so the screen sample preserves the monotone order (no subsample reshuffle).
+        base = np.sort(rng.uniform(0, 100, n))
+        y = base * 0.5 + rng.normal(0.0, 1.0, size=n)
+        feat = rng.normal(0.0, 1.0, size=n)
+        df = pd.DataFrame({"y": y, "expected_level_p50": base, "feat": feat})
+        cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=n, base_candidates=["expected_level_p50"])
+        disc = CompositeTargetDiscovery(cfg)
+        disc._group_ids_for_rerank = g  # production wires the group-aware split here
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.discovery._screening_tiny_perbin"):
+            disc.fit(df, "y", ["expected_level_p50", "feat"], np.arange(n))
+        assert not any("temporal order" in r.getMessage() for r in caplog.records), (
+            "monotone base + groups + no timestamps must not raise the temporal-leak warning (GroupKFold is correct)"
+        )
+
+
 class TestA29ZeroBaseSentinel:
     def test_trending_y_zero_base_baseline_exceeds_fold_mean_naive_std(self) -> None:
         """On strongly trending y the train-fold-mean predictor (forward walk)

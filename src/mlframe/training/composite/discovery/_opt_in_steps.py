@@ -21,7 +21,8 @@ appends to ``kept_specs``.
 
 Flag discipline (CRITICAL)
 --------------------------
-All three flags default ``True`` (each step has test-confirmed business value).
+``interaction_base_discovery_enabled`` and ``auto_chain_discovery_enabled`` default ``True`` (each has test-confirmed
+business value); ``region_adaptive_enabled`` defaults ``False`` (committed-but-rejected prototype, kept behind the flag).
 With all three explicitly set ``False`` this function is a flag-gated no-op: it
 returns an empty list and sets each artefact attribute to its empty default, so
 the discovered ``specs_`` / ``report_`` are byte-identical to the pre-hook flow.

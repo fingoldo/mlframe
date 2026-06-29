@@ -304,9 +304,12 @@ def _tiny_model_rerank(
         # time_ordering), every spec is time-aware regardless of base shape --
         # the canonical non-monotone lag(y) base is exactly the case the
         # base-monotonicity heuristic (the None-time fallback) missed.
+        # The base-monotonicity heuristic is a NO-TIMESTAMP fallback only: with groups present the CV is GroupKFold
+        # regardless (no global temporal axis exists), so a merely depth/level-monotone base must NOT read as temporal
+        # -- otherwise it raises a spurious "temporal order not preserved" warning while the split is unchanged.
         base_t_aware = bool(
             getattr(self, "_screen_time_ordered_", False)
-            or _is_monotone_nondecreasing(base_screen_local)
+            or (_groups_screen is None and _is_monotone_nondecreasing(base_screen_local))
         )
         fam_rmses: dict[str, float] = {}
         per_seed_by_family: dict[str, np.ndarray] = {}
@@ -533,7 +536,7 @@ def _tiny_model_rerank(
                 return_per_bin=True, n_bins=per_bin_n_bins,
                 time_aware=bool(
                     getattr(self, "_screen_time_ordered_", False)
-                    or _is_monotone_nondecreasing(base_screen)
+                    or (_groups_screen is None and _is_monotone_nondecreasing(base_screen))
                 ),
                 groups=_groups_screen,
             )
@@ -572,12 +575,14 @@ def _tiny_model_rerank(
         # the same predicate as the per-spec side (base_t_aware) avoids the
         # cross-scheme mismatch where a monotone base put the raw baseline
         # on TSS while non-monotone specs were scored on shuffled KFold.
-        _any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or any(
-            _is_monotone_nondecreasing(
-                _per_base_cache.get(spec.base_column, (None, None))[0]
+        _any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
+            _groups_screen is None and any(
+                _is_monotone_nondecreasing(
+                    _per_base_cache.get(spec.base_column, (None, None))[0]
+                )
+                for spec in kept_specs
+                if _per_base_cache.get(spec.base_column, (None, None))[0] is not None
             )
-            for spec in kept_specs
-            if _per_base_cache.get(spec.base_column, (None, None))[0] is not None
         )
         raw_per_seed_per_family: dict[str, np.ndarray] = {}
         for family in families:
