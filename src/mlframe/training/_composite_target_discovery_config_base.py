@@ -601,9 +601,15 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # aggregate). Reject when between_var/total_var > frac AND s*between_group_std > ratio*std(y).
     # Default ON; group-aware only (no-op without group ids). 1.0 thresholds effectively disable.
     structural_fragility_gate_enabled: bool = True
-    structural_fragility_between_group_var_frac: float = 0.5
-    structural_fragility_max_amplification_ratio: float = 0.5
+    # Reject a base-additive spec when this fraction of the base's variance is BETWEEN-group (a
+    # per-group LEVEL that extrapolates on unseen groups). Scale-invariant -- the absolute-amplitude
+    # variant was scale-buggy (pipeline-standardized bases made between_std incomparable to std(y), so
+    # the gate silently never fired).
+    structural_fragility_between_group_var_frac: float = 0.6
     structural_fragility_min_base_sensitivity: float = 0.5
+    # Deprecated/unused: the gate is now the scale-invariant between/total ratio above, not an absolute
+    # amplitude vs std(y). Kept for back-compat with configs that set it; has no effect.
+    structural_fragility_max_amplification_ratio: float = 0.5
 
     # Cross-target ensemble honest-OOF stacking: cap the number of TRAIN rows the K-fold OOF refit
     # uses to estimate the (~dozen-component) NNLS / dummy-floor blend weights. The weights are a tiny

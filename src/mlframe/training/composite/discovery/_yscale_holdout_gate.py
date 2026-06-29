@@ -156,8 +156,7 @@ def apply_structural_fragility_gate(
     if std_y <= 0:
         return kept_specs
 
-    frac = float(getattr(cfg, "structural_fragility_between_group_var_frac", 0.5))
-    amp_ratio = float(getattr(cfg, "structural_fragility_max_amplification_ratio", 0.5))
+    frac = float(getattr(cfg, "structural_fragility_between_group_var_frac", 0.6))
     s_min = float(getattr(cfg, "structural_fragility_min_base_sensitivity", 0.5))
 
     n = train_idx.size
@@ -204,9 +203,14 @@ def apply_structural_fragility_gate(
         gmean = gsum / np.maximum(gcnt, 1.0)
         between_var = float(np.var(gmean))
         ratio = between_var / total_var
-        amp = s * float(np.sqrt(between_var))
-        if ratio > frac and amp > amp_ratio * std_y:
-            rejected.append((spec.name, s, ratio, amp / std_y))
+        # SCALE-INVARIANT predicate: a base whose variance is dominated by BETWEEN-group (well) level
+        # differences is a per-group LEVEL -- on unseen groups it takes out-of-range values and a
+        # base-additive inverse (s>=s_min, already checked) re-injects them, collapsing y. The absolute
+        # amplitude (s*between_std vs std_y) is NOT used: the discovery frame may be pipeline-
+        # standardized, so between_std is on a different scale than std(y) and the comparison silently
+        # never fired. The between/total RATIO is scale-free and is the true "per-group level" signal.
+        if ratio > frac:
+            rejected.append((spec.name, s, ratio))
             continue
         survivors.append(spec)
 
@@ -216,7 +220,7 @@ def apply_structural_fragility_gate(
             "whose inverse re-injects a per-group-level base (fragile on unseen groups, before the "
             "val-split gate even runs): %s",
             len(rejected), len(kept_specs),
-            ", ".join(f"{nm}(s={s:.2g}, between/total={r:.2f}, amp/std_y={a:.2f})" for nm, s, r, a in rejected[:5]),
+            ", ".join(f"{nm}(s={s:.2g}, between/total={r:.2f})" for nm, s, r in rejected[:5]),
         )
     return survivors
 
