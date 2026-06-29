@@ -407,7 +407,11 @@ class MatplotlibRenderer:
         from mlframe.reporting.colors import resolve_heatmap_cmap
         cmap_name = resolve_heatmap_cmap(p.colormap)
         cm = matplotlib.colormaps[cmap_name]
-        im = ax.imshow(p.matrix, cmap=cm, aspect="auto")
+        # A density panel carrying ``trend_xy`` (the regression pred-vs-true heatmap) reads "bottom-up"
+        # (row 0 = lowest value), so it needs origin="lower"; other heatmaps (confusion / drift) keep the
+        # default top-down matrix orientation.
+        _heatmap_origin = "lower" if getattr(p, "trend_xy", None) is not None else "upper"
+        im = ax.imshow(p.matrix, cmap=cm, aspect="auto", origin=_heatmap_origin)
         ax.set_xticks(range(len(p.col_labels)))
         ax.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
         ax.set_yticks(range(len(p.row_labels)))
@@ -441,12 +445,34 @@ class MatplotlibRenderer:
                         ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4)
         if p.trend_line is not None and p.trend_xy is not None:
             from mlframe.reporting.renderers._trend import robust_fit_endpoints
-            ends = robust_fit_endpoints(p.trend_xy[0], p.trend_xy[1], p.trend_line)
-            if ends is not None:
-                (tx0, ty0), (tx1, ty1) = ends
-                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-",
-                        linewidth=1.6, label=f"robust fit ({p.trend_line})")
-                ax.legend(loc="best", fontsize=8, framealpha=0.7)
+            # The imshow axes live in BIN-INDEX space (0..nbins-1); robust_fit_endpoints + the y=x
+            # diagonal are in VALUE space. Map value -> index using the SAME (lo, hi) the panel binned on
+            # (lo = min over both arrays, hi = max), else the line is plotted at value coords (~1e4) on a
+            # 0..79 axis, auto-expanding the axis and squishing the density into a corner.
+            _xv = np.asarray(p.trend_xy[0], dtype=np.float64).ravel()
+            _yv = np.asarray(p.trend_xy[1], dtype=np.float64).ravel()
+            _fin = np.isfinite(_xv) & np.isfinite(_yv)
+            _nb = len(p.col_labels)
+            if int(_fin.sum()) >= 2 and _nb >= 2:
+                _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
+                _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
+                if _hi > _lo:
+                    def _to_idx(v: float) -> float:
+                        return (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
+                    # y=x reference in index space (origin="lower" -> bottom-left to top-right).
+                    ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":",
+                            linewidth=1.0, label="y=x")
+                    ends = robust_fit_endpoints(_xv, _yv, p.trend_line)
+                    if ends is not None:
+                        (tx0, ty0), (tx1, ty1) = ends
+                        ax.plot(
+                            [_to_idx(tx0), _to_idx(tx1)], [_to_idx(ty0), _to_idx(ty1)],
+                            color="darkorange", linestyle="-", linewidth=1.6,
+                            label=f"robust fit ({p.trend_line})",
+                        )
+                    ax.set_xlim(-0.5, _nb - 0.5)
+                    ax.set_ylim(-0.5, _nb - 0.5)
+                    ax.legend(loc="best", fontsize=8, framealpha=0.7)
         cbar = fig.colorbar(im, ax=ax)
         if p.colorbar_label:
             cbar.set_label(p.colorbar_label)
