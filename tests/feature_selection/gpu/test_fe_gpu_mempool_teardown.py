@@ -52,10 +52,23 @@ def _need_cuda() -> bool:
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_helper_actually_releases_retained_blocks(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    pool = cp.get_default_memory_pool()
-    # allocate then drop -> the block is retained by the pool (free_bytes > 0), not returned to the device.
-    a = cp.empty(4 * 1024 * 1024, dtype=cp.float64)  # 32 MiB
-    del a
-    assert pool.free_bytes() > 0, "expected a retained free block before teardown"
-    assert _free_gpu_fe_mempool() is True
-    assert pool.free_bytes() == 0, "teardown must return the pool's unused blocks to the device"
+    # Isolate from sibling-test pool state. The helper reclaims whatever ``cupy.get_default_memory_pool()``
+    # returns, so point that (and ``cp.empty``'s allocator) at a FRESH pool this test fully owns: a prior MRMR
+    # fit leaves live module-level resident buffers that pin partly-used arenas in the SHARED pool, making an
+    # absolute ``free_bytes() == 0`` there false-fail. On a clean, fully-owned pool the absolute contract is
+    # exact and pollution-immune. Restore the original allocator + default-pool getter on teardown so a sibling's
+    # live buffers are never stranded. A removed / mis-gated teardown call still fails (free_bytes stays > 0).
+    orig_pool = cp.get_default_memory_pool()
+    fresh = cp.cuda.MemoryPool()
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: fresh)
+    cp.cuda.set_allocator(fresh.malloc)
+    try:
+        # allocate then drop -> the block is retained free by the pool (no live ref), not returned to the device.
+        a = cp.empty(4 * 1024 * 1024, dtype=cp.float64)  # 32 MiB
+        del a
+        assert fresh.free_bytes() > 0, "expected a retained free block before teardown"
+        assert _free_gpu_fe_mempool() is True
+        assert fresh.free_bytes() == 0, "teardown must return the pool's unused blocks to the device"
+    finally:
+        cp.cuda.set_allocator(orig_pool.malloc)
+        fresh.free_all_blocks()

@@ -659,8 +659,14 @@ def test_conditional_perm_null_fixed_yz_bit_identical():
         precompute_cmi_yz_terms,
     )
 
-    _prev = os.environ.get("MLFRAME_CMI_GPU")
-    os.environ["MLFRAME_CMI_GPU"] = "0"   # CPU-vs-CPU exactness contract; the suite's GPU env must not reroute it
+    # ``_cmi_gpu_enabled()`` reroutes to the GPU twin under EITHER MLFRAME_CMI_GPU==1 OR MLFRAME_FE_GPU_STRICT;
+    # the suite may set either, so this CPU-vs-CPU exactness contract must neutralise BOTH for its duration
+    # (setting only MLFRAME_CMI_GPU=0 still reroutes under a suite-global MLFRAME_FE_GPU_STRICT=1 -> the GPU
+    # fp-reduction order then breaks the == by ~1e-15, which is NOT a refactor bug).
+    _gpu_env_keys = ("MLFRAME_CMI_GPU", "MLFRAME_FE_GPU_STRICT")
+    _prev = {k: os.environ.get(k) for k in _gpu_env_keys}
+    os.environ["MLFRAME_CMI_GPU"] = "0"
+    os.environ.pop("MLFRAME_FE_GPU_STRICT", None)
     try:
         rng = np.random.default_rng(7)
         for _ in range(200):
@@ -673,10 +679,11 @@ def test_conditional_perm_null_fixed_yz_bit_identical():
             got = cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)
             assert ref == got, f"fixed-yz CMI diverged: ref={ref!r} got={got!r}"
     finally:
-        if _prev is None:
-            os.environ.pop("MLFRAME_CMI_GPU", None)
-        else:
-            os.environ["MLFRAME_CMI_GPU"] = _prev
+        for k, v in _prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def test_analytic_cmi_null_matches_permutation_decision():
