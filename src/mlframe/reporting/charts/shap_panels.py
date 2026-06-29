@@ -4,8 +4,11 @@ Two matplotlib-native panels off ONE explainer + ONE SHAP-value computation:
 
 * the beeswarm (summary) -- every feature's |SHAP| distribution, ranked top-down by mean |SHAP|
   so the model's headline drivers sit at the top;
-* a dependence scatter per top-K feature -- how that feature's value maps to its SHAP contribution,
-  revealing the learned monotone / kink / interaction shape.
+* the top-K dependence scatters PACKED INTO A GRID (>= ``DEPENDENCE_GRID_COLS`` panels per figure, not one
+  stacked figure per feature) -- each panel shows how that feature's value maps to its SHAP contribution and
+  carries an AUTO-INTERPRETATION in its title: the monotone direction (Spearman of value vs SHAP), the SHAP
+  impact range, and whether the curve is SMOOTH (a simple directional effect) or STEP/DISCONTINUOUS (a sharp
+  learned threshold, with the threshold value marked) or non-monotone (interaction / mixed effect).
 
 Compute gate (``is_tree_model``): tree models get ``shap.TreeExplainer`` which is exact and fast
 (polynomial in tree size, independent of background size) -> a default-on diagnostic candidate.
@@ -39,6 +42,7 @@ try:
 except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip plotting
     plt = None  # type: ignore[assignment]
 
+from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels  # noqa: F401  (pack_panels re-exported for grid composers / parity with pdp_ice)
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,17 @@ _K_EXTREMES: int = 200
 KERNEL_BACKGROUND: int = 100
 KERNEL_MAX_ROWS: int = 500
 
+# Dependence panels are packed into a grid (>= this many per figure) instead of one-per-figure stacked
+# vertically, so a top_k=6 run is ONE 2x3 figure rather than six stacked plots wasting screen height.
+DEPENDENCE_GRID_COLS: int = 2
+# A dependence curve is judged DISCONTINUOUS/STEP when the largest local jump in the value-sorted, smoothed
+# SHAP curve exceeds this fraction of the curve's overall SHAP range -- i.e. the model has a sharp threshold
+# in that feature rather than a gradual effect.
+_STEP_JUMP_FRAC: float = 0.33
+# Below this many finite (value, shap) points a per-feature interpretation is unreliable, so the panel just
+# scatters without a verdict (never raises -- best-effort diagnostic).
+_MIN_INTERP_POINTS: int = 20
+
 # Substrings in a model's class MRO that mark a tree / GBDT model TreeExplainer handles exactly+fast.
 _TREE_MARKERS: Tuple[str, ...] = (
     "randomforest", "extratrees", "decisiontree", "gradientboosting", "histgradientboosting",
@@ -67,8 +82,8 @@ class ShapPanelsResult:
     """Outcome of :func:`shap_summary_and_dependence`.
 
     ``figures`` are the (still-open unless closed) matplotlib figures in draw order: beeswarm first,
-    then one dependence figure per top-K feature. ``paths`` are the files written (parallel to the
-    plot kinds). ``top_features`` / ``mean_abs_shap`` rank the features by mean |SHAP| (descending).
+    then the grouped dependence-grid figure(s) (top-K panels packed >= ``DEPENDENCE_GRID_COLS`` per
+    figure, each auto-interpreted). ``paths`` are the files written (parallel to the plot kinds). ``top_features`` / ``mean_abs_shap`` rank the features by mean |SHAP| (descending).
     ``explainer_kind`` is ``"tree"`` / ``"kernel"``. ``skipped`` is a reason string when nothing ran.
     """
 
@@ -169,6 +184,94 @@ def _shap_values_2d(sv: Any) -> np.ndarray:
     return values
 
 
+def _spearman(x: np.ndarray, y: np.ndarray) -> float:
+    """Spearman rank correlation (rank-Pearson) of ``x`` vs ``y``; 0.0 when either side is constant / degenerate.
+
+    Rank-based so it reports the MONOTONE direction of the feature-value -> SHAP relationship regardless of
+    curvature -- a smooth saturating curve still reads near +/-1, which is exactly the directional read wanted.
+    """
+    n = x.shape[0]
+    if n < 2:
+        return 0.0
+    rx = np.argsort(np.argsort(x, kind="mergesort"), kind="mergesort").astype(np.float64)
+    ry = np.argsort(np.argsort(y, kind="mergesort"), kind="mergesort").astype(np.float64)
+    rx -= rx.mean()
+    ry -= ry.mean()
+    denom = float(np.sqrt(np.sum(rx * rx) * np.sum(ry * ry)))
+    if denom == 0.0:  # one side is constant (all ranks equal after centring)
+        return 0.0
+    return float(np.sum(rx * ry) / denom)
+
+
+@dataclass
+class _DepInterp:
+    """Auto-interpretation of one feature's SHAP-vs-value dependence curve."""
+
+    direction: float          # Spearman corr of feature value vs its SHAP (sign = effect direction)
+    shap_range: float         # max - min SHAP for this feature (impact magnitude)
+    shape: str                # "smooth (monotone)" / "non-monotone" / "step/discontinuous"
+    step_value: Optional[float]  # approximate feature value where the sharpest jump sits (step shape only)
+    enough: bool              # False -> too few finite points for a reliable verdict
+
+
+def _interpret_dependence(feat_vals: np.ndarray, shap_vals: np.ndarray) -> _DepInterp:
+    """Classify a feature's SHAP-vs-value curve: monotone direction, impact range, and SMOOTH vs STEP shape.
+
+    Robust by construction (never raises): drops non-finite pairs, skips the verdict below ``_MIN_INTERP_POINTS``.
+    Sorts SHAP by feature value and smooths with a small running mean (de-noises the scatter so a real threshold
+    stands out from per-point jitter); a STEP/discontinuity is the largest local first-difference of that smoothed
+    curve exceeding ``_STEP_JUMP_FRAC`` of the overall SHAP range. A near +/-1 Spearman with NO dominant jump is a
+    simple directional effect (smooth monotone); a dominant jump means the model learned a sharp threshold there.
+    """
+    fv = np.asarray(feat_vals, dtype=np.float64).ravel()
+    sv = np.asarray(shap_vals, dtype=np.float64).ravel()
+    m = np.isfinite(fv) & np.isfinite(sv)
+    fv, sv = fv[m], sv[m]
+    n = fv.shape[0]
+    rng = float(sv.max() - sv.min()) if n else 0.0
+    if n < _MIN_INTERP_POINTS or rng <= 0.0:
+        return _DepInterp(direction=0.0, shap_range=rng, shape="insufficient data", step_value=None, enough=False)
+
+    direction = _spearman(fv, sv)
+    order = np.argsort(fv, kind="mergesort")
+    fv_s, sv_s = fv[order], sv[order]
+    # Running-mean smooth so per-point scatter (interaction noise) doesn't masquerade as a discontinuity; window
+    # scales with n but stays small so a genuine threshold survives.
+    win = max(3, min(15, n // 20))
+    kernel = np.ones(win, dtype=np.float64) / win
+    smooth = np.convolve(sv_s, kernel, mode="valid")
+    if smooth.size < 2:
+        smooth = sv_s
+    diffs = np.abs(np.diff(smooth))
+    jmax = int(np.argmax(diffs)) if diffs.size else 0
+    max_jump = float(diffs[jmax]) if diffs.size else 0.0
+    jump_frac = max_jump / rng if rng > 0 else 0.0
+
+    if jump_frac >= _STEP_JUMP_FRAC:
+        # Map the smoothed-curve jump index back to an approximate feature value (smoothing trims win-1 points).
+        pos = min(jmax + win // 2, fv_s.shape[0] - 1)
+        return _DepInterp(direction=direction, shap_range=rng, shape="step/discontinuous",
+                          step_value=float(fv_s[pos]), enough=True)
+    if abs(direction) >= 0.6:
+        return _DepInterp(direction=direction, shap_range=rng, shape="smooth (monotone)", step_value=None, enough=True)
+    return _DepInterp(direction=direction, shap_range=rng, shape="non-monotone", step_value=None, enough=True)
+
+
+def _interp_title(name: str, interp: _DepInterp) -> str:
+    """Two-line panel title: the feature name, then its plain-language verdict (direction / impact / shape)."""
+    if not interp.enough:
+        return f"{name}\n(too few finite points -- no verdict)"
+    sign = "+" if interp.direction >= 0 else "-"
+    arrow = "increasing" if interp.direction >= 0 else "decreasing"
+    if interp.shape == "step/discontinuous":
+        verdict = f"STEP at x~{interp.step_value:.3g} -- sharp threshold"
+    elif interp.shape == "smooth (monotone)":
+        verdict = f"smooth monotone ({arrow}) -- simple directional effect"
+    else:
+        verdict = "non-monotone -- interaction / mixed effect"
+    return f"{name}\n{sign}dir rho={interp.direction:+.2f}, impact={interp.shap_range:.3g}; {verdict}"
+
+
 def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
     """Save ``fig`` to ``base`` honouring the format(s) in ``plot_outputs`` (matplotlib raster/vector only).
 
@@ -227,6 +330,63 @@ def _close_figs(figs: List[Any]) -> None:
                 plt.close(fig)
             except Exception:
                 pass
+
+
+def _dependence_grid_figs(
+    shap_mat: np.ndarray,
+    vals_sample: np.ndarray,
+    cols: Sequence[int],
+    names: Sequence[str],
+    top_names: Sequence[str],
+    *,
+    max_cols: int = DEPENDENCE_GRID_COLS,
+    panels_per_fig: Optional[int] = None,
+) -> List[Any]:
+    """Build grouped dependence-grid figure(s): each panel scatters a feature's value vs its SHAP, auto-annotated.
+
+    Replaces the prior one-figure-per-feature stack with a packed grid (``max_cols`` per row). The per-panel title
+    carries the auto-interpretation from :func:`_interpret_dependence` (direction / impact / smooth-vs-step), so the
+    reader gets the conclusion without eyeballing every curve. Robust: a feature with too few finite points is still
+    drawn (scatter) but labelled "no verdict"; never raises.
+    """
+    if plt is None or len(cols) == 0:
+        return []
+    # All requested panels go in ONE figure by default (a top_k of 4-6 is a clean 2x2 / 2x3); callers wanting a
+    # hard cap per figure pass ``panels_per_fig``.
+    chunk = panels_per_fig if panels_per_fig and panels_per_fig > 0 else len(cols)
+    figs: List[Any] = []
+    for start in range(0, len(cols), chunk):
+        block = list(cols[start : start + chunk])
+        ranks = list(range(start, start + len(block)))
+        n_panels = len(block)
+        n_cols = min(max_cols, n_panels)
+        n_rows = int(np.ceil(n_panels / n_cols))
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize_for_grid(n_rows, n_cols, cell_width=5.0, cell_height=4.0), squeeze=False)
+        flat_axes = axes.ravel()
+        for slot, (rank, col) in enumerate(zip(ranks, block)):
+            ax = flat_axes[slot]
+            feat_vals = np.asarray(vals_sample[:, col], dtype=np.float64).ravel()
+            shap_vals = np.asarray(shap_mat[:, col], dtype=np.float64).ravel()
+            name = top_names[rank] if rank < len(top_names) else (names[col] if col < len(names) else f"f{col}")
+            interp = _interpret_dependence(feat_vals, shap_vals)
+            finite = np.isfinite(feat_vals) & np.isfinite(shap_vals)
+            ax.scatter(feat_vals[finite], shap_vals[finite], s=8, alpha=0.4, color="#3182bd", edgecolors="none")
+            ax.axhline(0.0, color="#969696", lw=0.6, ls="--")
+            if interp.enough and interp.shape == "step/discontinuous" and interp.step_value is not None:
+                ax.axvline(interp.step_value, color="#de2d26", lw=1.0, ls=":")
+            ax.set_title(_interp_title(name, interp), fontsize=8)
+            ax.set_xlabel(name, fontsize=8)
+            ax.set_ylabel("SHAP value", fontsize=8)
+            ax.tick_params(labelsize=7)
+        for empty in flat_axes[n_panels:]:  # blank the padding cells in a partial last row
+            empty.set_visible(False)
+        fig.suptitle("SHAP dependence -- feature value vs SHAP (auto-interpreted)", fontsize=10)
+        try:
+            fig.tight_layout(rect=(0, 0, 1, 0.97))
+        except Exception:
+            pass
+        figs.append(fig)
+    return figs
 
 
 def shap_summary_and_dependence(
@@ -318,14 +478,15 @@ def shap_summary_and_dependence(
         if plot_file:
             paths.extend(_save_figure(beeswarm, _base_for(plot_file, "shap_beeswarm"), plot_outputs))
 
-        for rank, col in enumerate(order[: max(int(top_k), 1)]):
-            before = set(plt.get_fignums())
-            shap.dependence_plot(int(col), shap_mat, vals_sample, feature_names=names, interaction_index=None, show=False)
-            new = [plt.figure(num) for num in plt.get_fignums() if num not in before]
-            dep_fig = new[-1] if new else plt.gcf()
+        # Dependence panels GROUPED into grid figure(s) (>= DEPENDENCE_GRID_COLS per row) instead of one stacked
+        # figure per feature, each panel auto-annotated with its monotone direction / impact / smooth-vs-step verdict.
+        cols = order[: max(int(top_k), 1)]
+        for fig_rank, dep_fig in enumerate(
+            _dependence_grid_figs(shap_mat, vals_sample, cols, names, top_names)
+        ):
             figures.append(dep_fig)
             if plot_file:
-                paths.extend(_save_figure(dep_fig, _base_for(plot_file, f"shap_dependence_{rank}_{_safe(top_names[rank])}"), plot_outputs))
+                paths.extend(_save_figure(dep_fig, _base_for(plot_file, f"shap_dependence_grid{fig_rank}"), plot_outputs))
     finally:
         # Close EVERY figure shap opened (not just the ones we tracked) so a mid-flow error never leaks.
         leaked = [plt.figure(num) for num in plt.get_fignums() if num not in figs_before]
@@ -334,20 +495,21 @@ def shap_summary_and_dependence(
     return ShapPanelsResult(figures, paths, top_names, mean_abs, explainer_kind)
 
 
+def _safe(name: str) -> str:
+    """Filename-safe feature name (alnum / underscore / dash). Retained for sibling shap_per_instance reuse."""
+    return "".join(c if (c.isalnum() or c in "_-") else "_" for c in str(name))[:48]
+
+
 def _base_for(plot_file: str, suffix: str) -> str:
     """Compose a per-panel base path: ``<root>_<suffix><ext>`` so each panel writes a distinct file."""
     root, ext = os.path.splitext(plot_file)
     return f"{root}_{suffix}{ext}"
 
 
-def _safe(name: str) -> str:
-    """Filename-safe feature name (alnum / underscore / dash)."""
-    return "".join(c if (c.isalnum() or c in "_-") else "_" for c in str(name))[:48]
-
-
 __all__ = [
     "DEFAULT_MAX_ROWS",
     "DEFAULT_TOP_K",
+    "DEPENDENCE_GRID_COLS",
     "KERNEL_BACKGROUND",
     "KERNEL_MAX_ROWS",
     "ShapPanelsResult",
