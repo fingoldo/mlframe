@@ -47,7 +47,7 @@ _mi_from_binned_pair_njit_kernel = None  # type: ignore[assignment]
 
 
 if _HAS_NUMBA:
-    @_numba.njit(cache=True, fastmath=False)
+    @_numba.njit(cache=True, fastmath=False, nogil=True)
     def _mi_from_binned_pair_njit_kernel(x_idx, y_idx, nbins):  # type: ignore[no-untyped-def,no-redef]
         # Single-pass joint histogram + marginals, then MI = sum pxy*log(pxy/(px*py)).
         # Reproduces the numpy reference's arithmetic term-for-term: the joint counts are
