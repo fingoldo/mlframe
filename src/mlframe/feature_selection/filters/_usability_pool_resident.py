@@ -152,6 +152,16 @@ def score_pair_combos_table_resident(
         # + edges + MI)) launches, NOT the nc per-combo elementwise + per-row-sync of the old path. MM-MI is
         # partition-identical to the njit table (~1e-15). Combo enumeration order (ua_idx/ub_idx/bn_idx) is the
         # SAME for ub/x2 -> the flat output index maps 1:1 to the caller's for ua: for ub: for bn loop.
+        # RESIDENT MI ACCUMULATOR (2026-06-29): the dominant cost of this routine is NOT the gen/radix/MI
+        # kernels (each ~0.0001s/chunk) but the per-chunk ``cp.asnumpy(...)`` D2H, which SYNCS the device once
+        # per combo-chunk (~96/call at 200k, 17340/fit) -- each .get() drains the whole queued gen+radix+MI
+        # pipeline before returning, so the GPU never overlaps chunk i+1 with the readback of chunk i. Profiled
+        # at 200k/6/1734: .get() = 14.3s of a 14.6s call (98%), every other op <0.1s combined. FIX: keep each
+        # chunk's masked MI RESIDENT in one (npairs*nc,) device buffer and do ONE D2H for the WHOLE table at the
+        # end -- the 17340 syncing .get()s collapse to ONE per fit. Selection-IDENTICAL: same masked values, same
+        # layout; only the readback is deferred. (bench-attempt-rejected per-pair .get of an earlier draft: still
+        # npairs syncs/call; whole-table single .get measured strictly faster, see report.)
+        mi_table_d = cp.empty(npairs * nc, dtype=cp.float64)
         out = np.empty(npairs * nc, dtype=np.float64)
         ua_idx_d = cp.asarray(np.asarray(ua_idx, dtype=np.int32))
         ub_idx_d = cp.asarray(np.asarray(ub_idx, dtype=np.int32))
@@ -183,28 +193,32 @@ def score_pair_combos_table_resident(
                 fused_gen(((total + threads - 1) // threads,), (threads,),
                           (ua_stack, ub_stack, ua_idx_d[c0:c1], ub_idx_d[c0:c1], bop_d[c0:c1],
                            np.int64(n), np.int32(kk), cand))
-                mean = cand.mean(axis=0)
-                var = (cand * cand).mean(axis=0) - mean * mean
-                live_d = var > 1e-18                                # device std<=1e-9 mask; D2H deferred (see below)
-                mi_seg = None
+                # cp.var (two-pass, one fused reduction) replaces the explicit mean + (cand*cand).mean - mean^2,
+                # which allocated a full (n,kk) ``cand*cand`` temp and ran two reduction passes. Measured 200k/178:
+                # 9.98ms vs 13.80ms (-3.8ms/chunk) and the std<=1e-9 sentinel mask (``> 1e-18``) is BIT-IDENTICAL
+                # (verified ((cand*cand).mean-mean^2 > 1e-18) == (cp.var > 1e-18) over the full block).
+                live_d = cand.var(axis=0) > 1e-18                   # device std<=1e-9 mask; D2H deferred (see below)
+                wrote_resident = False
                 try:
                     interior = _radix_select_interior_edges(cand, int(nbins))
                     if interior is not None:
-                        # ONE D2H per chunk (was two: a separate var-mask .get() + the mi .get()): the MM-MI
-                        # stays resident, the sentinel mask is applied on device, then a SINGLE .get() returns
-                        # the masked row (halves the per-chunk syncs; ~17k asnumpy/fit removed at 1M/200k).
+                        # FULLY RESIDENT (no D2H here): the MM-MI stays on device, the std<=1e-9 sentinel mask is
+                        # applied on device, and the masked row is written into the resident mi_table_d slice. The
+                        # readback is deferred to a SINGLE whole-table .get() after the loop (was one .get()/chunk).
                         mi_d = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y,
                                                             codes_trusted=True, return_device=True)   # d_y dense 0-based fit-constant (FIX1)
-                        mi_seg = cp.asnumpy(cp.where(live_d, mi_d, -1.0))
+                        mi_table_d[base + c0:base + c1] = cp.where(live_d, mi_d, -1.0)
+                        wrote_resident = True
                 except Exception:
-                    mi_seg = None
-                if mi_seg is None:                                  # per-row sync fallback (bit-faithful)
+                    wrote_resident = False
+                if not wrote_resident:                              # per-row sync fallback (bit-faithful)
                     codes, kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(cand.T), d_qs)
                     mi_h = cp.asnumpy(_gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n))
-                    mi_seg = np.where(cp.asnumpy(live_d), mi_h, -1.0)
-                out[base + c0:base + c1] = mi_seg
+                    mi_table_d[base + c0:base + c1] = cp.asarray(np.where(cp.asnumpy(live_d), mi_h, -1.0))
                 del cand
             del d_x1, d_x2, ua_stack, ub_stack
+        # ONE D2H for the WHOLE table (was ~96/call, 17340/fit): all chunk MI accumulated resident above.
+        out[:] = cp.asnumpy(mi_table_d)
         return out.reshape(npairs, nc)
     except Exception as _exc:  # noqa: BLE001
         logger.debug("score_pair_combos_table_resident: GPU path failed (%s); host fallback", _exc)

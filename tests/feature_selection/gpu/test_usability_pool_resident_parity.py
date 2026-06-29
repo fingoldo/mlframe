@@ -81,3 +81,17 @@ def test_resident_pool_table_matches_njit_per_pair():
         n_bitfaithful = int(np.sum(diff <= 1e-9))
         assert n_bitfaithful >= diff.size - 8, (
             f"pair {p}: {diff.size - n_bitfaithful} combos exceed 1e-9 (expected <=8 radix-ULP continuous combos)")
+        # SELECTION-ORDER guard (2026-06-29): the deferred whole-table D2H + the cp.var std<=1e-9 sentinel mask
+        # (replacing the per-chunk .get() and the explicit mean+(cand*cand).mean-mean^2) must not change WHICH
+        # combos rank where. The retention loop sorts on the SAME grid-snapped key the resident path uses under
+        # _seleq (quantize_mi_tiebreak), which absorbs the documented sub-quantum radix-ULP wobble; assert the
+        # resident row's grid-snapped MI ranking equals njit's over the live (non-sentinel) combos.
+        from mlframe.feature_selection.filters._fe_mi_contract import quantize_mi_tiebreak
+        key_res = np.array([quantize_mi_tiebreak(float(v)) for v in row])
+        key_njit = np.array([quantize_mi_tiebreak(float(v)) for v in njit])
+        order_res = np.argsort(-np.where(m, key_res, -np.inf), kind="stable")
+        order_njit = np.argsort(-np.where(m, key_njit, -np.inf), kind="stable")
+        n_live = int(m.sum())
+        np.testing.assert_array_equal(
+            order_res[:n_live], order_njit[:n_live],
+            err_msg=f"pair {p}: grid-snapped resident MI argsort order diverged from njit over live combos")
