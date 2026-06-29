@@ -68,6 +68,29 @@ try:
             counts[c] += 1.0
         return sums, counts
 
+    @numba.njit(parallel=True, cache=True, fastmath=False)
+    def _batched_pair_sum_count(codes_t: np.ndarray, err: np.ndarray, f0_arr: np.ndarray,
+                                f1_arr: np.ndarray, stride0_arr: np.ndarray, max_cells: int):
+        # One parallel pass over ALL feature pairs (the dominant slice-finder regime: thousands of pairs, each an
+        # independent O(n) reduction that the serial loop ran one-at-a-time on a single core -> "CPU not loaded").
+        # ``codes_t`` is the transposed (p, n) C-contiguous code matrix so ``codes_t[f]`` is a contiguous row -> the
+        # inner i-loop is cache-friendly. Each pair writes only its own output row, so prange is race-free. The cell
+        # flatten ``c0*stride0 + c1`` and row-order accumulation are identical to ``_fused_sum_count_2col``, so the
+        # per-pair sums/counts are bit-identical to the serial path.
+        npairs = f0_arr.shape[0]
+        n = err.shape[0]
+        sums = np.zeros((npairs, max_cells), dtype=np.float64)
+        counts = np.zeros((npairs, max_cells), dtype=np.float64)
+        for pidx in numba.prange(npairs):
+            row0 = codes_t[f0_arr[pidx]]
+            row1 = codes_t[f1_arr[pidx]]
+            s0 = stride0_arr[pidx]
+            for i in range(n):
+                c = row0[i] * s0 + row1[i]
+                sums[pidx, c] += err[i]
+                counts[pidx, c] += 1.0
+        return sums, counts
+
     _HAS_NUMBA_SLICE = True
 except Exception:  # numba unavailable: fall back to the two-bincount numpy path.
     _HAS_NUMBA_SLICE = False
@@ -95,6 +118,9 @@ DEFAULT_TOP_K: int = 7
 DEFAULT_MAX_COMBOS: int = 5_000
 # 3-way slices only among this many top error-discriminating features (3-way over all features explodes combinatorially).
 DEFAULT_THREE_WAY_TOP_FEATURES: int = 6
+# Cap on the transient transposed code-matrix copy used to batch the pair search across cores. Above it, fall back to
+# the serial per-pair path rather than risk doubling RAM on a huge diagnostic sample (the code matrix is int64 n x p).
+_SLICE_TRANSPOSE_MAX_BYTES: int = 4 * 1024 ** 3
 
 
 @dataclass(frozen=True)
@@ -269,6 +295,24 @@ def find_weak_slices(
             triples = triples[:max(room, 0)]
         combos.extend(triples)
 
+    # Batch the arity-2 pair aggregations (the dominant ~thousands of combos) into one prange-parallel pass; singles
+    # and triples (far fewer) stay on the serial per-combo path. Bit-identical to the serial path by construction.
+    _pair_agg: dict = {}
+    if _HAS_NUMBA_SLICE:
+        _pairs_only = [c for c in combos if len(c) == 2]
+        if _pairs_only and codes.nbytes <= _SLICE_TRANSPOSE_MAX_BYTES:
+            _f0 = np.array([c[0] for c in _pairs_only], dtype=np.int64)
+            _f1 = np.array([c[1] for c in _pairs_only], dtype=np.int64)
+            _s0 = np.array([nbins_per[c[1]] for c in _pairs_only], dtype=np.int64)
+            _ncells = np.array([nbins_per[c[0]] * nbins_per[c[1]] for c in _pairs_only], dtype=np.int64)
+            _max_cells = int(_ncells.max()) if _ncells.size else 1
+            _codes_t = np.ascontiguousarray(codes.T)
+            _bsums, _bcounts = _batched_pair_sum_count(_codes_t, err, _f0, _f1, _s0, _max_cells)
+            for _k2, _c in enumerate(_pairs_only):
+                _nc = int(_ncells[_k2])
+                _strides2 = np.array([int(_s0[_k2]), 1], dtype=np.int64)
+                _pair_agg[_c] = (_bsums[_k2, :_nc].copy(), _bcounts[_k2, :_nc].copy(), _strides2)
+
     # Aggregate every combo; collect slices above the support floor.
     rec_features: List[Tuple[str, ...]] = []
     rec_bounds: List[str] = []
@@ -277,7 +321,11 @@ def find_weak_slices(
     rec_score: List[float] = []
     sqrt_n = float(np.sqrt(n))
     for combo in combos:
-        sums, counts, strides = _aggregate_combo(codes, err, combo, [nbins_per[f] for f in combo])
+        _cached = _pair_agg.get(combo)
+        if _cached is not None:
+            sums, counts, strides = _cached
+        else:
+            sums, counts, strides = _aggregate_combo(codes, err, combo, [nbins_per[f] for f in combo])
         valid = counts >= min_support
         if not valid.any():
             continue
