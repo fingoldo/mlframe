@@ -246,3 +246,17 @@ def test_combined_html_stitches_rendered_charts(tmp_path, binary_frame):
     assert md["charts"].get("combined_report") == out
     html = open(out, encoding="utf-8").read()
     assert "m report" in html and "decision_curve" in html
+
+
+def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
+    base = str(tmp_path / "m")
+    # Recorded order puts the per-split weak-segment heatmap first (it renders in the metrics phase, before the
+    # once-on-test worst-slices chart). The combined report must reorder so worst-slices leads.
+    paths = [base + "_weak_segments", base + "_error_bias", base + "_weak_slices", base + "_pdp_ice"]
+    for p in paths:
+        open(p + ".png", "w").close()
+    md = {}
+    out = build_combined_html_report(base_path=base, chart_paths=paths, plot_outputs=PNG, title="m report", metrics_dict=md)
+    assert out and os.path.exists(out)
+    html = open(out, encoding="utf-8").read()
+    assert html.index("m_weak_slices") < html.index("m_weak_segments")

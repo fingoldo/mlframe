@@ -191,9 +191,24 @@ def build_combined_html_report(
     try:
         from mlframe.reporting.report_html import build_combined_report
 
+        # Display worst feature-value slices (``_weak_slices``) before the per-split weak-segment heatmaps
+        # (``_weak_segments``): the once-on-test slice ranking is the headline; the per-split heatmaps drill in after.
+        ordered = list(chart_paths)
+        slice_pos = [i for i, p in enumerate(ordered) if p and p.endswith("_weak_slices")]
+        segs = [p for p in ordered if p and p.endswith("_weak_segments")]
+        if slice_pos and segs:
+            segset = set(segs)
+            rest = [p for p in ordered if p not in segset]
+            anchor = ordered[max(slice_pos)]
+            ordered = []
+            for p in rest:
+                ordered.append(p)
+                if p == anchor:
+                    ordered.extend(segs)
+
         entries = []
         seen = set()
-        for p in chart_paths:
+        for p in ordered:
             if not p or p in seen:
                 continue
             seen.add(p)
