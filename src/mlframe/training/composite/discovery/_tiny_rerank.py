@@ -556,12 +556,10 @@ def _tiny_model_rerank(
     gate_rejected_names: list[tuple[str, float, float]] = []
     per_bin_rejected_names: list[tuple[str, str, float, float]] = []
     if getattr(self.config, "require_beats_raw_baseline", True):
-        # Build a feature matrix using ALL usable_features on the
-        # screening sample (raw-y training has no special "base"
-        # to drop, so include everything).
-        x_full = self._build_feature_matrix(
-            df, list(usable_features), train_idx_screen,
-        )
+        # Reuse the ALL-usable_features matrix already built once above (``_x_full``); the raw-y baseline needs the
+        # identical matrix (same df / usable_features / screen rows) and the per-base loop only np.delete-copies from
+        # it, never mutates it -- so this is bit-identical to rebuilding and saves one full feature-matrix build.
+        x_full = _x_full
         n_seed_repeats_raw = max(1, int(getattr(
             self.config, "tiny_model_n_seed_repeats", 1,
         )))
