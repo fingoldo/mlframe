@@ -242,10 +242,14 @@ def _build_operand_table(
     # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
     # the host) -- removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
     from .._gpu_resident_fe import _cuda_present
-    # fe_gpu_resident_operands_enabled is defined in _gpu_resident_select (its home module); import it from
-    # THERE, not via a re-export through _gpu_resident_fe -- the re-export is not guaranteed present and a
-    # missing one made this a hard ImportError that broke the whole pair-search path under the resident flag.
-    from .._gpu_resident_select import fe_gpu_resident_operands_enabled
+    # fe_gpu_resident_operands_enabled's HOME module is _gpu_resident_materialise (carved there 2026-06-23);
+    # _gpu_resident_select only RE-EXPORTS it via a bottom-of-module rebind loop. That re-export is NOT present
+    # under a partial-init import cycle: when _gpu_resident_materialise is imported first, _gpu_resident_select's
+    # rebind loop runs while _gpu_resident_materialise is mid-top-import (the name not yet defined), so the
+    # re-export is silently skipped and importing it from _gpu_resident_select raises ImportError -- which the
+    # try/except below then swallows, DISABLING the GPU-resident operand build (a silent residency regression).
+    # Import from the HOME module so the name is always present regardless of sibling import order.
+    from .._gpu_resident_materialise import fe_gpu_resident_operands_enabled
     _resident_operands_on = False
     try:
         _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()

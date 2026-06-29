@@ -141,3 +141,214 @@ def test_cmi_residency_before_after_classification():
     print("AFTER  (GPU-strict wired):  " + rep_on.summary() + f"  role_uploads={ru}")
     # The wired GPU path keeps the bulk D2H at zero (the gate); the host path issues no device transfers.
     assert len(rep_on.bulk_d2h) == 0
+
+
+# ============================================================================================================
+# PAIR-SEARCH residency byte-audit (the DOMINANT strict F2 path: check_prospective_fe_pairs ->
+# _score_one_pair / _compute_one_fe_chunk -> gpu_materialise_discretize_codes_host -> the MI noise gate).
+#
+# The greedy-CMI audit above covers the batched_cmi_gpu argmax path. This block audits the OTHER, dominant
+# strict path -- the unary x binary pair search -- and pins its three residency invariants under
+# MLFRAME_FE_GPU_STRICT=1 / MLFRAME_CMI_GPU=1 / MLFRAME_FE_VRAM_F32=1:
+#   (1) the candidate codes the chunk/pair binner produced ON the GPU stay RESIDENT and are consumed IN PLACE
+#       by the noise-gate MI (the resident-codes handoff: every producer stash is matched by a take-hit and
+#       the gate receives device_codes, NOT a host re-upload),
+#   (2) NO (n, K) codes buffer crosses the bus mid-pipeline (the single largest D2H of the pre-residency fit
+#       -- it is deferred + skipped because the resident gate reads the device copy),
+#   (3) the operand table is NOT re-uploaded per chunk/pair (it is GPU-prebuilt once or H2D'd once per step
+#       and reused across the step's chunks/pairs by weakref identity).
+# ============================================================================================================
+
+def _run_pair_search_audit():
+    """Run a small MRMR F2 fit (the compound y = a**2/b + log(c)*sin(d) + noise) under the 3 strict flags,
+    instrumenting the resident-codes handoff + the noise-gate consumer + the operand-table upload, and return
+    the recovered feature names + the collected counters + a residency byte report.
+
+    The GPU pair-search backend is FORCED on (``MLFRAME_FE_GPU_DISCRETIZE=1`` / ``MLFRAME_FE_GPU_BINNING=1``)
+    so a per-host KTC cache entry left "cpu" by a prior test cannot route the binning off the GPU (which would
+    make this audit silently observe nothing). Strict-resident is selection-equivalent either way."""
+    import warnings
+
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _gpu_resident_fe as _FE
+    from mlframe.feature_selection.filters import _gpu_resident_materialise as _RM
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_dispatch as _DI
+    from mlframe.feature_selection.filters._gpu_strict_fe import residency_audit
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    saved = {k: os.environ.get(k) for k in
+             ("MLFRAME_FE_GPU_STRICT", "MLFRAME_CMI_GPU", "MLFRAME_FE_VRAM_F32",
+              "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING")}
+    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
+    os.environ["MLFRAME_CMI_GPU"] = "1"
+    os.environ["MLFRAME_FE_VRAM_F32"] = "1"
+    os.environ["MLFRAME_FE_GPU_DISCRETIZE"] = "1"
+    os.environ["MLFRAME_FE_GPU_BINNING"] = "1"
+
+    # Start from a clean VRAM state: this module runs the greedy-CMI audit fits BEFORE this one, and on a
+    # 4GB / contended card their accumulated device allocations can leave the shared context near-exhausted so
+    # the pair-search GPU path silently falls back to CPU. Free the TEST-side mempool + the FE resident caches
+    # (a teardown of accumulated TEST allocations -- NOT the production shared-pool free) so this audit gets a
+    # fresh context. Best-effort: any failure just proceeds (the skip below covers a still-dead context).
+    try:
+        from mlframe.feature_selection.filters import _fe_resident_operands as _RO
+        _RO.clear_fe_resident_operands()
+    except Exception:
+        pass
+    try:
+        import cupy as _cp
+        _cp.get_default_memory_pool().free_all_blocks()
+        _cp.get_default_pinned_memory_pool().free_all_blocks()
+    except Exception:
+        pass
+
+    n = 30000
+    rng = np.random.default_rng(42)
+    a, b, c, d, e = (rng.uniform(0.1, 1.1, n) for _ in range(5))
+    f = rng.uniform(0.1, 1.1, n)
+    df = pd.DataFrame({k: v.astype(np.float64) for k, v in zip("abcde", (a, b, c, d, e))})
+    y = a ** 2 / b + f / 5.0 + np.log(np.abs(c) + 1e-9) * np.sin(d)
+
+    cnt = {"stash": 0, "take_calls": 0, "take_hits": 0,
+           "gate_with_devcodes": 0, "gate_no_devcodes": 0,
+           "operand_table_h2d": 0, "operand_table_distinct": 0}
+
+    # The producer (gpu_materialise/discretize_codes_host, both in _RM) resolves ``_stash_resident_codes`` and
+    # ``_resident_operand_table`` as _RM module globals -> patch THOSE bindings to count them.
+    _o_stash = _RM._stash_resident_codes
+    def _stash(h, dv):
+        cnt["stash"] += 1
+        return _o_stash(h, dv)
+
+    _o_take = _FE.take_resident_codes
+    def _take(h):
+        cnt["take_calls"] += 1
+        r = _o_take(h)
+        if r is not None:
+            cnt["take_hits"] += 1
+        return r
+
+    _o_rot = _RM._resident_operand_table
+    _seen_tv: set = set()
+    def _rot(cp_mod, tv):
+        # Count a REAL operand-table H2D (cache miss: neither GPU-prebuilt for this host array nor already
+        # weakref-cached). A hit returns the resident device table with no transfer.
+        pre = _RM._prebuilt_operand_table(tv)
+        hit = _RM._OPERAND_TABLE_CACHE.get(id(tv))
+        is_hit = pre is not None or (hit is not None and hit[0]() is tv and hit[1] is not None)
+        if not is_hit:
+            cnt["operand_table_h2d"] += 1
+        _seen_tv.add(id(tv))
+        return _o_rot(cp_mod, tv)
+
+    _o_bg = _DI._batch_mi_with_noise_gate_gpu
+    def _bg(*a_, **k_):
+        if k_.get("device_codes") is not None:
+            cnt["gate_with_devcodes"] += 1
+        else:
+            cnt["gate_no_devcodes"] += 1
+        return _o_bg(*a_, **k_)
+
+    _RM._stash_resident_codes = _stash
+    _FE.take_resident_codes = _take
+    _RM._resident_operand_table = _rot
+    _DI._batch_mi_with_noise_gate_gpu = _bg
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with residency_audit() as rep:
+                fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
+                          fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        names = [str(s) for s in fs.get_feature_names_out()]
+        cnt["operand_table_distinct"] = len(_seen_tv)
+        return names, cnt, rep, n
+    finally:
+        _RM._stash_resident_codes = _o_stash
+        _FE.take_resident_codes = _o_take
+        _RM._resident_operand_table = _o_rot
+        _DI._batch_mi_with_noise_gate_gpu = _o_bg
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+@pytest.fixture(scope="module")
+def pair_search_audit():
+    """Run the strict pair-search residency audit ONCE for the whole module (one MRMR fit, shared by the three
+    invariant assertions below). A single fit keeps the GPU churn minimal -- repeating a full fit per assertion
+    on a contended/4GB box risks a sticky CUDA-context corruption that poisons later GPU ops.
+
+    If the GPU pair-search never actually ran (``stash == 0``) the device-residency path produced nothing to
+    audit. On a CONTENDED box that means a concurrent CUDA user illegally-accessed / OOM'd the shared context
+    (``cudaErrorIllegalAddress``) and every GPU op fell back to CPU -- an ENVIRONMENTAL condition, not a
+    residency regression -- so skip rather than false-fail (the path is byte-audited green in a quiet process;
+    verified in isolation). A genuine wiring regression instead shows the path running with a BROKEN invariant
+    (take-miss / host re-upload / per-pair operand H2D), which the assertions below still catch hard."""
+    names, cnt, rep, n = _run_pair_search_audit()
+    print("\nPAIR-SEARCH residency: " + rep.summary() + f"  counters={cnt}  names={names}")
+    if cnt["stash"] == 0:
+        pytest.skip("strict GPU pair-search did not run (CUDA context unavailable/contended -- the producer "
+                    f"stashed no resident codes); counters={cnt}. Residency audit needs a live GPU context.")
+    return names, cnt, rep, n
+
+
+def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):
+    """PRIMARY GATE for the pair-search path: the candidate codes the GPU binner produced stay RESIDENT and
+    are consumed IN PLACE by the noise-gate MI -- every producer stash is matched by a consumer take-HIT, and
+    the gate receives the device codes (never re-uploads host codes). This is invariant (1)+(2): codes resident
+    into the MI gate, with NO (n, K) codes buffer crossing the bus."""
+    names, cnt, rep, n = pair_search_audit
+
+    # (1) Resident-codes handoff: every dispatch that popped the handoff HIT (the device codes matched the
+    #     host array by id/shape/dtype) -- so the codes flowed producer -> gate without a host round-trip.
+    assert cnt["take_hits"] == cnt["take_calls"], (
+        f"resident-codes handoff missed: {cnt['take_hits']}/{cnt['take_calls']} hits; counters={cnt}")
+    assert cnt["take_hits"] >= cnt["stash"], (
+        f"some stashed device codes were never consumed in place; counters={cnt}")
+
+    # (2) The MI gate consumed the DEVICE codes in place on every GPU dispatch -- it never fell back to a host
+    #     codes re-upload (which would have re-paid the (n, K) codes H2D the residency path exists to skip).
+    assert cnt["gate_no_devcodes"] == 0, (
+        f"the noise-gate MI re-uploaded host codes on {cnt['gate_no_devcodes']} dispatch(es) instead of "
+        f"consuming the resident device copy; counters={cnt}")
+    assert cnt["gate_with_devcodes"] >= 1, f"the resident-codes gate never ran; counters={cnt}"
+
+
+def test_pair_search_residency_no_nk_codes_bulk_d2h(pair_search_audit):
+    """Invariant (2), byte-audited: NO (n, K) codes buffer is bulk-D2H'd mid-pipeline. The codes are produced
+    resident and consumed by the gate in place, so the only legitimate bulk D2H are the handful of SINGLE
+    survivor/scoring COLUMNS (n floats each -- the downstream recipe/usability stages genuinely read them on
+    host) and the final survivor column(s). A (n, K) codes/float buffer would be ORDERS of magnitude larger
+    than one column; assert no such buffer crosses."""
+    names, cnt, rep, n = pair_search_audit
+
+    # A single candidate/operand column at n is n * itemsize bytes (<= 8 B per row). A (n, K) codes buffer (or
+    # the float candidate matrix) would be K-times larger -- K is the per-pair candidate count (tens to
+    # hundreds). 64 * n bytes cleanly separates "a few columns" from "an (n, K) matrix": no legitimate
+    # single-column host read reaches it, while any (n, K>=64) buffer blows past it.
+    nk_threshold = 64 * n
+    big = [bb for bb in rep.bulk_d2h if bb >= nk_threshold]
+    assert not big, (
+        f"unexpected (n, K)-scale bulk D2H on the strict pair-search path (codes/float buffer should stay "
+        f"resident): {sorted(big, reverse=True)} (threshold {nk_threshold} = 64*n); {rep.summary()}")
+
+
+def test_pair_search_residency_operand_table_uploaded_bounded(pair_search_audit):
+    """Invariant (3): the operand table (transformed_vars) is NOT re-uploaded per chunk/pair. It is either
+    GPU-PREBUILT once (built on-device from the raw operand inputs -- zero bulk table H2D) or H2D'd once per
+    FE step and reused across that step's chunks/pairs by weakref identity. So the real operand-table H2D
+    count must be FAR below the per-pair dispatch count (it is per-step, not per-pair)."""
+    names, cnt, rep, n = pair_search_audit
+
+    # The operand table is uploaded at most ONCE per FE step (typically <= 2 steps here) and reused across the
+    # step's pairs -- never per the many per-pair dispatches. Pin "per-step, not per-pair": the real table H2D
+    # count must be strictly below the number of pair-search dispatches that consumed codes.
+    assert cnt["operand_table_h2d"] <= cnt["operand_table_distinct"], (
+        f"operand table re-uploaded more than once per distinct table: {cnt['operand_table_h2d']} H2D for "
+        f"{cnt['operand_table_distinct']} distinct tables; counters={cnt}")
+    assert cnt["operand_table_h2d"] < max(cnt["stash"], 2), (
+        f"operand table uploaded per-pair ({cnt['operand_table_h2d']} H2D vs {cnt['stash']} pair dispatches) "
+        f"-- it must be uploaded once per step and reused; counters={cnt}")
