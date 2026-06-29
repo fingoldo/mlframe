@@ -43,6 +43,28 @@ from ._plotly_interactivity import apply_interactivity, html_config
 
 logger = logging.getLogger(__name__)
 
+# Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
+_SUPTITLE_WRAP_CHARS = 90
+_PANEL_TITLE_WRAP_CHARS = 46
+# Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
+_BAR_XTICK_THIN_THRESHOLD = 25
+_BAR_XTICK_KEEP = 20
+_BAR_XTICK_MAXLEN = 24
+
+
+def _wrap_text(text: str, width: int, *, sep: str = "<br>") -> str:
+    """Wrap ``text`` to ``width`` chars/line (each ``\n``-delimited line independently, preserving explicit breaks), folded with ``sep``."""
+    import textwrap
+    out: List[str] = []
+    for line in str(text).split("\n"):
+        out.extend(textwrap.wrap(line, width=width, break_long_words=False) or [""])
+    return sep.join(out)
+
+
+def _truncate_label(label: str, maxlen: int = _BAR_XTICK_MAXLEN) -> str:
+    s = str(label)
+    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+
 # Renderer-level safety nets for specs carrying raw large-n data. Builders are expected to
 # pre-sample / pre-bin, but the renderer is public API: above these thresholds a raw spec would
 # embed n values into the HTML (37 MB / 73 MB per panel at 2M, browser-freezing).
@@ -137,20 +159,14 @@ class PlotlyRenderer:
                     row_specs.append(cell)
             sub_specs.append(row_specs)
 
-        # Build subplot titles list (row-major). Plotly's subplot_titles
-        # are HTML annotations — newlines need ``<br>`` instead of ``\n``,
-        # otherwise the linebreak character is dropped and 2-line panel
-        # titles render as one long string that bleeds into adjacent
-        # subplots horizontally (visible bug 2026-05-09 on regression
-        # chart with hypothesis + heteroscedasticity multiline titles).
+        # Subplot titles are HTML annotations: wrap long panel titles (~46 chars/line, matching matplotlib) so they fold instead of bleeding into the adjacent subplot, and convert ``\n`` -> ``<br>`` (plotly drops a raw newline).
         subplot_titles = []
         for row in spec.panels:
             for c in range(cols):
                 if c >= len(row) or row[c] is None:
                     subplot_titles.append("")
                 else:
-                    raw_title = getattr(row[c], "title", "") or ""
-                    subplot_titles.append(raw_title.replace("\n", "<br>"))
+                    subplot_titles.append(_wrap_text(getattr(row[c], "title", "") or "", _PANEL_TITLE_WRAP_CHARS))
 
         subplots_kwargs = dict(
             rows=rows, cols=cols,
@@ -159,7 +175,8 @@ class PlotlyRenderer:
             shared_xaxes=spec.sharex,
             shared_yaxes=spec.sharey,
             horizontal_spacing=0.08,
-            vertical_spacing=0.12,
+            # Roomier vertical gap so a row's subplot-title annotation (stamped just above the subplot domain) clears the data/xticks of the row above and wrapped multi-line titles don't overlap the row beneath; capped at plotly's 1/(rows-1) ceiling.
+            vertical_spacing=min(0.16, 0.9 / max(rows, 1)) if rows > 1 else 0.16,
         )
         if spec.row_height_ratios is not None:
             total = sum(spec.row_height_ratios)
@@ -170,11 +187,7 @@ class PlotlyRenderer:
 
         fig = make_subplots(**subplots_kwargs)
 
-        # 2026-05-09: shrink subplot-title font from plotly default (16)
-        # to match matplotlib's ~11. With three columns at the typical
-        # (18in, 4in) figsize, default-16 titles overflow horizontally
-        # into adjacent subplots (e.g. regression chart left-panel title
-        # "MAE=... R2=..." bleeds into middle-panel "Residuals (skew=...)").
+        # Shrink subplot-title font to matplotlib's ~11; plotly's default 16 overflows horizontally into adjacent subplots at the typical 3-column figsize.
         for ann in fig.layout.annotations:
             ann.font = dict(size=11)
 
@@ -184,22 +197,36 @@ class PlotlyRenderer:
                     continue
                 self._render_panel(fig, row[c - 1], r, c)
 
-        # Figure-level layout.
+        # Figure-level layout. Reserve vertical headroom for the suptitle so it never lands on the first row of subplot titles: wrap it (~90 chars/line, matching matplotlib) then grow the top margin by the wrapped line count.
+        n_suptitle_lines = 1
         if spec.suptitle:
-            fig.update_layout(title=dict(text=spec.suptitle,
-                                         font=dict(size=spec.suptitle_fontsize)))
+            wrapped_suptitle = _wrap_text(spec.suptitle, _SUPTITLE_WRAP_CHARS)
+            n_suptitle_lines = wrapped_suptitle.count("<br>") + 1
+            fig.update_layout(title=dict(
+                text=wrapped_suptitle,
+                font=dict(size=spec.suptitle_fontsize),
+                x=0.5, xanchor="center", yanchor="top",
+            ))
+
+        top_margin = (40 + n_suptitle_lines * (spec.suptitle_fontsize + 8)) if spec.suptitle else 50  # base band + ~(fontsize+8)px/line clears row-1 subplot titles
+
         fig.update_layout(
             width=int(spec.figsize[0] * 80),   # ~80px per matplotlib inch
-            height=int(spec.figsize[1] * 80),
-            margin=dict(l=60, r=40, t=80 if spec.suptitle else 50, b=50),
+            height=int(spec.figsize[1] * 80) + (top_margin if spec.suptitle else 0),
+            # Bottom margin grows when the legend is shown so the below-figure legend has room.
+            margin=dict(l=60, r=40, t=top_margin, b=90 if static_legend else 50),
             # Interactive HTML identifies series via hover tooltips, so the legend defaults off there to avoid
             # the multi-subplot soup (precision/recall/F1 mixed with reliability lines). A static export has no
             # hover; the caller flips ``static_legend`` when a png/svg/pdf is in the save set so it stays readable.
             showlegend=static_legend,
         )
         if static_legend:
-            fig.update_layout(legend=dict(font=dict(size=9), itemsizing="constant",
-                                          bgcolor="rgba(255,255,255,0.6)"))
+            # Park the legend BELOW the plot area (horizontal, centred) so it never overlaps subplot titles / the suptitle the way a default top-right in-plot legend does on multi-panel figures.
+            fig.update_layout(legend=dict(
+                font=dict(size=9), itemsizing="constant",
+                bgcolor="rgba(255,255,255,0.6)",
+                orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5,
+            ))
         apply_interactivity(fig, spec, static_legend=static_legend)
         return fig
 
@@ -616,12 +643,32 @@ class PlotlyRenderer:
                 fig.add_hline(y=hval, **line_kw)
 
         if horizontal:
+            if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
+                fig.update_yaxes(tickmode="array", tickvals=cats,
+                                 ticktext=[_truncate_label(c) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
             fig.update_xaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
             fig.update_yaxes(title_text=p.xlabel, row=row, col=col)
         else:
-            fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
-                             tickangle=-p.xtick_rotation if p.xtick_rotation else 0)
+            n_cat = len(cats)
+            # Rotate + truncate long category labels; thin to ~20 evenly-spaced past 25 categories (matching matplotlib) so they don't smear.
+            tickangle = -p.xtick_rotation if p.xtick_rotation else 0
+            needs_trunc = any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats)
+            if n_cat > _BAR_XTICK_THIN_THRESHOLD:
+                step = int(math.ceil(n_cat / _BAR_XTICK_KEEP))
+                sel = list(range(0, n_cat, step))
+                fig.update_xaxes(tickmode="array",
+                                 tickvals=[cats[i] for i in sel],
+                                 ticktext=[_truncate_label(cats[i]) for i in sel],
+                                 tickangle=tickangle if p.xtick_rotation else -45,
+                                 row=row, col=col, title_text=p.xlabel)
+            elif needs_trunc:
+                fig.update_xaxes(tickmode="array", tickvals=cats,
+                                 ticktext=[_truncate_label(c) for c in cats],
+                                 tickangle=tickangle if p.xtick_rotation else -30,
+                                 row=row, col=col, title_text=p.xlabel)
+            else:
+                fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=tickangle)
             fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
