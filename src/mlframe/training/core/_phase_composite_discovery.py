@@ -84,6 +84,36 @@ def _extreme_ar_discovery_skip(
     )
 
 
+def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float]:
+    """Per-group lag-1 autocorrelation of the TARGET on the train rows, reusing the analyzer's Fisher-z kernel.
+
+    Belt-and-suspenders fallback for the extreme-AR skip: ``metadata["target_distribution_report"]`` carries
+    ``lag1_autocorr_per_group`` only on independently-gated analyzer branches, so it can be absent at discovery time
+    even on a 0.9999-AR target (the skip then silently never fires). The target's own per-group AR(1) IS the skip
+    signal, and discovery already holds ``y_full`` (full-data aligned) + ``group_ids`` + ``train_idx``, so recompute it
+    directly. Returns None on any size/finite/degenerate issue (caller treats None as "no AR signal").
+    """
+    try:
+        from mlframe.training.targets._target_distribution_analyzer_stats import _lag1_autocorr_grouped
+        _y = np.asarray(y_full)
+        _g = np.asarray(group_ids).reshape(-1)
+        _ti = np.asarray(train_idx)
+        if _ti.size == 0:
+            return None
+        _max = int(_ti.max())
+        if _y.shape[0] <= _max or _g.shape[0] <= _max:
+            return None
+        yt = _y[_ti].astype(np.float64)
+        gt = _g[_ti]
+        finite = np.isfinite(yt)
+        if int(finite.sum()) < 100:
+            return None
+        ar = float(_lag1_autocorr_grouped(yt[finite], gt[finite]))
+        return ar if np.isfinite(ar) else None
+    except Exception:  # noqa: BLE001 -- a recompute failure must never abort discovery
+        return None
+
+
 def _render_composite_discovery_diagnostics(
     *,
     data_dir: Any,
@@ -380,33 +410,47 @@ def run_composite_target_discovery(
                     }]
                 continue
 
+            # Robustness for the extreme-AR skip (the report can lack the skip keys at discovery time, silently
+            # disabling it -- observed across TV6-9 on a 0.9999-AR target). Three fallbacks, each target-specific:
+            #  - lag1: recompute the target's own per-group AR(1) from the data when the report didn't carry it;
+            #  - group-aware: discovery only RECEIVES group_ids on a group-aware split, so its presence is sufficient;
+            #  - picked-target: when we recomputed lag1 for THIS target the value is target-specific, so the
+            #    "is this the analyzer's picked target" guard (which only matters for the report's picked-target lag1)
+            #    no longer applies.
+            _lag1_eff = _lag1_ar
+            _recomputed_lag1 = False
+            if _lag1_eff is None and group_ids is not None and filtered_train_idx is not None:
+                _lag1_eff = _recompute_lag1_ar_per_group(_y_arr, group_ids, filtered_train_idx)
+                _recomputed_lag1 = _lag1_eff is not None
+            _grp_active_eff = _group_aware_active or (group_ids is not None)
+            _is_picked_eff = (_td_report.get("picked_target_name") == _tname_disc) or _recomputed_lag1
             if _extreme_ar_discovery_skip(
                 skip_enabled=_extreme_ar_skip,
-                group_aware_active=_group_aware_active,
+                group_aware_active=_grp_active_eff,
                 bounded_only_zoo=_bounded_only_zoo,
-                lag1_ar=_lag1_ar,
-                is_picked_target=(_td_report.get("picked_target_name") == _tname_disc),
+                lag1_ar=_lag1_eff,
+                is_picked_target=_is_picked_eff,
                 threshold=_extreme_ar_threshold,
             ):
                 logger.warning(
                     "[CompositeTargetDiscovery] extreme-AR + group-aware "
-                    "skip fired for target='%s' (lag1_autocorr_per_group="
-                    "%.4f >= %.2f, group-aware split active, zoo is bounded-only). "
-                    "Residual targets have near-zero signal on unseen groups and "
+                    "skip fired for target='%s' (lag1_autocorr_per_group=%.4f%s >= %.2f, group-aware split active, "
+                    "zoo is bounded-only). Residual targets have near-zero signal on unseen groups and "
                     "every trained model on T overfits per-group patterns "
                     "to ship predictions worse than the median(T) dummy "
                     "in y-scale. Discovery skipped; lag_predict in "
                     "CT_ENSEMBLE pool will carry the AR signal. Disable "
                     "via composite_target_discovery_config."
                     "extreme_ar_group_aware_skip=False.",
-                    _tname_disc, float(_lag1_ar), _extreme_ar_threshold,
+                    _tname_disc, float(_lag1_eff), (" [recomputed]" if _recomputed_lag1 else ""), _extreme_ar_threshold,
                 )
                 metadata["composite_target_failures"].setdefault(
                     str(_tt_disc), {})[_tname_disc] = [{
                         "name": _tname_disc, "kept": False, "rejected": True,
                         "reason": (
                             f"extreme_ar_group_aware_skip=True + "
-                            f"lag1_autocorr_per_group={float(_lag1_ar):.4f} "
+                            f"lag1_autocorr_per_group={float(_lag1_eff):.4f}"
+                            f"{' (recomputed)' if _recomputed_lag1 else ''} "
                             f">= threshold {_extreme_ar_threshold}"
                         ),
                     }]
@@ -418,14 +462,14 @@ def run_composite_target_discovery(
                 # (which carries lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached
                 # discovery: an empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
                 logger.warning(
-                    "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target=%r: skip_enabled=%s lag1=%r "
-                    "(threshold=%.2f) group_aware_active=%s (recommended=%s splitter=%s use_groups=%s gid=%s) "
-                    "bounded_only_zoo=%s zoo=%s picked_target_name=%r is_picked=%s td_report_keys=%s td_diag_keys=%s. "
-                    "Discovery will run.",
-                    _tname_disc, _extreme_ar_skip, _lag1_ar, _extreme_ar_threshold,
-                    _group_aware_active, _group_aware_recommended, _splitter_group_aware,
+                    "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target=%r: skip_enabled=%s "
+                    "lag1_report=%r lag1_eff=%r recomputed=%s (threshold=%.2f) group_aware_active=%s (recommended=%s "
+                    "splitter=%s use_groups=%s gid=%s) bounded_only_zoo=%s zoo=%s picked_target_name=%r is_picked_eff=%s "
+                    "td_report_keys=%s td_diag_keys=%s. Discovery will run.",
+                    _tname_disc, _extreme_ar_skip, _lag1_ar, _lag1_eff, _recomputed_lag1, _extreme_ar_threshold,
+                    _grp_active_eff, _group_aware_recommended, _splitter_group_aware,
                     _split_cfg_use_groups, (group_ids is not None), _bounded_only_zoo, list(mlframe_models or []),
-                    _td_report.get("picked_target_name"), _td_report.get("picked_target_name") == _tname_disc,
+                    _td_report.get("picked_target_name"), _is_picked_eff,
                     sorted(_td_report.keys()), sorted(_td_diag.keys()),
                 )
 
