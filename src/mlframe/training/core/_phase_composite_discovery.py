@@ -411,7 +411,7 @@ def run_composite_target_discovery(
                         ),
                     }]
                 continue
-            elif _extreme_ar_skip and _splitter_group_aware:
+            elif _extreme_ar_skip and (_group_aware_active or _splitter_group_aware):
                 # The skip is enabled on a group-aware split but did NOT fire. When the target is strongly AR this is a
                 # missed optimisation (discovery + composite-train wall wasted), so log exactly which precondition
                 # blocked it -- the prod signals (lag1_autocorr_per_group, picked_target_name) live in a metadata report
