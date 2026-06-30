@@ -319,7 +319,11 @@ def propose_additive_fusions_gpu(
                     _rv = None
                 if _rv is None or _rv.shape[0] != n_rows:
                     continue
-                _rv_dev = cp.asarray(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0))   # bounded H2D (1 col)
+                # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
+                # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.
+                from ._fe_resident_operands import resident_operand
+                _rv_dev = resident_operand(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0),
+                                           ("addfusion_rawprobe", _rn))                     # 1 col, cached once
                 _rvb_dev, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)              # resident bin codes
                 _rvb = cp.asnumpy(_rvb_dev[0])                                              # probe-input D2H
                 _retains = raw_retains_signal_given_genuine_children(
