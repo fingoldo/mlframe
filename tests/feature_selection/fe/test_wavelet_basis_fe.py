@@ -444,9 +444,19 @@ def _binned_mi_legacy_reference(feat, y, nbins=10):
     return float(max(mi, 0.0))
 
 
-def test_binned_mi_histogram_bit_identical_to_legacy_double_loop():
+def test_binned_mi_histogram_bit_identical_to_legacy_double_loop(monkeypatch):
     """perf iter47: the bincount joint-histogram rewrite of ``_binned_mi`` must be bit-identical
-    to the prior double-loop across ternary-Haar-leg, discrete-class, and continuous-y inputs."""
+    to the prior double-loop across ternary-Haar-leg, discrete-class, and continuous-y inputs.
+
+    This is a CPU-vs-CPU bit-identity contract, so it is pinned to the CPU ``_binned_mi`` path: a
+    suite-global ``MLFRAME_FE_GPU_STRICT`` or ``MLFRAME_CMI_GPU`` routes ``_binned_mi`` to the GPU twin
+    (``_binnedmi_gpu_enabled``) whose float reduction order differs at ~1e-16, which would break the exact
+    ``==`` here (STRICT is selection-equivalent, not bit-identical). Clearing those flags keeps this
+    contract on the CPU bincount path; the GPU twin's selection-equivalence is covered by
+    ``test_wavelet_batched_mi_parity``."""
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_RESIDENT", raising=False)
+    monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
     from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi
 
     rng = np.random.default_rng(1234)
