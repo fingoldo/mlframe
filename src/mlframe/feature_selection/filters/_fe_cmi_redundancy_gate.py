@@ -415,16 +415,20 @@ def _conditional_perm_null(
     if x.size > 1:
         z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
     _nperm = int(n_permutations)
-    # GPU-RESIDENT conditional null (default OFF -> MLFRAME_FE_CMI_PERM_NULL_GPU, requires the RESIDENT path).
+    # GPU-RESIDENT conditional null (DEFAULT ON under the RESIDENT path -> opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
     # Holds the candidate / target / support codes resident on device, draws the within-stratum shuffle KEYS on
-    # device (cupy RandomState -- no per-perm key H2D), builds all _nperm shuffled columns + scores CMI in ONE
-    # batched_cmi_gpu workload, and reduces the floor/mean on device; only the two scalars return. Selection-
-    # EQUIVALENT (the device RNG stream differs from numpy's, but the same (seed,salt) makes it reproducible and
-    # the 0.95 quantile / mean over the draws agree within the gate's razor tolerance -> identical F2 selection).
-    # BENCH-REJECTED on the 6-SM GTX 1050 Ti (regressed the F2 STRICT 300k wall ~+8s; see _fe_cmi_perm_null_gpu
-    # module docstring's bench-attempt-rejected note) -> behind its own sub-flag so the plain RESIDENT path keeps
-    # the faster host-key batched null below. Falls back to the host-key batched path, then the exact per-perm CPU
-    # loop, on any cupy error. Plain STRICT (RESIDENT off) is byte-identical -- this branch is skipped entirely.
+    # device (cupy RandomState -- no per-perm key H2D), builds all _nperm shuffled columns and scores CMI on the
+    # device (VRAM-chunked over perms so the dense (chunk, Kx*Kyz) joint always fits a small card -- at the full-n
+    # gate calls the support is near-continuous, Kz ~ 1e5, so the whole-batch joint is multi-GB), reducing the
+    # floor/mean on device; only the two scalars return. Selection-EQUIVALENT (the device RNG stream differs from
+    # numpy's, but the same (seed,salt) makes it reproducible and the quantile / mean over the draws agree within
+    # the gate's razor tolerance -> identical F2 selection, verified). The earlier +8s "bench-rejection" was a
+    # contention artifact (the A/B ran on a GPU shared with another job; see the corrected _fe_cmi_perm_null_gpu
+    # module bench note). H2D audit of a 1M strict-resident fit: enabling this for ALL gate calls (the VRAM-chunk
+    # removed the OOM that used to force the fallback) dropped total bulk H2D from 3528 to 1832 MB by killing the
+    # 800 MB host-key keys + the per-perm candidate re-uploads. Falls back to the host-key batched path, then the
+    # exact per-perm CPU loop, only on a genuine cupy error. Plain STRICT (RESIDENT off) is byte-identical -- this
+    # branch is skipped entirely.
     try:
         from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
         _resident = perm_null_gpu_resident_enabled()

@@ -54,10 +54,10 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 def perm_null_gpu_resident_enabled() -> bool:
-    """Whether the GPU-RESIDENT permutation null engages. DEFAULT OFF.
+    """Whether the GPU-RESIDENT permutation null engages. DEFAULT ON under the resident FE path.
 
     Requires the resident FE path (``fe_gpu_strict_resident_enabled`` -> MLFRAME_FE_GPU_STRICT +
-    MLFRAME_FE_GPU_STRICT_RESIDENT) AND this dedicated opt-in (``MLFRAME_FE_CMI_PERM_NULL_GPU=1``).
+    MLFRAME_FE_GPU_STRICT_RESIDENT); ``MLFRAME_FE_CMI_PERM_NULL_GPU=0`` is the explicit opt-out.
 
     DEFAULT ON under the resident path; ``MLFRAME_FE_CMI_PERM_NULL_GPU=0`` is the explicit opt-out. The
     original +8s regression that motivated a separate opt-in was a CONTENTION artifact (the wall A/B ran on a
@@ -141,8 +141,55 @@ def conditional_perm_null_gpu(
     within = cp.argsort(z_rank_d + keys, axis=0)                 # (n, nperm) within-stratum orders (no overlap)
     Xp_d = cp.empty((n, nperm), dtype=cp.int64)
     Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
-    nulls = np.asarray(batched_cmi_gpu(Xp_d, y_h, z_h), dtype=np.float64)
+    del keys, within, x_sorted_d, z_rank_d, order_d, dx         # free the (n,nperm) build temporaries first
+    nulls = _batched_cmi_resident_chunked(Xp_d, y_h, z_h)
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+
+
+def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z_h: np.ndarray) -> np.ndarray:
+    """CMI(perm_col; y | z) for every column of the RESIDENT (n, nperm) permutation matrix ``Xp_d``, chunking
+    the perms so each ``batched_cmi_gpu`` call's dense joint fits free VRAM.
+
+    ``batched_cmi_gpu``'s conditional path densifies a ``(nperm, Kx*Kyz)`` joint-count histogram (Kyz = the
+    occupied (y,z) cells). At the FULL-n redundancy-gate calls the conditioning support is near-continuous
+    (Kz ~ 1e5 -> Kyz multi-million), so the whole-batch joint is multi-GB (measured 7-11 GB at nperm=25) and
+    OOMs a small card -- which is exactly why the resident null used to raise OOM and the gate fell back to the
+    800 MB host-key path + the per-perm CPU loop (the residency leak). Each perm's CMI is INDEPENDENT of how
+    many perms share a batched call, so splitting the perms into VRAM-sized chunks yields the SAME null values
+    while keeping the null fully resident (device RNG, no per-perm candidate or key H2D). Adaptive: on OOM the
+    chunk halves and retries, down to a single perm (only then re-raising, so the caller's CPU fallback still
+    covers a genuinely-too-large single joint)."""
+    import cupy as cp
+
+    from ._fe_batched_mi import batched_cmi_gpu
+
+    nperm = int(Xp_d.shape[1])
+    # dense joint width per perm = Kx * Kyz; size the chunk from free VRAM (host-cheap cardinalities). The
+    # permutation does not change x's value set, so Xp_d.max() == the unpermuted candidate's max.
+    Kx = (int(Xp_d.max()) + 1) if Xp_d.size else 1
+    Kz = (int(z_h.max()) + 1) if z_h.size else 1
+    Kyz = (int((y_h * Kz + z_h).max()) + 1) if z_h.size else 1
+    joint_bytes = max(1, Kx * Kyz * 8)
+    try:
+        free_b, _ = cp.cuda.runtime.memGetInfo()
+    except Exception:
+        free_b = 1 << 30
+    # 0.30 of free VRAM leaves headroom for batched_cmi_gpu's sort / entropy temporaries beyond the dense joint.
+    chunk = max(1, min(nperm, int(free_b * 0.30) // joint_bytes))
+    nulls = np.empty(nperm, dtype=np.float64)
+    s = 0
+    while s < nperm:
+        c = min(chunk, nperm - s)
+        try:
+            cols = cp.ascontiguousarray(Xp_d[:, s:s + c])       # contiguous (n, c) for the joint-hist kernels
+            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, y_h, z_h), dtype=np.float64)
+            del cols
+            s += c
+        except cp.cuda.memory.OutOfMemoryError:
+            if c == 1:
+                raise                                            # one perm still won't fit -> caller -> CPU loop
+            chunk = max(1, c // 2)                               # halve and retry this slice
+    return nulls
 
 
 __all__ = ["conditional_perm_null_gpu", "perm_null_gpu_resident_enabled"]
