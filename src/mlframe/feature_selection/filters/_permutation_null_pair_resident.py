@@ -198,25 +198,26 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
 def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
     """Whether the resident-GPU order-2 maxT permutation-null floor engages for this (n, n_pairs).
 
-    OPT-IN-BY-MEASUREMENT (NOT default-on). A clean micro-bench on a GTX 1050 Ti (2026-06-30) showed the device
-    floor is SLOWER than the CPU ``batch_pair_mi_prange`` njit floor at every measured shape (0.26-0.66x), so it
-    is gated by a per-host KTC crossover (``_permutation_null_pair_resident_ktc.pair_permnull_use_resident``):
-    engage ONLY where a sweep MEASURED the resident path faster, otherwise stay on the exact CPU njit floor (the
-    default + fallback). STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic) forces the resident path so
-    the selection-equivalence is exercised end-to-end. ``MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU=0`` is the explicit
-    opt-out that ALWAYS wins (forces the CPU njit floor even under STRICT / a measured-faster cache hit).
+    DEVICE-BORN UNCONDITIONALLY under STRICT GPU mode (``MLFRAME_FE_GPU_STRICT``), no KTC crossover: STRICT means
+    "every data-touching kernel runs on the device", so the resident floor engages whenever STRICT is on (``n`` /
+    ``n_pairs`` are accepted for signature stability but no longer gate). ``MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU=0``
+    is the explicit opt-out that ALWAYS wins (forces the CPU njit floor even under STRICT). The non-STRICT default
+    keeps the exact CPU njit floor (byte-identical).
 
     The device floor is selection-equivalent to the CPU floor (same pooled-MAX construction, same plug-in joint
     MI of the same integer contingency table to FP round-off, host-owned quantile) so engaging it never flips the
-    gate decision ``pair_mi >= floor`` -- verified in ``test_pair_maxt_perm_null_resident.py``.
+    gate decision ``pair_mi >= floor`` -- verified in ``test_pair_maxt_perm_null_resident.py``. On a small / weak
+    card the resident floor can be a wall LOSS (measured 0.26-0.66x vs the CPU njit floor on a GTX 1050 Ti); that
+    is accepted under STRICT (residency is the contract, not the wall on a weak card), and the non-STRICT default
+    path is unaffected.
 
-    Returns ``False`` (caller stays on the exact CPU njit floor) on the opt-out, a KTC miss, or any failure."""
+    Returns ``False`` (caller stays on the exact CPU njit floor) on the opt-out, non-STRICT, or any failure."""
     if os.environ.get("MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False
     try:
-        from ._permutation_null_pair_resident_ktc import pair_permnull_use_resident
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
 
-        return bool(pair_permnull_use_resident(int(n), int(n_pairs)))
+        return bool(fe_gpu_strict_enabled())
     except Exception:
         return False
 
