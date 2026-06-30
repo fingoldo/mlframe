@@ -417,7 +417,11 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     ra = _robust_axis_enabled()
     _ya = np.asarray(y)
     y_arr = np.asarray(_ya, dtype=np.int64) if np.issubdtype(_ya.dtype, np.integer) else _ya.astype(np.int64)
-    y_gpu = cp.asarray(y_arr)
+    # y is a FIT-CONSTANT re-uploaded on every orth-family call (univariate-decide / pair-cross / triplet /
+    # quadruplet / meta-scorer / adaptive-arity each re-run this builder over the SAME X/y). Route through the
+    # resident operand cache so it is uploaded ONCE per fit (selection-equivalent: same int64 labels).
+    from .._fe_resident_operands import resident_operand
+    y_gpu = resident_operand(y_arr, "orth_uni_y", dtype=np.int64)
     # y min/max is a fit-constant -> compute ONCE and reuse for both the raw-MI and the eng-MI resident
     # calls below, instead of each recomputing it (cp.min/max + scalar D2H). Bit-identical (y is invariant).
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
@@ -430,7 +434,13 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     raw_mi_map: dict = {}
     raw_mat = None
     if raw_cols:
-        raw_mat = cp.asarray(np.ascontiguousarray(X[raw_cols].to_numpy(dtype=np.float64)))
+        # raw_mat is the base raw feature-column matrix, a FIT-CONSTANT re-built+re-uploaded per orth-family
+        # call over the SAME X. Route through the resident operand cache keyed on the raw-column tuple so a
+        # distinct col-set gets a distinct entry (the shape+fingerprint guards still apply). Uploaded ONCE per
+        # fit; value-identical f64 -> selection-equivalent.
+        raw_mat = resident_operand(
+            X[raw_cols].to_numpy(dtype=np.float64), ("orth_raw_mat", tuple(raw_cols)), dtype=np.float64,
+        )
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
     # only the heavy per-(col,basis,degree) eval + the MI move to the GPU -- and the eval is BATCHED.
@@ -463,7 +473,13 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         if (_yc.size == cand_x[0].size and cand_x[0].size >= 30
                 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12):
             try:
-                _Mr = cp.asarray(np.ascontiguousarray(np.column_stack(cand_x), dtype=np.float64))
+                # _Mr is the candidate-column matrix derived from the SAME X base columns; value-identical
+                # across orth-family calls for a fixed cand_cols set. Route through the resident operand cache
+                # keyed on the candidate-column tuple (distinct col-sets -> distinct entries; shape+fingerprint
+                # guard id-recycle). Uploaded ONCE per fit; value-identical f64 -> selection-equivalent.
+                _Mr = resident_operand(
+                    np.column_stack(cand_x), ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
+                )
                 _gpu_routed = _gpu_route_bases_batched(
                     cp, _Mr, cp.asarray(_yc), list(_POLY_BASES), tuple(degrees), robust_axis=ra,
                 )
