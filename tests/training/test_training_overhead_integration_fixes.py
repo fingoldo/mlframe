@@ -586,6 +586,39 @@ def test_fix9_build_logging_fires_on_pool(caplog):
     assert any("[dataset-build] catboost.Pool" in m and "shape=150x3" in m for m in msgs)
 
 
+def test_internal_loop_build_demoted_to_debug_via_stack_scan(caplog):
+    """A dataset build fired from inside an internal fit loop (composite / screening / OOF) must log at DEBUG, not
+    INFO, even when the nearest non-library frame is mlframe's own dataset-build shim. The demotion now scans the full
+    stack for a loop ancestor instead of the single (shim-masked) call site. A build from a normal frame stays INFO."""
+    import logging
+    from mlframe.training import trainer  # noqa: F401
+    from mlframe.training._model_factories import apply_third_party_patches_once
+    apply_third_party_patches_once()
+    pytest.importorskip("lightgbm")
+    import lightgbm as lgb
+
+    rng = np.random.default_rng(0)
+    X = rng.random((120, 4)).astype(np.float32)
+    y = rng.integers(0, 2, size=120)
+
+    # Build from a frame whose module looks like the cross-target OOF loop -> ancestor contains "composite" -> DEBUG.
+    ns = {"__name__": "mlframe.training.core._phase_composite_post", "lgb": lgb, "X": X, "y": y}
+    src = "def _loop_build():\n    return lgb.Dataset(data=X, label=y)\n_loop_build()"
+    with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
+        exec(compile(src, "<composite_oof_loop>", "exec"), ns)
+    info_builds = [r for r in caplog.records
+                   if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
+    assert info_builds == [], f"internal-loop build must be demoted to DEBUG, not INFO; got {[r.message for r in info_builds]}"
+
+    # A build from a normal (non-loop) frame -- this test module -- stays at INFO.
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
+        lgb.Dataset(data=X, label=y)
+    main_builds = [r.message for r in caplog.records
+                   if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
+    assert any("shape=120x4" in m for m in main_builds), f"main-path build must stay INFO; got {main_builds}"
+
+
 def test_fix9_build_logging_fires_on_lgb_dataset(caplog):
     """Every lightgbm.Dataset construction must emit one INFO
     ``[dataset-build]`` log line."""

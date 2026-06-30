@@ -212,6 +212,25 @@ def _patch_dataset_constructors_with_logging() -> None:
         except Exception:
             return "?"
 
+    def _originates_in_internal_loop() -> bool:
+        # A per-iteration nuisance build is one fired from inside an internal FIT LOOP -- composite discovery /
+        # screening / baseline-diagnostics ablation / cross-target OOF K-fold. The reported single call site is the
+        # nearest non-library frame, which is often mlframe's own thin dataset-build shim (lgb_shim / xgb_shim) and so
+        # MASKS the originating loop, defeating the INFO->DEBUG demotion. Scan the whole stack instead: if ANY ancestor
+        # frame lives in one of those loop modules, demote. The main-model training path has no such ancestor -> stays INFO.
+        try:
+            frame = _sys._getframe(2)
+            for _ in range(25):
+                if frame is None:
+                    break
+                mod = (frame.f_globals.get("__name__", "") or "").lower()
+                if ("composite" in mod or "screening" in mod or "baseline_diagnostics" in mod):
+                    return True
+                frame = frame.f_back
+        except Exception:
+            pass
+        return False
+
     def _wrap_init(cls, label: str):
         if cls is None:
             return
@@ -251,13 +270,9 @@ def _patch_dataset_constructors_with_logging() -> None:
                 # fresh LGB.Dataset per feature-subset (7-15 builds per training
                 # run on a wide frame) - same nuisance pattern as composite /
                 # screening, demote it too.
-                _callsite_lc = (callsite or "").lower()
-                _is_internal_loop = (
-                    "composite" in _callsite_lc
-                    or "screening" in _callsite_lc
-                    or "baseline_diagnostics" in _callsite_lc
-                )
-                _level = logging.DEBUG if _is_internal_loop else logging.INFO
+                # Demote when the build originates anywhere inside an internal fit loop (scanning the full stack, not
+                # just the shim-masked call site), so per-fold / per-feature-subset builds don't drown the log at INFO.
+                _level = logging.DEBUG if _originates_in_internal_loop() else logging.INFO
                 _build_logger.log(
                     _level,
                     "[dataset-build] %s shape=%s took=%.3fs site=%s",
