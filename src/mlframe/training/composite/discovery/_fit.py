@@ -41,6 +41,7 @@ from ..transforms import (
 )
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
 from ._eval import build_unary_base_context, eval_one_transform
+from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail
 from ._eval_stats import (
     apply_alpha_drift_gate,
     apply_fdr_control_to_candidates,
@@ -183,56 +184,8 @@ def fit(
     y_full = _extract_column_array(df, target_col)
     y_train = y_full[train_idx]
 
-    # Auto-boost mi_n_strata on heavy-tail y. The
-    # default 10 strata produces unstable MI estimates when the
-    # tail dominates the signal -- one or two tail rows per bin.
-    # Detect via skew or kurtosis on train; if either is high,
-    # bump n_strata to ``mi_n_strata_heavy_tail`` (default 30).
-    # User-configured ``mi_n_strata`` remains the floor; we only
-    # bump when the auto-detected boost is HIGHER.
-    y_finite_for_check = y_train[np.isfinite(y_train)]
-    if y_finite_for_check.size >= 100:
-        y_std = float(y_finite_for_check.std())
-        if y_std > 1e-12:
-            z_centered = (y_finite_for_check - y_finite_for_check.mean()) / y_std
-            # z**3 / z**4 via chained mul over np.power dispatch (~3x;
-            # same antipattern as iter138 _target_distribution_analyzer).
-            z2 = z_centered * z_centered
-            skew = float(np.mean(z2 * z_centered))
-            kurt = float(np.mean(z2 * z2) - 3.0)
-            if abs(skew) > 2.0 or kurt > 5.0:
-                boost = int(
-                    getattr(
-                        self.config,
-                        "mi_n_strata_heavy_tail",
-                        30,
-                    )
-                )
-                cur_n_strata = int(
-                    getattr(
-                        self.config,
-                        "mi_n_strata",
-                        10,
-                    )
-                )
-                if boost > cur_n_strata:
-                    # Mutate config in-place ONLY if we own a
-                    # copy (avoid leaking into callers' shared
-                    # config). model_copy is safe here because
-                    # discovery already gets a per-target config
-                    # clone in core.py when hint is enabled.
-                    try:
-                        new_cfg = self.config.model_copy(update={"mi_n_strata": boost})
-                        self.config = new_cfg
-                        logger.info(
-                            "[CompositeTargetDiscovery] heavy-tail y " "detected (skew=%.2f, kurt=%.2f); boosted " "mi_n_strata %d -> %d.",
-                            skew,
-                            kurt,
-                            cur_n_strata,
-                            boost,
-                        )
-                    except Exception:
-                        pass  # leave at user-configured value.
+    # Auto-boost mi_n_strata on heavy-tail y (skew/kurtosis); carved to _fit_helpers to keep this module under 1k LOC.
+    maybe_boost_mi_strata_for_heavy_tail(self, y_train)
 
     # Filter feature_cols by name patterns AND constancy on train.
     usable_features = self._filter_features(df, feature_cols, y_train, train_idx)

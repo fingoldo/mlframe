@@ -69,9 +69,13 @@ class TestS25VersionFoldedUnconditionally:
         )
 
     def test_signature_changes_when_schema_version_bumps(self) -> None:
+        # Patch to a value DIFFERENT from the current default (hardcoding "2" collided once the default itself was
+        # bumped to 2); the digest must change whenever the schema-version component changes.
+        from mlframe.training.composite import cache as _cache_mod
         sig_v1 = compute_config_signature_v1(_Cfg())
         with mock.patch(
-            "mlframe.training.composite.cache._DISCOVERY_CACHE_SCHEMA_VERSION", 2
+            "mlframe.training.composite.cache._DISCOVERY_CACHE_SCHEMA_VERSION",
+            _cache_mod._DISCOVERY_CACHE_SCHEMA_VERSION + 1,
         ):
             sig_v2 = compute_config_signature_v1(_Cfg())
         assert sig_v1 != sig_v2, "schema-version bump did not invalidate the digest"
