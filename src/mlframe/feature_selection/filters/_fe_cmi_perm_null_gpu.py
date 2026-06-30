@@ -118,7 +118,10 @@ def conditional_perm_null_gpu(
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix
     # on device but reads y/z as host ndarrays -- it does its own H2D for them, once per call, not per perm).
-    dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
+    # The candidate is the SAME content the per-candidate CMI scorer already uploaded, so the content-keyed
+    # resident cache hits that resident copy (no extra H2D); a re-evaluated candidate never re-uploads.
+    from ._fe_resident_operands import resident_operand
+    dx = resident_operand(np.asarray(x).ravel(), "permnull_cand_x", dtype=np.int64)
     y_h = np.ascontiguousarray(y_i, dtype=np.int64).ravel()
     n = int(dx.size)
 
@@ -132,6 +135,9 @@ def conditional_perm_null_gpu(
         return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
     # CONDITIONAL null: within-stratum uniform shuffle via the single-key argsort (z_rank + key), SAME as CPU.
+    # order / z_rank are per-support derivations (argsort + stratum-rank). Measured DISTINCT across the gate's
+    # perm-null calls (the conditioning support grows as features are selected), so they are NOT resident-cached
+    # (caching them would only pin per-call VRAM with no reuse); a fresh transient upload, freed below.
     z_h = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
     order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
     z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]   # (n, 1)
@@ -141,7 +147,8 @@ def conditional_perm_null_gpu(
     within = cp.argsort(z_rank_d + keys, axis=0)                 # (n, nperm) within-stratum orders (no overlap)
     Xp_d = cp.empty((n, nperm), dtype=cp.int64)
     Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
-    del keys, within, x_sorted_d, z_rank_d, order_d, dx         # free the (n,nperm) build temporaries first
+    del keys, within, x_sorted_d, z_rank_d, order_d            # free the (n,nperm) build + per-call order/zrank
+    # (dx is resident-cached -> retained by the cache, not freed here)
     nulls = _batched_cmi_resident_chunked(Xp_d, y_h, z_h)
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
