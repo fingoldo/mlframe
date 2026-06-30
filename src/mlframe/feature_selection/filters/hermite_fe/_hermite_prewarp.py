@@ -109,7 +109,10 @@ def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray,
 def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                          *, iters: int = 3,
                          x_a: np.ndarray | None = None,
-                         x_b: np.ndarray | None = None) -> tuple:
+                         x_b: np.ndarray | None = None,
+                         z_a: np.ndarray | None = None,
+                         z_b: np.ndarray | None = None,
+                         basis: str | None = None) -> tuple:
     """Per-operand warm-start coefficients for the multiplicative pair model
     ``y ~ f(x_a) * g(x_b)`` via a rank-1 alternating-least-squares (ALS) sweep
     in the orthogonal-polynomial basis.
@@ -145,6 +148,15 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     :func:`fit_operand_prewarp` solve (clean 30/30 win, never regresses); the ALS
     sweep is different and the params are kept only for call-site symmetry / future
     work. See the ``# bench-attempt-rejected`` note in the body for the numbers.
+
+    DEVICE-BORN DESIGN (2026-06-30, H2D collapse): ``z_a`` / ``z_b`` (the small
+    standardised columns ``basis_fit(x)`` from which ``B_a`` / ``B_b`` were built)
+    and ``basis`` are OPTIONAL. They affect ONLY the resident GPU branch: when all
+    three are supplied, the (n x degree+1) design matrices are rebuilt ON DEVICE
+    from ``z`` (collapsing the ~374MB matrix upload at 300k) instead of uploading
+    the prebuilt ``B_a`` / ``B_b``. The CPU path ignores them and stays byte-
+    identical; callers that already hold only ``B_a`` / ``B_b`` omit them and the
+    resident branch uploads the prebuilt matrices exactly as before.
     """
     # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
     # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the design matrices + target resident on the
@@ -161,7 +173,9 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
         # propagates to tests instead of silently degrading to CPU as a "device fallback".
         try:
-            from ._hermite_prewarp_gpu_resident import warm_start_als_seed_gpu
+            from ._hermite_prewarp_gpu_resident import (
+                warm_start_als_seed_gpu, warm_start_als_seed_gpu_from_z,
+            )
             _twin_ready = True
         except Exception:
             _twin_ready = False
@@ -183,6 +197,15 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 pass
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
+                # DEVICE-BORN design (2026-06-30, H2D collapse): when the caller supplies the small
+                # standardised columns + basis, build B_a/B_b ON DEVICE from z so the (n x degree+1)
+                # designs never cross the H2D path (collapses the ~374MB design upload at 300k). The
+                # device basis recurrence mirrors build_basis_matrix EXACTLY (~1e-13 design, ~1e-12
+                # coeffs). Falls back to the prebuilt-matrix upload when z/basis are not supplied
+                # (other callers that already hold B_a/B_b).
+                if z_a is not None and z_b is not None and basis is not None:
+                    return warm_start_als_seed_gpu_from_z(
+                        z_a, z_b, y, basis=str(basis), max_degree=(B_a.shape[1] - 1), iters=iters)
                 return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
             except tuple(_dev_errs):
                 pass  # genuine cupy/device/linalg fault -> CPU normal-eq path (byte-identical default); logic bugs propagate
@@ -380,7 +403,12 @@ def fit_pair_prewarp_als(
         # NOT robustify (bench-attempt-rejected, see warm_start_als_seed) so this
         # stays byte-identical to legacy OLS-ALS. No ``robust_fit`` provenance is set
         # on the returned specs: the ALS coefficients are plain least-squares.
-        coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3, x_a=xa, x_b=xb)
+        # DEVICE-BORN design (2026-06-30, H2D collapse): za/zb are already the
+        # standardised columns built ONCE above; pass them + basis so the resident
+        # GPU branch rebuilds Ba/Bb on device (the ~374MB matrix upload collapses to
+        # the two tiny (n,) columns). The CPU path uses the host Ba/Bb built above.
+        coef_a, coef_b = warm_start_als_seed(
+            Ba, Bb, yf, iters=3, x_a=xa, x_b=xb, z_a=za, z_b=zb, basis=basis)
     except (np.linalg.LinAlgError, ValueError):
         return None, None
     if coef_a is None or coef_b is None:
