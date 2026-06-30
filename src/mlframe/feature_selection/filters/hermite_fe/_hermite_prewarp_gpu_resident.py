@@ -202,9 +202,14 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
         return None, None
 
     # ---- ONE bulk H2D of the two SMALL standardised columns + target ----
+    # za/zb are the per-pair standardised columns -> distinct, a genuine upload each. yc_h is the centred fit
+    # target, identical across every pair the ALS seed scans, so it re-uploaded once per pair (H2D audit: 32x).
+    # Route it through the content-keyed resident cache so the target uploads ONCE; read-only in _als_sweep_gpu
+    # (only _als_solve reads it, never reassigns/mutates) -> selection-equivalent.
+    from .._fe_resident_operands import resident_operand
     za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=np.float64)).reshape(-1))
     zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=np.float64)).reshape(-1))
-    yc = cp.asarray(yc_h)
+    yc = resident_operand(yc_h, "hermite_prewarp_yc", dtype=cp.float64)
 
     deg = max(1, int(max_degree))
     try:

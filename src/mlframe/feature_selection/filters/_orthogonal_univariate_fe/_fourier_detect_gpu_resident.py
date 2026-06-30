@@ -201,10 +201,16 @@ def detect_fourier_freqs_for_col_gpu(
         return []
 
     # ---- ONE bulk H2D of the 4 columns; everything below stays resident -------------------------------
+    # z_tr/z_va are the per-column z split -> distinct, a genuine upload each. y_tr/y_va are the FIXED held-out
+    # target split (the seed-0 val mask + seed-0xF0F0 row-subsample above are identical for EVERY column the
+    # detector scans), so they re-uploaded once per column (H2D audit: 34x). Route them through the content-keyed
+    # resident cache so the target split uploads ONCE; read-only here (line below reassigns y_tr/y_va to fresh
+    # detrended arrays rather than mutating the cached buffer) -> selection-equivalent.
+    from .._fe_resident_operands import resident_operand
     z_tr = cp.asarray(z_tr_h)
     z_va = cp.asarray(z_va_h)
-    y_tr = cp.asarray(y_tr_h)
-    y_va = cp.asarray(y_va_h)
+    y_tr = resident_operand(y_tr_h, "fourier_y_tr", dtype=cp.float64)
+    y_va = resident_operand(y_va_h, "fourier_y_va", dtype=cp.float64)
 
     # POLYNOMIAL DETREND (cubic in z, train-fit / val-applied) -- resident.
     _V_tr = _vander4_gpu(cp, z_tr)
