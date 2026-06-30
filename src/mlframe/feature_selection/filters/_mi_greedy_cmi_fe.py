@@ -781,18 +781,30 @@ def _nnz_from_counts(c) -> int:
     return int(_NNZ_RK(c))
 
 
-# (id(host), size, endpoints) -> max(dev_codes)+1 cardinality. y is a fit-constant and z_support a
-# round-constant across the per-candidate CMI calls, so their dev .max() (a reduction + scalar D2H) recurs
-# identically; memoize it (keyed like _YZ_CARD_CACHE: endpoints guard id() reuse after GC). x varies -> never
-# cached. Selection-exact (same integer cardinality). Module-level -> never on a pickled instance.
+# content-fingerprint -> max(dev_codes)+1 cardinality. y is a fit-constant and z_support a round-constant
+# across the per-candidate CMI calls, so their dev .max() (a reduction + scalar D2H) recurs identically;
+# memoize it. x varies -> never cached. Selection-exact (same integer cardinality). Module-level -> never on a
+# pickled instance.
+#
+# CORRECTNESS (cudaErrorIllegalAddress fix): the cached cardinality is consumed as the per-axis HISTOGRAM WIDTH
+# of the device joint-histogram kernels (``cmi_joint_entropies`` / ``joint_entropy`` size the shared tile from
+# ``Kx*Ky*Kz`` and index it ``(x*Ky+y)*Kz+z`` directly). A card SMALLER than the operand's true max+1 makes a
+# code index past the shared tile -> an out-of-bounds ``__shared__`` atomic (a stray write that lands on the
+# neighbouring shared/adjacent allocation, surfacing later as a misattributed illegal-address at the first sync
+# boundary, masked/unmasked by mempool arena rounding). The previous key ``(id(host), size, first, last)`` is
+# NOT a safe content fingerprint: after the host array is GC'd a DIFFERENT operand can reuse the same id AND
+# match size+endpoints yet have a LARGER max, so the cache returned a STALE-too-small card -> the OOB above.
+# Key on a full O(n) content hash (the recycled-id-no-alias guard ``_fe_resident_operands.resident_operand``
+# uses); the hash is pure CPU and far cheaper than the H2D .max() it guards, and CANNOT collide two operands of
+# different content onto the same (too-small) card. Selection-IDENTICAL on the happy path (same card value).
 _CARD_MAX_CACHE: dict = {}
 
 
 def _cached_card(host_arr, dev_codes) -> int:
     if dev_codes.size == 0:
         return 1
-    ha = np.asarray(host_arr).ravel()
-    key = (id(host_arr), int(ha.size), int(ha[0]), int(ha[-1]))
+    ha = np.ascontiguousarray(np.asarray(host_arr).ravel())
+    key = (int(ha.size), ha.dtype.str, hash(ha.tobytes()))   # content fingerprint (no id-reuse collision)
     v = _CARD_MAX_CACHE.get(key)
     if v is None:
         v = int(dev_codes.max()) + 1
@@ -906,12 +918,17 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     # scores MANY candidates against the SAME (y target, z support) within a greedy round, so k_z / k_yz
     # (and ky / kz) are INVARIANT across those per-candidate calls -- only k_xz / k_xyz depend on the
     # candidate x. Recomputing k_z + k_yz per candidate was 2 of the 4 occupied-cell histograms each call.
-    # Memoize them keyed by the (y,z) host-array identity + size + endpoints (stable within a round, distinct
-    # across rounds; endpoints guard against id() reuse after GC). Same cardinalities -> df unchanged.
-    ya = np.asarray(y).ravel(); za = np.asarray(z).ravel()
-    yzkey = (id(y), id(z), int(ya.size),
-             int(ya[0]) if ya.size else 0, int(ya[-1]) if ya.size else 0,
-             int(za[0]) if za.size else 0, int(za[-1]) if za.size else 0)
+    # Memoize them keyed by a CONTENT FINGERPRINT of (y, z) (stable within a round, distinct across rounds).
+    # CORRECTNESS: ky / kz returned here are consumed as device joint-histogram WIDTHS (``_nc([dx, dz], [Kx,
+    # kz])`` etc. index ``counts[(x*Kb+...)*Kc + z]`` by card stride); a stale-too-small card from an id-reuse
+    # fingerprint collision makes a code index past the histogram -> an out-of-bounds atomic (the misattributed
+    # illegal-address class fixed in _cached_card). The previous ``(id(y), id(z), size, endpoints)`` key was NOT
+    # collision-safe (a GC'd y/z whose id is reused with matching size+endpoints but a LARGER max returns the
+    # stale card); key on full O(n) content hashes instead (cheap CPU vs the H2D .max()+nnz it guards). Same
+    # cardinalities on the happy path -> df / selection unchanged.
+    ya = np.ascontiguousarray(np.asarray(y).ravel()); za = np.ascontiguousarray(np.asarray(z).ravel())
+    yzkey = (int(ya.size), ya.dtype.str, hash(ya.tobytes()),
+             int(za.size), za.dtype.str, hash(za.tobytes()))
     _cached = _YZ_CARD_CACHE.get(yzkey)
     if _cached is not None:
         k_z, k_yz, ky, kz = _cached

@@ -307,6 +307,15 @@ _RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never
 _RADIX_SELECT_F32_KERNEL = None
 _RADIX_SELECT_THREADS = 512  # historical default + KTC fallback (see _gpu_resident_radix_ktc / Lever B)
 _RADIX_SELECT_MAXR = 64      # must match MAXR in the kernel sources
+# STATIC __shared__ footprint of the radix-select kernels, in bytes (the host shared-mem gate must subtract
+# this from the device per-block limit before testing the DYNAMIC histogram ``shmem = R*256*4`` -- otherwise
+# dynamic+static can exceed the limit and cuLaunchKernel returns CUDA_ERROR_INVALID_VALUE). Worst case is the
+# fused v2 kernel ``radix_select_interp_f64_v2``: prefix/below/wpref/wsort (4 x MAXR x 8B u64) + rank2w/wsort2w
+# (2 x MAXR x 4B i32) + W (4B i32) + osv_sh (MAXR x 8B f64) = 2048+512+4+512 = 3076B at MAXR=64. The other
+# (f64-original, f32 linear/bsearch/v3) variants use <= this, so gating on the worst case keeps every kernel
+# the path may launch within budget. Bit-identical: gating only changes WHEN the radix path returns None (then
+# the caller takes the cp.percentile fallback, same edges); a passing R still launches unchanged.
+_RADIX_STATIC_SHARED_BYTES = 4 * _RADIX_SELECT_MAXR * 8 + 2 * _RADIX_SELECT_MAXR * 4 + 4 + _RADIX_SELECT_MAXR * 8
 # Lever B (2026-06-23): threads/block is now KTC-TUNED per host (radix_select_f32 was the biggest kernel,
 # 512 under-utilised the card -- 512->1024 = 1.20x at n=100k/K=583 on the GTX 1050 Ti). The sweep probe
 # forces a specific count via this override (set/reset by _gpu_resident_radix_ktc._radix_edges_with_threads);
@@ -776,14 +785,16 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     R = int(uniq.size)
     if R > _RADIX_SELECT_MAXR:
         return None
-    # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit).
+    # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit). The gate
+    # must reserve the kernels' STATIC __shared__ footprint too -- dynamic ``shmem`` ALONE near the limit, plus
+    # the static arrays, overflows the per-block budget and cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
     shmem = R * 256 * 4
     try:
         dev = cp.cuda.Device()
         sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
     except Exception:
         sh_limit = 48 * 1024
-    if shmem > sh_limit:
+    if shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
         return None
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
     # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
@@ -875,7 +886,9 @@ def _radix_quantiles(cand_gpu, q_fracs):
         sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
     except Exception:
         sh_limit = 48 * 1024
-    if shmem > sh_limit:
+    # Reserve the kernels' STATIC __shared__ footprint (see _RADIX_STATIC_SHARED_BYTES): dynamic + static must
+    # fit the per-block limit, else cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
+    if shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
         return None
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
     data_cm = _transpose_to_cm(cand_gpu)                            # (K, n) coalesced (same as edges path)
