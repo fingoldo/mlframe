@@ -80,6 +80,28 @@ def fe_gpu_device_born_binagg_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
+def fe_gpu_device_born_dispersion_enabled() -> bool:
+    """Whether the conditional-dispersion FE family's Tier-1 ``local_mi_gate`` candidate matrix is built
+    DEVICE-BORN (cupy bin-code gather + z-score + |z|/z**2 fold from resident operand columns) and scored by the
+    resident plug-in MI, instead of host-materialised in ``generate_conditional_dispersion_features`` and
+    uploaded at ``_extra_fe_families_dispersion.py:563``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the ~288 MB host
+    conditional-dispersion matrix upload (the dominant single-site H2D of the dispersion gate on a 300k
+    GPU-strict F2 fit) by rebuilding the (n, K) candidate matrix on the device from only the small operand
+    columns (the two raw columns per pair + the stored x_j quantile edges + the per-bin (mu_hat, sigma_hat)),
+    uploaded once per fit via the operand cache. The transform is PURE-X / Y-INDEPENDENT (no OOF / fold / target
+    -> no leak surface), so the bin-code / sigma-floor / NaN-fold / emission-fold STRUCTURE is bit-identical to
+    the host and only the per-row f64 divide differs at ~1e-10 ULP (the per-bin moments are the SAME host-stored
+    recipe constants, NOT recomputed on the device). MI is scored with the SAME percentile-edge estimator the
+    host STRICT path uses (no EDGE<->RANK switch). ``MLFRAME_FE_GPU_DEVICE_BORN_DISPERSION=0`` is the explicit
+    OPT-OUT for diagnosis / rollback. The non-strict DEFAULT path is untouched (the host ``local_mi_gate`` runs
+    over the host-built matrix) -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_DISPERSION", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def run_fe_step_gpu_strict(self, **kwargs):
     """One FE step, fully GPU-resident, multi-GPU + hw-spec aware. Returns the SAME contract as
     ``_run_fe_step`` (``data, cols, nbins, X, selected_vars, n_recommended_features`` + mutated

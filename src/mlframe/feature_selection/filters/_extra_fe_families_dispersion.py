@@ -560,11 +560,32 @@ def hybrid_conditional_dispersion_fe(
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
-        winners = local_mi_gate(
-            enc_df, y, raw_X=X,
-            top_k=int(mi_gate_top_k) if mi_gate_top_k else int(top_k),
-            reject_sink=reject_sink,
-        )
+        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k else int(top_k)
+        # DEVICE-BORN route (2026-06-30): under STRICT-residency the enc_df matrix is the ~288 MB host->device
+        # upload at this site. Rebuild the conditional-dispersion candidate matrix ON the device from the small
+        # resident operand columns (the recipes carry each column's x_i/x_j/edges/bin_mean/bin_std/kind) and
+        # score with the SAME resident plug-in MI -- collapsing the matrix H2D. The transform is PURE-X /
+        # Y-INDEPENDENT (no OOF / fold / target -> no leak surface), so the bin-code / sigma-floor / NaN-fold /
+        # emission-fold STRUCTURE is bit-identical to the host; only the per-row f64 divide differs at ULP (the
+        # per-bin moments are the SAME host-stored recipe constants). ``None`` (no cupy / non-strict / any GPU
+        # failure) -> exact host gate.
+        winners = None
+        try:
+            from ._gpu_strict_fe import fe_gpu_device_born_dispersion_enabled
+            if fe_gpu_device_born_dispersion_enabled():
+                from ._extra_fe_families_dispersion_resident import local_mi_gate_dispersion_resident
+                winners = local_mi_gate_dispersion_resident(
+                    enc_df, y, raw_X=X, recipes=raw_recipes,
+                    top_k=_gate_top_k, reject_sink=reject_sink,
+                )
+        except Exception:
+            winners = None
+        if winners is None:
+            winners = local_mi_gate(
+                enc_df, y, raw_X=X,
+                top_k=_gate_top_k,
+                reject_sink=reject_sink,
+            )
         # DUAL-UPLIFT GATE (backlog #12): a dispersion column earns its keep ONLY
         # if it carries MI BEYOND both (a) its raw source x_i and (b) its
         # Family-B mean-residual sibling x_i - E[x_i|bin(x_j)]. On homoscedastic
