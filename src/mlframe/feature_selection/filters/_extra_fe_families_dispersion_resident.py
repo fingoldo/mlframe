@@ -56,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "build_dispersion_matrix_gpu",
+    "build_residual_abs_matrix_gpu",
+    "dual_uplift_sibling_mi_resident",
     "local_mi_gate_dispersion_resident",
 ]
 
@@ -154,6 +156,105 @@ def build_dispersion_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict]):
     if not out_cols:
         return cp.empty((n, 0), dtype=cp.float64)
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))
+
+
+def build_residual_abs_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict]):
+    """Build the ABSOLUTE Family-B mean-residual matrix ``|x_i - E[x_i|bin(x_j)]|`` ON the device, one column
+    per ``col_specs`` entry, in the GIVEN order. Reproduces ``_extra_fe_families.generate_conditional_residual_features``'s
+    per-pair body on device from resident operand columns -- the SAME bin-code gather + per-bin-mean subtract
+    the device dispersion builder uses, but WITHOUT the ``/sigma`` step (this is the dispersion z-score
+    NUMERATOR before the divide), then ``cp.abs``.
+
+    ``col_specs`` is a list of per-output dicts ``{x_i, x_j, edges, bin_mean}`` (the Family-B recipe fields).
+    Returns an (n, K) cupy float64 matrix whose columns are ``|residual|``, structurally bit-identical to the
+    host (same x_j bin codes via the SAME stored edges, same per-bin mean gather, same NaN ``x_i`` -> 0.0
+    fold). There is NO divide here -- only a per-element gather + subtract + abs -- so the emitted values match
+    the host to the last ULP (per-element independent f64).
+
+    The bin codes reuse the SAME ``("disp_xj", x_j)`` / ``("disp_edges", x_j)`` resident operands the dispersion
+    builder caches (the x_j edges are computed the SAME way -- ``_quantile_edges`` -- in both families, so a
+    column built on the same ``(x_i, x_j)`` pair shares the codes); ``x_i`` rides ``("disp_xi", x_i)``; the
+    per-bin mean is the Family-B-specific ``("resid_mean", x_i, x_j)`` constant uploaded once per pair. The
+    candidate matrix itself is device-born + transient (NOT cached)."""
+    from ._fe_resident_operands import resident_operand
+
+    n = len(X)
+
+    code_cache: dict = {}    # x_j -> codes_g (shared across all (x_i, x_j) pairs on the same x_j)
+    resid_cache: dict = {}   # (x_i, x_j) -> |resid|_g (a pair appears once per winner, but guard dupes anyway)
+
+    out_cols = []
+    for spec in col_specs:
+        x_i = spec["x_i"]
+        x_j = spec["x_j"]
+        rk = (x_i, x_j)
+        r_g = resid_cache.get(rk)
+        if r_g is None:
+            codes_g = code_cache.get(x_j)
+            if codes_g is None:
+                xj = np.asarray(X[x_j].to_numpy(), dtype=np.float64)
+                edges = np.asarray(spec["edges"], dtype=np.float64)
+                xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=cp.float64)
+                edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=cp.float64)
+                codes_g = _codes_from_edges_gpu(cp, xj_g, edges_g)
+                code_cache[x_j] = codes_g
+            xi = np.asarray(X[x_i].to_numpy(), dtype=np.float64)
+            xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=cp.float64)
+            bin_mean = np.asarray(spec["bin_mean"], dtype=np.float64)
+            mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("resid_mean", x_i, x_j), dtype=cp.float64)
+            # Gather per-row mean by code; subtract; NaN x_i rows -> 0.0 (the EXACT host fold), then abs. No
+            # divide -> bit-identical to the host per-element op sequence.
+            mu = mean_g[codes_g]
+            finite_i = cp.isfinite(xi_g)
+            r_g = cp.where(finite_i, cp.abs(xi_g - mu), 0.0)
+            resid_cache[rk] = r_g
+        out_cols.append(r_g)
+
+    if not out_cols:
+        return cp.empty((n, 0), dtype=cp.float64)
+    return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))
+
+
+def dual_uplift_sibling_mi_resident(
+    raw_X: pd.DataFrame,
+    y_bin,
+    col_specs: Sequence[dict],
+    *,
+    nbins: int,
+) -> Optional[np.ndarray]:
+    """DEVICE-BORN MI of the Family-B mean-residual SIBLING matrix ``|x_i - E[x_i|bin(x_j)]|`` for the
+    conditional-dispersion DUAL-UPLIFT filter.
+
+    Builds the ``sib_abs`` matrix ON the device from the SMALL resident operand columns (collapsing the
+    ~120 MB host matrix upload at ``_extra_fe_families_dispersion.py:489``) and scores per-column MI with the
+    SAME percentile-edge resident plug-in MI ``_plugin_mi_classif_batch_cuda_resident`` the host STRICT
+    ``_mi_classif_batch`` routes to (NO estimator switch). Returns a host (K,) float64 MI array in ``col_specs``
+    order, OR ``None`` on any cupy failure / no-cupy so the caller falls back to the exact host
+    ``_mi_classif_batch`` over the host-built ``sib_abs`` (byte-identical default path untouched)."""
+    try:
+        import cupy as cp  # noqa: F401
+    except Exception:
+        return None
+    if not col_specs:
+        return np.empty((0,), dtype=np.float64)
+    try:
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+        from ._fe_resident_operands import resident_operand
+
+        mat_gpu = build_residual_abs_matrix_gpu(cp, raw_X, list(col_specs))
+        if mat_gpu.shape[1] == 0:
+            return np.empty((0,), dtype=np.float64)
+        _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
+        y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
+        _ymin = int(_yi.min()) if _yi.size else 0
+        _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+        return np.asarray(
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls),
+            dtype=np.float64,
+        )
+    except Exception as _exc:  # noqa: BLE001
+        logger.debug("dual_uplift_sibling_mi_resident: GPU path failed (%s); host fallback", _exc)
+        return None
 
 
 def local_mi_gate_dispersion_resident(

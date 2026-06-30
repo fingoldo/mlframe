@@ -75,11 +75,144 @@ def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
     return codes, 3
 
 
+def _dyadic_haar_leg_gpu(cp, z_g, j: int, k: int):
+    """Device twin of ``_wavelet_basis_fe._dyadic_haar_leg``: closed-form Haar indicator ``psi_{j,k}(z)`` for
+    ``z`` in [0, 1] -- ``+1`` on the LEFT half ``[k/2^j, (k+0.5)/2^j)``, ``-1`` on the RIGHT half
+    ``[(k+0.5)/2^j, (k+1)/2^j)``, ``0`` outside. Same dyadic-cell boolean masks on the SAME f64 ``z`` axis, so
+    the leg ({-1, 0, +1}) is bit-identical to the host (the host computes the masks in f64 then casts the
+    {-1,0,+1} values, which are exact in any float dtype -> same partition)."""
+    width = 1.0 / (2 ** int(j))
+    left = int(k) * width
+    mid = left + width / 2.0
+    right = left + width
+    leg = cp.zeros(z_g.shape, dtype=cp.float64)
+    leg[(z_g >= left) & (z_g < mid)] = 1.0
+    leg[(z_g >= mid) & (z_g < right)] = -1.0
+    return leg
+
+
+def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, scale_sigma):
+    """DEVICE-BORN twin of the host body of :func:`select_wavelet_legs_batched`: builds the dyadic-Haar leg
+    code matrices ON the device from the single resident ``z`` column (``z = clip((x-lo)/span, 0, 1)``) and
+    passes the RESIDENT cupy code matrices to ``binned_mi_from_codes_gpu`` (``isinstance cp.ndarray`` -> no
+    upload), collapsing the ~180 MB host ``tr_mat`` / ``va_mat`` H2D at ``_fe_batched_mi.py:394``.
+
+    Returns the SAME admitted ``(j, k)`` legs as the host path (selection-equivalent: the dyadic-Haar leg is a
+    deterministic interval indicator, ``_dense_leg_codes`` is ``leg+1`` with cardinality 3, and MI is
+    partition-based -- the device leg / dense-code partition is bit-identical to the host). Returns ``None`` on
+    any cupy failure / no-cupy so the caller falls back to the exact host (numpy + ``cp.asarray``) body."""
+    try:
+        import cupy as cp  # noqa: F401
+    except Exception:
+        return None
+
+    from ._wavelet_basis_fe import (
+        _WAVELET_MIN_HALF_ROWS,
+        _WAVELET_MIN_HELDOUT_MI,
+        _WAVELET_MIN_ROWS,
+        _bin_y_codes,
+    )
+
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y).ravel()
+    n = x.size
+    if n != y.size or n < _WAVELET_MIN_ROWS:
+        return []
+    if span <= 1e-12 or float(np.std(x)) < 1e-12:
+        return []
+    idx = np.arange(n)
+    va_mask = (idx % 3) == 0
+    tr_mask = ~va_mask
+    if int(tr_mask.sum()) < 64 or int(va_mask.sum()) < 32:
+        return []
+
+    try:
+        from ._fe_resident_operands import resident_operand
+        from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+        # z = clip((x-lo)/span, 0, 1) built on device from the resident x column (uploaded once per fit). The
+        # train/val split is a deterministic row mask (idx % 3); slice the device legs by boolean masks built
+        # once on the device. The y-codes are the SAME host _bin_y_codes the host path uses (small int labels).
+        # Key on the ROLE only (NOT id(x) -- the host x is re-derived per call as a fresh object, so an id-based
+        # key would miss every time); the operand cache folds shape + content fingerprint into the key, so a
+        # different column with the same role re-uploads while the SAME column hits.
+        z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)
+        z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
+        tr_g = cp.asarray(tr_mask)
+        va_g = cp.asarray(va_mask)
+
+        metas: list[tuple] = []
+        tr_cols: list = []
+        va_cols: list = []
+        for j in range(int(max_scale) + 1):
+            for k in range(2 ** j):
+                leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
+                # Same eligibility gate as the host: enough +/- support over the FULL leg.
+                if int(cp.count_nonzero(leg > 0)) < _WAVELET_MIN_HALF_ROWS or int(cp.count_nonzero(leg < 0)) < _WAVELET_MIN_HALF_ROWS:
+                    continue
+                # _dense_leg_codes: leg -> leg+1 (cardinality 3). Slice train/val from the device leg.
+                codes = (leg + 1.0).astype(cp.int64)
+                metas.append((int(j), int(k)))
+                tr_cols.append(codes[tr_g])
+                va_cols.append(codes[va_g])
+        if not metas:
+            return []
+
+        tr_mat = cp.ascontiguousarray(cp.stack(tr_cols, axis=1))   # resident (n_tr, K) int64 codes
+        va_mat = cp.ascontiguousarray(cp.stack(va_cols, axis=1))   # resident (n_va, K) int64 codes
+        yb_tr = _bin_y_codes(y[tr_mask])
+        yb_va = _bin_y_codes(y[va_mask])
+        ky_tr = int(np.asarray(yb_tr).max()) + 1
+        ky_va = int(np.asarray(yb_va).max()) + 1
+        tr_kx = [3] * len(metas)
+        va_kx = [3] * len(metas)
+        # Leave codes_trusted at the default (False) so the in-range guard runs, MIRRORING the host
+        # select_wavelet_legs_batched call (which does not trust). leg+1 is in {0,1,2} by construction, so the
+        # guard always passes; keeping it on matches the host path's illegal-address protection exactly.
+        mi_tr = binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
+        mi_va = binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
+    except Exception:
+        return None
+
+    heldout = np.asarray(mi_va, dtype=np.float64)
+    if heldout.size >= 4:
+        med = float(np.median(heldout))
+        mad = float(np.median(np.abs(heldout - med)))
+        floor = med + scale_sigma * 1.4826 * mad
+    else:
+        floor = 0.0
+    floor = max(floor, _WAVELET_MIN_HELDOUT_MI)
+    cand = [(float(mi_tr[i]), float(mi_va[i]), metas[i][0], metas[i][1]) for i in range(len(metas))]
+    admitted = [c for c in cand if c[1] >= floor]
+    if not admitted:
+        return []
+    admitted.sort(key=lambda c: c[0], reverse=True)
+    return [(int(c[2]), int(c[3])) for c in admitted[: int(max_legs)]]
+
+
 def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: float, *, max_scale: int, max_legs: int, scale_sigma: float) -> list:
     """BATCHED born-on-device twin of ``_wavelet_basis_fe._select_wavelet_legs``: returns the SAME admitted
     ``(j, k)`` legs, but scores every candidate leg's train + held-out MI in TWO batched device workloads
     (one per split) instead of ~2 per-leg ``_binned_mi`` calls. Selection-equivalent (plug-in MI is
     partition-based). Reuses the primary module's leg builder + gate constants read-only (no mutation)."""
+    # DEVICE-BORN route (2026-06-30): under STRICT-residency the host-stacked tr_mat / va_mat code matrices are
+    # the ~180 MB host->device upload at _fe_batched_mi.py:394 (cp.asarray of the host code stack). Build the
+    # dyadic-Haar leg code matrices ON the device from the single resident z column and pass the RESIDENT cupy
+    # code matrices to binned_mi_from_codes_gpu (isinstance cp.ndarray -> no upload). Selection-equivalent (the
+    # leg is a deterministic interval indicator, _dense_leg_codes is leg+1 cardinality 3, MI is partition-based);
+    # the held-out MI gate is NOT an uplift-ratio so no baseline-mismatch flip. ``None`` (no cupy / non-strict /
+    # any GPU failure) -> exact host body below.
+    try:
+        from ._gpu_strict_fe import fe_gpu_device_born_wavelet_enabled
+        if fe_gpu_device_born_wavelet_enabled():
+            _dev = _select_wavelet_legs_batched_device(
+                x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
+            )
+            if _dev is not None:
+                return _dev
+    except Exception:
+        pass
+
     from ._wavelet_basis_fe import (
         _WAVELET_MIN_HALF_ROWS,
         _WAVELET_MIN_HELDOUT_MI,

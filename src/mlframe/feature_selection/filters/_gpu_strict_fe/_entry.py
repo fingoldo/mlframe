@@ -102,6 +102,55 @@ def fe_gpu_device_born_dispersion_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
+def fe_gpu_device_born_dual_uplift_enabled() -> bool:
+    """Whether the conditional-dispersion FE family's DUAL-UPLIFT filter scores its Family-B mean-residual
+    SIBLING matrix (``|x_i - E[x_i|bin(x_j)]|``) DEVICE-BORN (cupy bin-code gather + subtract + abs from
+    resident operand columns) instead of host-materialising ``sib_abs`` in ``_dual_uplift_filter`` and
+    uploading it at ``_extra_fe_families_dispersion.py:489``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the ~120 MB host
+    Family-B sibling matrix upload (the dual-uplift residual on a 300k GPU-strict F2 fit) by rebuilding the
+    (n, K) sibling matrix on the device from only the small operand columns (the two raw columns per pair +
+    the stored x_j quantile edges + the per-bin mean of x_i), uploaded once per fit via the operand cache.
+    The Family-B residual ``x_i - E[x_i|bin(x_j)]`` is EXACTLY the conditional-dispersion z-score NUMERATOR
+    before the sigma-divide; ``|residual|`` is therefore reconstructed by the SAME bin-code / per-bin-mean
+    gather the device dispersion builder already uses, only without the ``/sigma`` step (subtract + abs). The
+    transform is PURE-X / Y-INDEPENDENT (no OOF / fold / target -> no leak surface) and there is NO divide,
+    so the bin-code / NaN-fold STRUCTURE is bit-identical to the host and the emitted values agree to the last
+    ULP (subtract + abs, per-element independent). The dual-uplift comparison is an ADDITIVE uplift on the
+    SAME estimator (under STRICT all three of cand / raw / sibling MI route through the resident plug-in MI),
+    so there is NO uplift-RATIO / baseline-mismatch flip surface. MI is scored with the SAME percentile-edge
+    estimator the host STRICT ``_mi_classif_batch`` uses (no EDGE<->RANK switch).
+    ``MLFRAME_FE_GPU_DEVICE_BORN_DUAL_UPLIFT=0`` is the explicit OPT-OUT for diagnosis / rollback. The
+    non-strict DEFAULT path is untouched (the host ``_mi_classif_batch`` runs over the host-built ``sib_abs``)
+    -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_DUAL_UPLIFT", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
+def fe_gpu_device_born_wavelet_enabled() -> bool:
+    """Whether the BATCHED wavelet leg-rank MI builds its dyadic-Haar leg code matrix DEVICE-BORN (cupy Haar
+    indicator + dense-code stack from the resident z-column) and passes the resident cupy code matrix to
+    ``binned_mi_from_codes_gpu`` (``isinstance cp.ndarray`` -> no upload), instead of host-stacking
+    ``tr_mat`` / ``va_mat`` and ``cp.asarray``-uploading them at ``_fe_batched_mi.py:394``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the ~180 MB host wavelet
+    code-matrix upload (the #2 single-site H2D of a 300k GPU-strict F2 fit) by building the (n, K) leg code
+    matrix on the device from the single resident z-column (``z = clip((x-lo)/span, 0, 1)``) and the host leg
+    metas, uploaded once per fit via the operand cache. The dyadic-Haar leg is a DETERMINISTIC interval
+    indicator (``{-1, 0, +1}`` by the dyadic sub-interval of z), and ``_dense_leg_codes`` maps ``leg -> leg+1``
+    (cardinality 3) -- both are selection-equivalent partition labels (MI is partition-based), so the device
+    twin is bit-identical in PARTITION to the host (pinned by ``test_wavelet_batched_mi_parity``). The leg gate
+    is a held-out MI gate (``_WAVELET_MIN_HELDOUT_MI``), NOT an uplift-RATIO, so there is no baseline-mismatch
+    flip surface. MI is scored with the SAME plug-in estimator the host batched path uses (no estimator
+    switch). ``MLFRAME_FE_GPU_DEVICE_BORN_WAVELET=0`` is the explicit OPT-OUT for diagnosis / rollback. The
+    non-strict DEFAULT path is untouched (host ``np.stack`` + ``cp.asarray`` upload) -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_WAVELET", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def run_fe_step_gpu_strict(self, **kwargs):
     """One FE step, fully GPU-resident, multi-GPU + hw-spec aware. Returns the SAME contract as
     ``_run_fe_step`` (``data, cols, nbins, X, selected_vars, n_recommended_features`` + mutated

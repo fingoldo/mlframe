@@ -9,7 +9,9 @@ from ._audit import BULK_BYTES, ResidencyReport, residency_audit
 from ._entry import (
     fe_gpu_device_born_binagg_enabled,
     fe_gpu_device_born_dispersion_enabled,
+    fe_gpu_device_born_dual_uplift_enabled,
     fe_gpu_device_born_gate_enabled,
+    fe_gpu_device_born_wavelet_enabled,
     fe_gpu_strict_bytematch_enabled,
     fe_gpu_strict_resident_enabled,
     run_fe_step_gpu_strict,
@@ -24,6 +26,8 @@ __all__ = [
     "fe_gpu_device_born_gate_enabled",
     "fe_gpu_device_born_binagg_enabled",
     "fe_gpu_device_born_dispersion_enabled",
+    "fe_gpu_device_born_dual_uplift_enabled",
+    "fe_gpu_device_born_wavelet_enabled",
     "residency_audit",
     "ResidencyReport",
     "BULK_BYTES",
