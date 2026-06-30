@@ -60,6 +60,26 @@ def fe_gpu_device_born_gate_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
+def fe_gpu_device_born_binagg_enabled() -> bool:
+    """Whether the binned-numeric-aggregate FE family's Tier-1 ``local_mi_gate`` OOF candidate matrix is built
+    DEVICE-BORN (cupy ``bincount`` raw-moment OOF reconstruction from resident operand columns) and scored by the
+    resident plug-in MI, instead of host-materialised in ``fit_binned_numeric_agg`` and uploaded at
+    ``_binned_numeric_agg_fe.py:360``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the ~192 MB host OOF matrix
+    upload (the #2 single-site H2D of a 300k GPU-strict F2 fit) by rebuilding the (n, K) candidate matrix on the
+    device from only the small operand columns (the two raw columns per pair + the host-generated fold-id vector +
+    the stored quantile edges), uploaded once per fit via the operand cache. The OOF fold-id / quantile-code /
+    per-fold-gather / global-fallback STRUCTURE is bit-identical to the host (only the per-cell moment values
+    differ at ULP -- the approved selection-equivalent trade), and the MI is scored with the SAME percentile-edge
+    estimator the host STRICT path uses (no EDGE<->RANK switch). ``MLFRAME_FE_GPU_DEVICE_BORN_BINAGG=0`` is the
+    explicit OPT-OUT for diagnosis / rollback. The non-strict DEFAULT path is untouched (the host
+    ``local_mi_gate`` runs over the host-built matrix) -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_BINAGG", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def run_fe_step_gpu_strict(self, **kwargs):
     """One FE step, fully GPU-resident, multi-GPU + hw-spec aware. Returns the SAME contract as
     ``_run_fe_step`` (``data, cols, nbins, X, selected_vars, n_recommended_features`` + mutated

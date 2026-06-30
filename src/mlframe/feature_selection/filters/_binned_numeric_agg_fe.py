@@ -357,7 +357,26 @@ def binned_numeric_agg_with_recipes(
     # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit when no signal).
     if mi_gate and feat_df.shape[1] > 0:
         from ._unified_fe_gate import local_mi_gate
-        survivors = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
+        # DEVICE-BORN route (2026-06-30): under STRICT-residency the OOF feat_df is the ~192 MB host->device
+        # upload at this site. Rebuild the OOF candidate matrix ON the device from the small resident operand
+        # columns (the recipes carry each column's group/agg/edges/global) + the host-generated fold ids, and
+        # score with the SAME resident plug-in MI -- collapsing the matrix H2D. The fold/code/gather/fallback
+        # structure is bit-identical to the host; only the per-cell moment values differ at ULP (the approved
+        # selection-equivalent trade). ``None`` (no cupy / non-strict / any GPU failure) -> exact host gate.
+        survivor_list = None
+        try:
+            from ._gpu_strict_fe import fe_gpu_device_born_binagg_enabled
+            if fe_gpu_device_born_binagg_enabled():
+                from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
+                survivor_list = local_mi_gate_binagg_resident(
+                    feat_df, y, raw_X=X, recipes=raw, n_folds=n_folds, random_state=random_state,
+                    reject_sink=reject_sink,
+                )
+        except Exception:
+            survivor_list = None
+        if survivor_list is None:
+            survivor_list = local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink)
+        survivors = set(survivor_list)
         feat_df = feat_df[[c for c in feat_df.columns if c in survivors]]
         if feat_df.shape[1] == 0:
             return X.copy(), [], []
