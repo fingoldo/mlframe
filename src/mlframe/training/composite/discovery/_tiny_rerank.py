@@ -486,6 +486,39 @@ def _tiny_model_rerank(
         for i in range(len(kept_specs))
     }
 
+    # Honest group-OOF reconstruction RMSE becomes the load-bearing ORDERING key (and the raw-baseline gate reference)
+    # when a group-disjoint honest holdout exists. The group-internal CV-RMSE above stays as the fallback for any spec
+    # whose holdout measurement degenerated (too few valid rows) -- a degenerate MEASUREMENT must not auto-kill a spec;
+    # only a genuine COLLAPSE returns +inf and sinks the spec. No-op (ordering bit-identical) without group ids + holdout.
+    _honest_oof_baseline = float("nan")
+    if (
+        bool(getattr(self.config, "honest_oof_selection", True))
+        and getattr(self, "_group_ids_for_rerank", None) is not None
+        and getattr(self, "honest_holdout_idx_", None) is not None
+    ):
+        from ._honest_oof_select import honest_oof_reconstruction_rmse
+
+        _honest_oof = honest_oof_reconstruction_rmse(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, getattr(self, "honest_holdout_idx_", None), y_full,
+        )
+        if _honest_oof:
+            self._honest_oof_rmse = dict(_honest_oof)
+            _honest_oof_baseline = float(getattr(self, "_honest_oof_raw_rmse", float("nan")))
+            for i, _spec in enumerate(kept_specs):
+                _hv = _honest_oof.get(_spec.name)
+                if _hv is not None:
+                    agg_scores[i] = float(_hv)
+                    object.__setattr__(_spec, "honest_oof_rmse", float(_hv))
+            self._tiny_rerank_scores = {
+                kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))
+            }
+            logger.info(
+                "[CompositeTargetDiscovery.honest_oof_select] ranking %d spec(s) by honest group-OOF "
+                "reconstruction RMSE (raw-y honest-OOF baseline=%.4g); %d measured, rest fall back to group-internal CV.",
+                len(kept_specs), _honest_oof_baseline, len(_honest_oof),
+            )
+
     # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
     # spec AND for the raw-y baseline (binned by the SAME variable
@@ -694,6 +727,12 @@ def _tiny_model_rerank(
             else:
                 raw_baseline = float(np.mean(finite_raw))
         tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
+        # When honest-OOF selection is active and produced a finite raw-y honest-OOF baseline, gate against the SAME
+        # honest objective the ordering now uses, so the gate and the rank are consistent (a spec ranked by its honest
+        # reconstruction RMSE is rejected against the raw honest reconstruction, not the group-internal raw CV).
+        if math.isfinite(_honest_oof_baseline):
+            raw_baseline = _honest_oof_baseline
+            tol = float(getattr(self.config, "honest_oof_selection_tolerance", 1.05))
         threshold = (raw_baseline * tol
                      if math.isfinite(raw_baseline) else float("inf"))
         # Skip the composite-target block when

@@ -682,4 +682,17 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # (callers who need every row for screening, e.g. tiny train_idx).
     honest_holdout_frac: Optional[float] = 0.2
 
+    # Rank composite specs by HONEST group-OOF reconstruction RMSE (predict-T -> invert-to-y on the never-touched
+    # group-disjoint honest holdout) instead of the optimistic group-INTERNAL CV-RMSE. MI-gain stays the cheap pre-filter
+    # (top_k_after_mi); only the tiny-rerank's final ORDERING key changes. The honest holdout contains the out-of-range
+    # base tail where a base-additive inverse extrapolates and collapses -- a group-internal CV fold (bounded by the train
+    # base range) never samples it, so a fragile spec wins the internal CV yet collapses on the disjoint holdout. Promoting
+    # this estimate from a post-hoc GATE to the RANKING key means fragile specs are never promoted in the first place.
+    # No-op when group ids (``_group_ids_for_rerank``) or a non-empty honest holdout are absent -> falls back to the prior
+    # group-internal CV-RMSE ordering, so non-group / synthetic runs stay bit-identical. Set False for legacy replay.
+    honest_oof_selection: bool = True
+    # In the rerank raw-baseline gate, when honest-OOF selection is active a spec must beat the raw-y honest-OOF
+    # reconstruction by this factor. Mirrors yscale_holdout_gate_tolerance.
+    honest_oof_selection_tolerance: float = 1.05
+
 
