@@ -715,6 +715,18 @@ def fit(
         extract_column_array=_extract_column_array,
     )
 
+    # Structural-fragility gate FIRST (cheap, train-only): drop base-additive specs whose inverse re-injects a
+    # per-group-level base (fragile on unseen groups). Its inputs (group_ids/train_idx/y_full + per-spec
+    # base_column/transform_name/fitted_params) are all ready here and it reads NO rerank output, so running it before
+    # the expensive tiny-rerank means the doomed specs never pay for a tiny-model fit (prod TVT: 11/11 base-additive
+    # specs dropped here -> the ~25-30 min rerank is skipped entirely when no survivor remains). Pruning a spec the gate
+    # would drop anyway can only let a LESS-fragile spec into the rerank's top_m; the downstream val/honest gates still
+    # apply to whatever survives, so no fragile spec slips through.
+    if kept_specs and getattr(self.config, "structural_fragility_gate_enabled", True):
+        from ._yscale_holdout_gate import apply_structural_fragility_gate
+
+        kept_specs = apply_structural_fragility_gate(self, df, kept_specs, train_idx, y_full)
+
     # Phase B: tiny-model rerank. Re-rank the MI-survivors by
     # CV-RMSE on the y-scale (the actual prediction objective).
     # Skip when ``screening == "mi"`` -- callers who want only
@@ -895,15 +907,7 @@ def fit(
     # y-scale group-aware holdout gate. Drop specs whose predict-T -> invert-to-y pipeline collapses
     # on a group-disjoint holdout (the prod failure the forward-only MI / i.i.d. honest-holdout never
     # sees). No-op without group ids. Runs BEFORE the honest re-score so the (heavier) MI re-score only
-    # touches survivors.
-    # Structural fragility gate (train-only, before the val gate): drop base-additive specs whose
-    # inverse re-injects a per-group-level base -- fragile on unseen groups even when a single val
-    # sample happens not to expose it.
-    if kept_specs and getattr(self.config, "structural_fragility_gate_enabled", True):
-        from ._yscale_holdout_gate import apply_structural_fragility_gate
-
-        kept_specs = apply_structural_fragility_gate(self, df, kept_specs, train_idx, y_full)
-
+    # touches survivors. (The structural-fragility gate now runs earlier, before the tiny-rerank.)
     if kept_specs and getattr(self.config, "yscale_holdout_gate_enabled", True):
         from ._yscale_holdout_gate import apply_yscale_holdout_gate
 
