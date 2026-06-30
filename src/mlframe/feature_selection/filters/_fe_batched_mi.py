@@ -318,7 +318,12 @@ def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y
     # cp.empty (not cp.zeros): the dedup kernel writes out[0:ne_k[c], c] for every column and the nek MI
     # kernel binary-searches ONLY each column's valid prefix (ne = ne_k[c]), so the uninitialised tail rows
     # of Ec are never read -> dropping the per-call (ne,K) zero-fill is bit-identical (was 17k zero-fills/fit).
-    Ec = cp.empty((ne, K), dtype=cp.float64)
+    # (ne+1, K) not (ne, K): dedup_njit_edges appends the cmax row at index w==ne (out[ne*K+c]) BEFORE the
+    # w-=1 decrement (lines 239-241) for all-distinct interior edges, so the buffer must hold nbins rows.
+    # That trailing row is written transiently but never read (after w-=1 always ne_k[c] <= ne, and the nek
+    # MI kernel reads only rows 0..ne_k[c]-1), so ne_k and all downstream MI are bit-identical; the extra row
+    # only stops the stray write from corrupting the adjacent pool block (was cudaErrorIllegalAddress).
+    Ec = cp.empty((ne + 1, K), dtype=cp.float64)
     ne_k = cp.empty(K, dtype=cp.int32)
     threads = 256
     _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,),
