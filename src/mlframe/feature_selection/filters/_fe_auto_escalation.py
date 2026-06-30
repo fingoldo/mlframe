@@ -217,7 +217,11 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
             z_tr, params, z_va = zc
         B_tr = build_basis_matrix(basis, z_tr, deg)
         B_va = build_basis_matrix(basis, z_va, deg)
-        return B_tr, B_va, params
+        # z_tr returned too so the pair ALS sweep can route through the DEVICE-BORN
+        # warm-start (warm_start_als_seed_gpu_from_z): the resident branch rebuilds
+        # B_tr ON DEVICE from these standardised columns instead of uploading the
+        # prebuilt (n x degree+1) matrices (collapses the ~358MB Ba/Bb H2D at 300k).
+        return B_tr, B_va, params, z_tr
 
     # Best SINGLE-operand warp baseline (1-D fit per side, train-fit / val-scored) -- the bar the PAIR
     # reconstruction must clear by the margin. Sweep the SAME bases the PAIR ALS sweeps below (not chebyshev
@@ -235,8 +239,8 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
             continue
         for _sb_basis in _ESCALATION_POLY_BASES:
             try:
-                B_tr, B_va, _params = _basis_block(x_tr, x_va, _sb_basis)
-                blocks[_sb_basis] = (B_tr, B_va)
+                B_tr, B_va, _params, z_tr = _basis_block(x_tr, x_va, _sb_basis)
+                blocks[_sb_basis] = (B_tr, B_va, z_tr)
                 # 1-D OLS warp = fit_operand_prewarp's solve (robust gate folded in).
                 coef, _rb, _wn = fit_basis_coef_robust(B_tr, _y_tr_c, x_tr)
                 if coef is None or not np.all(np.isfinite(coef)):
@@ -252,10 +256,17 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
             blk_a = _blocks_a.get(basis); blk_b = _blocks_b.get(basis)
             if blk_a is None or blk_b is None:
                 continue
-            Ba_tr, Ba_va = blk_a; Bb_tr, Bb_va = blk_b
+            Ba_tr, Ba_va, za_tr = blk_a; Bb_tr, Bb_va, zb_tr = blk_b
             # Rank-1 ALS pair warp = fit_pair_prewarp_als' solve on the SAME basis
             # matrices (warm_start_als_seed; OLS-ALS, no robustify -- matches legacy).
-            coef_a, coef_b = warm_start_als_seed(Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr)
+            # z_a/z_b/basis are passed too so the resident GPU branch takes the
+            # DEVICE-BORN path (warm_start_als_seed_gpu_from_z): Ba/Bb are rebuilt on
+            # device from these standardised columns (the SAME basis_fit the prebuilt
+            # Ba_tr/Bb_tr used), collapsing the ~358MB design H2D at 300k. Ba_tr/Bb_tr
+            # still feed the byte-identical CPU fallback (default, flag-off) path.
+            coef_a, coef_b = warm_start_als_seed(
+                Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr,
+                z_a=za_tr, z_b=zb_tr, basis=basis)
             if coef_a is None or coef_b is None:
                 continue
             c = _heldout_corr(

@@ -392,6 +392,15 @@ def optimise_hermite_pair(
                     np.ascontiguousarray(B_a_search[:, :ca_size]),
                     np.ascontiguousarray(B_b_search[:, :cb_size]),
                     y_search_any,
+                    # DEVICE-BORN design (2026-06-30, H2D collapse): the standardised
+                    # columns + basis B_a_search/B_b_search were built from are in
+                    # scope, so route the resident GPU branch through
+                    # warm_start_als_seed_gpu_from_z -- it rebuilds the (degree+1)
+                    # design ON DEVICE (max_degree = ca_size-1 / cb_size-1, the SAME
+                    # leading columns the [:ca_size]/[:cb_size] slice selects from an
+                    # orthogonal-poly basis) instead of uploading the prebuilt slices.
+                    # The CPU path ignores z/basis and stays byte-identical.
+                    z_a=z_a_search, z_b=z_b_search, basis=basis,
                 )
             except Exception as _als_err:
                 logger.debug("warm_start_als_seed failed at degree %d: %s", degree, _als_err)
