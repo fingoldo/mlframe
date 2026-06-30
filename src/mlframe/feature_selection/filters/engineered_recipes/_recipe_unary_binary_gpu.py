@@ -204,11 +204,19 @@ def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any) -> Optional[np.ndar
     vals_b = _extract_column(X, name_b)
 
     dt = cp.float32 if _vram_f32() else cp.float64
-    # Single H2D upload of each operand (the win is the elementwise compute, not
-    # the transfer); host arrays go up once, the materialised column comes back
-    # in one bulk D2H below.
-    a_gpu = cp.asarray(np.ascontiguousarray(vals_a), dtype=dt)
-    b_gpu = cp.asarray(np.ascontiguousarray(vals_b), dtype=dt)
+    # The recipe set replays MANY winners that share a handful of base source columns, so each base column was
+    # re-uploaded once per recipe that uses it (H2D audit: 31 calls / ~5 distinct sources -> ~97 MB of
+    # re-uploads). Route both operands through the content-keyed resident-operand cache so an identical source
+    # column uploads ONCE and every later recipe reusing it hits the resident copy; a distinct column still
+    # uploads once. Read-only inputs (the unary/binary kernels write a fresh output buffer) -> bit-identical
+    # materialised column. Falls back to a plain upload if the cache is unavailable.
+    try:
+        from .._fe_resident_operands import resident_operand
+        a_gpu = resident_operand(vals_a, ("recipe_src", name_a), dtype=dt)
+        b_gpu = resident_operand(vals_b, ("recipe_src", name_b), dtype=dt)
+    except Exception:
+        a_gpu = cp.asarray(np.ascontiguousarray(vals_a), dtype=dt)
+        b_gpu = cp.asarray(np.ascontiguousarray(vals_b), dtype=dt)
 
     ta = _gpu_unary(cp, u_a, a_gpu, recipe, "a")
     tb = _gpu_unary(cp, u_b, b_gpu, recipe, "b")
