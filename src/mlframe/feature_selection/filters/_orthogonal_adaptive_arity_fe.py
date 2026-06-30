@@ -250,8 +250,15 @@ def generate_adaptive_arity_cross_basis(
     for k in range(2, max_arity + 1):
         if not eval_results[k]:
             continue
-        cols_block = np.column_stack([r[3] for r in eval_results[k]]).astype(np.float64, copy=False)
-        mi_block = _mi_classif_batch(cols_block, y_arr, nbins=nbins)
+        # DEVICE-BORN (STRICT-resident): rebuild this arity's product matrix on the GPU from the small operand
+        # columns and score via the resident plug-in MI, collapsing the host cols_block upload at :311. The prune
+        # logic below compares MI VALUES across tuples/arities -- all from the SAME estimator (device or host),
+        # so the comparison is internally consistent either way. None (-> host batch) on no-cupy / non-strict /
+        # cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward ~1e-12).
+        mi_block = _adaptive_arity_mi_resident_block(X, y_arr, eval_results[k], basis=basis, nbins=nbins)
+        if mi_block is None:
+            cols_block = np.column_stack([r[3] for r in eval_results[k]]).astype(np.float64, copy=False)
+            mi_block = _mi_classif_batch(cols_block, y_arr, nbins=nbins)
         for (tup, degs, name, prod), mi_val in zip(eval_results[k], mi_block.tolist()):
             key = frozenset(tup)
             prev = tuple_best[k].get(key)
@@ -350,24 +357,97 @@ def generate_adaptive_arity_cross_basis(
     return eng_X, score_df
 
 
+def _adaptive_device_col_specs(eng_columns, raw_cols):
+    """Per-column device leg specs aligned 1:1 with ``eng_columns`` for the adaptive-arity family (VARIABLE
+    arity, 2..4 legs), recovering ``(col, degree)`` per leg from each ``"{c1}*{c2}*...__{d1}_{d2}_..."`` name.
+    ``None`` if ANY column does not resolve (legs not all raw / deg-count mismatch / unparsable token)."""
+    from ._orthogonal_univariate_fe._gpu_resident_cross_basis import _parse_code_deg
+
+    specs = []
+    raw_set = set(raw_cols)
+    for name in eng_columns:
+        head = name.split("__", 1)[0] if "__" in name else name
+        legs = head.split("*")
+        if len(legs) < 2 or any(leg not in raw_set for leg in legs):
+            return None
+        try:
+            suffix = name.split("__", 1)[1]
+            parts = suffix.split("_")
+        except (ValueError, IndexError):
+            return None
+        if len(parts) != len(legs):
+            return None
+        degs = [_parse_code_deg(p) for p in parts]
+        if any(d is None for d in degs):
+            return None
+        specs.append({"legs": [(legs[i], degs[i]) for i in range(len(legs))]})
+    return specs
+
+
+def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, nbins: int):
+    """DEVICE-BORN MI of one arity's candidate product matrix for ``generate_adaptive_arity_cross_basis``.
+
+    ``eval_results_k`` is the host list of ``(tup, degs, name, prod)`` for this arity. Rebuilds each tuple's
+    ``prod_i basis(x_i)_deg_i`` ON the device from the small operand columns (collapsing the host cols_block
+    upload at :311) and scores per-column MI with the SAME percentile-edge resident plug-in MI. Returns a host
+    (m,) float64 MI array in ``eval_results_k`` order, OR ``None`` on no-cupy / non-strict / cupy failure /
+    unsupported basis so the caller falls back to the exact host ``_mi_classif_batch``."""
+    from ._orthogonal_univariate_fe._orth_pair_cross_fe import _crossbasis_device_born_on
+
+    if not _crossbasis_device_born_on() or not eval_results_k:
+        return None
+    try:
+        import cupy as cp  # noqa: F401
+        from ._orthogonal_univariate_fe._gpu_resident_cross_basis import (
+            build_leg_product_matrix_gpu, _resident_mi,
+        )
+
+        specs = [
+            {"legs": [(tup[i], int(degs[i])) for i in range(len(tup))]}
+            for (tup, degs, _name, _prod) in eval_results_k
+        ]
+        mat_gpu = build_leg_product_matrix_gpu(cp, X, specs, basis=basis)
+        if mat_gpu.shape[1] != len(eval_results_k):
+            return None
+        return _resident_mi(cp, mat_gpu, y_arr, nbins)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def score_adaptive_arity_cross_basis(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
     y,
     *,
     nbins: int = 10,
+    basis: str = "auto",
 ) -> pd.DataFrame:
     """Score every engineered adaptive-arity column against y. Mirrors
     the per-arity ``score_*_cross_basis_by_mi_uplift`` helpers but the
     baseline is the BEST individual raw leg MI, matching Layer 56/77.
+
+    ``basis`` mirrors the generation call so the DEVICE-BORN STRICT-resident scorer re-routes each leg to the
+    SAME basis the host generator used. Unused on the host default path.
     """
     y_arr = _coerce_y_classif(y)
     if engineered_X.empty:
         return pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
     raw_cols = list(raw_X.columns)
-    raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
-    raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
-    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    # DEVICE-BORN (STRICT-resident): rebuild the variable-arity product matrix on the GPU + score both it and the
+    # raw baseline through the SAME resident plug-in MI -- collapsing the host product-matrix upload at :311.
+    raw_mi_map = eng_mi = None
+    _specs = _adaptive_device_col_specs(engineered_X.columns, raw_cols)
+    if _specs is not None:
+        from ._orthogonal_univariate_fe._orth_pair_cross_fe import _crossbasis_device_born_on
+        if _crossbasis_device_born_on():
+            from ._orthogonal_univariate_fe._gpu_resident_cross_basis import raw_and_product_mi_resident
+            _res = raw_and_product_mi_resident(raw_X, engineered_X, y_arr, _specs, nbins=nbins, basis=basis)
+            if _res is not None:
+                raw_mi_map, eng_mi = _res
+    if eng_mi is None:
+        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
+        eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
@@ -482,7 +562,7 @@ def hybrid_orth_mi_adaptive_arity_fe(
     # lower-arity-product MI.
     raw_X_seed = X[seed_sources]
     reranked = score_adaptive_arity_cross_basis(
-        raw_X_seed, eng_X, y, nbins=nbins,
+        raw_X_seed, eng_X, y, nbins=nbins, basis=basis,
     )
     # Floor anchored on the largest raw + engineered MI signal.
     max_raw_baseline = float(reranked["baseline_mi"].max()) if not reranked.empty else 0.0

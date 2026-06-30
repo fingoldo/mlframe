@@ -195,16 +195,71 @@ def generate_pair_cross_basis_features(
     return pd.DataFrame(out_cols, index=X.index)
 
 
+def _crossbasis_device_born_on() -> bool:
+    """Device-born cross-basis scoring engages ONLY under STRICT-residency (+ the per-family opt-out). Read live
+    (no frozen cache) so it tracks the env per call. Any import failure -> host path (never a correctness loss)."""
+    try:
+        from .._gpu_strict_fe import fe_gpu_device_born_crossbasis_enabled
+        return bool(fe_gpu_device_born_crossbasis_enabled())
+    except Exception:
+        return False
+
+
+def _pair_device_col_specs(eng_columns, raw_cols, *, nbins: int):
+    """Build per-column device leg specs aligned 1:1 with ``eng_columns`` for the pair-cross family, recovering
+    ``(col_i, deg_a)`` / ``(col_j, deg_b)`` from each engineered name via the SAME name-parsing the recipe
+    builder uses. Returns ``None`` if ANY column does not resolve to exactly two legs (the device matrix must
+    align 1:1 with the host columns; a single unresolved column -> host fallback for the whole batch)."""
+    from ._gpu_resident_cross_basis import _parse_code_deg
+
+    specs = []
+    for name in eng_columns:
+        col_i, col_j = _pair_sources_from_engineered_name(name, raw_cols)
+        if col_i is None or col_j is None:
+            return None
+        _head = col_i + "*" + col_j
+        if name.startswith(_head + "__"):
+            suffix = name[len(_head) + 2:]
+        elif "__" in name:
+            suffix = name.split("__", 1)[1]
+        else:
+            return None
+        try:
+            left, right = suffix.split("_", 1)
+        except ValueError:
+            return None
+        deg_a = _parse_code_deg(left)
+        deg_b = _parse_code_deg(right)
+        if deg_a is None or deg_b is None:
+            return None
+        specs.append({"legs": [(col_i, deg_a), (col_j, deg_b)]})
+    return specs
+
+
+def _resident_pair_cross_mi(raw_X, engineered_X, y_arr, col_specs, *, nbins: int, basis: str = "auto"):
+    """Thin wrapper over the shared device-born cross-basis MI twin for the pair family."""
+    from ._gpu_resident_cross_basis import raw_and_product_mi_resident
+
+    return raw_and_product_mi_resident(raw_X, engineered_X, y_arr, col_specs, nbins=nbins, basis=basis)
+
+
 def score_pair_cross_basis_by_mi_uplift(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
     y: np.ndarray,
     *,
     nbins: int = 10,
+    basis: str = "auto",
 ) -> pd.DataFrame:
     """Score each pair-cross-basis column by MI uplift vs the BETTER of the
     two raw source columns. Mirrors ``score_features_by_mi_uplift`` but the
     name carries a pair prefix ``"{col_i}*{col_j}__..."``.
+
+    ``basis`` mirrors the ``generate_pair_cross_basis_features`` call that produced ``engineered_X`` so the
+    DEVICE-BORN STRICT-resident scorer re-routes each leg to the SAME basis the host generator used (it routes
+    legs ITSELF rather than reading the name's leg-1 code). It is unused on the host default path. The MRMR
+    pipeline + the hybrid entry points thread the generation basis through; a direct caller that built
+    ``engineered_X`` under an explicit basis must pass the same value when the device path is engaged.
 
     Returns
     -------
@@ -221,16 +276,28 @@ def score_pair_cross_basis_by_mi_uplift(
         else np.asarray(y, dtype=np.int64)
     )
     raw_cols = list(raw_X.columns)
-    raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
-    raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     if engineered_X.empty:
         return pd.DataFrame(columns=[
             "engineered_col", "source_col_i", "source_col_j",
             "baseline_mi_i", "baseline_mi_j", "baseline_mi",
             "engineered_mi", "uplift",
         ])
-    # Column-chunked MI scoring -> bit-identical, bounds peak RAM on the wide pair-cross-basis matrix.
-    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    # DEVICE-BORN (STRICT-resident): rebuild the pair-cross product matrix on the GPU from the small raw operand
+    # columns and score BOTH it and the raw baseline through the SAME resident plug-in MI -- collapsing the host
+    # product-matrix upload at _orth_mi_backends.py:311. Returns None (-> exact host path below) on no-cupy /
+    # non-strict / any cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward
+    # recurrence ~1e-12, same estimator for numerator + baseline so the uplift ratio cannot flip).
+    raw_mi_map = eng_mi = None
+    _specs = _pair_device_col_specs(engineered_X.columns, raw_cols, nbins=nbins)
+    if _specs is not None and _crossbasis_device_born_on():
+        _res = _resident_pair_cross_mi(raw_X, engineered_X, y_arr, _specs, nbins=nbins, basis=basis)
+        if _res is not None:
+            raw_mi_map, eng_mi = _res
+    if eng_mi is None:
+        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
+        # Column-chunked MI scoring -> bit-identical, bounds peak RAM on the wide pair-cross-basis matrix.
+        eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # D1 (2026-06-22): recover legs against the raw-column set, not a blind first-"__"
@@ -379,7 +446,7 @@ def hybrid_orth_mi_pair_fe(
 
     raw_X_seed = X[seed_sources]
     cross_scores = score_pair_cross_basis_by_mi_uplift(
-        raw_X_seed, pair_eng, y, nbins=nbins,
+        raw_X_seed, pair_eng, y, nbins=nbins, basis=basis,
     )
     # Two-gate selection mirrors the univariate stage. The absolute floor is
     # max(raw_baseline_max, cross_engineered_mi_max) * frac. The second

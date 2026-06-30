@@ -231,12 +231,40 @@ _QUADRUPLET_SCORE_EMPTY_COLS = [
 ]
 
 
+def _quadruplet_device_col_specs(eng_columns, raw_cols):
+    """Per-column device leg specs aligned 1:1 with ``eng_columns`` for the quadruplet family (4 legs),
+    recovering ``(col, degree)`` per leg from each ``"{i}*{j}*{k}*{l}__{a}_{b}_{c}_{d}"`` name. ``None`` if ANY
+    column does not resolve to exactly four legs."""
+    from ._orthogonal_univariate_fe._gpu_resident_cross_basis import _parse_code_deg
+
+    specs = []
+    raw_set = set(raw_cols)
+    for name in eng_columns:
+        head = name.split("__", 1)[0] if "__" in name else name
+        legs = head.split("*")
+        if len(legs) != 4 or any(leg not in raw_set for leg in legs):
+            return None
+        try:
+            suffix = name.split("__", 1)[1]
+            parts = suffix.split("_")
+        except (ValueError, IndexError):
+            return None
+        if len(parts) != 4:
+            return None
+        degs = [_parse_code_deg(p) for p in parts]
+        if any(d is None for d in degs):
+            return None
+        specs.append({"legs": [(legs[i], degs[i]) for i in range(4)]})
+    return specs
+
+
 def score_quadruplet_cross_basis_by_mi_uplift(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
     y: np.ndarray,
     *,
     nbins: int = 10,
+    basis: str = "auto",
 ) -> pd.DataFrame:
     """Score each quadruplet-cross-basis column by MI uplift vs the BEST
     of the four raw source columns.
@@ -245,6 +273,10 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     Baseline is ``max(MI(x_i;y), MI(x_j;y), MI(x_k;y), MI(x_l;y))`` -- a
     real 4-way interaction must beat the BEST individual leg, not just
     the worst, to count as genuine 4-way signal.
+
+    ``basis`` mirrors the ``generate_quadruplet_cross_basis_features`` call that produced ``engineered_X`` so the
+    DEVICE-BORN STRICT-resident scorer re-routes each leg to the SAME basis the host generator used. Unused on
+    the host default path.
     """
     y_arr = (
         np.asarray(y).astype(np.int64)
@@ -252,11 +284,23 @@ def score_quadruplet_cross_basis_by_mi_uplift(
         else np.asarray(y, dtype=np.int64)
     )
     raw_cols = list(raw_X.columns)
-    raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
-    raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     if engineered_X.empty:
         return pd.DataFrame(columns=_QUADRUPLET_SCORE_EMPTY_COLS)
-    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    # DEVICE-BORN (STRICT-resident): rebuild the quadruplet product matrix on the GPU + score both it and the raw
+    # baseline through the SAME resident plug-in MI -- collapsing the host product-matrix upload at :311.
+    raw_mi_map = eng_mi = None
+    _specs = _quadruplet_device_col_specs(engineered_X.columns, raw_cols)
+    if _specs is not None:
+        from ._orthogonal_univariate_fe._orth_pair_cross_fe import _crossbasis_device_born_on
+        if _crossbasis_device_born_on():
+            from ._orthogonal_univariate_fe._gpu_resident_cross_basis import raw_and_product_mi_resident
+            _res = raw_and_product_mi_resident(raw_X, engineered_X, y_arr, _specs, nbins=nbins, basis=basis)
+            if _res is not None:
+                raw_mi_map, eng_mi = _res
+    if eng_mi is None:
+        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
+        eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # parse "{col_i}*{col_j}*{col_k}*{col_l}__..."
@@ -407,7 +451,7 @@ def hybrid_orth_mi_quadruplet_fe(
 
     raw_X_seed = X[seed_sources]
     quad_scores = score_quadruplet_cross_basis_by_mi_uplift(
-        raw_X_seed, quad_eng, y, nbins=nbins,
+        raw_X_seed, quad_eng, y, nbins=nbins, basis=basis,
     )
 
     # Two-gate selection mirrors Layer 22 / 56. Quadruplet candidate

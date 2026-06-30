@@ -8,6 +8,7 @@ per-family FE step until later phases implement the resident pipeline)."""
 from ._audit import BULK_BYTES, ResidencyReport, residency_audit
 from ._entry import (
     fe_gpu_device_born_binagg_enabled,
+    fe_gpu_device_born_crossbasis_enabled,
     fe_gpu_device_born_dispersion_enabled,
     fe_gpu_device_born_dual_uplift_enabled,
     fe_gpu_device_born_gate_enabled,
@@ -25,6 +26,7 @@ __all__ = [
     "fe_gpu_strict_bytematch_enabled",
     "fe_gpu_device_born_gate_enabled",
     "fe_gpu_device_born_binagg_enabled",
+    "fe_gpu_device_born_crossbasis_enabled",
     "fe_gpu_device_born_dispersion_enabled",
     "fe_gpu_device_born_dual_uplift_enabled",
     "fe_gpu_device_born_wavelet_enabled",

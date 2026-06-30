@@ -102,6 +102,30 @@ def fe_gpu_device_born_dispersion_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
+def fe_gpu_device_born_crossbasis_enabled() -> bool:
+    """Whether the orthogonal CROSS-BASIS FE families (pair / triplet / quadruplet / adaptive-arity) build their
+    engineered ``h_a * h_b [* h_c [* h_d]]`` product matrix DEVICE-BORN (per-leg orthogonal-poly basis columns
+    via the resident batched Clenshaw evaluator + cupy elementwise products from resident operand columns) and
+    score it -- plus the raw / lower-arity baseline -- through the resident plug-in MI, instead of
+    host-materialising the product matrix in ``score_*_cross_basis_by_mi_uplift`` /
+    ``generate_adaptive_arity_cross_basis`` and uploading it at ``_orth_mi_backends.py:311``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the dominant remaining
+    Group-1 single-site H2D of a 300k GPU-strict F2 fit (the cross-basis product-matrix uploads -- pair-cross
+    ~112 MB, triplet ~32 MB, quadruplet ~20 MB) by rebuilding the (n, K) candidate matrix on the device from
+    only the small raw operand columns (uploaded once per fit via the operand cache). The host evaluates
+    cheb/leg/herme by a FORWARD recurrence while the device uses BACKWARD Clenshaw, so the device products match
+    the host to ~1e-12 at the default low degrees (laguerre is forward on both -> bit-consistent) -- far below
+    any selection threshold. BOTH the engineered product matrix AND the raw / lower-arity baseline route through
+    the SAME percentile-edge resident estimator the host STRICT path uses, so the uplift RATIO is internally
+    consistent (no EDGE<->RANK switch, no host-vs-device estimator mismatch that could flip selection).
+    ``MLFRAME_FE_GPU_DEVICE_BORN_CROSSBASIS=0`` is the explicit OPT-OUT for diagnosis / rollback. The non-strict
+    DEFAULT path is untouched (the host scorer runs over the host-built matrix) -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_CROSSBASIS", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def fe_gpu_device_born_dual_uplift_enabled() -> bool:
     """Whether the conditional-dispersion FE family's DUAL-UPLIFT filter scores its Family-B mean-residual
     SIBLING matrix (``|x_i - E[x_i|bin(x_j)]|``) DEVICE-BORN (cupy bin-code gather + subtract + abs from
