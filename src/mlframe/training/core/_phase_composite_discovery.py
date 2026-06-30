@@ -411,25 +411,23 @@ def run_composite_target_discovery(
                         ),
                     }]
                 continue
-            elif _extreme_ar_skip and (_group_aware_active or _splitter_group_aware):
-                # The skip is enabled on a group-aware split but did NOT fire. When the target is strongly AR this is a
-                # missed optimisation (discovery + composite-train wall wasted), so log exactly which precondition
-                # blocked it -- the prod signals (lag1_autocorr_per_group, picked_target_name) live in a metadata report
-                # that may not have reached discovery. One line per target; cheap.
-                try:
-                    _l_dbg = None if _lag1_ar is None else float(_lag1_ar)
-                except (TypeError, ValueError):
-                    _l_dbg = None
-                if _l_dbg is None or _l_dbg >= _extreme_ar_threshold:
-                    logger.warning(
-                        "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target='%s' (lag1=%s, "
-                        "threshold=%.2f): skip_enabled=%s group_aware_active=%s (recommended=%s splitter=%s) "
-                        "bounded_only_zoo=%s picked_target_name=%r is_picked=%s. Discovery will run.",
-                        _tname_disc, ("None" if _l_dbg is None else f"{_l_dbg:.4f}"), _extreme_ar_threshold,
-                        _extreme_ar_skip, _group_aware_active, _group_aware_recommended, _splitter_group_aware,
-                        _bounded_only_zoo, _td_report.get("picked_target_name"),
-                        _td_report.get("picked_target_name") == _tname_disc,
-                    )
+            elif _extreme_ar_skip:
+                # The skip is enabled but did NOT fire. On a strongly-AR group-aware target this is a missed
+                # optimisation (discovery + composite-train wall wasted). Log EVERY input UNCONDITIONALLY so the
+                # blocking precondition is visible in one shot -- in particular whether the target_distribution_report
+                # (which carries lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached
+                # discovery: an empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
+                logger.warning(
+                    "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target=%r: skip_enabled=%s lag1=%r "
+                    "(threshold=%.2f) group_aware_active=%s (recommended=%s splitter=%s use_groups=%s gid=%s) "
+                    "bounded_only_zoo=%s zoo=%s picked_target_name=%r is_picked=%s td_report_keys=%s td_diag_keys=%s. "
+                    "Discovery will run.",
+                    _tname_disc, _extreme_ar_skip, _lag1_ar, _extreme_ar_threshold,
+                    _group_aware_active, _group_aware_recommended, _splitter_group_aware,
+                    _split_cfg_use_groups, (group_ids is not None), _bounded_only_zoo, list(mlframe_models or []),
+                    _td_report.get("picked_target_name"), _td_report.get("picked_target_name") == _tname_disc,
+                    sorted(_td_report.keys()), sorted(_td_diag.keys()),
+                )
 
             # BaselineDiagnostics normally runs INSIDE the per-target loop; precompute here when auto_skip
             # or hint is enabled and cache the result so the per-target loop reuses it.
