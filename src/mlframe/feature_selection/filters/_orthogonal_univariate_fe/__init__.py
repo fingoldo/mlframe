@@ -576,10 +576,31 @@ def score_features_by_mi_uplift(
     """
     y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     raw_cols = list(raw_X.columns)
-    raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+    raw_np = raw_X.to_numpy(dtype=np.float64)
+    # SF1a class-B :311 collapse (2026-06-30): the RAW baseline matrix is the fit-constant raw columns verbatim;
+    # under STRICT it already routes through the resident plug-in but re-uploads fresh at _orth_mi_backends:311.
+    # Ride the resident-operand cache so it uploads ONCE. Same percentile-edge resident estimator the host STRICT
+    # path uses -> byte-identical per-column raw MI -> byte-identical uplift baseline. None on cupy failure /
+    # non-strict -> the EXACT host scorer (byte-identical default path untouched).
+    from .._resident_raw_mi import resident_raw_baseline_mi
+
+    raw_mi = resident_raw_baseline_mi(raw_np, y_arr, ("uplift_raw_baseline", tuple(raw_cols)), nbins=nbins)
+    if raw_mi is None:
+        raw_mi = _mi_classif_batch(raw_np, y_arr, nbins=nbins)
+    raw_mi = np.asarray(raw_mi, dtype=np.float64)
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
-    # Column-chunked MI scoring -> bit-identical, bounds peak RAM at scale (see mi_classif_batch_chunked).
-    eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    # SF1b/1c class-A/C :311 collapse (2026-06-30): when EVERY engineered column is a poly leg (He/T/L/LL), the
+    # engineered matrix is rebuilt DEVICE-BORN from the resident raw operands and scored through the SAME resident
+    # plug-in MI (no host materialise/upload) -- the uplift RATIO stays internally consistent (numerator + baseline
+    # on the SAME estimator). EXTRA-BASIS columns (spline/Fourier/chirp/wavelet) are not GPU-ported -> the helper
+    # returns None and the engineered matrix stays on the host chunked scorer (SF1c irreducible born-fresh transient).
+    from ._uplift_univariate_resident import uplift_univariate_eng_mi_resident
+
+    eng_mi = uplift_univariate_eng_mi_resident(raw_X, engineered_X, y_arr, nbins=nbins)
+    if eng_mi is None:
+        # Column-chunked MI scoring -> bit-identical, bounds peak RAM at scale (see mi_classif_batch_chunked).
+        eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    eng_mi = np.asarray(eng_mi, dtype=np.float64)
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # D1 (2026-06-22): recover the true source via longest raw-prefix match, not a blind

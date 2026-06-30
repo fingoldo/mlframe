@@ -146,7 +146,18 @@ def raw_mi_noise_floor(
         return 0.0
     y_bin = _coerce_y_classes(y)
     arr = raw_X[num_cols].to_numpy(dtype=np.float64)
-    raw_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
+    # Class-B :311 collapse (2026-06-30): under STRICT-residency ``_mi_classif_batch(arr)`` already routes
+    # through the resident plug-in but re-uploads this FIT-CONSTANT raw matrix fresh at _orth_mi_backends:311.
+    # The matrix is the raw numeric columns verbatim (a pure baseline, re-scored across the fit), so route it
+    # through the resident-operand cache -> uploaded ONCE. Same percentile-edge resident estimator the host
+    # STRICT path uses -> byte-identical per-column MI -> byte-identical median+MAD floor. None on any cupy
+    # failure / non-strict -> the EXACT host scorer below (byte-identical default path untouched).
+    from ._resident_raw_mi import resident_raw_baseline_mi
+
+    raw_mi = resident_raw_baseline_mi(arr, y_bin, ("raw_noise_floor", tuple(num_cols)), nbins=nbins)
+    if raw_mi is None:
+        raw_mi = _mi_classif_batch(arr, y_bin, nbins=nbins)
+    raw_mi = np.asarray(raw_mi, dtype=np.float64)
     raw_mi = raw_mi[np.isfinite(raw_mi)]
     if raw_mi.size == 0:
         return 0.0

@@ -128,6 +128,16 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     yi = np.asarray(y).astype(np.int64)
+    # SF2 :311 collapse (2026-06-30): the per-group residue matrices are the DOMINANT modular :311 H2D (one
+    # (n, |group|) cp.asarray per eff-nbins group at _orth_mi_backends:139). Build ``c mod k`` DEVICE-BORN from a
+    # single resident combiner column (exact integer cupy ``%``) and score each group through the SAME
+    # percentile-EDGE resident estimator the host grid uses (rank_binning stays False on the grid). None on cupy
+    # failure / non-strict -> the EXACT host grid below (byte-identical default path untouched).
+    from ._pairwise_modular_resident import residue_grid_mis_resident
+
+    res = residue_grid_mis_resident(c, yi, mods, nbins=nbins)
+    if res is not None:
+        return res
     out = np.empty(len(mods), dtype=np.float64)
     groups: dict[int, list[int]] = {}
     for idx, k in enumerate(mods):
@@ -172,8 +182,22 @@ def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
 
 def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
     """MI of ``c mod k`` vs y. For k <= nbins the residue is used as its own bin index (no rebin)."""
+    eff = max(nbins, k)
+    # SF2 :311 collapse (2026-06-30): the escalate-stage residue single-column upload is built DEVICE-BORN from
+    # the resident combiner column (exact integer ``c % k``) + scored through the SAME rank resident estimator
+    # host ``_mi`` uses. None on cupy failure / non-strict -> the EXACT host ``_mi`` below (byte-identical).
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        _rb = fe_gpu_strict_resident_enabled()
+    except Exception:
+        _rb = False
+    from ._pairwise_modular_resident import combiner_mi_resident
+
+    mi = combiner_mi_resident(c, y, nbins=eff, rank_binning=_rb, modulus=int(k))
+    if mi is not None:
+        return mi
     r = np.mod(c, k).astype(np.float64)
-    return _mi(r, y, nbins=max(nbins, k))
+    return _mi(r, y, nbins=eff)
 
 
 @dataclass(frozen=True)
@@ -212,9 +236,27 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int,
     r = np.mod(c, k).astype(np.float64)
     rng = np.random.default_rng(seed)
     yi = np.asarray(y).astype(np.int64)
-    vals = np.empty(n_perm, dtype=np.float64)
-    for i in range(n_perm):
-        vals[i] = _mi(r, yi[rng.permutation(yi.size)], nbins=max(nbins, k))
+    eff_nbins = max(nbins, k)
+    # SF2 :311 collapse (2026-06-30): the per-perm residue MIs are the dominant single-column residue uploads at
+    # _orth_mi_backends:311 (one (n,1) cp.asarray per perm). MI(r; y[perm]) == MI(r[inv_perm]; y) (joint-reindex
+    # invariance), so the 12 per-perm MIs are the per-column MIs of a single (n, n_perm) matrix -- scored in ONE
+    # resident plug-in call against the resident y. SAME seeded permutations (bit-identical perms drawn HERE in
+    # the exact loop order) + SAME (rank, under STRICT) resident estimator the host _mi uses -> byte-identical
+    # per-perm MIs -> byte-identical null band. None on cupy failure / non-strict -> the EXACT host loop below.
+    perms = [rng.permutation(yi.size) for _ in range(n_perm)]
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        _rb = fe_gpu_strict_resident_enabled()
+    except Exception:
+        _rb = False
+    from ._pairwise_modular_resident import perm_null_residue_mis_resident
+
+    vals = perm_null_residue_mis_resident(r, yi, perms, eff_nbins=eff_nbins, rank_binning=_rb)
+    if vals is None:
+        vals = np.empty(n_perm, dtype=np.float64)
+        for i in range(n_perm):
+            vals[i] = _mi(r, yi[perms[i]], nbins=eff_nbins)
+    vals = np.asarray(vals, dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
 
@@ -253,8 +295,20 @@ def cheap_modular_scan(
 
     hits: list[ModularHit] = []
 
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        _scan_rb = fe_gpu_strict_resident_enabled()
+    except Exception:
+        _scan_rb = False
+    from ._pairwise_modular_resident import combiner_mi_resident
+
     def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray):
-        base = _mi(c_arr.astype(np.float64), yi, nbins=nbins)
+        # SF2 :311 collapse (2026-06-30): the per-combiner baseline single-column upload (one (n,1) cp.asarray per
+        # combiner at _orth_mi_backends:311) is built DEVICE-BORN from the resident combiner column + scored
+        # through the SAME rank resident estimator host ``_mi`` uses. None -> the EXACT host ``_mi`` below.
+        base = combiner_mi_resident(c_arr, yi, nbins=nbins, rank_binning=_scan_rb, modulus=0)
+        if base is None:
+            base = _mi(c_arr.astype(np.float64), yi, nbins=nbins)
         grid = _residue_grid_mi(c_arr, yi, mods, nbins)
         best_i = int(np.argmax(grid))
         best_k, best_mi = mods[best_i], float(grid[best_i])

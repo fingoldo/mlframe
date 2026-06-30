@@ -395,7 +395,18 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         return [], []
     arrs = [np.asarray(X[c], dtype=np.float64) for c in cols]
     mat = np.ascontiguousarray(np.column_stack(arrs))
-    mis = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins, rank_binning=_rb), dtype=np.float64)
+    # Class-B :311 collapse (2026-06-30): this ``mat`` is the FIT-CONSTANT raw column_stack of the (sorted)
+    # candidate columns -- a pure relevance baseline re-scored across the fit. Under STRICT-residency it already
+    # routes through the resident plug-in but re-uploads fresh at _orth_mi_backends:311; ride the resident-operand
+    # cache so it uploads ONCE. Same (rank|edge) resident estimator the host STRICT path uses -> byte-identical
+    # per-column MI -> identical ``argsort(mis)`` ranking (cols are pre-sorted at :393 so ties resolve
+    # deterministically). None on any cupy failure / non-strict -> the EXACT host scorer (byte-identical default).
+    from ._resident_raw_mi import resident_raw_baseline_mi
+
+    mis = resident_raw_baseline_mi(mat, yi, ("gate_prune_raw", tuple(cols)), nbins=nbins, rank_binning=_rb)
+    if mis is None:
+        mis = _mi_classif_batch(mat, yi, nbins=nbins, rank_binning=_rb)
+    mis = np.asarray(mis, dtype=np.float64)
     operand_order = list(np.argsort(mis)[::-1])  # marginal relevance, descending
     operand_cols = [cols[i] for i in operand_order][: max(2, int(k_operand))]
 

@@ -95,9 +95,12 @@ def build_leg_product_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict],
 
     ``col_specs`` is a list of per-output dicts ``{"legs": [(col, degree), ...]}`` -- the legs of each emitted
     product column, in name order. The per-leg basis is routed EXACTLY as the host (``basis_route_by_moments``
-    under ``auto``) on the SAME mean-filled operand. Returns an (n, K) cupy float64 matrix whose columns are the
-    device reconstructions, matching the host products within ~1e-12 (FP; the device Clenshaw vs host forward
-    recurrence delta at the default low degrees).
+    under ``auto``) on the SAME mean-filled operand. A leg may instead be a 3-tuple ``(col, degree, basis)`` to
+    pin an EXPLICIT basis name (e.g. ``"laguerre"``) -- used when the engineered column NAME already carries the
+    exact basis code the host generator chose (the univariate uplift scorer), so the device must reproduce THAT
+    basis rather than re-deriving it from moments (which can route differently). Returns an (n, K) cupy float64
+    matrix whose columns are the device reconstructions, matching the host products within ~1e-12 (FP; the device
+    Clenshaw vs host forward recurrence delta at the default low degrees).
 
     Each distinct ``(col, basis, degree)`` basis leg is evaluated ONCE on the device (cache) and reused across
     every product that references it (the host generators cache identically). The raw operand columns ride the
@@ -118,15 +121,19 @@ def build_leg_product_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict],
     leg_cache: dict = {}      # (col, basis, degree) -> (n,) cupy float64 leg values
     basis_of_col: dict = {}   # col -> routed basis (host moment route, computed once)
 
-    def _leg(col: str, degree: int):
-        b = basis_of_col.get(col)
-        if b is None:
-            xf = _operand_filled(X, col)
-            b = _route_basis_host(xf, basis)
-            basis_of_col[col] = b
-            # Upload the operand ONCE (resident); evaluate every needed degree of THIS col together would be
-            # ideal but the per-leg degrees vary per spec -- evaluate lazily + cache per (col, basis, degree).
-            basis_of_col[("_x", col)] = xf
+    def _leg(col: str, degree: int, explicit_basis: str = None):
+        # Ensure the mean-filled operand is materialised + cached for this col (needed by both routes).
+        if ("_x", col) not in basis_of_col:
+            basis_of_col[("_x", col)] = _operand_filled(X, col)
+        if explicit_basis is not None:
+            # The engineered name already pins the host's chosen basis -> reproduce THAT basis exactly (do NOT
+            # re-derive from moments, which can route a column to a different basis than the host generator did).
+            b = explicit_basis
+        else:
+            b = basis_of_col.get(col)
+            if b is None:
+                b = _route_basis_host(basis_of_col[("_x", col)], basis)
+                basis_of_col[col] = b
         key = (col, b, int(degree))
         h = leg_cache.get(key)
         if h is None:
@@ -147,8 +154,13 @@ def build_leg_product_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict],
     for spec in col_specs:
         legs = spec["legs"]
         prod = None
-        for (col, degree) in legs:
-            h = _leg(col, int(degree))
+        for leg in legs:
+            if len(leg) == 3:
+                col, degree, explicit_basis = leg
+            else:
+                col, degree = leg
+                explicit_basis = None
+            h = _leg(col, int(degree), explicit_basis)
             prod = h if prod is None else (prod * h)
         if prod is None:
             prod = cp.ones(n, dtype=cp.float64)
