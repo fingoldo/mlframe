@@ -907,10 +907,12 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 
     from ._fe_batched_mi import joint_counts_gpu
 
-    # x is the per-candidate column (transient) -> NOT cached. y / z are fit/round-constants re-uploaded per
-    # candidate -> resident operand cache (uploaded once per fit; the cardinalities are label-invariant).
+    # The candidate column is also scored by the per-candidate CMI (_cmi_from_binned_cupy) with the SAME int64
+    # content, so route it through the content-keyed resident cache too: it typically HITS the entry that path
+    # already uploaded (content key is role-agnostic) -> no extra H2D, and a re-evaluated candidate never
+    # re-uploads. y / z are fit/round-constants. Cardinalities are label-invariant -> selection-identical.
     from ._fe_resident_operands import resident_operand
-    dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
+    dx = resident_operand(np.asarray(x).ravel(), "card_cand_x", dtype=np.int64)
     dy = resident_operand(y, "card_y", dtype=np.int64)
     dz = resident_operand(z, "card_z", dtype=np.int64)
     Kx = (int(dx.max()) + 1) if dx.size else 1
