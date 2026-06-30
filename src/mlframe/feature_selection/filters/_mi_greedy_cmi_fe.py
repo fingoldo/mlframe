@@ -96,7 +96,13 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
     try:
         import cupy as cp
 
-        xd = cp.asarray(np.ascontiguousarray(a, dtype=np.float64))
+        from ._fe_resident_operands import resident_operand
+        # The same candidate column is re-binned across greedy steps with identical content (H2D audit of a 1M
+        # strict-resident fit: 42 calls / 20 distinct -> 176 MB of re-uploads). Route the float column through the
+        # content-keyed resident cache so a repeat bin of identical content reuses the resident copy (no
+        # re-upload); selection-identical (same values -> same percentile edges -> same codes). Distinct columns
+        # still upload once (genuine data).
+        xd = resident_operand(a, "qbin_x", dtype=cp.float64)
         qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
         edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
         if int(edges.size) <= 2:
@@ -835,11 +841,13 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     # Keep dx.max() + _cached_card(y)/_cached_card(z_support).
     import cupy as cp
 
-    dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
-    # x is the per-candidate binned column (transient) -> NOT cached. y is a FIT-CONSTANT re-uploaded on every
-    # CMI/MI call (H2D instrumentation: ~74x on a 250k F2 strict fit) -> resident operand cache (uploaded once
-    # per fit; selection-equivalent, same int64 codes). z_joint below is round-constant -> cached likewise.
     from ._fe_resident_operands import resident_operand
+    # The candidate binned column is RE-SCORED across greedy steps with IDENTICAL content (H2D audit of a 1M
+    # strict-resident fit: 62 calls / 25 distinct -> 296 MB of re-uploads), so route it through the content-keyed
+    # resident cache too: a repeat score of the same codes reuses the resident copy (no re-upload), a genuinely
+    # distinct candidate still uploads once. Selection-identical (same int64 codes). y is a FIT-CONSTANT and
+    # z_joint (below) round-constant -> cached likewise (uploaded once per fit).
+    dx = resident_operand(np.asarray(x).ravel(), "cmi_cand_x", dtype=np.int64)
     dy = resident_operand(y, "cmi_y", dtype=np.int64)
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
