@@ -413,21 +413,53 @@ def compute_pair_maxt_floor(
             _maxt_pairs = list(combinations(numeric_vars_to_consider, 2))
             _maxt_pa = np.fromiter((p[0] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
             _maxt_pb = np.fromiter((p[1] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
-            _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
-                factors_data=data,
-                nbins=nbins,
-                pair_a=_maxt_pa,
-                pair_b=_maxt_pb,
-                classes_y=classes_y,
-                freqs_y=freqs_y,
-                n_permutations=_pair_maxt_perms,
-                quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
-                random_seed=getattr(self, "random_seed", None),
-                mm_debias=_mm_debias,
-            )
+            # Per-pair MM joint-MI bias (permutation-invariant) is needed BOTH at the gate (mapped into
+            # _pair_mm_bias below) AND, when mm-debias, by the floor itself; compute it once up front so the
+            # resident-GPU floor can subtract the IDENTICAL per-pair term the CPU floor does (consistent debias).
+            _bias_vec = None
             if _mm_debias:
                 _k_y = int(np.asarray(freqs_y).shape[0])
                 _bias_vec = pairwise_mm_joint_bias(data, _maxt_pa, _maxt_pb, nbins, _k_y)
+            # Resident-GPU branch (selection-equivalent device twin: same pooled-MAX construction, device-born
+            # shuffles, host-owned quantile). DEFAULT ON under the resident FE path / opt-out
+            # MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU=0; returns None on any cupy fault -> exact CPU njit floor below.
+            _pair_maxt_floor = None
+            try:
+                from ._permutation_null_pair_resident import (
+                    pair_maxt_perm_null_gpu_enabled,
+                    pooled_pair_permutation_null_joint_mi_floor_cupy,
+                )
+
+                if pair_maxt_perm_null_gpu_enabled(int(data.shape[0]), len(_maxt_pa)):
+                    _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor_cupy(
+                        factors_data=data,
+                        pair_a=_maxt_pa,
+                        pair_b=_maxt_pb,
+                        nbins=nbins,
+                        classes_y=classes_y,
+                        freqs_y=freqs_y,
+                        n_permutations=_pair_maxt_perms,
+                        quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
+                        mm_debias=_mm_debias,
+                        mm_bias=_bias_vec,
+                        random_seed=getattr(self, "random_seed", None),
+                    )
+            except Exception:
+                _pair_maxt_floor = None
+            if _pair_maxt_floor is None:
+                _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
+                    factors_data=data,
+                    nbins=nbins,
+                    pair_a=_maxt_pa,
+                    pair_b=_maxt_pb,
+                    classes_y=classes_y,
+                    freqs_y=freqs_y,
+                    n_permutations=_pair_maxt_perms,
+                    quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
+                    random_seed=getattr(self, "random_seed", None),
+                    mm_debias=_mm_debias,
+                )
+            if _mm_debias and _bias_vec is not None:
                 for _pi, _pr in enumerate(_maxt_pairs):
                     _pair_mm_bias[tuple(sorted(_pr))] = float(_bias_vec[_pi])
             if _pair_maxt_floor != 0.0 and verbose >= 1:
