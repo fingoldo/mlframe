@@ -175,6 +175,38 @@ def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     )
 
 
+def reregister_auto_chain_transforms(transform_names) -> list[str]:
+    """Re-register auto-discovered chain transforms (``chain_<residual>_<unary>``) that are referenced by name but
+    absent from the registry -- the case after a discovery CACHE replay, where the in-process registration done by
+    ``_run_auto_chain`` (``_TRANSFORMS_REGISTRY.setdefault`` + provenance) never ran, so a cached spec naming such a
+    chain crashes ``get_transform`` (and predict-time inversion) with ``UnknownTransformError``.
+
+    Parses each ``chain_<residual>_<unary>`` name against the known residual-stage / tail-unary menus, rebuilds the
+    Transform via :func:`build_chain_transform`, and registers it + its provenance. Non-chain / already-registered /
+    unparseable names are skipped. Returns the names actually re-registered.
+    """
+    from ..transforms.registry import _TRANSFORMS_REGISTRY
+    from ..provenance import register_chain_provenance
+    done: list[str] = []
+    for nm in {n for n in (transform_names or []) if isinstance(n, str)}:
+        if not nm.startswith("chain_") or nm in _TRANSFORMS_REGISTRY:
+            continue
+        body = nm[len("chain_"):]
+        for un in _TAIL_UNARIES:
+            suffix = "_" + un
+            if body.endswith(suffix):
+                res = body[: -len(suffix)]
+                if res in _RESIDUAL_STAGE_NAMES:
+                    try:
+                        _TRANSFORMS_REGISTRY.setdefault(nm, build_chain_transform(res, un))
+                        register_chain_provenance(nm, res, un)
+                        done.append(nm)
+                    except Exception:  # noqa: BLE001 -- a malformed cached name must not abort replay
+                        pass
+                break
+    return done
+
+
 def _y_scale_cv_rmse(
     transform: Optional[Transform],
     *,

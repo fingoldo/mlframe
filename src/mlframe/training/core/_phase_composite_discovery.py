@@ -641,6 +641,21 @@ def run_composite_target_discovery(
                         _Spec(**s) if isinstance(s, dict) else s
                         for s in _cached_payload.get("specs_export", [])
                     ]
+                    # Auto-discovered chain transforms (chain_<residual>_<unary>) are registered in-process by
+                    # _run_auto_chain during a FRESH discovery; on a cache replay that never ran, so re-register any the
+                    # cached specs reference -- otherwise get_transform / predict-time inversion raises UnknownTransformError.
+                    try:
+                        from ..composite.discovery._auto_chain import reregister_auto_chain_transforms
+                        _rereg = reregister_auto_chain_transforms([getattr(s, "transform_name", "") for s in _cached_specs])
+                        if _rereg:
+                            logger.info(
+                                "[CompositeTargetDiscovery] cache replay re-registered %d auto-chain transform(s): %s",
+                                len(_rereg), sorted(_rereg),
+                            )
+                    except Exception as _rereg_err:  # noqa: BLE001
+                        logger.warning(
+                            "[CompositeTargetDiscovery] cache replay auto-chain re-registration failed: %s", _rereg_err,
+                        )
                 except Exception as _replay_err:
                     # Spec rebuild failed: without it the forward-applier adds no T columns, yet specs were already claimed in metadata above.
                     # Clear the claimed specs so metadata matches the (no-column) reality; full re-discovery fallback is a larger fix.

@@ -40,7 +40,10 @@ logger = logging.getLogger(__name__)
 # Folding either of these is a deliberate one-time on-disk digest change: existing entries miss
 # and recompute once (the correct fail-safe -- a stale spec replayed under new code is the bug
 # this closes). See ``compute_config_signature_v1`` docstring for the bump discipline.
-_DISCOVERY_CACHE_SCHEMA_VERSION: int = 1
+# v2 (2026-06): structural-fragility gate now drops base-additive CHAIN transforms (chain_linres_*); pre-v2 caches
+# replay specs built without that gate (e.g. linresYj/linresCbrt that collapse to R^2=-146 on unseen wells) and can
+# also reference auto-chain transforms registered only in-process at discovery time, crashing the cache-replay path.
+_DISCOVERY_CACHE_SCHEMA_VERSION: int = 2
 
 import numpy as np
 import pandas as pd
