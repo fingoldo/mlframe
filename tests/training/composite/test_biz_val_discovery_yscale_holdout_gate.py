@@ -173,6 +173,25 @@ def test_biz_val_structural_gate_drops_additive_inverse_on_per_well_base():
     assert "y-linres-x1" in names, "row-level base (no between-well level) must survive the structural gate"
 
 
+def test_rejection_ledger_records_structural_gate_drops():
+    """The rejection ledger answers "why was MY spec rejected?": a structural-fragility drop must appear in
+    disc.rejection_ledger with stage='structural_fragility' + the dropped spec name + numbers -- previously the
+    gate's verdict lived only in a discarded local list."""
+    from mlframe.training.composite.discovery._rejection_ledger import ledger_init
+    df, groups, y = _per_well_base_frame()
+    disc = _make_gate_ctx(groups)
+    ledger_init(disc)  # fit() does this; the direct-gate test must initialise it
+    diff_spec = _spec_t("y-diff-base", "diff", "base", {})
+    good = _spec_t("y-linres-x1", "linear_residual", "x1", {"alpha": 0.5, "beta": 0.0})
+    apply_structural_fragility_gate(disc, df, [diff_spec, good], np.arange(len(df)), y)
+    led = disc.rejection_ledger
+    rows = [r for r in led if r["spec_name"] == "y-diff-base"]
+    assert rows, f"dropped spec must have a ledger row; ledger={led}"
+    assert rows[0]["stage"] == "structural_fragility"
+    assert "between_total_ratio" in rows[0]["numbers"]
+    assert not any(r["spec_name"] == "y-linres-x1" for r in led), "a surviving spec must NOT be in the rejection ledger"
+
+
 def test_biz_val_structural_gate_noop_without_group_ids():
     df, _g, y = _per_well_base_frame()
     disc = _make_gate_ctx(None)

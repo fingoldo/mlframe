@@ -388,6 +388,15 @@ class CompositeTargetDiscovery:
         return [dict(r) for r in getattr(self, "report_", [])]
 
     @property
+    def rejection_ledger(self) -> list[dict]:
+        """Per-spec rejection rows {spec_name, base_column, transform_name, stage, reason, numbers}, one per
+        (spec, rejecting-stage) drop, appended by every discovery gate. Answers "why was MY spec rejected?" -- the
+        downstream gates (alpha-drift / linres-collapse / tiny-rerank / structural-fragility / y-scale holdout /
+        raw-dominance skip) previously recorded their verdicts only in local lists that were logged and discarded.
+        """
+        return [dict(r) for r in getattr(self, "rejection_ledger_", [])]
+
+    @property
     def tiny_rerank_scores_(self) -> dict[str, float]:
         """Per-spec tiny CV-RMSE on y-scale (after Phase B rerank).
 

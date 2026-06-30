@@ -27,6 +27,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from ._rejection_ledger import RejectStage, ledger_append
+
 logger = logging.getLogger(__name__)
 
 
@@ -372,6 +374,12 @@ def apply_alpha_drift_gate(
             if reject_on_drift:
                 drift_dropped.append((s.name, float(z)))
                 _drift_dropped_bases.add(s.base_column)
+                ledger_append(
+                    self, spec_name=s.name, stage=RejectStage.ALPHA_DRIFT,
+                    reason=f"alpha drift z={z:.2f} > {drift_threshold} with effect_size={effect_size:.4f} >= {_min_effect}",
+                    base_column=getattr(s, "base_column", ""), transform_name=getattr(s, "transform_name", ""),
+                    numbers={"z_score": float(z), "effect_size": float(effect_size), "threshold": float(drift_threshold)},
+                )
                 continue
             # DEBUG not WARNING: many drift-flagged specs are later rejected by the raw-y baseline / Wilcoxon gate, so a per-spec WARNING here is dead-noise; a summary WARNING is emitted only for survivors at the end of discovery.
             logger.debug(
@@ -396,6 +404,13 @@ def apply_alpha_drift_gate(
         _before = drift_kept
         drift_kept = [s for s in _before if s.base_column not in _drift_dropped_bases]
         _base_dropped = [s.name for s in _before if s.base_column in _drift_dropped_bases]
+        for _s in _before:
+            if _s.base_column in _drift_dropped_bases:
+                ledger_append(
+                    self, spec_name=_s.name, stage=RejectStage.ALPHA_DRIFT_BASE,
+                    reason=f"base '{_s.base_column}' dropped: its linear_residual failed the alpha-drift gate",
+                    base_column=getattr(_s, "base_column", ""), transform_name=getattr(_s, "transform_name", ""),
+                )
     if drift_dropped:
         logger.info(
             "[CompositeTargetDiscovery] alpha drift gate dropped %d "
@@ -460,6 +475,12 @@ def apply_linear_residual_diff_collapse(
         beta_dev = abs(beta) / std_y
         if alpha_dev < alpha_eps and beta_dev < alpha_eps:
             collapsed_dropped.append((s.name, float(alpha_dev)))
+            ledger_append(
+                self, spec_name=s.name, stage=RejectStage.LINRES_DIFF_COLLAPSE,
+                reason=f"linear_residual collapsed into diff (alpha~1, beta~0): alpha_dev={alpha_dev:.4f} beta_dev={beta_dev:.4f} < {alpha_eps}",
+                base_column=getattr(s, "base_column", ""), transform_name=getattr(s, "transform_name", ""),
+                numbers={"alpha_dev": float(alpha_dev), "beta_dev": float(beta_dev), "eps": float(alpha_eps)},
+            )
             continue
         collapsed.append(s)
     if collapsed_dropped:

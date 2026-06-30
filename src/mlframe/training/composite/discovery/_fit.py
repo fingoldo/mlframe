@@ -141,6 +141,10 @@ def fit(
     # the no-spec degenerate cases.
     self._target_col = target_col
     self._df_ref = df
+    # Per-fit rejection ledger: every gate appends a structured {spec, stage, reason, numbers} row so
+    # "why was MY spec rejected?" is queryable from ``rejection_ledger`` instead of only the logs.
+    from ._rejection_ledger import ledger_init
+    ledger_init(self)
 
     # Post-selection-inference holdout (winner's-curse de-bias, SA27): carve a never-touched
     # holdout BEFORE screening, then REBIND ``train_idx`` to the screening pool so every

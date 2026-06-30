@@ -15,6 +15,7 @@ import numpy as np
 
 from ..spec import CompositeSpec
 from ..ensemble import _is_monotone_nondecreasing
+from ._rejection_ledger import RejectStage, ledger_append
 from .screening import (
     _extract_column_array,
     _per_bin_from_fold_preds,
@@ -767,6 +768,12 @@ def _tiny_model_rerank(
                     # is a read-only property), so rerank-level report_ entries cannot be
                     # added from this scope -- no diagnostic loss.
                     self._tiny_rerank_scores = {}
+                    for _s in kept_specs:
+                        ledger_append(
+                            self, spec_name=getattr(_s, "name", "?"), stage=RejectStage.RAW_DOMINATES_SKIP,
+                            reason=_reason, base_column=getattr(_s, "base_column", ""),
+                            transform_name=getattr(_s, "transform_name", ""),
+                        )
                     return []
         self._raw_y_baseline_rmse = (
             float(raw_baseline) if math.isfinite(raw_baseline)
@@ -783,6 +790,12 @@ def _tiny_model_rerank(
                 if math.isfinite(score) and score >= threshold:
                     gate_rejected_names.append(
                         (spec.name, score, threshold)
+                    )
+                    ledger_append(
+                        self, spec_name=spec.name, stage=RejectStage.TINY_RERANK_THRESHOLD,
+                        reason=f"tiny-rerank CV-RMSE {score:.4g} >= raw-baseline threshold {threshold:.4g}",
+                        base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""),
+                        numbers={"cv_rmse": float(score), "threshold": float(threshold)},
                     )
                     continue
                 # Paired Wilcoxon signed-rank test

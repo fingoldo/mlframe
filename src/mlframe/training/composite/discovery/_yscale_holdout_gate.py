@@ -37,6 +37,7 @@ import numpy as np
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._screening_tiny import _build_tiny_model
+from ._rejection_ledger import RejectStage, ledger_append
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,12 @@ def apply_structural_fragility_gate(
         # never fired. The between/total RATIO is scale-free and is the true "per-group level" signal.
         if ratio > frac:
             rejected.append((spec.name, s, ratio))
+            ledger_append(
+                self, spec_name=spec.name, stage=RejectStage.STRUCTURAL_FRAGILITY,
+                reason=f"between/total group-var ratio {ratio:.3f} > {frac} with base sensitivity s={s:.3g}",
+                base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""),
+                numbers={"between_total_ratio": float(ratio), "base_sensitivity": float(s), "frac_threshold": float(frac)},
+            )
             continue
         survivors.append(spec)
 
@@ -404,16 +411,26 @@ def apply_yscale_holdout_gate(
 
         finite = np.isfinite(y_hat)
         n_finite = int(finite.sum())
+        _led_kw = dict(base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""))
         if n_finite < max(50, int(0.5 * y_hat.size)):
-            rejected.append((spec.name, f"non-finite inverse ({n_finite}/{y_hat.size} finite)", float("inf")))
+            _r = f"non-finite inverse ({n_finite}/{y_hat.size} finite)"
+            rejected.append((spec.name, _r, float("inf")))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                          numbers={"n_finite": n_finite, "n_total": int(y_hat.size)}, **_led_kw)
             continue
         pred_std = float(np.std(y_hat[finite]))
         if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
-            rejected.append((spec.name, f"collapsed (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})", float("inf")))
+            _r = f"collapsed (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})"
+            rejected.append((spec.name, _r, float("inf")))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                          numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
             continue
         rmse_y = _rmse(y_eval[finite], y_hat[finite])
         if not np.isfinite(rmse_y) or rmse_y > threshold:
-            rejected.append((spec.name, f"y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}", float(rmse_y)))
+            _r = f"y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
+            rejected.append((spec.name, _r, float(rmse_y)))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                          numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
             continue
         object.__setattr__(spec, "yscale_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "yscale_holdout_raw_rmse", float(raw_rmse))
