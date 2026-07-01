@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 0
+Consecutive-reject streak: 1
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -17,3 +17,4 @@ Consecutive-reject streak: 0
 | 6 | 2468013 | `metrics/classification/_classification_calibration.accuracy_ratio` — per-row Python loop tie-folding equal-score blocks | RESOLVED+56x (tie-fold) | 17.9ms→0.32ms @ n60k; reduceat over sorted block starts; bit-identical 200 inputs, AR==2·AUC-1 preserved. FUTURE: `robust_fit_endpoints` TheilSen fit 786ms/call (real, not attribution) — cap-reduction changes the drawn line, needs visual-equivalence call. commit 45e3c176 |
 | 7 | 8675309 | top items all already-optimized (calibration band, analyzer, accuracy_ratio), deferred (robust_fit TheilSen=FUTURE), or at floor (`_ice_metric.compute_probabilistic_multiclass_error` 23ms self-time = irreducible (N,K) coercion, batched kernel already) | REJECT | no cheap bit-identical mlframe hotspot at this profile; readily-profiled paths now optimized. Streak→1. Next: sample fresh combo-pool / prefer-models to reach un-profiled code paths. |
 | 8 | 9001 (--no-charts) | `_detect_multi_modal` recomputed np.std(y) already computed by the analyzer (charts-off profile surfaced the training/FS path; chart render was ~90% of wall) | RESOLVED (redundant pass) | -1.65ms of 5.82ms (~28%) @ n300k; analyze ~41→31.7ms; bit-identical 60 cases; guard preserved. Added profiler --no-charts flag. Streak reset→0. commit 1b45449f |
+| 9 | 314159 (--no-charts, 6 combos) | #1 `_ice_metric.compute_probabilistic_multiclass_error` 2.06s tottime = the `@njit(parallel=True)` `_batch_per_class_ice_kernel` (cProfile njit-to-caller attribution; real Python overhead 0.004s); #2/#3 `bootstrap_metric`/`_jackknife_metric` = exhaustively-optimized resample/LOO loops (np.take/threading already rejected w/ bench) | REJECT | microbench-confirmed at-floor/njit; no Python-optimizable bit-identical hotspot. Streak→1. Codebase training/FS/metric path is at its optimized floor across both profiling modes. |
